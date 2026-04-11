@@ -174,24 +174,36 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
   final PageController _pageController = PageController();
   int _pageIndex = 0;
 
-  final List<({String title, String body, IconData icon})> _pages = const [
+  final List<({
+    String title,
+    String body,
+    IconData icon,
+    String imagePath,
+    String imageSemanticLabel,
+  })> _pages = const [
     (
       title: 'Capture fast',
       body:
           'The first line becomes the memo title, so quick notes stay lightweight from the first tap.',
       icon: Icons.bolt_rounded,
+      imagePath: 'assets/onboarding/capture.png',
+      imageSemanticLabel: 'Quick memo capture preview',
     ),
     (
       title: 'Separate private access',
       body:
           'Keep app unlock and private-vault unlock separate. Sensitive notes can stay behind their own key.',
       icon: Icons.lock_person_rounded,
+      imagePath: 'assets/onboarding/private.png',
+      imageSemanticLabel: 'Private vault unlock preview',
     ),
     (
       title: 'Prepare sync later',
       body:
           'Choose iCloud or Google Drive as the future sync target without turning your own server into a dependency.',
       icon: Icons.cloud_sync_rounded,
+      imagePath: 'assets/onboarding/sync.png',
+      imageSemanticLabel: 'Cloud sync target preview',
     ),
   ];
 
@@ -262,38 +274,62 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                   },
                   itemBuilder: (context, index) {
                     final page = _pages[index];
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: colorScheme.surface,
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(color: Theme.of(context).dividerColor),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            width: 56,
-                            height: 56,
-                            decoration: BoxDecoration(
-                              color: colorScheme.primary.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(18),
+                    return LayoutBuilder(
+                      builder: (context, constraints) {
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: colorScheme.surface,
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(
+                              color: Theme.of(context).dividerColor,
                             ),
-                            child: Icon(page.icon, color: colorScheme.primary),
                           ),
-                          const SizedBox(height: 24),
-                          Text(
-                            page.title,
-                            style: Theme.of(context).textTheme.titleLarge,
+                          child: SingleChildScrollView(
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                minHeight: constraints.maxHeight - 48,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: 56,
+                                    height: 56,
+                                    decoration: BoxDecoration(
+                                      color: colorScheme.primary.withValues(
+                                        alpha: 0.12,
+                                      ),
+                                      borderRadius: BorderRadius.circular(18),
+                                    ),
+                                    child: Icon(
+                                      page.icon,
+                                      color: colorScheme.primary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 24),
+                                  _OnboardingImageCard(
+                                    imagePath: page.imagePath,
+                                    semanticLabel: page.imageSemanticLabel,
+                                    fallbackIcon: page.icon,
+                                  ),
+                                  const SizedBox(height: 24),
+                                  Text(
+                                    page.title,
+                                    style: Theme.of(context).textTheme.titleLarge,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    page.body,
+                                    style: Theme.of(context).textTheme.bodyLarge,
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
-                          const SizedBox(height: 12),
-                          Text(
-                            page.body,
-                            style: Theme.of(context).textTheme.bodyLarge,
-                          ),
-                        ],
-                      ),
+                        );
+                      },
                     );
                   },
                 ),
@@ -330,6 +366,87 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                     child: Text(isLastPage ? 'Start' : 'Next'),
                   ),
                 ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OnboardingImageCard extends StatelessWidget {
+  const _OnboardingImageCard({
+    required this.imagePath,
+    required this.semanticLabel,
+    required this.fallbackIcon,
+  });
+
+  final String imagePath;
+  final String semanticLabel;
+  final IconData fallbackIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: AspectRatio(
+        aspectRatio: 16 / 9,
+        child: ColoredBox(
+          color: colorScheme.surfaceContainerHighest,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.asset(
+                imagePath,
+                fit: BoxFit.cover,
+                semanticLabel: semanticLabel,
+                filterQuality: FilterQuality.medium,
+                errorBuilder: (context, error, stackTrace) {
+                  return DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          colorScheme.surfaceContainerHighest,
+                          colorScheme.primary.withValues(alpha: 0.16),
+                        ],
+                      ),
+                    ),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            fallbackIcon,
+                            size: 40,
+                            color: colorScheme.primary,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Add an onboarding image',
+                            style: Theme.of(context).textTheme.labelLarge,
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      colorScheme.surface.withValues(alpha: 0.08),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
@@ -462,9 +579,9 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
               surfaceContainerHighest: Color(0xFF2D3B47),
               outline: Color(0xFF51616D),
               outlineVariant: Color(0xFF3E4D58),
-              scaffoldBackground: Color(0xFF10181F),
-              appBarBackground: Color(0xFF10181F),
-              navigationBackground: Color(0xFF162029),
+              scaffoldBackground: Color(0xFF272C32),
+              appBarBackground: Color(0xFF272C32),
+              navigationBackground: Color(0xFF272C32),
             )
           : const _ThemePalette(
               primary: Color(0xFF005AA3),
@@ -500,9 +617,9 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
               surfaceContainerHighest: Color(0xFF2D3F33),
               outline: Color(0xFF53655A),
               outlineVariant: Color(0xFF3E5145),
-              scaffoldBackground: Color(0xFF101813),
-              appBarBackground: Color(0xFF101813),
-              navigationBackground: Color(0xFF16211A),
+              scaffoldBackground: Color(0xFF272C32),
+              appBarBackground: Color(0xFF272C32),
+              navigationBackground: Color(0xFF272C32),
             )
           : const _ThemePalette(
               primary: Color(0xFF2F6B3C),
@@ -538,9 +655,9 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
               surfaceContainerHighest: Color(0xFF433329),
               outline: Color(0xFF766253),
               outlineVariant: Color(0xFF5E4B3F),
-              scaffoldBackground: Color(0xFF17110D),
-              appBarBackground: Color(0xFF17110D),
-              navigationBackground: Color(0xFF211812),
+              scaffoldBackground: Color(0xFF272C32),
+              appBarBackground: Color(0xFF272C32),
+              navigationBackground: Color(0xFF272C32),
             )
           : const _ThemePalette(
               primary: Color(0xFF9A4E00),
