@@ -186,6 +186,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final width = MediaQuery.sizeOf(context).width;
     final useSplitView = width >= 1180;
     final activeIdentity = ref.watch(activeIdentityDataProvider);
+    final privateVaultUnlocked = ref.watch(privateVaultSessionControllerProvider);
     final visibleNotes = ref.watch(visibleNotesProvider);
     final visibleVaults = ref.watch(visibleVaultsProvider);
 
@@ -204,6 +205,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         children: [
           _IdentityHeader(identity: activeIdentity),
+          if (activeIdentity.id == 'private' && !privateVaultUnlocked) ...[
+            const SizedBox(height: 12),
+            const _PrivateVaultLockedNotice(),
+          ],
           const SizedBox(height: 12),
           const _NotesToolbar(),
           const SizedBox(height: 12),
@@ -237,6 +242,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             padding: const EdgeInsets.all(16),
             children: [
               _IdentityHeader(identity: activeIdentity),
+              if (activeIdentity.id == 'private' && !privateVaultUnlocked) ...[
+                const SizedBox(height: 12),
+                const _PrivateVaultLockedNotice(),
+              ],
               const SizedBox(height: 12),
               const _NotesToolbar(),
               const SizedBox(height: 12),
@@ -646,12 +655,20 @@ class _MarkedCalendar extends StatelessWidget {
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
+  static const appLockToggleKey = Key('app-lock-toggle');
   static const lightThemeKey = Key('theme-light-option');
   static const systemThemeKey = Key('theme-system-option');
   static const darkThemeKey = Key('theme-dark-option');
   static const blueColorThemeKey = Key('color-theme-blue-option');
   static const greenColorThemeKey = Key('color-theme-green-option');
   static const orangeColorThemeKey = Key('color-theme-orange-option');
+  static const syncOffKey = Key('sync-off-option');
+  static const syncICloudKey = Key('sync-icloud-option');
+  static const syncGoogleDriveKey = Key('sync-google-drive-option');
+  static const privateVaultSetKey = Key('private-vault-set-key');
+  static const privateVaultUnlockKey = Key('private-vault-unlock-key');
+  static const privateVaultLockKey = Key('private-vault-lock-key');
+  static const privateVaultResetKey = Key('private-vault-reset-key');
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -659,6 +676,10 @@ class SettingsScreen extends ConsumerWidget {
     final activeIdentity = ref.watch(activeIdentityProvider);
     final themeMode = ref.watch(themeModeControllerProvider);
     final colorTheme = ref.watch(appColorThemeControllerProvider);
+    final appLockEnabled = ref.watch(appLockSettingsControllerProvider);
+    final privateVaultConfigured = ref.watch(privateVaultSecretControllerProvider);
+    final privateVaultUnlocked = ref.watch(privateVaultSessionControllerProvider);
+    final syncProvider = ref.watch(syncProviderControllerProvider);
     final flavorName =
         FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
     final displayName =
@@ -685,6 +706,111 @@ class SettingsScreen extends ConsumerWidget {
                     ? const Icon(Icons.check_rounded)
                     : null,
               ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _SettingsGroup(
+          title: 'App unlock',
+          children: [
+            SwitchListTile.adaptive(
+              key: appLockToggleKey,
+              value: appLockEnabled,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Require device auth on launch'),
+              subtitle: const Text(
+                'This stores the launch preference now. Platform biometric hookup is the next step.',
+              ),
+              onChanged: (value) => ref
+                  .read(appLockSettingsControllerProvider.notifier)
+                  .setEnabled(value),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _SettingsGroup(
+          title: 'Private vault',
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Status'),
+              subtitle: Text(
+                privateVaultConfigured
+                    ? (privateVaultUnlocked
+                        ? 'Configured and unlocked for this session.'
+                        : 'Configured and locked. A separate key is required.')
+                    : 'Not configured yet. Set a separate key for the private vault.',
+              ),
+            ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (!privateVaultConfigured)
+                  FilledButton(
+                    key: privateVaultSetKey,
+                    onPressed: () => _showSetPrivateKeyDialog(context, ref),
+                    child: const Text('Set private key'),
+                  ),
+                if (privateVaultConfigured && !privateVaultUnlocked)
+                  FilledButton(
+                    key: privateVaultUnlockKey,
+                    onPressed: () => _showUnlockPrivateVaultDialog(context, ref),
+                    child: const Text('Unlock private vault'),
+                  ),
+                if (privateVaultUnlocked)
+                  FilledButton.tonal(
+                    key: privateVaultLockKey,
+                    onPressed: () => ref
+                        .read(privateVaultSessionControllerProvider.notifier)
+                        .lock(),
+                    child: const Text('Lock private vault'),
+                  ),
+                if (privateVaultConfigured)
+                  OutlinedButton(
+                    key: privateVaultResetKey,
+                    onPressed: () => _confirmResetPrivateKey(context, ref),
+                    child: const Text('Reset private key'),
+                  ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _SettingsGroup(
+          title: 'Sync target',
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Selected target'),
+              subtitle: Text(_syncSubtitle(syncProvider)),
+            ),
+            _ThemeOptionTile(
+              tileKey: syncOffKey,
+              title: 'Off',
+              subtitle: 'Keep data on this device only.',
+              selected: syncProvider == SyncProvider.off,
+              onTap: () => ref
+                  .read(syncProviderControllerProvider.notifier)
+                  .setProvider(SyncProvider.off),
+            ),
+            _ThemeOptionTile(
+              tileKey: syncICloudKey,
+              title: 'iCloud',
+              subtitle: 'Apple-managed app data sync target.',
+              selected: syncProvider == SyncProvider.iCloud,
+              onTap: () => ref
+                  .read(syncProviderControllerProvider.notifier)
+                  .setProvider(SyncProvider.iCloud),
+            ),
+            _ThemeOptionTile(
+              tileKey: syncGoogleDriveKey,
+              title: 'Google Drive',
+              subtitle: 'Google Drive app-data sync target.',
+              selected: syncProvider == SyncProvider.googleDrive,
+              onTap: () => ref
+                  .read(syncProviderControllerProvider.notifier)
+                  .setProvider(SyncProvider.googleDrive),
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -784,21 +910,169 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ],
         ),
-        const SizedBox(height: 16),
-        const _SettingsGroup(
-          title: 'Cloud sync roadmap',
-          children: [
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text('iCloud / Google sync'),
-              subtitle: Text(
-                'Local-first persistence is active. End-to-end encrypted sync remains the next implementation milestone.',
-              ),
-            ),
-          ],
-        ),
       ],
     );
+  }
+
+  String _syncSubtitle(SyncProvider provider) {
+    switch (provider) {
+      case SyncProvider.off:
+        return 'Sync is disabled.';
+      case SyncProvider.iCloud:
+        return 'iCloud selected. Account wiring comes next.';
+      case SyncProvider.googleDrive:
+        return 'Google Drive selected. Account wiring comes next.';
+    }
+  }
+
+  Future<void> _showSetPrivateKeyDialog(BuildContext context, WidgetRef ref) async {
+    final secretController = TextEditingController();
+    final confirmController = TextEditingController();
+    String? errorText;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Set private key'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: secretController,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Private key',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: confirmController,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: 'Confirm private key',
+                      border: const OutlineInputBorder(),
+                      errorText: errorText,
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final secret = secretController.text.trim();
+                    final confirm = confirmController.text.trim();
+                    if (secret.length < 4) {
+                      setState(() {
+                        errorText = 'Use at least 4 characters.';
+                      });
+                      return;
+                    }
+                    if (secret != confirm) {
+                      setState(() {
+                        errorText = 'Keys do not match.';
+                      });
+                      return;
+                    }
+                    await ref
+                        .read(privateVaultSecretControllerProvider.notifier)
+                        .configure(secret);
+                    if (context.mounted) {
+                      Navigator.of(context).pop();
+                    }
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showUnlockPrivateVaultDialog(BuildContext context, WidgetRef ref) async {
+    final secretController = TextEditingController();
+    String? errorText;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Unlock private vault'),
+              content: TextField(
+                controller: secretController,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: 'Private key',
+                  border: const OutlineInputBorder(),
+                  errorText: errorText,
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final matched = await ref
+                        .read(privateVaultSecretControllerProvider.notifier)
+                        .verify(secretController.text.trim());
+                    if (!matched) {
+                      setState(() {
+                        errorText = 'Private key is not correct.';
+                      });
+                      return;
+                    }
+                    if (context.mounted) {
+                      Navigator.of(context).pop();
+                    }
+                  },
+                  child: const Text('Unlock'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmResetPrivateKey(BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Reset private key'),
+          content: const Text(
+            'This removes the configured private-vault key and locks the private vault immediately.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.tonal(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Reset'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed == true) {
+      await ref.read(privateVaultSecretControllerProvider.notifier).clear();
+    }
   }
 }
 
@@ -951,6 +1225,33 @@ class _IdentityHeader extends StatelessWidget {
                 .textTheme
                 .bodyLarge
                 ?.copyWith(color: _strongMutedTextColor(context)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PrivateVaultLockedNotice extends StatelessWidget {
+  const _PrivateVaultLockedNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: _sectionDecoration(context),
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          Icon(
+            Icons.lock_outline_rounded,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Private vault is locked. Unlock it from Settings to reveal hidden notes.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
           ),
         ],
       ),

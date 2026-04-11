@@ -3,21 +3,28 @@ const { test, expect } = require('@playwright/test');
 test('can create a note by using the first line as the title', async ({ page }) => {
   await page.goto('/');
   await enableSemantics(page);
+  await dismissOnboardingIfNeeded(page);
 
   await expect(page.getByRole('button', { name: 'Add note' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Add note' }).click();
   await expect(page.locator('flutter-view')).toContainText('New note');
 
-  await page.getByLabel('Memo').fill(
-    'Shopping list\nMilk\nEggs',
-  );
+  await page.getByLabel('Memo').fill('Shopping list\nMilk\nEggs');
   await page.getByRole('button', { name: 'Create note' }).click();
 
   await expect(page.locator('flutter-view')).toContainText('Shopping list');
   await expect(page.locator('flutter-view')).toContainText('Milk');
   await expect(page.locator('flutter-view')).toContainText('Eggs');
 });
+
+async function dismissOnboardingIfNeeded(page) {
+  await page.waitForTimeout(1400);
+  const skipButton = page.getByRole('button', { name: 'Skip' });
+  if (await skipButton.count()) {
+    await skipButton.click();
+  }
+}
 
 async function enableSemantics(page) {
   await page.waitForSelector('flt-semantics-placeholder', {

@@ -5,6 +5,7 @@ import 'package:himemo/app/app_flavor.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -14,10 +15,15 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+    });
+
     configureFlavor(AppFlavor.development);
     await tester.pumpWidget(
       const ProviderScope(child: HiMemoApp(flavor: AppFlavor.development)),
     );
+    await tester.pump(const Duration(milliseconds: 1200));
     await tester.pumpAndSettle();
 
     expect(find.text('HiMemo'), findsOneWidget);
@@ -59,8 +65,7 @@ void main() {
     await tester.tap(find.widgetWithText(ListTile, 'Private View').last);
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('note-tile-n4')), findsOneWidget);
-    expect(find.text('Private View'), findsOneWidget);
+    expect(find.textContaining('Private vault is locked'), findsOneWidget);
 
     await _tapNavigation(tester, AppShell.calendarNavKey, 'Calendar');
     await tester.pumpAndSettle();

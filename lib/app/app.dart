@@ -1,5 +1,7 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/home/presentation/home_providers.dart';
@@ -15,6 +17,7 @@ class HiMemoApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeControllerProvider);
     final colorTheme = ref.watch(appColorThemeControllerProvider);
+    final launchSurface = ref.watch(appLaunchControllerProvider);
     final router = ref.watch(appRouterProvider);
 
     return FlavorBanner(
@@ -25,6 +28,312 @@ class HiMemoApp extends ConsumerWidget {
         themeMode: themeMode,
         theme: _buildTheme(Brightness.light, colorTheme),
         darkTheme: _buildTheme(Brightness.dark, colorTheme),
+        builder: (context, child) {
+          return _LaunchSurfaceGate(
+            flavor: flavor,
+            launchSurface: launchSurface,
+            child: child,
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _LaunchSurfaceGate extends StatefulWidget {
+  const _LaunchSurfaceGate({
+    required this.flavor,
+    required this.launchSurface,
+    required this.child,
+  });
+
+  final AppFlavor flavor;
+  final AppLaunchSurface launchSurface;
+  final Widget? child;
+
+  @override
+  State<_LaunchSurfaceGate> createState() => _LaunchSurfaceGateState();
+}
+
+class _LaunchSurfaceGateState extends State<_LaunchSurfaceGate> {
+  bool _removedNativeSplash = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncNativeSplash();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LaunchSurfaceGate oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncNativeSplash();
+  }
+
+  void _syncNativeSplash() {
+    if (kIsWeb ||
+        _removedNativeSplash ||
+        widget.launchSurface == AppLaunchSurface.splash) {
+      return;
+    }
+    _removedNativeSplash = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FlutterNativeSplash.remove();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    switch (widget.launchSurface) {
+      case AppLaunchSurface.splash:
+        return _SplashScreen(flavor: widget.flavor);
+      case AppLaunchSurface.onboarding:
+        return _OnboardingScreen(flavor: widget.flavor);
+      case AppLaunchSurface.ready:
+        return widget.child ?? const SizedBox.shrink();
+    }
+  }
+}
+
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen({required this.flavor});
+
+  final AppFlavor flavor;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              colorScheme.surface,
+              colorScheme.surfaceContainerHighest,
+              colorScheme.primary.withValues(alpha: 0.16),
+            ],
+          ),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 82,
+                height: 82,
+                decoration: BoxDecoration(
+                  color: colorScheme.primary,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: colorScheme.primary.withValues(alpha: 0.24),
+                      blurRadius: 28,
+                      offset: const Offset(0, 16),
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  Icons.note_alt_rounded,
+                  size: 38,
+                  color: colorScheme.onPrimary,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                flavor.displayName,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Preparing your memo vault...',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OnboardingScreen extends ConsumerStatefulWidget {
+  const _OnboardingScreen({required this.flavor});
+
+  final AppFlavor flavor;
+
+  @override
+  ConsumerState<_OnboardingScreen> createState() => _OnboardingScreenState();
+}
+
+class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
+  final PageController _pageController = PageController();
+  int _pageIndex = 0;
+
+  final List<({String title, String body, IconData icon})> _pages = const [
+    (
+      title: 'Capture fast',
+      body:
+          'The first line becomes the memo title, so quick notes stay lightweight from the first tap.',
+      icon: Icons.bolt_rounded,
+    ),
+    (
+      title: 'Separate private access',
+      body:
+          'Keep app unlock and private-vault unlock separate. Sensitive notes can stay behind their own key.',
+      icon: Icons.lock_person_rounded,
+    ),
+    (
+      title: 'Prepare sync later',
+      body:
+          'Choose iCloud or Google Drive as the future sync target without turning your own server into a dependency.',
+      icon: Icons.cloud_sync_rounded,
+    ),
+  ];
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isLastPage = _pageIndex == _pages.length - 1;
+
+    return Scaffold(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      widget.flavor.displayName,
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => ref
+                        .read(appLaunchControllerProvider.notifier)
+                        .completeOnboarding(),
+                    child: const Text('Skip'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 28),
+              Text(
+                'Welcome to HiMemo',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'A short setup pass before the memo vault opens.',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+              ),
+              const SizedBox(height: 28),
+              Expanded(
+                child: PageView.builder(
+                  controller: _pageController,
+                  itemCount: _pages.length,
+                  onPageChanged: (index) {
+                    setState(() {
+                      _pageIndex = index;
+                    });
+                  },
+                  itemBuilder: (context, index) {
+                    final page = _pages[index];
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: colorScheme.surface,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(color: Theme.of(context).dividerColor),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(
+                              color: colorScheme.primary.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            child: Icon(page.icon, color: colorScheme.primary),
+                          ),
+                          const SizedBox(height: 24),
+                          Text(
+                            page.title,
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            page.body,
+                            style: Theme.of(context).textTheme.bodyLarge,
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+              Row(
+                children: [
+                  for (var i = 0; i < _pages.length; i++)
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      margin: const EdgeInsets.only(right: 8),
+                      width: i == _pageIndex ? 28 : 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: i == _pageIndex
+                            ? colorScheme.primary
+                            : colorScheme.outlineVariant,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: () async {
+                      if (isLastPage) {
+                        await ref
+                            .read(appLaunchControllerProvider.notifier)
+                            .completeOnboarding();
+                        return;
+                      }
+                      await _pageController.nextPage(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOut,
+                      );
+                    },
+                    child: Text(isLastPage ? 'Start' : 'Next'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -39,6 +39,8 @@ dependencies:
   freezed_annotation: ^3.1.0
   json_annotation: ^4.11.0
   shared_preferences: ^2.5.3
+  crypto: ^3.0.6
+  flutter_native_splash: ^2.4.7
 
 dev_dependencies:
   flutter_test:
@@ -56,6 +58,7 @@ dev_dependencies:
   freezed: ^3.2.5
   riverpod_generator: ^4.0.3
   json_serializable: ^6.13.0
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
