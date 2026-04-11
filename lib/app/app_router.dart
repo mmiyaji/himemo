@@ -16,15 +16,18 @@ GoRouter appRouter(Ref ref) {
         routes: [
           GoRoute(
             path: '/notes',
-            builder: (context, state) => const NotesScreen(),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: NotesScreen()),
           ),
           GoRoute(
             path: '/calendar',
-            builder: (context, state) => const CalendarScreen(),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: CalendarScreen()),
           ),
           GoRoute(
             path: '/settings',
-            builder: (context, state) => const SettingsScreen(),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: SettingsScreen()),
           ),
         ],
       ),

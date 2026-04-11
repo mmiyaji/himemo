@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../domain/note_entry.dart';
@@ -11,6 +11,11 @@ enum AppSection { notes, calendar, settings }
 
 class AppShell extends ConsumerWidget {
   const AppShell({super.key, required this.child});
+
+  static const profileSwitchKey = Key('profile-switch-button');
+  static const notesNavKey = Key('nav-notes');
+  static const calendarNavKey = Key('nav-calendar');
+  static const settingsNavKey = Key('nav-settings');
 
   final Widget child;
 
@@ -29,10 +34,15 @@ class AppShell extends ConsumerWidget {
         actions: [
           IconButton(
             onPressed: () => _showIdentityPicker(context, ref),
+            key: profileSwitchKey,
             icon: const Icon(Icons.lock_open_rounded),
             tooltip: 'Switch unlock profile',
           ),
         ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(height: 1, color: Theme.of(context).dividerColor),
+        ),
       ),
       body: SafeArea(
         child: useRail
@@ -42,8 +52,8 @@ class AppShell extends ConsumerWidget {
                     section: section,
                     activeIdentity: activeIdentity,
                     flavorName: flavor,
-                    onSectionSelected: (section) =>
-                        _goToSection(context, section),
+                    onSectionSelected: (target) =>
+                        _goToSection(context, target),
                   ),
                   VerticalDivider(
                     width: 1,
@@ -63,16 +73,19 @@ class AppShell extends ConsumerWidget {
               },
               destinations: const [
                 NavigationDestination(
+                  key: notesNavKey,
                   icon: Icon(Icons.notes_outlined),
                   selectedIcon: Icon(Icons.notes_rounded),
                   label: 'Notes',
                 ),
                 NavigationDestination(
+                  key: calendarNavKey,
                   icon: Icon(Icons.calendar_month_outlined),
                   selectedIcon: Icon(Icons.calendar_month_rounded),
                   label: 'Calendar',
                 ),
                 NavigationDestination(
+                  key: settingsNavKey,
                   icon: Icon(Icons.settings_outlined),
                   selectedIcon: Icon(Icons.settings_rounded),
                   label: 'Settings',
@@ -206,7 +219,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 });
               },
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
           ],
         ],
       );
@@ -226,9 +239,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 pinnedCount: visibleNotes.where((note) => note.isPinned).length,
                 vaultCount: visibleVaults.length,
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               Container(
-                decoration: _panelDecoration(context),
+                decoration: _sectionDecoration(context),
                 child: Column(
                   children: [
                     for (var i = 0; i < visibleNotes.length; i++) ...[
@@ -245,7 +258,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                         },
                       ),
                       if (i != visibleNotes.length - 1)
-                        const Divider(height: 1),
+                        Divider(
+                          height: 1,
+                          color: Theme.of(context).dividerColor,
+                        ),
                     ],
                   ],
                 ),
@@ -267,14 +283,6 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
           ),
         ),
       ],
-    );
-  }
-
-  BoxDecoration _panelDecoration(BuildContext context) {
-    return BoxDecoration(
-      color: Theme.of(context).colorScheme.surface,
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: Theme.of(context).dividerColor),
     );
   }
 }
@@ -312,8 +320,8 @@ class CalendarScreen extends ConsumerWidget {
                     Text(
                       entry.key,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                            fontWeight: FontWeight.w700,
+                          ),
                     ),
                     const SizedBox(height: 10),
                     for (final note in entry.value)
@@ -333,6 +341,10 @@ class CalendarScreen extends ConsumerWidget {
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
+
+  static const lightThemeKey = Key('theme-light-option');
+  static const systemThemeKey = Key('theme-system-option');
+  static const darkThemeKey = Key('theme-dark-option');
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -382,6 +394,7 @@ class SettingsScreen extends ConsumerWidget {
           title: 'Theme',
           children: [
             _ThemeOptionTile(
+              tileKey: lightThemeKey,
               title: 'Light',
               subtitle: 'Keep the white memo-style interface.',
               selected: themeMode == ThemeMode.light,
@@ -390,6 +403,7 @@ class SettingsScreen extends ConsumerWidget {
                   .setMode(ThemeMode.light),
             ),
             _ThemeOptionTile(
+              tileKey: systemThemeKey,
               title: 'System',
               subtitle: 'Follow the device setting.',
               selected: themeMode == ThemeMode.system,
@@ -398,8 +412,9 @@ class SettingsScreen extends ConsumerWidget {
                   .setMode(ThemeMode.system),
             ),
             _ThemeOptionTile(
+              tileKey: darkThemeKey,
               title: 'Dark',
-              subtitle: 'Use the dark theme explicitly.',
+              subtitle: 'Use the higher-contrast dark theme explicitly.',
               selected: themeMode == ThemeMode.dark,
               onTap: () => ref
                   .read(themeModeControllerProvider.notifier)
@@ -430,45 +445,43 @@ class _Sidebar extends StatelessWidget {
     final accent = Color(activeIdentity.accentHex);
 
     return SizedBox(
-      width: 240,
+      width: 256,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Container(height: 4, color: accent),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'HiMemo',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 Text(
                   activeIdentity.lockLabel,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: accent,
-                    fontWeight: FontWeight.w700,
-                  ),
+                        color: accent,
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  activeIdentity.name,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 4),
+                Text(activeIdentity.name),
+                const SizedBox(height: 8),
                 Text(
                   flavorName,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF6D7C87),
-                  ),
+                        color: _mutedTextColor(context),
+                      ),
                 ),
               ],
             ),
           ),
-          const Divider(height: 1),
+          Divider(height: 1, color: Theme.of(context).dividerColor),
           const SizedBox(height: 8),
           _SidebarItem(
             icon: Icons.notes_outlined,
@@ -515,12 +528,14 @@ class _SidebarItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       child: ListTile(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        key: Key('sidebar-${label.toLowerCase()}'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         leading: Icon(selected ? selectedIcon : icon),
         title: Text(label),
         selected: selected,
+        selectedTileColor: _selectedSurfaceColor(context),
         onTap: onTap,
       ),
     );
@@ -537,30 +552,30 @@ class _IdentityHeader extends StatelessWidget {
     final accent = Color(identity.accentHex);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Container(width: 56, height: 4, color: accent),
+          const SizedBox(height: 12),
           Text(
             identity.lockLabel,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: accent,
-              fontWeight: FontWeight.w700,
-            ),
+                  color: accent,
+                  fontWeight: FontWeight.w700,
+                ),
           ),
           const SizedBox(height: 6),
-          Text(
-            identity.name,
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 8),
+          Text(identity.name),
+          const SizedBox(height: 6),
           Text(
             identity.tagline,
             style: Theme.of(
               context,
-            ).textTheme.bodyLarge?.copyWith(color: const Color(0xFF4F6270)),
+            )
+                .textTheme
+                .bodyLarge
+                ?.copyWith(color: _strongMutedTextColor(context)),
           ),
         ],
       ),
@@ -619,14 +634,14 @@ class _StatTile extends StatelessWidget {
             value,
             style: Theme.of(
               context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 2),
           Text(
             label,
             style: Theme.of(
               context,
-            ).textTheme.bodySmall?.copyWith(color: const Color(0xFF6D7C87)),
+            ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
           ),
         ],
       ),
@@ -666,22 +681,17 @@ class _VaultSectionCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  vault.name,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+                Text(vault.name),
                 const SizedBox(height: 4),
                 Text(
                   vault.description,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF6D7C87),
-                  ),
+                        color: _mutedTextColor(context),
+                      ),
                 ),
               ],
             ),
@@ -722,8 +732,9 @@ class _NoteListTile extends StatelessWidget {
         '${note.createdAt.month}/${note.createdAt.day} ${note.createdAt.hour.toString().padLeft(2, '0')}:${note.createdAt.minute.toString().padLeft(2, '0')}';
 
     return Material(
-      color: selected ? const Color(0xFFF2F5F7) : Colors.transparent,
+      color: selected ? _selectedSurfaceColor(context) : Colors.transparent,
       child: InkWell(
+        key: Key('note-tile-${note.id}'),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
@@ -735,43 +746,43 @@ class _NoteListTile extends StatelessWidget {
                   Expanded(
                     child: Text(
                       note.title,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
                     ),
                   ),
                   if (note.isPinned)
-                    const Icon(
+                    Icon(
                       Icons.push_pin_rounded,
                       size: 16,
-                      color: Color(0xFF6D7C87),
+                      color: _mutedTextColor(context),
                     ),
                 ],
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
               Text(
                 note.body,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFF4F6270),
-                ),
+                      color: _strongMutedTextColor(context),
+                    ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Row(
                 children: [
                   Text(
                     vaultName,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF6D7C87),
-                    ),
+                          color: _mutedTextColor(context),
+                        ),
                   ),
                   const Spacer(),
                   Text(
                     dateLabel,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF7B8A95),
-                    ),
+                          color: _mutedTextColor(context),
+                        ),
                   ),
                 ],
               ),
@@ -808,26 +819,26 @@ class _NoteDetailPane extends StatelessWidget {
             vaultName ?? '',
             style: Theme.of(
               context,
-            ).textTheme.labelLarge?.copyWith(color: const Color(0xFF6D7C87)),
+            ).textTheme.labelLarge?.copyWith(color: _mutedTextColor(context)),
           ),
           const SizedBox(height: 8),
-          Text(
-            note!.title,
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-          ),
+          Text(note!.title),
           const SizedBox(height: 8),
           Text(
             dateLabel,
             style: Theme.of(
               context,
-            ).textTheme.bodySmall?.copyWith(color: const Color(0xFF7B8A95)),
+            ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
           ),
           const SizedBox(height: 20),
           Text(
             note!.body,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.6),
+            style: Theme.of(
+              context,
+            )
+                .textTheme
+                .bodyLarge
+                ?.copyWith(color: Theme.of(context).colorScheme.onSurface),
           ),
           if (note!.attachments.isNotEmpty) ...[
             const SizedBox(height: 20),
@@ -871,18 +882,16 @@ class _SectionIntro extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: Theme.of(
-            context,
-          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-        ),
+        Text(title),
         const SizedBox(height: 8),
         Text(
           description,
           style: Theme.of(
             context,
-          ).textTheme.bodyLarge?.copyWith(color: const Color(0xFF4F6270)),
+          )
+              .textTheme
+              .bodyLarge
+              ?.copyWith(color: _strongMutedTextColor(context)),
         ),
       ],
     );
@@ -902,16 +911,7 @@ class _SettingsGroup extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 8),
-          ...children,
-        ],
+        children: [Text(title), const SizedBox(height: 8), ...children],
       ),
     );
   }
@@ -919,12 +919,14 @@ class _SettingsGroup extends StatelessWidget {
 
 class _ThemeOptionTile extends StatelessWidget {
   const _ThemeOptionTile({
+    required this.tileKey,
     required this.title,
     required this.subtitle,
     required this.selected,
     required this.onTap,
   });
 
+  final Key tileKey;
   final String title;
   final String subtitle;
   final bool selected;
@@ -933,6 +935,7 @@ class _ThemeOptionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
+      key: tileKey,
       contentPadding: EdgeInsets.zero,
       leading: Icon(
         selected ? Icons.radio_button_checked : Icons.radio_button_off,
@@ -947,7 +950,19 @@ class _ThemeOptionTile extends StatelessWidget {
 BoxDecoration _sectionDecoration(BuildContext context) {
   return BoxDecoration(
     color: Theme.of(context).colorScheme.surface,
-    borderRadius: BorderRadius.circular(12),
+    borderRadius: BorderRadius.circular(6),
     border: Border.all(color: Theme.of(context).dividerColor),
   );
+}
+
+Color _selectedSurfaceColor(BuildContext context) {
+  return Theme.of(context).colorScheme.surfaceContainerHighest;
+}
+
+Color _mutedTextColor(BuildContext context) {
+  return Theme.of(context).colorScheme.onSurfaceVariant;
+}
+
+Color _strongMutedTextColor(BuildContext context) {
+  return Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.82);
 }
