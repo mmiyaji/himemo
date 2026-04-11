@@ -374,10 +374,20 @@ class CalendarScreen extends ConsumerStatefulWidget {
 
 class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   DateTime _selectedDay = DateTime.now();
+  late DateTime _visibleMonth;
+
+  @override
+  void initState() {
+    super.initState();
+    _visibleMonth = DateTime(_selectedDay.year, _selectedDay.month);
+  }
 
   @override
   Widget build(BuildContext context) {
     final notes = ref.watch(visibleNotesProvider);
+    final markedDays = notes
+        .map((note) => DateTime(note.createdAt.year, note.createdAt.month, note.createdAt.day))
+        .toSet();
     final sameDayNotes = notes
         .where((note) => _isSameDay(note.createdAt, _selectedDay))
         .toList(growable: false);
@@ -394,14 +404,31 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
         Container(
           decoration: _sectionDecoration(context),
           padding: const EdgeInsets.all(12),
-          child: CalendarDatePicker(
-            initialDate: _selectedDay,
-            firstDate: DateTime(2024),
-            lastDate: DateTime(2030),
-            currentDate: DateTime.now(),
-            onDateChanged: (date) {
+          child: _MarkedCalendar(
+            visibleMonth: _visibleMonth,
+            selectedDay: _selectedDay,
+            markedDays: markedDays,
+            onPreviousMonth: () {
+              setState(() {
+                _visibleMonth = DateTime(_visibleMonth.year, _visibleMonth.month - 1);
+              });
+            },
+            onNextMonth: () {
+              setState(() {
+                _visibleMonth = DateTime(_visibleMonth.year, _visibleMonth.month + 1);
+              });
+            },
+            onTodaySelected: () {
+              final today = DateTime.now();
+              setState(() {
+                _selectedDay = today;
+                _visibleMonth = DateTime(today.year, today.month);
+              });
+            },
+            onDateSelected: (date) {
               setState(() {
                 _selectedDay = date;
+                _visibleMonth = DateTime(date.year, date.month);
               });
             },
           ),
@@ -453,18 +480,185 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   }
 }
 
+class _MarkedCalendar extends StatelessWidget {
+  const _MarkedCalendar({
+    required this.visibleMonth,
+    required this.selectedDay,
+    required this.markedDays,
+    required this.onPreviousMonth,
+    required this.onNextMonth,
+    required this.onTodaySelected,
+    required this.onDateSelected,
+  });
+
+  final DateTime visibleMonth;
+  final DateTime selectedDay;
+  final Set<DateTime> markedDays;
+  final VoidCallback onPreviousMonth;
+  final VoidCallback onNextMonth;
+  final VoidCallback onTodaySelected;
+  final ValueChanged<DateTime> onDateSelected;
+
+  static const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  @override
+  Widget build(BuildContext context) {
+    final firstDay = DateTime(visibleMonth.year, visibleMonth.month, 1);
+    final daysInMonth = DateTime(visibleMonth.year, visibleMonth.month + 1, 0).day;
+    final leadingEmpty = (firstDay.weekday + 6) % 7;
+    final totalCells = ((leadingEmpty + daysInMonth + 6) ~/ 7) * 7;
+    final monthLabel = '${visibleMonth.year}/${visibleMonth.month.toString().padLeft(2, '0')}';
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            IconButton(
+              onPressed: onPreviousMonth,
+              icon: const Icon(Icons.chevron_left_rounded),
+              tooltip: 'Previous month',
+            ),
+            Expanded(
+              child: Text(
+                monthLabel,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            TextButton(
+              onPressed: onTodaySelected,
+              child: const Text('Today'),
+            ),
+            IconButton(
+              onPressed: onNextMonth,
+              icon: const Icon(Icons.chevron_right_rounded),
+              tooltip: 'Next month',
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            for (final weekday in _weekdays)
+              Expanded(
+                child: Center(
+                  child: Text(
+                    weekday,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: _mutedTextColor(context),
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        for (var row = 0; row < totalCells / 7; row++) ...[
+          Row(
+            children: [
+              for (var column = 0; column < 7; column++)
+                Expanded(
+                  child: Builder(
+                    builder: (context) {
+                      final index = row * 7 + column;
+                      final dayNumber = index - leadingEmpty + 1;
+                      if (dayNumber < 1 || dayNumber > daysInMonth) {
+                        return const SizedBox(height: 44);
+                      }
+
+                      final date = DateTime(
+                        visibleMonth.year,
+                        visibleMonth.month,
+                        dayNumber,
+                      );
+                      final isSelected = _isSameDay(date, selectedDay);
+                      final isToday = _isSameDay(date, DateTime.now());
+                      final hasNote = markedDays.contains(date);
+
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 1),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(10),
+                          onTap: () => onDateSelected(date),
+                          child: Container(
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? colorScheme.primary.withValues(alpha: 0.14)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(10),
+                              border: isToday
+                                  ? Border.all(color: colorScheme.primary)
+                                  : null,
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  dayNumber.toString(),
+                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                        color: isSelected
+                                            ? colorScheme.primary
+                                            : Theme.of(context).colorScheme.onSurface,
+                                      ),
+                                ),
+                                const SizedBox(height: 4),
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 120),
+                                  width: 6,
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    color: hasNote
+                                        ? (isSelected
+                                            ? colorScheme.primary
+                                            : colorScheme.secondary)
+                                        : Colors.transparent,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+          if (row != totalCells / 7 - 1) const SizedBox(height: 4),
+        ],
+      ],
+    );
+  }
+
+  bool _isSameDay(DateTime left, DateTime right) {
+    return left.year == right.year &&
+        left.month == right.month &&
+        left.day == right.day;
+  }
+}
+
+
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   static const lightThemeKey = Key('theme-light-option');
   static const systemThemeKey = Key('theme-system-option');
   static const darkThemeKey = Key('theme-dark-option');
+  static const blueColorThemeKey = Key('color-theme-blue-option');
+  static const greenColorThemeKey = Key('color-theme-green-option');
+  static const orangeColorThemeKey = Key('color-theme-orange-option');
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final identities = ref.watch(identitiesProvider);
     final activeIdentity = ref.watch(activeIdentityProvider);
     final themeMode = ref.watch(themeModeControllerProvider);
+    final colorTheme = ref.watch(appColorThemeControllerProvider);
     final flavorName =
         FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
     final displayName =
@@ -526,7 +720,7 @@ class SettingsScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _SettingsGroup(
-          title: 'Theme',
+          title: 'Display mode',
           children: [
             _ThemeOptionTile(
               tileKey: lightThemeKey,
@@ -554,6 +748,39 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () => ref
                   .read(themeModeControllerProvider.notifier)
                   .setMode(ThemeMode.dark),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _SettingsGroup(
+          title: 'Color theme',
+          children: [
+            _ThemeOptionTile(
+              tileKey: blueColorThemeKey,
+              title: 'Blue',
+              subtitle: 'Primary blue with calm light-blue support colors.',
+              selected: colorTheme == AppColorTheme.blue,
+              onTap: () => ref
+                  .read(appColorThemeControllerProvider.notifier)
+                  .setTheme(AppColorTheme.blue),
+            ),
+            _ThemeOptionTile(
+              tileKey: greenColorThemeKey,
+              title: 'Green',
+              subtitle: 'Muted green palette for lower visual tension.',
+              selected: colorTheme == AppColorTheme.green,
+              onTap: () => ref
+                  .read(appColorThemeControllerProvider.notifier)
+                  .setTheme(AppColorTheme.green),
+            ),
+            _ThemeOptionTile(
+              tileKey: orangeColorThemeKey,
+              title: 'Orange',
+              subtitle: 'Warm orange palette for highlighted actions and notes.',
+              selected: colorTheme == AppColorTheme.orange,
+              onTap: () => ref
+                  .read(appColorThemeControllerProvider.notifier)
+                  .setTheme(AppColorTheme.orange),
             ),
           ],
         ),
@@ -1294,8 +1521,7 @@ class _NoteEditorSheet extends ConsumerStatefulWidget {
 }
 
 class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
-  late final TextEditingController _titleController;
-  late final TextEditingController _bodyController;
+  late final TextEditingController _contentController;
   late DateTime _createdAt;
   late bool _isPinned;
   late List<NoteAttachment> _attachments;
@@ -1304,10 +1530,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   @override
   void initState() {
     super.initState();
-    _titleController = TextEditingController(text: widget.note?.title ?? '');
-    _bodyController = TextEditingController(text: widget.note?.body ?? '');
-    _titleController.addListener(_handleTextChanged);
-    _bodyController.addListener(_handleTextChanged);
+    _contentController = TextEditingController(text: _composeEditorContent());
+    _contentController.addListener(_handleTextChanged);
     _createdAt = widget.note?.createdAt ?? DateTime.now();
     _isPinned = widget.note?.isPinned ?? false;
     _attachments = [...?widget.note?.attachments];
@@ -1316,10 +1540,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
 
   @override
   void dispose() {
-    _titleController.removeListener(_handleTextChanged);
-    _bodyController.removeListener(_handleTextChanged);
-    _titleController.dispose();
-    _bodyController.dispose();
+    _contentController.removeListener(_handleTextChanged);
+    _contentController.dispose();
     super.dispose();
   }
 
@@ -1327,6 +1549,18 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (mounted) {
       setState(() {});
     }
+  }
+
+  String _composeEditorContent() {
+    final title = widget.note?.title.trim() ?? '';
+    final body = widget.note?.body.trim() ?? '';
+    if (title.isEmpty) {
+      return body;
+    }
+    if (body.isEmpty) {
+      return title;
+    }
+    return '$title\n$body';
   }
 
   @override
@@ -1355,23 +1589,13 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
               child: ListView(
                 children: [
                   TextField(
-                    key: const Key('note-title-input'),
-                    controller: _titleController,
-                    onChanged: (_) => setState(() {}),
-                    decoration: const InputDecoration(
-                      labelText: 'Title',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    key: const Key('note-body-input'),
-                    controller: _bodyController,
-                    onChanged: (_) => setState(() {}),
+                    key: const Key('note-content-input'),
+                    controller: _contentController,
                     minLines: 8,
                     maxLines: 12,
                     decoration: const InputDecoration(
-                      labelText: 'Body',
+                      labelText: 'Memo',
+                      hintText: 'Use the first line as the title',
                       alignLabelWithHint: true,
                       border: OutlineInputBorder(),
                     ),
@@ -1501,7 +1725,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                 const Spacer(),
                 FilledButton(
                   key: const Key('save-note-button'),
-                  onPressed: _save,
+                  onPressed: _canSave ? _save : null,
                   child: Text(
                     widget.note == null ? 'Create note' : 'Save changes',
                   ),
@@ -1515,8 +1739,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   bool get _canSave {
-    return _titleController.text.trim().isNotEmpty &&
-        _bodyController.text.trim().isNotEmpty &&
+    return _splitMemoContent(_contentController.text).title.isNotEmpty &&
         _selectedVaultId != null;
   }
 
@@ -1561,11 +1784,12 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (!_canSave) {
       return;
     }
+    final content = _splitMemoContent(_contentController.text);
     final note = NoteEntry(
       id: widget.note?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
       vaultId: _selectedVaultId!,
-      title: _titleController.text.trim(),
-      body: _bodyController.text.trim(),
+      title: content.title,
+      body: content.body,
       createdAt: _createdAt,
       attachments: _attachments,
       isPinned: _isPinned,
@@ -1575,6 +1799,18 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       Navigator.of(context).pop();
     }
   }
+}
+
+({String title, String body}) _splitMemoContent(String raw) {
+  final normalized = raw.replaceAll('\r\n', '\n').trim();
+  if (normalized.isEmpty) {
+    return (title: '', body: '');
+  }
+
+  final lines = normalized.split('\n');
+  final title = lines.first.trim();
+  final body = lines.skip(1).join('\n').trim();
+  return (title: title, body: body);
 }
 
 BoxDecoration _sectionDecoration(BuildContext context) {

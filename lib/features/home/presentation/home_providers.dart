@@ -1,7 +1,8 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -10,6 +11,8 @@ import '../domain/note_entry.dart';
 import '../domain/vault_models.dart';
 
 part 'home_providers.g.dart';
+
+enum AppColorTheme { blue, green, orange }
 
 @Riverpod(keepAlive: true)
 HomeRepository homeRepository(Ref ref) => SeededHomeRepository();
@@ -47,6 +50,48 @@ class ThemeModeController extends _$ThemeModeController {
       state = ThemeMode.values.firstWhere(
         (mode) => mode.name == stored,
         orElse: () => ThemeMode.light,
+      );
+    } catch (_) {}
+  }
+}
+
+final appColorThemeControllerProvider =
+    NotifierProvider<AppColorThemeController, AppColorTheme>(
+      AppColorThemeController.new,
+    );
+
+class AppColorThemeController extends Notifier<AppColorTheme> {
+  static const _storageKey = 'settings.color_theme';
+  bool _restored = false;
+
+  @override
+  AppColorTheme build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return AppColorTheme.blue;
+  }
+
+  Future<void> setTheme(AppColorTheme theme) async {
+    state = theme;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_storageKey, theme.name);
+    } catch (_) {}
+  }
+
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_storageKey);
+      if (stored == null) {
+        return;
+      }
+
+      state = AppColorTheme.values.firstWhere(
+        (theme) => theme.name == stored,
+        orElse: () => AppColorTheme.blue,
       );
     } catch (_) {}
   }
@@ -208,16 +253,17 @@ List<NoteEntry> visibleNotes(Ref ref) {
       .watch(notesControllerProvider)
       .where((note) => visibleIds.contains(note.vaultId))
       .where((note) {
-    if (query.isEmpty) {
-      return true;
-    }
-    final haystacks = [
-      note.title,
-      note.body,
-      ...note.attachments.map((attachment) => attachment.label),
-    ];
-    return haystacks.any((value) => value.toLowerCase().contains(query));
-  }).toList(growable: false);
+        if (query.isEmpty) {
+          return true;
+        }
+        final haystacks = [
+          note.title,
+          note.body,
+          ...note.attachments.map((attachment) => attachment.label),
+        ];
+        return haystacks.any((value) => value.toLowerCase().contains(query));
+      })
+      .toList(growable: false);
   return notes;
 }
 

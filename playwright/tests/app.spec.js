@@ -1,32 +1,22 @@
 const { test, expect } = require('@playwright/test');
 
-test('web shell navigation works with Flutter semantics enabled', async ({
-  page,
-}) => {
+test('can create a note by using the first line as the title', async ({ page }) => {
   await page.goto('/');
   await enableSemantics(page);
 
   await expect(page.getByRole('button', { name: 'Add note' })).toBeVisible();
-  await expect(page.locator('flutter-view')).toContainText('Daily View');
-
-  await page.getByRole('tab', { name: 'Settings' }).click();
-  await expect(page.locator('flutter-view')).toContainText(
-    'Manage lock profiles, sync, and display policy.',
-  );
-  await expect(page.locator('flutter-view')).toContainText('Dark');
-
-  await page.getByRole('tab', { name: 'Notes' }).click();
-  await expect(page.getByRole('button', { name: 'Add note' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Add note' }).click();
   await expect(page.locator('flutter-view')).toContainText('New note');
-  await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible();
-  await page.getByRole('button', { name: 'Cancel' }).click();
 
-  await page.getByRole('tab', { name: 'Calendar' }).click();
-  await expect(page.locator('flutter-view')).toContainText(
-    'Review notes grouped by day',
+  await page.getByLabel('Memo').fill(
+    'Shopping list\nMilk\nEggs',
   );
+  await page.getByRole('button', { name: 'Create note' }).click();
+
+  await expect(page.locator('flutter-view')).toContainText('Shopping list');
+  await expect(page.locator('flutter-view')).toContainText('Milk');
+  await expect(page.locator('flutter-view')).toContainText('Eggs');
 });
 
 async function enableSemantics(page) {

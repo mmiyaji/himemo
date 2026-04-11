@@ -37,8 +37,18 @@ void main() {
     await tester.tap(find.byKey(SettingsScreen.darkThemeKey));
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(
+      find.byKey(SettingsScreen.greenColorThemeKey),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(SettingsScreen.greenColorThemeKey));
+    await tester.pumpAndSettle();
+
     final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
     expect(app.themeMode, ThemeMode.dark);
+    expect(app.theme?.colorScheme.primary, const Color(0xFF2F6B3C));
 
     await _tapNavigation(tester, AppShell.notesNavKey, 'Notes');
     await tester.pumpAndSettle();
@@ -46,7 +56,7 @@ void main() {
 
     await tester.tap(find.byKey(AppShell.profileSwitchKey));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Private View').first);
+    await tester.tap(find.widgetWithText(ListTile, 'Private View').last);
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('note-tile-n4')), findsOneWidget);

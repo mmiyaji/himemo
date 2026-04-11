@@ -37,6 +37,8 @@ migrate_working_dir/
 .playwright-*.err
 .playwright-*.out
 playwright-debug.png
+.restart-*.err
+.restart-*.out
 node_modules/
 playwright-report/
 test-results/
