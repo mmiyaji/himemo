@@ -21,13 +21,19 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('HiMemo'), findsOneWidget);
-    expect(find.text('Daily View'), findsOneWidget);
+    expect(find.byKey(AppShell.addNoteKey), findsOneWidget);
 
     await _tapNavigation(tester, AppShell.settingsNavKey, 'Settings');
     await tester.pumpAndSettle();
-    expect(find.text('Manage lock profiles, sync, and display policy.'),
-        findsOneWidget);
+    expect(find.text('Lock profiles'), findsOneWidget);
+    expect(find.text('Storage'), findsOneWidget);
 
+    await tester.scrollUntilVisible(
+      find.byKey(SettingsScreen.darkThemeKey),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(SettingsScreen.darkThemeKey));
     await tester.pumpAndSettle();
 
@@ -40,7 +46,7 @@ void main() {
 
     await tester.tap(find.byKey(AppShell.profileSwitchKey));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Private View'));
+    await tester.tap(find.text('Private View').first);
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('note-tile-n4')), findsOneWidget);
@@ -48,7 +54,7 @@ void main() {
 
     await _tapNavigation(tester, AppShell.calendarNavKey, 'Calendar');
     await tester.pumpAndSettle();
-    expect(find.text('Review notes grouped by day.'), findsOneWidget);
+    expect(find.textContaining('Review notes grouped by day'), findsOneWidget);
   });
 }
 

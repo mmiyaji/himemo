@@ -33,6 +33,13 @@ migrate_working_dir/
 /.fvm/flutter_sdk
 .flutter-*.err
 .flutter-*.out
+.flutter-*.log
+.playwright-*.err
+.playwright-*.out
+playwright-debug.png
+node_modules/
+playwright-report/
+test-results/
 
 # Symbolication related
 app.*.symbols

@@ -16,6 +16,7 @@ class AppShell extends ConsumerWidget {
   static const notesNavKey = Key('nav-notes');
   static const calendarNavKey = Key('nav-calendar');
   static const settingsNavKey = Key('nav-settings');
+  static const addNoteKey = Key('add-note-button');
 
   final Widget child;
 
@@ -94,7 +95,9 @@ class AppShell extends ConsumerWidget {
             ),
       floatingActionButton: section == AppSection.notes
           ? FloatingActionButton.small(
-              onPressed: () {},
+              key: addNoteKey,
+              onPressed: () => showNoteEditorSheet(context, ref),
+              tooltip: 'Add note',
               child: const Icon(Icons.add),
             )
           : null,
@@ -202,25 +205,26 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         children: [
           _IdentityHeader(identity: activeIdentity),
           const SizedBox(height: 12),
+          const _NotesToolbar(),
+          const SizedBox(height: 12),
           _StatsStrip(
             visibleCount: visibleNotes.length,
             pinnedCount: visibleNotes.where((note) => note.isPinned).length,
             vaultCount: visibleVaults.length,
           ),
-          const SizedBox(height: 20),
-          for (final vault in visibleVaults) ...[
-            _VaultSectionCard(
-              vault: vault,
-              notes: ref.watch(notesForVaultProvider(vault.id)),
-              selectedNoteId: _selectedNoteId,
-              onNoteSelected: (noteId) {
-                setState(() {
-                  _selectedNoteId = noteId;
-                });
-              },
-            ),
-            const SizedBox(height: 16),
-          ],
+          const SizedBox(height: 16),
+          if (visibleNotes.isEmpty)
+            const _EmptyNotesState()
+          else
+            for (final vault in visibleVaults) ...[
+              _VaultSectionCard(
+                vault: vault,
+                notes: ref.watch(notesForVaultProvider(vault.id)),
+                selectedNoteId: _selectedNoteId,
+                onNoteSelected: (note) => _openMobileNoteActions(context, note),
+              ),
+              const SizedBox(height: 16),
+            ],
         ],
       );
     }
@@ -234,38 +238,43 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             children: [
               _IdentityHeader(identity: activeIdentity),
               const SizedBox(height: 12),
+              const _NotesToolbar(),
+              const SizedBox(height: 12),
               _StatsStrip(
                 visibleCount: visibleNotes.length,
                 pinnedCount: visibleNotes.where((note) => note.isPinned).length,
                 vaultCount: visibleVaults.length,
               ),
               const SizedBox(height: 16),
-              Container(
-                decoration: _sectionDecoration(context),
-                child: Column(
-                  children: [
-                    for (var i = 0; i < visibleNotes.length; i++) ...[
-                      _NoteListTile(
-                        note: visibleNotes[i],
-                        vaultName: ref
-                            .watch(vaultByIdProvider(visibleNotes[i].vaultId))
-                            .name,
-                        selected: _selectedNoteId == visibleNotes[i].id,
-                        onTap: () {
-                          setState(() {
-                            _selectedNoteId = visibleNotes[i].id;
-                          });
-                        },
-                      ),
-                      if (i != visibleNotes.length - 1)
-                        Divider(
-                          height: 1,
-                          color: Theme.of(context).dividerColor,
+              if (visibleNotes.isEmpty)
+                const _EmptyNotesState()
+              else
+                Container(
+                  decoration: _sectionDecoration(context),
+                  child: Column(
+                    children: [
+                      for (var i = 0; i < visibleNotes.length; i++) ...[
+                        _NoteListTile(
+                          note: visibleNotes[i],
+                          vaultName: ref
+                              .watch(vaultByIdProvider(visibleNotes[i].vaultId))
+                              .name,
+                          selected: _selectedNoteId == visibleNotes[i].id,
+                          onTap: () {
+                            setState(() {
+                              _selectedNoteId = visibleNotes[i].id;
+                            });
+                          },
                         ),
+                        if (i != visibleNotes.length - 1)
+                          Divider(
+                            height: 1,
+                            color: Theme.of(context).dividerColor,
+                          ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
             ],
           ),
         ),
@@ -279,63 +288,168 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               vaultName: selectedNote == null
                   ? null
                   : ref.watch(vaultByIdProvider(selectedNote.vaultId)).name,
+              onEdit: selectedNote == null
+                  ? null
+                  : () => showNoteEditorSheet(context, ref, note: selectedNote),
+              onDelete: selectedNote == null
+                  ? null
+                  : () => _deleteNote(context, selectedNote),
             ),
           ),
         ),
       ],
     );
   }
+
+  Future<void> _openMobileNoteActions(
+    BuildContext context,
+    NoteEntry note,
+  ) async {
+    final vaultName = ref.read(vaultByIdProvider(note.vaultId)).name;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            child: _NoteDetailPane(
+              note: note,
+              vaultName: vaultName,
+              onEdit: () async {
+                Navigator.of(context).pop();
+                await showNoteEditorSheet(context, ref, note: note);
+              },
+              onDelete: () async {
+                Navigator.of(context).pop();
+                await _deleteNote(context, note);
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _deleteNote(BuildContext context, NoteEntry note) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Delete note'),
+          content: Text('Delete "${note.title}" permanently from this device?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('delete-note-button'),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      await ref.read(notesControllerProvider.notifier).delete(note.id);
+      if (_selectedNoteId == note.id) {
+        setState(() {
+          _selectedNoteId = null;
+        });
+      }
+    }
+  }
 }
 
-class CalendarScreen extends ConsumerWidget {
+class CalendarScreen extends ConsumerStatefulWidget {
   const CalendarScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final grouped = <String, List<NoteEntry>>{};
-    for (final note in ref.watch(visibleNotesProvider)) {
-      final key =
-          '${note.createdAt.year}/${note.createdAt.month.toString().padLeft(2, '0')}/${note.createdAt.day.toString().padLeft(2, '0')}';
-      grouped.putIfAbsent(key, () => []).add(note);
-    }
+  ConsumerState<CalendarScreen> createState() => _CalendarScreenState();
+}
+
+class _CalendarScreenState extends ConsumerState<CalendarScreen> {
+  DateTime _selectedDay = DateTime.now();
+
+  @override
+  Widget build(BuildContext context) {
+    final notes = ref.watch(visibleNotesProvider);
+    final sameDayNotes = notes
+        .where((note) => _isSameDay(note.createdAt, _selectedDay))
+        .toList(growable: false);
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         const _SectionIntro(
           title: 'Calendar',
-          description: 'Review notes grouped by day.',
+          description:
+              'Review notes grouped by day and keep diary entries anchored to dates.',
         ),
         const SizedBox(height: 16),
-        for (final entry in grouped.entries)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: Container(
-              decoration: _sectionDecoration(context),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      entry.key,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                    const SizedBox(height: 10),
-                    for (final note in entry.value)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Text('- ${note.title}'),
-                      ),
-                  ],
-                ),
-              ),
-            ),
+        Container(
+          decoration: _sectionDecoration(context),
+          padding: const EdgeInsets.all(12),
+          child: CalendarDatePicker(
+            initialDate: _selectedDay,
+            firstDate: DateTime(2024),
+            lastDate: DateTime(2030),
+            currentDate: DateTime.now(),
+            onDateChanged: (date) {
+              setState(() {
+                _selectedDay = date;
+              });
+            },
           ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          decoration: _sectionDecoration(context),
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${_selectedDay.year}/${_selectedDay.month.toString().padLeft(2, '0')}/${_selectedDay.day.toString().padLeft(2, '0')}',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 12),
+              if (sameDayNotes.isEmpty)
+                Text(
+                  'No notes on this day yet.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: _mutedTextColor(context),
+                      ),
+                )
+              else
+                for (var i = 0; i < sameDayNotes.length; i++) ...[
+                  _CalendarNoteRow(
+                    note: sameDayNotes[i],
+                    vaultName: ref
+                        .watch(vaultByIdProvider(sameDayNotes[i].vaultId))
+                        .name,
+                  ),
+                  if (i != sameDayNotes.length - 1)
+                    Divider(
+                      height: 24,
+                      color: Theme.of(context).dividerColor,
+                    ),
+                ],
+            ],
+          ),
+        ),
       ],
     );
+  }
+
+  bool _isSameDay(DateTime left, DateTime right) {
+    return left.year == right.year &&
+        left.month == right.month &&
+        left.day == right.day;
   }
 }
 
@@ -355,6 +469,7 @@ class SettingsScreen extends ConsumerWidget {
         FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
     final displayName =
         FlavorConfig.instance.variables['displayName'] as String? ?? 'HiMemo';
+    final noteCount = ref.watch(notesControllerProvider).length;
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -376,6 +491,26 @@ class SettingsScreen extends ConsumerWidget {
                     ? const Icon(Icons.check_rounded)
                     : null,
               ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _SettingsGroup(
+          title: 'Storage',
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Saved notes on this device'),
+              subtitle: Text('$noteCount entries'),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton(
+                onPressed: () {
+                  ref.read(notesControllerProvider.notifier).seedIfEmpty();
+                },
+                child: const Text('Restore sample notes if empty'),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -419,6 +554,19 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () => ref
                   .read(themeModeControllerProvider.notifier)
                   .setMode(ThemeMode.dark),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        const _SettingsGroup(
+          title: 'Cloud sync roadmap',
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text('iCloud / Google sync'),
+              subtitle: Text(
+                'Local-first persistence is active. End-to-end encrypted sync remains the next implementation milestone.',
+              ),
             ),
           ],
         ),
@@ -671,10 +819,14 @@ class _VaultSectionCard extends StatelessWidget {
   final VaultBucket vault;
   final List<NoteEntry> notes;
   final String? selectedNoteId;
-  final ValueChanged<String> onNoteSelected;
+  final ValueChanged<NoteEntry> onNoteSelected;
 
   @override
   Widget build(BuildContext context) {
+    if (notes.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     return Container(
       decoration: _sectionDecoration(context),
       child: Column(
@@ -702,7 +854,7 @@ class _VaultSectionCard extends StatelessWidget {
               note: notes[i],
               vaultName: vault.name,
               selected: notes[i].id == selectedNoteId,
-              onTap: () => onNoteSelected(notes[i].id),
+              onTap: () => onNoteSelected(notes[i]),
             ),
             if (i != notes.length - 1)
               Divider(height: 1, color: Theme.of(context).dividerColor),
@@ -768,6 +920,22 @@ class _NoteListTile extends StatelessWidget {
                       color: _strongMutedTextColor(context),
                     ),
               ),
+              if (note.attachments.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final attachment in note.attachments)
+                      Chip(
+                        visualDensity: VisualDensity.compact,
+                        label: Text(attachment.label),
+                        avatar:
+                            Icon(_iconForAttachment(attachment.type), size: 16),
+                      ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 10),
               Row(
                 children: [
@@ -795,15 +963,22 @@ class _NoteListTile extends StatelessWidget {
 }
 
 class _NoteDetailPane extends StatelessWidget {
-  const _NoteDetailPane({required this.note, required this.vaultName});
+  const _NoteDetailPane({
+    required this.note,
+    required this.vaultName,
+    this.onEdit,
+    this.onDelete,
+  });
 
   final NoteEntry? note;
   final String? vaultName;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
     if (note == null) {
-      return const Center(child: Text('No note selected'));
+      return const _EmptyNotesState();
     }
 
     final dateLabel =
@@ -815,14 +990,31 @@ class _NoteDetailPane extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            vaultName ?? '',
-            style: Theme.of(
-              context,
-            ).textTheme.labelLarge?.copyWith(color: _mutedTextColor(context)),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  vaultName ?? '',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: _mutedTextColor(context),
+                      ),
+                ),
+              ),
+              IconButton(
+                key: const Key('edit-note-button'),
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit_outlined),
+                tooltip: 'Edit note',
+              ),
+              IconButton(
+                onPressed: onDelete,
+                icon: const Icon(Icons.delete_outline_rounded),
+                tooltip: 'Delete note',
+              ),
+            ],
           ),
           const SizedBox(height: 8),
-          Text(note!.title),
+          Text(note!.title, style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),
           Text(
             dateLabel,
@@ -831,14 +1023,15 @@ class _NoteDetailPane extends StatelessWidget {
             ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
           ),
           const SizedBox(height: 20),
-          Text(
-            note!.body,
-            style: Theme.of(
-              context,
-            )
-                .textTheme
-                .bodyLarge
-                ?.copyWith(color: Theme.of(context).colorScheme.onSurface),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Text(
+                note!.body,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+              ),
+            ),
           ),
           if (note!.attachments.isNotEmpty) ...[
             const SizedBox(height: 20),
@@ -858,17 +1051,6 @@ class _NoteDetailPane extends StatelessWidget {
       ),
     );
   }
-
-  IconData _iconForAttachment(AttachmentType type) {
-    switch (type) {
-      case AttachmentType.photo:
-        return Icons.photo_outlined;
-      case AttachmentType.video:
-        return Icons.videocam_outlined;
-      case AttachmentType.audio:
-        return Icons.mic_none_rounded;
-    }
-  }
 }
 
 class _SectionIntro extends StatelessWidget {
@@ -882,7 +1064,7 @@ class _SectionIntro extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title),
+        Text(title, style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 8),
         Text(
           description,
@@ -911,7 +1093,11 @@ class _SettingsGroup extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [Text(title), const SizedBox(height: 8), ...children],
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          ...children,
+        ],
       ),
     );
   }
@@ -947,6 +1133,450 @@ class _ThemeOptionTile extends StatelessWidget {
   }
 }
 
+Future<void> showNoteEditorSheet(
+  BuildContext context,
+  WidgetRef ref, {
+  NoteEntry? note,
+}) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (context) {
+      return Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: FractionallySizedBox(
+          heightFactor: 0.92,
+          child: _NoteEditorSheet(note: note),
+        ),
+      );
+    },
+  );
+}
+
+class _NotesToolbar extends ConsumerWidget {
+  const _NotesToolbar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final query = ref.watch(searchQueryProvider);
+
+    return Container(
+      decoration: _sectionDecoration(context),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextFormField(
+            key: const Key('notes-search-input'),
+            initialValue: query,
+            decoration: const InputDecoration(
+              labelText: 'Search',
+              hintText: 'Search notes, diary entries, and attachment labels',
+              prefixIcon: Icon(Icons.search_rounded),
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            onChanged: ref.read(searchQueryProvider.notifier).setQuery,
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _InfoChip(
+                icon: Icons.lock_outline_rounded,
+                text: ref.watch(activeIdentityDataProvider).lockLabel,
+              ),
+              _InfoChip(
+                icon: Icons.folder_outlined,
+                text:
+                    '${ref.watch(visibleVaultsProvider).length} vaults visible',
+              ),
+              _InfoChip(
+                icon: Icons.push_pin_outlined,
+                text:
+                    '${ref.watch(visibleNotesProvider).where((note) => note.isPinned).length} pinned',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  const _InfoChip({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      avatar: Icon(icon, size: 16),
+      label: Text(text),
+    );
+  }
+}
+
+class _CalendarNoteRow extends StatelessWidget {
+  const _CalendarNoteRow({required this.note, required this.vaultName});
+
+  final NoteEntry note;
+  final String vaultName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(note.title, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 4),
+        Text(
+          note.body,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: _strongMutedTextColor(context),
+              ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          vaultName,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: _mutedTextColor(context),
+              ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EmptyNotesState extends StatelessWidget {
+  const _EmptyNotesState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: _sectionDecoration(context),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'No matching notes',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Create a new memo or clear the current search filter to see saved entries.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NoteEditorSheet extends ConsumerStatefulWidget {
+  const _NoteEditorSheet({this.note});
+
+  final NoteEntry? note;
+
+  @override
+  ConsumerState<_NoteEditorSheet> createState() => _NoteEditorSheetState();
+}
+
+class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
+  late final TextEditingController _titleController;
+  late final TextEditingController _bodyController;
+  late DateTime _createdAt;
+  late bool _isPinned;
+  late List<NoteAttachment> _attachments;
+  String? _selectedVaultId;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: widget.note?.title ?? '');
+    _bodyController = TextEditingController(text: widget.note?.body ?? '');
+    _titleController.addListener(_handleTextChanged);
+    _bodyController.addListener(_handleTextChanged);
+    _createdAt = widget.note?.createdAt ?? DateTime.now();
+    _isPinned = widget.note?.isPinned ?? false;
+    _attachments = [...?widget.note?.attachments];
+    _selectedVaultId = widget.note?.vaultId ?? 'everyday';
+  }
+
+  @override
+  void dispose() {
+    _titleController.removeListener(_handleTextChanged);
+    _bodyController.removeListener(_handleTextChanged);
+    _titleController.dispose();
+    _bodyController.dispose();
+    super.dispose();
+  }
+
+  void _handleTextChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleVaults = ref.watch(visibleVaultsProvider);
+    if (_selectedVaultId == null && visibleVaults.isNotEmpty) {
+      _selectedVaultId = visibleVaults.first.id;
+    }
+    if (!visibleVaults.any((vault) => vault.id == _selectedVaultId) &&
+        visibleVaults.isNotEmpty) {
+      _selectedVaultId = visibleVaults.first.id;
+    }
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.note == null ? 'New note' : 'Edit note',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: ListView(
+                children: [
+                  TextField(
+                    key: const Key('note-title-input'),
+                    controller: _titleController,
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Title',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    key: const Key('note-body-input'),
+                    controller: _bodyController,
+                    onChanged: (_) => setState(() {}),
+                    minLines: 8,
+                    maxLines: 12,
+                    decoration: const InputDecoration(
+                      labelText: 'Body',
+                      alignLabelWithHint: true,
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    key: const Key('note-vault-select'),
+                    initialValue: _selectedVaultId,
+                    decoration: const InputDecoration(
+                      labelText: 'Vault',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      for (final vault in visibleVaults)
+                        DropdownMenuItem(
+                          value: vault.id,
+                          child: Text(vault.name),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedVaultId = value;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  SwitchListTile.adaptive(
+                    value: _isPinned,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Pin this note'),
+                    subtitle: const Text('Pinned notes stay near the top.'),
+                    onChanged: (value) {
+                      setState(() {
+                        _isPinned = value;
+                      });
+                    },
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Date'),
+                    subtitle: Text(
+                      '${_createdAt.year}/${_createdAt.month.toString().padLeft(2, '0')}/${_createdAt.day.toString().padLeft(2, '0')}',
+                    ),
+                    trailing: OutlinedButton(
+                      onPressed: _pickDate,
+                      child: const Text('Change'),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    decoration: _sectionDecoration(context),
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              'Attachments',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const Spacer(),
+                            PopupMenuButton<AttachmentType>(
+                              itemBuilder: (context) => const [
+                                PopupMenuItem(
+                                  value: AttachmentType.photo,
+                                  child: Text('Add photo placeholder'),
+                                ),
+                                PopupMenuItem(
+                                  value: AttachmentType.video,
+                                  child: Text('Add video placeholder'),
+                                ),
+                                PopupMenuItem(
+                                  value: AttachmentType.audio,
+                                  child: Text('Add audio placeholder'),
+                                ),
+                              ],
+                              onSelected: _addAttachment,
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                child: Text('Add'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        if (_attachments.isEmpty)
+                          Text(
+                            'Use placeholders for decoy photo, video, or audio entries.',
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: _mutedTextColor(context),
+                                    ),
+                          )
+                        else
+                          for (var i = 0; i < _attachments.length; i++)
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(
+                                  _iconForAttachment(_attachments[i].type)),
+                              title: Text(_attachments[i].label),
+                              trailing: IconButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _attachments.removeAt(i);
+                                  });
+                                },
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                            ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                const Spacer(),
+                FilledButton(
+                  key: const Key('save-note-button'),
+                  onPressed: _save,
+                  child: Text(
+                    widget.note == null ? 'Create note' : 'Save changes',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool get _canSave {
+    return _titleController.text.trim().isNotEmpty &&
+        _bodyController.text.trim().isNotEmpty &&
+        _selectedVaultId != null;
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _createdAt,
+      firstDate: DateTime(2024),
+      lastDate: DateTime(2030),
+    );
+    if (picked == null) {
+      return;
+    }
+    setState(() {
+      _createdAt = DateTime(
+        picked.year,
+        picked.month,
+        picked.day,
+        _createdAt.hour,
+        _createdAt.minute,
+      );
+    });
+  }
+
+  void _addAttachment(AttachmentType type) {
+    final count =
+        _attachments.where((attachment) => attachment.type == type).length;
+    final label = switch (type) {
+      AttachmentType.photo => 'photo-${count + 1}.jpg',
+      AttachmentType.video => 'video-${count + 1}.mp4',
+      AttachmentType.audio => 'audio-${count + 1}.m4a',
+    };
+    setState(() {
+      _attachments = [
+        ..._attachments,
+        NoteAttachment(type: type, label: label),
+      ];
+    });
+  }
+
+  Future<void> _save() async {
+    if (!_canSave) {
+      return;
+    }
+    final note = NoteEntry(
+      id: widget.note?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
+      vaultId: _selectedVaultId!,
+      title: _titleController.text.trim(),
+      body: _bodyController.text.trim(),
+      createdAt: _createdAt,
+      attachments: _attachments,
+      isPinned: _isPinned,
+    );
+    await ref.read(notesControllerProvider.notifier).upsert(note);
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+}
+
 BoxDecoration _sectionDecoration(BuildContext context) {
   return BoxDecoration(
     color: Theme.of(context).colorScheme.surface,
@@ -965,4 +1595,15 @@ Color _mutedTextColor(BuildContext context) {
 
 Color _strongMutedTextColor(BuildContext context) {
   return Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.82);
+}
+
+IconData _iconForAttachment(AttachmentType type) {
+  switch (type) {
+    case AttachmentType.photo:
+      return Icons.photo_outlined;
+    case AttachmentType.video:
+      return Icons.videocam_outlined;
+    case AttachmentType.audio:
+      return Icons.mic_none_rounded;
+  }
 }

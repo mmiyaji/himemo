@@ -1,0 +1,27 @@
+{
+  "name": "himemo",
+  "version": "1.0.0",
+  "description": "Flutter で構築するクロスプラットフォームのメモアプリ試作です。対象は `iOS (iPhone / iPad)` `Android` `Web` です。",
+  "scripts": {
+    "e2e": "playwright test",
+    "e2e:headed": "playwright test --headed",
+    "web:build": "\"%LOCALAPPDATA%\\Pub\\Cache\\bin\\fvm.bat\" flutter build web -t lib/main_development.dart",
+    "web:serve:test": "npm run web:build && serve build/web -l 4173"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mmiyaji/himemo.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/mmiyaji/himemo/issues"
+  },
+  "homepage": "https://github.com/mmiyaji/himemo#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "serve": "^14.2.6"
+  }
+}

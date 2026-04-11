@@ -83,7 +83,7 @@ final class ThemeModeControllerProvider
 }
 
 String _$themeModeControllerHash() =>
-    r'62c597dfc68f82ca7d99a431f420a9846ff92658';
+    r'b00673025e14732cb55742428f6d0e5b05410c04';
 
 abstract class _$ThemeModeController extends $Notifier<ThemeMode> {
   ThemeMode build();
@@ -135,7 +135,7 @@ final class ActiveIdentityProvider
   }
 }
 
-String _$activeIdentityHash() => r'5749aa82c3fcf1f586465d1fa0add4f0ae317c11';
+String _$activeIdentityHash() => r'c1da7940c8baa0dd5c6b8fdff84cd2c0336d6484';
 
 abstract class _$ActiveIdentity extends $Notifier<String> {
   String build();
@@ -148,6 +148,109 @@ abstract class _$ActiveIdentity extends $Notifier<String> {
             as $ClassProviderElement<
               AnyNotifier<String, String>,
               String,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
+@ProviderFor(SearchQuery)
+final searchQueryProvider = SearchQueryProvider._();
+
+final class SearchQueryProvider extends $NotifierProvider<SearchQuery, String> {
+  SearchQueryProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'searchQueryProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$searchQueryHash();
+
+  @$internal
+  @override
+  SearchQuery create() => SearchQuery();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(String value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<String>(value),
+    );
+  }
+}
+
+String _$searchQueryHash() => r'0fa228511ddd8c322643e29f0040d15dd9c2b8d9';
+
+abstract class _$SearchQuery extends $Notifier<String> {
+  String build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<String, String>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<String, String>,
+              String,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
+@ProviderFor(NotesController)
+final notesControllerProvider = NotesControllerProvider._();
+
+final class NotesControllerProvider
+    extends $NotifierProvider<NotesController, List<NoteEntry>> {
+  NotesControllerProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'notesControllerProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$notesControllerHash();
+
+  @$internal
+  @override
+  NotesController create() => NotesController();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(List<NoteEntry> value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<List<NoteEntry>>(value),
+    );
+  }
+}
+
+String _$notesControllerHash() => r'245103d2545f2538d40ee01a25eb0d1dcd95f478';
+
+abstract class _$NotesController extends $Notifier<List<NoteEntry>> {
+  List<NoteEntry> build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<List<NoteEntry>, List<NoteEntry>>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<List<NoteEntry>, List<NoteEntry>>,
+              List<NoteEntry>,
               Object?,
               Object?
             >;
@@ -378,7 +481,7 @@ final class VisibleNotesProvider
   }
 }
 
-String _$visibleNotesHash() => r'6bd731db560f397fb5a16cdbd2e158a38bf0c14e';
+String _$visibleNotesHash() => r'b28549f20a8865c73525ed49d822e2181abdce34';
 
 @ProviderFor(notesForVault)
 final notesForVaultProvider = NotesForVaultFamily._();
