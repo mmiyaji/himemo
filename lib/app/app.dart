@@ -103,6 +103,7 @@ class _AppLockGate extends ConsumerStatefulWidget {
 class _AppLockGateState extends ConsumerState<_AppLockGate>
     with WidgetsBindingObserver {
   bool _autoPrompted = false;
+  DateTime? _backgroundedAt;
 
   @override
   void initState() {
@@ -128,9 +129,11 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
-      if (ref.read(appLockSettingsControllerProvider)) {
-        ref.read(appSessionUnlockControllerProvider.notifier).lock();
-        _autoPrompted = false;
+      _backgroundedAt = DateTime.now();
+      if (ref.read(appLockSettingsControllerProvider) &&
+          ref.read(appLockRelockDelayControllerProvider) ==
+              AppLockRelockDelay.immediate) {
+        _lockProtectedSessions();
       }
     }
   }
@@ -140,6 +143,10 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     if (!enabled) {
       ref.read(appSessionUnlockControllerProvider.notifier).unlock();
       return;
+    }
+
+    if (_shouldRelockAfterBackground()) {
+      _lockProtectedSessions();
     }
 
     if (ref.read(appSessionUnlockControllerProvider)) {
@@ -158,6 +165,36 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         _autoPrompted = true;
       });
     }
+  }
+
+  bool _shouldRelockAfterBackground() {
+    final backgroundedAt = _backgroundedAt;
+    if (backgroundedAt == null) {
+      return false;
+    }
+    final delay = ref.read(appLockRelockDelayControllerProvider);
+    if (delay == AppLockRelockDelay.immediate) {
+      return false;
+    }
+    final elapsed = DateTime.now().difference(backgroundedAt);
+    return elapsed >= _durationForDelay(delay);
+  }
+
+  Duration _durationForDelay(AppLockRelockDelay delay) {
+    return switch (delay) {
+      AppLockRelockDelay.immediate => Duration.zero,
+      AppLockRelockDelay.seconds30 => const Duration(seconds: 30),
+      AppLockRelockDelay.minutes2 => const Duration(minutes: 2),
+      AppLockRelockDelay.minutes10 => const Duration(minutes: 10),
+    };
+  }
+
+  void _lockProtectedSessions() {
+    ref.read(appSessionUnlockControllerProvider.notifier).lock();
+    if (ref.read(privateVaultLockOnAppLockControllerProvider)) {
+      ref.read(privateVaultSessionControllerProvider.notifier).lock();
+    }
+    _autoPrompted = false;
   }
 
   @override

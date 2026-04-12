@@ -22,6 +22,18 @@ void main() {
     expect(container.read(visibleNotesProvider).length, 4);
   });
 
+  test('app lock policy providers expose secure defaults', () {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    expect(
+      container.read(appLockRelockDelayControllerProvider),
+      AppLockRelockDelay.immediate,
+    );
+    expect(container.read(privateVaultLockOnAppLockControllerProvider), isTrue);
+  });
+
   testWidgets('app renders HiMemo shell', (tester) async {
     SharedPreferences.setMockInitialValues({
       'app.onboarding_completed': true,

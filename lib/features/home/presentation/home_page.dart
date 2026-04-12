@@ -682,6 +682,13 @@ class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   static const appLockToggleKey = Key('app-lock-toggle');
+  static const appLockRelockImmediateKey = Key('app-lock-relock-immediate');
+  static const appLockRelock30SecondsKey = Key('app-lock-relock-30-seconds');
+  static const appLockRelock2MinutesKey = Key('app-lock-relock-2-minutes');
+  static const appLockRelock10MinutesKey = Key('app-lock-relock-10-minutes');
+  static const privateVaultLockOnAppLockKey = Key(
+    'private-vault-lock-on-app-lock',
+  );
   static const appLockAuthenticateKey = Key('app-lock-authenticate');
   static const appLockLockNowKey = Key('app-lock-lock-now');
   static const lightThemeKey = Key('theme-light-option');
@@ -707,6 +714,7 @@ class SettingsScreen extends ConsumerWidget {
     final themeMode = ref.watch(themeModeControllerProvider);
     final colorTheme = ref.watch(appColorThemeControllerProvider);
     final appLockEnabled = ref.watch(appLockSettingsControllerProvider);
+    final appLockRelockDelay = ref.watch(appLockRelockDelayControllerProvider);
     final appSessionUnlocked = ref.watch(appSessionUnlockControllerProvider);
     final deviceAuthState = ref.watch(deviceAuthControllerProvider);
     final privateVaultConfigured = ref.watch(
@@ -714,6 +722,9 @@ class SettingsScreen extends ConsumerWidget {
     );
     final privateVaultUnlocked = ref.watch(
       privateVaultSessionControllerProvider,
+    );
+    final privateVaultLockOnAppLock = ref.watch(
+      privateVaultLockOnAppLockControllerProvider,
     );
     final syncProvider = ref.watch(syncProviderControllerProvider);
     final syncAuthState = ref.watch(selectedSyncAuthStateProvider);
@@ -801,6 +812,57 @@ class SettingsScreen extends ConsumerWidget {
                     ? 'Current session is unlocked.'
                     : 'Current session is locked until device authentication succeeds.',
               ),
+            ),
+            const SizedBox(height: 4),
+            const Text('Re-lock after app leaves the foreground'),
+            const SizedBox(height: 8),
+            _ThemeOptionTile(
+              tileKey: appLockRelockImmediateKey,
+              title: 'Immediately',
+              subtitle: 'Lock the app as soon as it moves to the background.',
+              selected: appLockRelockDelay == AppLockRelockDelay.immediate,
+              onTap: () => ref
+                  .read(appLockRelockDelayControllerProvider.notifier)
+                  .setDelay(AppLockRelockDelay.immediate),
+            ),
+            _ThemeOptionTile(
+              tileKey: appLockRelock30SecondsKey,
+              title: 'After 30 seconds',
+              subtitle: 'Allow quick app switching without immediate re-auth.',
+              selected: appLockRelockDelay == AppLockRelockDelay.seconds30,
+              onTap: () => ref
+                  .read(appLockRelockDelayControllerProvider.notifier)
+                  .setDelay(AppLockRelockDelay.seconds30),
+            ),
+            _ThemeOptionTile(
+              tileKey: appLockRelock2MinutesKey,
+              title: 'After 2 minutes',
+              subtitle: 'Useful when capturing photos or audio between notes.',
+              selected: appLockRelockDelay == AppLockRelockDelay.minutes2,
+              onTap: () => ref
+                  .read(appLockRelockDelayControllerProvider.notifier)
+                  .setDelay(AppLockRelockDelay.minutes2),
+            ),
+            _ThemeOptionTile(
+              tileKey: appLockRelock10MinutesKey,
+              title: 'After 10 minutes',
+              subtitle: 'Keep the app open during longer editing sessions.',
+              selected: appLockRelockDelay == AppLockRelockDelay.minutes10,
+              onTap: () => ref
+                  .read(appLockRelockDelayControllerProvider.notifier)
+                  .setDelay(AppLockRelockDelay.minutes10),
+            ),
+            SwitchListTile.adaptive(
+              key: privateVaultLockOnAppLockKey,
+              value: privateVaultLockOnAppLock,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Lock private vault when app locks'),
+              subtitle: const Text(
+                'Apply app re-lock to the private vault session too.',
+              ),
+              onChanged: (value) => ref
+                  .read(privateVaultLockOnAppLockControllerProvider.notifier)
+                  .setEnabled(value),
             ),
             Align(
               alignment: Alignment.centerLeft,

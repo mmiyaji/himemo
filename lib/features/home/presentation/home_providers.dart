@@ -32,6 +32,8 @@ enum SyncProvider { off, iCloud, googleDrive }
 
 enum AppLaunchSurface { onboarding, ready }
 
+enum AppLockRelockDelay { immediate, seconds30, minutes2, minutes10 }
+
 enum DeviceAuthAvailability { unknown, available, unavailable }
 
 enum SyncAuthStage { idle, busy, authenticated, unsupported, error }
@@ -851,6 +853,81 @@ class AppLockSettingsController extends Notifier<bool> {
     try {
       final prefs = await SharedPreferences.getInstance();
       state = prefs.getBool(_storageKey) ?? false;
+    } catch (_) {}
+  }
+}
+
+final appLockRelockDelayControllerProvider =
+    NotifierProvider<AppLockRelockDelayController, AppLockRelockDelay>(
+      AppLockRelockDelayController.new,
+    );
+
+class AppLockRelockDelayController extends Notifier<AppLockRelockDelay> {
+  static const _storageKey = 'settings.app_lock_relock_delay';
+  bool _restored = false;
+
+  @override
+  AppLockRelockDelay build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return AppLockRelockDelay.immediate;
+  }
+
+  Future<void> setDelay(AppLockRelockDelay delay) async {
+    state = delay;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_storageKey, delay.name);
+    } catch (_) {}
+  }
+
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_storageKey);
+      if (stored == null) {
+        return;
+      }
+      state = AppLockRelockDelay.values.firstWhere(
+        (delay) => delay.name == stored,
+        orElse: () => AppLockRelockDelay.immediate,
+      );
+    } catch (_) {}
+  }
+}
+
+final privateVaultLockOnAppLockControllerProvider =
+    NotifierProvider<PrivateVaultLockOnAppLockController, bool>(
+      PrivateVaultLockOnAppLockController.new,
+    );
+
+class PrivateVaultLockOnAppLockController extends Notifier<bool> {
+  static const _storageKey = 'settings.private_vault_lock_on_app_lock';
+  bool _restored = false;
+
+  @override
+  bool build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return true;
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    state = enabled;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_storageKey, enabled);
+    } catch (_) {}
+  }
+
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      state = prefs.getBool(_storageKey) ?? true;
     } catch (_) {}
   }
 }
