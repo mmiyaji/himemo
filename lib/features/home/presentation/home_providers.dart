@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 
-import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -20,6 +18,11 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import '../data/home_repository.dart';
 import '../domain/note_entry.dart';
 import '../domain/vault_models.dart';
+import '../../security/data/encrypted_note_store.dart';
+import '../../security/data/encryption_service.dart';
+import '../../security/data/master_key_service.dart';
+import '../../security/data/private_vault_secret_store.dart';
+import '../../security/data/secure_key_value_store.dart';
 
 part 'home_providers.g.dart';
 
@@ -423,12 +426,19 @@ class DefaultMediaImportService implements MediaImportService {
   }
 
   Future<NoteAttachment?> _pickPhoto(ImageSource source) async {
-    final picker = ImagePicker();
-    final picked = await picker.pickImage(
-      source: source,
-      imageQuality: 88,
-      maxWidth: 1800,
-    );
+    XFile? picked;
+    try {
+      final picker = ImagePicker();
+      picked = await picker.pickImage(
+        source: source,
+        imageQuality: 88,
+        maxWidth: 1800,
+      );
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
     if (picked == null) {
       return null;
     }
@@ -440,8 +450,15 @@ class DefaultMediaImportService implements MediaImportService {
   }
 
   Future<NoteAttachment?> _pickVideo(ImageSource source) async {
-    final picker = ImagePicker();
-    final picked = await picker.pickVideo(source: source);
+    XFile? picked;
+    try {
+      final picker = ImagePicker();
+      picked = await picker.pickVideo(source: source);
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
     if (picked == null) {
       return null;
     }
@@ -449,10 +466,17 @@ class DefaultMediaImportService implements MediaImportService {
   }
 
   Future<NoteAttachment?> _pickAudio() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.audio,
-      withData: kIsWeb,
-    );
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: FileType.audio,
+        withData: kIsWeb,
+      );
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
     if (result == null || result.files.isEmpty) {
       return null;
     }
@@ -511,6 +535,36 @@ final syncAuthGatewayProvider = Provider<SyncAuthGateway>(
 final mediaImportServiceProvider = Provider<MediaImportService>(
   (ref) => DefaultMediaImportService(),
 );
+
+final secureKeyValueStoreProvider = Provider<SecureKeyValueStore>((ref) {
+  return FlutterSecureKeyValueStore();
+});
+
+final encryptionServiceProvider = Provider<EncryptionService>((ref) {
+  return EncryptionService();
+});
+
+final masterKeyServiceProvider = Provider<MasterKeyService>((ref) {
+  final encryption = ref.watch(encryptionServiceProvider);
+  return MasterKeyService(
+    secureStore: ref.watch(secureKeyValueStoreProvider),
+    keyFactory: encryption.generateKeyBytes,
+  );
+});
+
+final encryptedNoteStoreProvider = Provider<EncryptedNoteStore>((ref) {
+  return EncryptedNoteStore(
+    encryptionService: ref.watch(encryptionServiceProvider),
+    masterKeyService: ref.watch(masterKeyServiceProvider),
+  );
+});
+
+final privateVaultSecretStoreProvider = Provider<PrivateVaultSecretStore>((ref) {
+  return PrivateVaultSecretStore(
+    secureStore: ref.watch(secureKeyValueStoreProvider),
+    encryptionService: ref.watch(encryptionServiceProvider),
+  );
+});
 
 @Riverpod(keepAlive: true)
 HomeRepository homeRepository(Ref ref) => SeededHomeRepository();
@@ -865,8 +919,6 @@ final privateVaultSecretControllerProvider =
     );
 
 class PrivateVaultSecretController extends Notifier<bool> {
-  static const _saltKey = 'security.private_vault_salt';
-  static const _digestKey = 'security.private_vault_digest';
   bool _restored = false;
 
   @override
@@ -879,25 +931,16 @@ class PrivateVaultSecretController extends Notifier<bool> {
   }
 
   Future<void> configure(String secret) async {
-    final prefs = await SharedPreferences.getInstance();
-    final salt = _generateSalt();
-    final digest = _deriveDigest(secret, salt);
-    await prefs.setString(_saltKey, salt);
-    await prefs.setString(_digestKey, digest);
+    await ref.read(privateVaultSecretStoreProvider).configure(secret);
     state = true;
     ref.read(privateVaultSessionControllerProvider.notifier).unlock();
   }
 
   Future<bool> verify(String secret) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final salt = prefs.getString(_saltKey);
-      final expected = prefs.getString(_digestKey);
-      if (salt == null || expected == null) {
-        return false;
-      }
-      final actual = _deriveDigest(secret, salt);
-      final matched = actual == expected;
+      final matched = await ref.read(privateVaultSecretStoreProvider).verify(
+        secret,
+      );
       if (matched) {
         ref.read(privateVaultSessionControllerProvider.notifier).unlock();
       }
@@ -909,9 +952,7 @@ class PrivateVaultSecretController extends Notifier<bool> {
 
   Future<void> clear() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_saltKey);
-      await prefs.remove(_digestKey);
+      await ref.read(privateVaultSecretStoreProvider).clear();
     } catch (_) {}
     state = false;
     ref.read(privateVaultSessionControllerProvider.notifier).lock();
@@ -919,24 +960,8 @@ class PrivateVaultSecretController extends Notifier<bool> {
 
   Future<void> _restore() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      state =
-          prefs.getString(_saltKey) != null &&
-          prefs.getString(_digestKey) != null;
+      state = await ref.read(privateVaultSecretStoreProvider).hasSecret();
     } catch (_) {}
-  }
-
-  String _generateSalt() {
-    final bytes = List<int>.generate(16, (_) => Random.secure().nextInt(256));
-    return base64Encode(bytes);
-  }
-
-  String _deriveDigest(String secret, String salt) {
-    List<int> bytes = utf8.encode('$salt:$secret');
-    for (var i = 0; i < 120000; i++) {
-      bytes = sha256.convert(bytes).bytes;
-    }
-    return base64Encode(bytes);
   }
 }
 
@@ -983,7 +1008,6 @@ class SearchQuery extends _$SearchQuery {
 
 @Riverpod(keepAlive: true)
 class NotesController extends _$NotesController {
-  static const _storageKey = 'notes.entries.v1';
   bool _restored = false;
 
   @override
@@ -1025,22 +1049,11 @@ class NotesController extends _$NotesController {
 
   Future<void> _restore() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final stored = prefs.getString(_storageKey);
-      if (stored == null || stored.isEmpty) {
-        final seeded = List<NoteEntry>.from(
-          ref.read(homeRepositoryProvider).seededNotes,
-        );
-        _sort(seeded);
-        state = seeded;
-        return;
-      }
-
-      final decoded = (jsonDecode(stored) as List<dynamic>)
-          .map((entry) => Map<String, dynamic>.from(entry as Map))
-          .map(NoteEntry.fromJson)
-          .toList(growable: false);
-      final restored = [...decoded];
+      final restored = [
+        ...await ref
+            .read(encryptedNoteStoreProvider)
+            .load(fallbackNotes: ref.read(homeRepositoryProvider).seededNotes),
+      ];
       _sort(restored);
       state = restored;
     } catch (_) {}
@@ -1048,9 +1061,7 @@ class NotesController extends _$NotesController {
 
   Future<void> _persist() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final encoded = jsonEncode(state.map((note) => note.toJson()).toList());
-      await prefs.setString(_storageKey, encoded);
+      await ref.read(encryptedNoteStoreProvider).save(state);
     } catch (_) {}
   }
 

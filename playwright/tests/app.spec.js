@@ -27,12 +27,45 @@ async function dismissOnboardingIfNeeded(page) {
 }
 
 async function enableSemantics(page) {
-  await page.waitForSelector('flt-semantics-placeholder', {
-    state: 'attached',
-    timeout: 15000,
+  const addNoteButton = page.getByRole('button', { name: 'Add note' });
+  const accessibilityButton = page.getByRole('button', {
+    name: 'Enable accessibility',
   });
-  await page.locator('flt-semantics-placeholder').evaluate((element) => {
-    element.click();
-  });
-  await page.waitForSelector('flt-semantics[role="button"]', { timeout: 15000 });
+  const semanticsPlaceholder = page.locator('flt-semantics-placeholder');
+
+  await expect
+    .poll(
+      async () =>
+        (await addNoteButton.count()) +
+        (await accessibilityButton.count()) +
+        (await semanticsPlaceholder.count()),
+      { timeout: 15000 },
+    )
+    .toBeGreaterThan(0);
+
+  if (await addNoteButton.count()) {
+    return;
+  }
+
+  if (await accessibilityButton.count()) {
+    await accessibilityButton.evaluate((element) => {
+      element.click();
+    });
+    await expect(page.getByRole('button', { name: 'Skip' })).toBeVisible({
+      timeout: 15000,
+    });
+    return;
+  }
+
+  if (await semanticsPlaceholder.count()) {
+    await semanticsPlaceholder.evaluate((element) => {
+      element.click();
+    });
+  }
+
+  await expect(
+    page
+        .getByRole('button', { name: 'Skip' })
+        .or(page.getByRole('button', { name: 'Add note' })),
+  ).toBeVisible({ timeout: 15000 });
 }
