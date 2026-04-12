@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/sync_bundle_preview.dart';
 import '../domain/note_entry.dart';
 import '../domain/vault_models.dart';
@@ -1226,6 +1227,68 @@ class SettingsScreen extends ConsumerWidget {
                             ).showSnackBar(SnackBar(content: Text(message)));
                           },
                     child: const Text('Force upload'),
+                  ),
+                if (syncProvider == SyncProvider.googleDrive &&
+                    syncAuthState.isAuthenticated)
+                  OutlinedButton(
+                    onPressed: syncTransferState.isBusy
+                        ? null
+                        : () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            try {
+                              final history = await ref
+                                  .read(
+                                    syncTransferControllerProvider.notifier,
+                                  )
+                                  .listRemoteBundleHistory();
+                              if (!context.mounted) {
+                                return;
+                              }
+                              if (history.isEmpty) {
+                                messenger.showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'No remote bundle history is available.',
+                                    ),
+                                  ),
+                                );
+                                return;
+                              }
+                              final selected =
+                                  await _showBundleHistoryDialog(
+                                    context,
+                                    history,
+                                  );
+                              if (selected == null) {
+                                return;
+                              }
+                              await ref
+                                  .read(
+                                    syncTransferControllerProvider.notifier,
+                                  )
+                                  .downloadBundle(selected);
+                              if (!context.mounted) {
+                                return;
+                              }
+                              final message = ref
+                                  .read(syncTransferControllerProvider)
+                                  .message;
+                              if (message == null || message.isEmpty) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(content: Text(message)),
+                              );
+                            } catch (error) {
+                              if (!context.mounted) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(content: Text('$error')),
+                              );
+                            }
+                          },
+                    child: const Text('Bundle history'),
                   ),
                 if (syncProvider == SyncProvider.googleDrive &&
                     syncAuthState.isAuthenticated)
@@ -3053,6 +3116,51 @@ Future<bool?> _showBundlePreviewDialog(
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
             child: Text(confirmLabel),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+Future<RemoteSyncBundleStatus?> _showBundleHistoryDialog(
+  BuildContext context,
+  List<RemoteSyncBundleStatus> history,
+) {
+  return showDialog<RemoteSyncBundleStatus>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: const Text('Remote bundle history'),
+        content: SizedBox(
+          width: 520,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: history.length,
+            separatorBuilder: (_, _) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final entry = history[index];
+              final modifiedAt = entry.modifiedAt == null
+                  ? 'Unknown time'
+                  : _formatDateTime(entry.modifiedAt!);
+              final counts =
+                  '${entry.noteCount ?? '?'} notes, ${entry.attachmentCount ?? '?'} attachments';
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(modifiedAt),
+                subtitle: Text(
+                  '${entry.fileName}\n$counts',
+                ),
+                isThreeLine: true,
+                onTap: () => Navigator.of(context).pop(entry),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
           ),
         ],
       );

@@ -38,6 +38,8 @@ class DownloadedRemoteSyncBundle {
 abstract class GoogleDriveSyncTransport {
   Future<RemoteSyncBundleStatus?> fetchLatestBundleStatus();
 
+  Future<List<RemoteSyncBundleStatus>> listBundleHistory({int limit = 10});
+
   Future<RemoteSyncBundleStatus> uploadBundle({
     required String encodedPayload,
     required String deviceId,
@@ -46,21 +48,31 @@ abstract class GoogleDriveSyncTransport {
   });
 
   Future<DownloadedRemoteSyncBundle?> downloadLatestBundle();
+
+  Future<DownloadedRemoteSyncBundle?> downloadBundleByFileId(String fileId);
 }
 
 class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   static const scope = 'https://www.googleapis.com/auth/drive.appdata';
   static const _bundleFileName = 'himemo_sync_bundle.enc';
+  static const _bundleFilePrefix = 'himemo_sync_bundle_';
   static const _spaces = 'appDataFolder';
 
   @override
   Future<RemoteSyncBundleStatus?> fetchLatestBundleStatus() async {
     final api = await _openDriveApi(interactive: false);
-    final existing = await _findExistingBundle(api);
+    final existing = await _findLatestBundle(api);
     if (existing == null) {
       return null;
     }
     return _toStatus(existing);
+  }
+
+  @override
+  Future<List<RemoteSyncBundleStatus>> listBundleHistory({int limit = 10}) async {
+    final api = await _openDriveApi(interactive: false);
+    final files = await _findBundleHistory(api, limit: limit);
+    return files.map(_toStatus).toList(growable: false);
   }
 
   @override
@@ -71,11 +83,11 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     required int attachmentCount,
   }) async {
     final api = await _openDriveApi(interactive: true);
-    final existing = await _findExistingBundle(api);
     final bytes = utf8.encode(encodedPayload);
     final media = drive.Media(Stream<List<int>>.value(bytes), bytes.length);
+    final stamp = DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');
     final metadata = drive.File()
-      ..name = _bundleFileName
+      ..name = '$_bundleFilePrefix$stamp.enc'
       ..parents = ['appDataFolder']
       ..appProperties = {
         'deviceId': deviceId,
@@ -83,18 +95,11 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
         'attachmentCount': '$attachmentCount',
       };
 
-    final result = existing == null
-        ? await api.files.create(
-            metadata,
-            uploadMedia: media,
-            $fields: 'id,name,modifiedTime,size,appProperties',
-          )
-        : await api.files.update(
-            metadata,
-            existing.id!,
-            uploadMedia: media,
-            $fields: 'id,name,modifiedTime,size,appProperties',
-          );
+    final result = await api.files.create(
+      metadata,
+      uploadMedia: media,
+      $fields: 'id,name,modifiedTime,size,appProperties',
+    );
 
     return _toStatus(result);
   }
@@ -102,19 +107,42 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   @override
   Future<DownloadedRemoteSyncBundle?> downloadLatestBundle() async {
     final api = await _openDriveApi(interactive: true);
-    final existing = await _findExistingBundle(api);
+    final existing = await _findLatestBundle(api);
     if (existing == null || existing.id == null || existing.id!.isEmpty) {
       return null;
     }
+    return _downloadFile(api, existing);
+  }
+
+  @override
+  Future<DownloadedRemoteSyncBundle?> downloadBundleByFileId(String fileId) async {
+    final api = await _openDriveApi(interactive: true);
+    if (fileId.isEmpty) {
+      return null;
+    }
     final response = await api.files.get(
-      existing.id!,
+      fileId,
+      $fields: 'id,name,modifiedTime,size,appProperties',
+    ) as drive.File;
+    if (response.id == null || response.id!.isEmpty) {
+      return null;
+    }
+    return _downloadFile(api, response);
+  }
+
+  Future<DownloadedRemoteSyncBundle> _downloadFile(
+    drive.DriveApi api,
+    drive.File file,
+  ) async {
+    final response = await api.files.get(
+      file.id!,
       downloadOptions: drive.DownloadOptions.fullMedia,
     );
     final media = response as drive.Media;
     final chunks = await media.stream.toList();
     final bytes = chunks.expand((chunk) => chunk).toList(growable: false);
     return DownloadedRemoteSyncBundle(
-      status: _toStatus(existing),
+      status: _toStatus(file),
       encodedPayload: utf8.decode(bytes),
     );
   }
@@ -133,19 +161,31 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     return drive.DriveApi(client);
   }
 
-  Future<drive.File?> _findExistingBundle(drive.DriveApi api) async {
+  Future<drive.File?> _findLatestBundle(drive.DriveApi api) async {
+    final files = await _findBundleHistory(api, limit: 1);
+    if (files.isEmpty) {
+      return null;
+    }
+    return files.first;
+  }
+
+  Future<List<drive.File>> _findBundleHistory(
+    drive.DriveApi api, {
+    int limit = 10,
+  }) async {
     final response = await api.files.list(
       spaces: _spaces,
-      q: "name = '$_bundleFileName'",
+      q:
+          "name = '$_bundleFileName' or name contains '$_bundleFilePrefix'",
       orderBy: 'modifiedTime desc',
-      pageSize: 1,
+      pageSize: limit,
       $fields: 'files(id,name,modifiedTime,size,appProperties)',
     );
     final files = response.files;
     if (files == null || files.isEmpty) {
-      return null;
+      return const <drive.File>[];
     }
-    return files.first;
+    return files;
   }
 
   RemoteSyncBundleStatus _toStatus(drive.File file) {
