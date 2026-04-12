@@ -3,6 +3,7 @@ import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pinput/pinput.dart';
 
 import '../features/home/presentation/home_providers.dart';
 import 'app_flavor.dart';
@@ -156,6 +157,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     if (!triggerPrompt || _autoPrompted) {
       return;
     }
+    if (kIsWeb) {
+      return;
+    }
     _autoPrompted = true;
     await ref
         .read(deviceAuthControllerProvider.notifier)
@@ -202,68 +206,229 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     final enabled = ref.watch(appLockSettingsControllerProvider);
     final unlocked = ref.watch(appSessionUnlockControllerProvider);
     final authState = ref.watch(deviceAuthControllerProvider);
+    final pinState = ref.watch(appPinLockControllerProvider);
 
     if (!enabled || unlocked) {
       return widget.child ?? const SizedBox.shrink();
     }
 
     return Scaffold(
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final wide = constraints.maxWidth >= 960;
+            final colorScheme = Theme.of(context).colorScheme;
+            return Row(
               children: [
-                Icon(
-                  Icons.fingerprint_rounded,
-                  size: 52,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'Unlock HiMemo',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  authState.summary,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                Expanded(
+                  flex: wide ? 6 : 1,
+                  child: Container(
+                    color: colorScheme.surface,
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            'HiMemo',
+                            style: Theme.of(context).textTheme.labelLarge,
+                          ),
+                        ),
+                        const Spacer(),
+                        Icon(
+                          kIsWeb
+                              ? Icons.pin_outlined
+                              : Icons.fingerprint_rounded,
+                          size: 56,
+                          color: colorScheme.primary,
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          'Unlock HiMemo',
+                          style: Theme.of(context).textTheme.headlineMedium,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          kIsWeb
+                              ? 'This browser session is protected with a web PIN.'
+                              : 'Resume this session with device authentication.',
+                          style:
+                              Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                        ),
+                        const SizedBox(height: 24),
+                        if (wide)
+                          Text(
+                            'Private vault access and sync state remain locked until the session is restored.',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                          ),
+                        const Spacer(),
+                      ],
+                    ),
                   ),
                 ),
-                const SizedBox(height: 20),
-                FilledButton.icon(
-                  onPressed: () async {
-                    await ref
-                        .read(deviceAuthControllerProvider.notifier)
-                        .authenticate(
-                          reason: 'Unlock HiMemo with device authentication',
-                        );
-                  },
-                  icon: const Icon(Icons.lock_open_rounded),
-                  label: const Text('Authenticate'),
-                ),
-                const SizedBox(height: 12),
-                TextButton(
-                  onPressed: () async {
-                    await ref
-                        .read(appLockSettingsControllerProvider.notifier)
-                        .setEnabled(false);
-                    ref
-                        .read(appSessionUnlockControllerProvider.notifier)
-                        .unlock();
-                  },
-                  child: const Text('Disable app unlock for now'),
+                Expanded(
+                  flex: wide ? 5 : 1,
+                  child: Container(
+                    color: colorScheme.surfaceContainer,
+                    padding: const EdgeInsets.all(24),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 440),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              kIsWeb ? pinState.summary : authState.summary,
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodyMedium
+                                  ?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                            const SizedBox(height: 24),
+                            if (kIsWeb)
+                              const _WebPinUnlockPanel()
+                            else
+                              FilledButton.icon(
+                                onPressed: () async {
+                                  await ref
+                                      .read(
+                                          deviceAuthControllerProvider.notifier)
+                                      .authenticate(
+                                        reason:
+                                            'Unlock HiMemo with device authentication',
+                                      );
+                                },
+                                icon: const Icon(Icons.lock_open_rounded),
+                                label: const Text('Authenticate'),
+                              ),
+                            const SizedBox(height: 12),
+                            TextButton(
+                              onPressed: () async {
+                                await ref
+                                    .read(appLockSettingsControllerProvider
+                                        .notifier)
+                                    .setEnabled(false);
+                                ref
+                                    .read(appSessionUnlockControllerProvider
+                                        .notifier)
+                                    .unlock();
+                              },
+                              child: const Text('Disable app unlock for now'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ],
-            ),
-          ),
+            );
+          },
         ),
       ),
     );
+  }
+}
+
+class _WebPinUnlockPanel extends ConsumerStatefulWidget {
+  const _WebPinUnlockPanel();
+
+  @override
+  ConsumerState<_WebPinUnlockPanel> createState() => _WebPinUnlockPanelState();
+}
+
+class _WebPinUnlockPanelState extends ConsumerState<_WebPinUnlockPanel> {
+  final TextEditingController _pinController = TextEditingController();
+
+  @override
+  void dispose() {
+    _pinController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pinState = ref.watch(appPinLockControllerProvider);
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Column(
+      children: [
+        Pinput(
+          key: const Key('web-pin-unlock-input'),
+          controller: _pinController,
+          length: 4,
+          obscureText: true,
+          obscuringCharacter: '•',
+          keyboardType: TextInputType.number,
+          defaultPinTheme: PinTheme(
+            width: 48,
+            height: 56,
+            textStyle: Theme.of(context).textTheme.titleLarge,
+            decoration: BoxDecoration(
+              border: Border.all(color: Theme.of(context).dividerColor),
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+          focusedPinTheme: PinTheme(
+            width: 48,
+            height: 56,
+            textStyle: Theme.of(context).textTheme.titleLarge,
+            decoration: BoxDecoration(
+              border: Border.all(color: colorScheme.primary, width: 1.5),
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+          onCompleted: (_) async => _submit(),
+        ),
+        const SizedBox(height: 16),
+        FilledButton.icon(
+          onPressed: _submit,
+          icon: const Icon(Icons.lock_open_rounded),
+          label: const Text('Unlock with PIN'),
+        ),
+        if (pinState.lastError != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            pinState.lastError!,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.error,
+                ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _submit() async {
+    final pin = _pinController.text.trim();
+    if (pin.length != 4) {
+      return;
+    }
+    final matched =
+        await ref.read(appPinLockControllerProvider.notifier).verify(
+              pin,
+            );
+    if (matched) {
+      _pinController.clear();
+    }
   }
 }
 
@@ -281,15 +446,13 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
   int _pageIndex = 0;
 
   final List<
-    ({
-      String title,
-      String body,
-      IconData icon,
-      String imagePath,
-      String imageSemanticLabel,
-    })
-  >
-  _pages = const [
+      ({
+        String title,
+        String body,
+        IconData icon,
+        String imagePath,
+        String imageSemanticLabel,
+      })> _pages = const [
     (
       title: 'Capture fast',
       body:
@@ -368,8 +531,8 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
               Text(
                 'A short setup pass before the memo vault opens.',
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
+                      color: colorScheme.onSurfaceVariant,
+                    ),
               ),
               const SizedBox(height: 28),
               Expanded(
@@ -571,35 +734,33 @@ class _OnboardingImageCard extends StatelessWidget {
 
 ThemeData _buildTheme(Brightness brightness, AppColorTheme colorTheme) {
   final palette = _paletteFor(colorTheme, brightness);
-  final scheme =
-      ColorScheme.fromSeed(
-        seedColor: palette.primary,
-        brightness: brightness,
-      ).copyWith(
-        primary: palette.primary,
-        onPrimary: palette.onPrimary,
-        secondary: palette.secondary,
-        onSecondary: palette.onSecondary,
-        tertiary: palette.tertiary,
-        onTertiary: palette.onTertiary,
-        surface: palette.surface,
-        onSurface: palette.onSurface,
-        surfaceContainer: palette.surfaceContainer,
-        surfaceContainerHighest: palette.surfaceContainerHighest,
-        outline: palette.outline,
-        outlineVariant: palette.outlineVariant,
-        onSurfaceVariant: palette.onSurfaceVariant,
-      );
+  final scheme = ColorScheme.fromSeed(
+    seedColor: palette.primary,
+    brightness: brightness,
+  ).copyWith(
+    primary: palette.primary,
+    onPrimary: palette.onPrimary,
+    secondary: palette.secondary,
+    onSecondary: palette.onSecondary,
+    tertiary: palette.tertiary,
+    onTertiary: palette.onTertiary,
+    surface: palette.surface,
+    onSurface: palette.onSurface,
+    surfaceContainer: palette.surfaceContainer,
+    surfaceContainerHighest: palette.surfaceContainerHighest,
+    outline: palette.outline,
+    outlineVariant: palette.outlineVariant,
+    onSurfaceVariant: palette.onSurfaceVariant,
+  );
 
   final baseTypography = Typography.material2021(
     colorScheme: scheme,
     platform: TargetPlatform.android,
   );
-  final textTheme =
-      (brightness == Brightness.dark
-              ? baseTypography.white
-              : baseTypography.black)
-          .apply(bodyColor: scheme.onSurface, displayColor: scheme.onSurface);
+  final textTheme = (brightness == Brightness.dark
+          ? baseTypography.white
+          : baseTypography.black)
+      .apply(bodyColor: scheme.onSurface, displayColor: scheme.onSurface);
 
   return ThemeData(
     colorScheme: scheme,

@@ -8,6 +8,7 @@ import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:pinput/pinput.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../sync/data/google_drive_sync_transport.dart';
@@ -481,8 +482,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                 Text(
                   'No notes on this day yet.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: _mutedTextColor(context),
-                  ),
+                        color: _mutedTextColor(context),
+                      ),
                 )
               else
                 for (var i = 0; i < sameDayNotes.length; i++) ...[
@@ -577,9 +578,9 @@ class _MarkedCalendar extends StatelessWidget {
                   child: Text(
                     weekday,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: _mutedTextColor(context),
-                      fontWeight: FontWeight.w600,
-                    ),
+                          color: _mutedTextColor(context),
+                          fontWeight: FontWeight.w600,
+                        ),
                   ),
                 ),
               ),
@@ -632,7 +633,9 @@ class _MarkedCalendar extends StatelessWidget {
                               children: [
                                 Text(
                                   dayNumber.toString(),
-                                  style: Theme.of(context).textTheme.bodyMedium
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
                                       ?.copyWith(
                                         fontWeight: isSelected
                                             ? FontWeight.w700
@@ -652,8 +655,8 @@ class _MarkedCalendar extends StatelessWidget {
                                   decoration: BoxDecoration(
                                     color: hasNote
                                         ? (isSelected
-                                              ? colorScheme.primary
-                                              : colorScheme.secondary)
+                                            ? colorScheme.primary
+                                            : colorScheme.secondary)
                                         : Colors.transparent,
                                     shape: BoxShape.circle,
                                   ),
@@ -724,6 +727,7 @@ class SettingsScreen extends ConsumerWidget {
     final appLockRelockDelay = ref.watch(appLockRelockDelayControllerProvider);
     final appSessionUnlocked = ref.watch(appSessionUnlockControllerProvider);
     final deviceAuthState = ref.watch(deviceAuthControllerProvider);
+    final pinLockState = ref.watch(appPinLockControllerProvider);
     final privateVaultConfigured = ref.watch(
       privateVaultSecretControllerProvider,
     );
@@ -777,11 +781,15 @@ class SettingsScreen extends ConsumerWidget {
               key: appLockToggleKey,
               value: appLockEnabled,
               contentPadding: EdgeInsets.zero,
-              title: const Text('Require device auth on launch'),
+              title: kIsWeb
+                  ? const Text('Require PIN on launch')
+                  : const Text('Require device auth on launch'),
               subtitle: Text(
-                deviceAuthState.isAvailable
-                    ? 'Available: ${deviceAuthState.summary}'
-                    : deviceAuthState.summary,
+                kIsWeb
+                    ? pinLockState.summary
+                    : (deviceAuthState.isAvailable
+                        ? 'Available: ${deviceAuthState.summary}'
+                        : deviceAuthState.summary),
               ),
               onChanged: (value) async {
                 if (!value) {
@@ -794,22 +802,38 @@ class SettingsScreen extends ConsumerWidget {
                   return;
                 }
 
-                final authenticated = await ref
-                    .read(deviceAuthControllerProvider.notifier)
-                    .authenticate(
-                      reason: 'Enable device authentication for HiMemo',
+                if (kIsWeb) {
+                  if (!pinLockState.isConfigured) {
+                    final configured = await _showPinSetupDialog(
+                      context,
+                      title: 'Set unlock PIN',
+                      confirmLabel: 'Save PIN',
                     );
-                if (!authenticated) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Device authentication was not completed.',
-                        ),
-                      ),
-                    );
+                    if (configured == null) {
+                      return;
+                    }
+                    await ref
+                        .read(appPinLockControllerProvider.notifier)
+                        .configure(configured);
                   }
-                  return;
+                } else {
+                  final authenticated = await ref
+                      .read(deviceAuthControllerProvider.notifier)
+                      .authenticate(
+                        reason: 'Enable device authentication for HiMemo',
+                      );
+                  if (!authenticated) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Device authentication was not completed.',
+                          ),
+                        ),
+                      );
+                    }
+                    return;
+                  }
                 }
 
                 await ref
@@ -823,9 +847,101 @@ class SettingsScreen extends ConsumerWidget {
               subtitle: Text(
                 appSessionUnlocked
                     ? 'Current session is unlocked.'
-                    : 'Current session is locked until device authentication succeeds.',
+                    : (kIsWeb
+                        ? 'Current session is locked until the correct PIN is entered.'
+                        : 'Current session is locked until device authentication succeeds.'),
               ),
             ),
+            if (kIsWeb) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.tonal(
+                      onPressed: () async {
+                        final pin = await _showPinSetupDialog(
+                          context,
+                          title: pinLockState.isConfigured
+                              ? 'Change unlock PIN'
+                              : 'Set unlock PIN',
+                          confirmLabel: pinLockState.isConfigured
+                              ? 'Update PIN'
+                              : 'Save PIN',
+                        );
+                        if (pin == null) {
+                          return;
+                        }
+                        await ref
+                            .read(appPinLockControllerProvider.notifier)
+                            .configure(pin);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                pinLockState.isConfigured
+                                    ? 'Unlock PIN updated.'
+                                    : 'Unlock PIN configured.',
+                              ),
+                            ),
+                          );
+                        }
+                      },
+                      child: Text(
+                        pinLockState.isConfigured ? 'Change PIN' : 'Set PIN',
+                      ),
+                    ),
+                    OutlinedButton(
+                      onPressed: pinLockState.isConfigured
+                          ? () async {
+                              final shouldRemove = await showDialog<bool>(
+                                context: context,
+                                builder: (context) => AlertDialog(
+                                  title: const Text('Remove unlock PIN'),
+                                  content: const Text(
+                                    'Disable the web unlock PIN for this browser?',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.of(context).pop(false),
+                                      child: const Text('Cancel'),
+                                    ),
+                                    FilledButton(
+                                      onPressed: () =>
+                                          Navigator.of(context).pop(true),
+                                      child: const Text('Remove'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (shouldRemove != true) {
+                                return;
+                              }
+                              await ref
+                                  .read(appPinLockControllerProvider.notifier)
+                                  .clear();
+                              await ref
+                                  .read(appLockSettingsControllerProvider
+                                      .notifier)
+                                  .setEnabled(false);
+                            }
+                          : null,
+                      child: const Text('Remove PIN'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Web PIN lock is a browser-level access gate. It does not replace device-backed secure storage.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: _mutedTextColor(context),
+                    ),
+              ),
+              const SizedBox(height: 8),
+            ],
             const SizedBox(height: 4),
             const Text('Re-lock after app leaves the foreground'),
             const SizedBox(height: 8),
@@ -885,30 +1001,38 @@ class SettingsScreen extends ConsumerWidget {
                 children: [
                   FilledButton.tonal(
                     key: appLockAuthenticateKey,
-                    onPressed: deviceAuthState.isAvailable
-                        ? () => ref
-                              .read(deviceAuthControllerProvider.notifier)
-                              .authenticate(
-                                reason:
-                                    'Unlock HiMemo with device authentication',
-                              )
-                        : null,
-                    child: const Text('Authenticate now'),
+                    onPressed: kIsWeb
+                        ? null
+                        : deviceAuthState.isAvailable
+                            ? () => ref
+                                .read(deviceAuthControllerProvider.notifier)
+                                .authenticate(
+                                  reason:
+                                      'Unlock HiMemo with device authentication',
+                                )
+                            : null,
+                    child: kIsWeb
+                        ? const Text('PIN unlock on lock screen')
+                        : const Text('Authenticate now'),
                   ),
                   OutlinedButton(
                     key: appLockLockNowKey,
                     onPressed: appLockEnabled
                         ? () => ref
-                              .read(appSessionUnlockControllerProvider.notifier)
-                              .lock()
+                            .read(appSessionUnlockControllerProvider.notifier)
+                            .lock()
                         : null,
                     child: const Text('Lock session now'),
                   ),
                   OutlinedButton(
-                    onPressed: () => ref
-                        .read(deviceAuthControllerProvider.notifier)
-                        .refresh(),
-                    child: const Text('Refresh availability'),
+                    onPressed: kIsWeb
+                        ? null
+                        : () => ref
+                            .read(deviceAuthControllerProvider.notifier)
+                            .refresh(),
+                    child: kIsWeb
+                        ? const Text('Web PIN active')
+                        : const Text('Refresh availability'),
                   ),
                 ],
               ),
@@ -925,8 +1049,8 @@ class SettingsScreen extends ConsumerWidget {
               subtitle: Text(
                 privateVaultConfigured
                     ? (privateVaultUnlocked
-                          ? 'Configured and unlocked for this session.'
-                          : 'Configured and locked. A separate key is required.')
+                        ? 'Configured and unlocked for this session.'
+                        : 'Configured and locked. A separate key is required.')
                     : 'Not configured yet. Set a separate key for the private vault.',
               ),
             ),
@@ -984,8 +1108,8 @@ class SettingsScreen extends ConsumerWidget {
                 child: Text(
                   syncConflictWarning,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onErrorContainer,
-                  ),
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
                 ),
               ),
             ListTile(
@@ -1021,7 +1145,8 @@ class SettingsScreen extends ConsumerWidget {
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Remote bundle'),
-              subtitle: Text(_remoteBundleSummary(syncProvider, syncTransferState)),
+              subtitle:
+                  Text(_remoteBundleSummary(syncProvider, syncTransferState)),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -1177,8 +1302,8 @@ class SettingsScreen extends ConsumerWidget {
                     onPressed: syncAuthState.stage == SyncAuthStage.busy
                         ? null
                         : () => ref
-                              .read(syncAuthControllerProvider.notifier)
-                              .connectSelected(),
+                            .read(syncAuthControllerProvider.notifier)
+                            .connectSelected(),
                     child: Text(
                       syncAuthState.isAuthenticated ? 'Reconnect' : 'Connect',
                     ),
@@ -1247,8 +1372,7 @@ class SettingsScreen extends ConsumerWidget {
                     onPressed: syncTransferState.isBusy
                         ? null
                         : () async {
-                            final shouldForce =
-                                await showDialog<bool>(
+                            final shouldForce = await showDialog<bool>(
                                   context: context,
                                   builder: (context) {
                                     return AlertDialog(
@@ -1321,11 +1445,10 @@ class SettingsScreen extends ConsumerWidget {
                                 );
                                 return;
                               }
-                              final selected =
-                                  await _showBundleHistoryDialog(
-                                    context,
-                                    history,
-                                  );
+                              final selected = await _showBundleHistoryDialog(
+                                context,
+                                history,
+                              );
                               if (selected == null) {
                                 return;
                               }
@@ -1431,11 +1554,11 @@ class SettingsScreen extends ConsumerWidget {
                               }
                               final shouldApply =
                                   await _showBundlePreviewDialog(
-                                    context,
-                                    preview,
-                                    confirmLabel: 'Apply bundle',
-                                  ) ??
-                                  false;
+                                        context,
+                                        preview,
+                                        confirmLabel: 'Apply bundle',
+                                      ) ??
+                                      false;
                               if (!shouldApply) {
                                 return;
                               }
@@ -1864,16 +1987,18 @@ class _Sidebar extends StatelessWidget {
                     children: [
                       Text(
                         'HiMemo',
-                        style: Theme.of(context).textTheme.headlineSmall
+                        style: Theme.of(context)
+                            .textTheme
+                            .headlineSmall
                             ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 12),
                       Text(
                         activeIdentity.lockLabel,
                         style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: accent,
-                          fontWeight: FontWeight.w700,
-                        ),
+                              color: accent,
+                              fontWeight: FontWeight.w700,
+                            ),
                       ),
                       const SizedBox(height: 4),
                       Text(activeIdentity.name),
@@ -1881,8 +2006,8 @@ class _Sidebar extends StatelessWidget {
                       Text(
                         flavorName,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: _mutedTextColor(context),
-                        ),
+                              color: _mutedTextColor(context),
+                            ),
                       ),
                     ],
                   ),
@@ -1970,9 +2095,9 @@ class _IdentityHeader extends StatelessWidget {
           Text(
             identity.lockLabel,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: accent,
-              fontWeight: FontWeight.w700,
-            ),
+                  color: accent,
+                  fontWeight: FontWeight.w700,
+                ),
           ),
           const SizedBox(height: 6),
           Text(identity.name),
@@ -1980,8 +2105,8 @@ class _IdentityHeader extends StatelessWidget {
           Text(
             identity.tagline,
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: _strongMutedTextColor(context),
-            ),
+                  color: _strongMutedTextColor(context),
+                ),
           ),
         ],
       ),
@@ -2127,8 +2252,8 @@ class _VaultSectionCard extends StatelessWidget {
                 Text(
                   vault.description,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: _mutedTextColor(context),
-                  ),
+                        color: _mutedTextColor(context),
+                      ),
                 ),
               ],
             ),
@@ -2186,8 +2311,8 @@ class _NoteListTile extends StatelessWidget {
                     child: Text(
                       note.title,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                            fontWeight: FontWeight.w700,
+                          ),
                     ),
                   ),
                   if (note.isPinned)
@@ -2204,8 +2329,8 @@ class _NoteListTile extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _strongMutedTextColor(context),
-                ),
+                      color: _strongMutedTextColor(context),
+                    ),
               ),
               if (note.attachments.isNotEmpty) ...[
                 const SizedBox(height: 10),
@@ -2231,15 +2356,15 @@ class _NoteListTile extends StatelessWidget {
                   Text(
                     vaultName,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: _mutedTextColor(context),
-                    ),
+                          color: _mutedTextColor(context),
+                        ),
                   ),
                   const Spacer(),
                   Text(
                     isEdited ? 'Edited $dateLabel' : dateLabel,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: _mutedTextColor(context),
-                    ),
+                          color: _mutedTextColor(context),
+                        ),
                   ),
                 ],
               ),
@@ -2275,7 +2400,8 @@ class _NoteDetailPane extends StatelessWidget {
     final changedAt = note!.updatedAt ?? note!.createdAt;
     final updatedLabel =
         '${changedAt.year}/${changedAt.month}/${changedAt.day} ${changedAt.hour.toString().padLeft(2, '0')}:${changedAt.minute.toString().padLeft(2, '0')}';
-    final isEdited = note!.updatedAt != null && note!.updatedAt != note!.createdAt;
+    final isEdited =
+        note!.updatedAt != null && note!.updatedAt != note!.createdAt;
 
     return Container(
       decoration: _sectionDecoration(context),
@@ -2289,8 +2415,8 @@ class _NoteDetailPane extends StatelessWidget {
                 child: Text(
                   vaultName ?? '',
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: _mutedTextColor(context),
-                  ),
+                        color: _mutedTextColor(context),
+                      ),
                 ),
               ),
               IconButton(
@@ -2321,8 +2447,8 @@ class _NoteDetailPane extends StatelessWidget {
               child: Text(
                 'Created $createdLabel · Revision ${note!.revision}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
+                      color: _mutedTextColor(context),
+                    ),
               ),
             ),
           const SizedBox(height: 20),
@@ -2331,8 +2457,8 @@ class _NoteDetailPane extends StatelessWidget {
               child: Text(
                 note!.body,
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
               ),
             ),
           ),
@@ -2370,8 +2496,8 @@ class _SectionIntro extends StatelessWidget {
         Text(
           description,
           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            color: _strongMutedTextColor(context),
-          ),
+                color: _strongMutedTextColor(context),
+              ),
         ),
       ],
     );
@@ -2536,8 +2662,8 @@ class _CalendarNoteRow extends StatelessWidget {
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: _strongMutedTextColor(context),
-          ),
+                color: _strongMutedTextColor(context),
+              ),
         ),
         const SizedBox(height: 8),
         Text(
@@ -2782,7 +2908,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                         if (_attachments.isEmpty)
                           Text(
                             'Attach photos, videos, or audio files from camera or device storage.',
-                            style: Theme.of(context).textTheme.bodySmall
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
                                 ?.copyWith(color: _mutedTextColor(context)),
                           )
                         else
@@ -2803,7 +2931,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                       )) {
                                     unawaited(
                                       ref
-                                          .read(encryptedAttachmentStoreProvider)
+                                          .read(
+                                              encryptedAttachmentStoreProvider)
                                           .deleteAttachment(filePath),
                                     );
                                   }
@@ -2887,9 +3016,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   Future<void> _handleAttachmentAction(MediaImportAction action) async {
-    final result = await ref
-        .read(mediaImportServiceProvider)
-        .importAttachment(action);
+    final result =
+        await ref.read(mediaImportServiceProvider).importAttachment(action);
     if (!mounted) {
       return;
     }
@@ -3002,15 +3130,15 @@ class _AttachmentListTile extends ConsumerWidget {
                       Text(
                         attachment.label,
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                              fontWeight: FontWeight.w700,
+                            ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         _attachmentDescription(attachment),
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: _mutedTextColor(context),
-                        ),
+                              color: _mutedTextColor(context),
+                            ),
                       ),
                     ],
                   ),
@@ -3142,11 +3270,11 @@ String _remoteBundleSummary(
   final modifiedAt = remote.modifiedAt == null
       ? 'unknown time'
       : _formatDateTime(remote.modifiedAt!);
-  final sizeLabel = remote.sizeBytes == null ? 'size unknown' : '${remote.sizeBytes} bytes';
+  final sizeLabel =
+      remote.sizeBytes == null ? 'size unknown' : '${remote.sizeBytes} bytes';
   final noteCount = remote.noteCount == null ? '?' : '${remote.noteCount}';
-  final attachmentCount = remote.attachmentCount == null
-      ? '?'
-      : '${remote.attachmentCount}';
+  final attachmentCount =
+      remote.attachmentCount == null ? '?' : '${remote.attachmentCount}';
   return 'Last bundle: $modifiedAt, $sizeLabel, $noteCount notes, $attachmentCount attachments.';
 }
 
@@ -3266,6 +3394,20 @@ Future<String?> _showSyncKeyImportDialog(BuildContext context) {
   );
 }
 
+Future<String?> _showPinSetupDialog(
+  BuildContext context, {
+  required String title,
+  required String confirmLabel,
+}) {
+  return showDialog<String>(
+    context: context,
+    builder: (context) => _PinSetupDialog(
+      title: title,
+      confirmLabel: confirmLabel,
+    ),
+  );
+}
+
 Future<void> _openAttachmentViewer(
   BuildContext context,
   WidgetRef ref,
@@ -3283,6 +3425,152 @@ Future<void> _openAttachmentViewer(
       ),
     ),
   );
+}
+
+class _PinSetupDialog extends StatefulWidget {
+  const _PinSetupDialog({
+    required this.title,
+    required this.confirmLabel,
+  });
+
+  final String title;
+  final String confirmLabel;
+
+  @override
+  State<_PinSetupDialog> createState() => _PinSetupDialogState();
+}
+
+class _PinSetupDialogState extends State<_PinSetupDialog> {
+  final TextEditingController _pinController = TextEditingController();
+  final TextEditingController _confirmController = TextEditingController();
+  String? _errorText;
+
+  @override
+  void dispose() {
+    _pinController.dispose();
+    _confirmController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Use a 4 digit PIN for this browser.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            _PinEntryField(
+              controller: _pinController,
+              label: 'PIN',
+            ),
+            const SizedBox(height: 12),
+            _PinEntryField(
+              controller: _confirmController,
+              label: 'Confirm PIN',
+            ),
+            if (_errorText != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _errorText!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: Text(widget.confirmLabel),
+        ),
+      ],
+    );
+  }
+
+  void _submit() {
+    final pin = _pinController.text.trim();
+    final confirm = _confirmController.text.trim();
+    if (pin.length != 4) {
+      setState(() {
+        _errorText = 'PIN must be exactly 4 digits.';
+      });
+      return;
+    }
+    if (!RegExp(r'^\d+$').hasMatch(pin)) {
+      setState(() {
+        _errorText = 'PIN must contain digits only.';
+      });
+      return;
+    }
+    if (pin != confirm) {
+      setState(() {
+        _errorText = 'PIN confirmation did not match.';
+      });
+      return;
+    }
+    Navigator.of(context).pop(pin);
+  }
+}
+
+class _PinEntryField extends StatelessWidget {
+  const _PinEntryField({
+    required this.controller,
+    required this.label,
+  });
+
+  final TextEditingController controller;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.labelLarge),
+        const SizedBox(height: 8),
+        Pinput(
+          controller: controller,
+          length: 4,
+          obscureText: true,
+          obscuringCharacter: '•',
+          keyboardType: TextInputType.number,
+          defaultPinTheme: PinTheme(
+            width: 42,
+            height: 52,
+            textStyle: Theme.of(context).textTheme.titleMedium,
+            decoration: BoxDecoration(
+              border: Border.all(color: Theme.of(context).dividerColor),
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+          focusedPinTheme: PinTheme(
+            width: 42,
+            height: 52,
+            textStyle: Theme.of(context).textTheme.titleMedium,
+            decoration: BoxDecoration(
+              border: Border.all(color: colorScheme.primary, width: 1.5),
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _AttachmentViewerSheet extends ConsumerWidget {
@@ -3306,9 +3594,12 @@ class _AttachmentViewerSheet extends ConsumerWidget {
         const SizedBox(height: 16),
         Expanded(
           child: switch (attachment.type) {
-            AttachmentType.photo => _PhotoAttachmentViewer(attachment: attachment),
-            AttachmentType.video => _VideoAttachmentViewer(attachment: attachment),
-            AttachmentType.audio => _AudioAttachmentViewer(attachment: attachment),
+            AttachmentType.photo =>
+              _PhotoAttachmentViewer(attachment: attachment),
+            AttachmentType.video =>
+              _VideoAttachmentViewer(attachment: attachment),
+            AttachmentType.audio =>
+              _AudioAttachmentViewer(attachment: attachment),
           },
         ),
       ],
@@ -3325,7 +3616,8 @@ class _PhotoAttachmentViewer extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final filePath = attachment.filePath;
     if (filePath == null || filePath.isEmpty) {
-      return const Center(child: Text('No image is stored for this attachment.'));
+      return const Center(
+          child: Text('No image is stored for this attachment.'));
     }
     return FutureBuilder<List<int>?>(
       future: ref
@@ -3360,7 +3652,8 @@ class _VideoAttachmentViewer extends ConsumerStatefulWidget {
       _VideoAttachmentViewerState();
 }
 
-class _VideoAttachmentViewerState extends ConsumerState<_VideoAttachmentViewer> {
+class _VideoAttachmentViewerState
+    extends ConsumerState<_VideoAttachmentViewer> {
   VideoPlayerController? _controller;
   String? _tempFilePath;
 
@@ -3377,8 +3670,8 @@ class _VideoAttachmentViewerState extends ConsumerState<_VideoAttachmentViewer> 
     if (tempFilePath != null) {
       unawaited(
         ref.read(encryptedAttachmentStoreProvider).deleteMaterializedFile(
-          tempFilePath,
-        ),
+              tempFilePath,
+            ),
       );
     }
     super.dispose();
@@ -3464,7 +3757,8 @@ class _AudioAttachmentViewer extends ConsumerStatefulWidget {
       _AudioAttachmentViewerState();
 }
 
-class _AudioAttachmentViewerState extends ConsumerState<_AudioAttachmentViewer> {
+class _AudioAttachmentViewerState
+    extends ConsumerState<_AudioAttachmentViewer> {
   final AudioPlayer _player = AudioPlayer();
   String? _tempFilePath;
   bool _ready = false;
@@ -3482,8 +3776,8 @@ class _AudioAttachmentViewerState extends ConsumerState<_AudioAttachmentViewer> 
     if (tempFilePath != null) {
       unawaited(
         ref.read(encryptedAttachmentStoreProvider).deleteMaterializedFile(
-          tempFilePath,
-        ),
+              tempFilePath,
+            ),
       );
     }
     super.dispose();

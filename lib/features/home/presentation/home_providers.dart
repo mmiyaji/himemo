@@ -81,17 +81,17 @@ class MediaImportResult {
   });
 
   const MediaImportResult.success(NoteAttachment attachment)
-    : this._(attachment: attachment, wasCancelled: false);
+      : this._(attachment: attachment, wasCancelled: false);
 
   const MediaImportResult.cancelled()
-    : this._(wasCancelled: true, attachment: null, errorMessage: null);
+      : this._(wasCancelled: true, attachment: null, errorMessage: null);
 
   const MediaImportResult.failure(String errorMessage)
-    : this._(
-        attachment: null,
-        errorMessage: errorMessage,
-        wasCancelled: false,
-      );
+      : this._(
+          attachment: null,
+          errorMessage: errorMessage,
+          wasCancelled: false,
+        );
 
   final NoteAttachment? attachment;
   final String? errorMessage;
@@ -106,9 +106,9 @@ class DeviceAuthState {
   });
 
   const DeviceAuthState.unknown()
-    : availability = DeviceAuthAvailability.unknown,
-      methods = const [],
-      lastError = null;
+      : availability = DeviceAuthAvailability.unknown,
+        methods = const [],
+        lastError = null;
 
   final DeviceAuthAvailability availability;
   final List<String> methods;
@@ -130,6 +130,107 @@ class DeviceAuthState {
   }
 }
 
+class AppPinLockState {
+  const AppPinLockState({
+    required this.isConfigured,
+    this.lastError,
+  });
+
+  const AppPinLockState.unconfigured()
+      : isConfigured = false,
+        lastError = null;
+
+  final bool isConfigured;
+  final String? lastError;
+
+  String get summary {
+    if (isConfigured) {
+      return 'A web-only unlock PIN is configured for this browser session.';
+    }
+    return lastError ?? 'No unlock PIN is configured for this browser yet.';
+  }
+
+  AppPinLockState copyWith({
+    bool? isConfigured,
+    String? lastError,
+    bool clearError = false,
+  }) {
+    return AppPinLockState(
+      isConfigured: isConfigured ?? this.isConfigured,
+      lastError: clearError ? null : (lastError ?? this.lastError),
+    );
+  }
+}
+
+class AppPinLockStore {
+  AppPinLockStore({required EncryptionService encryptionService})
+      : _encryptionService = encryptionService;
+
+  static const _storageKey = 'settings.web_app_pin.v1';
+
+  final EncryptionService _encryptionService;
+
+  Future<bool> hasPin() async {
+    final prefs = await SharedPreferences.getInstance();
+    final payload = prefs.getString(_storageKey);
+    return payload != null && payload.isNotEmpty;
+  }
+
+  Future<void> configure(String pin) async {
+    final prefs = await SharedPreferences.getInstance();
+    final salt = _encryptionService.generateSalt();
+    final verifier = await _encryptionService.deriveSecretVerifier(
+      secret: pin,
+      salt: salt,
+    );
+    await prefs.setString(
+      _storageKey,
+      jsonEncode({
+        'salt': base64Encode(salt),
+        'verifier': verifier,
+      }),
+    );
+  }
+
+  Future<bool> verify(String pin) async {
+    final prefs = await SharedPreferences.getInstance();
+    final payload = prefs.getString(_storageKey);
+    if (payload == null || payload.isEmpty) {
+      return false;
+    }
+    final decoded = Map<String, dynamic>.from(
+      jsonDecode(payload) as Map<String, dynamic>,
+    );
+    final salt = base64Decode(decoded['salt'] as String);
+    final storedVerifier = decoded['verifier'] as String;
+    final incomingVerifier = await _encryptionService.deriveSecretVerifier(
+      secret: pin,
+      salt: salt,
+    );
+    return _constantTimeEquals(storedVerifier, incomingVerifier);
+  }
+
+  Future<void> clear() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_storageKey);
+  }
+
+  bool _constantTimeEquals(String left, String right) {
+    final leftBytes = utf8.encode(left);
+    final rightBytes = utf8.encode(right);
+    var diff = leftBytes.length ^ rightBytes.length;
+    final limit = leftBytes.length > rightBytes.length
+        ? leftBytes.length
+        : rightBytes.length;
+    for (var i = 0; i < limit; i++) {
+      final a = i < leftBytes.length ? leftBytes[i] : 0;
+      final b = i < rightBytes.length ? rightBytes[i] : 0;
+      diff |= a ^ b;
+    }
+    return diff == 0;
+  }
+}
+
 class SyncAuthState {
   const SyncAuthState({
     required this.provider,
@@ -141,11 +242,11 @@ class SyncAuthState {
   });
 
   const SyncAuthState.idle(this.provider)
-    : stage = SyncAuthStage.idle,
-      userId = null,
-      displayName = null,
-      email = null,
-      message = null;
+      : stage = SyncAuthStage.idle,
+        userId = null,
+        displayName = null,
+        email = null,
+        message = null;
 
   final SyncProvider provider;
   final SyncAuthStage stage;
@@ -215,10 +316,10 @@ class SyncTransferState {
   });
 
   const SyncTransferState.idle()
-    : stage = SyncTransferStage.idle,
-      message = null,
-      remoteStatus = null,
-      localBundle = null;
+      : stage = SyncTransferStage.idle,
+        message = null,
+        remoteStatus = null,
+        localBundle = null;
 
   final SyncTransferStage stage;
   final String? message;
@@ -254,7 +355,7 @@ abstract class DeviceAuthGateway {
 
 class LocalDeviceAuthGateway implements DeviceAuthGateway {
   LocalDeviceAuthGateway({LocalAuthentication? localAuth})
-    : _localAuth = localAuth ?? LocalAuthentication();
+      : _localAuth = localAuth ?? LocalAuthentication();
 
   final LocalAuthentication _localAuth;
 
@@ -387,8 +488,8 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
     try {
       await _ensureGoogleInitialized();
       GoogleSignInAccount? account;
-      final lightweight = GoogleSignIn.instance
-          .attemptLightweightAuthentication();
+      final lightweight =
+          GoogleSignIn.instance.attemptLightweightAuthentication();
       if (lightweight != null) {
         account = await lightweight;
       }
@@ -436,8 +537,7 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
   }
 
   Future<SyncAuthState> _connectApple() async {
-    final supportsAppleSignIn =
-        !kIsWeb &&
+    final supportsAppleSignIn = !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.iOS ||
             defaultTargetPlatform == TargetPlatform.macOS);
     if (!supportsAppleSignIn) {
@@ -501,7 +601,7 @@ abstract class MediaImportService {
 
 class DefaultMediaImportService implements MediaImportService {
   DefaultMediaImportService({required EncryptedAttachmentStore attachmentStore})
-    : _attachmentStore = attachmentStore;
+      : _attachmentStore = attachmentStore;
 
   final EncryptedAttachmentStore _attachmentStore;
 
@@ -552,8 +652,8 @@ class DefaultMediaImportService implements MediaImportService {
     }
     return MediaImportResult.success(
       await _buildAttachment(
-      type: AttachmentType.photo,
-      sourceFile: picked,
+        type: AttachmentType.photo,
+        sourceFile: picked,
       ),
     );
   }
@@ -627,7 +727,8 @@ class DefaultMediaImportService implements MediaImportService {
       return tooLarge;
     }
     return MediaImportResult.success(
-      await _buildAttachment(type: AttachmentType.audio, sourceFile: sourceFile),
+      await _buildAttachment(
+          type: AttachmentType.audio, sourceFile: sourceFile),
     );
   }
 
@@ -684,6 +785,12 @@ final secureKeyValueStoreProvider = Provider<SecureKeyValueStore>((ref) {
 
 final encryptionServiceProvider = Provider<EncryptionService>((ref) {
   return EncryptionService();
+});
+
+final appPinLockStoreProvider = Provider<AppPinLockStore>((ref) {
+  return AppPinLockStore(
+    encryptionService: ref.watch(encryptionServiceProvider),
+  );
 });
 
 final masterKeyServiceProvider = Provider<MasterKeyService>((ref) {
@@ -798,8 +905,8 @@ final syncQueueSummaryProvider = FutureProvider<SyncQueueSummary>((ref) async {
 
 final syncTransferControllerProvider =
     NotifierProvider<SyncTransferController, SyncTransferState>(
-      SyncTransferController.new,
-    );
+  SyncTransferController.new,
+);
 
 class SyncTransferController extends Notifier<SyncTransferState> {
   @override
@@ -828,8 +935,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       if (remoteStatus != null) {
         await ref.read(syncBundleStateStoreProvider).recordRemoteStatus(
-          remoteStatus,
-        );
+              remoteStatus,
+            );
       }
     } catch (error) {
       state = SyncTransferState(
@@ -867,23 +974,21 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       final snapshot = await ref
           .read(syncEngineProvider)
           .prepareSnapshot(ref.read(notesControllerProvider));
-      final bundle = await ref
-          .read(secureSyncBundleStoreProvider)
-          .writeBundle(snapshot);
+      final bundle =
+          await ref.read(secureSyncBundleStoreProvider).writeBundle(snapshot);
       final encodedPayload = await ref
           .read(secureSyncBundleStoreProvider)
           .readEncryptedBundlePayload(bundle.reference);
       if (encodedPayload == null || encodedPayload.isEmpty) {
         throw StateError('Local sync bundle could not be prepared.');
       }
-      final remoteStatus = await ref
-          .read(googleDriveSyncTransportProvider)
-          .uploadBundle(
-            encodedPayload: encodedPayload,
-            deviceId: snapshot.deviceId,
-            noteCount: bundle.noteCount,
-            attachmentCount: bundle.attachmentCount,
-          );
+      final remoteStatus =
+          await ref.read(googleDriveSyncTransportProvider).uploadBundle(
+                encodedPayload: encodedPayload,
+                deviceId: snapshot.deviceId,
+                noteCount: bundle.noteCount,
+                attachmentCount: bundle.attachmentCount,
+              );
       await ref.read(notesControllerProvider.notifier).markCurrentStateSynced();
       state = SyncTransferState(
         stage: SyncTransferStage.success,
@@ -953,7 +1058,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           .downloadBundleByFileId(remoteStatus.fileId);
       await _storeDownloadedBundle(
         remoteBundle,
-        emptyMessage: 'The selected Google Drive bundle could not be downloaded.',
+        emptyMessage:
+            'The selected Google Drive bundle could not be downloaded.',
       );
     } catch (error) {
       state = state.copyWith(
@@ -1015,14 +1121,17 @@ class SyncTransferController extends Notifier<SyncTransferState> {
                 ),
                 fileNameHint: payload['label'] as String? ?? attachment.label,
               );
-          importedAttachments.add(attachment.copyWith(filePath: storedReference));
+          importedAttachments
+              .add(attachment.copyWith(filePath: storedReference));
         }
         importedNotes.add(note.copyWith(attachments: importedAttachments));
       }
       await ref.read(notesControllerProvider.notifier).replaceFromSync(
-        importedNotes,
-      );
-      await ref.read(syncBundleStateStoreProvider).recordApply(state.remoteStatus);
+            importedNotes,
+          );
+      await ref
+          .read(syncBundleStateStoreProvider)
+          .recordApply(state.remoteStatus);
       state = state.copyWith(
         stage: SyncTransferStage.success,
         message: 'Downloaded bundle applied to local notes.',
@@ -1080,12 +1189,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       localBundle: localBundle,
     );
     await ref.read(syncBundleStateStoreProvider).recordRemoteStatus(
-      remoteBundle.status,
-    );
+          remoteBundle.status,
+        );
   }
 }
 
-final privateVaultSecretStoreProvider = Provider<PrivateVaultSecretStore>((ref) {
+final privateVaultSecretStoreProvider =
+    Provider<PrivateVaultSecretStore>((ref) {
   return PrivateVaultSecretStore(
     secureStore: ref.watch(secureKeyValueStoreProvider),
     encryptionService: ref.watch(encryptionServiceProvider),
@@ -1097,8 +1207,8 @@ HomeRepository homeRepository(Ref ref) => SeededHomeRepository();
 
 final appSessionUnlockControllerProvider =
     NotifierProvider<AppSessionUnlockController, bool>(
-      AppSessionUnlockController.new,
-    );
+  AppSessionUnlockController.new,
+);
 
 class AppSessionUnlockController extends Notifier<bool> {
   @override
@@ -1109,10 +1219,72 @@ class AppSessionUnlockController extends Notifier<bool> {
   void lock() => state = false;
 }
 
+final appPinLockControllerProvider =
+    NotifierProvider<AppPinLockController, AppPinLockState>(
+  AppPinLockController.new,
+);
+
+class AppPinLockController extends Notifier<AppPinLockState> {
+  bool _restored = false;
+
+  @override
+  AppPinLockState build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(refresh());
+    }
+    return const AppPinLockState.unconfigured();
+  }
+
+  Future<void> refresh() async {
+    try {
+      final configured = await ref.read(appPinLockStoreProvider).hasPin();
+      state = AppPinLockState(isConfigured: configured);
+    } catch (error) {
+      state = AppPinLockState(
+        isConfigured: false,
+        lastError: '$error',
+      );
+    }
+  }
+
+  Future<void> configure(String pin) async {
+    await ref.read(appPinLockStoreProvider).configure(pin);
+    state = const AppPinLockState(isConfigured: true);
+    ref.read(appSessionUnlockControllerProvider.notifier).unlock();
+  }
+
+  Future<bool> verify(String pin) async {
+    try {
+      final matched = await ref.read(appPinLockStoreProvider).verify(pin);
+      state = AppPinLockState(
+        isConfigured: state.isConfigured,
+        lastError: matched ? null : 'The PIN did not match.',
+      );
+      if (matched) {
+        ref.read(appSessionUnlockControllerProvider.notifier).unlock();
+      }
+      return matched;
+    } catch (error) {
+      state = AppPinLockState(
+        isConfigured: state.isConfigured,
+        lastError: '$error',
+      );
+      return false;
+    }
+  }
+
+  Future<void> clear() async {
+    await ref.read(appPinLockStoreProvider).clear();
+    state = const AppPinLockState.unconfigured();
+    ref.read(appSessionUnlockControllerProvider.notifier).unlock();
+  }
+}
+
 final deviceAuthControllerProvider =
     NotifierProvider<DeviceAuthController, DeviceAuthState>(
-      DeviceAuthController.new,
-    );
+  DeviceAuthController.new,
+);
 
 class DeviceAuthController extends Notifier<DeviceAuthState> {
   @override
@@ -1142,8 +1314,8 @@ class DeviceAuthController extends Notifier<DeviceAuthState> {
 
 final syncAuthControllerProvider =
     NotifierProvider<SyncAuthController, Map<SyncProvider, SyncAuthState>>(
-      SyncAuthController.new,
-    );
+  SyncAuthController.new,
+);
 
 class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
   static const _storageKey = 'sync.auth_accounts.v1';
@@ -1235,8 +1407,8 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
 
 final appLaunchControllerProvider =
     NotifierProvider<AppLaunchController, AppLaunchSurface>(
-      AppLaunchController.new,
-    );
+  AppLaunchController.new,
+);
 
 class AppLaunchController extends Notifier<AppLaunchSurface> {
   static const _storageKey = 'app.onboarding_completed';
@@ -1310,8 +1482,8 @@ class ThemeModeController extends _$ThemeModeController {
 
 final appColorThemeControllerProvider =
     NotifierProvider<AppColorThemeController, AppColorTheme>(
-      AppColorThemeController.new,
-    );
+  AppColorThemeController.new,
+);
 
 class AppColorThemeController extends Notifier<AppColorTheme> {
   static const _storageKey = 'settings.color_theme';
@@ -1352,8 +1524,8 @@ class AppColorThemeController extends Notifier<AppColorTheme> {
 
 final appLockSettingsControllerProvider =
     NotifierProvider<AppLockSettingsController, bool>(
-      AppLockSettingsController.new,
-    );
+  AppLockSettingsController.new,
+);
 
 class AppLockSettingsController extends Notifier<bool> {
   static const _storageKey = 'settings.app_lock_enabled';
@@ -1386,8 +1558,8 @@ class AppLockSettingsController extends Notifier<bool> {
 
 final appLockRelockDelayControllerProvider =
     NotifierProvider<AppLockRelockDelayController, AppLockRelockDelay>(
-      AppLockRelockDelayController.new,
-    );
+  AppLockRelockDelayController.new,
+);
 
 class AppLockRelockDelayController extends Notifier<AppLockRelockDelay> {
   static const _storageKey = 'settings.app_lock_relock_delay';
@@ -1427,8 +1599,8 @@ class AppLockRelockDelayController extends Notifier<AppLockRelockDelay> {
 
 final privateVaultLockOnAppLockControllerProvider =
     NotifierProvider<PrivateVaultLockOnAppLockController, bool>(
-      PrivateVaultLockOnAppLockController.new,
-    );
+  PrivateVaultLockOnAppLockController.new,
+);
 
 class PrivateVaultLockOnAppLockController extends Notifier<bool> {
   static const _storageKey = 'settings.private_vault_lock_on_app_lock';
@@ -1461,8 +1633,8 @@ class PrivateVaultLockOnAppLockController extends Notifier<bool> {
 
 final syncProviderControllerProvider =
     NotifierProvider<SyncProviderController, SyncProvider>(
-      SyncProviderController.new,
-    );
+  SyncProviderController.new,
+);
 
 class SyncProviderController extends Notifier<SyncProvider> {
   static const _storageKey = 'settings.sync_provider';
@@ -1502,8 +1674,8 @@ class SyncProviderController extends Notifier<SyncProvider> {
 
 final privateVaultSessionControllerProvider =
     NotifierProvider<PrivateVaultSessionController, bool>(
-      PrivateVaultSessionController.new,
-    );
+  PrivateVaultSessionController.new,
+);
 
 class PrivateVaultSessionController extends Notifier<bool> {
   @override
@@ -1516,8 +1688,8 @@ class PrivateVaultSessionController extends Notifier<bool> {
 
 final privateVaultSecretControllerProvider =
     NotifierProvider<PrivateVaultSecretController, bool>(
-      PrivateVaultSecretController.new,
-    );
+  PrivateVaultSecretController.new,
+);
 
 class PrivateVaultSecretController extends Notifier<bool> {
   bool _restored = false;
@@ -1540,8 +1712,8 @@ class PrivateVaultSecretController extends Notifier<bool> {
   Future<bool> verify(String secret) async {
     try {
       final matched = await ref.read(privateVaultSecretStoreProvider).verify(
-        secret,
-      );
+            secret,
+          );
       if (matched) {
         ref.read(privateVaultSessionControllerProvider.notifier).unlock();
       }
@@ -1737,12 +1909,10 @@ class NotesController extends _$NotesController {
         .map((attachment) => attachment.filePath)
         .whereType<String>()
         .toSet();
-    final removed = previous.attachments
-        .where((attachment) {
-          final filePath = attachment.filePath;
-          return filePath != null && !retained.contains(filePath);
-        })
-        .toList(growable: false);
+    final removed = previous.attachments.where((attachment) {
+      final filePath = attachment.filePath;
+      return filePath != null && !retained.contains(filePath);
+    }).toList(growable: false);
     await _deleteAttachments(removed);
   }
 
@@ -1761,8 +1931,7 @@ class NotesController extends _$NotesController {
     NoteEntry note, {
     NoteEntry? previous,
   }) async {
-    final deviceId =
-        note.deviceId ??
+    final deviceId = note.deviceId ??
         previous?.deviceId ??
         await ref.read(deviceIdentityStoreProvider).obtain();
     final createdAt = previous?.createdAt ?? note.createdAt;
@@ -1841,27 +2010,24 @@ List<VaultBucket> visibleVaults(Ref ref) {
 
 @riverpod
 List<NoteEntry> visibleNotes(Ref ref) {
-  final visibleIds = ref
-      .watch(visibleVaultsProvider)
-      .map((vault) => vault.id)
-      .toSet();
+  final visibleIds =
+      ref.watch(visibleVaultsProvider).map((vault) => vault.id).toSet();
   final query = ref.watch(searchQueryProvider).trim().toLowerCase();
   final notes = ref
       .watch(notesControllerProvider)
       .where((note) => visibleIds.contains(note.vaultId))
       .where((note) => note.deletedAt == null)
       .where((note) {
-        if (query.isEmpty) {
-          return true;
-        }
-        final haystacks = [
-          note.title,
-          note.body,
-          ...note.attachments.map((attachment) => attachment.label),
-        ];
-        return haystacks.any((value) => value.toLowerCase().contains(query));
-      })
-      .toList(growable: false);
+    if (query.isEmpty) {
+      return true;
+    }
+    final haystacks = [
+      note.title,
+      note.body,
+      ...note.attachments.map((attachment) => attachment.label),
+    ];
+    return haystacks.any((value) => value.toLowerCase().contains(query));
+  }).toList(growable: false);
   return notes;
 }
 
