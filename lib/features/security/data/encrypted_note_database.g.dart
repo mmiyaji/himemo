@@ -691,16 +691,792 @@ class EncryptedNotesCompanion extends UpdateCompanion<EncryptedNote> {
   }
 }
 
+class $EncryptedNoteAttachmentsTable extends EncryptedNoteAttachments
+    with TableInfo<$EncryptedNoteAttachmentsTable, EncryptedNoteAttachment> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $EncryptedNoteAttachmentsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _noteIdMeta = const VerificationMeta('noteId');
+  @override
+  late final GeneratedColumn<String> noteId = GeneratedColumn<String>(
+    'note_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _positionMeta = const VerificationMeta(
+    'position',
+  );
+  @override
+  late final GeneratedColumn<int> position = GeneratedColumn<int>(
+    'position',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _encryptedPayloadMeta = const VerificationMeta(
+    'encryptedPayload',
+  );
+  @override
+  late final GeneratedColumn<String> encryptedPayload = GeneratedColumn<String>(
+    'encrypted_payload',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [noteId, position, encryptedPayload];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'encrypted_note_attachments';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<EncryptedNoteAttachment> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('note_id')) {
+      context.handle(
+        _noteIdMeta,
+        noteId.isAcceptableOrUnknown(data['note_id']!, _noteIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_noteIdMeta);
+    }
+    if (data.containsKey('position')) {
+      context.handle(
+        _positionMeta,
+        position.isAcceptableOrUnknown(data['position']!, _positionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_positionMeta);
+    }
+    if (data.containsKey('encrypted_payload')) {
+      context.handle(
+        _encryptedPayloadMeta,
+        encryptedPayload.isAcceptableOrUnknown(
+          data['encrypted_payload']!,
+          _encryptedPayloadMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_encryptedPayloadMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {noteId, position};
+  @override
+  EncryptedNoteAttachment map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return EncryptedNoteAttachment(
+      noteId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}note_id'],
+      )!,
+      position: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}position'],
+      )!,
+      encryptedPayload: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}encrypted_payload'],
+      )!,
+    );
+  }
+
+  @override
+  $EncryptedNoteAttachmentsTable createAlias(String alias) {
+    return $EncryptedNoteAttachmentsTable(attachedDatabase, alias);
+  }
+}
+
+class EncryptedNoteAttachment extends DataClass
+    implements Insertable<EncryptedNoteAttachment> {
+  final String noteId;
+  final int position;
+  final String encryptedPayload;
+  const EncryptedNoteAttachment({
+    required this.noteId,
+    required this.position,
+    required this.encryptedPayload,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['note_id'] = Variable<String>(noteId);
+    map['position'] = Variable<int>(position);
+    map['encrypted_payload'] = Variable<String>(encryptedPayload);
+    return map;
+  }
+
+  EncryptedNoteAttachmentsCompanion toCompanion(bool nullToAbsent) {
+    return EncryptedNoteAttachmentsCompanion(
+      noteId: Value(noteId),
+      position: Value(position),
+      encryptedPayload: Value(encryptedPayload),
+    );
+  }
+
+  factory EncryptedNoteAttachment.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return EncryptedNoteAttachment(
+      noteId: serializer.fromJson<String>(json['noteId']),
+      position: serializer.fromJson<int>(json['position']),
+      encryptedPayload: serializer.fromJson<String>(json['encryptedPayload']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'noteId': serializer.toJson<String>(noteId),
+      'position': serializer.toJson<int>(position),
+      'encryptedPayload': serializer.toJson<String>(encryptedPayload),
+    };
+  }
+
+  EncryptedNoteAttachment copyWith({
+    String? noteId,
+    int? position,
+    String? encryptedPayload,
+  }) => EncryptedNoteAttachment(
+    noteId: noteId ?? this.noteId,
+    position: position ?? this.position,
+    encryptedPayload: encryptedPayload ?? this.encryptedPayload,
+  );
+  EncryptedNoteAttachment copyWithCompanion(
+    EncryptedNoteAttachmentsCompanion data,
+  ) {
+    return EncryptedNoteAttachment(
+      noteId: data.noteId.present ? data.noteId.value : this.noteId,
+      position: data.position.present ? data.position.value : this.position,
+      encryptedPayload: data.encryptedPayload.present
+          ? data.encryptedPayload.value
+          : this.encryptedPayload,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EncryptedNoteAttachment(')
+          ..write('noteId: $noteId, ')
+          ..write('position: $position, ')
+          ..write('encryptedPayload: $encryptedPayload')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(noteId, position, encryptedPayload);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is EncryptedNoteAttachment &&
+          other.noteId == this.noteId &&
+          other.position == this.position &&
+          other.encryptedPayload == this.encryptedPayload);
+}
+
+class EncryptedNoteAttachmentsCompanion
+    extends UpdateCompanion<EncryptedNoteAttachment> {
+  final Value<String> noteId;
+  final Value<int> position;
+  final Value<String> encryptedPayload;
+  final Value<int> rowid;
+  const EncryptedNoteAttachmentsCompanion({
+    this.noteId = const Value.absent(),
+    this.position = const Value.absent(),
+    this.encryptedPayload = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  EncryptedNoteAttachmentsCompanion.insert({
+    required String noteId,
+    required int position,
+    required String encryptedPayload,
+    this.rowid = const Value.absent(),
+  }) : noteId = Value(noteId),
+       position = Value(position),
+       encryptedPayload = Value(encryptedPayload);
+  static Insertable<EncryptedNoteAttachment> custom({
+    Expression<String>? noteId,
+    Expression<int>? position,
+    Expression<String>? encryptedPayload,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (noteId != null) 'note_id': noteId,
+      if (position != null) 'position': position,
+      if (encryptedPayload != null) 'encrypted_payload': encryptedPayload,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  EncryptedNoteAttachmentsCompanion copyWith({
+    Value<String>? noteId,
+    Value<int>? position,
+    Value<String>? encryptedPayload,
+    Value<int>? rowid,
+  }) {
+    return EncryptedNoteAttachmentsCompanion(
+      noteId: noteId ?? this.noteId,
+      position: position ?? this.position,
+      encryptedPayload: encryptedPayload ?? this.encryptedPayload,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (noteId.present) {
+      map['note_id'] = Variable<String>(noteId.value);
+    }
+    if (position.present) {
+      map['position'] = Variable<int>(position.value);
+    }
+    if (encryptedPayload.present) {
+      map['encrypted_payload'] = Variable<String>(encryptedPayload.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EncryptedNoteAttachmentsCompanion(')
+          ..write('noteId: $noteId, ')
+          ..write('position: $position, ')
+          ..write('encryptedPayload: $encryptedPayload, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $PendingNoteChangesTable extends PendingNoteChanges
+    with TableInfo<$PendingNoteChangesTable, PendingNoteChange> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $PendingNoteChangesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _noteIdMeta = const VerificationMeta('noteId');
+  @override
+  late final GeneratedColumn<String> noteId = GeneratedColumn<String>(
+    'note_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _vaultIdMeta = const VerificationMeta(
+    'vaultId',
+  );
+  @override
+  late final GeneratedColumn<String> vaultId = GeneratedColumn<String>(
+    'vault_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _revisionMeta = const VerificationMeta(
+    'revision',
+  );
+  @override
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _syncActionMeta = const VerificationMeta(
+    'syncAction',
+  );
+  @override
+  late final GeneratedColumn<String> syncAction = GeneratedColumn<String>(
+    'sync_action',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _queuedAtEpochMsMeta = const VerificationMeta(
+    'queuedAtEpochMs',
+  );
+  @override
+  late final GeneratedColumn<int> queuedAtEpochMs = GeneratedColumn<int>(
+    'queued_at_epoch_ms',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _contentHashMeta = const VerificationMeta(
+    'contentHash',
+  );
+  @override
+  late final GeneratedColumn<String> contentHash = GeneratedColumn<String>(
+    'content_hash',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _deletedAtEpochMsMeta = const VerificationMeta(
+    'deletedAtEpochMs',
+  );
+  @override
+  late final GeneratedColumn<int> deletedAtEpochMs = GeneratedColumn<int>(
+    'deleted_at_epoch_ms',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    noteId,
+    vaultId,
+    revision,
+    syncAction,
+    queuedAtEpochMs,
+    contentHash,
+    deletedAtEpochMs,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'pending_note_changes';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<PendingNoteChange> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('note_id')) {
+      context.handle(
+        _noteIdMeta,
+        noteId.isAcceptableOrUnknown(data['note_id']!, _noteIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_noteIdMeta);
+    }
+    if (data.containsKey('vault_id')) {
+      context.handle(
+        _vaultIdMeta,
+        vaultId.isAcceptableOrUnknown(data['vault_id']!, _vaultIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_vaultIdMeta);
+    }
+    if (data.containsKey('revision')) {
+      context.handle(
+        _revisionMeta,
+        revision.isAcceptableOrUnknown(data['revision']!, _revisionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_revisionMeta);
+    }
+    if (data.containsKey('sync_action')) {
+      context.handle(
+        _syncActionMeta,
+        syncAction.isAcceptableOrUnknown(data['sync_action']!, _syncActionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_syncActionMeta);
+    }
+    if (data.containsKey('queued_at_epoch_ms')) {
+      context.handle(
+        _queuedAtEpochMsMeta,
+        queuedAtEpochMs.isAcceptableOrUnknown(
+          data['queued_at_epoch_ms']!,
+          _queuedAtEpochMsMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_queuedAtEpochMsMeta);
+    }
+    if (data.containsKey('content_hash')) {
+      context.handle(
+        _contentHashMeta,
+        contentHash.isAcceptableOrUnknown(
+          data['content_hash']!,
+          _contentHashMeta,
+        ),
+      );
+    }
+    if (data.containsKey('deleted_at_epoch_ms')) {
+      context.handle(
+        _deletedAtEpochMsMeta,
+        deletedAtEpochMs.isAcceptableOrUnknown(
+          data['deleted_at_epoch_ms']!,
+          _deletedAtEpochMsMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {noteId};
+  @override
+  PendingNoteChange map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PendingNoteChange(
+      noteId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}note_id'],
+      )!,
+      vaultId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}vault_id'],
+      )!,
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+      syncAction: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sync_action'],
+      )!,
+      queuedAtEpochMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}queued_at_epoch_ms'],
+      )!,
+      contentHash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}content_hash'],
+      ),
+      deletedAtEpochMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}deleted_at_epoch_ms'],
+      ),
+    );
+  }
+
+  @override
+  $PendingNoteChangesTable createAlias(String alias) {
+    return $PendingNoteChangesTable(attachedDatabase, alias);
+  }
+}
+
+class PendingNoteChange extends DataClass
+    implements Insertable<PendingNoteChange> {
+  final String noteId;
+  final String vaultId;
+  final int revision;
+  final String syncAction;
+  final int queuedAtEpochMs;
+  final String? contentHash;
+  final int? deletedAtEpochMs;
+  const PendingNoteChange({
+    required this.noteId,
+    required this.vaultId,
+    required this.revision,
+    required this.syncAction,
+    required this.queuedAtEpochMs,
+    this.contentHash,
+    this.deletedAtEpochMs,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['note_id'] = Variable<String>(noteId);
+    map['vault_id'] = Variable<String>(vaultId);
+    map['revision'] = Variable<int>(revision);
+    map['sync_action'] = Variable<String>(syncAction);
+    map['queued_at_epoch_ms'] = Variable<int>(queuedAtEpochMs);
+    if (!nullToAbsent || contentHash != null) {
+      map['content_hash'] = Variable<String>(contentHash);
+    }
+    if (!nullToAbsent || deletedAtEpochMs != null) {
+      map['deleted_at_epoch_ms'] = Variable<int>(deletedAtEpochMs);
+    }
+    return map;
+  }
+
+  PendingNoteChangesCompanion toCompanion(bool nullToAbsent) {
+    return PendingNoteChangesCompanion(
+      noteId: Value(noteId),
+      vaultId: Value(vaultId),
+      revision: Value(revision),
+      syncAction: Value(syncAction),
+      queuedAtEpochMs: Value(queuedAtEpochMs),
+      contentHash: contentHash == null && nullToAbsent
+          ? const Value.absent()
+          : Value(contentHash),
+      deletedAtEpochMs: deletedAtEpochMs == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAtEpochMs),
+    );
+  }
+
+  factory PendingNoteChange.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PendingNoteChange(
+      noteId: serializer.fromJson<String>(json['noteId']),
+      vaultId: serializer.fromJson<String>(json['vaultId']),
+      revision: serializer.fromJson<int>(json['revision']),
+      syncAction: serializer.fromJson<String>(json['syncAction']),
+      queuedAtEpochMs: serializer.fromJson<int>(json['queuedAtEpochMs']),
+      contentHash: serializer.fromJson<String?>(json['contentHash']),
+      deletedAtEpochMs: serializer.fromJson<int?>(json['deletedAtEpochMs']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'noteId': serializer.toJson<String>(noteId),
+      'vaultId': serializer.toJson<String>(vaultId),
+      'revision': serializer.toJson<int>(revision),
+      'syncAction': serializer.toJson<String>(syncAction),
+      'queuedAtEpochMs': serializer.toJson<int>(queuedAtEpochMs),
+      'contentHash': serializer.toJson<String?>(contentHash),
+      'deletedAtEpochMs': serializer.toJson<int?>(deletedAtEpochMs),
+    };
+  }
+
+  PendingNoteChange copyWith({
+    String? noteId,
+    String? vaultId,
+    int? revision,
+    String? syncAction,
+    int? queuedAtEpochMs,
+    Value<String?> contentHash = const Value.absent(),
+    Value<int?> deletedAtEpochMs = const Value.absent(),
+  }) => PendingNoteChange(
+    noteId: noteId ?? this.noteId,
+    vaultId: vaultId ?? this.vaultId,
+    revision: revision ?? this.revision,
+    syncAction: syncAction ?? this.syncAction,
+    queuedAtEpochMs: queuedAtEpochMs ?? this.queuedAtEpochMs,
+    contentHash: contentHash.present ? contentHash.value : this.contentHash,
+    deletedAtEpochMs: deletedAtEpochMs.present
+        ? deletedAtEpochMs.value
+        : this.deletedAtEpochMs,
+  );
+  PendingNoteChange copyWithCompanion(PendingNoteChangesCompanion data) {
+    return PendingNoteChange(
+      noteId: data.noteId.present ? data.noteId.value : this.noteId,
+      vaultId: data.vaultId.present ? data.vaultId.value : this.vaultId,
+      revision: data.revision.present ? data.revision.value : this.revision,
+      syncAction: data.syncAction.present
+          ? data.syncAction.value
+          : this.syncAction,
+      queuedAtEpochMs: data.queuedAtEpochMs.present
+          ? data.queuedAtEpochMs.value
+          : this.queuedAtEpochMs,
+      contentHash: data.contentHash.present
+          ? data.contentHash.value
+          : this.contentHash,
+      deletedAtEpochMs: data.deletedAtEpochMs.present
+          ? data.deletedAtEpochMs.value
+          : this.deletedAtEpochMs,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PendingNoteChange(')
+          ..write('noteId: $noteId, ')
+          ..write('vaultId: $vaultId, ')
+          ..write('revision: $revision, ')
+          ..write('syncAction: $syncAction, ')
+          ..write('queuedAtEpochMs: $queuedAtEpochMs, ')
+          ..write('contentHash: $contentHash, ')
+          ..write('deletedAtEpochMs: $deletedAtEpochMs')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    noteId,
+    vaultId,
+    revision,
+    syncAction,
+    queuedAtEpochMs,
+    contentHash,
+    deletedAtEpochMs,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PendingNoteChange &&
+          other.noteId == this.noteId &&
+          other.vaultId == this.vaultId &&
+          other.revision == this.revision &&
+          other.syncAction == this.syncAction &&
+          other.queuedAtEpochMs == this.queuedAtEpochMs &&
+          other.contentHash == this.contentHash &&
+          other.deletedAtEpochMs == this.deletedAtEpochMs);
+}
+
+class PendingNoteChangesCompanion extends UpdateCompanion<PendingNoteChange> {
+  final Value<String> noteId;
+  final Value<String> vaultId;
+  final Value<int> revision;
+  final Value<String> syncAction;
+  final Value<int> queuedAtEpochMs;
+  final Value<String?> contentHash;
+  final Value<int?> deletedAtEpochMs;
+  final Value<int> rowid;
+  const PendingNoteChangesCompanion({
+    this.noteId = const Value.absent(),
+    this.vaultId = const Value.absent(),
+    this.revision = const Value.absent(),
+    this.syncAction = const Value.absent(),
+    this.queuedAtEpochMs = const Value.absent(),
+    this.contentHash = const Value.absent(),
+    this.deletedAtEpochMs = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PendingNoteChangesCompanion.insert({
+    required String noteId,
+    required String vaultId,
+    required int revision,
+    required String syncAction,
+    required int queuedAtEpochMs,
+    this.contentHash = const Value.absent(),
+    this.deletedAtEpochMs = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : noteId = Value(noteId),
+       vaultId = Value(vaultId),
+       revision = Value(revision),
+       syncAction = Value(syncAction),
+       queuedAtEpochMs = Value(queuedAtEpochMs);
+  static Insertable<PendingNoteChange> custom({
+    Expression<String>? noteId,
+    Expression<String>? vaultId,
+    Expression<int>? revision,
+    Expression<String>? syncAction,
+    Expression<int>? queuedAtEpochMs,
+    Expression<String>? contentHash,
+    Expression<int>? deletedAtEpochMs,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (noteId != null) 'note_id': noteId,
+      if (vaultId != null) 'vault_id': vaultId,
+      if (revision != null) 'revision': revision,
+      if (syncAction != null) 'sync_action': syncAction,
+      if (queuedAtEpochMs != null) 'queued_at_epoch_ms': queuedAtEpochMs,
+      if (contentHash != null) 'content_hash': contentHash,
+      if (deletedAtEpochMs != null) 'deleted_at_epoch_ms': deletedAtEpochMs,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PendingNoteChangesCompanion copyWith({
+    Value<String>? noteId,
+    Value<String>? vaultId,
+    Value<int>? revision,
+    Value<String>? syncAction,
+    Value<int>? queuedAtEpochMs,
+    Value<String?>? contentHash,
+    Value<int?>? deletedAtEpochMs,
+    Value<int>? rowid,
+  }) {
+    return PendingNoteChangesCompanion(
+      noteId: noteId ?? this.noteId,
+      vaultId: vaultId ?? this.vaultId,
+      revision: revision ?? this.revision,
+      syncAction: syncAction ?? this.syncAction,
+      queuedAtEpochMs: queuedAtEpochMs ?? this.queuedAtEpochMs,
+      contentHash: contentHash ?? this.contentHash,
+      deletedAtEpochMs: deletedAtEpochMs ?? this.deletedAtEpochMs,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (noteId.present) {
+      map['note_id'] = Variable<String>(noteId.value);
+    }
+    if (vaultId.present) {
+      map['vault_id'] = Variable<String>(vaultId.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    if (syncAction.present) {
+      map['sync_action'] = Variable<String>(syncAction.value);
+    }
+    if (queuedAtEpochMs.present) {
+      map['queued_at_epoch_ms'] = Variable<int>(queuedAtEpochMs.value);
+    }
+    if (contentHash.present) {
+      map['content_hash'] = Variable<String>(contentHash.value);
+    }
+    if (deletedAtEpochMs.present) {
+      map['deleted_at_epoch_ms'] = Variable<int>(deletedAtEpochMs.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PendingNoteChangesCompanion(')
+          ..write('noteId: $noteId, ')
+          ..write('vaultId: $vaultId, ')
+          ..write('revision: $revision, ')
+          ..write('syncAction: $syncAction, ')
+          ..write('queuedAtEpochMs: $queuedAtEpochMs, ')
+          ..write('contentHash: $contentHash, ')
+          ..write('deletedAtEpochMs: $deletedAtEpochMs, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$EncryptedNoteDatabase extends GeneratedDatabase {
   _$EncryptedNoteDatabase(QueryExecutor e) : super(e);
   $EncryptedNoteDatabaseManager get managers =>
       $EncryptedNoteDatabaseManager(this);
   late final $EncryptedNotesTable encryptedNotes = $EncryptedNotesTable(this);
+  late final $EncryptedNoteAttachmentsTable encryptedNoteAttachments =
+      $EncryptedNoteAttachmentsTable(this);
+  late final $PendingNoteChangesTable pendingNoteChanges =
+      $PendingNoteChangesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities => [encryptedNotes];
+  List<DatabaseSchemaEntity> get allSchemaEntities => [
+    encryptedNotes,
+    encryptedNoteAttachments,
+    pendingNoteChanges,
+  ];
 }
 
 typedef $$EncryptedNotesTableCreateCompanionBuilder =
@@ -1037,10 +1813,459 @@ typedef $$EncryptedNotesTableProcessedTableManager =
       EncryptedNote,
       PrefetchHooks Function()
     >;
+typedef $$EncryptedNoteAttachmentsTableCreateCompanionBuilder =
+    EncryptedNoteAttachmentsCompanion Function({
+      required String noteId,
+      required int position,
+      required String encryptedPayload,
+      Value<int> rowid,
+    });
+typedef $$EncryptedNoteAttachmentsTableUpdateCompanionBuilder =
+    EncryptedNoteAttachmentsCompanion Function({
+      Value<String> noteId,
+      Value<int> position,
+      Value<String> encryptedPayload,
+      Value<int> rowid,
+    });
+
+class $$EncryptedNoteAttachmentsTableFilterComposer
+    extends Composer<_$EncryptedNoteDatabase, $EncryptedNoteAttachmentsTable> {
+  $$EncryptedNoteAttachmentsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get noteId => $composableBuilder(
+    column: $table.noteId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get position => $composableBuilder(
+    column: $table.position,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get encryptedPayload => $composableBuilder(
+    column: $table.encryptedPayload,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$EncryptedNoteAttachmentsTableOrderingComposer
+    extends Composer<_$EncryptedNoteDatabase, $EncryptedNoteAttachmentsTable> {
+  $$EncryptedNoteAttachmentsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get noteId => $composableBuilder(
+    column: $table.noteId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get position => $composableBuilder(
+    column: $table.position,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get encryptedPayload => $composableBuilder(
+    column: $table.encryptedPayload,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$EncryptedNoteAttachmentsTableAnnotationComposer
+    extends Composer<_$EncryptedNoteDatabase, $EncryptedNoteAttachmentsTable> {
+  $$EncryptedNoteAttachmentsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get noteId =>
+      $composableBuilder(column: $table.noteId, builder: (column) => column);
+
+  GeneratedColumn<int> get position =>
+      $composableBuilder(column: $table.position, builder: (column) => column);
+
+  GeneratedColumn<String> get encryptedPayload => $composableBuilder(
+    column: $table.encryptedPayload,
+    builder: (column) => column,
+  );
+}
+
+class $$EncryptedNoteAttachmentsTableTableManager
+    extends
+        RootTableManager<
+          _$EncryptedNoteDatabase,
+          $EncryptedNoteAttachmentsTable,
+          EncryptedNoteAttachment,
+          $$EncryptedNoteAttachmentsTableFilterComposer,
+          $$EncryptedNoteAttachmentsTableOrderingComposer,
+          $$EncryptedNoteAttachmentsTableAnnotationComposer,
+          $$EncryptedNoteAttachmentsTableCreateCompanionBuilder,
+          $$EncryptedNoteAttachmentsTableUpdateCompanionBuilder,
+          (
+            EncryptedNoteAttachment,
+            BaseReferences<
+              _$EncryptedNoteDatabase,
+              $EncryptedNoteAttachmentsTable,
+              EncryptedNoteAttachment
+            >,
+          ),
+          EncryptedNoteAttachment,
+          PrefetchHooks Function()
+        > {
+  $$EncryptedNoteAttachmentsTableTableManager(
+    _$EncryptedNoteDatabase db,
+    $EncryptedNoteAttachmentsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$EncryptedNoteAttachmentsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$EncryptedNoteAttachmentsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$EncryptedNoteAttachmentsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> noteId = const Value.absent(),
+                Value<int> position = const Value.absent(),
+                Value<String> encryptedPayload = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => EncryptedNoteAttachmentsCompanion(
+                noteId: noteId,
+                position: position,
+                encryptedPayload: encryptedPayload,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String noteId,
+                required int position,
+                required String encryptedPayload,
+                Value<int> rowid = const Value.absent(),
+              }) => EncryptedNoteAttachmentsCompanion.insert(
+                noteId: noteId,
+                position: position,
+                encryptedPayload: encryptedPayload,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$EncryptedNoteAttachmentsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$EncryptedNoteDatabase,
+      $EncryptedNoteAttachmentsTable,
+      EncryptedNoteAttachment,
+      $$EncryptedNoteAttachmentsTableFilterComposer,
+      $$EncryptedNoteAttachmentsTableOrderingComposer,
+      $$EncryptedNoteAttachmentsTableAnnotationComposer,
+      $$EncryptedNoteAttachmentsTableCreateCompanionBuilder,
+      $$EncryptedNoteAttachmentsTableUpdateCompanionBuilder,
+      (
+        EncryptedNoteAttachment,
+        BaseReferences<
+          _$EncryptedNoteDatabase,
+          $EncryptedNoteAttachmentsTable,
+          EncryptedNoteAttachment
+        >,
+      ),
+      EncryptedNoteAttachment,
+      PrefetchHooks Function()
+    >;
+typedef $$PendingNoteChangesTableCreateCompanionBuilder =
+    PendingNoteChangesCompanion Function({
+      required String noteId,
+      required String vaultId,
+      required int revision,
+      required String syncAction,
+      required int queuedAtEpochMs,
+      Value<String?> contentHash,
+      Value<int?> deletedAtEpochMs,
+      Value<int> rowid,
+    });
+typedef $$PendingNoteChangesTableUpdateCompanionBuilder =
+    PendingNoteChangesCompanion Function({
+      Value<String> noteId,
+      Value<String> vaultId,
+      Value<int> revision,
+      Value<String> syncAction,
+      Value<int> queuedAtEpochMs,
+      Value<String?> contentHash,
+      Value<int?> deletedAtEpochMs,
+      Value<int> rowid,
+    });
+
+class $$PendingNoteChangesTableFilterComposer
+    extends Composer<_$EncryptedNoteDatabase, $PendingNoteChangesTable> {
+  $$PendingNoteChangesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get noteId => $composableBuilder(
+    column: $table.noteId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get vaultId => $composableBuilder(
+    column: $table.vaultId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get revision => $composableBuilder(
+    column: $table.revision,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get syncAction => $composableBuilder(
+    column: $table.syncAction,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get queuedAtEpochMs => $composableBuilder(
+    column: $table.queuedAtEpochMs,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get contentHash => $composableBuilder(
+    column: $table.contentHash,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get deletedAtEpochMs => $composableBuilder(
+    column: $table.deletedAtEpochMs,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$PendingNoteChangesTableOrderingComposer
+    extends Composer<_$EncryptedNoteDatabase, $PendingNoteChangesTable> {
+  $$PendingNoteChangesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get noteId => $composableBuilder(
+    column: $table.noteId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get vaultId => $composableBuilder(
+    column: $table.vaultId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get revision => $composableBuilder(
+    column: $table.revision,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get syncAction => $composableBuilder(
+    column: $table.syncAction,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get queuedAtEpochMs => $composableBuilder(
+    column: $table.queuedAtEpochMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get contentHash => $composableBuilder(
+    column: $table.contentHash,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get deletedAtEpochMs => $composableBuilder(
+    column: $table.deletedAtEpochMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$PendingNoteChangesTableAnnotationComposer
+    extends Composer<_$EncryptedNoteDatabase, $PendingNoteChangesTable> {
+  $$PendingNoteChangesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get noteId =>
+      $composableBuilder(column: $table.noteId, builder: (column) => column);
+
+  GeneratedColumn<String> get vaultId =>
+      $composableBuilder(column: $table.vaultId, builder: (column) => column);
+
+  GeneratedColumn<int> get revision =>
+      $composableBuilder(column: $table.revision, builder: (column) => column);
+
+  GeneratedColumn<String> get syncAction => $composableBuilder(
+    column: $table.syncAction,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get queuedAtEpochMs => $composableBuilder(
+    column: $table.queuedAtEpochMs,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get contentHash => $composableBuilder(
+    column: $table.contentHash,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get deletedAtEpochMs => $composableBuilder(
+    column: $table.deletedAtEpochMs,
+    builder: (column) => column,
+  );
+}
+
+class $$PendingNoteChangesTableTableManager
+    extends
+        RootTableManager<
+          _$EncryptedNoteDatabase,
+          $PendingNoteChangesTable,
+          PendingNoteChange,
+          $$PendingNoteChangesTableFilterComposer,
+          $$PendingNoteChangesTableOrderingComposer,
+          $$PendingNoteChangesTableAnnotationComposer,
+          $$PendingNoteChangesTableCreateCompanionBuilder,
+          $$PendingNoteChangesTableUpdateCompanionBuilder,
+          (
+            PendingNoteChange,
+            BaseReferences<
+              _$EncryptedNoteDatabase,
+              $PendingNoteChangesTable,
+              PendingNoteChange
+            >,
+          ),
+          PendingNoteChange,
+          PrefetchHooks Function()
+        > {
+  $$PendingNoteChangesTableTableManager(
+    _$EncryptedNoteDatabase db,
+    $PendingNoteChangesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$PendingNoteChangesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$PendingNoteChangesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$PendingNoteChangesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> noteId = const Value.absent(),
+                Value<String> vaultId = const Value.absent(),
+                Value<int> revision = const Value.absent(),
+                Value<String> syncAction = const Value.absent(),
+                Value<int> queuedAtEpochMs = const Value.absent(),
+                Value<String?> contentHash = const Value.absent(),
+                Value<int?> deletedAtEpochMs = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PendingNoteChangesCompanion(
+                noteId: noteId,
+                vaultId: vaultId,
+                revision: revision,
+                syncAction: syncAction,
+                queuedAtEpochMs: queuedAtEpochMs,
+                contentHash: contentHash,
+                deletedAtEpochMs: deletedAtEpochMs,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String noteId,
+                required String vaultId,
+                required int revision,
+                required String syncAction,
+                required int queuedAtEpochMs,
+                Value<String?> contentHash = const Value.absent(),
+                Value<int?> deletedAtEpochMs = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PendingNoteChangesCompanion.insert(
+                noteId: noteId,
+                vaultId: vaultId,
+                revision: revision,
+                syncAction: syncAction,
+                queuedAtEpochMs: queuedAtEpochMs,
+                contentHash: contentHash,
+                deletedAtEpochMs: deletedAtEpochMs,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$PendingNoteChangesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$EncryptedNoteDatabase,
+      $PendingNoteChangesTable,
+      PendingNoteChange,
+      $$PendingNoteChangesTableFilterComposer,
+      $$PendingNoteChangesTableOrderingComposer,
+      $$PendingNoteChangesTableAnnotationComposer,
+      $$PendingNoteChangesTableCreateCompanionBuilder,
+      $$PendingNoteChangesTableUpdateCompanionBuilder,
+      (
+        PendingNoteChange,
+        BaseReferences<
+          _$EncryptedNoteDatabase,
+          $PendingNoteChangesTable,
+          PendingNoteChange
+        >,
+      ),
+      PendingNoteChange,
+      PrefetchHooks Function()
+    >;
 
 class $EncryptedNoteDatabaseManager {
   final _$EncryptedNoteDatabase _db;
   $EncryptedNoteDatabaseManager(this._db);
   $$EncryptedNotesTableTableManager get encryptedNotes =>
       $$EncryptedNotesTableTableManager(_db, _db.encryptedNotes);
+  $$EncryptedNoteAttachmentsTableTableManager get encryptedNoteAttachments =>
+      $$EncryptedNoteAttachmentsTableTableManager(
+        _db,
+        _db.encryptedNoteAttachments,
+      );
+  $$PendingNoteChangesTableTableManager get pendingNoteChanges =>
+      $$PendingNoteChangesTableTableManager(_db, _db.pendingNoteChanges);
 }

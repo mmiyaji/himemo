@@ -88,7 +88,7 @@ void main() {
       expect(prefs.getString('notes.entries.v1'), isNull);
       final records = await database.loadAll();
       expect(records, hasLength(1));
-      expect(records.single.encryptedPayload.contains('Encrypted body'), isFalse);
+      expect(records.single.note.encryptedPayload.contains('Encrypted body'), isFalse);
     });
 
     test('persists and restores notes without plaintext leakage', () async {
@@ -105,6 +105,13 @@ void main() {
           isPinned: true,
           revision: 4,
           syncState: NoteSyncState.pendingUpload,
+          attachments: const [
+            NoteAttachment(
+              type: AttachmentType.photo,
+              label: 'vault-proof.jpg',
+              filePath: 'secure-attachment://vault-proof',
+            ),
+          ],
         ),
       ];
 
@@ -114,9 +121,61 @@ void main() {
       expect(restored, notes);
       final records = await database.loadAll();
       expect(records, hasLength(1));
-      final rawPayload = records.single.encryptedPayload;
+      final rawPayload = records.single.note.encryptedPayload;
       expect(rawPayload.contains('Vault plan'), isFalse);
       expect(rawPayload.contains('Only encrypted payload should be stored.'), isFalse);
+      expect(rawPayload.contains('vault-proof.jpg'), isFalse);
+      expect(records.single.attachments, hasLength(1));
+      expect(
+        records.single.attachments.single.encryptedPayload.contains('vault-proof.jpg'),
+        isFalse,
+      );
+      final pendingChanges = await database.loadPendingChanges();
+      expect(pendingChanges, hasLength(1));
+      expect(pendingChanges.single.noteId, 'n9');
+      expect(pendingChanges.single.action, PendingNoteChangeAction.upsert);
+    });
+
+    test('migrates native encrypted blob into drift and removes legacy file', () async {
+      final notes = [
+        NoteEntry(
+          id: 'n2',
+          vaultId: 'everyday',
+          title: 'Migrated note',
+          body: 'This should move into sqlite.',
+          createdAt: DateTime(2026, 4, 12, 12, 15),
+          attachments: const [
+            NoteAttachment(
+              type: AttachmentType.audio,
+              label: 'memo.m4a',
+              filePath: 'secure-attachment://memo',
+            ),
+          ],
+          syncState: NoteSyncState.pendingUpload,
+        ),
+      ];
+      final key = await MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      ).obtainOrCreate();
+      final encoded = await encryptionService.encryptJson(
+        payload: {
+          'notes': notes.map((note) => note.toJson()).toList(),
+        },
+        secretKey: key,
+      );
+      final encryptedFile = File(
+        '${tempDirectory.path}${Platform.pathSeparator}notes.entries.enc.v1',
+      );
+      await encryptedFile.writeAsString(encoded, flush: true);
+
+      final restored = await noteStore.load(fallbackNotes: const []);
+
+      expect(restored, notes);
+      expect(await encryptedFile.exists(), isFalse);
+      final records = await database.loadAll();
+      expect(records, hasLength(1));
+      expect(records.single.attachments, hasLength(1));
     });
   });
 
@@ -365,6 +424,10 @@ void main() {
     expect(deleted.deletedAt, isNotNull);
     expect(deleted.syncState, NoteSyncState.pendingDelete);
     expect(container.read(visibleNotesProvider).any((n) => n.id == 'sync-1'), isFalse);
+    final pendingChanges = await noteDatabase.loadPendingChanges();
+    expect(pendingChanges, hasLength(1));
+    expect(pendingChanges.single.noteId, 'sync-1');
+    expect(pendingChanges.single.action, PendingNoteChangeAction.delete);
   });
 }
 
