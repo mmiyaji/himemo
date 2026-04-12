@@ -48,6 +48,35 @@ test('rich memo grows naturally as you type', async ({ page }) => {
   );
 });
 
+test('advanced search stays folded until needed', async ({ page }) => {
+  await page.goto('/');
+  await waitForApp(page);
+  await completeOnboarding(page);
+
+  await page.getByRole('button', { name: 'More filters' }).click();
+  await expect(page.getByRole('checkbox', { name: 'Pinned only' })).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Pinned only' }).click();
+  await expect(page.getByRole('button', { name: 'Hide filters' })).toBeVisible();
+});
+
+test('new note draft restores after closing editor', async ({ page }) => {
+  await page.goto('/');
+  await waitForApp(page);
+  await completeOnboarding(page);
+
+  await page.getByRole('button', { name: 'Add note' }).click();
+  await page.getByRole('button', { name: 'Rich memo' }).click();
+  const paragraphInputs = page.getByRole('textbox');
+  await paragraphInputs.first().click();
+  await paragraphInputs.first().pressSequentially('Draft note\nKeep this around');
+  await page.waitForTimeout(700);
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByRole('button', { name: 'Add note' }).click();
+  await expect(page.getByRole('button', { name: 'Create note' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Create note' }).click();
+  await expect(page.locator('flutter-view')).toContainText('Draft note');
+});
+
 async function completeOnboarding(page) {
   await page.waitForTimeout(1200);
   const nextButton = page.getByRole('button', { name: 'Next' });

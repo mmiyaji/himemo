@@ -65,6 +65,82 @@ class AppPackageDetails {
   String get displayVersion => '$version ($buildNumber)';
 }
 
+class SearchFilters {
+  const SearchFilters({
+    this.pinnedOnly = false,
+    this.withMediaOnly = false,
+    this.vaultId,
+  });
+
+  final bool pinnedOnly;
+  final bool withMediaOnly;
+  final String? vaultId;
+
+  bool get isDefault =>
+      !pinnedOnly && !withMediaOnly && (vaultId == null || vaultId!.isEmpty);
+
+  SearchFilters copyWith({
+    bool? pinnedOnly,
+    bool? withMediaOnly,
+    String? vaultId,
+    bool clearVault = false,
+  }) {
+    return SearchFilters(
+      pinnedOnly: pinnedOnly ?? this.pinnedOnly,
+      withMediaOnly: withMediaOnly ?? this.withMediaOnly,
+      vaultId: clearVault ? null : (vaultId ?? this.vaultId),
+    );
+  }
+}
+
+class NoteEditorDraftSnapshot {
+  const NoteEditorDraftSnapshot({
+    required this.createdAt,
+    required this.isPinned,
+    required this.editorMode,
+    required this.vaultId,
+    required this.quickContent,
+    required this.quickAttachments,
+    required this.richBlocks,
+  });
+
+  final DateTime createdAt;
+  final bool isPinned;
+  final NoteEditorMode editorMode;
+  final String vaultId;
+  final String quickContent;
+  final List<NoteAttachment> quickAttachments;
+  final List<NoteBlock> richBlocks;
+
+  Map<String, dynamic> toJson() => {
+        'createdAt': createdAt.toIso8601String(),
+        'isPinned': isPinned,
+        'editorMode': editorMode.name,
+        'vaultId': vaultId,
+        'quickContent': quickContent,
+        'quickAttachments': quickAttachments.map((e) => e.toJson()).toList(),
+        'richBlocks': richBlocks.map((e) => e.toJson()).toList(),
+      };
+
+  static NoteEditorDraftSnapshot fromJson(Map<String, dynamic> json) {
+    return NoteEditorDraftSnapshot(
+      createdAt: DateTime.parse(json['createdAt'] as String),
+      isPinned: json['isPinned'] as bool? ?? false,
+      editorMode: NoteEditorMode.values.byName(
+        json['editorMode'] as String? ?? NoteEditorMode.rich.name,
+      ),
+      vaultId: json['vaultId'] as String? ?? 'everyday',
+      quickContent: json['quickContent'] as String? ?? '',
+      quickAttachments: (json['quickAttachments'] as List<dynamic>? ?? const [])
+          .map((entry) => NoteAttachment.fromJson(Map<String, dynamic>.from(entry as Map)))
+          .toList(growable: false),
+      richBlocks: (json['richBlocks'] as List<dynamic>? ?? const [])
+          .map((entry) => NoteBlock.fromJson(Map<String, dynamic>.from(entry as Map)))
+          .toList(growable: false),
+    );
+  }
+}
+
 enum MediaImportAction {
   takePhoto,
   pickPhoto,
@@ -1907,6 +1983,65 @@ class SearchQuery extends _$SearchQuery {
   void setQuery(String value) => state = value;
 }
 
+class SearchFiltersController extends Notifier<SearchFilters> {
+  @override
+  SearchFilters build() => const SearchFilters();
+
+  void setPinnedOnly(bool value) {
+    state = state.copyWith(pinnedOnly: value);
+  }
+
+  void setWithMediaOnly(bool value) {
+    state = state.copyWith(withMediaOnly: value);
+  }
+
+  void setVault(String? vaultId) {
+    if (vaultId == null || vaultId.isEmpty) {
+      state = state.copyWith(clearVault: true);
+      return;
+    }
+    state = state.copyWith(vaultId: vaultId);
+  }
+
+  void reset() {
+    state = const SearchFilters();
+  }
+}
+
+final searchFiltersControllerProvider =
+    NotifierProvider<SearchFiltersController, SearchFilters>(
+  SearchFiltersController.new,
+);
+
+class NoteEditorDraftStore {
+  static const _storageKey = 'notes.editor_draft.v1';
+
+  Future<NoteEditorDraftSnapshot?> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final payload = prefs.getString(_storageKey);
+    if (payload == null || payload.isEmpty) {
+      return null;
+    }
+    try {
+      return NoteEditorDraftSnapshot.fromJson(
+        Map<String, dynamic>.from(jsonDecode(payload) as Map),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> save(NoteEditorDraftSnapshot snapshot) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_storageKey, jsonEncode(snapshot.toJson()));
+  }
+
+  Future<void> clear() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_storageKey);
+  }
+}
+
 @Riverpod(keepAlive: true)
 class NotesController extends _$NotesController {
   bool _restored = false;
@@ -2164,10 +2299,16 @@ List<NoteEntry> visibleNotes(Ref ref) {
   final visibleIds =
       ref.watch(visibleVaultsProvider).map((vault) => vault.id).toSet();
   final query = ref.watch(searchQueryProvider).trim().toLowerCase();
+  final filters = ref.watch(searchFiltersControllerProvider);
   final notes = ref
       .watch(notesControllerProvider)
       .where((note) => visibleIds.contains(note.vaultId))
       .where((note) => note.deletedAt == null)
+      .where((note) => filters.vaultId == null || note.vaultId == filters.vaultId)
+      .where((note) => !filters.pinnedOnly || note.isPinned)
+      .where(
+        (note) => !filters.withMediaOnly || note.attachments.isNotEmpty,
+      )
       .where((note) {
     if (query.isEmpty) {
       return true;
@@ -2181,6 +2322,10 @@ List<NoteEntry> visibleNotes(Ref ref) {
   }).toList(growable: false);
   return notes;
 }
+
+final noteEditorDraftStoreProvider = Provider<NoteEditorDraftStore>(
+  (ref) => NoteEditorDraftStore(),
+);
 
 @riverpod
 List<NoteEntry> notesForVault(Ref ref, String vaultId) {

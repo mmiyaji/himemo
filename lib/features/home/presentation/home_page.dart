@@ -22,6 +22,68 @@ import 'home_providers.dart';
 
 enum AppSection { notes, calendar, insights, settings }
 
+class _NoteTemplate {
+  const _NoteTemplate({
+    required this.id,
+    required this.label,
+    required this.quickContent,
+    required this.richBlocks,
+  });
+
+  final String id;
+  final String label;
+  final String quickContent;
+  final List<NoteBlock> richBlocks;
+}
+
+const _noteTemplates = <_NoteTemplate>[
+  _NoteTemplate(
+    id: 'diary',
+    label: 'Diary',
+    quickContent: 'Today\n\nWhat happened today?\nHow did it feel?',
+    richBlocks: [
+      NoteBlock(type: NoteBlockType.paragraph, text: 'Today'),
+      NoteBlock(
+        type: NoteBlockType.paragraph,
+        text: 'What happened today?\nHow did it feel?',
+      ),
+    ],
+  ),
+  _NoteTemplate(
+    id: 'shopping',
+    label: 'Shopping',
+    quickContent: 'Shopping list\n\n- Milk\n- Eggs\n- Fruit',
+    richBlocks: [
+      NoteBlock(type: NoteBlockType.paragraph, text: 'Shopping list'),
+      NoteBlock(type: NoteBlockType.paragraph, text: '- Milk\n- Eggs\n- Fruit'),
+    ],
+  ),
+  _NoteTemplate(
+    id: 'meeting',
+    label: 'Meeting',
+    quickContent: 'Meeting notes\n\nAgenda\n\nDecisions\n\nNext actions',
+    richBlocks: [
+      NoteBlock(type: NoteBlockType.paragraph, text: 'Meeting notes'),
+      NoteBlock(
+        type: NoteBlockType.paragraph,
+        text: 'Agenda\n\nDecisions\n\nNext actions',
+      ),
+    ],
+  ),
+  _NoteTemplate(
+    id: 'travel',
+    label: 'Travel',
+    quickContent: 'Trip log\n\nPlace\n\nWhat stood out?',
+    richBlocks: [
+      NoteBlock(type: NoteBlockType.paragraph, text: 'Trip log'),
+      NoteBlock(
+        type: NoteBlockType.paragraph,
+        text: 'Place\n\nWhat stood out?',
+      ),
+    ],
+  ),
+];
+
 class AppShell extends ConsumerWidget {
   const AppShell({super.key, required this.child});
 
@@ -395,6 +457,27 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
           _selectedNoteId = null;
         });
       }
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('"${note.title}" deleted'),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () {
+              ref.read(notesControllerProvider.notifier).upsert(
+                    note.copyWith(
+                      deletedAt: null,
+                      syncState: NoteSyncState.pendingUpload,
+                      updatedAt: DateTime.now(),
+                      revision: note.revision + 1,
+                    ),
+                  );
+            },
+          ),
+        ),
+      );
     }
   }
 }
@@ -978,6 +1061,16 @@ class InsightsScreen extends ConsumerWidget {
             valueSuffix: ' items',
           ),
         ),
+        const SizedBox(height: 16),
+        _InsightChartSection(
+          title: 'Writing hours',
+          description: 'Find the hours when writing comes naturally.',
+          child: _InsightBarChart(
+            buckets: _buildHourBuckets(notes),
+            valueSuffix: ' notes',
+            compactLabels: true,
+          ),
+        ),
       ],
     );
   }
@@ -1013,6 +1106,21 @@ class _InsightsSummaryGrid extends StatelessWidget {
             label: 'Attachments',
             value: '${summary.totalAttachments}',
             helper: 'items',
+          ),
+          _InsightKpiTile(
+            label: 'Best day',
+            value: summary.bestDayLabel,
+            helper: '${summary.bestDayValue} notes',
+          ),
+          _InsightKpiTile(
+            label: 'Best hour',
+            value: summary.bestHourLabel,
+            helper: 'peak time',
+          ),
+          _InsightKpiTile(
+            label: 'Monthly trend',
+            value: summary.monthlyDeltaLabel,
+            helper: 'vs last month',
           ),
         ],
       ),
@@ -1224,6 +1332,10 @@ class _InsightsSummary {
     required this.thisMonthCount,
     required this.totalCharacters,
     required this.totalAttachments,
+    required this.bestDayLabel,
+    required this.bestDayValue,
+    required this.bestHourLabel,
+    required this.monthlyDeltaLabel,
     required this.message,
   });
 
@@ -1231,6 +1343,10 @@ class _InsightsSummary {
   final int thisMonthCount;
   final int totalCharacters;
   final int totalAttachments;
+  final String bestDayLabel;
+  final int bestDayValue;
+  final String bestHourLabel;
+  final String monthlyDeltaLabel;
   final String message;
 }
 
@@ -1269,6 +1385,19 @@ _InsightsSummary _buildInsightsSummary(List<NoteEntry> notes) {
     null,
     (best, bucket) => best == null || bucket.value > best.value ? bucket : best,
   );
+  final bestHour = _buildHourBuckets(notes).fold<_InsightBucket?>(
+    null,
+    (best, bucket) => best == null || bucket.value > best.value ? bucket : best,
+  );
+  final previousMonth = DateTime(now.year, now.month - 1);
+  final previousMonthCount = notes
+      .where(
+        (note) =>
+            note.createdAt.year == previousMonth.year &&
+            note.createdAt.month == previousMonth.month,
+      )
+      .length;
+  final monthlyDelta = thisMonthCount - previousMonthCount;
   final message = bestDay == null || bestDay.value == 0
       ? '書いた量がここにたまります。まずは数日続けてみると変化が見えます。'
       : '今月は $thisMonthCount 件、最も書いた日は ${bestDay.label} です。連続記録を保つと積み上がりが見えやすくなります。';
@@ -1277,6 +1406,14 @@ _InsightsSummary _buildInsightsSummary(List<NoteEntry> notes) {
     thisMonthCount: thisMonthCount,
     totalCharacters: totalCharacters,
     totalAttachments: totalAttachments,
+    bestDayLabel: bestDay?.label ?? '-',
+    bestDayValue: bestDay?.value ?? 0,
+    bestHourLabel: bestHour?.label ?? '-',
+    monthlyDeltaLabel: monthlyDelta == 0
+        ? '0'
+        : monthlyDelta > 0
+            ? '+$monthlyDelta'
+            : '$monthlyDelta',
     message: message,
   );
 }
@@ -1332,6 +1469,22 @@ List<_InsightBucket> _buildAttachmentBuckets(List<NoteEntry> notes) {
     _InsightBucket(label: 'Photo', value: countFor(AttachmentType.photo)),
     _InsightBucket(label: 'Video', value: countFor(AttachmentType.video)),
     _InsightBucket(label: 'Audio', value: countFor(AttachmentType.audio)),
+  ];
+}
+
+List<_InsightBucket> _buildHourBuckets(List<NoteEntry> notes) {
+  return [
+    for (var hour = 0; hour < 24; hour += 4)
+      _InsightBucket(
+        label:
+            '${hour.toString().padLeft(2, '0')}-${(hour + 3).toString().padLeft(2, '0')}',
+        value: notes
+            .where(
+              (note) =>
+                  note.createdAt.hour >= hour && note.createdAt.hour < hour + 4,
+            )
+            .length,
+      ),
   ];
 }
 
@@ -3625,14 +3778,24 @@ Future<void> showNoteEditorSheet(
   );
 }
 
-class _NotesToolbar extends ConsumerWidget {
+class _NotesToolbar extends ConsumerStatefulWidget {
   const _NotesToolbar({this.compact = false});
 
   final bool compact;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_NotesToolbar> createState() => _NotesToolbarState();
+}
+
+class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
+  bool _showAdvanced = false;
+
+  @override
+  Widget build(BuildContext context) {
     final query = ref.watch(searchQueryProvider);
+    final filters = ref.watch(searchFiltersControllerProvider);
+    final visibleVaults = ref.watch(visibleVaultsProvider);
+    final hasAdvancedFilters = !filters.isDefault;
 
     return Container(
       decoration: _sectionDecoration(context),
@@ -3652,7 +3815,90 @@ class _NotesToolbar extends ConsumerWidget {
             ),
             onChanged: ref.read(searchQueryProvider.notifier).setQuery,
           ),
-          if (!compact && ref.watch(activeIdentityProvider) != 'daily') ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              if (hasAdvancedFilters)
+                Text(
+                  'Advanced search active',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: _mutedTextColor(context),
+                      ),
+                ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _showAdvanced = !_showAdvanced;
+                  });
+                },
+                icon: Icon(
+                  _showAdvanced
+                      ? Icons.expand_less_rounded
+                      : Icons.tune_rounded,
+                ),
+                label: Text(_showAdvanced ? 'Hide filters' : 'More filters'),
+              ),
+            ],
+          ),
+          if (_showAdvanced) ...[
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                FilterChip(
+                  label: const Text('Pinned only'),
+                  selected: filters.pinnedOnly,
+                  onSelected: ref
+                      .read(searchFiltersControllerProvider.notifier)
+                      .setPinnedOnly,
+                ),
+                FilterChip(
+                  label: const Text('With media'),
+                  selected: filters.withMediaOnly,
+                  onSelected: ref
+                      .read(searchFiltersControllerProvider.notifier)
+                      .setWithMediaOnly,
+                ),
+                SizedBox(
+                  width: widget.compact ? 240 : 220,
+                  child: DropdownButtonFormField<String?>(
+                    key: ValueKey(filters.vaultId ?? 'all-vaults'),
+                    initialValue: filters.vaultId,
+                    decoration: const InputDecoration(
+                      labelText: 'Vault',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    items: [
+                      const DropdownMenuItem<String?>(
+                        value: null,
+                        child: Text('All visible vaults'),
+                      ),
+                      for (final vault in visibleVaults)
+                        DropdownMenuItem<String?>(
+                          value: vault.id,
+                          child: Text(vault.name),
+                        ),
+                    ],
+                    onChanged: ref
+                        .read(searchFiltersControllerProvider.notifier)
+                        .setVault,
+                  ),
+                ),
+                if (hasAdvancedFilters)
+                  TextButton(
+                    onPressed: ref
+                        .read(searchFiltersControllerProvider.notifier)
+                        .reset,
+                    child: const Text('Reset'),
+                  ),
+              ],
+            ),
+          ],
+          if (!widget.compact && ref.watch(activeIdentityProvider) != 'daily') ...[
             const SizedBox(height: 12),
             _InfoChip(
               icon: Icons.lock_outline_rounded,
@@ -3852,9 +4098,13 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late List<NoteAttachment> _attachments;
   late List<_RichBlockDraft> _richBlocks;
   late final Set<String> _initialAttachmentPaths;
+  final Set<String> _pendingAttachmentDeletes = <String>{};
   int? _activeRichParagraphIndex;
   String? _selectedVaultId;
   bool _saved = false;
+  bool _draftLoaded = false;
+  bool _showTemplates = false;
+  Timer? _draftSaveTimer;
 
   @override
   void initState() {
@@ -3880,11 +4130,35 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         .whereType<String>()
         .toSet();
     _selectedVaultId = widget.note?.vaultId ?? 'everyday';
+    if (widget.note == null) {
+      unawaited(_restoreDraftIfAny());
+    }
   }
 
   @override
   void dispose() {
+    _draftSaveTimer?.cancel();
+    if (!_saved && widget.note == null && _selectedVaultId != null) {
+      unawaited(
+        ref.read(noteEditorDraftStoreProvider).save(
+              NoteEditorDraftSnapshot(
+                createdAt: _createdAt,
+                isPinned: _isPinned,
+                editorMode: _editorMode,
+                vaultId: _selectedVaultId!,
+                quickContent: _contentController.text,
+                quickAttachments: _attachments,
+                richBlocks: _richBlocksToNoteBlocks(),
+              ),
+            ),
+      );
+    }
     if (!_saved) {
+      for (final filePath in _pendingAttachmentDeletes) {
+        unawaited(
+          ref.read(encryptedAttachmentStoreProvider).deleteAttachment(filePath),
+        );
+      }
       for (final attachment in _allCurrentAttachments) {
         final filePath = attachment.filePath;
         if (filePath == null || _initialAttachmentPaths.contains(filePath)) {
@@ -3904,6 +4178,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   void _handleTextChanged() {
+    _scheduleDraftPersist();
     if (mounted) {
       setState(() {});
     }
@@ -3970,6 +4245,110 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     });
   }
 
+  Future<void> _restoreDraftIfAny() async {
+    if (_draftLoaded) {
+      return;
+    }
+    _draftLoaded = true;
+    final draft = await ref.read(noteEditorDraftStoreProvider).load();
+    if (!mounted || draft == null) {
+      return;
+    }
+    setState(() {
+      _createdAt = draft.createdAt;
+      _isPinned = draft.isPinned;
+      _editorMode = draft.editorMode;
+      _selectedVaultId = draft.vaultId;
+      _contentController.text = draft.quickContent;
+      _attachments = [...draft.quickAttachments];
+      for (final block in _richBlocks) {
+        block.dispose();
+      }
+      _richBlocks = [
+        for (final block in draft.richBlocks)
+          if (block.type == NoteBlockType.paragraph)
+            _RichBlockDraft.paragraph(block.text ?? '')
+          else if (block.attachment != null)
+            _RichBlockDraft.attachment(block.attachment!),
+      ];
+      if (_richBlocks.isEmpty) {
+        _richBlocks = [_RichBlockDraft.paragraph()];
+      }
+      for (final block in _richBlocks) {
+        _attachRichBlockListener(block);
+      }
+      _activeRichParagraphIndex = _richBlocks.indexWhere(
+        (block) => block.type == NoteBlockType.paragraph,
+      );
+    });
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Draft restored'),
+        action: SnackBarAction(
+          label: 'Discard',
+          onPressed: () {
+            ref.read(noteEditorDraftStoreProvider).clear();
+          },
+        ),
+      ),
+    );
+  }
+
+  void _scheduleDraftPersist() {
+    if (widget.note != null) {
+      return;
+    }
+    _draftSaveTimer?.cancel();
+    _draftSaveTimer = Timer(const Duration(milliseconds: 400), () {
+      final vaultId = _selectedVaultId;
+      if (vaultId == null) {
+        return;
+      }
+      ref.read(noteEditorDraftStoreProvider).save(
+            NoteEditorDraftSnapshot(
+              createdAt: _createdAt,
+              isPinned: _isPinned,
+              editorMode: _editorMode,
+              vaultId: vaultId,
+              quickContent: _contentController.text,
+              quickAttachments: _attachments,
+              richBlocks: _richBlocksToNoteBlocks(),
+            ),
+          );
+    });
+  }
+
+  void _applyTemplate(_NoteTemplate template) {
+    setState(() {
+      _contentController.text = template.quickContent;
+      _attachments = [];
+      for (final block in _richBlocks) {
+        block.dispose();
+      }
+      _richBlocks = [
+        for (final block in template.richBlocks)
+          if (block.type == NoteBlockType.paragraph)
+            _RichBlockDraft.paragraph(block.text ?? '')
+          else if (block.attachment != null)
+            _RichBlockDraft.attachment(block.attachment!),
+      ];
+      if (_richBlocks.isEmpty) {
+        _richBlocks = [_RichBlockDraft.paragraph()];
+      }
+      for (final block in _richBlocks) {
+        _attachRichBlockListener(block);
+      }
+      _activeRichParagraphIndex = _richBlocks.indexWhere(
+        (block) => block.type == NoteBlockType.paragraph,
+      );
+      _showTemplates = false;
+    });
+    _scheduleDraftPersist();
+  }
+
   int _resolveRichInsertionIndex() {
     final activeIndex = _activeRichParagraphIndex;
     if (activeIndex != null &&
@@ -4008,6 +4387,22 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       for (final block in _richBlocks)
         if (block.attachment != null) block.attachment!,
     ];
+  }
+
+  void _queueAttachmentDelete(NoteAttachment attachment) {
+    final filePath = attachment.filePath;
+    if (filePath == null || _initialAttachmentPaths.contains(filePath)) {
+      return;
+    }
+    _pendingAttachmentDeletes.add(filePath);
+  }
+
+  void _cancelAttachmentDelete(NoteAttachment attachment) {
+    final filePath = attachment.filePath;
+    if (filePath == null) {
+      return;
+    }
+    _pendingAttachmentDeletes.remove(filePath);
   }
 
   @override
@@ -4058,6 +4453,47 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             Expanded(
               child: ListView(
                 children: [
+                  if (widget.note == null) ...[
+                    Container(
+                      decoration: _sectionDecoration(context),
+                      child: ExpansionTile(
+                        tilePadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 2,
+                        ),
+                        childrenPadding: const EdgeInsets.fromLTRB(
+                          12,
+                          0,
+                          12,
+                          12,
+                        ),
+                        initiallyExpanded: _showTemplates,
+                        onExpansionChanged: (value) {
+                          setState(() {
+                            _showTemplates = value;
+                          });
+                        },
+                        title: const Text('Start from template'),
+                        subtitle: const Text(
+                          'Optional. Begin with a simple writing pattern.',
+                        ),
+                        children: [
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final template in _noteTemplates)
+                                ActionChip(
+                                  label: Text(template.label),
+                                  onPressed: () => _applyTemplate(template),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   SegmentedButton<NoteEditorMode>(
                     segments: const [
                       ButtonSegment(
@@ -4083,6 +4519,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                           _activeRichParagraphIndex = 0;
                         }
                       });
+                      _scheduleDraftPersist();
                     },
                   ),
                   const SizedBox(height: 12),
@@ -4117,6 +4554,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                             onRemoveBlock: _removeRichBlock,
                             onBackspaceAtParagraphStart:
                                 _removeMediaBeforeParagraph,
+                            onMoveBlock: _moveRichBlock,
                           ),
                         ],
                       ),
@@ -4141,6 +4579,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       setState(() {
                         _selectedVaultId = value;
                       });
+                      _scheduleDraftPersist();
                     },
                   ),
                   const SizedBox(height: 12),
@@ -4153,27 +4592,14 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       setState(() {
                         _isPinned = value;
                       });
+                      _scheduleDraftPersist();
                     },
                   ),
                   if (_editorMode == NoteEditorMode.quick)
                     _QuickAttachmentSection(
                       attachments: _attachments,
                       onSelected: _handleAttachmentAction,
-                      onRemove: (index) {
-                        final removed = _attachments[index];
-                        setState(() {
-                          _attachments.removeAt(index);
-                        });
-                        final filePath = removed.filePath;
-                        if (filePath != null &&
-                            !_initialAttachmentPaths.contains(filePath)) {
-                          unawaited(
-                            ref
-                                .read(encryptedAttachmentStoreProvider)
-                                .deleteAttachment(filePath),
-                          );
-                        }
-                      },
+                      onRemove: _removeQuickAttachmentAt,
                     ),
                 ],
               ),
@@ -4209,6 +4635,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   Future<void> _pickDateTime() async {
+    final previous = _createdAt;
     final picked = await showDatePicker(
       context: context,
       initialDate: _createdAt,
@@ -4240,6 +4667,27 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         pickedTime.minute,
       );
     });
+    _scheduleDraftPersist();
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Date and time updated'),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _createdAt = previous;
+            });
+            _scheduleDraftPersist();
+          },
+        ),
+      ),
+    );
   }
 
   Future<void> _handleAttachmentAction(MediaImportAction action) async {
@@ -4320,6 +4768,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         _requestParagraphFocus(paragraphToFocus, focusOffset);
       }
     });
+    _cancelAttachmentDelete(attachment);
+    _scheduleDraftPersist();
   }
 
   Future<void> _save() async {
@@ -4352,7 +4802,15 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       syncState: widget.note?.syncState ?? NoteSyncState.localOnly,
       editorMode: _editorMode,
     );
+    final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+    for (final filePath in _pendingAttachmentDeletes) {
+      await attachmentStore.deleteAttachment(filePath);
+    }
+    _pendingAttachmentDeletes.clear();
     await ref.read(notesControllerProvider.notifier).upsert(note);
+    if (widget.note == null) {
+      await ref.read(noteEditorDraftStoreProvider).clear();
+    }
     _saved = true;
     if (mounted) {
       Navigator.of(context).pop();
@@ -4361,8 +4819,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
 
   void _removeRichBlock(int index) {
     final block = _richBlocks[index];
-    final attachment = block.attachment;
-    if (attachment != null) {
+    if (block.attachment != null) {
       _removeAttachmentBlockAt(index);
       return;
     }
@@ -4380,12 +4837,57 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         );
       }
     });
-    final filePath = attachment?.filePath;
-    if (filePath != null && !_initialAttachmentPaths.contains(filePath)) {
-      unawaited(
-        ref.read(encryptedAttachmentStoreProvider).deleteAttachment(filePath),
-      );
+    _scheduleDraftPersist();
+  }
+
+  void _moveRichBlock(int index, int delta) {
+    final targetIndex = index + delta;
+    if (index < 0 ||
+        index >= _richBlocks.length ||
+        targetIndex < 0 ||
+        targetIndex >= _richBlocks.length) {
+      return;
     }
+    setState(() {
+      final next = [..._richBlocks];
+      final block = next.removeAt(index);
+      next.insert(targetIndex, block);
+      _richBlocks = next;
+      if (block.type == NoteBlockType.paragraph) {
+        _activeRichParagraphIndex = targetIndex;
+      }
+    });
+    _scheduleDraftPersist();
+  }
+
+  void _removeQuickAttachmentAt(int index) {
+    final removed = _attachments[index];
+    setState(() {
+      _attachments.removeAt(index);
+    });
+    _queueAttachmentDelete(removed);
+    _scheduleDraftPersist();
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${removed.label} removed'),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _attachments.insert(index.clamp(0, _attachments.length), removed);
+            });
+            _cancelAttachmentDelete(removed);
+            _scheduleDraftPersist();
+          },
+        ),
+      ),
+    );
   }
 
   void _removeMediaBeforeParagraph(int paragraphIndex) {
@@ -4487,13 +4989,33 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (paragraphToFocus != null) {
       _requestParagraphFocus(paragraphToFocus!, focusOffset);
     }
+    _scheduleDraftPersist();
 
-    final filePath = attachment.filePath;
-    if (filePath != null && !_initialAttachmentPaths.contains(filePath)) {
-      unawaited(
-        ref.read(encryptedAttachmentStoreProvider).deleteAttachment(filePath),
+    if (mounted) {
+      final restoreIndex = mediaIndex.clamp(0, _richBlocks.length);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${attachment.label} removed'),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () {
+              if (!mounted) {
+                return;
+              }
+              setState(() {
+                _richBlocks.insert(
+                  restoreIndex,
+                  _RichBlockDraft.attachment(attachment),
+                );
+              });
+              _cancelAttachmentDelete(attachment);
+              _scheduleDraftPersist();
+            },
+          ),
+        ),
       );
     }
+    _queueAttachmentDelete(attachment);
   }
 
   String _deriveRichTitle() {
@@ -4552,11 +5074,13 @@ class _RichMemoEditor extends StatelessWidget {
     required this.blocks,
     required this.onRemoveBlock,
     required this.onBackspaceAtParagraphStart,
+    required this.onMoveBlock,
   });
 
   final List<_RichBlockDraft> blocks;
   final ValueChanged<int> onRemoveBlock;
   final ValueChanged<int> onBackspaceAtParagraphStart;
+  final void Function(int index, int delta) onMoveBlock;
 
   @override
   Widget build(BuildContext context) {
@@ -4569,6 +5093,10 @@ class _RichMemoEditor extends StatelessWidget {
             emphasizeInput: i == 0,
             onRemove: () => onRemoveBlock(i),
             onBackspaceAtStart: () => onBackspaceAtParagraphStart(i),
+            onMovePrevious: () => onMoveBlock(i, -1),
+            onMoveNext: () => onMoveBlock(i, 1),
+            canMovePrevious: i > 0,
+            canMoveNext: i < blocks.length - 1,
           ),
           if (i != blocks.length - 1) const SizedBox(height: 8),
         ],
@@ -4583,12 +5111,20 @@ class _RichBlockEditorTile extends StatelessWidget {
     this.emphasizeInput = false,
     required this.onRemove,
     required this.onBackspaceAtStart,
+    required this.onMovePrevious,
+    required this.onMoveNext,
+    required this.canMovePrevious,
+    required this.canMoveNext,
   });
 
   final _RichBlockDraft block;
   final bool emphasizeInput;
   final VoidCallback onRemove;
   final VoidCallback onBackspaceAtStart;
+  final VoidCallback onMovePrevious;
+  final VoidCallback onMoveNext;
+  final bool canMovePrevious;
+  final bool canMoveNext;
 
   @override
   Widget build(BuildContext context) {
@@ -4657,6 +5193,27 @@ class _RichBlockEditorTile extends StatelessWidget {
             icon: const Icon(Icons.delete_outline_rounded),
             tooltip: 'Remove block',
             visualDensity: VisualDensity.compact,
+          ),
+        ),
+        Positioned(
+          top: 8,
+          left: 8,
+          child: Row(
+            children: [
+              IconButton.filledTonal(
+                onPressed: canMovePrevious ? onMovePrevious : null,
+                icon: const Icon(Icons.chevron_left_rounded),
+                tooltip: 'Move earlier',
+                visualDensity: VisualDensity.compact,
+              ),
+              const SizedBox(width: 4),
+              IconButton.filledTonal(
+                onPressed: canMoveNext ? onMoveNext : null,
+                icon: const Icon(Icons.chevron_right_rounded),
+                tooltip: 'Move later',
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
           ),
         ),
       ],
