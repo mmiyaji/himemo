@@ -26,12 +26,25 @@ class EncryptionService {
     required Map<String, dynamic> payload,
     required SecretKey secretKey,
   }) async {
-    final nonce = _randomBytes(_algorithm.nonceLength);
     final encoded = utf8.encode(jsonEncode(payload));
+    return encryptBytes(
+      clearBytes: encoded,
+      secretKey: secretKey,
+      additionalData: utf8.encode('json'),
+    );
+  }
+
+  Future<String> encryptBytes({
+    required List<int> clearBytes,
+    required SecretKey secretKey,
+    List<int>? additionalData,
+  }) async {
+    final nonce = _randomBytes(_algorithm.nonceLength);
     final box = await _algorithm.encrypt(
-      encoded,
+      clearBytes,
       secretKey: secretKey,
       nonce: nonce,
+      aad: additionalData ?? const <int>[],
     );
 
     return jsonEncode({
@@ -46,6 +59,21 @@ class EncryptionService {
     required String encodedPayload,
     required SecretKey secretKey,
   }) async {
+    final clearBytes = await decryptBytes(
+      encodedPayload: encodedPayload,
+      secretKey: secretKey,
+      additionalData: utf8.encode('json'),
+    );
+    return Map<String, dynamic>.from(
+      jsonDecode(utf8.decode(clearBytes)) as Map<String, dynamic>,
+    );
+  }
+
+  Future<List<int>> decryptBytes({
+    required String encodedPayload,
+    required SecretKey secretKey,
+    List<int>? additionalData,
+  }) async {
     final decoded = Map<String, dynamic>.from(
       jsonDecode(encodedPayload) as Map<String, dynamic>,
     );
@@ -54,12 +82,10 @@ class EncryptionService {
       nonce: base64Decode(decoded['nonce'] as String),
       mac: Mac(base64Decode(decoded['mac'] as String)),
     );
-    final clearBytes = await _algorithm.decrypt(
+    return _algorithm.decrypt(
       secretBox,
       secretKey: secretKey,
-    );
-    return Map<String, dynamic>.from(
-      jsonDecode(utf8.decode(clearBytes)) as Map<String, dynamic>,
+      aad: additionalData ?? const <int>[],
     );
   }
 

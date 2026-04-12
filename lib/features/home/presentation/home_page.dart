@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../domain/note_entry.dart';
 import '../domain/vault_models.dart';
@@ -2379,13 +2378,13 @@ class _AttachmentListTile extends StatelessWidget {
   }
 }
 
-class _AttachmentPreview extends StatelessWidget {
+class _AttachmentPreview extends ConsumerWidget {
   const _AttachmentPreview({required this.attachment});
 
   final NoteAttachment attachment;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (attachment.type != AttachmentType.photo) {
       return _AttachmentIconBox(type: attachment.type);
     }
@@ -2400,8 +2399,10 @@ class _AttachmentPreview extends StatelessWidget {
       return _AttachmentIconBox(type: attachment.type);
     }
 
-    return FutureBuilder<List<int>>(
-      future: XFile(filePath).readAsBytes(),
+    return FutureBuilder<List<int>?>(
+      future: ref
+          .watch(encryptedAttachmentStoreProvider)
+          .readAttachment(filePath, type: attachment.type),
       builder: (context, snapshot) {
         final bytes = snapshot.data;
         if (bytes == null || bytes.isEmpty) {

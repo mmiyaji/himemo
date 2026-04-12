@@ -10,7 +10,6 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:path/path.dart' as path;
-import 'package:path_provider/path_provider.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
@@ -19,6 +18,7 @@ import '../data/home_repository.dart';
 import '../domain/note_entry.dart';
 import '../domain/vault_models.dart';
 import '../../security/data/encrypted_note_store.dart';
+import '../../security/data/encrypted_attachment_store.dart';
 import '../../security/data/encryption_service.dart';
 import '../../security/data/master_key_service.dart';
 import '../../security/data/private_vault_secret_store.dart';
@@ -409,6 +409,11 @@ abstract class MediaImportService {
 }
 
 class DefaultMediaImportService implements MediaImportService {
+  DefaultMediaImportService({required EncryptedAttachmentStore attachmentStore})
+    : _attachmentStore = attachmentStore;
+
+  final EncryptedAttachmentStore _attachmentStore;
+
   @override
   Future<NoteAttachment?> importAttachment(MediaImportAction action) async {
     switch (action) {
@@ -445,7 +450,6 @@ class DefaultMediaImportService implements MediaImportService {
     return _buildAttachment(
       type: AttachmentType.photo,
       sourceFile: picked,
-      previewBytesBase64: base64Encode(await picked.readAsBytes()),
     );
   }
 
@@ -491,36 +495,18 @@ class DefaultMediaImportService implements MediaImportService {
   Future<NoteAttachment> _buildAttachment({
     required AttachmentType type,
     required XFile sourceFile,
-    String? previewBytesBase64,
   }) async {
-    final storedPath = await _storePickedFile(sourceFile, type: type);
+    final storedPath = await _attachmentStore.storeAttachment(
+      sourceFile,
+      type: type,
+    );
     return NoteAttachment(
       type: type,
       label: sourceFile.name.isEmpty
           ? path.basename(sourceFile.path)
           : sourceFile.name,
       filePath: storedPath,
-      previewBytesBase64: previewBytesBase64,
     );
-  }
-
-  Future<String?> _storePickedFile(
-    XFile sourceFile, {
-    required AttachmentType type,
-  }) async {
-    if (kIsWeb) {
-      return sourceFile.path;
-    }
-
-    final baseDirectory = await getApplicationSupportDirectory();
-    final extension = path.extension(
-      sourceFile.name.isEmpty ? sourceFile.path : sourceFile.name,
-    );
-    final fileName =
-        '${DateTime.now().microsecondsSinceEpoch}_${type.name}${extension.isEmpty ? '' : extension}';
-    final targetPath = path.join(baseDirectory.path, fileName);
-    await sourceFile.saveTo(targetPath);
-    return targetPath;
   }
 }
 
@@ -533,7 +519,9 @@ final syncAuthGatewayProvider = Provider<SyncAuthGateway>(
 );
 
 final mediaImportServiceProvider = Provider<MediaImportService>(
-  (ref) => DefaultMediaImportService(),
+  (ref) => DefaultMediaImportService(
+    attachmentStore: ref.watch(encryptedAttachmentStoreProvider),
+  ),
 );
 
 final secureKeyValueStoreProvider = Provider<SecureKeyValueStore>((ref) {
@@ -554,6 +542,15 @@ final masterKeyServiceProvider = Provider<MasterKeyService>((ref) {
 
 final encryptedNoteStoreProvider = Provider<EncryptedNoteStore>((ref) {
   return EncryptedNoteStore(
+    encryptionService: ref.watch(encryptionServiceProvider),
+    masterKeyService: ref.watch(masterKeyServiceProvider),
+  );
+});
+
+final encryptedAttachmentStoreProvider = Provider<EncryptedAttachmentStore>((
+  ref,
+) {
+  return EncryptedAttachmentStore(
     encryptionService: ref.watch(encryptionServiceProvider),
     masterKeyService: ref.watch(masterKeyServiceProvider),
   );

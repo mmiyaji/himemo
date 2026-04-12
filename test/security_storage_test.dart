@@ -4,11 +4,13 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:himemo/features/home/domain/note_entry.dart';
+import 'package:himemo/features/security/data/encrypted_attachment_store.dart';
 import 'package:himemo/features/security/data/encrypted_note_store.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/master_key_service.dart';
 import 'package:himemo/features/security/data/private_vault_secret_store.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -140,6 +142,60 @@ void main() {
       expect(await secretStore.verify('legacy-secret'), isTrue);
       expect(prefs.getString('security.private_vault_salt'), isNull);
       expect(prefs.getString('security.private_vault_digest'), isNull);
+    });
+  });
+
+  group('EncryptedAttachmentStore', () {
+    late Directory tempDirectory;
+    late MemorySecureKeyValueStore secureStore;
+    late EncryptionService encryptionService;
+    late SharedPreferences prefs;
+    late EncryptedAttachmentStore attachmentStore;
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      prefs = await SharedPreferences.getInstance();
+      tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-secure-attachments-',
+      );
+      secureStore = MemorySecureKeyValueStore();
+      encryptionService = EncryptionService(random: Random(13));
+      attachmentStore = EncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: MasterKeyService(
+          secureStore: secureStore,
+          keyFactory: encryptionService.generateKeyBytes,
+        ),
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: () async => prefs,
+      );
+    });
+
+    tearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    test('stores attachment bytes encrypted on disk', () async {
+      final source = File('${tempDirectory.path}${Platform.pathSeparator}raw.jpg');
+      await source.writeAsBytes(const [1, 2, 3, 4, 5, 6], flush: true);
+
+      final storedReference = await attachmentStore.storeAttachment(
+        XFile(source.path, name: 'raw.jpg'),
+        type: AttachmentType.photo,
+      );
+
+      expect(storedReference, isNotNull);
+      final encryptedFile = File(storedReference!);
+      final rawContents = await encryptedFile.readAsString();
+      expect(rawContents.contains('1, 2, 3'), isFalse);
+
+      final restored = await attachmentStore.readAttachment(
+        storedReference,
+        type: AttachmentType.photo,
+      );
+      expect(restored, const [1, 2, 3, 4, 5, 6]);
     });
   });
 }
