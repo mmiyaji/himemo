@@ -27,8 +27,10 @@ import '../../security/data/master_key_service.dart';
 import '../../security/data/private_vault_secret_store.dart';
 import '../../security/data/secure_key_value_store.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
+import '../../sync/data/sync_conflict_policy.dart';
 import '../../sync/data/secure_sync_bundle_store.dart';
 import '../../sync/data/sync_bundle_key_service.dart';
+import '../../sync/data/sync_bundle_state_store.dart';
 import '../../sync/data/sync_engine.dart';
 
 part 'home_providers.g.dart';
@@ -737,6 +739,25 @@ final googleDriveSyncTransportProvider = Provider<GoogleDriveSyncTransport>((
   return GoogleApisGoogleDriveSyncTransport();
 });
 
+final syncBundleStateStoreProvider = Provider<SyncBundleStateStore>((ref) {
+  return SyncBundleStateStore();
+});
+
+final syncBundleStateProvider = FutureProvider<SyncBundleState>((ref) async {
+  return ref.watch(syncBundleStateStoreProvider).read();
+});
+
+final syncConflictWarningProvider = Provider<String?>((ref) {
+  final assessment = assessSyncConflict(
+    googleDriveSelected:
+        ref.watch(syncProviderControllerProvider) == SyncProvider.googleDrive,
+    queue: ref.watch(syncQueueSummaryProvider).asData?.value,
+    remoteStatus: ref.watch(syncTransferControllerProvider).remoteStatus,
+    bundleState: ref.watch(syncBundleStateProvider).asData?.value,
+  );
+  return assessment.message;
+});
+
 final syncQueueSummaryProvider = FutureProvider<SyncQueueSummary>((ref) async {
   ref.watch(notesControllerProvider);
   return ref.watch(syncEngineProvider).summarizeQueue();
@@ -770,7 +791,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             ? 'No Google Drive bundle is stored yet.'
             : 'Google Drive bundle metadata refreshed.',
         remoteStatus: remoteStatus,
+        localBundle: state.localBundle,
       );
+      if (remoteStatus != null) {
+        await ref.read(syncBundleStateStoreProvider).recordRemoteStatus(
+          remoteStatus,
+        );
+      }
     } catch (error) {
       state = SyncTransferState(
         stage: SyncTransferStage.error,
@@ -780,11 +807,25 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  Future<void> uploadCurrentBundle() async {
+  Future<void> uploadCurrentBundle({bool force = false}) async {
     if (ref.read(syncProviderControllerProvider) != SyncProvider.googleDrive) {
       state = const SyncTransferState(
         stage: SyncTransferStage.error,
         message: 'Switch the sync target to Google Drive before uploading.',
+      );
+      return;
+    }
+    final assessment = assessSyncConflict(
+      googleDriveSelected: true,
+      queue: await ref.read(syncQueueSummaryProvider.future),
+      remoteStatus: state.remoteStatus,
+      bundleState: await ref.read(syncBundleStateProvider.future),
+    );
+    if (assessment.hasConflict && !force) {
+      state = state.copyWith(
+        stage: SyncTransferStage.error,
+        message:
+            '${assessment.message} Download and apply the remote bundle first, or use Force upload if you intend to overwrite it.',
       );
       return;
     }
@@ -810,12 +851,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             noteCount: bundle.noteCount,
             attachmentCount: bundle.attachmentCount,
           );
+      await ref.read(notesControllerProvider.notifier).markCurrentStateSynced();
       state = SyncTransferState(
         stage: SyncTransferStage.success,
         message: 'Encrypted bundle uploaded to Google Drive app-data.',
         remoteStatus: remoteStatus,
         localBundle: bundle,
       );
+      await ref.read(syncBundleStateStoreProvider).recordUpload(remoteStatus);
     } catch (error) {
       state = SyncTransferState(
         stage: SyncTransferStage.error,
@@ -859,6 +902,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         message: 'Remote Google Drive bundle downloaded to local secure storage.',
         remoteStatus: remoteBundle.status,
         localBundle: localBundle,
+      );
+      await ref.read(syncBundleStateStoreProvider).recordRemoteStatus(
+        remoteBundle.status,
       );
     } catch (error) {
       state = SyncTransferState(
@@ -929,6 +975,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await ref.read(notesControllerProvider.notifier).replaceFromSync(
         importedNotes,
       );
+      await ref.read(syncBundleStateStoreProvider).recordApply(state.remoteStatus);
       state = state.copyWith(
         stage: SyncTransferStage.success,
         message: 'Downloaded bundle applied to local notes.',
@@ -1540,6 +1587,26 @@ class NotesController extends _$NotesController {
     ];
     await _deleteAttachments(removedAttachments);
     final next = [...notes];
+    _sort(next);
+    state = next;
+    await _persist();
+  }
+
+  Future<void> markCurrentStateSynced() async {
+    var changed = false;
+    final next = <NoteEntry>[];
+    for (final note in state) {
+      if (note.syncState == NoteSyncState.pendingUpload ||
+          note.syncState == NoteSyncState.pendingDelete) {
+        next.add(note.copyWith(syncState: NoteSyncState.synced));
+        changed = true;
+      } else {
+        next.add(note);
+      }
+    }
+    if (!changed) {
+      return;
+    }
     _sort(next);
     state = next;
     await _persist();

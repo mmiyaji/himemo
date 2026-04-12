@@ -17,8 +17,11 @@ import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/master_key_service.dart';
 import 'package:himemo/features/security/data/private_vault_secret_store.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
+import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
+import 'package:himemo/features/sync/data/sync_conflict_policy.dart';
 import 'package:himemo/features/sync/data/secure_sync_bundle_store.dart';
 import 'package:himemo/features/sync/data/sync_bundle_key_service.dart';
+import 'package:himemo/features/sync/data/sync_bundle_state_store.dart';
 import 'package:himemo/features/sync/data/sync_engine.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -433,6 +436,86 @@ void main() {
     expect(pendingChanges.single.action, PendingNoteChangeAction.delete);
   });
 
+  test('NotesController can mark pending notes as synced and clear the queue', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-mark-synced-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(35));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: noteDatabase,
+            directoryProvider: () async => tempDirectory,
+            sharedPreferencesProvider: SharedPreferences.getInstance,
+          ),
+        ),
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+        deviceIdentityStoreProvider.overrideWithValue(
+          DeviceIdentityStore(
+            sharedPreferencesProvider: SharedPreferences.getInstance,
+            random: Random(6),
+          ),
+        ),
+        homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(noteDatabase.close);
+    addTearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    final controller = container.read(notesControllerProvider.notifier);
+    container.read(notesControllerProvider);
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    await controller.upsert(
+      NoteEntry(
+        id: 'sync-2',
+        vaultId: 'everyday',
+        title: 'Uploaded note',
+        body: 'Will become synced',
+        createdAt: DateTime(2026, 4, 12, 15, 30),
+      ),
+    );
+
+    expect(
+      container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'sync-2')
+          .syncState,
+      NoteSyncState.pendingUpload,
+    );
+    expect(await noteDatabase.loadPendingChanges(), isNotEmpty);
+
+    await controller.markCurrentStateSynced();
+
+    expect(
+      container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'sync-2')
+          .syncState,
+      NoteSyncState.synced,
+    );
+    expect(await noteDatabase.loadPendingChanges(), isEmpty);
+  });
+
   test('SyncEngine prepares sanitized snapshot without local attachment paths', () async {
     SharedPreferences.setMockInitialValues({});
     final tempDirectory = await Directory.systemTemp.createTemp(
@@ -635,6 +718,8 @@ void main() {
       type: AttachmentType.photo,
       fileNameHint: 'legacy.jpg',
     );
+    expect(oldAttachmentPath, isNotNull);
+    final seededAttachmentPath = oldAttachmentPath!;
     final container = ProviderContainer(
       overrides: [
         secureKeyValueStoreProvider.overrideWithValue(secureStore),
@@ -652,7 +737,7 @@ void main() {
         ),
         encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
         homeRepositoryProvider.overrideWithValue(
-          _AttachmentSeedRepository(oldAttachmentPath!),
+          _AttachmentSeedRepository(seededAttachmentPath),
         ),
       ],
     );
@@ -674,11 +759,85 @@ void main() {
       container.read(notesControllerProvider).map((note) => note.id).toList(),
       ['imported'],
     );
-    expect(await File(oldAttachmentPath!).exists(), isFalse);
+    expect(await File(seededAttachmentPath).exists(), isFalse);
 
     if (await tempDirectory.exists()) {
       await tempDirectory.delete(recursive: true);
     }
+  });
+
+  test('SyncBundleStateStore persists remote and apply metadata', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = SyncBundleStateStore(
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final remote = RemoteSyncBundleStatus(
+      fileId: 'file-1',
+      fileName: 'himemo_sync_bundle.enc',
+      modifiedAt: DateTime(2026, 4, 12, 19, 0),
+      deviceId: 'remote-device',
+    );
+
+    await store.recordRemoteStatus(remote);
+    await store.recordApply(remote);
+    final restored = await store.read();
+
+    expect(restored.lastRemoteFileId, 'file-1');
+    expect(restored.lastRemoteDeviceId, 'remote-device');
+    expect(restored.lastRemoteModifiedAt, DateTime(2026, 4, 12, 19, 0));
+    expect(restored.lastAppliedAt, isNotNull);
+  });
+
+  test('assessSyncConflict reports newer remote bundle against pending local queue', () {
+    final assessment = assessSyncConflict(
+      googleDriveSelected: true,
+      queue: const SyncQueueSummary(
+        totalChanges: 2,
+        upserts: 1,
+        deletes: 1,
+      ),
+      remoteStatus: RemoteSyncBundleStatus(
+        fileId: 'remote-1',
+        fileName: 'himemo_sync_bundle.enc',
+        modifiedAt: DateTime(2026, 4, 12, 20, 0),
+        deviceId: 'other-device',
+      ),
+      bundleState: SyncBundleState(
+        lastRemoteFileId: 'remote-0',
+        lastRemoteModifiedAt: DateTime(2026, 4, 12, 19, 0),
+        lastRemoteDeviceId: 'device-a',
+        lastUploadedAt: DateTime(2026, 4, 12, 19, 15),
+      ),
+    );
+
+    expect(assessment.hasConflict, isTrue);
+    expect(assessment.message, isNotNull);
+  });
+
+  test('assessSyncConflict ignores matching device or stale remote bundle', () {
+    final assessment = assessSyncConflict(
+      googleDriveSelected: true,
+      queue: const SyncQueueSummary(
+        totalChanges: 1,
+        upserts: 1,
+        deletes: 0,
+      ),
+      remoteStatus: RemoteSyncBundleStatus(
+        fileId: 'remote-1',
+        fileName: 'himemo_sync_bundle.enc',
+        modifiedAt: DateTime(2026, 4, 12, 18, 0),
+        deviceId: 'device-a',
+      ),
+      bundleState: SyncBundleState(
+        lastRemoteFileId: 'remote-1',
+        lastRemoteModifiedAt: DateTime(2026, 4, 12, 18, 0),
+        lastRemoteDeviceId: 'device-a',
+        lastAppliedAt: DateTime(2026, 4, 12, 19, 0),
+      ),
+    );
+
+    expect(assessment.hasConflict, isFalse);
+    expect(assessment.message, isNull);
   });
 }
 

@@ -735,6 +735,8 @@ class SettingsScreen extends ConsumerWidget {
     final syncQueueSummary = ref.watch(syncQueueSummaryProvider);
     final syncTransferState = ref.watch(syncTransferControllerProvider);
     final syncBundleFingerprint = ref.watch(syncBundleFingerprintProvider);
+    final syncBundleState = ref.watch(syncBundleStateProvider);
+    final syncConflictWarning = ref.watch(syncConflictWarningProvider);
     final flavorName =
         FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
     final displayName =
@@ -963,6 +965,25 @@ class SettingsScreen extends ConsumerWidget {
         _SettingsGroup(
           title: 'Sync target',
           children: [
+            if (syncConflictWarning != null)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.errorContainer,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+                child: Text(
+                  syncConflictWarning,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                  ),
+                ),
+              ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Selected target'),
@@ -1006,6 +1027,38 @@ class SettingsScreen extends ConsumerWidget {
                   data: (value) => value,
                   loading: () => 'Preparing sync key...',
                   error: (_, _) => 'Unable to read the sync key fingerprint.',
+                ),
+              ),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Last sync activity'),
+              subtitle: Text(
+                syncBundleState.when(
+                  data: (value) {
+                    final entries = <String>[];
+                    if (value.lastUploadedAt != null) {
+                      entries.add(
+                        'Last upload ${_formatDateTime(value.lastUploadedAt!)}',
+                      );
+                    }
+                    if (value.lastAppliedAt != null) {
+                      entries.add(
+                        'Last apply ${_formatDateTime(value.lastAppliedAt!)}',
+                      );
+                    }
+                    if (value.lastRemoteModifiedAt != null) {
+                      entries.add(
+                        'Remote bundle ${_formatDateTime(value.lastRemoteModifiedAt!)}',
+                      );
+                    }
+                    if (entries.isEmpty) {
+                      return 'No sync activity has been recorded on this device yet.';
+                    }
+                    return entries.join('\n');
+                  },
+                  loading: () => 'Reading sync activity...',
+                  error: (_, _) => 'Unable to read local sync activity.',
                 ),
               ),
             ),
@@ -1095,7 +1148,8 @@ class SettingsScreen extends ConsumerWidget {
                     syncAuthState.isAuthenticated)
                   OutlinedButton(
                     key: syncUploadBundleKey,
-                    onPressed: syncTransferState.isBusy
+                    onPressed: syncTransferState.isBusy ||
+                            syncConflictWarning != null
                         ? null
                         : () async {
                             await ref
@@ -1115,6 +1169,61 @@ class SettingsScreen extends ConsumerWidget {
                             ).showSnackBar(SnackBar(content: Text(message)));
                           },
                     child: const Text('Upload bundle'),
+                  ),
+                if (syncProvider == SyncProvider.googleDrive &&
+                    syncAuthState.isAuthenticated &&
+                    syncConflictWarning != null)
+                  FilledButton.tonal(
+                    onPressed: syncTransferState.isBusy
+                        ? null
+                        : () async {
+                            final shouldForce =
+                                await showDialog<bool>(
+                                  context: context,
+                                  builder: (context) {
+                                    return AlertDialog(
+                                      title: const Text('Force upload?'),
+                                      content: const Text(
+                                        'A newer remote bundle was found while this device still has pending changes. Force upload will overwrite the remote backup with this device state.',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.of(
+                                            context,
+                                          ).pop(false),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        FilledButton(
+                                          onPressed: () => Navigator.of(
+                                            context,
+                                          ).pop(true),
+                                          child: const Text('Force upload'),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                ) ??
+                                false;
+                            if (!shouldForce) {
+                              return;
+                            }
+                            await ref
+                                .read(syncTransferControllerProvider.notifier)
+                                .uploadCurrentBundle(force: true);
+                            if (!context.mounted) {
+                              return;
+                            }
+                            final message = ref
+                                .read(syncTransferControllerProvider)
+                                .message;
+                            if (message == null || message.isEmpty) {
+                              return;
+                            }
+                            ScaffoldMessenger.of(
+                              context,
+                            ).showSnackBar(SnackBar(content: Text(message)));
+                          },
+                    child: const Text('Force upload'),
                   ),
                 if (syncProvider == SyncProvider.googleDrive &&
                     syncAuthState.isAuthenticated)
