@@ -702,6 +702,8 @@ class SettingsScreen extends ConsumerWidget {
   static const syncGoogleDriveKey = Key('sync-google-drive-option');
   static const syncConnectKey = Key('sync-connect-button');
   static const syncDisconnectKey = Key('sync-disconnect-button');
+  static const syncRefreshRemoteKey = Key('sync-refresh-remote-button');
+  static const syncUploadBundleKey = Key('sync-upload-bundle-button');
   static const privateVaultSetKey = Key('private-vault-set-key');
   static const privateVaultUnlockKey = Key('private-vault-unlock-key');
   static const privateVaultLockKey = Key('private-vault-lock-key');
@@ -729,6 +731,7 @@ class SettingsScreen extends ConsumerWidget {
     final syncProvider = ref.watch(syncProviderControllerProvider);
     final syncAuthState = ref.watch(selectedSyncAuthStateProvider);
     final syncQueueSummary = ref.watch(syncQueueSummaryProvider);
+    final syncTransferState = ref.watch(syncTransferControllerProvider);
     final flavorName =
         FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
     final displayName =
@@ -987,6 +990,11 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
             ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Remote bundle'),
+              subtitle: Text(_remoteBundleSummary(syncProvider, syncTransferState)),
+            ),
             _ThemeOptionTile(
               tileKey: syncOffKey,
               title: 'Off',
@@ -1040,13 +1048,57 @@ class SettingsScreen extends ConsumerWidget {
                     child: const Text('Disconnect'),
                   ),
                 OutlinedButton(
+                  key: syncRefreshRemoteKey,
+                  onPressed: syncTransferState.isBusy
+                      ? null
+                      : () async {
+                          await ref
+                              .read(syncTransferControllerProvider.notifier)
+                              .refreshRemoteStatus();
+                          if (!context.mounted) {
+                            return;
+                          }
+                          final message =
+                              ref.read(syncTransferControllerProvider).message;
+                          if (message == null || message.isEmpty) {
+                            return;
+                          }
+                          ScaffoldMessenger.of(
+                            context,
+                          ).showSnackBar(SnackBar(content: Text(message)));
+                        },
+                  child: const Text('Refresh remote'),
+                ),
+                if (syncProvider == SyncProvider.googleDrive &&
+                    syncAuthState.isAuthenticated)
+                  OutlinedButton(
+                    key: syncUploadBundleKey,
+                    onPressed: syncTransferState.isBusy
+                        ? null
+                        : () async {
+                            await ref
+                                .read(syncTransferControllerProvider.notifier)
+                                .uploadCurrentBundle();
+                            if (!context.mounted) {
+                              return;
+                            }
+                            final message = ref
+                                .read(syncTransferControllerProvider)
+                                .message;
+                            if (message == null || message.isEmpty) {
+                              return;
+                            }
+                            ScaffoldMessenger.of(
+                              context,
+                            ).showSnackBar(SnackBar(content: Text(message)));
+                          },
+                    child: const Text('Upload bundle'),
+                  ),
+                OutlinedButton(
                   onPressed: () async {
                     final snapshot = await ref
                         .read(syncEngineProvider)
                         .prepareSnapshot(ref.read(notesControllerProvider));
-                    final bundle = await ref
-                        .read(secureSyncBundleStoreProvider)
-                        .writeBundle(snapshot);
                     if (!context.mounted) {
                       return;
                     }
@@ -1056,11 +1108,10 @@ class SettingsScreen extends ConsumerWidget {
                         return AlertDialog(
                           title: const Text('Prepared sync snapshot'),
                           content: Text(
-                            'Notes: ${bundle.noteCount}\n'
-                            'Attachments: ${bundle.attachmentCount}\n'
+                            'Notes: ${snapshot.notes.length}\n'
+                            'Attachments: ${snapshot.attachments.length}\n'
                             'Queue: ${snapshot.summary.totalChanges} pending\n'
-                            'Device ID: ${snapshot.deviceId}\n'
-                            'Bundle: ${bundle.reference}',
+                            'Device ID: ${snapshot.deviceId}',
                           ),
                           actions: [
                             TextButton(
@@ -1072,7 +1123,7 @@ class SettingsScreen extends ConsumerWidget {
                       },
                     );
                   },
-                  child: const Text('Export bundle'),
+                  child: const Text('Inspect snapshot'),
                 ),
               ],
             ),
@@ -2670,6 +2721,28 @@ String _formatDateTime(DateTime value) {
   final hour = value.hour.toString().padLeft(2, '0');
   final minute = value.minute.toString().padLeft(2, '0');
   return '$year/$month/$day $hour:$minute';
+}
+
+String _remoteBundleSummary(
+  SyncProvider provider,
+  SyncTransferState transferState,
+) {
+  if (provider != SyncProvider.googleDrive) {
+    return 'Remote bundle transport is only wired for Google Drive right now.';
+  }
+  final remote = transferState.remoteStatus;
+  if (remote == null) {
+    return transferState.message ?? 'No remote bundle metadata loaded yet.';
+  }
+  final modifiedAt = remote.modifiedAt == null
+      ? 'unknown time'
+      : _formatDateTime(remote.modifiedAt!);
+  final sizeLabel = remote.sizeBytes == null ? 'size unknown' : '${remote.sizeBytes} bytes';
+  final noteCount = remote.noteCount == null ? '?' : '${remote.noteCount}';
+  final attachmentCount = remote.attachmentCount == null
+      ? '?'
+      : '${remote.attachmentCount}';
+  return 'Last bundle: $modifiedAt, $sizeLabel, $noteCount notes, $attachmentCount attachments.';
 }
 
 Future<void> _openAttachmentViewer(

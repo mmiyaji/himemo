@@ -574,6 +574,11 @@ void main() {
     final decoded = await bundleStore.readBundleJson(stored.reference);
     expect(decoded?['deviceId'], 'device-export');
     expect((decoded?['notes'] as List<dynamic>).length, 1);
+    final encryptedPayload = await bundleStore.readEncryptedBundlePayload(
+      stored.reference,
+    );
+    expect(encryptedPayload, isNotNull);
+    expect(encryptedPayload!.contains('Sensitive title'), isFalse);
 
     if (await tempDirectory.exists()) {
       await tempDirectory.delete(recursive: true);

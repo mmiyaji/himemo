@@ -95,17 +95,20 @@ class SecureSyncBundleStore {
     );
   }
 
-  Future<Map<String, dynamic>?> readBundleJson(String reference) async {
-    String? payload;
+  Future<String?> readEncryptedBundlePayload(String reference) async {
     if (kIsWeb) {
       final prefs = await _sharedPreferencesProvider();
-      payload = prefs.getString(reference);
-    } else {
-      final file = File(reference);
-      if (await file.exists()) {
-        payload = await file.readAsString();
-      }
+      return prefs.getString(reference);
     }
+    final file = File(reference);
+    if (!await file.exists()) {
+      return null;
+    }
+    return file.readAsString();
+  }
+
+  Future<Map<String, dynamic>?> readBundleJson(String reference) async {
+    final payload = await readEncryptedBundlePayload(reference);
     if (payload == null || payload.isEmpty) {
       return null;
     }

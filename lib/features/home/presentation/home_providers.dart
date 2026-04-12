@@ -26,6 +26,7 @@ import '../../security/data/encryption_service.dart';
 import '../../security/data/master_key_service.dart';
 import '../../security/data/private_vault_secret_store.dart';
 import '../../security/data/secure_key_value_store.dart';
+import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/secure_sync_bundle_store.dart';
 import '../../sync/data/sync_engine.dart';
 
@@ -42,6 +43,8 @@ enum AppLockRelockDelay { immediate, seconds30, minutes2, minutes10 }
 enum DeviceAuthAvailability { unknown, available, unavailable }
 
 enum SyncAuthStage { idle, busy, authenticated, unsupported, error }
+
+enum SyncTransferStage { idle, busy, success, error }
 
 enum MediaImportAction {
   takePhoto,
@@ -180,6 +183,38 @@ class SyncAuthState {
       displayName: json['displayName'] as String?,
       email: json['email'] as String?,
       message: json['message'] as String?,
+    );
+  }
+}
+
+class SyncTransferState {
+  const SyncTransferState({
+    required this.stage,
+    this.message,
+    this.remoteStatus,
+  });
+
+  const SyncTransferState.idle()
+    : stage = SyncTransferStage.idle,
+      message = null,
+      remoteStatus = null;
+
+  final SyncTransferStage stage;
+  final String? message;
+  final RemoteSyncBundleStatus? remoteStatus;
+
+  bool get isBusy => stage == SyncTransferStage.busy;
+
+  SyncTransferState copyWith({
+    SyncTransferStage? stage,
+    String? message,
+    RemoteSyncBundleStatus? remoteStatus,
+    bool clearMessage = false,
+  }) {
+    return SyncTransferState(
+      stage: stage ?? this.stage,
+      message: clearMessage ? null : (message ?? this.message),
+      remoteStatus: remoteStatus ?? this.remoteStatus,
     );
   }
 }
@@ -677,10 +712,99 @@ final secureSyncBundleStoreProvider = Provider<SecureSyncBundleStore>((ref) {
   );
 });
 
+final googleDriveSyncTransportProvider = Provider<GoogleDriveSyncTransport>((
+  ref,
+) {
+  return GoogleApisGoogleDriveSyncTransport();
+});
+
 final syncQueueSummaryProvider = FutureProvider<SyncQueueSummary>((ref) async {
   ref.watch(notesControllerProvider);
   return ref.watch(syncEngineProvider).summarizeQueue();
 });
+
+final syncTransferControllerProvider =
+    NotifierProvider<SyncTransferController, SyncTransferState>(
+      SyncTransferController.new,
+    );
+
+class SyncTransferController extends Notifier<SyncTransferState> {
+  @override
+  SyncTransferState build() => const SyncTransferState.idle();
+
+  Future<void> refreshRemoteStatus() async {
+    if (ref.read(syncProviderControllerProvider) != SyncProvider.googleDrive) {
+      state = const SyncTransferState(
+        stage: SyncTransferStage.idle,
+        message: 'Remote status is only available for Google Drive right now.',
+      );
+      return;
+    }
+    state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
+    try {
+      final remoteStatus = await ref
+          .read(googleDriveSyncTransportProvider)
+          .fetchLatestBundleStatus();
+      state = SyncTransferState(
+        stage: SyncTransferStage.success,
+        message: remoteStatus == null
+            ? 'No Google Drive bundle is stored yet.'
+            : 'Google Drive bundle metadata refreshed.',
+        remoteStatus: remoteStatus,
+      );
+    } catch (error) {
+      state = SyncTransferState(
+        stage: SyncTransferStage.error,
+        message: '$error',
+        remoteStatus: state.remoteStatus,
+      );
+    }
+  }
+
+  Future<void> uploadCurrentBundle() async {
+    if (ref.read(syncProviderControllerProvider) != SyncProvider.googleDrive) {
+      state = const SyncTransferState(
+        stage: SyncTransferStage.error,
+        message: 'Switch the sync target to Google Drive before uploading.',
+      );
+      return;
+    }
+    state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
+    try {
+      final snapshot = await ref
+          .read(syncEngineProvider)
+          .prepareSnapshot(ref.read(notesControllerProvider));
+      final bundle = await ref
+          .read(secureSyncBundleStoreProvider)
+          .writeBundle(snapshot);
+      final encodedPayload = await ref
+          .read(secureSyncBundleStoreProvider)
+          .readEncryptedBundlePayload(bundle.reference);
+      if (encodedPayload == null || encodedPayload.isEmpty) {
+        throw StateError('Local sync bundle could not be prepared.');
+      }
+      final remoteStatus = await ref
+          .read(googleDriveSyncTransportProvider)
+          .uploadBundle(
+            encodedPayload: encodedPayload,
+            deviceId: snapshot.deviceId,
+            noteCount: bundle.noteCount,
+            attachmentCount: bundle.attachmentCount,
+          );
+      state = SyncTransferState(
+        stage: SyncTransferStage.success,
+        message: 'Encrypted bundle uploaded to Google Drive app-data.',
+        remoteStatus: remoteStatus,
+      );
+    } catch (error) {
+      state = SyncTransferState(
+        stage: SyncTransferStage.error,
+        message: '$error',
+        remoteStatus: state.remoteStatus,
+      );
+    }
+  }
+}
 
 final privateVaultSecretStoreProvider = Provider<PrivateVaultSecretStore>((ref) {
   return PrivateVaultSecretStore(
