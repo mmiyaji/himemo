@@ -19,6 +19,7 @@ import 'package:himemo/features/security/data/private_vault_secret_store.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
 import 'package:himemo/features/sync/data/sync_conflict_policy.dart';
+import 'package:himemo/features/sync/data/sync_bundle_preview.dart';
 import 'package:himemo/features/sync/data/secure_sync_bundle_store.dart';
 import 'package:himemo/features/sync/data/sync_bundle_key_service.dart';
 import 'package:himemo/features/sync/data/sync_bundle_state_store.dart';
@@ -838,6 +839,66 @@ void main() {
 
     expect(assessment.hasConflict, isFalse);
     expect(assessment.message, isNull);
+  });
+
+  test('buildSyncBundlePreview summarizes add, update, and removal counts', () {
+    final preview = buildSyncBundlePreview(
+      decodedBundle: {
+        'deviceId': 'remote-device',
+        'exportedAt': '2026-04-12T20:15:00.000',
+        'notes': [
+          {
+            'note': NoteEntry(
+              id: 'existing',
+              vaultId: 'everyday',
+              title: 'Updated title',
+              body: 'Updated body',
+              createdAt: DateTime(2026, 4, 12, 10, 0),
+              revision: 3,
+              contentHash: 'hash-new',
+            ).toJson(),
+          },
+          {
+            'note': NoteEntry(
+              id: 'added',
+              vaultId: 'everyday',
+              title: 'Added note',
+              body: 'Fresh from remote',
+              createdAt: DateTime(2026, 4, 12, 11, 0),
+            ).toJson(),
+          },
+        ],
+        'attachments': [
+          {'id': 'existing-0'},
+        ],
+      },
+      currentNotes: [
+        NoteEntry(
+          id: 'existing',
+          vaultId: 'everyday',
+          title: 'Old title',
+          body: 'Old body',
+          createdAt: DateTime(2026, 4, 12, 10, 0),
+          revision: 1,
+          contentHash: 'hash-old',
+        ),
+        NoteEntry(
+          id: 'removed',
+          vaultId: 'everyday',
+          title: 'Local only',
+          body: 'Will be removed',
+          createdAt: DateTime(2026, 4, 12, 9, 0),
+        ),
+      ],
+    );
+
+    expect(preview.deviceId, 'remote-device');
+    expect(preview.noteCount, 2);
+    expect(preview.attachmentCount, 1);
+    expect(preview.addedCount, 1);
+    expect(preview.updatedCount, 1);
+    expect(preview.removedCount, 1);
+    expect(preview.sampleTitles, ['Updated title', 'Added note']);
   });
 }
 

@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../sync/data/sync_bundle_preview.dart';
 import '../domain/note_entry.dart';
 import '../domain/vault_models.dart';
 import 'home_providers.dart';
@@ -737,6 +738,7 @@ class SettingsScreen extends ConsumerWidget {
     final syncBundleFingerprint = ref.watch(syncBundleFingerprintProvider);
     final syncBundleState = ref.watch(syncBundleStateProvider);
     final syncConflictWarning = ref.watch(syncConflictWarningProvider);
+    final packageInfo = ref.watch(packageInfoProvider);
     final flavorName =
         FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
     final displayName =
@@ -1252,10 +1254,70 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 if (syncTransferState.localBundle != null)
                   OutlinedButton(
+                    onPressed: syncTransferState.isBusy
+                        ? null
+                        : () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            try {
+                              final preview = await ref
+                                  .read(
+                                    syncTransferControllerProvider.notifier,
+                                  )
+                                  .previewDownloadedBundle();
+                              if (!context.mounted) {
+                                return;
+                              }
+                              await _showBundlePreviewDialog(
+                                context,
+                                preview,
+                                confirmLabel: 'Close',
+                              );
+                            } catch (error) {
+                              if (!context.mounted) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(content: Text('$error')),
+                              );
+                            }
+                          },
+                    child: const Text('Review bundle'),
+                  ),
+                if (syncTransferState.localBundle != null)
+                  OutlinedButton(
                     key: syncApplyBundleKey,
                     onPressed: syncTransferState.isBusy
                         ? null
                         : () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            try {
+                              final preview = await ref
+                                  .read(
+                                    syncTransferControllerProvider.notifier,
+                                  )
+                                  .previewDownloadedBundle();
+                              if (!context.mounted) {
+                                return;
+                              }
+                              final shouldApply =
+                                  await _showBundlePreviewDialog(
+                                    context,
+                                    preview,
+                                    confirmLabel: 'Apply bundle',
+                                  ) ??
+                                  false;
+                              if (!shouldApply) {
+                                return;
+                              }
+                            } catch (error) {
+                              if (!context.mounted) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(content: Text('$error')),
+                              );
+                              return;
+                            }
                             await ref
                                 .read(syncTransferControllerProvider.notifier)
                                 .applyDownloadedBundle();
@@ -1404,6 +1466,39 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () => ref
                   .read(appColorThemeControllerProvider.notifier)
                   .setTheme(AppColorTheme.orange),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _SettingsGroup(
+          title: 'About',
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('App version'),
+              subtitle: Text(
+                packageInfo.when(
+                  data: (info) => info.displayVersion,
+                  loading: () => 'Reading app version...',
+                  error: (_, _) => '1.0.0 (1)',
+                ),
+              ),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('OSS licenses'),
+              subtitle: const Text(
+                'View bundled open-source software licenses.',
+              ),
+              trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+              onTap: () {
+                final info = packageInfo.asData?.value;
+                showLicensePage(
+                  context: context,
+                  applicationName: info?.appName ?? 'HiMemo',
+                  applicationVersion: info?.displayVersion ?? '1.0.0 (1)',
+                );
+              },
             ),
           ],
         ),
@@ -2923,6 +3018,46 @@ String _remoteBundleSummary(
       ? '?'
       : '${remote.attachmentCount}';
   return 'Last bundle: $modifiedAt, $sizeLabel, $noteCount notes, $attachmentCount attachments.';
+}
+
+Future<bool?> _showBundlePreviewDialog(
+  BuildContext context,
+  SyncBundlePreview preview, {
+  required String confirmLabel,
+}) {
+  final details = <String>[
+    'Notes in bundle: ${preview.noteCount}',
+    'Attachments in bundle: ${preview.attachmentCount}',
+    'Adds: ${preview.addedCount}',
+    'Updates: ${preview.updatedCount}',
+    'Removals on this device: ${preview.removedCount}',
+    if (preview.deviceId != null && preview.deviceId!.isNotEmpty)
+      'Remote device: ${preview.deviceId}',
+    if (preview.exportedAt != null)
+      'Exported at: ${_formatDateTime(preview.exportedAt!)}',
+    if (preview.sampleTitles.isNotEmpty)
+      'Sample notes: ${preview.sampleTitles.join(', ')}',
+  ];
+
+  return showDialog<bool>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: const Text('Bundle review'),
+        content: Text(details.join('\n')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(confirmLabel),
+          ),
+        ],
+      );
+    },
+  );
 }
 
 Future<void> _openAttachmentViewer(

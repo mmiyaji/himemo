@@ -11,6 +11,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:path/path.dart' as path;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
@@ -28,6 +29,7 @@ import '../../security/data/private_vault_secret_store.dart';
 import '../../security/data/secure_key_value_store.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/sync_conflict_policy.dart';
+import '../../sync/data/sync_bundle_preview.dart';
 import '../../sync/data/secure_sync_bundle_store.dart';
 import '../../sync/data/sync_bundle_key_service.dart';
 import '../../sync/data/sync_bundle_state_store.dart';
@@ -48,6 +50,20 @@ enum DeviceAuthAvailability { unknown, available, unavailable }
 enum SyncAuthStage { idle, busy, authenticated, unsupported, error }
 
 enum SyncTransferStage { idle, busy, success, error }
+
+class AppPackageDetails {
+  const AppPackageDetails({
+    required this.appName,
+    required this.version,
+    required this.buildNumber,
+  });
+
+  final String appName;
+  final String version;
+  final String buildNumber;
+
+  String get displayVersion => '$version ($buildNumber)';
+}
 
 enum MediaImportAction {
   takePhoto,
@@ -733,6 +749,23 @@ final syncBundleFingerprintProvider = FutureProvider<String>((ref) async {
   return ref.watch(syncBundleKeyServiceProvider).fingerprint();
 });
 
+final packageInfoProvider = FutureProvider<AppPackageDetails>((ref) async {
+  try {
+    final info = await PackageInfo.fromPlatform();
+    return AppPackageDetails(
+      appName: info.appName.isEmpty ? 'HiMemo' : info.appName,
+      version: info.version.isEmpty ? '1.0.0' : info.version,
+      buildNumber: info.buildNumber.isEmpty ? '1' : info.buildNumber,
+    );
+  } catch (_) {
+    return const AppPackageDetails(
+      appName: 'HiMemo',
+      version: '1.0.0',
+      buildNumber: '1',
+    );
+  }
+});
+
 final googleDriveSyncTransportProvider = Provider<GoogleDriveSyncTransport>((
   ref,
 ) {
@@ -986,6 +1019,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         message: '$error',
       );
     }
+  }
+
+  Future<SyncBundlePreview> previewDownloadedBundle() async {
+    final localBundle = state.localBundle;
+    if (localBundle == null) {
+      throw StateError('Download a remote bundle before reviewing it.');
+    }
+    final decoded = await ref
+        .read(secureSyncBundleStoreProvider)
+        .readBundleJson(localBundle.reference);
+    if (decoded == null) {
+      throw StateError('Downloaded bundle could not be decrypted.');
+    }
+    return buildSyncBundlePreview(
+      decodedBundle: decoded,
+      currentNotes: ref.read(notesControllerProvider),
+    );
   }
 }
 
