@@ -1020,6 +1020,7 @@ class NotesController extends _$NotesController {
   Future<void> upsert(NoteEntry note) async {
     final next = [...state];
     final index = next.indexWhere((entry) => entry.id == note.id);
+    final existing = index == -1 ? null : next[index];
     if (index == -1) {
       next.add(note);
     } else {
@@ -1027,11 +1028,20 @@ class NotesController extends _$NotesController {
     }
     _sort(next);
     state = next;
+    await _cleanupRemovedAttachments(existing, note);
     await _persist();
   }
 
   Future<void> delete(String noteId) async {
+    NoteEntry? existing;
+    for (final note in state) {
+      if (note.id == noteId) {
+        existing = note;
+        break;
+      }
+    }
     state = state.where((note) => note.id != noteId).toList(growable: false);
+    await _deleteAttachments(existing?.attachments ?? const <NoteAttachment>[]);
     await _persist();
   }
 
@@ -1060,6 +1070,37 @@ class NotesController extends _$NotesController {
     try {
       await ref.read(encryptedNoteStoreProvider).save(state);
     } catch (_) {}
+  }
+
+  Future<void> _cleanupRemovedAttachments(
+    NoteEntry? previous,
+    NoteEntry next,
+  ) async {
+    if (previous == null) {
+      return;
+    }
+    final retained = next.attachments
+        .map((attachment) => attachment.filePath)
+        .whereType<String>()
+        .toSet();
+    final removed = previous.attachments
+        .where((attachment) {
+          final filePath = attachment.filePath;
+          return filePath != null && !retained.contains(filePath);
+        })
+        .toList(growable: false);
+    await _deleteAttachments(removed);
+  }
+
+  Future<void> _deleteAttachments(List<NoteAttachment> attachments) async {
+    final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+    for (final attachment in attachments) {
+      final filePath = attachment.filePath;
+      if (filePath == null || filePath.isEmpty) {
+        continue;
+      }
+      await attachmentStore.deleteAttachment(filePath);
+    }
   }
 
   void _sort(List<NoteEntry> notes) {

@@ -74,6 +74,31 @@ class EncryptedAttachmentStore {
     );
   }
 
+  Future<String?> materializeDecryptedFile(
+    String storedReference, {
+    required AttachmentType type,
+    String? preferredFileName,
+  }) async {
+    if (kIsWeb) {
+      return null;
+    }
+    final bytes = await readAttachment(storedReference, type: type);
+    if (bytes == null || bytes.isEmpty) {
+      return null;
+    }
+
+    final directory = await _directoryProvider();
+    final extension = preferredFileName == null
+        ? path.extension(storedReference.replaceAll('.enc', ''))
+        : path.extension(preferredFileName);
+    final tempName =
+        '${DateTime.now().microsecondsSinceEpoch}_${type.name}${extension.isEmpty ? '' : extension}';
+    final file = File(path.join(directory.path, 'attachments', 'tmp', tempName));
+    await file.create(recursive: true);
+    await file.writeAsBytes(bytes, flush: true);
+    return file.path;
+  }
+
   Future<void> deleteAttachment(String storedReference) async {
     if (storedReference.startsWith(webPrefix)) {
       final id = storedReference.substring(webPrefix.length);
@@ -87,6 +112,16 @@ class EncryptedAttachmentStore {
     }
 
     final file = File(storedReference);
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
+
+  Future<void> deleteMaterializedFile(String filePath) async {
+    if (kIsWeb) {
+      return;
+    }
+    final file = File(filePath);
     if (await file.exists()) {
       await file.delete();
     }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -5,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:video_player/video_player.dart';
 
 import '../domain/note_entry.dart';
 import '../domain/vault_models.dart';
@@ -2000,7 +2003,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late DateTime _createdAt;
   late bool _isPinned;
   late List<NoteAttachment> _attachments;
+  late final Set<String> _initialAttachmentPaths;
   String? _selectedVaultId;
+  bool _saved = false;
 
   @override
   void initState() {
@@ -2010,11 +2015,26 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _createdAt = widget.note?.createdAt ?? DateTime.now();
     _isPinned = widget.note?.isPinned ?? false;
     _attachments = [...?widget.note?.attachments];
+    _initialAttachmentPaths = _attachments
+        .map((attachment) => attachment.filePath)
+        .whereType<String>()
+        .toSet();
     _selectedVaultId = widget.note?.vaultId ?? 'everyday';
   }
 
   @override
   void dispose() {
+    if (!_saved) {
+      for (final attachment in _attachments) {
+        final filePath = attachment.filePath;
+        if (filePath == null || _initialAttachmentPaths.contains(filePath)) {
+          continue;
+        }
+        unawaited(
+          ref.read(encryptedAttachmentStoreProvider).deleteAttachment(filePath),
+        );
+      }
+    }
     _contentController.removeListener(_handleTextChanged);
     _contentController.dispose();
     super.dispose();
@@ -2182,9 +2202,21 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                               child: _EditableAttachmentTile(
                                 attachment: _attachments[i],
                                 onRemove: () {
+                                  final removed = _attachments[i];
                                   setState(() {
                                     _attachments.removeAt(i);
                                   });
+                                  final filePath = removed.filePath;
+                                  if (filePath != null &&
+                                      !_initialAttachmentPaths.contains(
+                                        filePath,
+                                      )) {
+                                    unawaited(
+                                      ref
+                                          .read(encryptedAttachmentStoreProvider)
+                                          .deleteAttachment(filePath),
+                                    );
+                                  }
                                 },
                               ),
                             ),
@@ -2291,6 +2323,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       isPinned: _isPinned,
     );
     await ref.read(notesControllerProvider.notifier).upsert(note);
+    _saved = true;
     if (mounted) {
       Navigator.of(context).pop();
     }
@@ -2337,42 +2370,51 @@ class _EditableAttachmentTile extends StatelessWidget {
   }
 }
 
-class _AttachmentListTile extends StatelessWidget {
+class _AttachmentListTile extends ConsumerWidget {
   const _AttachmentListTile({required this.attachment});
 
   final NoteAttachment attachment;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Container(
       decoration: _sectionDecoration(context),
-      padding: const EdgeInsets.all(12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _AttachmentPreview(attachment: attachment),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _openAttachmentViewer(context, ref, attachment),
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  attachment.label,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _attachmentDescription(attachment),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: _mutedTextColor(context),
+                _AttachmentPreview(attachment: attachment),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        attachment.label,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _attachmentDescription(attachment),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: _mutedTextColor(context),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -2461,15 +2503,299 @@ String _attachmentDescription(NoteAttachment attachment) {
     case AttachmentType.photo:
       return attachment.filePath == null
           ? 'Photo placeholder'
-          : 'Photo attached from camera or library';
+          : 'Tap to view photo';
     case AttachmentType.video:
       return attachment.filePath == null
           ? 'Video placeholder'
-          : 'Video attached from camera or library';
+          : 'Tap to play video';
     case AttachmentType.audio:
       return attachment.filePath == null
           ? 'Audio placeholder'
-          : 'Audio file attached from device storage';
+          : 'Tap to play audio';
+  }
+}
+
+Future<void> _openAttachmentViewer(
+  BuildContext context,
+  WidgetRef ref,
+  NoteAttachment attachment,
+) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (context) => Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.75,
+        child: _AttachmentViewerSheet(attachment: attachment),
+      ),
+    ),
+  );
+}
+
+class _AttachmentViewerSheet extends ConsumerWidget {
+  const _AttachmentViewerSheet({required this.attachment});
+
+  final NoteAttachment attachment;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(attachment.label, style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 8),
+        Text(
+          _attachmentDescription(attachment),
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+        ),
+        const SizedBox(height: 16),
+        Expanded(
+          child: switch (attachment.type) {
+            AttachmentType.photo => _PhotoAttachmentViewer(attachment: attachment),
+            AttachmentType.video => _VideoAttachmentViewer(attachment: attachment),
+            AttachmentType.audio => _AudioAttachmentViewer(attachment: attachment),
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _PhotoAttachmentViewer extends ConsumerWidget {
+  const _PhotoAttachmentViewer({required this.attachment});
+
+  final NoteAttachment attachment;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final filePath = attachment.filePath;
+    if (filePath == null || filePath.isEmpty) {
+      return const Center(child: Text('No image is stored for this attachment.'));
+    }
+    return FutureBuilder<List<int>?>(
+      future: ref
+          .watch(encryptedAttachmentStoreProvider)
+          .readAttachment(filePath, type: attachment.type),
+      builder: (context, snapshot) {
+        final bytes = snapshot.data;
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (bytes == null || bytes.isEmpty) {
+          return const Center(child: Text('Unable to decrypt this image.'));
+        }
+        return InteractiveViewer(
+          maxScale: 6,
+          child: Center(
+            child: Image.memory(Uint8List.fromList(bytes), fit: BoxFit.contain),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _VideoAttachmentViewer extends ConsumerStatefulWidget {
+  const _VideoAttachmentViewer({required this.attachment});
+
+  final NoteAttachment attachment;
+
+  @override
+  ConsumerState<_VideoAttachmentViewer> createState() =>
+      _VideoAttachmentViewerState();
+}
+
+class _VideoAttachmentViewerState extends ConsumerState<_VideoAttachmentViewer> {
+  VideoPlayerController? _controller;
+  String? _tempFilePath;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    unawaited(_controller?.dispose());
+    final tempFilePath = _tempFilePath;
+    if (tempFilePath != null) {
+      unawaited(
+        ref.read(encryptedAttachmentStoreProvider).deleteMaterializedFile(
+          tempFilePath,
+        ),
+      );
+    }
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final filePath = widget.attachment.filePath;
+    if (filePath == null || filePath.isEmpty || kIsWeb) {
+      return;
+    }
+    final tempFilePath = await ref
+        .read(encryptedAttachmentStoreProvider)
+        .materializeDecryptedFile(
+          filePath,
+          type: widget.attachment.type,
+          preferredFileName: widget.attachment.label,
+        );
+    if (!mounted || tempFilePath == null) {
+      return;
+    }
+    final controller = VideoPlayerController.networkUrl(Uri.file(tempFilePath));
+    await controller.initialize();
+    setState(() {
+      _tempFilePath = tempFilePath;
+      _controller = controller;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (kIsWeb) {
+      return const Center(child: Text('Video preview is not enabled on web.'));
+    }
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return Column(
+      children: [
+        AspectRatio(
+          aspectRatio: controller.value.aspectRatio,
+          child: VideoPlayer(controller),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            IconButton(
+              onPressed: () {
+                if (controller.value.isPlaying) {
+                  controller.pause();
+                } else {
+                  controller.play();
+                }
+                setState(() {});
+              },
+              icon: Icon(
+                controller.value.isPlaying
+                    ? Icons.pause_circle_outline
+                    : Icons.play_circle_outline,
+              ),
+            ),
+            Expanded(
+              child: VideoProgressIndicator(
+                controller,
+                allowScrubbing: true,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _AudioAttachmentViewer extends ConsumerStatefulWidget {
+  const _AudioAttachmentViewer({required this.attachment});
+
+  final NoteAttachment attachment;
+
+  @override
+  ConsumerState<_AudioAttachmentViewer> createState() =>
+      _AudioAttachmentViewerState();
+}
+
+class _AudioAttachmentViewerState extends ConsumerState<_AudioAttachmentViewer> {
+  final AudioPlayer _player = AudioPlayer();
+  String? _tempFilePath;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    unawaited(_player.dispose());
+    final tempFilePath = _tempFilePath;
+    if (tempFilePath != null) {
+      unawaited(
+        ref.read(encryptedAttachmentStoreProvider).deleteMaterializedFile(
+          tempFilePath,
+        ),
+      );
+    }
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final filePath = widget.attachment.filePath;
+    if (filePath == null || filePath.isEmpty || kIsWeb) {
+      return;
+    }
+    final tempFilePath = await ref
+        .read(encryptedAttachmentStoreProvider)
+        .materializeDecryptedFile(
+          filePath,
+          type: widget.attachment.type,
+          preferredFileName: widget.attachment.label,
+        );
+    if (!mounted || tempFilePath == null) {
+      return;
+    }
+    await _player.setFilePath(tempFilePath);
+    setState(() {
+      _tempFilePath = tempFilePath;
+      _ready = true;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (kIsWeb) {
+      return const Center(child: Text('Audio playback is not enabled on web.'));
+    }
+    if (!_ready) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return StreamBuilder<PlayerState>(
+      stream: _player.playerStateStream,
+      builder: (context, snapshot) {
+        final isPlaying = snapshot.data?.playing ?? false;
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              isPlaying ? Icons.graphic_eq_rounded : Icons.audiotrack_rounded,
+              size: 56,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: () async {
+                if (isPlaying) {
+                  await _player.pause();
+                } else {
+                  await _player.play();
+                }
+              },
+              icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+              label: Text(isPlaying ? 'Pause audio' : 'Play audio'),
+            ),
+          ],
+        );
+      },
+    );
   }
 }
 

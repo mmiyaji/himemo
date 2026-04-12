@@ -3,7 +3,11 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:himemo/features/home/data/home_repository.dart';
 import 'package:himemo/features/home/domain/note_entry.dart';
+import 'package:himemo/features/home/domain/vault_models.dart';
+import 'package:himemo/features/home/presentation/home_providers.dart';
 import 'package:himemo/features/security/data/encrypted_attachment_store.dart';
 import 'package:himemo/features/security/data/encrypted_note_store.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
@@ -198,4 +202,104 @@ void main() {
       expect(restored, const [1, 2, 3, 4, 5, 6]);
     });
   });
+
+  test('NotesController deletes attachments removed during edit', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-notes-controller-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(21));
+    final fakeAttachmentStore = _TrackingEncryptedAttachmentStore(
+      encryptionService: encryptionService,
+      masterKeyService: MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      ),
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(
+          MasterKeyService(
+            secureStore: secureStore,
+            keyFactory: encryptionService.generateKeyBytes,
+          ),
+        ),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: MasterKeyService(
+              secureStore: secureStore,
+              keyFactory: encryptionService.generateKeyBytes,
+            ),
+            directoryProvider: () async => tempDirectory,
+            sharedPreferencesProvider: SharedPreferences.getInstance,
+          ),
+        ),
+        encryptedAttachmentStoreProvider.overrideWithValue(fakeAttachmentStore),
+        homeRepositoryProvider.overrideWithValue(_SingleNoteRepository()),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    final controller = container.read(notesControllerProvider.notifier);
+    final original = container.read(notesControllerProvider).single;
+    await controller.upsert(
+      original.copyWith(attachments: const <NoteAttachment>[]),
+    );
+
+    expect(fakeAttachmentStore.deletedReferences, ['secure-attachment://old']);
+  });
+}
+
+class _SingleNoteRepository implements HomeRepository {
+  @override
+  List<UnlockIdentity> get identities => const <UnlockIdentity>[];
+
+  @override
+  List<NoteEntry> get seededNotes => [
+    NoteEntry(
+      id: 'tracked',
+      vaultId: 'everyday',
+      title: 'Tracked',
+      body: 'Tracked body',
+      createdAt: DateTime(2026, 4, 12, 12, 0),
+      attachments: const [
+        NoteAttachment(
+          type: AttachmentType.photo,
+          label: 'proof.jpg',
+          filePath: 'secure-attachment://old',
+        ),
+      ],
+    ),
+  ];
+
+  @override
+  List<VaultBucket> get vaults => const <VaultBucket>[];
+}
+
+class _TrackingEncryptedAttachmentStore extends EncryptedAttachmentStore {
+  _TrackingEncryptedAttachmentStore({
+    required super.encryptionService,
+    required super.masterKeyService,
+    required super.directoryProvider,
+    required super.sharedPreferencesProvider,
+  });
+
+  final List<String> deletedReferences = <String>[];
+
+  @override
+  Future<void> deleteAttachment(String storedReference) async {
+    deletedReferences.add(storedReference);
+  }
 }
