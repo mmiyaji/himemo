@@ -1198,6 +1198,25 @@ class SettingsScreen extends ConsumerWidget {
                     }
                     final messenger = ScaffoldMessenger.of(context);
                     try {
+                      final currentFingerprint = await ref
+                          .read(syncBundleKeyServiceProvider)
+                          .fingerprint();
+                      if (!context.mounted) {
+                        return;
+                      }
+                      final incomingFingerprint = ref
+                          .read(syncBundleKeyServiceProvider)
+                          .previewBackupCodeFingerprint(backupCode);
+                      final shouldImport =
+                          await _showSyncKeyImportConfirmDialog(
+                                context,
+                                currentFingerprint: currentFingerprint,
+                                incomingFingerprint: incomingFingerprint,
+                              ) ??
+                              false;
+                      if (!shouldImport || !context.mounted) {
+                        return;
+                      }
                       final fingerprint = await ref
                           .read(syncBundleKeyServiceProvider)
                           .importBackupCode(backupCode);
@@ -2887,24 +2906,26 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                             const Spacer(),
                             PopupMenuButton<MediaImportAction>(
                               key: const Key('attachment-add-menu'),
-                              itemBuilder: (context) => const [
-                                PopupMenuItem(
-                                  value: MediaImportAction.takePhoto,
-                                  child: Text('Take photo'),
-                                ),
-                                PopupMenuItem(
+                              itemBuilder: (context) => [
+                                if (!kIsWeb)
+                                  const PopupMenuItem(
+                                    value: MediaImportAction.takePhoto,
+                                    child: Text('Take photo'),
+                                  ),
+                                const PopupMenuItem(
                                   value: MediaImportAction.pickPhoto,
                                   child: Text('Pick photo'),
                                 ),
-                                PopupMenuItem(
-                                  value: MediaImportAction.recordVideo,
-                                  child: Text('Record video'),
-                                ),
-                                PopupMenuItem(
+                                if (!kIsWeb)
+                                  const PopupMenuItem(
+                                    value: MediaImportAction.recordVideo,
+                                    child: Text('Record video'),
+                                  ),
+                                const PopupMenuItem(
                                   value: MediaImportAction.pickVideo,
                                   child: Text('Pick video'),
                                 ),
-                                PopupMenuItem(
+                                const PopupMenuItem(
                                   value: MediaImportAction.pickAudio,
                                   child: Text('Pick audio'),
                                 ),
@@ -2923,7 +2944,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                         const SizedBox(height: 8),
                         if (_attachments.isEmpty)
                           Text(
-                            'Attach photos, videos, or audio files from camera or device storage.',
+                            kIsWeb
+                                ? 'Attach photos, videos, or audio files from this browser.'
+                                : 'Attach photos, videos, or audio files from camera or device storage.',
                             style: Theme.of(context)
                                 .textTheme
                                 .bodySmall
@@ -2975,10 +2998,17 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                 ),
                 OutlinedButton.icon(
                   key: const Key('quick-attach-camera-button'),
-                  onPressed: () =>
-                      _handleAttachmentAction(MediaImportAction.takePhoto),
-                  icon: const Icon(Icons.photo_camera_outlined),
-                  label: const Text('Use camera'),
+                  onPressed: () => _handleAttachmentAction(
+                    kIsWeb
+                        ? MediaImportAction.pickAudio
+                        : MediaImportAction.takePhoto,
+                  ),
+                  icon: kIsWeb
+                      ? const Icon(Icons.audiotrack_outlined)
+                      : const Icon(Icons.photo_camera_outlined),
+                  label: kIsWeb
+                      ? const Text('Add audio')
+                      : const Text('Use camera'),
                 ),
               ],
             ),
@@ -3299,26 +3329,51 @@ Future<bool?> _showBundlePreviewDialog(
   SyncBundlePreview preview, {
   required String confirmLabel,
 }) {
-  final details = <String>[
-    'Notes in bundle: ${preview.noteCount}',
-    'Attachments in bundle: ${preview.attachmentCount}',
-    'Adds: ${preview.addedCount}',
-    'Updates: ${preview.updatedCount}',
-    'Removals on this device: ${preview.removedCount}',
-    if (preview.deviceId != null && preview.deviceId!.isNotEmpty)
-      'Remote device: ${preview.deviceId}',
-    if (preview.exportedAt != null)
-      'Exported at: ${_formatDateTime(preview.exportedAt!)}',
-    if (preview.sampleTitles.isNotEmpty)
-      'Sample notes: ${preview.sampleTitles.join(', ')}',
-  ];
-
   return showDialog<bool>(
     context: context,
     builder: (context) {
       return AlertDialog(
         title: const Text('Bundle review'),
-        content: Text(details.join('\n')),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Notes in bundle: ${preview.noteCount}'),
+                Text('Attachments in bundle: ${preview.attachmentCount}'),
+                Text('Adds: ${preview.addedCount}'),
+                Text('Updates: ${preview.updatedCount}'),
+                Text('Removals on this device: ${preview.removedCount}'),
+                if (preview.privateVaultNoteCount > 0)
+                  Text(
+                    'Private vault notes affected: ${preview.privateVaultNoteCount}',
+                  ),
+                if (preview.deviceId != null && preview.deviceId!.isNotEmpty)
+                  Text('Remote device: ${preview.deviceId}'),
+                if (preview.exportedAt != null)
+                  Text('Exported at: ${_formatDateTime(preview.exportedAt!)}'),
+                if (preview.sampleTitles.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text('Bundle sample: ${preview.sampleTitles.join(', ')}'),
+                ],
+                _PreviewTitlesSection(
+                  title: 'Added notes',
+                  titles: preview.addedTitles,
+                ),
+                _PreviewTitlesSection(
+                  title: 'Updated notes',
+                  titles: preview.updatedTitles,
+                ),
+                _PreviewTitlesSection(
+                  title: 'Removed locally after apply',
+                  titles: preview.removedTitles,
+                ),
+              ],
+            ),
+          ),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -3332,6 +3387,38 @@ Future<bool?> _showBundlePreviewDialog(
       );
     },
   );
+}
+
+class _PreviewTitlesSection extends StatelessWidget {
+  const _PreviewTitlesSection({
+    required this.title,
+    required this.titles,
+  });
+
+  final String title;
+  final List<String> titles;
+
+  @override
+  Widget build(BuildContext context) {
+    if (titles.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 6),
+          for (final entry in titles)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Text('• $entry'),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 Future<RemoteSyncBundleStatus?> _showBundleHistoryDialog(
@@ -3409,6 +3496,36 @@ Future<String?> _showSyncKeyImportDialog(BuildContext context) {
           FilledButton(
             onPressed: () => Navigator.of(context).pop(controller.text),
             child: const Text('Import'),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+Future<bool?> _showSyncKeyImportConfirmDialog(
+  BuildContext context, {
+  required String currentFingerprint,
+  required String incomingFingerprint,
+}) {
+  return showDialog<bool>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: const Text('Replace sync key'),
+        content: Text(
+          'Current fingerprint: $currentFingerprint\n'
+          'Imported fingerprint: $incomingFingerprint\n\n'
+          'Replacing the sync key can make existing remote bundles unreadable on this device until the original key is restored.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Replace key'),
           ),
         ],
       );

@@ -9,7 +9,11 @@ class SyncBundlePreview {
     required this.addedCount,
     required this.updatedCount,
     required this.removedCount,
+    required this.privateVaultNoteCount,
     required this.sampleTitles,
+    required this.addedTitles,
+    required this.updatedTitles,
+    required this.removedTitles,
   });
 
   final String? deviceId;
@@ -19,7 +23,11 @@ class SyncBundlePreview {
   final int addedCount;
   final int updatedCount;
   final int removedCount;
+  final int privateVaultNoteCount;
   final List<String> sampleTitles;
+  final List<String> addedTitles;
+  final List<String> updatedTitles;
+  final List<String> removedTitles;
 }
 
 SyncBundlePreview buildSyncBundlePreview({
@@ -42,20 +50,28 @@ SyncBundlePreview buildSyncBundlePreview({
 
   var addedCount = 0;
   var updatedCount = 0;
+  final addedTitles = <String>[];
+  final updatedTitles = <String>[];
   for (final note in importedNotes) {
     final current = currentById[note.id];
     if (current == null) {
       addedCount += 1;
+      addedTitles.add(_displayTitle(note));
       continue;
     }
     if (_isMeaningfullyDifferent(current, note)) {
       updatedCount += 1;
+      updatedTitles.add(_displayTitle(note));
     }
   }
 
-  final removedCount = currentNotes
-      .where((note) => !importedIds.contains(note.id))
-      .length;
+  final removedTitles = [
+    for (final note in currentNotes)
+      if (!importedIds.contains(note.id)) _displayTitle(note),
+  ];
+  final removedCount = removedTitles.length;
+  final privateVaultNoteCount =
+      importedNotes.where((note) => note.vaultId == 'private').length;
 
   return SyncBundlePreview(
     deviceId: decodedBundle['deviceId'] as String?,
@@ -69,11 +85,17 @@ SyncBundlePreview buildSyncBundlePreview({
     addedCount: addedCount,
     updatedCount: updatedCount,
     removedCount: removedCount,
-    sampleTitles: importedNotes
-        .map((note) => note.title.trim().isEmpty ? '(Untitled)' : note.title)
-        .take(3)
-        .toList(growable: false),
+    privateVaultNoteCount: privateVaultNoteCount,
+    sampleTitles:
+        importedNotes.map(_displayTitle).take(3).toList(growable: false),
+    addedTitles: addedTitles.take(5).toList(growable: false),
+    updatedTitles: updatedTitles.take(5).toList(growable: false),
+    removedTitles: removedTitles.take(5).toList(growable: false),
   );
+}
+
+String _displayTitle(NoteEntry note) {
+  return note.title.trim().isEmpty ? '(Untitled)' : note.title;
 }
 
 bool _isMeaningfullyDifferent(NoteEntry current, NoteEntry incoming) {
