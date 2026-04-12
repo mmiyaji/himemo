@@ -2015,9 +2015,32 @@ class NotesController extends _$NotesController {
             .read(encryptedNoteStoreProvider)
             .load(fallbackNotes: ref.read(homeRepositoryProvider).seededNotes),
       ];
-      _sort(restored);
-      state = restored;
+      final merged = _mergeMissingSeedNotes(
+        restored,
+        ref.read(homeRepositoryProvider).seededNotes,
+      );
+      final changed = merged.length != restored.length;
+      _sort(merged);
+      state = merged;
+      if (changed) {
+        await _persist();
+      }
     } catch (_) {}
+  }
+
+  List<NoteEntry> _mergeMissingSeedNotes(
+    List<NoteEntry> current,
+    List<NoteEntry> seeded,
+  ) {
+    final existingIds = current.map((note) => note.id).toSet();
+    final merged = [...current];
+    for (final note in seeded) {
+      if (existingIds.contains(note.id)) {
+        continue;
+      }
+      merged.add(note);
+    }
+    return merged;
   }
 
   Future<void> _persist() async {
@@ -2062,7 +2085,7 @@ class NotesController extends _$NotesController {
     final deviceId = note.deviceId ??
         previous?.deviceId ??
         await ref.read(deviceIdentityStoreProvider).obtain();
-    final createdAt = previous?.createdAt ?? note.createdAt;
+    final createdAt = note.createdAt;
     final updatedAt = note.updatedAt ?? DateTime.now();
     final normalized = note.copyWith(
       createdAt: createdAt,

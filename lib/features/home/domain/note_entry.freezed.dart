@@ -788,7 +788,7 @@ return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_t
 @JsonSerializable()
 
 class _NoteEntry implements NoteEntry {
-  const _NoteEntry({required this.id, required this.vaultId, required this.title, required this.body, required this.createdAt, this.updatedAt, this.deletedAt, this.deviceId, this.contentHash, final  List<NoteAttachment> attachments = const <NoteAttachment>[], final  List<NoteBlock> blocks = const <NoteBlock>[], this.isPinned = false, this.revision = 1, this.syncState = NoteSyncState.localOnly, this.editorMode = NoteEditorMode.quick}): _attachments = attachments,_blocks = blocks;
+  const _NoteEntry({required this.id, required this.vaultId, required this.title, required this.body, required this.createdAt, this.updatedAt, this.deletedAt, this.deviceId, this.contentHash, final  List<NoteAttachment> attachments = const <NoteAttachment>[], final  List<NoteBlock> blocks = const <NoteBlock>[], this.isPinned = false, this.revision = 1, this.syncState = NoteSyncState.localOnly, this.editorMode = NoteEditorMode.rich}): _attachments = attachments,_blocks = blocks;
   factory _NoteEntry.fromJson(Map<String, dynamic> json) => _$NoteEntryFromJson(json);
 
 @override final  String id;

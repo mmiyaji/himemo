@@ -81,7 +81,7 @@ _NoteEntry _$NoteEntryFromJson(Map<String, dynamic> json) => _NoteEntry(
       NoteSyncState.localOnly,
   editorMode:
       $enumDecodeNullable(_$NoteEditorModeEnumMap, json['editorMode']) ??
-      NoteEditorMode.quick,
+      NoteEditorMode.rich,
 );
 
 Map<String, dynamic> _$NoteEntryToJson(_NoteEntry instance) =>

@@ -144,6 +144,6 @@ void main() {
     expect(note.contentHash, isNull);
     expect(note.syncState, NoteSyncState.localOnly);
     expect(note.blocks, isEmpty);
-    expect(note.editorMode, NoteEditorMode.quick);
+    expect(note.editorMode, NoteEditorMode.rich);
   });
 }

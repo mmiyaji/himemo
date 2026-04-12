@@ -53,7 +53,7 @@ abstract class NoteEntry with _$NoteEntry {
     @Default(false) bool isPinned,
     @Default(1) int revision,
     @Default(NoteSyncState.localOnly) NoteSyncState syncState,
-    @Default(NoteEditorMode.quick) NoteEditorMode editorMode,
+    @Default(NoteEditorMode.rich) NoteEditorMode editorMode,
   }) = _NoteEntry;
 
   factory NoteEntry.fromJson(Map<String, dynamic> json) =>

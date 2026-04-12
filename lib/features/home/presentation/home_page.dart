@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:pinput/pinput.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../sync/data/google_drive_sync_transport.dart';
@@ -163,8 +166,12 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.sizeOf(context).width;
+    final screenSize = MediaQuery.sizeOf(context);
+    final width = screenSize.width;
     final useSplitView = width >= 1180;
+    final useCompactHeader = !useSplitView &&
+        width < 720 &&
+        screenSize.height > screenSize.width;
     final activeIdentity = ref.watch(activeIdentityDataProvider);
     final privateVaultUnlocked = ref.watch(
       privateVaultSessionControllerProvider,
@@ -207,13 +214,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             const SizedBox(height: 12),
             const _PrivateVaultLockedNotice(),
           ],
-          const _NotesToolbar(),
-          const SizedBox(height: 12),
-          _StatsStrip(
-            visibleCount: visibleNotes.length,
-            pinnedCount: visibleNotes.where((note) => note.isPinned).length,
-            vaultCount: visibleVaults.length,
-          ),
+          _NotesToolbar(compact: useCompactHeader),
           const SizedBox(height: 16),
           if (visibleNotes.isEmpty)
             const _EmptyNotesState()
@@ -251,12 +252,6 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 const _PrivateVaultLockedNotice(),
               ],
               const _NotesToolbar(),
-              const SizedBox(height: 12),
-              _StatsStrip(
-                visibleCount: visibleNotes.length,
-                pinnedCount: visibleNotes.where((note) => note.isPinned).length,
-                vaultCount: visibleVaults.length,
-              ),
               const SizedBox(height: 16),
               if (visibleNotes.isEmpty)
                 const _EmptyNotesState()
@@ -271,6 +266,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                           vaultName: ref
                               .watch(vaultByIdProvider(visibleNotes[i].vaultId))
                               .name,
+                          showVaultName: visibleVaults.length > 1,
                           selected: _selectedNoteId == visibleNotes[i].id,
                           onTap: () {
                             setState(() {
@@ -406,18 +402,13 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   @override
   Widget build(BuildContext context) {
     final notes = ref.watch(visibleNotesProvider);
-    final markedDays = notes
-        .map(
-          (note) => DateTime(
-            note.createdAt.year,
-            note.createdAt.month,
-            note.createdAt.day,
-          ),
-        )
-        .toSet();
+    final noteDays = _sortedNoteDays(notes);
+    final markedDays = noteDays.toSet();
     final sameDayNotes = notes
         .where((note) => _isSameDay(note.createdAt, _selectedDay))
         .toList(growable: false);
+    final previousDay = _adjacentNoteDay(noteDays, _selectedDay, backwards: true);
+    final nextDay = _adjacentNoteDay(noteDays, _selectedDay, backwards: false);
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -473,9 +464,31 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '${_selectedDay.year}/${_selectedDay.month.toString().padLeft(2, '0')}/${_selectedDay.day.toString().padLeft(2, '0')}',
-                style: Theme.of(context).textTheme.titleMedium,
+              Row(
+                children: [
+                  IconButton(
+                    onPressed: previousDay == null
+                        ? null
+                        : () => _selectCalendarDay(previousDay),
+                    icon: const Icon(Icons.chevron_left_rounded),
+                    tooltip: 'Previous day with notes',
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  Expanded(
+                    child: Text(
+                      '${_selectedDay.year}/${_selectedDay.month.toString().padLeft(2, '0')}/${_selectedDay.day.toString().padLeft(2, '0')}',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: nextDay == null
+                        ? null
+                        : () => _selectCalendarDay(nextDay),
+                    icon: const Icon(Icons.chevron_right_rounded),
+                    tooltip: 'Next day with notes',
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
               if (sameDayNotes.isEmpty)
@@ -492,6 +505,12 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                     vaultName: ref
                         .watch(vaultByIdProvider(sameDayNotes[i].vaultId))
                         .name,
+                    onTap: () => _openCalendarNoteDetails(
+                      context,
+                      notes,
+                      _selectedDay,
+                      i,
+                    ),
                   ),
                   if (i != sameDayNotes.length - 1)
                     Divider(height: 24, color: Theme.of(context).dividerColor),
@@ -507,6 +526,194 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     return left.year == right.year &&
         left.month == right.month &&
         left.day == right.day;
+  }
+
+  List<DateTime> _sortedNoteDays(List<NoteEntry> notes) {
+    final days = notes
+        .map(
+          (note) => DateTime(
+            note.createdAt.year,
+            note.createdAt.month,
+            note.createdAt.day,
+          ),
+        )
+        .toSet()
+        .toList()
+      ..sort();
+    return days;
+  }
+
+  DateTime? _adjacentNoteDay(
+    List<DateTime> noteDays,
+    DateTime currentDay, {
+    required bool backwards,
+  }) {
+    if (noteDays.isEmpty) {
+      return null;
+    }
+    if (backwards) {
+      for (var i = noteDays.length - 1; i >= 0; i -= 1) {
+        if (noteDays[i].isBefore(currentDay)) {
+          return noteDays[i];
+        }
+      }
+      return null;
+    }
+    for (final day in noteDays) {
+      if (day.isAfter(currentDay)) {
+        return day;
+      }
+    }
+    return null;
+  }
+
+  void _selectCalendarDay(DateTime day) {
+    setState(() {
+      _selectedDay = day;
+      _visibleMonth = DateTime(day.year, day.month);
+    });
+  }
+
+  Future<void> _openCalendarNoteDetails(
+    BuildContext context,
+    List<NoteEntry> allNotes,
+    DateTime initialDay,
+    int initialIndex,
+  ) async {
+    final hostContext = context;
+    await showModalBottomSheet<void>(
+      context: hostContext,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        var selectedDay = DateTime(
+          initialDay.year,
+          initialDay.month,
+          initialDay.day,
+        );
+        var selectedIndex = initialIndex;
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final noteDays = _sortedNoteDays(allNotes);
+            final dayNotes = allNotes
+                .where((note) => _isSameDay(note.createdAt, selectedDay))
+                .toList(growable: false);
+            if (dayNotes.isEmpty) {
+              return const SizedBox.shrink();
+            }
+            if (selectedIndex >= dayNotes.length) {
+              selectedIndex = dayNotes.length - 1;
+            }
+            final previousDay = _adjacentNoteDay(
+              noteDays,
+              selectedDay,
+              backwards: true,
+            );
+            final nextDay = _adjacentNoteDay(
+              noteDays,
+              selectedDay,
+              backwards: false,
+            );
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                child: FractionallySizedBox(
+                  heightFactor: 0.9,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed: previousDay == null
+                                ? null
+                                : () {
+                                    setModalState(() {
+                                      selectedDay = previousDay;
+                                      selectedIndex = 0;
+                                    });
+                                  },
+                            icon: const Icon(Icons.chevron_left_rounded),
+                            tooltip: 'Previous day with notes',
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          Expanded(
+                            child: Text(
+                              '${selectedDay.year}/${selectedDay.month.toString().padLeft(2, '0')}/${selectedDay.day.toString().padLeft(2, '0')}',
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: nextDay == null
+                                ? null
+                                : () {
+                                    setModalState(() {
+                                      selectedDay = nextDay;
+                                      selectedIndex = 0;
+                                    });
+                                  },
+                            icon: const Icon(Icons.chevron_right_rounded),
+                            tooltip: 'Next day with notes',
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: _NoteDetailPager(
+                          notes: dayNotes,
+                          selectedIndex: selectedIndex,
+                          onPageChanged: (index) {
+                            setModalState(() {
+                              selectedIndex = index;
+                            });
+                          },
+                          onEdit: (selectedNote) async {
+                            Navigator.of(context).pop();
+                            await showNoteEditorSheet(
+                              hostContext,
+                              ref,
+                              note: selectedNote,
+                            );
+                          },
+                          onDelete: (selectedNote) async {
+                            Navigator.of(context).pop();
+                            final confirmed = await showDialog<bool>(
+                              context: hostContext,
+                              builder: (context) => AlertDialog(
+                                title: const Text('Delete note'),
+                                content: Text(
+                                  'Delete "${selectedNote.title}" permanently from this device?',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.of(context).pop(false),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () => Navigator.of(context).pop(true),
+                                    child: const Text('Delete'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (confirmed == true) {
+                              await ref
+                                  .read(notesControllerProvider.notifier)
+                                  .delete(selectedNote.id);
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 }
 
@@ -2319,85 +2526,6 @@ class _PrivateVaultLockedNotice extends StatelessWidget {
   }
 }
 
-class _StatsStrip extends StatelessWidget {
-  const _StatsStrip({
-    required this.visibleCount,
-    required this.pinnedCount,
-    required this.vaultCount,
-  });
-
-  final int visibleCount;
-  final int pinnedCount;
-  final int vaultCount;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: _sectionDecoration(context),
-      child: Row(
-        children: [
-          Expanded(
-            child: _StatTile(label: 'Visible', value: '$visibleCount'),
-          ),
-          _ThinDivider(color: Theme.of(context).dividerColor),
-          Expanded(
-            child: _StatTile(label: 'Pinned', value: '$pinnedCount'),
-          ),
-          _ThinDivider(color: Theme.of(context).dividerColor),
-          Expanded(
-            child: _StatTile(label: 'Vaults', value: '$vaultCount'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatTile extends StatelessWidget {
-  const _StatTile({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-          Text(
-            value,
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
-          ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ThinDivider extends StatelessWidget {
-  const _ThinDivider({required this.color});
-
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(width: 1, height: 52, color: color);
-  }
-}
-
 class _VaultSectionCard extends StatelessWidget {
   const _VaultSectionCard({
     required this.vault,
@@ -2441,9 +2569,12 @@ class _VaultSectionCard extends StatelessWidget {
           ),
           Divider(height: 1, color: Theme.of(context).dividerColor),
           for (var i = 0; i < notes.length; i++) ...[
+            if (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i]))
+              _NoteDayDivider(date: notes[i].createdAt),
             _NoteListTile(
               note: notes[i],
               vaultName: vault.name,
+              showVaultName: false,
               selected: notes[i].id == selectedNoteId,
               onTap: () => onNoteSelected(notes[i]),
             ),
@@ -2457,16 +2588,48 @@ class _VaultSectionCard extends StatelessWidget {
   }
 }
 
+bool _isSameNoteDay(NoteEntry left, NoteEntry right) {
+  return left.createdAt.year == right.createdAt.year &&
+      left.createdAt.month == right.createdAt.month &&
+      left.createdAt.day == right.createdAt.day;
+}
+
+class _NoteDayDivider extends StatelessWidget {
+  const _NoteDayDivider({required this.date});
+
+  final DateTime date;
+
+  @override
+  Widget build(BuildContext context) {
+    final label =
+        '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+      color: Theme.of(context).colorScheme.surface,
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: _mutedTextColor(context),
+              fontWeight: FontWeight.w700,
+            ),
+      ),
+    );
+  }
+}
+
 class _NoteListTile extends StatelessWidget {
   const _NoteListTile({
     required this.note,
     required this.vaultName,
+    required this.showVaultName,
     required this.selected,
     required this.onTap,
   });
 
   final NoteEntry note;
   final String vaultName;
+  final bool showVaultName;
   final bool selected;
   final VoidCallback onTap;
 
@@ -2476,6 +2639,9 @@ class _NoteListTile extends StatelessWidget {
     final dateLabel =
         '${changedAt.month}/${changedAt.day} ${changedAt.hour.toString().padLeft(2, '0')}:${changedAt.minute.toString().padLeft(2, '0')}';
     final isEdited = note.updatedAt != null && note.updatedAt != note.createdAt;
+    final bodyText = note.body.trim();
+    final hasDistinctBody =
+        bodyText.isNotEmpty && bodyText.replaceAll('\n', ' ').trim() != note.title.trim();
 
     return Material(
       color: selected ? _selectedSurfaceColor(context) : Colors.transparent,
@@ -2506,42 +2672,67 @@ class _NoteListTile extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 6),
-              Text(
-                note.body,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: _strongMutedTextColor(context),
-                    ),
-              ),
+              if (hasDistinctBody)
+                Text(
+                  note.body,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: _strongMutedTextColor(context),
+                      ),
+                ),
               if (note.attachments.isNotEmpty) ...[
                 const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                Row(
                   children: [
-                    for (final attachment in note.attachments)
-                      Chip(
-                        visualDensity: VisualDensity.compact,
-                        label: Text(attachment.label),
-                        avatar: Icon(
-                          _iconForAttachment(attachment.type),
-                          size: 16,
+                    for (var i = 0;
+                        i < note.attachments.length && i < 3;
+                        i++) ...[
+                      Padding(
+                        padding: EdgeInsets.only(right: i == 2 ? 0 : 8),
+                        child: _AttachmentPreview(
+                          attachment: note.attachments[i],
+                          size: 56,
                         ),
                       ),
+                    ],
+                    if (note.attachments.length > 3) ...[
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Theme.of(context).dividerColor,
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          '+${note.attachments.length - 3}',
+                          style:
+                              Theme.of(context).textTheme.labelLarge?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ],
               const SizedBox(height: 10),
               Row(
                 children: [
-                  Text(
-                    vaultName,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: _mutedTextColor(context),
-                        ),
-                  ),
-                  const Spacer(),
+                  if (showVaultName)
+                    Text(
+                      vaultName,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: _mutedTextColor(context),
+                          ),
+                    ),
+                  if (showVaultName) const Spacer() else const Spacer(),
                   Text(
                     isEdited ? 'Edited $dateLabel' : dateLabel,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -2558,7 +2749,7 @@ class _NoteListTile extends StatelessWidget {
   }
 }
 
-class _NoteDetailPager extends ConsumerWidget {
+class _NoteDetailPager extends ConsumerStatefulWidget {
   const _NoteDetailPager({
     required this.notes,
     required this.selectedIndex,
@@ -2576,9 +2767,39 @@ class _NoteDetailPager extends ConsumerWidget {
   final ValueChanged<NoteEntry> onDelete;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final pageController =
-        controller ?? PageController(initialPage: selectedIndex);
+  ConsumerState<_NoteDetailPager> createState() => _NoteDetailPagerState();
+}
+
+class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
+  PageController? _ownedController;
+
+  PageController get _pageController =>
+      widget.controller ??
+      (_ownedController ??= PageController(initialPage: widget.selectedIndex));
+
+  @override
+  void didUpdateWidget(covariant _NoteDetailPager oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.controller == null &&
+        oldWidget.selectedIndex != widget.selectedIndex &&
+        _ownedController?.hasClients == true) {
+      final currentPage = _ownedController!.page?.round();
+      if (currentPage != widget.selectedIndex) {
+        _ownedController!.jumpToPage(widget.selectedIndex);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _ownedController?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canMovePrevious = widget.selectedIndex > 0;
+    final canMoveNext = widget.selectedIndex < widget.notes.length - 1;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2586,8 +2807,31 @@ class _NoteDetailPager extends ConsumerWidget {
           padding: const EdgeInsets.only(bottom: 10),
           child: Row(
             children: [
+              IconButton(
+                onPressed: canMovePrevious
+                    ? () => _pageController.previousPage(
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOut,
+                        )
+                    : null,
+                icon: const Icon(Icons.chevron_left_rounded),
+                tooltip: 'Previous note',
+                visualDensity: VisualDensity.compact,
+              ),
+              IconButton(
+                onPressed: canMoveNext
+                    ? () => _pageController.nextPage(
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOut,
+                        )
+                    : null,
+                icon: const Icon(Icons.chevron_right_rounded),
+                tooltip: 'Next note',
+                visualDensity: VisualDensity.compact,
+              ),
+              const SizedBox(width: 8),
               Text(
-                '${selectedIndex + 1} / ${notes.length}',
+                '${widget.selectedIndex + 1} / ${widget.notes.length}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: _mutedTextColor(context),
                     ),
@@ -2606,18 +2850,18 @@ class _NoteDetailPager extends ConsumerWidget {
         ),
         Expanded(
           child: PageView.builder(
-            controller: pageController,
-            itemCount: notes.length,
-            onPageChanged: onPageChanged,
+            controller: _pageController,
+            itemCount: widget.notes.length,
+            onPageChanged: widget.onPageChanged,
             itemBuilder: (context, index) {
-              final note = notes[index];
+              final note = widget.notes[index];
               return Padding(
                 padding: const EdgeInsets.only(right: 4),
                 child: _NoteDetailPane(
                   note: note,
                   vaultName: ref.watch(vaultByIdProvider(note.vaultId)).name,
-                  onEdit: () => onEdit(note),
-                  onDelete: () => onDelete(note),
+                  onEdit: () => widget.onEdit(note),
+                  onDelete: () => widget.onDelete(note),
                 ),
               );
             },
@@ -2736,6 +2980,11 @@ List<Widget> _buildDetailBlocks(BuildContext context, NoteEntry note) {
   final blocks = note.blocks.isNotEmpty
       ? note.blocks
       : _legacyBlocksFromNote(note);
+  final photoAttachments = blocks
+      .where((block) => block.type == NoteBlockType.photo)
+      .map((block) => block.attachment)
+      .whereType<NoteAttachment>()
+      .toList(growable: false);
   if (blocks.isEmpty) {
     return [
       Text(
@@ -2768,7 +3017,15 @@ List<Widget> _buildDetailBlocks(BuildContext context, NoteEntry note) {
       case NoteBlockType.audio:
         final attachment = block.attachment;
         if (attachment != null) {
-          widgets.add(_EmbeddedAttachmentBlock(attachment: attachment));
+          widgets.add(
+            _EmbeddedAttachmentBlock(
+              attachment: attachment,
+              photoAttachments: photoAttachments,
+              photoIndex: attachment.type == AttachmentType.photo
+                  ? photoAttachments.indexOf(attachment)
+                  : null,
+            ),
+          );
         }
     }
     if (i != blocks.length - 1) {
@@ -2880,7 +3137,9 @@ Future<void> showNoteEditorSheet(
 }
 
 class _NotesToolbar extends ConsumerWidget {
-  const _NotesToolbar();
+  const _NotesToolbar({this.compact = false});
+
+  final bool compact;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -2904,27 +3163,13 @@ class _NotesToolbar extends ConsumerWidget {
             ),
             onChanged: ref.read(searchQueryProvider.notifier).setQuery,
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _InfoChip(
-                icon: Icons.lock_outline_rounded,
-                text: ref.watch(activeIdentityDataProvider).lockLabel,
-              ),
-              _InfoChip(
-                icon: Icons.folder_outlined,
-                text:
-                    '${ref.watch(visibleVaultsProvider).length} vaults visible',
-              ),
-              _InfoChip(
-                icon: Icons.push_pin_outlined,
-                text:
-                    '${ref.watch(visibleNotesProvider).where((note) => note.isPinned).length} pinned',
-              ),
-            ],
-          ),
+          if (!compact && ref.watch(activeIdentityProvider) != 'daily') ...[
+            const SizedBox(height: 12),
+            _InfoChip(
+              icon: Icons.lock_outline_rounded,
+              text: ref.watch(activeIdentityDataProvider).lockLabel,
+            ),
+          ],
         ],
       ),
     );
@@ -2944,34 +3189,103 @@ class _InfoChip extends StatelessWidget {
 }
 
 class _CalendarNoteRow extends StatelessWidget {
-  const _CalendarNoteRow({required this.note, required this.vaultName});
+  const _CalendarNoteRow({
+    required this.note,
+    required this.vaultName,
+    required this.onTap,
+  });
 
   final NoteEntry note;
   final String vaultName;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(note.title, style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 4),
-        Text(
-          note.body,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: _strongMutedTextColor(context),
+    final bodyText = note.body.trim();
+    final hasDistinctBody =
+        bodyText.isNotEmpty && bodyText.replaceAll('\n', ' ').trim() != note.title.trim();
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    note.title,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 18,
+                  color: _mutedTextColor(context),
+                ),
+              ],
+            ),
+            if (hasDistinctBody) ...[
+              const SizedBox(height: 4),
+              Text(
+                note.body,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: _strongMutedTextColor(context),
+                    ),
               ),
+            ],
+            if (note.attachments.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  for (var i = 0; i < note.attachments.length && i < 3; i++) ...[
+                    Padding(
+                      padding: EdgeInsets.only(right: i == 2 ? 0 : 8),
+                      child: _AttachmentPreview(
+                        attachment: note.attachments[i],
+                        size: 56,
+                      ),
+                    ),
+                  ],
+                  if (note.attachments.length > 3) ...[
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Theme.of(context).dividerColor,
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        '+${note.attachments.length - 3}',
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+            const SizedBox(height: 8),
+            Text(
+              vaultName,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+            ),
+          ],
         ),
-        const SizedBox(height: 8),
-        Text(
-          vaultName,
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -3008,6 +3322,7 @@ class _RichBlockDraft {
   _RichBlockDraft.paragraph([String text = ''])
       : type = NoteBlockType.paragraph,
         controller = TextEditingController(text: text),
+        focusNode = FocusNode(),
         attachment = null;
 
   _RichBlockDraft.attachment(NoteAttachment value)
@@ -3017,14 +3332,17 @@ class _RichBlockDraft {
           AttachmentType.audio => NoteBlockType.audio,
         },
         controller = null,
+        focusNode = null,
         attachment = value;
 
   final NoteBlockType type;
   final TextEditingController? controller;
+  final FocusNode? focusNode;
   final NoteAttachment? attachment;
 
   void dispose() {
     controller?.dispose();
+    focusNode?.dispose();
   }
 }
 
@@ -3045,6 +3363,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late List<NoteAttachment> _attachments;
   late List<_RichBlockDraft> _richBlocks;
   late final Set<String> _initialAttachmentPaths;
+  int? _activeRichParagraphIndex;
   String? _selectedVaultId;
   bool _saved = false;
 
@@ -3058,12 +3377,15 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _editorMode = widget.note?.editorMode ??
         ((widget.note?.blocks.isNotEmpty ?? false)
             ? NoteEditorMode.rich
-            : NoteEditorMode.quick);
+            : NoteEditorMode.rich);
     _attachments = [...?widget.note?.attachments];
     _richBlocks = _buildInitialRichBlocks();
     for (final block in _richBlocks) {
       _attachRichBlockListener(block);
     }
+    _activeRichParagraphIndex = _richBlocks.indexWhere(
+      (block) => block.type == NoteBlockType.paragraph,
+    );
     _initialAttachmentPaths = _attachments
         .map((attachment) => attachment.filePath)
         .whereType<String>()
@@ -3145,6 +3467,48 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
 
   void _attachRichBlockListener(_RichBlockDraft block) {
     block.controller?.addListener(_handleTextChanged);
+    block.focusNode?.addListener(() {
+      if (!mounted || !(block.focusNode?.hasFocus ?? false)) {
+        return;
+      }
+      final index = _richBlocks.indexOf(block);
+      if (index == -1 || _activeRichParagraphIndex == index) {
+        return;
+      }
+      setState(() {
+        _activeRichParagraphIndex = index;
+      });
+    });
+  }
+
+  int _resolveRichInsertionIndex() {
+    final activeIndex = _activeRichParagraphIndex;
+    if (activeIndex != null &&
+        activeIndex >= 0 &&
+        activeIndex < _richBlocks.length &&
+        _richBlocks[activeIndex].type == NoteBlockType.paragraph) {
+      return activeIndex;
+    }
+    final lastParagraphIndex = _richBlocks.lastIndexWhere(
+      (block) => block.type == NoteBlockType.paragraph,
+    );
+    return lastParagraphIndex == -1 ? _richBlocks.length : lastParagraphIndex;
+  }
+
+  void _requestParagraphFocus(_RichBlockDraft block, int offset) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      final controller = block.controller;
+      final focusNode = block.focusNode;
+      if (controller == null || focusNode == null) {
+        return;
+      }
+      focusNode.requestFocus();
+      final clampedOffset = offset.clamp(0, controller.text.length);
+      controller.selection = TextSelection.collapsed(offset: clampedOffset);
+    });
   }
 
   List<NoteAttachment> get _allCurrentAttachments {
@@ -3174,9 +3538,32 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: _pickDateTime,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${_createdAt.year}/${_createdAt.month.toString().padLeft(2, '0')}/${_createdAt.day.toString().padLeft(2, '0')} ${_createdAt.hour.toString().padLeft(2, '0')}:${_createdAt.minute.toString().padLeft(2, '0')}',
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      color: _mutedTextColor(context),
+                    ),
+                  ],
+                ),
+              ),
+            ),
             Text(
               widget.note == null ? 'New note' : 'Edit note',
-              style: Theme.of(context).textTheme.headlineSmall,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: _mutedTextColor(context),
+                  ),
             ),
             const SizedBox(height: 16),
             Expanded(
@@ -3201,31 +3588,49 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                         _editorMode = selection.first;
                         if (_editorMode == NoteEditorMode.rich &&
                             _richBlocks.isEmpty) {
-                          _richBlocks = [_RichBlockDraft.paragraph()];
+                          final draft = _RichBlockDraft.paragraph();
+                          _attachRichBlockListener(draft);
+                          _richBlocks = [draft];
+                          _activeRichParagraphIndex = 0;
                         }
                       });
                     },
                   ),
                   const SizedBox(height: 12),
                   if (_editorMode == NoteEditorMode.quick) ...[
-                  TextField(
-                    key: const Key('note-content-input'),
-                    controller: _contentController,
-                    minLines: 8,
-                    maxLines: 12,
-                    decoration: const InputDecoration(
-                      labelText: 'Memo',
-                      hintText: 'Use the first line as the title',
-                      alignLabelWithHint: true,
-                      border: OutlineInputBorder(),
+                    TextField(
+                      key: const Key('note-content-input'),
+                      controller: _contentController,
+                      autofocus: widget.note == null,
+                      minLines: 12,
+                      maxLines: null,
+                      decoration: const InputDecoration(
+                        labelText: 'Memo',
+                        hintText: 'Use the first line as the title',
+                        alignLabelWithHint: true,
+                        border: OutlineInputBorder(),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
+                    const SizedBox(height: 12),
                   ] else ...[
-                    _RichMemoEditor(
-                      blocks: _richBlocks,
-                      onAddParagraph: _addRichParagraph,
-                      onRemoveBlock: _removeRichBlock,
+                    Container(
+                      decoration: _sectionDecoration(context),
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _RichAttachmentSection(
+                            onSelected: _handleAttachmentAction,
+                          ),
+                          const SizedBox(height: 12),
+                          _RichMemoEditor(
+                            blocks: _richBlocks,
+                            onRemoveBlock: _removeRichBlock,
+                            onBackspaceAtParagraphStart:
+                                _removeMediaBeforeParagraph,
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -3261,18 +3666,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       });
                     },
                   ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Date'),
-                    subtitle: Text(
-                      '${_createdAt.year}/${_createdAt.month.toString().padLeft(2, '0')}/${_createdAt.day.toString().padLeft(2, '0')}',
-                    ),
-                    trailing: OutlinedButton(
-                      onPressed: _pickDate,
-                      child: const Text('Change'),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
                   if (_editorMode == NoteEditorMode.quick)
                     _QuickAttachmentSection(
                       attachments: _attachments,
@@ -3292,51 +3685,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                           );
                         }
                       },
-                    )
-                  else
-                    _RichAttachmentSection(
-                      onSelected: _handleAttachmentAction,
                     ),
                 ],
               ),
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                OutlinedButton.icon(
-                  key: const Key('quick-attach-photo-button'),
-                  onPressed: () =>
-                      _handleAttachmentAction(MediaImportAction.pickPhoto),
-                  icon: const Icon(Icons.photo_outlined),
-                  label: Text(
-                    _editorMode == NoteEditorMode.rich
-                        ? 'Insert photo block'
-                        : 'Add photo',
-                  ),
-                ),
-                OutlinedButton.icon(
-                  key: const Key('quick-attach-camera-button'),
-                  onPressed: () => _handleAttachmentAction(
-                    kIsWeb
-                        ? MediaImportAction.pickAudio
-                        : MediaImportAction.takePhoto,
-                  ),
-                  icon: kIsWeb
-                      ? const Icon(Icons.audiotrack_outlined)
-                      : const Icon(Icons.photo_camera_outlined),
-                  label: Text(
-                    kIsWeb
-                        ? (_editorMode == NoteEditorMode.rich
-                            ? 'Insert audio block'
-                            : 'Add audio')
-                        : (_editorMode == NoteEditorMode.rich
-                            ? 'Insert from camera'
-                            : 'Use camera'),
-                  ),
-                ),
-              ],
             ),
             const SizedBox(height: 16),
             Row(
@@ -3368,7 +3719,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     return title.isNotEmpty && _selectedVaultId != null;
   }
 
-  Future<void> _pickDate() async {
+  Future<void> _pickDateTime() async {
     final picked = await showDatePicker(
       context: context,
       initialDate: _createdAt,
@@ -3378,13 +3729,26 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (picked == null) {
       return;
     }
+    if (!mounted) {
+      return;
+    }
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_createdAt),
+    );
+    if (pickedTime == null) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _createdAt = DateTime(
         picked.year,
         picked.month,
         picked.day,
-        _createdAt.hour,
-        _createdAt.minute,
+        pickedTime.hour,
+        pickedTime.minute,
       );
     });
   }
@@ -3409,11 +3773,62 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       if (_editorMode == NoteEditorMode.quick) {
         _attachments = [..._attachments, attachment];
       } else {
-        _richBlocks = [
-          ..._richBlocks,
-          _RichBlockDraft.attachment(attachment),
-          _RichBlockDraft.paragraph(),
-        ];
+        final insertionIndex = _resolveRichInsertionIndex();
+        final nextBlocks = [..._richBlocks];
+        late final _RichBlockDraft paragraphToFocus;
+        var focusOffset = 0;
+
+        if (insertionIndex < nextBlocks.length &&
+            nextBlocks[insertionIndex].type == NoteBlockType.paragraph) {
+          final current = nextBlocks[insertionIndex];
+          final controller = current.controller!;
+          final text = controller.text;
+          final selection = controller.selection;
+          final cursorOffset = selection.isValid
+              ? selection.baseOffset.clamp(0, text.length)
+              : text.length;
+
+          if (text.trim().isNotEmpty) {
+            final beforeText = text.substring(0, cursorOffset);
+            final afterText = text.substring(cursorOffset);
+            current.dispose();
+            nextBlocks.removeAt(insertionIndex);
+
+            final replacement = <_RichBlockDraft>[];
+            if (beforeText.isNotEmpty) {
+              final beforeParagraph = _RichBlockDraft.paragraph(beforeText);
+              _attachRichBlockListener(beforeParagraph);
+              replacement.add(beforeParagraph);
+            }
+
+            replacement.add(_RichBlockDraft.attachment(attachment));
+
+            final afterParagraph = _RichBlockDraft.paragraph(afterText);
+            _attachRichBlockListener(afterParagraph);
+            replacement.add(afterParagraph);
+
+            nextBlocks.insertAll(insertionIndex, replacement);
+            paragraphToFocus = afterParagraph;
+            focusOffset = 0;
+          } else {
+            nextBlocks.insert(insertionIndex, _RichBlockDraft.attachment(attachment));
+            paragraphToFocus = current;
+            focusOffset = 0;
+          }
+        } else {
+          final trailingParagraph = _RichBlockDraft.paragraph();
+          _attachRichBlockListener(trailingParagraph);
+          nextBlocks.insertAll(insertionIndex, [
+            _RichBlockDraft.attachment(attachment),
+            trailingParagraph,
+          ]);
+          paragraphToFocus = trailingParagraph;
+          focusOffset = 0;
+        }
+
+        _richBlocks = nextBlocks;
+        _activeRichParagraphIndex = _richBlocks.indexOf(paragraphToFocus);
+        _requestParagraphFocus(paragraphToFocus, focusOffset);
       }
     });
   }
@@ -3455,25 +3870,136 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     }
   }
 
-  void _addRichParagraph() {
-    final draft = _RichBlockDraft.paragraph();
-    _attachRichBlockListener(draft);
-    setState(() {
-      _richBlocks = [..._richBlocks, draft];
-    });
-  }
-
   void _removeRichBlock(int index) {
     final block = _richBlocks[index];
     final attachment = block.attachment;
+    if (attachment != null) {
+      _removeAttachmentBlockAt(index);
+      return;
+    }
     block.dispose();
     setState(() {
       _richBlocks.removeAt(index);
-      if (_richBlocks.isEmpty) {
-        _richBlocks = [_RichBlockDraft.paragraph()];
+      if (_richBlocks.where((candidate) => candidate.type == NoteBlockType.paragraph).isEmpty) {
+        final draft = _RichBlockDraft.paragraph();
+        _attachRichBlockListener(draft);
+        _richBlocks.add(draft);
+      }
+      if (_activeRichParagraphIndex != null && _activeRichParagraphIndex! >= _richBlocks.length) {
+        _activeRichParagraphIndex = _richBlocks.lastIndexWhere(
+          (candidate) => candidate.type == NoteBlockType.paragraph,
+        );
       }
     });
     final filePath = attachment?.filePath;
+    if (filePath != null && !_initialAttachmentPaths.contains(filePath)) {
+      unawaited(
+        ref.read(encryptedAttachmentStoreProvider).deleteAttachment(filePath),
+      );
+    }
+  }
+
+  void _removeMediaBeforeParagraph(int paragraphIndex) {
+    if (paragraphIndex <= 0 || paragraphIndex >= _richBlocks.length) {
+      return;
+    }
+    final paragraph = _richBlocks[paragraphIndex];
+    final controller = paragraph.controller;
+    if (paragraph.type != NoteBlockType.paragraph || controller == null) {
+      return;
+    }
+    final selection = controller.selection;
+    if (!selection.isValid || !selection.isCollapsed || selection.baseOffset != 0) {
+      return;
+    }
+
+    final previousIndex = paragraphIndex - 1;
+    final previousBlock = _richBlocks[previousIndex];
+    final attachment = previousBlock.attachment;
+    if (attachment == null) {
+      return;
+    }
+    _removeAttachmentBlockAt(
+      previousIndex,
+      preferredFocusParagraph: paragraph,
+      preferredFocusOffset: 0,
+    );
+  }
+
+  void _removeAttachmentBlockAt(
+    int mediaIndex, {
+    _RichBlockDraft? preferredFocusParagraph,
+    int preferredFocusOffset = 0,
+  }) {
+    if (mediaIndex < 0 || mediaIndex >= _richBlocks.length) {
+      return;
+    }
+    final removedBlock = _richBlocks[mediaIndex];
+    final attachment = removedBlock.attachment;
+    if (attachment == null) {
+      return;
+    }
+
+    _RichBlockDraft? paragraphToFocus = preferredFocusParagraph;
+    var focusOffset = preferredFocusOffset;
+
+    setState(() {
+      _richBlocks.removeAt(mediaIndex);
+
+      if (mediaIndex - 1 >= 0 &&
+          mediaIndex < _richBlocks.length &&
+          _richBlocks[mediaIndex - 1].type == NoteBlockType.paragraph &&
+          _richBlocks[mediaIndex].type == NoteBlockType.paragraph) {
+        final leadingParagraph = _richBlocks[mediaIndex - 1];
+        final trailingParagraph = _richBlocks[mediaIndex];
+        final leadingController = leadingParagraph.controller!;
+        final trailingController = trailingParagraph.controller!;
+        final leadingText = leadingController.text;
+        final trailingText = trailingController.text;
+        final mergedText = switch ((leadingText.trim().isNotEmpty, trailingText.trim().isNotEmpty)) {
+          (true, true) => '$leadingText\n\n$trailingText',
+          (true, false) => leadingText,
+          (false, true) => trailingText,
+          (false, false) => '',
+        };
+        final focusBaseOffset = switch ((leadingText.trim().isNotEmpty, trailingText.trim().isNotEmpty)) {
+          (true, true) => leadingText.length + 2,
+          (true, false) => leadingText.length,
+          (false, true) => 0,
+          (false, false) => 0,
+        };
+        leadingController.text = mergedText;
+        trailingParagraph.dispose();
+        _richBlocks.removeAt(mediaIndex);
+
+        if (paragraphToFocus == null || identical(paragraphToFocus, trailingParagraph)) {
+          paragraphToFocus = leadingParagraph;
+          focusOffset = focusBaseOffset + preferredFocusOffset;
+        }
+      }
+
+      if (_richBlocks.where((candidate) => candidate.type == NoteBlockType.paragraph).isEmpty) {
+        final draft = _RichBlockDraft.paragraph();
+        _attachRichBlockListener(draft);
+        _richBlocks.add(draft);
+        paragraphToFocus ??= draft;
+      }
+
+      if (paragraphToFocus != null) {
+        _activeRichParagraphIndex = _richBlocks.indexOf(paragraphToFocus!);
+      } else if (_activeRichParagraphIndex != null &&
+          _activeRichParagraphIndex! >= _richBlocks.length) {
+        _activeRichParagraphIndex = _richBlocks.lastIndexWhere(
+          (candidate) => candidate.type == NoteBlockType.paragraph,
+        );
+      }
+    });
+
+    if (paragraphToFocus != null) {
+      _requestParagraphFocus(paragraphToFocus!, focusOffset);
+    }
+
+    final filePath = attachment.filePath;
     if (filePath != null && !_initialAttachmentPaths.contains(filePath)) {
       unawaited(
         ref.read(encryptedAttachmentStoreProvider).deleteAttachment(filePath),
@@ -3535,46 +4061,29 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
 class _RichMemoEditor extends StatelessWidget {
   const _RichMemoEditor({
     required this.blocks,
-    required this.onAddParagraph,
     required this.onRemoveBlock,
+    required this.onBackspaceAtParagraphStart,
   });
 
   final List<_RichBlockDraft> blocks;
-  final VoidCallback onAddParagraph;
   final ValueChanged<int> onRemoveBlock;
+  final ValueChanged<int> onBackspaceAtParagraphStart;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: _sectionDecoration(context),
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                'Rich blocks',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: onAddParagraph,
-                icon: const Icon(Icons.add),
-                label: const Text('Add text'),
-              ),
-            ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < blocks.length; i++) ...[
+          _RichBlockEditorTile(
+            block: blocks[i],
+            emphasizeInput: i == 0,
+            onRemove: () => onRemoveBlock(i),
+            onBackspaceAtStart: () => onBackspaceAtParagraphStart(i),
           ),
-          const SizedBox(height: 8),
-          for (var i = 0; i < blocks.length; i++) ...[
-            _RichBlockEditorTile(
-              block: blocks[i],
-              onRemove: () => onRemoveBlock(i),
-            ),
-            if (i != blocks.length - 1) const SizedBox(height: 12),
-          ],
+          if (i != blocks.length - 1) const SizedBox(height: 8),
         ],
-      ),
+      ],
     );
   }
 }
@@ -3582,46 +4091,65 @@ class _RichMemoEditor extends StatelessWidget {
 class _RichBlockEditorTile extends StatelessWidget {
   const _RichBlockEditorTile({
     required this.block,
+    this.emphasizeInput = false,
     required this.onRemove,
+    required this.onBackspaceAtStart,
   });
 
   final _RichBlockDraft block;
+  final bool emphasizeInput;
   final VoidCallback onRemove;
+  final VoidCallback onBackspaceAtStart;
 
   @override
   Widget build(BuildContext context) {
     if (block.type == NoteBlockType.paragraph) {
+      final paragraphText = block.controller?.text ?? '';
+      final showPrompt = emphasizeInput && paragraphText.trim().isEmpty;
       return Container(
-        decoration: BoxDecoration(
-          border: Border.all(color: Theme.of(context).dividerColor),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.only(bottom: 4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Text(
-                  'Text block',
-                  style: Theme.of(context).textTheme.labelLarge,
+            if (showPrompt)
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 8),
+                child: Text(
+                  'Start writing here',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: _mutedTextColor(context),
+                      ),
                 ),
-                const Spacer(),
-                IconButton(
-                  onPressed: onRemove,
-                  icon: const Icon(Icons.delete_outline_rounded),
-                  tooltip: 'Remove block',
+              ),
+            Focus(
+              onKeyEvent: (_, event) {
+                if (event is! KeyDownEvent ||
+                    event.logicalKey != LogicalKeyboardKey.backspace) {
+                  return KeyEventResult.ignored;
+                }
+                final controller = block.controller;
+                final selection = controller?.selection;
+                if (controller == null ||
+                    selection == null ||
+                    !selection.isValid ||
+                    !selection.isCollapsed ||
+                    selection.baseOffset != 0) {
+                  return KeyEventResult.ignored;
+                }
+                onBackspaceAtStart();
+                return KeyEventResult.handled;
+              },
+              child: TextField(
+                controller: block.controller,
+                focusNode: block.focusNode,
+                minLines: 1,
+                maxLines: null,
+                decoration: const InputDecoration(
+                  semanticCounterText: '',
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.zero,
                 ),
-              ],
-            ),
-            TextField(
-              controller: block.controller,
-              minLines: 3,
-              maxLines: 8,
-              decoration: const InputDecoration(
-                labelText: 'Paragraph',
-                hintText: 'Write a paragraph',
-                border: OutlineInputBorder(),
+                style: Theme.of(context).textTheme.bodyLarge,
               ),
             ),
           ],
@@ -3629,36 +4157,20 @@ class _RichBlockEditorTile extends StatelessWidget {
       );
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).dividerColor),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(_iconForAttachment(block.attachment!.type), size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  block.attachment!.label,
-                  style: Theme.of(context).textTheme.labelLarge,
-                ),
-              ),
-              IconButton(
-                onPressed: onRemove,
-                icon: const Icon(Icons.delete_outline_rounded),
-                tooltip: 'Remove block',
-              ),
-            ],
+    return Stack(
+      children: [
+        _AttachmentPreview(attachment: block.attachment!),
+        Positioned(
+          top: 8,
+          right: 8,
+          child: IconButton.filledTonal(
+            onPressed: onRemove,
+            icon: const Icon(Icons.delete_outline_rounded),
+            tooltip: 'Remove block',
+            visualDensity: VisualDensity.compact,
           ),
-          const SizedBox(height: 8),
-          _AttachmentPreview(attachment: block.attachment!),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -3755,54 +4267,63 @@ class _RichAttachmentSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: _sectionDecoration(context),
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Insert media',
-            style: Theme.of(context).textTheme.titleMedium,
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _CompactMediaButton(
+          icon: Icons.photo_outlined,
+          label: 'Photo',
+          onPressed: () => onSelected(MediaImportAction.pickPhoto),
+        ),
+        if (!kIsWeb)
+          _CompactMediaButton(
+            icon: Icons.photo_camera_outlined,
+            label: 'Camera',
+            onPressed: () => onSelected(MediaImportAction.takePhoto),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Add photos, videos, or audio as blocks between paragraphs.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
+        _CompactMediaButton(
+          icon: Icons.videocam_outlined,
+          label: 'Video',
+          onPressed: () => onSelected(MediaImportAction.pickVideo),
+        ),
+        if (!kIsWeb)
+          _CompactMediaButton(
+            icon: Icons.videocam_rounded,
+            label: 'Record',
+            onPressed: () => onSelected(MediaImportAction.recordVideo),
           ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              if (!kIsWeb)
-                OutlinedButton(
-                  onPressed: () => onSelected(MediaImportAction.takePhoto),
-                  child: const Text('Take photo'),
-                ),
-              OutlinedButton(
-                onPressed: () => onSelected(MediaImportAction.pickPhoto),
-                child: const Text('Pick photo'),
-              ),
-              if (!kIsWeb)
-                OutlinedButton(
-                  onPressed: () => onSelected(MediaImportAction.recordVideo),
-                  child: const Text('Record video'),
-                ),
-              OutlinedButton(
-                onPressed: () => onSelected(MediaImportAction.pickVideo),
-                child: const Text('Pick video'),
-              ),
-              OutlinedButton(
-                onPressed: () => onSelected(MediaImportAction.pickAudio),
-                child: const Text('Pick audio'),
-              ),
-            ],
-          ),
-        ],
+        _CompactMediaButton(
+          icon: Icons.audiotrack_outlined,
+          label: 'Audio',
+          onPressed: () => onSelected(MediaImportAction.pickAudio),
+        ),
+      ],
+    );
+  }
+}
+
+class _CompactMediaButton extends StatelessWidget {
+  const _CompactMediaButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       ),
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18),
+      label: Text(label),
     );
   }
 }
@@ -3886,91 +4407,66 @@ class _AttachmentListTile extends ConsumerWidget {
 }
 
 class _EmbeddedAttachmentBlock extends ConsumerWidget {
-  const _EmbeddedAttachmentBlock({required this.attachment});
+  const _EmbeddedAttachmentBlock({
+    required this.attachment,
+    this.photoAttachments = const [],
+    this.photoIndex,
+  });
 
   final NoteAttachment attachment;
+  final List<NoteAttachment> photoAttachments;
+  final int? photoIndex;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Container(
-      decoration: _sectionDecoration(context),
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(_iconForAttachment(attachment.type), size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  attachment.label,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ),
-              TextButton(
-                onPressed: () => _openAttachmentViewer(context, ref, attachment),
-                child: const Text('Open'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _attachmentDescription(attachment),
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
-          ),
-          const SizedBox(height: 12),
-          switch (attachment.type) {
-            AttachmentType.photo => _EmbeddedPhotoAttachment(attachment: attachment),
-            AttachmentType.video => SizedBox(
-                height: 260,
-                child: _VideoAttachmentViewer(attachment: attachment),
-              ),
-            AttachmentType.audio => SizedBox(
-                height: 180,
-                child: _AudioAttachmentViewer(attachment: attachment),
-              ),
-          },
-        ],
-      ),
-    );
+    switch (attachment.type) {
+      case AttachmentType.photo:
+        return _EmbeddedPhotoAttachment(
+          attachment: attachment,
+          photoAttachments: photoAttachments,
+          photoIndex: photoIndex,
+        );
+      case AttachmentType.video:
+        return SizedBox(
+          height: 260,
+          child: _VideoAttachmentViewer(attachment: attachment),
+        );
+      case AttachmentType.audio:
+        return SizedBox(
+          height: 180,
+          child: _AudioAttachmentViewer(attachment: attachment),
+        );
+    }
   }
 }
 
 class _EmbeddedPhotoAttachment extends ConsumerWidget {
-  const _EmbeddedPhotoAttachment({required this.attachment});
+  const _EmbeddedPhotoAttachment({
+    required this.attachment,
+    this.photoAttachments = const [],
+    this.photoIndex,
+  });
 
   final NoteAttachment attachment;
+  final List<NoteAttachment> photoAttachments;
+  final int? photoIndex;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final previewBytesBase64 = attachment.previewBytesBase64;
-    if (previewBytesBase64 != null && previewBytesBase64.isNotEmpty) {
-      return AspectRatio(
-        aspectRatio: 4 / 3,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Image.memory(
-            Uint8List.fromList(base64Decode(previewBytesBase64)),
-            fit: BoxFit.cover,
-          ),
-        ),
-      );
-    }
-
     final filePath = attachment.filePath;
-    if (filePath == null || filePath.isEmpty) {
-      return const _AttachmentIconBox(type: AttachmentType.photo);
-    }
+    final previewBytesBase64 = attachment.previewBytesBase64;
+    final imageBytesFuture = filePath != null && filePath.isNotEmpty
+        ? ref
+            .watch(encryptedAttachmentStoreProvider)
+            .readAttachment(filePath, type: attachment.type)
+        : Future<List<int>?>.value(
+            previewBytesBase64 == null || previewBytesBase64.isEmpty
+                ? null
+                : base64Decode(previewBytesBase64),
+          );
 
     return FutureBuilder<List<int>?>(
-      future: ref
-          .watch(encryptedAttachmentStoreProvider)
-          .readAttachment(filePath, type: attachment.type),
+      future: imageBytesFuture,
       builder: (context, snapshot) {
         final bytes = snapshot.data;
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -3985,12 +4481,51 @@ class _EmbeddedPhotoAttachment extends ConsumerWidget {
             child: Center(child: Text('Unable to load this image.')),
           );
         }
-        return AspectRatio(
-          aspectRatio: 4 / 3,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Image.memory(Uint8List.fromList(bytes), fit: BoxFit.cover),
-          ),
+        return FutureBuilder<ui.Size>(
+          future: _decodeImageSize(bytes),
+          builder: (context, dimensionSnapshot) {
+            final imageSize = dimensionSnapshot.data;
+            if (imageSize == null) {
+              return const SizedBox(
+                height: 180,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final maxWidth = constraints.maxWidth;
+                final displayWidth = math.min(maxWidth, imageSize.width);
+                final displayHeight =
+                    displayWidth * imageSize.height / imageSize.width;
+                return InkWell(
+                  onTap: () => _openAttachmentViewer(
+                    context,
+                    ref,
+                    attachment,
+                    photoAttachments: photoAttachments,
+                    initialPhotoIndex: photoIndex,
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: SizedBox(
+                        width: displayWidth,
+                        height: displayHeight,
+                        child: Image.memory(
+                          Uint8List.fromList(bytes),
+                          width: displayWidth,
+                          height: displayHeight,
+                          fit: BoxFit.fill,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
         );
       },
     );
@@ -3998,24 +4533,31 @@ class _EmbeddedPhotoAttachment extends ConsumerWidget {
 }
 
 class _AttachmentPreview extends ConsumerWidget {
-  const _AttachmentPreview({required this.attachment});
+  const _AttachmentPreview({
+    required this.attachment,
+    this.size = 72,
+  });
 
   final NoteAttachment attachment;
+  final double size;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (attachment.type != AttachmentType.photo) {
-      return _AttachmentIconBox(type: attachment.type);
+      return _AttachmentIconBox(type: attachment.type, size: size);
     }
 
     final previewBytesBase64 = attachment.previewBytesBase64;
     if (previewBytesBase64 != null && previewBytesBase64.isNotEmpty) {
-      return _AttachmentImageBox(bytes: base64Decode(previewBytesBase64));
+      return _AttachmentImageBox(
+        bytes: base64Decode(previewBytesBase64),
+        size: size,
+      );
     }
 
     final filePath = attachment.filePath;
     if (filePath == null || filePath.isEmpty) {
-      return _AttachmentIconBox(type: attachment.type);
+      return _AttachmentIconBox(type: attachment.type, size: size);
     }
 
     return FutureBuilder<List<int>?>(
@@ -4025,18 +4567,22 @@ class _AttachmentPreview extends ConsumerWidget {
       builder: (context, snapshot) {
         final bytes = snapshot.data;
         if (bytes == null || bytes.isEmpty) {
-          return _AttachmentIconBox(type: attachment.type);
+          return _AttachmentIconBox(type: attachment.type, size: size);
         }
-        return _AttachmentImageBox(bytes: bytes);
+        return _AttachmentImageBox(bytes: bytes, size: size);
       },
     );
   }
 }
 
 class _AttachmentImageBox extends StatelessWidget {
-  const _AttachmentImageBox({required this.bytes});
+  const _AttachmentImageBox({
+    required this.bytes,
+    this.size = 72,
+  });
 
   final List<int> bytes;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
@@ -4044,8 +4590,8 @@ class _AttachmentImageBox extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       child: Image.memory(
         Uint8List.fromList(bytes),
-        width: 72,
-        height: 72,
+        width: size,
+        height: size,
         fit: BoxFit.cover,
         gaplessPlayback: true,
       ),
@@ -4054,21 +4600,26 @@ class _AttachmentImageBox extends StatelessWidget {
 }
 
 class _AttachmentIconBox extends StatelessWidget {
-  const _AttachmentIconBox({required this.type});
+  const _AttachmentIconBox({
+    required this.type,
+    this.size = 72,
+  });
 
   final AttachmentType type;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 72,
-      height: 72,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
       ),
       child: Icon(
         _iconForAttachment(type),
+        size: size * 0.42,
         color: Theme.of(context).colorScheme.primary,
       ),
     );
@@ -4497,8 +5048,35 @@ Future<String?> _showPinSetupDialog(
 Future<void> _openAttachmentViewer(
   BuildContext context,
   WidgetRef ref,
-  NoteAttachment attachment,
+  NoteAttachment attachment, {
+  List<NoteAttachment> photoAttachments = const [],
+  int? initialPhotoIndex,
+}
 ) async {
+  if (attachment.type == AttachmentType.photo) {
+    final attachments = photoAttachments.isEmpty ? [attachment] : photoAttachments;
+    final fallbackIndex = attachments.indexOf(attachment);
+    final resolvedIndex = initialPhotoIndex != null &&
+            initialPhotoIndex >= 0 &&
+            initialPhotoIndex < attachments.length
+        ? initialPhotoIndex
+        : (fallbackIndex >= 0 ? fallbackIndex : 0);
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Close image viewer',
+      barrierColor: Colors.black.withValues(alpha: 0.88),
+      pageBuilder: (context, _, __) => _PhotoLightboxDialog(
+        attachments: attachments,
+        initialIndex: resolvedIndex,
+      ),
+      transitionBuilder: (context, animation, _, child) => FadeTransition(
+        opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+        child: child,
+      ),
+    );
+    return;
+  }
   await showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
@@ -4691,6 +5269,410 @@ class _AttachmentViewerSheet extends ConsumerWidget {
       ],
     );
   }
+}
+
+class _PhotoLightboxDialog extends ConsumerStatefulWidget {
+  const _PhotoLightboxDialog({
+    required this.attachments,
+    required this.initialIndex,
+  });
+
+  final List<NoteAttachment> attachments;
+  final int initialIndex;
+
+  @override
+  ConsumerState<_PhotoLightboxDialog> createState() =>
+      _PhotoLightboxDialogState();
+}
+
+class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
+  final TransformationController _transformationController =
+      TransformationController();
+  bool _edgeToEdge = false;
+  late int _selectedIndex;
+
+  NoteAttachment get _attachment => widget.attachments[_selectedIndex];
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedIndex = widget.initialIndex;
+  }
+
+  @override
+  void dispose() {
+    _transformationController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filePath = _attachment.filePath;
+    if (filePath == null || filePath.isEmpty) {
+      return const Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Center(
+          child: Text(
+            'No image is stored for this attachment.',
+            style: TextStyle(color: Colors.white),
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
+        child: FutureBuilder<List<int>?>(
+          future: ref
+              .watch(encryptedAttachmentStoreProvider)
+              .readAttachment(filePath, type: _attachment.type),
+          builder: (context, snapshot) {
+            final bytes = snapshot.data;
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (bytes == null || bytes.isEmpty) {
+              return const Center(
+                child: Text(
+                  'Unable to decrypt this image.',
+                  style: TextStyle(color: Colors.white),
+                ),
+              );
+            }
+
+            return FutureBuilder<ui.Size>(
+              future: _decodeImageSize(bytes),
+              builder: (context, dimensionSnapshot) {
+                final imageSize = dimensionSnapshot.data;
+                if (imageSize == null) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                return LayoutBuilder(
+                  builder: (context, constraints) {
+                    final horizontalPadding = _edgeToEdge ? 0.0 : 24.0;
+                    const verticalTopPadding = 72.0;
+                    final verticalBottomPadding = _edgeToEdge ? 0.0 : 24.0;
+                    final viewportWidth =
+                        constraints.maxWidth - horizontalPadding * 2;
+                    final viewportHeight = constraints.maxHeight -
+                        verticalTopPadding -
+                        verticalBottomPadding;
+                    final containScale = math.min(
+                      viewportWidth / imageSize.width,
+                      viewportHeight / imageSize.height,
+                    );
+                    final displayScale = math.min(1.0, containScale);
+                    final displayedWidth = imageSize.width * displayScale;
+                    final displayedHeight = imageSize.height * displayScale;
+                    final maxScale = displayScale < 1 ? 1 / displayScale : 1.0;
+
+                    return Stack(
+                      children: [
+                        Positioned.fill(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => Navigator.of(context).pop(),
+                          ),
+                        ),
+                        Positioned.fill(
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              horizontalPadding,
+                              verticalTopPadding,
+                              horizontalPadding,
+                              verticalBottomPadding,
+                            ),
+                            child: Center(
+                              child: GestureDetector(
+                                onTap: () {},
+                                onDoubleTap: () => _toggleActualSize(maxScale),
+                                child: SizedBox(
+                                  width: displayedWidth,
+                                  height: displayedHeight,
+                                  child: InteractiveViewer(
+                                    transformationController:
+                                        _transformationController,
+                                    minScale: 1,
+                                    maxScale: maxScale,
+                                    panEnabled: true,
+                                    clipBehavior: Clip.hardEdge,
+                                    child: SizedBox(
+                                      width: displayedWidth,
+                                      height: displayedHeight,
+                                      child: Image.memory(
+                                        Uint8List.fromList(bytes),
+                                        width: displayedWidth,
+                                        height: displayedHeight,
+                                        fit: BoxFit.fill,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (_selectedIndex > 0)
+                          Positioned(
+                            left: 16,
+                            top: 0,
+                            bottom: 0,
+                            child: Center(
+                              child: _LightboxEdgeButton(
+                                icon: Icons.chevron_left_rounded,
+                                tooltip: 'Previous image',
+                                onPressed: _showPreviousImage,
+                              ),
+                            ),
+                          ),
+                        if (_selectedIndex < widget.attachments.length - 1)
+                          Positioned(
+                            right: 16,
+                            top: 0,
+                            bottom: 0,
+                            child: Center(
+                              child: _LightboxEdgeButton(
+                                icon: Icons.chevron_right_rounded,
+                                tooltip: 'Next image',
+                                onPressed: _showNextImage,
+                              ),
+                            ),
+                          ),
+                        Positioned(
+                          top: 16,
+                          left: 16,
+                          right: 16,
+                          child: _LightboxTopBar(
+                            attachment: _attachment,
+                            edgeToEdge: _edgeToEdge,
+                            canMovePrevious: _selectedIndex > 0,
+                            canMoveNext:
+                                _selectedIndex < widget.attachments.length - 1,
+                            onClose: () => Navigator.of(context).pop(),
+                            onZoomOut: () => _zoomOut(maxScale),
+                            onZoomIn: () => _zoomIn(maxScale),
+                            onReset: _resetTransform,
+                            onPrevious: _showPreviousImage,
+                            onNext: _showNextImage,
+                            onToggleEdgeToEdge: () {
+                              setState(() {
+                                _edgeToEdge = !_edgeToEdge;
+                              });
+                            },
+                            onShare: () => _shareImage(bytes),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  void _zoomIn(double maxScale) => _scaleBy(1.2, maxScale);
+
+  void _zoomOut(double maxScale) => _scaleBy(1 / 1.2, maxScale);
+
+  void _toggleActualSize(double maxScale) {
+    final current = _transformationController.value.getMaxScaleOnAxis();
+    if ((current - 1).abs() < 0.05 && maxScale > 1) {
+      _scaleBy(maxScale, maxScale);
+      return;
+    }
+    _resetTransform();
+  }
+
+  void _resetTransform() {
+    _transformationController.value = Matrix4.identity();
+  }
+
+  void _scaleBy(double factor, double maxScale) {
+    final matrix = _transformationController.value.clone();
+    final currentScale = matrix.getMaxScaleOnAxis();
+    final targetScale = (currentScale * factor).clamp(1.0, maxScale);
+    final ratio = targetScale / currentScale;
+    matrix.scaleByDouble(ratio, ratio, ratio, 1);
+    _transformationController.value = matrix;
+  }
+
+  void _showPreviousImage() {
+    if (_selectedIndex <= 0) {
+      return;
+    }
+    setState(() {
+      _selectedIndex -= 1;
+      _resetTransform();
+    });
+  }
+
+  void _showNextImage() {
+    if (_selectedIndex >= widget.attachments.length - 1) {
+      return;
+    }
+    setState(() {
+      _selectedIndex += 1;
+      _resetTransform();
+    });
+  }
+
+  Future<void> _shareImage(List<int> bytes) async {
+    final box = context.findRenderObject() as RenderBox?;
+    await Share.shareXFiles(
+      [
+        XFile.fromData(
+          Uint8List.fromList(bytes),
+          name: _attachment.label,
+          mimeType: 'image/*',
+        ),
+      ],
+      subject: _attachment.label,
+      sharePositionOrigin:
+          box == null ? null : box.localToGlobal(Offset.zero) & box.size,
+    );
+  }
+}
+
+class _LightboxTopBar extends StatelessWidget {
+  const _LightboxTopBar({
+    required this.attachment,
+    required this.edgeToEdge,
+    required this.canMovePrevious,
+    required this.canMoveNext,
+    required this.onClose,
+    required this.onZoomOut,
+    required this.onZoomIn,
+    required this.onReset,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onToggleEdgeToEdge,
+    required this.onShare,
+  });
+
+  final NoteAttachment attachment;
+  final bool edgeToEdge;
+  final bool canMovePrevious;
+  final bool canMoveNext;
+  final VoidCallback onClose;
+  final VoidCallback onZoomOut;
+  final VoidCallback onZoomIn;
+  final VoidCallback onReset;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+  final VoidCallback onToggleEdgeToEdge;
+  final VoidCallback onShare;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.48),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            onPressed: onClose,
+            icon: const Icon(Icons.close_rounded, color: Colors.white),
+            tooltip: 'Close',
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              attachment.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: canMovePrevious ? onPrevious : null,
+            icon: const Icon(Icons.chevron_left_rounded, color: Colors.white),
+            tooltip: 'Previous image',
+          ),
+          IconButton(
+            onPressed: canMoveNext ? onNext : null,
+            icon: const Icon(Icons.chevron_right_rounded, color: Colors.white),
+            tooltip: 'Next image',
+          ),
+          IconButton(
+            onPressed: onZoomOut,
+            icon: const Icon(Icons.remove_rounded, color: Colors.white),
+            tooltip: 'Zoom out',
+          ),
+          IconButton(
+            onPressed: onZoomIn,
+            icon: const Icon(Icons.add_rounded, color: Colors.white),
+            tooltip: 'Zoom in',
+          ),
+          IconButton(
+            onPressed: onReset,
+            icon: const Icon(Icons.center_focus_strong_rounded, color: Colors.white),
+            tooltip: 'Fit to screen',
+          ),
+          IconButton(
+            onPressed: onToggleEdgeToEdge,
+            icon: Icon(
+              edgeToEdge
+                  ? Icons.fullscreen_exit_rounded
+                  : Icons.fullscreen_rounded,
+              color: Colors.white,
+            ),
+            tooltip: edgeToEdge ? 'Restore frame' : 'Maximize',
+          ),
+          IconButton(
+            onPressed: onShare,
+            icon: const Icon(Icons.share_outlined, color: Colors.white),
+            tooltip: 'Share',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LightboxEdgeButton extends StatelessWidget {
+  const _LightboxEdgeButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.42),
+        shape: BoxShape.circle,
+      ),
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(icon, color: Colors.white),
+        tooltip: tooltip,
+      ),
+    );
+  }
+}
+
+Future<ui.Size> _decodeImageSize(List<int> bytes) async {
+  final codec = await ui.instantiateImageCodec(Uint8List.fromList(bytes));
+  final frame = await codec.getNextFrame();
+  final image = frame.image;
+  return ui.Size(image.width.toDouble(), image.height.toDouble());
 }
 
 class _PhotoAttachmentViewer extends ConsumerWidget {
