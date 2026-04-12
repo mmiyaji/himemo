@@ -1069,6 +1069,17 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
+  Future<SyncBundlePreview> downloadBundlePreview(
+    RemoteSyncBundleStatus remoteStatus,
+  ) async {
+    await downloadBundle(remoteStatus);
+    if (state.stage == SyncTransferStage.error) {
+      throw StateError(
+          state.message ?? 'Remote bundle could not be downloaded.');
+    }
+    return previewDownloadedBundle();
+  }
+
   Future<void> applyDownloadedBundle() async {
     final localBundle = state.localBundle;
     if (localBundle == null) {

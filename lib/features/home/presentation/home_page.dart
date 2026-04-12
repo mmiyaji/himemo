@@ -1452,23 +1452,39 @@ class SettingsScreen extends ConsumerWidget {
                               if (selected == null) {
                                 return;
                               }
-                              await ref
+                              final preview = await ref
                                   .read(
                                     syncTransferControllerProvider.notifier,
                                   )
-                                  .downloadBundle(selected);
+                                  .downloadBundlePreview(selected);
                               if (!context.mounted) {
+                                return;
+                              }
+                              final shouldKeep = await _showBundlePreviewDialog(
+                                    context,
+                                    preview,
+                                    confirmLabel: 'Keep for apply',
+                                  ) ??
+                                  false;
+                              if (!shouldKeep || !context.mounted) {
                                 return;
                               }
                               final message = ref
                                   .read(syncTransferControllerProvider)
                                   .message;
-                              if (message == null || message.isEmpty) {
-                                return;
+                              if (message != null && message.isNotEmpty) {
+                                messenger.showSnackBar(
+                                  SnackBar(content: Text(message)),
+                                );
+                              } else {
+                                messenger.showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Selected bundle is ready for apply.',
+                                    ),
+                                  ),
+                                );
                               }
-                              messenger.showSnackBar(
-                                SnackBar(content: Text(message)),
-                              );
                             } catch (error) {
                               if (!context.mounted) {
                                 return;
@@ -3340,13 +3356,19 @@ Future<RemoteSyncBundleStatus?> _showBundleHistoryDialog(
                   : _formatDateTime(entry.modifiedAt!);
               final counts =
                   '${entry.noteCount ?? '?'} notes, ${entry.attachmentCount ?? '?'} attachments';
+              final device = entry.deviceId == null || entry.deviceId!.isEmpty
+                  ? 'Unknown device'
+                  : entry.deviceId!;
               return ListTile(
                 contentPadding: EdgeInsets.zero,
                 title: Text(modifiedAt),
                 subtitle: Text(
-                  '${entry.fileName}\n$counts',
+                  '${entry.fileName}\n$counts\n$device',
                 ),
                 isThreeLine: true,
+                trailing: index == 0
+                    ? const Icon(Icons.history_toggle_off_rounded)
+                    : null,
                 onTap: () => Navigator.of(context).pop(entry),
               );
             },
