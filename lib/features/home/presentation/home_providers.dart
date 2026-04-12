@@ -46,6 +46,31 @@ enum MediaImportAction {
   pickAudio,
 }
 
+class MediaImportResult {
+  const MediaImportResult._({
+    this.attachment,
+    this.errorMessage,
+    required this.wasCancelled,
+  });
+
+  const MediaImportResult.success(NoteAttachment attachment)
+    : this._(attachment: attachment, wasCancelled: false);
+
+  const MediaImportResult.cancelled()
+    : this._(wasCancelled: true, attachment: null, errorMessage: null);
+
+  const MediaImportResult.failure(String errorMessage)
+    : this._(
+        attachment: null,
+        errorMessage: errorMessage,
+        wasCancelled: false,
+      );
+
+  final NoteAttachment? attachment;
+  final String? errorMessage;
+  final bool wasCancelled;
+}
+
 class DeviceAuthState {
   const DeviceAuthState({
     required this.availability,
@@ -407,7 +432,7 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
 }
 
 abstract class MediaImportService {
-  Future<NoteAttachment?> importAttachment(MediaImportAction action);
+  Future<MediaImportResult> importAttachment(MediaImportAction action);
 }
 
 class DefaultMediaImportService implements MediaImportService {
@@ -417,7 +442,7 @@ class DefaultMediaImportService implements MediaImportService {
   final EncryptedAttachmentStore _attachmentStore;
 
   @override
-  Future<NoteAttachment?> importAttachment(MediaImportAction action) async {
+  Future<MediaImportResult> importAttachment(MediaImportAction action) async {
     switch (action) {
       case MediaImportAction.takePhoto:
         return _pickPhoto(ImageSource.camera);
@@ -432,7 +457,7 @@ class DefaultMediaImportService implements MediaImportService {
     }
   }
 
-  Future<NoteAttachment?> _pickPhoto(ImageSource source) async {
+  Future<MediaImportResult> _pickPhoto(ImageSource source) async {
     XFile? picked;
     try {
       final picker = ImagePicker();
@@ -442,36 +467,64 @@ class DefaultMediaImportService implements MediaImportService {
         maxWidth: 1800,
       );
     } on MissingPluginException {
-      return null;
-    } on PlatformException {
-      return null;
+      return const MediaImportResult.failure(
+        'Photo import is not configured in this runtime.',
+      );
+    } on PlatformException catch (error) {
+      return MediaImportResult.failure(
+        error.message ?? 'Photo import failed on this device.',
+      );
     }
     if (picked == null) {
-      return null;
+      return const MediaImportResult.cancelled();
     }
-    return _buildAttachment(
+    final tooLarge = await _validateFileSize(
+      picked,
+      maxBytes: 25 * 1024 * 1024,
+      tooLargeMessage: 'Photos over 25 MB are not supported yet.',
+    );
+    if (tooLarge != null) {
+      return tooLarge;
+    }
+    return MediaImportResult.success(
+      await _buildAttachment(
       type: AttachmentType.photo,
       sourceFile: picked,
+      ),
     );
   }
 
-  Future<NoteAttachment?> _pickVideo(ImageSource source) async {
+  Future<MediaImportResult> _pickVideo(ImageSource source) async {
     XFile? picked;
     try {
       final picker = ImagePicker();
       picked = await picker.pickVideo(source: source);
     } on MissingPluginException {
-      return null;
-    } on PlatformException {
-      return null;
+      return const MediaImportResult.failure(
+        'Video import is not configured in this runtime.',
+      );
+    } on PlatformException catch (error) {
+      return MediaImportResult.failure(
+        error.message ?? 'Video import failed on this device.',
+      );
     }
     if (picked == null) {
-      return null;
+      return const MediaImportResult.cancelled();
     }
-    return _buildAttachment(type: AttachmentType.video, sourceFile: picked);
+    final tooLarge = await _validateFileSize(
+      picked,
+      maxBytes: 200 * 1024 * 1024,
+      tooLargeMessage: 'Videos over 200 MB are not supported yet.',
+    );
+    if (tooLarge != null) {
+      return tooLarge;
+    }
+    return MediaImportResult.success(
+      await _buildAttachment(type: AttachmentType.video, sourceFile: picked),
+    );
   }
 
-  Future<NoteAttachment?> _pickAudio() async {
+  Future<MediaImportResult> _pickAudio() async {
     FilePickerResult? result;
     try {
       result = await FilePicker.platform.pickFiles(
@@ -479,19 +532,39 @@ class DefaultMediaImportService implements MediaImportService {
         withData: kIsWeb,
       );
     } on MissingPluginException {
-      return null;
-    } on PlatformException {
-      return null;
+      return const MediaImportResult.failure(
+        'Audio import is not configured in this runtime.',
+      );
+    } on PlatformException catch (error) {
+      return MediaImportResult.failure(
+        error.message ?? 'Audio import failed on this device.',
+      );
     }
     if (result == null || result.files.isEmpty) {
-      return null;
+      return const MediaImportResult.cancelled();
     }
 
     final file = result.files.single;
+    final bytes = file.bytes;
+    if (bytes != null && bytes.length > 50 * 1024 * 1024) {
+      return const MediaImportResult.failure(
+        'Audio files over 50 MB are not supported yet.',
+      );
+    }
     final sourceFile = file.path == null
         ? XFile.fromData(file.bytes!, name: file.name)
         : XFile(file.path!, name: file.name);
-    return _buildAttachment(type: AttachmentType.audio, sourceFile: sourceFile);
+    final tooLarge = await _validateFileSize(
+      sourceFile,
+      maxBytes: 50 * 1024 * 1024,
+      tooLargeMessage: 'Audio files over 50 MB are not supported yet.',
+    );
+    if (tooLarge != null) {
+      return tooLarge;
+    }
+    return MediaImportResult.success(
+      await _buildAttachment(type: AttachmentType.audio, sourceFile: sourceFile),
+    );
   }
 
   Future<NoteAttachment> _buildAttachment({
@@ -509,6 +582,21 @@ class DefaultMediaImportService implements MediaImportService {
           : sourceFile.name,
       filePath: storedPath,
     );
+  }
+
+  Future<MediaImportResult?> _validateFileSize(
+    XFile file, {
+    required int maxBytes,
+    required String tooLargeMessage,
+  }) async {
+    if (kIsWeb) {
+      return null;
+    }
+    final length = await file.length();
+    if (length > maxBytes) {
+      return MediaImportResult.failure(tooLargeMessage);
+    }
+    return null;
   }
 }
 

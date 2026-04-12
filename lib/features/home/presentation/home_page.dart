@@ -2359,10 +2359,20 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   Future<void> _handleAttachmentAction(MediaImportAction action) async {
-    final attachment = await ref
+    final result = await ref
         .read(mediaImportServiceProvider)
         .importAttachment(action);
-    if (attachment == null || !mounted) {
+    if (!mounted) {
+      return;
+    }
+    final attachment = result.attachment;
+    if (attachment == null) {
+      final errorMessage = result.errorMessage;
+      if (errorMessage != null && errorMessage.isNotEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(errorMessage)));
+      }
       return;
     }
     setState(() {

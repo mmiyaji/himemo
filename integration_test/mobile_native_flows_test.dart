@@ -186,22 +186,28 @@ class FakeMediaImportService implements MediaImportService {
   int importCallCount = 0;
 
   @override
-  Future<NoteAttachment?> importAttachment(MediaImportAction action) async {
+  Future<MediaImportResult> importAttachment(MediaImportAction action) async {
     importCallCount += 1;
     return switch (action) {
       MediaImportAction.takePhoto ||
-      MediaImportAction.pickPhoto => const NoteAttachment(
+      MediaImportAction.pickPhoto => const MediaImportResult.success(
+        NoteAttachment(
         type: AttachmentType.photo,
         label: 'simulator-photo.jpg',
+        ),
       ),
       MediaImportAction.recordVideo ||
-      MediaImportAction.pickVideo => const NoteAttachment(
+      MediaImportAction.pickVideo => const MediaImportResult.success(
+        NoteAttachment(
         type: AttachmentType.video,
         label: 'simulator-video.mp4',
+        ),
       ),
-      MediaImportAction.pickAudio => const NoteAttachment(
+      MediaImportAction.pickAudio => const MediaImportResult.success(
+        NoteAttachment(
         type: AttachmentType.audio,
         label: 'simulator-audio.m4a',
+        ),
       ),
     };
   }
