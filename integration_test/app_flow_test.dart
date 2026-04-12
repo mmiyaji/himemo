@@ -64,13 +64,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('note-tile-n1')), findsOneWidget);
 
-    await tester.tap(find.byKey(AppShell.profileSwitchKey));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ListTile, 'Private View').last);
-    await tester.pumpAndSettle();
-
-    expect(find.textContaining('Private vault is locked'), findsOneWidget);
-
     await _tapNavigation(tester, AppShell.calendarNavKey, 'Calendar');
     await tester.pumpAndSettle();
     expect(find.textContaining('Review notes grouped by day'), findsOneWidget);

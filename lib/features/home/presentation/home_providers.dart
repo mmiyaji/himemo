@@ -231,6 +231,73 @@ class AppPinLockStore {
   }
 }
 
+class SecretVerifierStore {
+  SecretVerifierStore({
+    required SecureKeyValueStore secureStore,
+    required EncryptionService encryptionService,
+    required this.storageKey,
+  })  : _secureStore = secureStore,
+        _encryptionService = encryptionService;
+
+  final SecureKeyValueStore _secureStore;
+  final EncryptionService _encryptionService;
+  final String storageKey;
+
+  Future<bool> hasSecret() async {
+    final payload = await _secureStore.read(storageKey);
+    return payload != null && payload.isNotEmpty;
+  }
+
+  Future<void> configure(String secret) async {
+    final salt = _encryptionService.generateSalt();
+    final verifier = await _encryptionService.deriveSecretVerifier(
+      secret: secret,
+      salt: salt,
+    );
+    await _secureStore.write(
+      storageKey,
+      jsonEncode({
+        'salt': base64Encode(salt),
+        'verifier': verifier,
+      }),
+    );
+  }
+
+  Future<bool> verify(String secret) async {
+    final payload = await _secureStore.read(storageKey);
+    if (payload == null || payload.isEmpty) {
+      return false;
+    }
+    final decoded = Map<String, dynamic>.from(
+      jsonDecode(payload) as Map<String, dynamic>,
+    );
+    final salt = base64Decode(decoded['salt'] as String);
+    final verifier = decoded['verifier'] as String;
+    final incomingVerifier = await _encryptionService.deriveSecretVerifier(
+      secret: secret,
+      salt: salt,
+    );
+    return _constantTimeEquals(verifier, incomingVerifier);
+  }
+
+  Future<void> clear() => _secureStore.delete(storageKey);
+
+  bool _constantTimeEquals(String left, String right) {
+    final leftBytes = utf8.encode(left);
+    final rightBytes = utf8.encode(right);
+    var diff = leftBytes.length ^ rightBytes.length;
+    final limit = leftBytes.length > rightBytes.length
+        ? leftBytes.length
+        : rightBytes.length;
+    for (var i = 0; i < limit; i++) {
+      final a = i < leftBytes.length ? leftBytes[i] : 0;
+      final b = i < rightBytes.length ? rightBytes[i] : 0;
+      diff |= a ^ b;
+    }
+    return diff == 0;
+  }
+}
+
 class SyncAuthState {
   const SyncAuthState({
     required this.provider,
@@ -793,6 +860,14 @@ final appPinLockStoreProvider = Provider<AppPinLockStore>((ref) {
   );
 });
 
+final coverModeSecretStoreProvider = Provider<SecretVerifierStore>((ref) {
+  return SecretVerifierStore(
+    secureStore: ref.watch(secureKeyValueStoreProvider),
+    encryptionService: ref.watch(encryptionServiceProvider),
+    storageKey: 'security.cover_mode_secret.v1',
+  );
+});
+
 final masterKeyServiceProvider = Provider<MasterKeyService>((ref) {
   final encryption = ref.watch(encryptionServiceProvider);
   return MasterKeyService(
@@ -1289,6 +1364,48 @@ class AppPinLockController extends Notifier<AppPinLockState> {
     await ref.read(appPinLockStoreProvider).clear();
     state = const AppPinLockState.unconfigured();
     ref.read(appSessionUnlockControllerProvider.notifier).unlock();
+  }
+}
+
+final coverModeSecretControllerProvider =
+    NotifierProvider<CoverModeSecretController, bool>(
+  CoverModeSecretController.new,
+);
+
+class CoverModeSecretController extends Notifier<bool> {
+  bool _restored = false;
+
+  @override
+  bool build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return false;
+  }
+
+  Future<void> configure(String secret) async {
+    await ref.read(coverModeSecretStoreProvider).configure(secret);
+    state = true;
+  }
+
+  Future<bool> verify(String secret) async {
+    try {
+      return await ref.read(coverModeSecretStoreProvider).verify(secret);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> clear() async {
+    await ref.read(coverModeSecretStoreProvider).clear();
+    state = false;
+  }
+
+  Future<void> _restore() async {
+    try {
+      state = await ref.read(coverModeSecretStoreProvider).hasSecret();
+    } catch (_) {}
   }
 }
 

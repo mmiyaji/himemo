@@ -22,7 +22,6 @@ enum AppSection { notes, calendar, settings }
 class AppShell extends ConsumerWidget {
   const AppShell({super.key, required this.child});
 
-  static const profileSwitchKey = Key('profile-switch-button');
   static const notesNavKey = Key('nav-notes');
   static const calendarNavKey = Key('nav-calendar');
   static const settingsNavKey = Key('nav-settings');
@@ -42,14 +41,6 @@ class AppShell extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(_titleForSection(section)),
-        actions: [
-          IconButton(
-            onPressed: () => _showIdentityPicker(context, ref),
-            key: profileSwitchKey,
-            icon: const Icon(Icons.lock_open_rounded),
-            tooltip: 'Switch unlock profile',
-          ),
-        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Container(height: 1, color: Theme.of(context).dividerColor),
@@ -111,40 +102,6 @@ class AppShell extends ConsumerWidget {
               child: const Icon(Icons.add),
             )
           : null,
-    );
-  }
-
-  Future<void> _showIdentityPicker(BuildContext context, WidgetRef ref) async {
-    final identities = ref.read(identitiesProvider);
-    final activeId = ref.read(activeIdentityProvider);
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) {
-        return SafeArea(
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              for (final identity in identities)
-                ListTile(
-                  leading: Icon(
-                    activeId == identity.id
-                        ? Icons.radio_button_checked
-                        : Icons.radio_button_off,
-                  ),
-                  title: Text(identity.name),
-                  subtitle: Text('${identity.lockLabel}  ${identity.tagline}'),
-                  onTap: () {
-                    ref
-                        .read(activeIdentityProvider.notifier)
-                        .switchTo(identity.id);
-                    Navigator.of(context).pop();
-                  },
-                ),
-            ],
-          ),
-        );
-      },
     );
   }
 
@@ -216,12 +173,14 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
       return ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         children: [
-          _IdentityHeader(identity: activeIdentity),
+          if (activeIdentity.id != 'daily') ...[
+            _IdentityHeader(identity: activeIdentity),
+            const SizedBox(height: 12),
+          ],
           if (activeIdentity.id == 'private' && !privateVaultUnlocked) ...[
             const SizedBox(height: 12),
             const _PrivateVaultLockedNotice(),
           ],
-          const SizedBox(height: 12),
           const _NotesToolbar(),
           const SizedBox(height: 12),
           _StatsStrip(
@@ -253,12 +212,14 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              _IdentityHeader(identity: activeIdentity),
+              if (activeIdentity.id != 'daily') ...[
+                _IdentityHeader(identity: activeIdentity),
+                const SizedBox(height: 12),
+              ],
               if (activeIdentity.id == 'private' && !privateVaultUnlocked) ...[
                 const SizedBox(height: 12),
                 const _PrivateVaultLockedNotice(),
               ],
-              const SizedBox(height: 12),
               const _NotesToolbar(),
               const SizedBox(height: 12),
               _StatsStrip(
@@ -717,9 +678,105 @@ class SettingsScreen extends ConsumerWidget {
   static const privateVaultLockKey = Key('private-vault-lock-key');
   static const privateVaultResetKey = Key('private-vault-reset-key');
 
+  Future<void> _switchIdentity(WidgetRef ref, String identityId) async {
+    await ref.read(activeIdentityProvider.notifier).switchTo(identityId);
+    if (identityId != 'private') {
+      ref.read(privateVaultSessionControllerProvider.notifier).lock();
+    }
+  }
+
+  Future<void> _showSetCoverKeyDialog(
+      BuildContext context, WidgetRef ref) async {
+    final secret = await _showSecretSetupDialog(
+      context,
+      title: 'Set cover key',
+      label: 'Cover key',
+      confirmLabel: 'Confirm cover key',
+      helperText: 'Use this key to open the alternate everyday view.',
+    );
+    if (secret == null) {
+      return;
+    }
+    await ref
+        .read(coverModeSecretControllerProvider.notifier)
+        .configure(secret);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cover key saved.')),
+      );
+    }
+  }
+
+  Future<void> _confirmResetCoverKey(
+      BuildContext context, WidgetRef ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reset cover key'),
+        content: const Text(
+          'This removes the configured cover key for alternate mode access.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+    await ref.read(coverModeSecretControllerProvider.notifier).clear();
+    if (ref.read(activeIdentityProvider) == 'cover') {
+      await _switchIdentity(ref, 'daily');
+    }
+  }
+
+  Future<void> _showSpecialAccessKeyDialog(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final secret = await _showSingleSecretPrompt(
+      context,
+      title: 'Enter special access key',
+      label: 'Access key',
+      helperText: 'A valid key switches the app into another mode.',
+      actionLabel: 'Unlock mode',
+    );
+    if (secret == null || !context.mounted) {
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    if (await ref
+        .read(privateVaultSecretControllerProvider.notifier)
+        .verify(secret)) {
+      await _switchIdentity(ref, 'private');
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Private mode is now active.')),
+      );
+      return;
+    }
+    if (await ref
+        .read(coverModeSecretControllerProvider.notifier)
+        .verify(secret)) {
+      await _switchIdentity(ref, 'cover');
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Cover mode is now active.')),
+      );
+      return;
+    }
+    messenger.showSnackBar(
+      const SnackBar(content: Text('That access key did not match any mode.')),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final identities = ref.watch(identitiesProvider);
     final activeIdentity = ref.watch(activeIdentityProvider);
     final themeMode = ref.watch(themeModeControllerProvider);
     final colorTheme = ref.watch(appColorThemeControllerProvider);
@@ -731,6 +788,7 @@ class SettingsScreen extends ConsumerWidget {
     final privateVaultConfigured = ref.watch(
       privateVaultSecretControllerProvider,
     );
+    final coverModeConfigured = ref.watch(coverModeSecretControllerProvider);
     final privateVaultUnlocked = ref.watch(
       privateVaultSessionControllerProvider,
     );
@@ -756,21 +814,63 @@ class SettingsScreen extends ConsumerWidget {
       children: [
         const _SectionIntro(
           title: 'Settings',
-          description: 'Manage lock profiles, sync, and display policy.',
+          description: 'Manage access, sync, and display policy.',
         ),
         const SizedBox(height: 16),
         _SettingsGroup(
-          title: 'Lock profiles',
+          title: 'Access modes',
           children: [
-            for (final identity in identities)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(identity.name),
-                subtitle: Text(identity.lockLabel),
-                trailing: activeIdentity == identity.id
-                    ? const Icon(Icons.check_rounded)
-                    : null,
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Current mode'),
+              subtitle: Text(
+                activeIdentity == 'daily'
+                    ? 'Normal memo mode'
+                    : ref.watch(activeIdentityDataProvider).name,
               ),
+            ),
+            Text(
+              'The app stays in normal memo mode by default. Enter a special access key only when you need another view.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: _mutedTextColor(context),
+                  ),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonal(
+                  onPressed: () => _showSpecialAccessKeyDialog(context, ref),
+                  child: const Text('Enter special access key'),
+                ),
+                OutlinedButton(
+                  onPressed: activeIdentity == 'daily'
+                      ? null
+                      : () => _switchIdentity(ref, 'daily'),
+                  child: const Text('Return to normal mode'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonal(
+                  onPressed: () => _showSetCoverKeyDialog(context, ref),
+                  child: Text(
+                    coverModeConfigured ? 'Change cover key' : 'Set cover key',
+                  ),
+                ),
+                OutlinedButton(
+                  onPressed: coverModeConfigured
+                      ? () => _confirmResetCoverKey(context, ref)
+                      : null,
+                  child: const Text('Reset cover key'),
+                ),
+              ],
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -2003,14 +2103,11 @@ class _Sidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = Color(activeIdentity.accentHex);
-
     return SizedBox(
       width: 256,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(height: 4, color: accent),
           Expanded(
             child: ListView(
               padding: EdgeInsets.zero,
@@ -2027,16 +2124,25 @@ class _Sidebar extends StatelessWidget {
                             .headlineSmall
                             ?.copyWith(fontWeight: FontWeight.w700),
                       ),
-                      const SizedBox(height: 12),
-                      Text(
-                        activeIdentity.lockLabel,
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                              color: accent,
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(activeIdentity.name),
+                      if (activeIdentity.id != 'daily') ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            '${activeIdentity.name} active',
+                            style: Theme.of(context).textTheme.labelMedium,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       Text(
                         flavorName,
@@ -2128,14 +2234,12 @@ class _IdentityHeader extends StatelessWidget {
           Container(width: 56, height: 4, color: accent),
           const SizedBox(height: 12),
           Text(
-            identity.lockLabel,
+            identity.name,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   color: accent,
                   fontWeight: FontWeight.w700,
                 ),
           ),
-          const SizedBox(height: 6),
-          Text(identity.name),
           const SizedBox(height: 6),
           Text(
             identity.tagline,
@@ -3498,6 +3602,154 @@ Future<String?> _showSyncKeyImportDialog(BuildContext context) {
             child: const Text('Import'),
           ),
         ],
+      );
+    },
+  );
+}
+
+Future<String?> _showSingleSecretPrompt(
+  BuildContext context, {
+  required String title,
+  required String label,
+  required String helperText,
+  required String actionLabel,
+}) {
+  final controller = TextEditingController();
+  String? errorText;
+  return showDialog<String>(
+    context: context,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: Text(title),
+            content: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    helperText,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: label,
+                      border: const OutlineInputBorder(),
+                      errorText: errorText,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final value = controller.text.trim();
+                  if (value.length < 4) {
+                    setState(() {
+                      errorText = 'Use at least 4 characters.';
+                    });
+                    return;
+                  }
+                  Navigator.of(context).pop(value);
+                },
+                child: Text(actionLabel),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
+
+Future<String?> _showSecretSetupDialog(
+  BuildContext context, {
+  required String title,
+  required String label,
+  required String confirmLabel,
+  required String helperText,
+}) {
+  final secretController = TextEditingController();
+  final confirmController = TextEditingController();
+  String? errorText;
+
+  return showDialog<String>(
+    context: context,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: Text(title),
+            content: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    helperText,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: secretController,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: label,
+                      border: const OutlineInputBorder(),
+                      errorText: errorText,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: confirmController,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: confirmLabel,
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final secret = secretController.text.trim();
+                  final confirm = confirmController.text.trim();
+                  if (secret.length < 4) {
+                    setState(() {
+                      errorText = 'Use at least 4 characters.';
+                    });
+                    return;
+                  }
+                  if (secret != confirm) {
+                    setState(() {
+                      errorText = 'Keys do not match.';
+                    });
+                    return;
+                  }
+                  Navigator.of(context).pop(secret);
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
       );
     },
   );

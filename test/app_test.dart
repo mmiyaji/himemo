@@ -123,7 +123,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('HiMemo'), findsOneWidget);
-    expect(find.text('Daily View'), findsOneWidget);
     expect(find.text('Notes'), findsOneWidget);
     expect(find.text('Calendar'), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);

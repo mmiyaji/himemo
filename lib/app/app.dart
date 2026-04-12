@@ -452,6 +452,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
         IconData icon,
         String imagePath,
         String imageSemanticLabel,
+        bool isSetupPage,
       })> _pages = const [
     (
       title: 'Capture fast',
@@ -460,6 +461,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       icon: Icons.bolt_rounded,
       imagePath: 'assets/onboarding/capture.png',
       imageSemanticLabel: 'Quick memo capture preview',
+      isSetupPage: false,
     ),
     (
       title: 'Separate private access',
@@ -468,6 +470,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       icon: Icons.lock_person_rounded,
       imagePath: 'assets/onboarding/private.png',
       imageSemanticLabel: 'Private vault unlock preview',
+      isSetupPage: false,
     ),
     (
       title: 'Prepare sync later',
@@ -476,6 +479,16 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       icon: Icons.cloud_sync_rounded,
       imagePath: 'assets/onboarding/sync.png',
       imageSemanticLabel: 'Cloud sync target preview',
+      isSetupPage: false,
+    ),
+    (
+      title: 'Set initial keys',
+      body:
+          'Configure the first access keys now, or skip and finish the setup from Settings later.',
+      icon: Icons.key_rounded,
+      imagePath: 'assets/onboarding/private.png',
+      imageSemanticLabel: 'Initial access setup preview',
+      isSetupPage: true,
     ),
   ];
 
@@ -489,6 +502,9 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final isLastPage = _pageIndex == _pages.length - 1;
+    final pinConfigured = ref.watch(appPinLockControllerProvider).isConfigured;
+    final coverConfigured = ref.watch(coverModeSecretControllerProvider);
+    final privateConfigured = ref.watch(privateVaultSecretControllerProvider);
 
     return Scaffold(
       body: SafeArea(
@@ -581,12 +597,14 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                                     ),
                                   ),
                                   const SizedBox(height: 24),
-                                  _OnboardingImageCard(
-                                    imagePath: page.imagePath,
-                                    semanticLabel: page.imageSemanticLabel,
-                                    fallbackIcon: page.icon,
-                                  ),
-                                  const SizedBox(height: 24),
+                                  if (!page.isSetupPage) ...[
+                                    _OnboardingImageCard(
+                                      imagePath: page.imagePath,
+                                      semanticLabel: page.imageSemanticLabel,
+                                      fallbackIcon: page.icon,
+                                    ),
+                                    const SizedBox(height: 24),
+                                  ],
                                   Text(
                                     page.title,
                                     style: Theme.of(
@@ -600,6 +618,14 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                                       context,
                                     ).textTheme.bodyLarge,
                                   ),
+                                  if (page.isSetupPage) ...[
+                                    const SizedBox(height: 24),
+                                    _OnboardingSetupPanel(
+                                      pinConfigured: pinConfigured,
+                                      coverConfigured: coverConfigured,
+                                      privateConfigured: privateConfigured,
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
@@ -730,6 +756,250 @@ class _OnboardingImageCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _OnboardingSetupPanel extends ConsumerWidget {
+  const _OnboardingSetupPanel({
+    required this.pinConfigured,
+    required this.coverConfigured,
+    required this.privateConfigured,
+  });
+
+  final bool pinConfigured;
+  final bool coverConfigured;
+  final bool privateConfigured;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _OnboardingSetupTile(
+          title: kIsWeb ? 'App unlock PIN' : 'App unlock',
+          subtitle: kIsWeb
+              ? (pinConfigured
+                  ? 'Configured for this browser.'
+                  : 'Set a 4 digit PIN for app launch.')
+              : 'Device authentication can be enabled later in Settings.',
+          actionLabel: kIsWeb
+              ? (pinConfigured ? 'Change PIN' : 'Set PIN')
+              : 'Later in Settings',
+          onPressed: kIsWeb
+              ? () async {
+                  final pin = await _showOnboardingPinSetupDialog(context);
+                  if (pin == null) {
+                    return;
+                  }
+                  await ref
+                      .read(appPinLockControllerProvider.notifier)
+                      .configure(pin);
+                  await ref
+                      .read(appLockSettingsControllerProvider.notifier)
+                      .setEnabled(true);
+                }
+              : null,
+        ),
+        const SizedBox(height: 12),
+        _OnboardingSetupTile(
+          title: 'Cover mode key',
+          subtitle: coverConfigured
+              ? 'Configured.'
+              : 'Optional key for the alternate everyday-facing mode.',
+          actionLabel: coverConfigured ? 'Change key' : 'Set key',
+          onPressed: () async {
+            final secret = await _showOnboardingSecretSetupDialog(
+              context,
+              title: 'Set cover key',
+              label: 'Cover key',
+              confirmLabel: 'Confirm cover key',
+            );
+            if (secret == null) {
+              return;
+            }
+            await ref
+                .read(coverModeSecretControllerProvider.notifier)
+                .configure(secret);
+          },
+        ),
+        const SizedBox(height: 12),
+        _OnboardingSetupTile(
+          title: 'Private mode key',
+          subtitle: privateConfigured
+              ? 'Configured.'
+              : 'Used to unlock the private memo mode and private vault.',
+          actionLabel: privateConfigured ? 'Change key' : 'Set key',
+          onPressed: () async {
+            final secret = await _showOnboardingSecretSetupDialog(
+              context,
+              title: 'Set private key',
+              label: 'Private key',
+              confirmLabel: 'Confirm private key',
+            );
+            if (secret == null) {
+              return;
+            }
+            await ref
+                .read(privateVaultSecretControllerProvider.notifier)
+                .configure(secret);
+            ref.read(privateVaultSessionControllerProvider.notifier).lock();
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _OnboardingSetupTile extends StatelessWidget {
+  const _OnboardingSetupTile({
+    required this.title,
+    required this.subtitle,
+    required this.actionLabel,
+    this.onPressed,
+  });
+
+  final String title;
+  final String subtitle;
+  final String actionLabel;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 6),
+                Text(
+                  subtitle,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          OutlinedButton(
+            onPressed: onPressed,
+            child: Text(actionLabel),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<String?> _showOnboardingPinSetupDialog(BuildContext context) {
+  return _showOnboardingSecretSetupDialog(
+    context,
+    title: 'Set app unlock PIN',
+    label: 'PIN',
+    confirmLabel: 'Confirm PIN',
+    digitsOnly: true,
+    exactLength: 4,
+  );
+}
+
+Future<String?> _showOnboardingSecretSetupDialog(
+  BuildContext context, {
+  required String title,
+  required String label,
+  required String confirmLabel,
+  bool digitsOnly = false,
+  int? exactLength,
+}) {
+  final secretController = TextEditingController();
+  final confirmController = TextEditingController();
+  String? errorText;
+
+  return showDialog<String>(
+    context: context,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: Text(title),
+            content: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: secretController,
+                    obscureText: true,
+                    keyboardType: digitsOnly ? TextInputType.number : null,
+                    decoration: InputDecoration(
+                      labelText: label,
+                      border: const OutlineInputBorder(),
+                      errorText: errorText,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: confirmController,
+                    obscureText: true,
+                    keyboardType: digitsOnly ? TextInputType.number : null,
+                    decoration: InputDecoration(
+                      labelText: confirmLabel,
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final secret = secretController.text.trim();
+                  final confirm = confirmController.text.trim();
+                  if (exactLength != null && secret.length != exactLength) {
+                    setState(() {
+                      errorText = 'Use exactly $exactLength characters.';
+                    });
+                    return;
+                  }
+                  if (exactLength == null && secret.length < 4) {
+                    setState(() {
+                      errorText = 'Use at least 4 characters.';
+                    });
+                    return;
+                  }
+                  if (digitsOnly && !RegExp(r'^\d+$').hasMatch(secret)) {
+                    setState(() {
+                      errorText = 'Digits only.';
+                    });
+                    return;
+                  }
+                  if (secret != confirm) {
+                    setState(() {
+                      errorText = 'Values do not match.';
+                    });
+                    return;
+                  }
+                  Navigator.of(context).pop(secret);
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
 }
 
 ThemeData _buildTheme(Brightness brightness, AppColorTheme colorTheme) {
