@@ -10,6 +10,8 @@ abstract class NoteAttachment with _$NoteAttachment {
   const factory NoteAttachment({
     required AttachmentType type,
     required String label,
+    String? filePath,
+    String? previewBytesBase64,
   }) = _NoteAttachment;
 
   factory NoteAttachment.fromJson(Map<String, dynamic> json) =>

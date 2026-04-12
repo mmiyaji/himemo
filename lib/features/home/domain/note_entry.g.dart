@@ -10,12 +10,16 @@ _NoteAttachment _$NoteAttachmentFromJson(Map<String, dynamic> json) =>
     _NoteAttachment(
       type: $enumDecode(_$AttachmentTypeEnumMap, json['type']),
       label: json['label'] as String,
+      filePath: json['filePath'] as String?,
+      previewBytesBase64: json['previewBytesBase64'] as String?,
     );
 
 Map<String, dynamic> _$NoteAttachmentToJson(_NoteAttachment instance) =>
     <String, dynamic>{
       'type': _$AttachmentTypeEnumMap[instance.type]!,
       'label': instance.label,
+      'filePath': instance.filePath,
+      'previewBytesBase64': instance.previewBytesBase64,
     };
 
 const _$AttachmentTypeEnumMap = {

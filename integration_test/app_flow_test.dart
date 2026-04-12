@@ -15,9 +15,7 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
-    SharedPreferences.setMockInitialValues({
-      'app.onboarding_completed': true,
-    });
+    SharedPreferences.setMockInitialValues({'app.onboarding_completed': true});
 
     configureFlavor(AppFlavor.development);
     await tester.pumpWidget(
@@ -32,6 +30,12 @@ void main() {
     await _tapNavigation(tester, AppShell.settingsNavKey, 'Settings');
     await tester.pumpAndSettle();
     expect(find.text('Lock profiles'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Storage'),
+      160,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
     expect(find.text('Storage'), findsOneWidget);
 
     await tester.scrollUntilVisible(

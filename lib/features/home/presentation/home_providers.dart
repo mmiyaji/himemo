@@ -1,12 +1,21 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../data/home_repository.dart';
 import '../domain/note_entry.dart';
@@ -18,10 +27,631 @@ enum AppColorTheme { blue, green, orange }
 
 enum SyncProvider { off, iCloud, googleDrive }
 
-enum AppLaunchSurface { splash, onboarding, ready }
+enum AppLaunchSurface { onboarding, ready }
+
+enum DeviceAuthAvailability { unknown, available, unavailable }
+
+enum SyncAuthStage { idle, busy, authenticated, unsupported, error }
+
+enum MediaImportAction {
+  takePhoto,
+  pickPhoto,
+  recordVideo,
+  pickVideo,
+  pickAudio,
+}
+
+class DeviceAuthState {
+  const DeviceAuthState({
+    required this.availability,
+    required this.methods,
+    this.lastError,
+  });
+
+  const DeviceAuthState.unknown()
+    : availability = DeviceAuthAvailability.unknown,
+      methods = const [],
+      lastError = null;
+
+  final DeviceAuthAvailability availability;
+  final List<String> methods;
+  final String? lastError;
+
+  bool get isAvailable => availability == DeviceAuthAvailability.available;
+
+  String get summary {
+    if (isAvailable && methods.isNotEmpty) {
+      return methods.join(', ');
+    }
+    if (isAvailable) {
+      return 'Device credential available';
+    }
+    if (lastError != null && lastError!.isNotEmpty) {
+      return lastError!;
+    }
+    return 'Biometric or device credential is not available on this device.';
+  }
+}
+
+class SyncAuthState {
+  const SyncAuthState({
+    required this.provider,
+    required this.stage,
+    this.userId,
+    this.displayName,
+    this.email,
+    this.message,
+  });
+
+  const SyncAuthState.idle(this.provider)
+    : stage = SyncAuthStage.idle,
+      userId = null,
+      displayName = null,
+      email = null,
+      message = null;
+
+  final SyncProvider provider;
+  final SyncAuthStage stage;
+  final String? userId;
+  final String? displayName;
+  final String? email;
+  final String? message;
+
+  bool get isAuthenticated => stage == SyncAuthStage.authenticated;
+
+  SyncAuthState copyWith({
+    SyncProvider? provider,
+    SyncAuthStage? stage,
+    String? userId,
+    String? displayName,
+    String? email,
+    String? message,
+    bool clearMessage = false,
+  }) {
+    return SyncAuthState(
+      provider: provider ?? this.provider,
+      stage: stage ?? this.stage,
+      userId: userId ?? this.userId,
+      displayName: displayName ?? this.displayName,
+      email: email ?? this.email,
+      message: clearMessage ? null : (message ?? this.message),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'provider': provider.name,
+      'stage': stage.name,
+      'userId': userId,
+      'displayName': displayName,
+      'email': email,
+      'message': message,
+    };
+  }
+
+  static SyncAuthState fromJson(Map<String, dynamic> json) {
+    final provider = SyncProvider.values.firstWhere(
+      (value) => value.name == json['provider'],
+      orElse: () => SyncProvider.off,
+    );
+    final stage = SyncAuthStage.values.firstWhere(
+      (value) => value.name == json['stage'],
+      orElse: () => SyncAuthStage.idle,
+    );
+    return SyncAuthState(
+      provider: provider,
+      stage: stage,
+      userId: json['userId'] as String?,
+      displayName: json['displayName'] as String?,
+      email: json['email'] as String?,
+      message: json['message'] as String?,
+    );
+  }
+}
+
+abstract class DeviceAuthGateway {
+  Future<DeviceAuthState> checkAvailability();
+
+  Future<bool> authenticate({
+    required String reason,
+    bool biometricOnly = false,
+  });
+}
+
+class LocalDeviceAuthGateway implements DeviceAuthGateway {
+  LocalDeviceAuthGateway({LocalAuthentication? localAuth})
+    : _localAuth = localAuth ?? LocalAuthentication();
+
+  final LocalAuthentication _localAuth;
+
+  @override
+  Future<DeviceAuthState> checkAvailability() async {
+    if (kIsWeb) {
+      return const DeviceAuthState(
+        availability: DeviceAuthAvailability.unavailable,
+        methods: [],
+        lastError: 'Device authentication is not available on web.',
+      );
+    }
+
+    try {
+      final supported = await _localAuth.isDeviceSupported();
+      final biometrics = await _localAuth.getAvailableBiometrics();
+      final methods = biometrics.map(_labelForBiometric).toSet().toList()
+        ..sort();
+      return DeviceAuthState(
+        availability: supported
+            ? DeviceAuthAvailability.available
+            : DeviceAuthAvailability.unavailable,
+        methods: methods,
+      );
+    } on MissingPluginException {
+      return const DeviceAuthState(
+        availability: DeviceAuthAvailability.unavailable,
+        methods: [],
+        lastError:
+            'Device authentication plugin is not configured in this runtime.',
+      );
+    } on PlatformException catch (error) {
+      return DeviceAuthState(
+        availability: DeviceAuthAvailability.unavailable,
+        methods: const [],
+        lastError: error.message ?? error.code,
+      );
+    } catch (error) {
+      return DeviceAuthState(
+        availability: DeviceAuthAvailability.unavailable,
+        methods: const [],
+        lastError: '$error',
+      );
+    }
+  }
+
+  @override
+  Future<bool> authenticate({
+    required String reason,
+    bool biometricOnly = false,
+  }) async {
+    if (kIsWeb) {
+      return false;
+    }
+
+    try {
+      return await _localAuth.authenticate(
+        localizedReason: reason,
+        options: AuthenticationOptions(
+          biometricOnly: biometricOnly,
+          stickyAuth: true,
+        ),
+      );
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  String _labelForBiometric(BiometricType type) {
+    switch (type) {
+      case BiometricType.face:
+        return 'Face ID';
+      case BiometricType.fingerprint:
+        return 'Fingerprint';
+      case BiometricType.iris:
+        return 'Iris';
+      case BiometricType.strong:
+        return 'Strong biometrics';
+      case BiometricType.weak:
+        return 'Weak biometrics';
+    }
+  }
+}
+
+abstract class SyncAuthGateway {
+  Future<SyncAuthState> connect(SyncProvider provider);
+
+  Future<void> disconnect(SyncProvider provider);
+}
+
+class DefaultSyncAuthGateway implements SyncAuthGateway {
+  static const _googleScopes = <String>[
+    'https://www.googleapis.com/auth/drive.appdata',
+  ];
+
+  bool _googleInitialized = false;
+
+  @override
+  Future<SyncAuthState> connect(SyncProvider provider) {
+    return switch (provider) {
+      SyncProvider.off => Future.value(SyncAuthState.idle(provider)),
+      SyncProvider.googleDrive => _connectGoogle(),
+      SyncProvider.iCloud => _connectApple(),
+    };
+  }
+
+  @override
+  Future<void> disconnect(SyncProvider provider) async {
+    try {
+      if (provider == SyncProvider.googleDrive && !kIsWeb) {
+        await _ensureGoogleInitialized();
+        await GoogleSignIn.instance.disconnect();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _ensureGoogleInitialized() async {
+    if (_googleInitialized || kIsWeb) {
+      return;
+    }
+    await GoogleSignIn.instance.initialize();
+    _googleInitialized = true;
+  }
+
+  Future<SyncAuthState> _connectGoogle() async {
+    try {
+      await _ensureGoogleInitialized();
+      GoogleSignInAccount? account;
+      final lightweight = GoogleSignIn.instance
+          .attemptLightweightAuthentication();
+      if (lightweight != null) {
+        account = await lightweight;
+      }
+      if (account == null) {
+        if (!GoogleSignIn.instance.supportsAuthenticate()) {
+          return const SyncAuthState(
+            provider: SyncProvider.googleDrive,
+            stage: SyncAuthStage.unsupported,
+            message:
+                'Google sign-in on this platform needs explicit client ID setup and a user-triggered SDK button.',
+          );
+        }
+        account = await GoogleSignIn.instance.authenticate(
+          scopeHint: _googleScopes,
+        );
+      }
+
+      final existingAuthorization = await account.authorizationClient
+          .authorizationForScopes(_googleScopes);
+      if (existingAuthorization == null) {
+        await account.authorizationClient.authorizeScopes(_googleScopes);
+      }
+
+      return SyncAuthState(
+        provider: SyncProvider.googleDrive,
+        stage: SyncAuthStage.authenticated,
+        userId: account.id,
+        displayName: account.displayName,
+        email: account.email,
+        message: 'Google Drive app-data access is authorized.',
+      );
+    } on MissingPluginException {
+      return const SyncAuthState(
+        provider: SyncProvider.googleDrive,
+        stage: SyncAuthStage.unsupported,
+        message: 'Google sign-in plugin is not configured in this runtime.',
+      );
+    } catch (error) {
+      return SyncAuthState(
+        provider: SyncProvider.googleDrive,
+        stage: SyncAuthStage.error,
+        message: '$error',
+      );
+    }
+  }
+
+  Future<SyncAuthState> _connectApple() async {
+    final supportsAppleSignIn =
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS);
+    if (!supportsAppleSignIn) {
+      return const SyncAuthState(
+        provider: SyncProvider.iCloud,
+        stage: SyncAuthStage.unsupported,
+        message:
+            'Apple ID authentication for iCloud sync is only available on iOS and macOS in this build.',
+      );
+    }
+
+    try {
+      if (!await SignInWithApple.isAvailable()) {
+        return const SyncAuthState(
+          provider: SyncProvider.iCloud,
+          stage: SyncAuthStage.unsupported,
+          message: 'Apple ID authentication is not available on this device.',
+        );
+      }
+
+      final credential = await SignInWithApple.getAppleIDCredential(
+        scopes: const [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+      );
+
+      final fullName = [
+        credential.givenName,
+        credential.familyName,
+      ].whereType<String>().where((part) => part.trim().isNotEmpty).join(' ');
+
+      return SyncAuthState(
+        provider: SyncProvider.iCloud,
+        stage: SyncAuthStage.authenticated,
+        userId: credential.userIdentifier,
+        displayName: fullName.isEmpty ? 'Apple ID user' : fullName,
+        email: credential.email,
+        message:
+            'Apple ID credential captured. Server-side validation is still required before real iCloud sync.',
+      );
+    } on MissingPluginException {
+      return const SyncAuthState(
+        provider: SyncProvider.iCloud,
+        stage: SyncAuthStage.unsupported,
+        message: 'Apple sign-in plugin is not configured in this runtime.',
+      );
+    } catch (error) {
+      return SyncAuthState(
+        provider: SyncProvider.iCloud,
+        stage: SyncAuthStage.error,
+        message: '$error',
+      );
+    }
+  }
+}
+
+abstract class MediaImportService {
+  Future<NoteAttachment?> importAttachment(MediaImportAction action);
+}
+
+class DefaultMediaImportService implements MediaImportService {
+  @override
+  Future<NoteAttachment?> importAttachment(MediaImportAction action) async {
+    switch (action) {
+      case MediaImportAction.takePhoto:
+        return _pickPhoto(ImageSource.camera);
+      case MediaImportAction.pickPhoto:
+        return _pickPhoto(ImageSource.gallery);
+      case MediaImportAction.recordVideo:
+        return _pickVideo(ImageSource.camera);
+      case MediaImportAction.pickVideo:
+        return _pickVideo(ImageSource.gallery);
+      case MediaImportAction.pickAudio:
+        return _pickAudio();
+    }
+  }
+
+  Future<NoteAttachment?> _pickPhoto(ImageSource source) async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(
+      source: source,
+      imageQuality: 88,
+      maxWidth: 1800,
+    );
+    if (picked == null) {
+      return null;
+    }
+    return _buildAttachment(
+      type: AttachmentType.photo,
+      sourceFile: picked,
+      previewBytesBase64: base64Encode(await picked.readAsBytes()),
+    );
+  }
+
+  Future<NoteAttachment?> _pickVideo(ImageSource source) async {
+    final picker = ImagePicker();
+    final picked = await picker.pickVideo(source: source);
+    if (picked == null) {
+      return null;
+    }
+    return _buildAttachment(type: AttachmentType.video, sourceFile: picked);
+  }
+
+  Future<NoteAttachment?> _pickAudio() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.audio,
+      withData: kIsWeb,
+    );
+    if (result == null || result.files.isEmpty) {
+      return null;
+    }
+
+    final file = result.files.single;
+    final sourceFile = file.path == null
+        ? XFile.fromData(file.bytes!, name: file.name)
+        : XFile(file.path!, name: file.name);
+    return _buildAttachment(type: AttachmentType.audio, sourceFile: sourceFile);
+  }
+
+  Future<NoteAttachment> _buildAttachment({
+    required AttachmentType type,
+    required XFile sourceFile,
+    String? previewBytesBase64,
+  }) async {
+    final storedPath = await _storePickedFile(sourceFile, type: type);
+    return NoteAttachment(
+      type: type,
+      label: sourceFile.name.isEmpty
+          ? path.basename(sourceFile.path)
+          : sourceFile.name,
+      filePath: storedPath,
+      previewBytesBase64: previewBytesBase64,
+    );
+  }
+
+  Future<String?> _storePickedFile(
+    XFile sourceFile, {
+    required AttachmentType type,
+  }) async {
+    if (kIsWeb) {
+      return sourceFile.path;
+    }
+
+    final baseDirectory = await getApplicationSupportDirectory();
+    final extension = path.extension(
+      sourceFile.name.isEmpty ? sourceFile.path : sourceFile.name,
+    );
+    final fileName =
+        '${DateTime.now().microsecondsSinceEpoch}_${type.name}${extension.isEmpty ? '' : extension}';
+    final targetPath = path.join(baseDirectory.path, fileName);
+    await sourceFile.saveTo(targetPath);
+    return targetPath;
+  }
+}
+
+final deviceAuthGatewayProvider = Provider<DeviceAuthGateway>(
+  (ref) => LocalDeviceAuthGateway(),
+);
+
+final syncAuthGatewayProvider = Provider<SyncAuthGateway>(
+  (ref) => DefaultSyncAuthGateway(),
+);
+
+final mediaImportServiceProvider = Provider<MediaImportService>(
+  (ref) => DefaultMediaImportService(),
+);
 
 @Riverpod(keepAlive: true)
 HomeRepository homeRepository(Ref ref) => SeededHomeRepository();
+
+final appSessionUnlockControllerProvider =
+    NotifierProvider<AppSessionUnlockController, bool>(
+      AppSessionUnlockController.new,
+    );
+
+class AppSessionUnlockController extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void unlock() => state = true;
+
+  void lock() => state = false;
+}
+
+final deviceAuthControllerProvider =
+    NotifierProvider<DeviceAuthController, DeviceAuthState>(
+      DeviceAuthController.new,
+    );
+
+class DeviceAuthController extends Notifier<DeviceAuthState> {
+  @override
+  DeviceAuthState build() {
+    unawaited(refresh());
+    return const DeviceAuthState.unknown();
+  }
+
+  Future<void> refresh() async {
+    state = await ref.read(deviceAuthGatewayProvider).checkAvailability();
+  }
+
+  Future<bool> authenticate({
+    required String reason,
+    bool biometricOnly = false,
+  }) async {
+    final authenticated = await ref
+        .read(deviceAuthGatewayProvider)
+        .authenticate(reason: reason, biometricOnly: biometricOnly);
+    await refresh();
+    if (authenticated) {
+      ref.read(appSessionUnlockControllerProvider.notifier).unlock();
+    }
+    return authenticated;
+  }
+}
+
+final syncAuthControllerProvider =
+    NotifierProvider<SyncAuthController, Map<SyncProvider, SyncAuthState>>(
+      SyncAuthController.new,
+    );
+
+class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
+  static const _storageKey = 'sync.auth_accounts.v1';
+  bool _restored = false;
+
+  @override
+  Map<SyncProvider, SyncAuthState> build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return {
+      for (final provider in SyncProvider.values)
+        provider: SyncAuthState.idle(provider),
+    };
+  }
+
+  SyncAuthState stateFor(SyncProvider provider) =>
+      state[provider] ?? SyncAuthState.idle(provider);
+
+  Future<void> connectSelected() async {
+    await connect(ref.read(syncProviderControllerProvider));
+  }
+
+  Future<void> connect(SyncProvider provider) async {
+    if (provider == SyncProvider.off) {
+      _update(provider, SyncAuthState.idle(provider));
+      return;
+    }
+
+    _update(
+      provider,
+      stateFor(
+        provider,
+      ).copyWith(stage: SyncAuthStage.busy, clearMessage: true),
+    );
+
+    final next = await ref.read(syncAuthGatewayProvider).connect(provider);
+
+    _update(provider, next);
+    await _persist();
+  }
+
+  Future<void> disconnectSelected() async {
+    await disconnect(ref.read(syncProviderControllerProvider));
+  }
+
+  Future<void> disconnect(SyncProvider provider) async {
+    await ref.read(syncAuthGatewayProvider).disconnect(provider);
+    _update(provider, SyncAuthState.idle(provider));
+    await _persist();
+  }
+
+  void _update(SyncProvider provider, SyncAuthState next) {
+    state = {...state, provider: next};
+  }
+
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_storageKey);
+      if (stored == null || stored.isEmpty) {
+        return;
+      }
+      final decoded = Map<String, dynamic>.from(
+        jsonDecode(stored) as Map<String, dynamic>,
+      );
+      state = {
+        for (final provider in SyncProvider.values)
+          provider: decoded[provider.name] == null
+              ? SyncAuthState.idle(provider)
+              : SyncAuthState.fromJson(
+                  Map<String, dynamic>.from(decoded[provider.name] as Map),
+                ),
+      };
+    } catch (_) {}
+  }
+
+  Future<void> _persist() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode({
+        for (final entry in state.entries) entry.key.name: entry.value.toJson(),
+      });
+      await prefs.setString(_storageKey, encoded);
+    } catch (_) {}
+  }
+}
 
 final appLaunchControllerProvider =
     NotifierProvider<AppLaunchController, AppLaunchSurface>(
@@ -38,7 +668,7 @@ class AppLaunchController extends Notifier<AppLaunchSurface> {
       _restored = true;
       unawaited(_restore());
     }
-    return AppLaunchSurface.splash;
+    return AppLaunchSurface.onboarding;
   }
 
   Future<void> completeOnboarding() async {
@@ -290,7 +920,9 @@ class PrivateVaultSecretController extends Notifier<bool> {
   Future<void> _restore() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      state = prefs.getString(_saltKey) != null && prefs.getString(_digestKey) != null;
+      state =
+          prefs.getString(_saltKey) != null &&
+          prefs.getString(_digestKey) != null;
     } catch (_) {}
   }
 
@@ -396,8 +1028,9 @@ class NotesController extends _$NotesController {
       final prefs = await SharedPreferences.getInstance();
       final stored = prefs.getString(_storageKey);
       if (stored == null || stored.isEmpty) {
-        final seeded =
-            List<NoteEntry>.from(ref.read(homeRepositoryProvider).seededNotes);
+        final seeded = List<NoteEntry>.from(
+          ref.read(homeRepositoryProvider).seededNotes,
+        );
         _sort(seeded);
         state = seeded;
         return;
@@ -459,7 +1092,10 @@ List<VaultBucket> visibleVaults(Ref ref) {
 
 @riverpod
 List<NoteEntry> visibleNotes(Ref ref) {
-  final visibleIds = ref.watch(visibleVaultsProvider).map((vault) => vault.id).toSet();
+  final visibleIds = ref
+      .watch(visibleVaultsProvider)
+      .map((vault) => vault.id)
+      .toSet();
   final query = ref.watch(searchQueryProvider).trim().toLowerCase();
   final notes = ref
       .watch(notesControllerProvider)
@@ -485,6 +1121,13 @@ List<NoteEntry> notesForVault(Ref ref, String vaultId) {
       .watch(visibleNotesProvider)
       .where((note) => note.vaultId == vaultId)
       .toList(growable: false);
+}
+
+@riverpod
+SyncAuthState selectedSyncAuthState(Ref ref) {
+  final provider = ref.watch(syncProviderControllerProvider);
+  final states = ref.watch(syncAuthControllerProvider);
+  return states[provider] ?? SyncAuthState.idle(provider);
 }
 
 @riverpod

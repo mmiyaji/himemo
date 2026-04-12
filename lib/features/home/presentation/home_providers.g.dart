@@ -83,7 +83,7 @@ final class ThemeModeControllerProvider
 }
 
 String _$themeModeControllerHash() =>
-    r'b00673025e14732cb55742428f6d0e5b05410c04';
+    r'edde557ac82fa3bdcba52e8465098fd74e3422cc';
 
 abstract class _$ThemeModeController extends $Notifier<ThemeMode> {
   ThemeMode build();
@@ -135,7 +135,7 @@ final class ActiveIdentityProvider
   }
 }
 
-String _$activeIdentityHash() => r'c1da7940c8baa0dd5c6b8fdff84cd2c0336d6484';
+String _$activeIdentityHash() => r'033c86b481da0b3bb2dc8c997b240e776e09d458';
 
 abstract class _$ActiveIdentity extends $Notifier<String> {
   String build();
@@ -238,7 +238,7 @@ final class NotesControllerProvider
   }
 }
 
-String _$notesControllerHash() => r'245103d2545f2538d40ee01a25eb0d1dcd95f478';
+String _$notesControllerHash() => r'40a9fd56507836957bc50611157f25c7926dcd51';
 
 abstract class _$NotesController extends $Notifier<List<NoteEntry>> {
   List<NoteEntry> build();
@@ -439,7 +439,7 @@ final class VisibleVaultsProvider
   }
 }
 
-String _$visibleVaultsHash() => r'e0daa9a90ac3b7d952c9757ebf31be5219892ba5';
+String _$visibleVaultsHash() => r'cd72d7281f498471af92dec611cea16c0ab92c3e';
 
 @ProviderFor(visibleNotes)
 final visibleNotesProvider = VisibleNotesProvider._();
@@ -481,7 +481,7 @@ final class VisibleNotesProvider
   }
 }
 
-String _$visibleNotesHash() => r'b28549f20a8865c73525ed49d822e2181abdce34';
+String _$visibleNotesHash() => r'e481b17ae1fa985db1c943e972e240460965f188';
 
 @ProviderFor(notesForVault)
 final notesForVaultProvider = NotesForVaultFamily._();
@@ -560,6 +560,48 @@ final class NotesForVaultFamily extends $Family
   @override
   String toString() => r'notesForVaultProvider';
 }
+
+@ProviderFor(selectedSyncAuthState)
+final selectedSyncAuthStateProvider = SelectedSyncAuthStateProvider._();
+
+final class SelectedSyncAuthStateProvider
+    extends $FunctionalProvider<SyncAuthState, SyncAuthState, SyncAuthState>
+    with $Provider<SyncAuthState> {
+  SelectedSyncAuthStateProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'selectedSyncAuthStateProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$selectedSyncAuthStateHash();
+
+  @$internal
+  @override
+  $ProviderElement<SyncAuthState> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  SyncAuthState create(Ref ref) {
+    return selectedSyncAuthState(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(SyncAuthState value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<SyncAuthState>(value),
+    );
+  }
+}
+
+String _$selectedSyncAuthStateHash() =>
+    r'35f5290140c6d298be03ec709cda2a043ed29d47';
 
 @ProviderFor(vaultById)
 final vaultByIdProvider = VaultByIdFamily._();

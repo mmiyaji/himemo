@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
@@ -71,9 +71,7 @@ class _LaunchSurfaceGateState extends State<_LaunchSurfaceGate> {
   }
 
   void _syncNativeSplash() {
-    if (kIsWeb ||
-        _removedNativeSplash ||
-        widget.launchSurface == AppLaunchSurface.splash) {
+    if (kIsWeb || _removedNativeSplash) {
       return;
     }
     _removedNativeSplash = true;
@@ -85,75 +83,146 @@ class _LaunchSurfaceGateState extends State<_LaunchSurfaceGate> {
   @override
   Widget build(BuildContext context) {
     switch (widget.launchSurface) {
-      case AppLaunchSurface.splash:
-        return _SplashScreen(flavor: widget.flavor);
       case AppLaunchSurface.onboarding:
         return _OnboardingScreen(flavor: widget.flavor);
       case AppLaunchSurface.ready:
-        return widget.child ?? const SizedBox.shrink();
+        return _AppLockGate(child: widget.child);
     }
   }
 }
 
-class _SplashScreen extends StatelessWidget {
-  const _SplashScreen({required this.flavor});
+class _AppLockGate extends ConsumerStatefulWidget {
+  const _AppLockGate({required this.child});
 
-  final AppFlavor flavor;
+  final Widget? child;
+
+  @override
+  ConsumerState<_AppLockGate> createState() => _AppLockGateState();
+}
+
+class _AppLockGateState extends ConsumerState<_AppLockGate>
+    with WidgetsBindingObserver {
+  bool _autoPrompted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncLockState(triggerPrompt: true);
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _syncLockState(triggerPrompt: true);
+      return;
+    }
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      if (ref.read(appLockSettingsControllerProvider)) {
+        ref.read(appSessionUnlockControllerProvider.notifier).lock();
+        _autoPrompted = false;
+      }
+    }
+  }
+
+  Future<void> _syncLockState({required bool triggerPrompt}) async {
+    final enabled = ref.read(appLockSettingsControllerProvider);
+    if (!enabled) {
+      ref.read(appSessionUnlockControllerProvider.notifier).unlock();
+      return;
+    }
+
+    if (ref.read(appSessionUnlockControllerProvider)) {
+      return;
+    }
+
+    if (!triggerPrompt || _autoPrompted) {
+      return;
+    }
+    _autoPrompted = true;
+    await ref
+        .read(deviceAuthControllerProvider.notifier)
+        .authenticate(reason: 'Unlock HiMemo with device authentication');
+    if (mounted && ref.read(appSessionUnlockControllerProvider)) {
+      setState(() {
+        _autoPrompted = true;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final enabled = ref.watch(appLockSettingsControllerProvider);
+    final unlocked = ref.watch(appSessionUnlockControllerProvider);
+    final authState = ref.watch(deviceAuthControllerProvider);
+
+    if (!enabled || unlocked) {
+      return widget.child ?? const SizedBox.shrink();
+    }
 
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              colorScheme.surface,
-              colorScheme.surfaceContainerHighest,
-              colorScheme.primary.withValues(alpha: 0.16),
-            ],
-          ),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 82,
-                height: 82,
-                decoration: BoxDecoration(
-                  color: colorScheme.primary,
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [
-                    BoxShadow(
-                      color: colorScheme.primary.withValues(alpha: 0.24),
-                      blurRadius: 28,
-                      offset: const Offset(0, 16),
-                    ),
-                  ],
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.fingerprint_rounded,
+                  size: 52,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
-                child: Icon(
-                  Icons.note_alt_rounded,
-                  size: 38,
-                  color: colorScheme.onPrimary,
+                const SizedBox(height: 20),
+                Text(
+                  'Unlock HiMemo',
+                  style: Theme.of(context).textTheme.headlineSmall,
                 ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                flavor.displayName,
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Preparing your memo vault...',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-              ),
-            ],
+                const SizedBox(height: 8),
+                Text(
+                  authState.summary,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  onPressed: () async {
+                    await ref
+                        .read(deviceAuthControllerProvider.notifier)
+                        .authenticate(
+                          reason: 'Unlock HiMemo with device authentication',
+                        );
+                  },
+                  icon: const Icon(Icons.lock_open_rounded),
+                  label: const Text('Authenticate'),
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: () async {
+                    await ref
+                        .read(appLockSettingsControllerProvider.notifier)
+                        .setEnabled(false);
+                    ref
+                        .read(appSessionUnlockControllerProvider.notifier)
+                        .unlock();
+                  },
+                  child: const Text('Disable app unlock for now'),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -174,13 +243,16 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
   final PageController _pageController = PageController();
   int _pageIndex = 0;
 
-  final List<({
-    String title,
-    String body,
-    IconData icon,
-    String imagePath,
-    String imageSemanticLabel,
-  })> _pages = const [
+  final List<
+    ({
+      String title,
+      String body,
+      IconData icon,
+      String imagePath,
+      String imageSemanticLabel,
+    })
+  >
+  _pages = const [
     (
       title: 'Capture fast',
       body:
@@ -259,8 +331,8 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
               Text(
                 'A short setup pass before the memo vault opens.',
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
+                  color: colorScheme.onSurfaceVariant,
+                ),
               ),
               const SizedBox(height: 28),
               Expanded(
@@ -317,12 +389,16 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                                   const SizedBox(height: 24),
                                   Text(
                                     page.title,
-                                    style: Theme.of(context).textTheme.titleLarge,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.titleLarge,
                                   ),
                                   const SizedBox(height: 12),
                                   Text(
                                     page.body,
-                                    style: Theme.of(context).textTheme.bodyLarge,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodyLarge,
                                   ),
                                 ],
                               ),
@@ -458,36 +534,35 @@ class _OnboardingImageCard extends StatelessWidget {
 
 ThemeData _buildTheme(Brightness brightness, AppColorTheme colorTheme) {
   final palette = _paletteFor(colorTheme, brightness);
-  final scheme = ColorScheme.fromSeed(
-    seedColor: palette.primary,
-    brightness: brightness,
-  ).copyWith(
-    primary: palette.primary,
-    onPrimary: palette.onPrimary,
-    secondary: palette.secondary,
-    onSecondary: palette.onSecondary,
-    tertiary: palette.tertiary,
-    onTertiary: palette.onTertiary,
-    surface: palette.surface,
-    onSurface: palette.onSurface,
-    surfaceContainer: palette.surfaceContainer,
-    surfaceContainerHighest: palette.surfaceContainerHighest,
-    outline: palette.outline,
-    outlineVariant: palette.outlineVariant,
-    onSurfaceVariant: palette.onSurfaceVariant,
-  );
+  final scheme =
+      ColorScheme.fromSeed(
+        seedColor: palette.primary,
+        brightness: brightness,
+      ).copyWith(
+        primary: palette.primary,
+        onPrimary: palette.onPrimary,
+        secondary: palette.secondary,
+        onSecondary: palette.onSecondary,
+        tertiary: palette.tertiary,
+        onTertiary: palette.onTertiary,
+        surface: palette.surface,
+        onSurface: palette.onSurface,
+        surfaceContainer: palette.surfaceContainer,
+        surfaceContainerHighest: palette.surfaceContainerHighest,
+        outline: palette.outline,
+        outlineVariant: palette.outlineVariant,
+        onSurfaceVariant: palette.onSurfaceVariant,
+      );
 
   final baseTypography = Typography.material2021(
     colorScheme: scheme,
     platform: TargetPlatform.android,
   );
-  final textTheme = (brightness == Brightness.dark
-          ? baseTypography.white
-          : baseTypography.black)
-      .apply(
-        bodyColor: scheme.onSurface,
-        displayColor: scheme.onSurface,
-      );
+  final textTheme =
+      (brightness == Brightness.dark
+              ? baseTypography.white
+              : baseTypography.black)
+          .apply(bodyColor: scheme.onSurface, displayColor: scheme.onSurface);
 
   return ThemeData(
     colorScheme: scheme,

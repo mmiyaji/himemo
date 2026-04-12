@@ -41,6 +41,13 @@ dependencies:
   shared_preferences: ^2.5.3
   crypto: ^3.0.6
   flutter_native_splash: ^2.4.7
+  local_auth: ^2.3.0
+  google_sign_in: ^7.2.0
+  sign_in_with_apple: ^7.0.1
+  image_picker: ^1.1.2
+  file_picker: ^10.3.2
+  path_provider: ^2.1.5
+  path: ^1.9.1
 
 dev_dependencies:
   flutter_test:

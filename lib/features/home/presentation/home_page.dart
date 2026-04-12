@@ -1,7 +1,11 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../domain/note_entry.dart';
 import '../domain/vault_models.dart';
@@ -186,7 +190,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final width = MediaQuery.sizeOf(context).width;
     final useSplitView = width >= 1180;
     final activeIdentity = ref.watch(activeIdentityDataProvider);
-    final privateVaultUnlocked = ref.watch(privateVaultSessionControllerProvider);
+    final privateVaultUnlocked = ref.watch(
+      privateVaultSessionControllerProvider,
+    );
     final visibleNotes = ref.watch(visibleNotesProvider);
     final visibleVaults = ref.watch(visibleVaultsProvider);
 
@@ -395,7 +401,13 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   Widget build(BuildContext context) {
     final notes = ref.watch(visibleNotesProvider);
     final markedDays = notes
-        .map((note) => DateTime(note.createdAt.year, note.createdAt.month, note.createdAt.day))
+        .map(
+          (note) => DateTime(
+            note.createdAt.year,
+            note.createdAt.month,
+            note.createdAt.day,
+          ),
+        )
         .toSet();
     final sameDayNotes = notes
         .where((note) => _isSameDay(note.createdAt, _selectedDay))
@@ -419,12 +431,18 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
             markedDays: markedDays,
             onPreviousMonth: () {
               setState(() {
-                _visibleMonth = DateTime(_visibleMonth.year, _visibleMonth.month - 1);
+                _visibleMonth = DateTime(
+                  _visibleMonth.year,
+                  _visibleMonth.month - 1,
+                );
               });
             },
             onNextMonth: () {
               setState(() {
-                _visibleMonth = DateTime(_visibleMonth.year, _visibleMonth.month + 1);
+                _visibleMonth = DateTime(
+                  _visibleMonth.year,
+                  _visibleMonth.month + 1,
+                );
               });
             },
             onTodaySelected: () {
@@ -458,8 +476,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                 Text(
                   'No notes on this day yet.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: _mutedTextColor(context),
-                      ),
+                    color: _mutedTextColor(context),
+                  ),
                 )
               else
                 for (var i = 0; i < sameDayNotes.length; i++) ...[
@@ -470,10 +488,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                         .name,
                   ),
                   if (i != sameDayNotes.length - 1)
-                    Divider(
-                      height: 24,
-                      color: Theme.of(context).dividerColor,
-                    ),
+                    Divider(height: 24, color: Theme.of(context).dividerColor),
                 ],
             ],
           ),
@@ -513,10 +528,15 @@ class _MarkedCalendar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final firstDay = DateTime(visibleMonth.year, visibleMonth.month, 1);
-    final daysInMonth = DateTime(visibleMonth.year, visibleMonth.month + 1, 0).day;
+    final daysInMonth = DateTime(
+      visibleMonth.year,
+      visibleMonth.month + 1,
+      0,
+    ).day;
     final leadingEmpty = (firstDay.weekday + 6) % 7;
     final totalCells = ((leadingEmpty + daysInMonth + 6) ~/ 7) * 7;
-    final monthLabel = '${visibleMonth.year}/${visibleMonth.month.toString().padLeft(2, '0')}';
+    final monthLabel =
+        '${visibleMonth.year}/${visibleMonth.month.toString().padLeft(2, '0')}';
     final colorScheme = Theme.of(context).colorScheme;
 
     return Column(
@@ -535,10 +555,7 @@ class _MarkedCalendar extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
             ),
-            TextButton(
-              onPressed: onTodaySelected,
-              child: const Text('Today'),
-            ),
+            TextButton(onPressed: onTodaySelected, child: const Text('Today')),
             IconButton(
               onPressed: onNextMonth,
               icon: const Icon(Icons.chevron_right_rounded),
@@ -555,9 +572,9 @@ class _MarkedCalendar extends StatelessWidget {
                   child: Text(
                     weekday,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: _mutedTextColor(context),
-                          fontWeight: FontWeight.w600,
-                        ),
+                      color: _mutedTextColor(context),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
@@ -587,7 +604,10 @@ class _MarkedCalendar extends StatelessWidget {
                       final hasNote = markedDays.contains(date);
 
                       return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 1),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 2,
+                          horizontal: 1,
+                        ),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(10),
                           onTap: () => onDateSelected(date),
@@ -607,11 +627,16 @@ class _MarkedCalendar extends StatelessWidget {
                               children: [
                                 Text(
                                   dayNumber.toString(),
-                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(
+                                        fontWeight: isSelected
+                                            ? FontWeight.w700
+                                            : FontWeight.w500,
                                         color: isSelected
                                             ? colorScheme.primary
-                                            : Theme.of(context).colorScheme.onSurface,
+                                            : Theme.of(
+                                                context,
+                                              ).colorScheme.onSurface,
                                       ),
                                 ),
                                 const SizedBox(height: 4),
@@ -622,8 +647,8 @@ class _MarkedCalendar extends StatelessWidget {
                                   decoration: BoxDecoration(
                                     color: hasNote
                                         ? (isSelected
-                                            ? colorScheme.primary
-                                            : colorScheme.secondary)
+                                              ? colorScheme.primary
+                                              : colorScheme.secondary)
                                         : Colors.transparent,
                                     shape: BoxShape.circle,
                                   ),
@@ -651,11 +676,12 @@ class _MarkedCalendar extends StatelessWidget {
   }
 }
 
-
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   static const appLockToggleKey = Key('app-lock-toggle');
+  static const appLockAuthenticateKey = Key('app-lock-authenticate');
+  static const appLockLockNowKey = Key('app-lock-lock-now');
   static const lightThemeKey = Key('theme-light-option');
   static const systemThemeKey = Key('theme-system-option');
   static const darkThemeKey = Key('theme-dark-option');
@@ -665,6 +691,8 @@ class SettingsScreen extends ConsumerWidget {
   static const syncOffKey = Key('sync-off-option');
   static const syncICloudKey = Key('sync-icloud-option');
   static const syncGoogleDriveKey = Key('sync-google-drive-option');
+  static const syncConnectKey = Key('sync-connect-button');
+  static const syncDisconnectKey = Key('sync-disconnect-button');
   static const privateVaultSetKey = Key('private-vault-set-key');
   static const privateVaultUnlockKey = Key('private-vault-unlock-key');
   static const privateVaultLockKey = Key('private-vault-lock-key');
@@ -677,9 +705,16 @@ class SettingsScreen extends ConsumerWidget {
     final themeMode = ref.watch(themeModeControllerProvider);
     final colorTheme = ref.watch(appColorThemeControllerProvider);
     final appLockEnabled = ref.watch(appLockSettingsControllerProvider);
-    final privateVaultConfigured = ref.watch(privateVaultSecretControllerProvider);
-    final privateVaultUnlocked = ref.watch(privateVaultSessionControllerProvider);
+    final appSessionUnlocked = ref.watch(appSessionUnlockControllerProvider);
+    final deviceAuthState = ref.watch(deviceAuthControllerProvider);
+    final privateVaultConfigured = ref.watch(
+      privateVaultSecretControllerProvider,
+    );
+    final privateVaultUnlocked = ref.watch(
+      privateVaultSessionControllerProvider,
+    );
     final syncProvider = ref.watch(syncProviderControllerProvider);
+    final syncAuthState = ref.watch(selectedSyncAuthStateProvider);
     final flavorName =
         FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
     final displayName =
@@ -717,12 +752,89 @@ class SettingsScreen extends ConsumerWidget {
               value: appLockEnabled,
               contentPadding: EdgeInsets.zero,
               title: const Text('Require device auth on launch'),
-              subtitle: const Text(
-                'This stores the launch preference now. Platform biometric hookup is the next step.',
+              subtitle: Text(
+                deviceAuthState.isAvailable
+                    ? 'Available: ${deviceAuthState.summary}'
+                    : deviceAuthState.summary,
               ),
-              onChanged: (value) => ref
-                  .read(appLockSettingsControllerProvider.notifier)
-                  .setEnabled(value),
+              onChanged: (value) async {
+                if (!value) {
+                  await ref
+                      .read(appLockSettingsControllerProvider.notifier)
+                      .setEnabled(false);
+                  ref
+                      .read(appSessionUnlockControllerProvider.notifier)
+                      .unlock();
+                  return;
+                }
+
+                final authenticated = await ref
+                    .read(deviceAuthControllerProvider.notifier)
+                    .authenticate(
+                      reason: 'Enable device authentication for HiMemo',
+                    );
+                if (!authenticated) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Device authentication was not completed.',
+                        ),
+                      ),
+                    );
+                  }
+                  return;
+                }
+
+                await ref
+                    .read(appLockSettingsControllerProvider.notifier)
+                    .setEnabled(true);
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Session status'),
+              subtitle: Text(
+                appSessionUnlocked
+                    ? 'Current session is unlocked.'
+                    : 'Current session is locked until device authentication succeeds.',
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.tonal(
+                    key: appLockAuthenticateKey,
+                    onPressed: deviceAuthState.isAvailable
+                        ? () => ref
+                              .read(deviceAuthControllerProvider.notifier)
+                              .authenticate(
+                                reason:
+                                    'Unlock HiMemo with device authentication',
+                              )
+                        : null,
+                    child: const Text('Authenticate now'),
+                  ),
+                  OutlinedButton(
+                    key: appLockLockNowKey,
+                    onPressed: appLockEnabled
+                        ? () => ref
+                              .read(appSessionUnlockControllerProvider.notifier)
+                              .lock()
+                        : null,
+                    child: const Text('Lock session now'),
+                  ),
+                  OutlinedButton(
+                    onPressed: () => ref
+                        .read(deviceAuthControllerProvider.notifier)
+                        .refresh(),
+                    child: const Text('Refresh availability'),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -736,8 +848,8 @@ class SettingsScreen extends ConsumerWidget {
               subtitle: Text(
                 privateVaultConfigured
                     ? (privateVaultUnlocked
-                        ? 'Configured and unlocked for this session.'
-                        : 'Configured and locked. A separate key is required.')
+                          ? 'Configured and unlocked for this session.'
+                          : 'Configured and locked. A separate key is required.')
                     : 'Not configured yet. Set a separate key for the private vault.',
               ),
             ),
@@ -754,7 +866,8 @@ class SettingsScreen extends ConsumerWidget {
                 if (privateVaultConfigured && !privateVaultUnlocked)
                   FilledButton(
                     key: privateVaultUnlockKey,
-                    onPressed: () => _showUnlockPrivateVaultDialog(context, ref),
+                    onPressed: () =>
+                        _showUnlockPrivateVaultDialog(context, ref),
                     child: const Text('Unlock private vault'),
                   ),
                 if (privateVaultUnlocked)
@@ -784,6 +897,11 @@ class SettingsScreen extends ConsumerWidget {
               title: const Text('Selected target'),
               subtitle: Text(_syncSubtitle(syncProvider)),
             ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Authentication'),
+              subtitle: Text(_syncAuthSummary(syncProvider, syncAuthState)),
+            ),
             _ThemeOptionTile(
               tileKey: syncOffKey,
               title: 'Off',
@@ -810,6 +928,33 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () => ref
                   .read(syncProviderControllerProvider.notifier)
                   .setProvider(SyncProvider.googleDrive),
+            ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (syncProvider != SyncProvider.off)
+                  FilledButton(
+                    key: syncConnectKey,
+                    onPressed: syncAuthState.stage == SyncAuthStage.busy
+                        ? null
+                        : () => ref
+                              .read(syncAuthControllerProvider.notifier)
+                              .connectSelected(),
+                    child: Text(
+                      syncAuthState.isAuthenticated ? 'Reconnect' : 'Connect',
+                    ),
+                  ),
+                if (syncProvider != SyncProvider.off &&
+                    syncAuthState.isAuthenticated)
+                  OutlinedButton(
+                    key: syncDisconnectKey,
+                    onPressed: () => ref
+                        .read(syncAuthControllerProvider.notifier)
+                        .disconnectSelected(),
+                    child: const Text('Disconnect'),
+                  ),
+              ],
             ),
           ],
         ),
@@ -902,7 +1047,8 @@ class SettingsScreen extends ConsumerWidget {
             _ThemeOptionTile(
               tileKey: orangeColorThemeKey,
               title: 'Orange',
-              subtitle: 'Warm orange palette for highlighted actions and notes.',
+              subtitle:
+                  'Warm orange palette for highlighted actions and notes.',
               selected: colorTheme == AppColorTheme.orange,
               onTap: () => ref
                   .read(appColorThemeControllerProvider.notifier)
@@ -925,7 +1071,33 @@ class SettingsScreen extends ConsumerWidget {
     }
   }
 
-  Future<void> _showSetPrivateKeyDialog(BuildContext context, WidgetRef ref) async {
+  String _syncAuthSummary(SyncProvider provider, SyncAuthState authState) {
+    if (provider == SyncProvider.off) {
+      return 'No cloud account is connected.';
+    }
+
+    switch (authState.stage) {
+      case SyncAuthStage.idle:
+        return 'No account connected yet.';
+      case SyncAuthStage.busy:
+        return 'Waiting for authentication to complete...';
+      case SyncAuthStage.authenticated:
+        final identity =
+            authState.email ?? authState.displayName ?? authState.userId;
+        final suffix = authState.message == null ? '' : ' ${authState.message}';
+        return identity == null
+            ? 'Connected.$suffix'
+            : 'Connected as $identity.$suffix';
+      case SyncAuthStage.unsupported:
+      case SyncAuthStage.error:
+        return authState.message ?? 'Authentication is not available.';
+    }
+  }
+
+  Future<void> _showSetPrivateKeyDialog(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     final secretController = TextEditingController();
     final confirmController = TextEditingController();
     String? errorText;
@@ -998,7 +1170,10 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _showUnlockPrivateVaultDialog(BuildContext context, WidgetRef ref) async {
+  Future<void> _showUnlockPrivateVaultDialog(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     final secretController = TextEditingController();
     String? errorText;
 
@@ -1048,7 +1223,10 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _confirmResetPrivateKey(BuildContext context, WidgetRef ref) async {
+  Future<void> _confirmResetPrivateKey(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
@@ -1099,59 +1277,65 @@ class _Sidebar extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(height: 4, color: accent),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
               children: [
-                Text(
-                  'HiMemo',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'HiMemo',
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  activeIdentity.lockLabel,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: accent,
-                        fontWeight: FontWeight.w700,
+                      const SizedBox(height: 12),
+                      Text(
+                        activeIdentity.lockLabel,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: accent,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
+                      const SizedBox(height: 4),
+                      Text(activeIdentity.name),
+                      const SizedBox(height: 8),
+                      Text(
+                        flavorName,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: _mutedTextColor(context),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 4),
-                Text(activeIdentity.name),
+                Divider(height: 1, color: Theme.of(context).dividerColor),
                 const SizedBox(height: 8),
-                Text(
-                  flavorName,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: _mutedTextColor(context),
-                      ),
+                _SidebarItem(
+                  icon: Icons.notes_outlined,
+                  selectedIcon: Icons.notes_rounded,
+                  label: 'Notes',
+                  selected: section == AppSection.notes,
+                  onTap: () => onSectionSelected(AppSection.notes),
+                ),
+                _SidebarItem(
+                  icon: Icons.calendar_month_outlined,
+                  selectedIcon: Icons.calendar_month_rounded,
+                  label: 'Calendar',
+                  selected: section == AppSection.calendar,
+                  onTap: () => onSectionSelected(AppSection.calendar),
+                ),
+                _SidebarItem(
+                  icon: Icons.settings_outlined,
+                  selectedIcon: Icons.settings_rounded,
+                  label: 'Settings',
+                  selected: section == AppSection.settings,
+                  onTap: () => onSectionSelected(AppSection.settings),
                 ),
               ],
             ),
-          ),
-          Divider(height: 1, color: Theme.of(context).dividerColor),
-          const SizedBox(height: 8),
-          _SidebarItem(
-            icon: Icons.notes_outlined,
-            selectedIcon: Icons.notes_rounded,
-            label: 'Notes',
-            selected: section == AppSection.notes,
-            onTap: () => onSectionSelected(AppSection.notes),
-          ),
-          _SidebarItem(
-            icon: Icons.calendar_month_outlined,
-            selectedIcon: Icons.calendar_month_rounded,
-            label: 'Calendar',
-            selected: section == AppSection.calendar,
-            onTap: () => onSectionSelected(AppSection.calendar),
-          ),
-          _SidebarItem(
-            icon: Icons.settings_outlined,
-            selectedIcon: Icons.settings_rounded,
-            label: 'Settings',
-            selected: section == AppSection.settings,
-            onTap: () => onSectionSelected(AppSection.settings),
           ),
         ],
       ),
@@ -1210,21 +1394,18 @@ class _IdentityHeader extends StatelessWidget {
           Text(
             identity.lockLabel,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: accent,
-                  fontWeight: FontWeight.w700,
-                ),
+              color: accent,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 6),
           Text(identity.name),
           const SizedBox(height: 6),
           Text(
             identity.tagline,
-            style: Theme.of(
-              context,
-            )
-                .textTheme
-                .bodyLarge
-                ?.copyWith(color: _strongMutedTextColor(context)),
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              color: _strongMutedTextColor(context),
+            ),
           ),
         ],
       ),
@@ -1370,8 +1551,8 @@ class _VaultSectionCard extends StatelessWidget {
                 Text(
                   vault.description,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: _mutedTextColor(context),
-                      ),
+                    color: _mutedTextColor(context),
+                  ),
                 ),
               ],
             ),
@@ -1427,8 +1608,8 @@ class _NoteListTile extends StatelessWidget {
                     child: Text(
                       note.title,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                   if (note.isPinned)
@@ -1445,8 +1626,8 @@ class _NoteListTile extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: _strongMutedTextColor(context),
-                    ),
+                  color: _strongMutedTextColor(context),
+                ),
               ),
               if (note.attachments.isNotEmpty) ...[
                 const SizedBox(height: 10),
@@ -1458,8 +1639,10 @@ class _NoteListTile extends StatelessWidget {
                       Chip(
                         visualDensity: VisualDensity.compact,
                         label: Text(attachment.label),
-                        avatar:
-                            Icon(_iconForAttachment(attachment.type), size: 16),
+                        avatar: Icon(
+                          _iconForAttachment(attachment.type),
+                          size: 16,
+                        ),
                       ),
                   ],
                 ),
@@ -1470,15 +1653,15 @@ class _NoteListTile extends StatelessWidget {
                   Text(
                     vaultName,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: _mutedTextColor(context),
-                        ),
+                      color: _mutedTextColor(context),
+                    ),
                   ),
                   const Spacer(),
                   Text(
                     dateLabel,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: _mutedTextColor(context),
-                        ),
+                      color: _mutedTextColor(context),
+                    ),
                   ),
                 ],
               ),
@@ -1524,8 +1707,8 @@ class _NoteDetailPane extends StatelessWidget {
                 child: Text(
                   vaultName ?? '',
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: _mutedTextColor(context),
-                      ),
+                    color: _mutedTextColor(context),
+                  ),
                 ),
               ),
               IconButton(
@@ -1556,22 +1739,20 @@ class _NoteDetailPane extends StatelessWidget {
               child: Text(
                 note!.body,
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
               ),
             ),
           ),
           if (note!.attachments.isNotEmpty) ...[
             const SizedBox(height: 20),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            Column(
               children: [
-                for (final attachment in note!.attachments)
-                  Chip(
-                    label: Text(attachment.label),
-                    avatar: Icon(_iconForAttachment(attachment.type), size: 16),
-                  ),
+                for (final attachment in note!.attachments) ...[
+                  _AttachmentListTile(attachment: attachment),
+                  if (attachment != note!.attachments.last)
+                    const SizedBox(height: 12),
+                ],
               ],
             ),
           ],
@@ -1596,12 +1777,9 @@ class _SectionIntro extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           description,
-          style: Theme.of(
-            context,
-          )
-              .textTheme
-              .bodyLarge
-              ?.copyWith(color: _strongMutedTextColor(context)),
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            color: _strongMutedTextColor(context),
+          ),
         ),
       ],
     );
@@ -1744,10 +1922,7 @@ class _InfoChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Chip(
-      avatar: Icon(icon, size: 16),
-      label: Text(text),
-    );
+    return Chip(avatar: Icon(icon, size: 16), label: Text(text));
   }
 }
 
@@ -1769,15 +1944,15 @@ class _CalendarNoteRow extends StatelessWidget {
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: _strongMutedTextColor(context),
-              ),
+            color: _strongMutedTextColor(context),
+          ),
         ),
         const SizedBox(height: 8),
         Text(
           vaultName,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: _mutedTextColor(context),
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
         ),
       ],
     );
@@ -1802,9 +1977,9 @@ class _EmptyNotesState extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             'Create a new memo or clear the current search filter to see saved entries.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
           ),
         ],
       ),
@@ -1959,22 +2134,31 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                               style: Theme.of(context).textTheme.titleMedium,
                             ),
                             const Spacer(),
-                            PopupMenuButton<AttachmentType>(
+                            PopupMenuButton<MediaImportAction>(
+                              key: const Key('attachment-add-menu'),
                               itemBuilder: (context) => const [
                                 PopupMenuItem(
-                                  value: AttachmentType.photo,
-                                  child: Text('Add photo placeholder'),
+                                  value: MediaImportAction.takePhoto,
+                                  child: Text('Take photo'),
                                 ),
                                 PopupMenuItem(
-                                  value: AttachmentType.video,
-                                  child: Text('Add video placeholder'),
+                                  value: MediaImportAction.pickPhoto,
+                                  child: Text('Pick photo'),
                                 ),
                                 PopupMenuItem(
-                                  value: AttachmentType.audio,
-                                  child: Text('Add audio placeholder'),
+                                  value: MediaImportAction.recordVideo,
+                                  child: Text('Record video'),
+                                ),
+                                PopupMenuItem(
+                                  value: MediaImportAction.pickVideo,
+                                  child: Text('Pick video'),
+                                ),
+                                PopupMenuItem(
+                                  value: MediaImportAction.pickAudio,
+                                  child: Text('Pick audio'),
                                 ),
                               ],
-                              onSelected: _addAttachment,
+                              onSelected: _handleAttachmentAction,
                               child: const Padding(
                                 padding: EdgeInsets.symmetric(
                                   horizontal: 8,
@@ -1988,26 +2172,21 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                         const SizedBox(height: 8),
                         if (_attachments.isEmpty)
                           Text(
-                            'Use placeholders for decoy photo, video, or audio entries.',
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: _mutedTextColor(context),
-                                    ),
+                            'Attach photos, videos, or audio files from camera or device storage.',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: _mutedTextColor(context)),
                           )
                         else
                           for (var i = 0; i < _attachments.length; i++)
-                            ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: Icon(
-                                  _iconForAttachment(_attachments[i].type)),
-                              title: Text(_attachments[i].label),
-                              trailing: IconButton(
-                                onPressed: () {
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _EditableAttachmentTile(
+                                attachment: _attachments[i],
+                                onRemove: () {
                                   setState(() {
                                     _attachments.removeAt(i);
                                   });
                                 },
-                                icon: const Icon(Icons.close_rounded),
                               ),
                             ),
                       ],
@@ -2015,6 +2194,27 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                   ),
                 ],
               ),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  key: const Key('quick-attach-photo-button'),
+                  onPressed: () =>
+                      _handleAttachmentAction(MediaImportAction.pickPhoto),
+                  icon: const Icon(Icons.photo_outlined),
+                  label: const Text('Add photo'),
+                ),
+                OutlinedButton.icon(
+                  key: const Key('quick-attach-camera-button'),
+                  onPressed: () =>
+                      _handleAttachmentAction(MediaImportAction.takePhoto),
+                  icon: const Icon(Icons.photo_camera_outlined),
+                  label: const Text('Use camera'),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             Row(
@@ -2065,19 +2265,15 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     });
   }
 
-  void _addAttachment(AttachmentType type) {
-    final count =
-        _attachments.where((attachment) => attachment.type == type).length;
-    final label = switch (type) {
-      AttachmentType.photo => 'photo-${count + 1}.jpg',
-      AttachmentType.video => 'video-${count + 1}.mp4',
-      AttachmentType.audio => 'audio-${count + 1}.m4a',
-    };
+  Future<void> _handleAttachmentAction(MediaImportAction action) async {
+    final attachment = await ref
+        .read(mediaImportServiceProvider)
+        .importAttachment(action);
+    if (attachment == null || !mounted) {
+      return;
+    }
     setState(() {
-      _attachments = [
-        ..._attachments,
-        NoteAttachment(type: type, label: label),
-      ];
+      _attachments = [..._attachments, attachment];
     });
   }
 
@@ -2112,6 +2308,168 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   final title = lines.first.trim();
   final body = lines.skip(1).join('\n').trim();
   return (title: title, body: body);
+}
+
+class _EditableAttachmentTile extends StatelessWidget {
+  const _EditableAttachmentTile({
+    required this.attachment,
+    required this.onRemove,
+  });
+
+  final NoteAttachment attachment;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        _AttachmentListTile(attachment: attachment),
+        Positioned(
+          top: 8,
+          right: 0,
+          child: IconButton(
+            onPressed: onRemove,
+            icon: const Icon(Icons.close_rounded),
+            tooltip: 'Remove attachment',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AttachmentListTile extends StatelessWidget {
+  const _AttachmentListTile({required this.attachment});
+
+  final NoteAttachment attachment;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: _sectionDecoration(context),
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _AttachmentPreview(attachment: attachment),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  attachment.label,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _attachmentDescription(attachment),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: _mutedTextColor(context),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AttachmentPreview extends StatelessWidget {
+  const _AttachmentPreview({required this.attachment});
+
+  final NoteAttachment attachment;
+
+  @override
+  Widget build(BuildContext context) {
+    if (attachment.type != AttachmentType.photo) {
+      return _AttachmentIconBox(type: attachment.type);
+    }
+
+    final previewBytesBase64 = attachment.previewBytesBase64;
+    if (previewBytesBase64 != null && previewBytesBase64.isNotEmpty) {
+      return _AttachmentImageBox(bytes: base64Decode(previewBytesBase64));
+    }
+
+    final filePath = attachment.filePath;
+    if (filePath == null || filePath.isEmpty) {
+      return _AttachmentIconBox(type: attachment.type);
+    }
+
+    return FutureBuilder<List<int>>(
+      future: XFile(filePath).readAsBytes(),
+      builder: (context, snapshot) {
+        final bytes = snapshot.data;
+        if (bytes == null || bytes.isEmpty) {
+          return _AttachmentIconBox(type: attachment.type);
+        }
+        return _AttachmentImageBox(bytes: bytes);
+      },
+    );
+  }
+}
+
+class _AttachmentImageBox extends StatelessWidget {
+  const _AttachmentImageBox({required this.bytes});
+
+  final List<int> bytes;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Image.memory(
+        Uint8List.fromList(bytes),
+        width: 72,
+        height: 72,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+      ),
+    );
+  }
+}
+
+class _AttachmentIconBox extends StatelessWidget {
+  const _AttachmentIconBox({required this.type});
+
+  final AttachmentType type;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 72,
+      height: 72,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Icon(
+        _iconForAttachment(type),
+        color: Theme.of(context).colorScheme.primary,
+      ),
+    );
+  }
+}
+
+String _attachmentDescription(NoteAttachment attachment) {
+  switch (attachment.type) {
+    case AttachmentType.photo:
+      return attachment.filePath == null
+          ? 'Photo placeholder'
+          : 'Photo attached from camera or library';
+    case AttachmentType.video:
+      return attachment.filePath == null
+          ? 'Video placeholder'
+          : 'Video attached from camera or library';
+    case AttachmentType.audio:
+      return attachment.filePath == null
+          ? 'Audio placeholder'
+          : 'Audio file attached from device storage';
+  }
 }
 
 BoxDecoration _sectionDecoration(BuildContext context) {
