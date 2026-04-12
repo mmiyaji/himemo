@@ -17,6 +17,8 @@ import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/master_key_service.dart';
 import 'package:himemo/features/security/data/private_vault_secret_store.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
+import 'package:himemo/features/sync/data/secure_sync_bundle_store.dart';
+import 'package:himemo/features/sync/data/sync_engine.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -428,6 +430,154 @@ void main() {
     expect(pendingChanges, hasLength(1));
     expect(pendingChanges.single.noteId, 'sync-1');
     expect(pendingChanges.single.action, PendingNoteChangeAction.delete);
+  });
+
+  test('SyncEngine prepares sanitized snapshot without local attachment paths', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-sync-engine-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(41));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final attachmentStore = EncryptedAttachmentStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final noteStore = EncryptedNoteStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      database: database,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final source = File('${tempDirectory.path}${Platform.pathSeparator}clip.jpg');
+    await source.writeAsBytes(const [9, 8, 7, 6], flush: true);
+    final storedAttachment = await attachmentStore.storeAttachment(
+      XFile(source.path, name: 'clip.jpg'),
+      type: AttachmentType.photo,
+    );
+    final note = NoteEntry(
+      id: 'sync-preview-1',
+      vaultId: 'everyday',
+      title: 'Snapshot',
+      body: 'Pending queue item',
+      createdAt: DateTime(2026, 4, 12, 16, 0),
+      updatedAt: DateTime(2026, 4, 12, 16, 5),
+      revision: 2,
+      syncState: NoteSyncState.pendingUpload,
+      deviceId: 'device-123',
+      contentHash: 'hash-123',
+      attachments: [
+        NoteAttachment(
+          type: AttachmentType.photo,
+          label: 'clip.jpg',
+          filePath: storedAttachment,
+        ),
+      ],
+    );
+    await noteStore.save([note]);
+    final engine = SyncEngine(
+      database: database,
+      attachmentStore: attachmentStore,
+      deviceIdentityStore: DeviceIdentityStore(
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+        random: Random(42),
+      ),
+    );
+
+    final summary = await engine.summarizeQueue();
+    final snapshot = await engine.prepareSnapshot([note]);
+
+    expect(summary.totalChanges, 1);
+    expect(summary.upserts, 1);
+    expect(snapshot.notes, hasLength(1));
+    expect(snapshot.attachments, hasLength(1));
+    expect(snapshot.notes.single.note.attachments.single.filePath, 'sync-attachment://sync-preview-1-0');
+    expect(snapshot.notes.single.note.attachments.single.filePath, isNot(storedAttachment));
+    expect(snapshot.attachments.single.encryptedPayload.contains('clip.jpg'), isFalse);
+
+    await database.close();
+    if (await tempDirectory.exists()) {
+      await tempDirectory.delete(recursive: true);
+    }
+  });
+
+  test('SecureSyncBundleStore writes encrypted bundle without plaintext note leakage', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-sync-bundle-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(51));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final bundleStore = SecureSyncBundleStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final snapshot = PreparedSyncSnapshot(
+      deviceId: 'device-export',
+      exportedAt: DateTime(2026, 4, 12, 17, 0),
+      summary: const SyncQueueSummary(
+        totalChanges: 1,
+        upserts: 1,
+        deletes: 0,
+      ),
+      notes: [
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.upsert,
+          note: NoteEntry(
+            id: 'export-1',
+            vaultId: 'everyday',
+            title: 'Sensitive title',
+            body: 'Sensitive body',
+            createdAt: DateTime(2026, 4, 12, 17, 0),
+            attachments: const [
+              NoteAttachment(
+                type: AttachmentType.photo,
+                label: 'secret.jpg',
+                filePath: 'sync-attachment://export-1-0',
+              ),
+            ],
+          ),
+        ),
+      ],
+      attachments: const [
+        PreparedSyncAttachment(
+          id: 'export-1-0',
+          type: AttachmentType.photo,
+          label: 'secret.jpg',
+          encryptedPayload: '{"cipherText":"abc"}',
+        ),
+      ],
+    );
+
+    final stored = await bundleStore.writeBundle(snapshot);
+    final file = File(stored.reference);
+    final rawPayload = await file.readAsString();
+
+    expect(rawPayload.contains('Sensitive title'), isFalse);
+    expect(rawPayload.contains('Sensitive body'), isFalse);
+    expect(rawPayload.contains('sync-attachment://export-1-0'), isFalse);
+
+    final decoded = await bundleStore.readBundleJson(stored.reference);
+    expect(decoded?['deviceId'], 'device-export');
+    expect((decoded?['notes'] as List<dynamic>).length, 1);
+
+    if (await tempDirectory.exists()) {
+      await tempDirectory.delete(recursive: true);
+    }
   });
 }
 

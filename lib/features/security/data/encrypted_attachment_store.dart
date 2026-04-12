@@ -145,6 +145,10 @@ class EncryptedAttachmentStore {
     return file.readAsString();
   }
 
+  Future<String?> readStoredPayload(String storedReference) {
+    return _readPayload(storedReference);
+  }
+
   String _attachmentId(AttachmentType type, String name) {
     final extension = path.extension(name);
     final suffix = extension.isEmpty ? '.bin' : extension;

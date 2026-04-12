@@ -728,6 +728,7 @@ class SettingsScreen extends ConsumerWidget {
     );
     final syncProvider = ref.watch(syncProviderControllerProvider);
     final syncAuthState = ref.watch(selectedSyncAuthStateProvider);
+    final syncQueueSummary = ref.watch(syncQueueSummaryProvider);
     final flavorName =
         FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
     final displayName =
@@ -966,6 +967,26 @@ class SettingsScreen extends ConsumerWidget {
               title: const Text('Authentication'),
               subtitle: Text(_syncAuthSummary(syncProvider, syncAuthState)),
             ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Pending sync queue'),
+              subtitle: Text(
+                syncQueueSummary.when(
+                  data: (summary) {
+                    if (!summary.hasPendingChanges) {
+                      return 'No pending device changes.';
+                    }
+                    final timestamp = summary.lastQueuedAt;
+                    final stampText = timestamp == null
+                        ? 'queue ready'
+                        : 'last queued ${_formatDateTime(timestamp)}';
+                    return '${summary.totalChanges} changes pending (${summary.upserts} upserts, ${summary.deletes} deletes), $stampText';
+                  },
+                  loading: () => 'Checking pending changes...',
+                  error: (_, _) => 'Unable to inspect the local sync queue.',
+                ),
+              ),
+            ),
             _ThemeOptionTile(
               tileKey: syncOffKey,
               title: 'Off',
@@ -1018,6 +1039,41 @@ class SettingsScreen extends ConsumerWidget {
                         .disconnectSelected(),
                     child: const Text('Disconnect'),
                   ),
+                OutlinedButton(
+                  onPressed: () async {
+                    final snapshot = await ref
+                        .read(syncEngineProvider)
+                        .prepareSnapshot(ref.read(notesControllerProvider));
+                    final bundle = await ref
+                        .read(secureSyncBundleStoreProvider)
+                        .writeBundle(snapshot);
+                    if (!context.mounted) {
+                      return;
+                    }
+                    await showDialog<void>(
+                      context: context,
+                      builder: (context) {
+                        return AlertDialog(
+                          title: const Text('Prepared sync snapshot'),
+                          content: Text(
+                            'Notes: ${bundle.noteCount}\n'
+                            'Attachments: ${bundle.attachmentCount}\n'
+                            'Queue: ${snapshot.summary.totalChanges} pending\n'
+                            'Device ID: ${snapshot.deviceId}\n'
+                            'Bundle: ${bundle.reference}',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('Close'),
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                  },
+                  child: const Text('Export bundle'),
+                ),
               ],
             ),
           ],
@@ -2605,6 +2661,15 @@ String _attachmentDescription(NoteAttachment attachment) {
           ? 'Audio placeholder'
           : 'Tap to play audio';
   }
+}
+
+String _formatDateTime(DateTime value) {
+  final year = value.year.toString().padLeft(4, '0');
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  final hour = value.hour.toString().padLeft(2, '0');
+  final minute = value.minute.toString().padLeft(2, '0');
+  return '$year/$month/$day $hour:$minute';
 }
 
 Future<void> _openAttachmentViewer(

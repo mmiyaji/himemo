@@ -26,6 +26,8 @@ import '../../security/data/encryption_service.dart';
 import '../../security/data/master_key_service.dart';
 import '../../security/data/private_vault_secret_store.dart';
 import '../../security/data/secure_key_value_store.dart';
+import '../../sync/data/secure_sync_bundle_store.dart';
+import '../../sync/data/sync_engine.dart';
 
 part 'home_providers.g.dart';
 
@@ -658,6 +660,26 @@ final encryptedAttachmentStoreProvider = Provider<EncryptedAttachmentStore>((
     encryptionService: ref.watch(encryptionServiceProvider),
     masterKeyService: ref.watch(masterKeyServiceProvider),
   );
+});
+
+final syncEngineProvider = Provider<SyncEngine>((ref) {
+  return SyncEngine(
+    database: ref.watch(encryptedNoteDatabaseProvider),
+    attachmentStore: ref.watch(encryptedAttachmentStoreProvider),
+    deviceIdentityStore: ref.watch(deviceIdentityStoreProvider),
+  );
+});
+
+final secureSyncBundleStoreProvider = Provider<SecureSyncBundleStore>((ref) {
+  return SecureSyncBundleStore(
+    encryptionService: ref.watch(encryptionServiceProvider),
+    masterKeyService: ref.watch(masterKeyServiceProvider),
+  );
+});
+
+final syncQueueSummaryProvider = FutureProvider<SyncQueueSummary>((ref) async {
+  ref.watch(notesControllerProvider);
+  return ref.watch(syncEngineProvider).summarizeQueue();
 });
 
 final privateVaultSecretStoreProvider = Provider<PrivateVaultSecretStore>((ref) {
