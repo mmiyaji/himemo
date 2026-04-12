@@ -705,6 +705,7 @@ class SettingsScreen extends ConsumerWidget {
   static const syncRefreshRemoteKey = Key('sync-refresh-remote-button');
   static const syncUploadBundleKey = Key('sync-upload-bundle-button');
   static const syncDownloadBundleKey = Key('sync-download-bundle-button');
+  static const syncApplyBundleKey = Key('sync-apply-bundle-button');
   static const privateVaultSetKey = Key('private-vault-set-key');
   static const privateVaultUnlockKey = Key('private-vault-unlock-key');
   static const privateVaultLockKey = Key('private-vault-lock-key');
@@ -733,6 +734,7 @@ class SettingsScreen extends ConsumerWidget {
     final syncAuthState = ref.watch(selectedSyncAuthStateProvider);
     final syncQueueSummary = ref.watch(syncQueueSummaryProvider);
     final syncTransferState = ref.watch(syncTransferControllerProvider);
+    final syncBundleFingerprint = ref.watch(syncBundleFingerprintProvider);
     final flavorName =
         FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
     final displayName =
@@ -996,6 +998,17 @@ class SettingsScreen extends ConsumerWidget {
               title: const Text('Remote bundle'),
               subtitle: Text(_remoteBundleSummary(syncProvider, syncTransferState)),
             ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Sync key fingerprint'),
+              subtitle: Text(
+                syncBundleFingerprint.when(
+                  data: (value) => value,
+                  loading: () => 'Preparing sync key...',
+                  error: (_, _) => 'Unable to read the sync key fingerprint.',
+                ),
+              ),
+            ),
             if (syncTransferState.localBundle != null)
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -1127,6 +1140,30 @@ class SettingsScreen extends ConsumerWidget {
                             ).showSnackBar(SnackBar(content: Text(message)));
                           },
                     child: const Text('Download bundle'),
+                  ),
+                if (syncTransferState.localBundle != null)
+                  OutlinedButton(
+                    key: syncApplyBundleKey,
+                    onPressed: syncTransferState.isBusy
+                        ? null
+                        : () async {
+                            await ref
+                                .read(syncTransferControllerProvider.notifier)
+                                .applyDownloadedBundle();
+                            if (!context.mounted) {
+                              return;
+                            }
+                            final message = ref
+                                .read(syncTransferControllerProvider)
+                                .message;
+                            if (message == null || message.isEmpty) {
+                              return;
+                            }
+                            ScaffoldMessenger.of(
+                              context,
+                            ).showSnackBar(SnackBar(content: Text(message)));
+                          },
+                    child: const Text('Apply bundle'),
                   ),
                 OutlinedButton(
                   onPressed: () async {

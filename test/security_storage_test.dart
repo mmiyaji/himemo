@@ -18,6 +18,7 @@ import 'package:himemo/features/security/data/master_key_service.dart';
 import 'package:himemo/features/security/data/private_vault_secret_store.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/features/sync/data/secure_sync_bundle_store.dart';
+import 'package:himemo/features/sync/data/sync_bundle_key_service.dart';
 import 'package:himemo/features/sync/data/sync_engine.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -522,7 +523,11 @@ void main() {
     );
     final bundleStore = SecureSyncBundleStore(
       encryptionService: encryptionService,
-      masterKeyService: masterKeyService,
+      syncBundleKeyService: SyncBundleKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      ),
+      legacyMasterKeyService: masterKeyService,
       directoryProvider: () async => tempDirectory,
       sharedPreferencesProvider: SharedPreferences.getInstance,
     );
@@ -592,6 +597,89 @@ void main() {
       await tempDirectory.delete(recursive: true);
     }
   });
+
+  test('SyncBundleKeyService creates stable fingerprint from secure storage', () async {
+    final secureStore = MemorySecureKeyValueStore();
+    final service = SyncBundleKeyService(
+      secureStore: secureStore,
+      keyFactory: () => List<int>.generate(32, (index) => index),
+    );
+
+    final first = await service.fingerprint();
+    final second = await service.fingerprint();
+
+    expect(first, hasLength(12));
+    expect(second, first);
+  });
+
+  test('NotesController can replace state from sync snapshot', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-sync-apply-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(61));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final noteDatabase = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final attachmentStore = EncryptedAttachmentStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final oldAttachmentPath = await attachmentStore.storeEncryptedPayload(
+      encodedPayload: '{"cipherText":"legacy"}',
+      type: AttachmentType.photo,
+      fileNameHint: 'legacy.jpg',
+    );
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: noteDatabase,
+            directoryProvider: () async => tempDirectory,
+            sharedPreferencesProvider: SharedPreferences.getInstance,
+          ),
+        ),
+        encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+        homeRepositoryProvider.overrideWithValue(
+          _AttachmentSeedRepository(oldAttachmentPath!),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(noteDatabase.close);
+
+    await container.read(notesControllerProvider.notifier).replaceFromSync([
+      NoteEntry(
+        id: 'imported',
+        vaultId: 'everyday',
+        title: 'Imported',
+        body: 'From remote bundle',
+        createdAt: DateTime(2026, 4, 12, 18, 0),
+        attachments: const [],
+      ),
+    ]);
+
+    expect(
+      container.read(notesControllerProvider).map((note) => note.id).toList(),
+      ['imported'],
+    );
+    expect(await File(oldAttachmentPath!).exists(), isFalse);
+
+    if (await tempDirectory.exists()) {
+      await tempDirectory.delete(recursive: true);
+    }
+  });
 }
 
 class _SingleNoteRepository implements HomeRepository {
@@ -615,6 +703,36 @@ class _SingleNoteRepository implements HomeRepository {
           type: AttachmentType.photo,
           label: 'proof.jpg',
           filePath: 'secure-attachment://old',
+        ),
+      ],
+    ),
+  ];
+
+  @override
+  List<VaultBucket> get vaults => const <VaultBucket>[];
+}
+
+class _AttachmentSeedRepository implements HomeRepository {
+  const _AttachmentSeedRepository(this.attachmentPath);
+
+  final String attachmentPath;
+
+  @override
+  List<UnlockIdentity> get identities => const <UnlockIdentity>[];
+
+  @override
+  List<NoteEntry> get seededNotes => [
+    NoteEntry(
+      id: 'seeded-old',
+      vaultId: 'everyday',
+      title: 'Seeded old',
+      body: 'Old attachment note',
+      createdAt: DateTime(2026, 4, 12, 11, 0),
+      attachments: [
+        NoteAttachment(
+          type: AttachmentType.photo,
+          label: 'legacy.jpg',
+          filePath: attachmentPath,
         ),
       ],
     ),

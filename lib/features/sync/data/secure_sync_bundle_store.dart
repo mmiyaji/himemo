@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../security/data/encryption_service.dart';
 import '../../security/data/master_key_service.dart';
 import 'sync_engine.dart';
+import 'sync_bundle_key_service.dart';
 
 class StoredSyncBundle {
   const StoredSyncBundle({
@@ -24,26 +25,29 @@ class StoredSyncBundle {
 class SecureSyncBundleStore {
   SecureSyncBundleStore({
     required EncryptionService encryptionService,
-    required MasterKeyService masterKeyService,
+    required SyncBundleKeyService syncBundleKeyService,
+    MasterKeyService? legacyMasterKeyService,
     Future<Directory> Function()? directoryProvider,
     Future<SharedPreferences> Function()? sharedPreferencesProvider,
     this.webStorageKey = 'sync.bundle.latest',
     this.fileName = 'latest_sync_bundle.enc',
   }) : _encryptionService = encryptionService,
-       _masterKeyService = masterKeyService,
+       _syncBundleKeyService = syncBundleKeyService,
+       _legacyMasterKeyService = legacyMasterKeyService,
        _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
        _sharedPreferencesProvider =
            sharedPreferencesProvider ?? SharedPreferences.getInstance;
 
   final EncryptionService _encryptionService;
-  final MasterKeyService _masterKeyService;
+  final SyncBundleKeyService _syncBundleKeyService;
+  final MasterKeyService? _legacyMasterKeyService;
   final Future<Directory> Function() _directoryProvider;
   final Future<SharedPreferences> Function() _sharedPreferencesProvider;
   final String webStorageKey;
   final String fileName;
 
   Future<StoredSyncBundle> writeBundle(PreparedSyncSnapshot snapshot) async {
-    final key = await _masterKeyService.obtainOrCreate();
+    final key = await _syncBundleKeyService.obtainOrCreate();
     final payload = await _encryptionService.encryptJson(
       payload: {
         'deviceId': snapshot.deviceId,
@@ -145,10 +149,26 @@ class SecureSyncBundleStore {
     if (payload == null || payload.isEmpty) {
       return null;
     }
-    final key = await _masterKeyService.obtainOrCreate();
-    return _encryptionService.decryptJson(
-      encodedPayload: payload,
-      secretKey: key,
-    );
+    return _decryptBundleJson(payload);
+  }
+
+  Future<Map<String, dynamic>> _decryptBundleJson(String payload) async {
+    final syncKey = await _syncBundleKeyService.obtainOrCreate();
+    try {
+      return await _encryptionService.decryptJson(
+        encodedPayload: payload,
+        secretKey: syncKey,
+      );
+    } catch (_) {
+      final legacy = _legacyMasterKeyService;
+      if (legacy == null) {
+        rethrow;
+      }
+      final legacyKey = await legacy.obtainOrCreate();
+      return _encryptionService.decryptJson(
+        encodedPayload: payload,
+        secretKey: legacyKey,
+      );
+    }
   }
 }

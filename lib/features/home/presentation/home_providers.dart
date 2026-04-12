@@ -28,6 +28,7 @@ import '../../security/data/private_vault_secret_store.dart';
 import '../../security/data/secure_key_value_store.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/secure_sync_bundle_store.dart';
+import '../../sync/data/sync_bundle_key_service.dart';
 import '../../sync/data/sync_engine.dart';
 
 part 'home_providers.g.dart';
@@ -713,8 +714,21 @@ final syncEngineProvider = Provider<SyncEngine>((ref) {
 final secureSyncBundleStoreProvider = Provider<SecureSyncBundleStore>((ref) {
   return SecureSyncBundleStore(
     encryptionService: ref.watch(encryptionServiceProvider),
-    masterKeyService: ref.watch(masterKeyServiceProvider),
+    syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
+    legacyMasterKeyService: ref.watch(masterKeyServiceProvider),
   );
+});
+
+final syncBundleKeyServiceProvider = Provider<SyncBundleKeyService>((ref) {
+  final encryption = ref.watch(encryptionServiceProvider);
+  return SyncBundleKeyService(
+    secureStore: ref.watch(secureKeyValueStoreProvider),
+    keyFactory: encryption.generateKeyBytes,
+  );
+});
+
+final syncBundleFingerprintProvider = FutureProvider<String>((ref) async {
+  return ref.watch(syncBundleKeyServiceProvider).fingerprint();
 });
 
 final googleDriveSyncTransportProvider = Provider<GoogleDriveSyncTransport>((
@@ -852,6 +866,77 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         message: '$error',
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
+      );
+    }
+  }
+
+  Future<void> applyDownloadedBundle() async {
+    final localBundle = state.localBundle;
+    if (localBundle == null) {
+      state = state.copyWith(
+        stage: SyncTransferStage.error,
+        message: 'Download a remote bundle before applying it.',
+      );
+      return;
+    }
+    state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
+    try {
+      final decoded = await ref
+          .read(secureSyncBundleStoreProvider)
+          .readBundleJson(localBundle.reference);
+      if (decoded == null) {
+        throw StateError('Downloaded bundle could not be decrypted.');
+      }
+      final attachmentPayloads = <String, Map<String, dynamic>>{
+        for (final entry
+            in (decoded['attachments'] as List<dynamic>? ?? const <dynamic>[]))
+          (entry as Map)['id'] as String: Map<String, dynamic>.from(entry),
+      };
+      final importedNotes = <NoteEntry>[];
+      for (final rawEntry
+          in (decoded['notes'] as List<dynamic>? ?? const <dynamic>[])) {
+        final entry = Map<String, dynamic>.from(rawEntry as Map);
+        final note = NoteEntry.fromJson(
+          Map<String, dynamic>.from(entry['note'] as Map),
+        );
+        final importedAttachments = <NoteAttachment>[];
+        for (final attachment in note.attachments) {
+          final filePath = attachment.filePath;
+          if (filePath == null || !filePath.startsWith('sync-attachment://')) {
+            importedAttachments.add(attachment);
+            continue;
+          }
+          final attachmentId = filePath.substring('sync-attachment://'.length);
+          final payload = attachmentPayloads[attachmentId];
+          if (payload == null) {
+            importedAttachments.add(attachment.copyWith(filePath: null));
+            continue;
+          }
+          final storedReference = await ref
+              .read(encryptedAttachmentStoreProvider)
+              .storeEncryptedPayload(
+                encodedPayload: payload['encryptedPayload'] as String,
+                type: AttachmentType.values.firstWhere(
+                  (value) => value.name == payload['type'],
+                  orElse: () => attachment.type,
+                ),
+                fileNameHint: payload['label'] as String? ?? attachment.label,
+              );
+          importedAttachments.add(attachment.copyWith(filePath: storedReference));
+        }
+        importedNotes.add(note.copyWith(attachments: importedAttachments));
+      }
+      await ref.read(notesControllerProvider.notifier).replaceFromSync(
+        importedNotes,
+      );
+      state = state.copyWith(
+        stage: SyncTransferStage.success,
+        message: 'Downloaded bundle applied to local notes.',
+      );
+    } catch (error) {
+      state = state.copyWith(
+        stage: SyncTransferStage.error,
+        message: '$error',
       );
     }
   }
@@ -1437,6 +1522,26 @@ class NotesController extends _$NotesController {
     }
     state = List<NoteEntry>.from(ref.read(homeRepositoryProvider).seededNotes);
     _sort(state);
+    await _persist();
+  }
+
+  Future<void> replaceFromSync(List<NoteEntry> notes) async {
+    final incomingPaths = notes
+        .expand((note) => note.attachments)
+        .map((attachment) => attachment.filePath)
+        .whereType<String>()
+        .toSet();
+    final removedAttachments = [
+      for (final existing in state)
+        for (final attachment in existing.attachments)
+          if (attachment.filePath != null &&
+              !incomingPaths.contains(attachment.filePath))
+            attachment,
+    ];
+    await _deleteAttachments(removedAttachments);
+    final next = [...notes];
+    _sort(next);
+    state = next;
     await _persist();
   }
 

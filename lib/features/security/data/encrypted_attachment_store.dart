@@ -58,6 +58,26 @@ class EncryptedAttachmentStore {
     return file.path;
   }
 
+  Future<String?> storeEncryptedPayload({
+    required String encodedPayload,
+    required AttachmentType type,
+    required String fileNameHint,
+  }) async {
+    if (kIsWeb) {
+      final id = _attachmentId(type, fileNameHint);
+      final prefs = await _sharedPreferencesProvider();
+      await prefs.setString('$webStoragePrefix$id', encodedPayload);
+      return '$webPrefix$id';
+    }
+
+    final directory = await _directoryProvider();
+    final fileName = _attachmentId(type, fileNameHint);
+    final file = File(path.join(directory.path, 'attachments', fileName));
+    await file.create(recursive: true);
+    await file.writeAsString(encodedPayload, flush: true);
+    return file.path;
+  }
+
   Future<List<int>?> readAttachment(
     String storedReference, {
     required AttachmentType type,
