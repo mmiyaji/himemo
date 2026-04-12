@@ -696,6 +696,40 @@ void main() {
     expect(second, first);
   });
 
+  test('SyncBundleKeyService can export and import backup codes', () async {
+    final sourceStore = MemorySecureKeyValueStore();
+    final sourceService = SyncBundleKeyService(
+      secureStore: sourceStore,
+      keyFactory: () => List<int>.generate(32, (index) => index + 1),
+    );
+    final backupCode = await sourceService.exportBackupCode();
+    final expectedFingerprint = await sourceService.fingerprint();
+
+    final targetStore = MemorySecureKeyValueStore();
+    final targetService = SyncBundleKeyService(
+      secureStore: targetStore,
+      keyFactory: () => List<int>.generate(32, (index) => 99 - index),
+    );
+    final importedFingerprint = await targetService.importBackupCode(
+      backupCode,
+    );
+
+    expect(importedFingerprint, expectedFingerprint);
+    expect(await targetService.fingerprint(), expectedFingerprint);
+  });
+
+  test('SyncBundleKeyService rejects malformed backup code', () async {
+    final service = SyncBundleKeyService(
+      secureStore: MemorySecureKeyValueStore(),
+      keyFactory: () => List<int>.generate(32, (index) => index),
+    );
+
+    expect(
+      () => service.importBackupCode('invalid-sync-key'),
+      throwsFormatException,
+    );
+  });
+
   test('NotesController can replace state from sync snapshot', () async {
     SharedPreferences.setMockInitialValues({});
     final tempDirectory = await Directory.systemTemp.createTemp(

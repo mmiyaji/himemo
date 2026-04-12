@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -1032,6 +1033,72 @@ class SettingsScreen extends ConsumerWidget {
                   error: (_, _) => 'Unable to read the sync key fingerprint.',
                 ),
               ),
+            ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton(
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      final backupCode = await ref
+                          .read(syncBundleKeyServiceProvider)
+                          .exportBackupCode();
+                      await Clipboard.setData(ClipboardData(text: backupCode));
+                      if (!context.mounted) {
+                        return;
+                      }
+                      messenger.showSnackBar(
+                        const SnackBar(
+                          content: Text('Sync key copied to clipboard.'),
+                        ),
+                      );
+                    } catch (error) {
+                      if (!context.mounted) {
+                        return;
+                      }
+                      messenger.showSnackBar(
+                        SnackBar(content: Text('$error')),
+                      );
+                    }
+                  },
+                  child: const Text('Copy sync key'),
+                ),
+                OutlinedButton(
+                  onPressed: () async {
+                    final backupCode = await _showSyncKeyImportDialog(context);
+                    if (!context.mounted || backupCode == null) {
+                      return;
+                    }
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      final fingerprint = await ref
+                          .read(syncBundleKeyServiceProvider)
+                          .importBackupCode(backupCode);
+                      ref.invalidate(syncBundleFingerprintProvider);
+                      if (!context.mounted) {
+                        return;
+                      }
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Sync key imported. Fingerprint: $fingerprint',
+                          ),
+                        ),
+                      );
+                    } catch (error) {
+                      if (!context.mounted) {
+                        return;
+                      }
+                      messenger.showSnackBar(
+                        SnackBar(content: Text('$error')),
+                      );
+                    }
+                  },
+                  child: const Text('Import sync key'),
+                ),
+              ],
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -3161,6 +3228,37 @@ Future<RemoteSyncBundleStatus?> _showBundleHistoryDialog(
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Close'),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+Future<String?> _showSyncKeyImportDialog(BuildContext context) {
+  final controller = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: const Text('Import sync key'),
+        content: TextField(
+          controller: controller,
+          minLines: 2,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            hintText: 'Paste himemo-sync-key-v1:...',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text),
+            child: const Text('Import'),
           ),
         ],
       );

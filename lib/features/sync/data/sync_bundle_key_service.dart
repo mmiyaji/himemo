@@ -13,6 +13,8 @@ class SyncBundleKeyService {
   }) : _secureStore = secureStore,
        _keyFactory = keyFactory;
 
+  static const backupCodePrefix = 'himemo-sync-key-v1:';
+
   final SecureKeyValueStore _secureStore;
   final List<int> Function() _keyFactory;
   final String storageKey;
@@ -26,6 +28,25 @@ class SyncBundleKeyService {
     final bytes = await _readOrCreateBytes();
     final digest = sha256.convert(bytes).toString();
     return digest.substring(0, 12);
+  }
+
+  Future<String> exportBackupCode() async {
+    final bytes = await _readOrCreateBytes();
+    return '$backupCodePrefix${base64Encode(bytes)}';
+  }
+
+  Future<String> importBackupCode(String rawCode) async {
+    final normalized = rawCode.trim();
+    if (!normalized.startsWith(backupCodePrefix)) {
+      throw const FormatException('Unsupported sync key format.');
+    }
+    final encoded = normalized.substring(backupCodePrefix.length).trim();
+    final bytes = base64Decode(encoded);
+    if (bytes.length < 16) {
+      throw const FormatException('Sync key is too short.');
+    }
+    await _secureStore.write(storageKey, base64Encode(bytes));
+    return fingerprint();
   }
 
   Future<List<int>> _readOrCreateBytes() async {
