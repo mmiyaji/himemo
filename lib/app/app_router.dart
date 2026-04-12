@@ -25,6 +25,11 @@ GoRouter appRouter(Ref ref) {
                 const NoTransitionPage(child: CalendarScreen()),
           ),
           GoRoute(
+            path: '/insights',
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: InsightsScreen()),
+          ),
+          GoRoute(
             path: '/settings',
             pageBuilder: (context, state) =>
                 const NoTransitionPage(child: SettingsScreen()),

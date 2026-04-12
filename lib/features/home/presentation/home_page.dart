@@ -20,13 +20,14 @@ import '../domain/note_entry.dart';
 import '../domain/vault_models.dart';
 import 'home_providers.dart';
 
-enum AppSection { notes, calendar, settings }
+enum AppSection { notes, calendar, insights, settings }
 
 class AppShell extends ConsumerWidget {
   const AppShell({super.key, required this.child});
 
   static const notesNavKey = Key('nav-notes');
   static const calendarNavKey = Key('nav-calendar');
+  static const insightsNavKey = Key('nav-insights');
   static const settingsNavKey = Key('nav-settings');
   static const addNoteKey = Key('add-note-button');
 
@@ -90,6 +91,12 @@ class AppShell extends ConsumerWidget {
                   label: 'Calendar',
                 ),
                 NavigationDestination(
+                  key: insightsNavKey,
+                  icon: Icon(Icons.insert_chart_outlined_rounded),
+                  selectedIcon: Icon(Icons.insert_chart_rounded),
+                  label: 'Insights',
+                ),
+                NavigationDestination(
                   key: settingsNavKey,
                   icon: Icon(Icons.settings_outlined),
                   selectedIcon: Icon(Icons.settings_rounded),
@@ -114,6 +121,8 @@ class AppShell extends ConsumerWidget {
         context.go('/notes');
       case AppSection.calendar:
         context.go('/calendar');
+      case AppSection.insights:
+        context.go('/insights');
       case AppSection.settings:
         context.go('/settings');
     }
@@ -125,6 +134,8 @@ class AppShell extends ConsumerWidget {
         return 'HiMemo';
       case AppSection.calendar:
         return 'Calendar';
+      case AppSection.insights:
+        return 'Insights';
       case AppSection.settings:
         return 'Settings';
     }
@@ -133,6 +144,9 @@ class AppShell extends ConsumerWidget {
   AppSection _sectionForLocation(String location) {
     if (location.startsWith('/calendar')) {
       return AppSection.calendar;
+    }
+    if (location.startsWith('/insights')) {
+      return AppSection.insights;
     }
     if (location.startsWith('/settings')) {
       return AppSection.settings;
@@ -261,6 +275,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                   child: Column(
                     children: [
                       for (var i = 0; i < visibleNotes.length; i++) ...[
+                        if (i == 0 ||
+                            !_isSameNoteDay(visibleNotes[i - 1], visibleNotes[i]))
+                          _NoteDayDivider(date: visibleNotes[i].createdAt),
                         _NoteListTile(
                           note: visibleNotes[i],
                           vaultName: ref
@@ -889,6 +906,439 @@ class _MarkedCalendar extends StatelessWidget {
         left.month == right.month &&
         left.day == right.day;
   }
+}
+
+class InsightsScreen extends ConsumerWidget {
+  const InsightsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notes = ref.watch(visibleNotesProvider);
+    final summary = _buildInsightsSummary(notes);
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Container(
+          decoration: _sectionDecoration(context),
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Writing activity',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                summary.message,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: _strongMutedTextColor(context),
+                    ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _InsightsSummaryGrid(summary: summary),
+        const SizedBox(height: 16),
+        _InsightChartSection(
+          title: 'Monthly notes',
+          description: '最近6か月のノート件数',
+          child: _InsightBarChart(
+            buckets: _buildMonthlyBuckets(notes),
+            valueSuffix: ' notes',
+          ),
+        ),
+        const SizedBox(height: 16),
+        _InsightChartSection(
+          title: 'Recent days',
+          description: '直近14日の日別ノート件数',
+          child: _InsightBarChart(
+            buckets: _buildRecentDayBuckets(notes),
+            valueSuffix: ' notes',
+            compactLabels: true,
+          ),
+        ),
+        const SizedBox(height: 16),
+        _InsightChartSection(
+          title: 'Weekday rhythm',
+          description: 'どの曜日に書いているか',
+          child: _InsightBarChart(
+            buckets: _buildWeekdayBuckets(notes),
+            valueSuffix: ' notes',
+          ),
+        ),
+        const SizedBox(height: 16),
+        _InsightChartSection(
+          title: 'Attachments',
+          description: '写真・動画・音声の使用数',
+          child: _InsightBarChart(
+            buckets: _buildAttachmentBuckets(notes),
+            valueSuffix: ' items',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InsightsSummaryGrid extends StatelessWidget {
+  const _InsightsSummaryGrid({required this.summary});
+
+  final _InsightsSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: _sectionDecoration(context),
+      child: Wrap(
+        children: [
+          _InsightKpiTile(
+            label: 'Current streak',
+            value: '${summary.currentStreak}',
+            helper: 'days',
+          ),
+          _InsightKpiTile(
+            label: 'This month',
+            value: '${summary.thisMonthCount}',
+            helper: 'notes',
+          ),
+          _InsightKpiTile(
+            label: 'Characters',
+            value: '${summary.totalCharacters}',
+            helper: 'total',
+          ),
+          _InsightKpiTile(
+            label: 'Attachments',
+            value: '${summary.totalAttachments}',
+            helper: 'items',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InsightKpiTile extends StatelessWidget {
+  const _InsightKpiTile({
+    required this.label,
+    required this.value,
+    required this.helper,
+  });
+
+  final String label;
+  final String value;
+  final String helper;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 220,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: _mutedTextColor(context),
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  value,
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(width: 6),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    helper,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: _mutedTextColor(context),
+                        ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InsightChartSection extends StatelessWidget {
+  const _InsightChartSection({
+    required this.title,
+    required this.description,
+    required this.child,
+  });
+
+  final String title;
+  final String description;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: _sectionDecoration(context),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 4),
+          Text(
+            description,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
+          ),
+          const SizedBox(height: 16),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _InsightBarChart extends StatelessWidget {
+  const _InsightBarChart({
+    required this.buckets,
+    required this.valueSuffix,
+    this.compactLabels = false,
+  });
+
+  final List<_InsightBucket> buckets;
+  final String valueSuffix;
+  final bool compactLabels;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxValue = buckets.fold<int>(0, (max, bucket) => math.max(max, bucket.value));
+    if (buckets.isEmpty) {
+      return Text(
+        'No data yet.',
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: _mutedTextColor(context),
+            ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final chartWidth =
+            constraints.maxWidth.isFinite ? constraints.maxWidth : 640.0;
+        final itemWidth = math.max(44.0, (chartWidth / buckets.length) - 8);
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (final bucket in buckets)
+                SizedBox(
+                  width: itemWidth,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Text(
+                          '${bucket.value}$valueSuffix',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: _mutedTextColor(context),
+                              ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          height: 140,
+                          alignment: Alignment.bottomCenter,
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerLowest,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Theme.of(context).dividerColor,
+                            ),
+                          ),
+                          child: FractionallySizedBox(
+                            heightFactor:
+                                maxValue == 0 ? 0.04 : bucket.value / maxValue,
+                            widthFactor: 1,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .primary
+                                    .withValues(alpha: 0.82),
+                                borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(8),
+                                  bottom: Radius.circular(7),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          bucket.label,
+                          maxLines: compactLabels ? 1 : 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.labelMedium,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _InsightBucket {
+  const _InsightBucket({required this.label, required this.value});
+
+  final String label;
+  final int value;
+}
+
+class _InsightsSummary {
+  const _InsightsSummary({
+    required this.currentStreak,
+    required this.thisMonthCount,
+    required this.totalCharacters,
+    required this.totalAttachments,
+    required this.message,
+  });
+
+  final int currentStreak;
+  final int thisMonthCount;
+  final int totalCharacters;
+  final int totalAttachments;
+  final String message;
+}
+
+_InsightsSummary _buildInsightsSummary(List<NoteEntry> notes) {
+  final now = DateTime.now();
+  final thisMonthCount = notes
+      .where(
+        (note) =>
+            note.createdAt.year == now.year && note.createdAt.month == now.month,
+      )
+      .length;
+  final totalCharacters = notes.fold<int>(
+    0,
+    (sum, note) => sum + note.body.trim().length,
+  );
+  final totalAttachments = notes.fold<int>(
+    0,
+    (sum, note) => sum + note.attachments.length,
+  );
+  final activeDays = notes
+      .map((note) => DateTime(note.createdAt.year, note.createdAt.month, note.createdAt.day))
+      .toSet()
+      .toList()
+    ..sort((a, b) => b.compareTo(a));
+  var currentStreak = 0;
+  if (activeDays.isNotEmpty) {
+    var cursor = activeDays.first;
+    for (final day in activeDays) {
+      if (_isSameCalendarDay(day, cursor)) {
+        currentStreak += 1;
+        cursor = cursor.subtract(const Duration(days: 1));
+      }
+    }
+  }
+  final bestDay = _buildRecentDayBuckets(notes, count: 31).fold<_InsightBucket?>(
+    null,
+    (best, bucket) => best == null || bucket.value > best.value ? bucket : best,
+  );
+  final message = bestDay == null || bestDay.value == 0
+      ? '書いた量がここにたまります。まずは数日続けてみると変化が見えます。'
+      : '今月は $thisMonthCount 件、最も書いた日は ${bestDay.label} です。連続記録を保つと積み上がりが見えやすくなります。';
+  return _InsightsSummary(
+    currentStreak: currentStreak,
+    thisMonthCount: thisMonthCount,
+    totalCharacters: totalCharacters,
+    totalAttachments: totalAttachments,
+    message: message,
+  );
+}
+
+List<_InsightBucket> _buildMonthlyBuckets(List<NoteEntry> notes, {int count = 6}) {
+  final now = DateTime.now();
+  final buckets = <_InsightBucket>[];
+  for (var i = count - 1; i >= 0; i--) {
+    final month = DateTime(now.year, now.month - i);
+    final value = notes
+        .where(
+          (note) =>
+              note.createdAt.year == month.year &&
+              note.createdAt.month == month.month,
+        )
+        .length;
+    buckets.add(_InsightBucket(label: '${month.month}月', value: value));
+  }
+  return buckets;
+}
+
+List<_InsightBucket> _buildRecentDayBuckets(List<NoteEntry> notes, {int count = 14}) {
+  final now = DateTime.now();
+  final buckets = <_InsightBucket>[];
+  for (var i = count - 1; i >= 0; i--) {
+    final day =
+        DateTime(now.year, now.month, now.day).subtract(Duration(days: i));
+    final value =
+        notes.where((note) => _isSameCalendarDay(note.createdAt, day)).length;
+    buckets.add(_InsightBucket(label: '${day.month}/${day.day}', value: value));
+  }
+  return buckets;
+}
+
+List<_InsightBucket> _buildWeekdayBuckets(List<NoteEntry> notes) {
+  const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  return [
+    for (var i = 1; i <= 7; i++)
+      _InsightBucket(
+        label: labels[i - 1],
+        value: notes.where((note) => note.createdAt.weekday == i).length,
+      ),
+  ];
+}
+
+List<_InsightBucket> _buildAttachmentBuckets(List<NoteEntry> notes) {
+  int countFor(AttachmentType type) => notes.fold<int>(
+        0,
+        (sum, note) =>
+            sum + note.attachments.where((attachment) => attachment.type == type).length,
+      );
+  return [
+    _InsightBucket(label: 'Photo', value: countFor(AttachmentType.photo)),
+    _InsightBucket(label: 'Video', value: countFor(AttachmentType.video)),
+    _InsightBucket(label: 'Audio', value: countFor(AttachmentType.audio)),
+  ];
+}
+
+bool _isSameCalendarDay(DateTime left, DateTime right) {
+  return left.year == right.year &&
+      left.month == right.month &&
+      left.day == right.day;
 }
 
 class SettingsScreen extends ConsumerWidget {
@@ -2416,6 +2866,13 @@ class _Sidebar extends StatelessWidget {
                   onTap: () => onSectionSelected(AppSection.calendar),
                 ),
                 _SidebarItem(
+                  icon: Icons.insert_chart_outlined_rounded,
+                  selectedIcon: Icons.insert_chart_rounded,
+                  label: 'Insights',
+                  selected: section == AppSection.insights,
+                  onTap: () => onSectionSelected(AppSection.insights),
+                ),
+                _SidebarItem(
                   icon: Icons.settings_outlined,
                   selectedIcon: Icons.settings_rounded,
                   label: 'Settings',
@@ -2603,16 +3060,48 @@ class _NoteDayDivider extends StatelessWidget {
   Widget build(BuildContext context) {
     final label =
         '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-      color: Theme.of(context).colorScheme.surface,
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: _mutedTextColor(context),
-              fontWeight: FontWeight.w700,
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(date.year, date.month, date.day);
+    final dayDiff = today.difference(target).inDays;
+    final suffix = switch (dayDiff) {
+      0 => 'Today',
+      1 => 'Yesterday',
+      _ => null,
+    };
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              height: 1,
+              color: Theme.of(context).dividerColor,
             ),
+          ),
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: Theme.of(context).dividerColor),
+            ),
+            child: Text(
+              suffix == null ? label : '$label  $suffix',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: _mutedTextColor(context),
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ),
+          Expanded(
+            child: Container(
+              height: 1,
+              color: Theme.of(context).dividerColor,
+            ),
+          ),
+        ],
       ),
     );
   }
