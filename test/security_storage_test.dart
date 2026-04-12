@@ -579,6 +579,14 @@ void main() {
     );
     expect(encryptedPayload, isNotNull);
     expect(encryptedPayload!.contains('Sensitive title'), isFalse);
+    final copied = await bundleStore.writeEncryptedBundlePayload(
+      encryptedPayload,
+      noteCount: stored.noteCount,
+      attachmentCount: stored.attachmentCount,
+      fileNameOverride: 'copied_bundle.enc',
+    );
+    final copiedDecoded = await bundleStore.readBundleJson(copied.reference);
+    expect(copiedDecoded?['deviceId'], 'device-export');
 
     if (await tempDirectory.exists()) {
       await tempDirectory.delete(recursive: true);

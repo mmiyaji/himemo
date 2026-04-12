@@ -107,6 +107,39 @@ class SecureSyncBundleStore {
     return file.readAsString();
   }
 
+  Future<StoredSyncBundle> writeEncryptedBundlePayload(
+    String encodedPayload, {
+    required int noteCount,
+    required int attachmentCount,
+    String? fileNameOverride,
+  }) async {
+    if (kIsWeb) {
+      final prefs = await _sharedPreferencesProvider();
+      await prefs.setString(webStorageKey, encodedPayload);
+      return StoredSyncBundle(
+        reference: webStorageKey,
+        noteCount: noteCount,
+        attachmentCount: attachmentCount,
+      );
+    }
+
+    final directory = await _directoryProvider();
+    final file = File(
+      path.join(
+        directory.path,
+        'sync_exports',
+        fileNameOverride ?? fileName,
+      ),
+    );
+    await file.create(recursive: true);
+    await file.writeAsString(encodedPayload, flush: true);
+    return StoredSyncBundle(
+      reference: file.path,
+      noteCount: noteCount,
+      attachmentCount: attachmentCount,
+    );
+  }
+
   Future<Map<String, dynamic>?> readBundleJson(String reference) async {
     final payload = await readEncryptedBundlePayload(reference);
     if (payload == null || payload.isEmpty) {

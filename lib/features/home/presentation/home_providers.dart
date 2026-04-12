@@ -192,16 +192,19 @@ class SyncTransferState {
     required this.stage,
     this.message,
     this.remoteStatus,
+    this.localBundle,
   });
 
   const SyncTransferState.idle()
     : stage = SyncTransferStage.idle,
       message = null,
-      remoteStatus = null;
+      remoteStatus = null,
+      localBundle = null;
 
   final SyncTransferStage stage;
   final String? message;
   final RemoteSyncBundleStatus? remoteStatus;
+  final StoredSyncBundle? localBundle;
 
   bool get isBusy => stage == SyncTransferStage.busy;
 
@@ -209,12 +212,14 @@ class SyncTransferState {
     SyncTransferStage? stage,
     String? message,
     RemoteSyncBundleStatus? remoteStatus,
+    StoredSyncBundle? localBundle,
     bool clearMessage = false,
   }) {
     return SyncTransferState(
       stage: stage ?? this.stage,
       message: clearMessage ? null : (message ?? this.message),
       remoteStatus: remoteStatus ?? this.remoteStatus,
+      localBundle: localBundle ?? this.localBundle,
     );
   }
 }
@@ -795,12 +800,58 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         stage: SyncTransferStage.success,
         message: 'Encrypted bundle uploaded to Google Drive app-data.',
         remoteStatus: remoteStatus,
+        localBundle: bundle,
       );
     } catch (error) {
       state = SyncTransferState(
         stage: SyncTransferStage.error,
         message: '$error',
         remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
+    }
+  }
+
+  Future<void> downloadLatestBundle() async {
+    if (ref.read(syncProviderControllerProvider) != SyncProvider.googleDrive) {
+      state = const SyncTransferState(
+        stage: SyncTransferStage.error,
+        message: 'Switch the sync target to Google Drive before downloading.',
+      );
+      return;
+    }
+    state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
+    try {
+      final remoteBundle = await ref
+          .read(googleDriveSyncTransportProvider)
+          .downloadLatestBundle();
+      if (remoteBundle == null) {
+        state = const SyncTransferState(
+          stage: SyncTransferStage.success,
+          message: 'No remote Google Drive bundle is available.',
+        );
+        return;
+      }
+      final localBundle = await ref
+          .read(secureSyncBundleStoreProvider)
+          .writeEncryptedBundlePayload(
+            remoteBundle.encodedPayload,
+            noteCount: remoteBundle.status.noteCount ?? 0,
+            attachmentCount: remoteBundle.status.attachmentCount ?? 0,
+            fileNameOverride: 'downloaded_sync_bundle.enc',
+          );
+      state = SyncTransferState(
+        stage: SyncTransferStage.success,
+        message: 'Remote Google Drive bundle downloaded to local secure storage.',
+        remoteStatus: remoteBundle.status,
+        localBundle: localBundle,
+      );
+    } catch (error) {
+      state = SyncTransferState(
+        stage: SyncTransferStage.error,
+        message: '$error',
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
       );
     }
   }

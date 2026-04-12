@@ -25,6 +25,16 @@ class RemoteSyncBundleStatus {
   final String? deviceId;
 }
 
+class DownloadedRemoteSyncBundle {
+  const DownloadedRemoteSyncBundle({
+    required this.status,
+    required this.encodedPayload,
+  });
+
+  final RemoteSyncBundleStatus status;
+  final String encodedPayload;
+}
+
 abstract class GoogleDriveSyncTransport {
   Future<RemoteSyncBundleStatus?> fetchLatestBundleStatus();
 
@@ -34,6 +44,8 @@ abstract class GoogleDriveSyncTransport {
     required int noteCount,
     required int attachmentCount,
   });
+
+  Future<DownloadedRemoteSyncBundle?> downloadLatestBundle();
 }
 
 class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
@@ -85,6 +97,26 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
           );
 
     return _toStatus(result);
+  }
+
+  @override
+  Future<DownloadedRemoteSyncBundle?> downloadLatestBundle() async {
+    final api = await _openDriveApi(interactive: true);
+    final existing = await _findExistingBundle(api);
+    if (existing == null || existing.id == null || existing.id!.isEmpty) {
+      return null;
+    }
+    final response = await api.files.get(
+      existing.id!,
+      downloadOptions: drive.DownloadOptions.fullMedia,
+    );
+    final media = response as drive.Media;
+    final chunks = await media.stream.toList();
+    final bytes = chunks.expand((chunk) => chunk).toList(growable: false);
+    return DownloadedRemoteSyncBundle(
+      status: _toStatus(existing),
+      encodedPayload: utf8.decode(bytes),
+    );
   }
 
   Future<drive.DriveApi> _openDriveApi({required bool interactive}) async {

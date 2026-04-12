@@ -704,6 +704,7 @@ class SettingsScreen extends ConsumerWidget {
   static const syncDisconnectKey = Key('sync-disconnect-button');
   static const syncRefreshRemoteKey = Key('sync-refresh-remote-button');
   static const syncUploadBundleKey = Key('sync-upload-bundle-button');
+  static const syncDownloadBundleKey = Key('sync-download-bundle-button');
   static const privateVaultSetKey = Key('private-vault-set-key');
   static const privateVaultUnlockKey = Key('private-vault-unlock-key');
   static const privateVaultLockKey = Key('private-vault-lock-key');
@@ -995,6 +996,14 @@ class SettingsScreen extends ConsumerWidget {
               title: const Text('Remote bundle'),
               subtitle: Text(_remoteBundleSummary(syncProvider, syncTransferState)),
             ),
+            if (syncTransferState.localBundle != null)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Local bundle cache'),
+                subtitle: Text(
+                  'Stored at ${syncTransferState.localBundle!.reference}',
+                ),
+              ),
             _ThemeOptionTile(
               tileKey: syncOffKey,
               title: 'Off',
@@ -1093,6 +1102,31 @@ class SettingsScreen extends ConsumerWidget {
                             ).showSnackBar(SnackBar(content: Text(message)));
                           },
                     child: const Text('Upload bundle'),
+                  ),
+                if (syncProvider == SyncProvider.googleDrive &&
+                    syncAuthState.isAuthenticated)
+                  OutlinedButton(
+                    key: syncDownloadBundleKey,
+                    onPressed: syncTransferState.isBusy
+                        ? null
+                        : () async {
+                            await ref
+                                .read(syncTransferControllerProvider.notifier)
+                                .downloadLatestBundle();
+                            if (!context.mounted) {
+                              return;
+                            }
+                            final message = ref
+                                .read(syncTransferControllerProvider)
+                                .message;
+                            if (message == null || message.isEmpty) {
+                              return;
+                            }
+                            ScaffoldMessenger.of(
+                              context,
+                            ).showSnackBar(SnackBar(content: Text(message)));
+                          },
+                    child: const Text('Download bundle'),
                   ),
                 OutlinedButton(
                   onPressed: () async {
