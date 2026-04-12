@@ -60,6 +60,20 @@ fvm flutter run -d android --flavor production -t lib/main_production.dart
 fvm flutter build apk --flavor production -t lib/main_production.dart
 ```
 
+### Web build
+
+Wasm dry-run の警告を避けるため、Web ビルドは `--no-wasm-dry-run` 付きで実行します。
+
+```powershell
+fvm flutter build web --no-wasm-dry-run -t lib/main_development.dart
+```
+
+または npm script を使います。
+
+```powershell
+npm run web:build
+```
+
 ## テスト
 
 ### Flutter テスト

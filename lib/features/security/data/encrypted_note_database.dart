@@ -1,11 +1,7 @@
-import 'dart:io';
-
 import 'package:drift/drift.dart';
-import 'package:drift/native.dart';
-import 'package:path/path.dart' as path;
-import 'package:path_provider/path_provider.dart';
 
 import '../../home/domain/note_entry.dart';
+import 'encrypted_note_database_executor.dart';
 
 part 'encrypted_note_database.g.dart';
 
@@ -74,19 +70,11 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
 
   factory EncryptedNoteDatabase({
     QueryExecutor? executor,
-    Future<Directory> Function()? directoryProvider,
   }) {
     if (executor != null) {
       return EncryptedNoteDatabase._(executor);
     }
-    return EncryptedNoteDatabase._(
-      LazyDatabase(() async {
-        final directory =
-            await (directoryProvider ?? getApplicationSupportDirectory)();
-        final file = File(path.join(directory.path, 'himemo_notes.sqlite'));
-        return NativeDatabase.createInBackground(file);
-      }),
-    );
+    return EncryptedNoteDatabase._(createEncryptedNoteDatabaseExecutor());
   }
 
   @override
