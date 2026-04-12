@@ -7,6 +7,10 @@ enum AttachmentType { photo, video, audio }
 
 enum NoteSyncState { localOnly, pendingUpload, synced, pendingDelete, conflict }
 
+enum NoteEditorMode { quick, rich }
+
+enum NoteBlockType { paragraph, photo, video, audio }
+
 @freezed
 abstract class NoteAttachment with _$NoteAttachment {
   const factory NoteAttachment({
@@ -18,6 +22,18 @@ abstract class NoteAttachment with _$NoteAttachment {
 
   factory NoteAttachment.fromJson(Map<String, dynamic> json) =>
       _$NoteAttachmentFromJson(json);
+}
+
+@freezed
+abstract class NoteBlock with _$NoteBlock {
+  const factory NoteBlock({
+    required NoteBlockType type,
+    String? text,
+    NoteAttachment? attachment,
+  }) = _NoteBlock;
+
+  factory NoteBlock.fromJson(Map<String, dynamic> json) =>
+      _$NoteBlockFromJson(json);
 }
 
 @freezed
@@ -33,9 +49,11 @@ abstract class NoteEntry with _$NoteEntry {
     String? deviceId,
     String? contentHash,
     @Default(<NoteAttachment>[]) List<NoteAttachment> attachments,
+    @Default(<NoteBlock>[]) List<NoteBlock> blocks,
     @Default(false) bool isPinned,
     @Default(1) int revision,
     @Default(NoteSyncState.localOnly) NoteSyncState syncState,
+    @Default(NoteEditorMode.quick) NoteEditorMode editorMode,
   }) = _NoteEntry;
 
   factory NoteEntry.fromJson(Map<String, dynamic> json) =>

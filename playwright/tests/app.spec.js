@@ -2,15 +2,17 @@ const { test, expect } = require('@playwright/test');
 
 test('can create a note by using the first line as the title', async ({ page }) => {
   await page.goto('/');
-  await enableSemantics(page);
-  await dismissOnboardingIfNeeded(page);
+  await waitForApp(page);
+  await completeOnboarding(page);
 
   await expect(page.getByRole('button', { name: 'Add note' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Add note' }).click();
   await expect(page.locator('flutter-view')).toContainText('New note');
 
-  await page.getByLabel('Memo').fill('Shopping list\nMilk\nEggs');
+  await page.getByRole('textbox', { name: 'Memo' }).fill('Shopping list\nMilk\nEggs');
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: 'Create note' })).toBeEnabled();
   await page.getByRole('button', { name: 'Create note' }).click();
 
   await expect(page.locator('flutter-view')).toContainText('Shopping list');
@@ -18,54 +20,58 @@ test('can create a note by using the first line as the title', async ({ page }) 
   await expect(page.locator('flutter-view')).toContainText('Eggs');
 });
 
-async function dismissOnboardingIfNeeded(page) {
+test('can create a rich memo with embedded media blocks', async ({ page }) => {
+  await page.goto('/');
+  await waitForApp(page);
+  await completeOnboarding(page);
+
+  await page.getByRole('button', { name: 'Add note' }).click();
+  await page.getByRole('button', { name: 'Rich memo' }).click();
+
+  const textBlocks = page.getByRole('textbox', { name: 'Paragraph' });
+  await textBlocks.last().fill('Trip journal');
+  await page.getByRole('button', { name: 'Add text' }).click();
+  await textBlocks.nth(1).fill('Day one was quiet and clear.');
+  await page.keyboard.press('Tab');
+
+  await page.getByRole('button', { name: 'Create note' }).click();
+
+  await expect(page.locator('flutter-view')).toContainText('Day one was quiet and clear.');
+  await page.getByText('Day one was quiet and clear.').first().click();
+  await expect(page.locator('flutter-view')).toContainText('Day one was quiet and clear.');
+});
+
+async function completeOnboarding(page) {
   await page.waitForTimeout(1400);
-  const skipButton = page.getByRole('button', { name: 'Skip' });
-  if (await skipButton.count()) {
-    await skipButton.click();
+  const nextButton = page.getByRole('button', { name: 'Next' });
+  if (!(await nextButton.count())) {
+    return;
   }
+
+  for (let i = 0; i < 3; i += 1) {
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.waitForTimeout(300);
+  }
+
+  await expect(page.locator('flutter-view')).toContainText('Set initial keys');
+  await page.getByRole('button', { name: 'Set PIN' }).click();
+  await page.locator('input[aria-label="PIN"]').fill('1234');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.locator('flutter-view')).toContainText('App unlock PIN saved.');
+  const finishButton = page
+    .getByRole('button', { name: 'Finish setup' })
+    .or(page.getByRole('button', { name: 'Start' }));
+  await finishButton.first().click();
 }
 
-async function enableSemantics(page) {
-  const addNoteButton = page.getByRole('button', { name: 'Add note' });
-  const accessibilityButton = page.getByRole('button', {
-    name: 'Enable accessibility',
-  });
-  const semanticsPlaceholder = page.locator('flt-semantics-placeholder');
-
+async function waitForApp(page) {
   await expect
     .poll(
       async () =>
-        (await addNoteButton.count()) +
-        (await accessibilityButton.count()) +
-        (await semanticsPlaceholder.count()),
+        (await page.getByRole('button', { name: 'Add note' }).count()) +
+        (await page.getByRole('button', { name: 'Next' }).count()) +
+        (await page.getByRole('button', { name: 'Skip' }).count()),
       { timeout: 15000 },
     )
     .toBeGreaterThan(0);
-
-  if (await addNoteButton.count()) {
-    return;
-  }
-
-  if (await accessibilityButton.count()) {
-    await accessibilityButton.evaluate((element) => {
-      element.click();
-    });
-    await expect(page.getByRole('button', { name: 'Skip' })).toBeVisible({
-      timeout: 15000,
-    });
-    return;
-  }
-
-  if (await semanticsPlaceholder.count()) {
-    await semanticsPlaceholder.evaluate((element) => {
-      element.click();
-    });
-  }
-
-  await expect(
-    page
-        .getByRole('button', { name: 'Skip' })
-        .or(page.getByRole('button', { name: 'Add note' })),
-  ).toBeVisible({ timeout: 15000 });
 }

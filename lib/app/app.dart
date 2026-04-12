@@ -506,173 +506,186 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
     final coverConfigured = ref.watch(coverModeSecretControllerProvider);
     final privateConfigured = ref.watch(privateVaultSecretControllerProvider);
 
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      widget.flavor.displayName,
-                      style: Theme.of(context).textTheme.labelLarge,
-                    ),
-                  ),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: () => ref
-                        .read(appLaunchControllerProvider.notifier)
-                        .completeOnboarding(),
-                    child: const Text('Skip'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 28),
-              Text(
-                'Welcome to HiMemo',
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'A short setup pass before the memo vault opens.',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-              ),
-              const SizedBox(height: 28),
-              Expanded(
-                child: PageView.builder(
-                  controller: _pageController,
-                  itemCount: _pages.length,
-                  onPageChanged: (index) {
-                    setState(() {
-                      _pageIndex = index;
-                    });
-                  },
-                  itemBuilder: (context, index) {
-                    final page = _pages[index];
-                    return LayoutBuilder(
-                      builder: (context, constraints) {
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.all(24),
+    return Navigator(
+      pages: [
+        MaterialPage<void>(
+          child: Scaffold(
+            body: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
                           decoration: BoxDecoration(
-                            color: colorScheme.surface,
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(
-                              color: Theme.of(context).dividerColor,
-                            ),
+                            color: colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(999),
                           ),
-                          child: SingleChildScrollView(
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                minHeight: constraints.maxHeight - 48,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Container(
-                                    width: 56,
-                                    height: 56,
-                                    decoration: BoxDecoration(
-                                      color: colorScheme.primary.withValues(
-                                        alpha: 0.12,
-                                      ),
-                                      borderRadius: BorderRadius.circular(18),
-                                    ),
-                                    child: Icon(
-                                      page.icon,
-                                      color: colorScheme.primary,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 24),
-                                  if (!page.isSetupPage) ...[
-                                    _OnboardingImageCard(
-                                      imagePath: page.imagePath,
-                                      semanticLabel: page.imageSemanticLabel,
-                                      fallbackIcon: page.icon,
-                                    ),
-                                    const SizedBox(height: 24),
-                                  ],
-                                  Text(
-                                    page.title,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.titleLarge,
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    page.body,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodyLarge,
-                                  ),
-                                  if (page.isSetupPage) ...[
-                                    const SizedBox(height: 24),
-                                    _OnboardingSetupPanel(
-                                      pinConfigured: pinConfigured,
-                                      coverConfigured: coverConfigured,
-                                      privateConfigured: privateConfigured,
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
+                          child: Text(
+                            widget.flavor.displayName,
+                            style: Theme.of(context).textTheme.labelLarge,
                           ),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-              Row(
-                children: [
-                  for (var i = 0; i < _pages.length; i++)
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      margin: const EdgeInsets.only(right: 8),
-                      width: i == _pageIndex ? 28 : 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: i == _pageIndex
-                            ? colorScheme.primary
-                            : colorScheme.outlineVariant,
-                        borderRadius: BorderRadius.circular(999),
+                        ),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: () => ref
+                              .read(appLaunchControllerProvider.notifier)
+                              .completeOnboarding(),
+                          child: const Text('Skip'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 28),
+                    Text(
+                      'Welcome to HiMemo',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'A short setup pass before the memo vault opens.',
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                    ),
+                    const SizedBox(height: 28),
+                    Expanded(
+                      child: PageView.builder(
+                        controller: _pageController,
+                        itemCount: _pages.length,
+                        onPageChanged: (index) {
+                          setState(() {
+                            _pageIndex = index;
+                          });
+                        },
+                        itemBuilder: (context, index) {
+                          final page = _pages[index];
+                          return LayoutBuilder(
+                            builder: (context, constraints) {
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.all(24),
+                                decoration: BoxDecoration(
+                                  color: colorScheme.surface,
+                                  borderRadius: BorderRadius.circular(24),
+                                  border: Border.all(
+                                    color: Theme.of(context).dividerColor,
+                                  ),
+                                ),
+                                child: SingleChildScrollView(
+                                  child: ConstrainedBox(
+                                    constraints: BoxConstraints(
+                                      minHeight: constraints.maxHeight - 48,
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          width: 56,
+                                          height: 56,
+                                          decoration: BoxDecoration(
+                                            color:
+                                                colorScheme.primary.withValues(
+                                              alpha: 0.12,
+                                            ),
+                                            borderRadius:
+                                                BorderRadius.circular(18),
+                                          ),
+                                          child: Icon(
+                                            page.icon,
+                                            color: colorScheme.primary,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 24),
+                                        if (!page.isSetupPage) ...[
+                                          _OnboardingImageCard(
+                                            imagePath: page.imagePath,
+                                            semanticLabel:
+                                                page.imageSemanticLabel,
+                                            fallbackIcon: page.icon,
+                                          ),
+                                          const SizedBox(height: 24),
+                                        ],
+                                        Text(
+                                          page.title,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleLarge,
+                                        ),
+                                        const SizedBox(height: 12),
+                                        Text(
+                                          page.body,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyLarge,
+                                        ),
+                                        if (page.isSetupPage) ...[
+                                          const SizedBox(height: 24),
+                                          _OnboardingSetupPanel(
+                                            pinConfigured: pinConfigured,
+                                            coverConfigured: coverConfigured,
+                                            privateConfigured:
+                                                privateConfigured,
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          );
+                        },
                       ),
                     ),
-                  const Spacer(),
-                  FilledButton(
-                    onPressed: () async {
-                      if (isLastPage) {
-                        await ref
-                            .read(appLaunchControllerProvider.notifier)
-                            .completeOnboarding();
-                        return;
-                      }
-                      await _pageController.nextPage(
-                        duration: const Duration(milliseconds: 220),
-                        curve: Curves.easeOut,
-                      );
-                    },
-                    child: Text(isLastPage ? 'Start' : 'Next'),
-                  ),
-                ],
+                    Row(
+                      children: [
+                        for (var i = 0; i < _pages.length; i++)
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            margin: const EdgeInsets.only(right: 8),
+                            width: i == _pageIndex ? 28 : 10,
+                            height: 10,
+                            decoration: BoxDecoration(
+                              color: i == _pageIndex
+                                  ? colorScheme.primary
+                                  : colorScheme.outlineVariant,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                        const Spacer(),
+                        FilledButton(
+                          key: const Key('onboarding-next-button'),
+                          onPressed: () async {
+                            if (isLastPage) {
+                              await ref
+                                  .read(appLaunchControllerProvider.notifier)
+                                  .completeOnboarding();
+                              return;
+                            }
+                            await _pageController.nextPage(
+                              duration: const Duration(milliseconds: 220),
+                              curve: Curves.easeOut,
+                            );
+                          },
+                          child: Text(isLastPage ? 'Finish setup' : 'Next'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ],
+            ),
           ),
         ),
-      ),
+      ],
+      onDidRemovePage: (_) {},
     );
   }
 }
@@ -771,18 +784,51 @@ class _OnboardingSetupPanel extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    return _OnboardingSetupPanelBody(
+      pinConfigured: pinConfigured,
+      coverConfigured: coverConfigured,
+      privateConfigured: privateConfigured,
+    );
+  }
+}
+
+class _OnboardingSetupPanelBody extends ConsumerStatefulWidget {
+  const _OnboardingSetupPanelBody({
+    required this.pinConfigured,
+    required this.coverConfigured,
+    required this.privateConfigured,
+  });
+
+  final bool pinConfigured;
+  final bool coverConfigured;
+  final bool privateConfigured;
+
+  @override
+  ConsumerState<_OnboardingSetupPanelBody> createState() =>
+      _OnboardingSetupPanelBodyState();
+}
+
+class _OnboardingSetupPanelBodyState
+    extends ConsumerState<_OnboardingSetupPanelBody> {
+  String? _pinFeedback;
+  String? _coverFeedback;
+  String? _privateFeedback;
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _OnboardingSetupTile(
+          tileKey: const Key('onboarding-set-pin-button'),
           title: kIsWeb ? 'App unlock PIN' : 'App unlock',
           subtitle: kIsWeb
-              ? (pinConfigured
+              ? (widget.pinConfigured
                   ? 'Configured for this browser.'
                   : 'Set a 4 digit PIN for app launch.')
               : 'Device authentication can be enabled later in Settings.',
           actionLabel: kIsWeb
-              ? (pinConfigured ? 'Change PIN' : 'Set PIN')
+              ? (widget.pinConfigured ? 'Change PIN' : 'Set PIN')
               : 'Later in Settings',
           onPressed: kIsWeb
               ? () async {
@@ -796,16 +842,24 @@ class _OnboardingSetupPanel extends ConsumerWidget {
                   await ref
                       .read(appLockSettingsControllerProvider.notifier)
                       .setEnabled(true);
+                  if (!mounted) {
+                    return;
+                  }
+                  setState(() {
+                    _pinFeedback = 'App unlock PIN saved.';
+                  });
                 }
               : null,
+          feedback: _pinFeedback,
         ),
         const SizedBox(height: 12),
         _OnboardingSetupTile(
+          tileKey: const Key('onboarding-set-cover-key-button'),
           title: 'Cover mode key',
-          subtitle: coverConfigured
+          subtitle: widget.coverConfigured
               ? 'Configured.'
               : 'Optional key for the alternate everyday-facing mode.',
-          actionLabel: coverConfigured ? 'Change key' : 'Set key',
+          actionLabel: widget.coverConfigured ? 'Change key' : 'Set key',
           onPressed: () async {
             final secret = await _showOnboardingSecretSetupDialog(
               context,
@@ -819,15 +873,23 @@ class _OnboardingSetupPanel extends ConsumerWidget {
             await ref
                 .read(coverModeSecretControllerProvider.notifier)
                 .configure(secret);
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _coverFeedback = 'Cover key saved.';
+            });
           },
+          feedback: _coverFeedback,
         ),
         const SizedBox(height: 12),
         _OnboardingSetupTile(
+          tileKey: const Key('onboarding-set-private-key-button'),
           title: 'Private mode key',
-          subtitle: privateConfigured
+          subtitle: widget.privateConfigured
               ? 'Configured.'
               : 'Used to unlock the private memo mode and private vault.',
-          actionLabel: privateConfigured ? 'Change key' : 'Set key',
+          actionLabel: widget.privateConfigured ? 'Change key' : 'Set key',
           onPressed: () async {
             final secret = await _showOnboardingSecretSetupDialog(
               context,
@@ -842,7 +904,14 @@ class _OnboardingSetupPanel extends ConsumerWidget {
                 .read(privateVaultSecretControllerProvider.notifier)
                 .configure(secret);
             ref.read(privateVaultSessionControllerProvider.notifier).lock();
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _privateFeedback = 'Private key saved.';
+            });
           },
+          feedback: _privateFeedback,
         ),
       ],
     );
@@ -851,16 +920,20 @@ class _OnboardingSetupPanel extends ConsumerWidget {
 
 class _OnboardingSetupTile extends StatelessWidget {
   const _OnboardingSetupTile({
+    required this.tileKey,
     required this.title,
     required this.subtitle,
     required this.actionLabel,
     this.onPressed,
+    this.feedback,
   });
 
+  final Key tileKey;
   final String title;
   final String subtitle;
   final String actionLabel;
   final VoidCallback? onPressed;
+  final String? feedback;
 
   @override
   Widget build(BuildContext context) {
@@ -885,11 +958,22 @@ class _OnboardingSetupTile extends StatelessWidget {
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                 ),
+                if (feedback != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    feedback!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ],
               ],
             ),
           ),
           const SizedBox(width: 12),
-          OutlinedButton(
+          FilledButton.tonal(
+            key: tileKey,
             onPressed: onPressed,
             child: Text(actionLabel),
           ),
@@ -900,13 +984,58 @@ class _OnboardingSetupTile extends StatelessWidget {
 }
 
 Future<String?> _showOnboardingPinSetupDialog(BuildContext context) {
-  return _showOnboardingSecretSetupDialog(
-    context,
-    title: 'Set app unlock PIN',
-    label: 'PIN',
-    confirmLabel: 'Confirm PIN',
-    digitsOnly: true,
-    exactLength: 4,
+  final controller = TextEditingController();
+  String? errorText;
+  return showDialog<String>(
+    context: context,
+    useRootNavigator: true,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: const Text('Set app unlock PIN'),
+            content: SizedBox(
+              width: 320,
+              child: TextField(
+                controller: controller,
+                obscureText: true,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'PIN',
+                  border: const OutlineInputBorder(),
+                  errorText: errorText,
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final pin = controller.text.trim();
+                  if (pin.length != 4) {
+                    setState(() {
+                      errorText = 'Use exactly 4 digits.';
+                    });
+                    return;
+                  }
+                  if (!RegExp(r'^\d+$').hasMatch(pin)) {
+                    setState(() {
+                      errorText = 'Digits only.';
+                    });
+                    return;
+                  }
+                  Navigator.of(context).pop(pin);
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      );
+    },
   );
 }
 
@@ -924,6 +1053,7 @@ Future<String?> _showOnboardingSecretSetupDialog(
 
   return showDialog<String>(
     context: context,
+    useRootNavigator: true,
     builder: (context) {
       return StatefulBuilder(
         builder: (context, setState) {

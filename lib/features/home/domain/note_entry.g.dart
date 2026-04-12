@@ -28,6 +28,28 @@ const _$AttachmentTypeEnumMap = {
   AttachmentType.audio: 'audio',
 };
 
+_NoteBlock _$NoteBlockFromJson(Map<String, dynamic> json) => _NoteBlock(
+  type: $enumDecode(_$NoteBlockTypeEnumMap, json['type']),
+  text: json['text'] as String?,
+  attachment: json['attachment'] == null
+      ? null
+      : NoteAttachment.fromJson(json['attachment'] as Map<String, dynamic>),
+);
+
+Map<String, dynamic> _$NoteBlockToJson(_NoteBlock instance) =>
+    <String, dynamic>{
+      'type': _$NoteBlockTypeEnumMap[instance.type]!,
+      'text': instance.text,
+      'attachment': instance.attachment,
+    };
+
+const _$NoteBlockTypeEnumMap = {
+  NoteBlockType.paragraph: 'paragraph',
+  NoteBlockType.photo: 'photo',
+  NoteBlockType.video: 'video',
+  NoteBlockType.audio: 'audio',
+};
+
 _NoteEntry _$NoteEntryFromJson(Map<String, dynamic> json) => _NoteEntry(
   id: json['id'] as String,
   vaultId: json['vaultId'] as String,
@@ -47,11 +69,19 @@ _NoteEntry _$NoteEntryFromJson(Map<String, dynamic> json) => _NoteEntry(
           ?.map((e) => NoteAttachment.fromJson(e as Map<String, dynamic>))
           .toList() ??
       const <NoteAttachment>[],
+  blocks:
+      (json['blocks'] as List<dynamic>?)
+          ?.map((e) => NoteBlock.fromJson(e as Map<String, dynamic>))
+          .toList() ??
+      const <NoteBlock>[],
   isPinned: json['isPinned'] as bool? ?? false,
   revision: (json['revision'] as num?)?.toInt() ?? 1,
   syncState:
       $enumDecodeNullable(_$NoteSyncStateEnumMap, json['syncState']) ??
       NoteSyncState.localOnly,
+  editorMode:
+      $enumDecodeNullable(_$NoteEditorModeEnumMap, json['editorMode']) ??
+      NoteEditorMode.quick,
 );
 
 Map<String, dynamic> _$NoteEntryToJson(_NoteEntry instance) =>
@@ -66,9 +96,11 @@ Map<String, dynamic> _$NoteEntryToJson(_NoteEntry instance) =>
       'deviceId': instance.deviceId,
       'contentHash': instance.contentHash,
       'attachments': instance.attachments,
+      'blocks': instance.blocks,
       'isPinned': instance.isPinned,
       'revision': instance.revision,
       'syncState': _$NoteSyncStateEnumMap[instance.syncState]!,
+      'editorMode': _$NoteEditorModeEnumMap[instance.editorMode]!,
     };
 
 const _$NoteSyncStateEnumMap = {
@@ -77,4 +109,9 @@ const _$NoteSyncStateEnumMap = {
   NoteSyncState.synced: 'synced',
   NoteSyncState.pendingDelete: 'pendingDelete',
   NoteSyncState.conflict: 'conflict',
+};
+
+const _$NoteEditorModeEnumMap = {
+  NoteEditorMode.quick: 'quick',
+  NoteEditorMode.rich: 'rich',
 };

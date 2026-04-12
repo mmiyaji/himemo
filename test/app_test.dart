@@ -143,5 +143,7 @@ void main() {
     expect(note.deviceId, isNull);
     expect(note.contentHash, isNull);
     expect(note.syncState, NoteSyncState.localOnly);
+    expect(note.blocks, isEmpty);
+    expect(note.editorMode, NoteEditorMode.quick);
   });
 }

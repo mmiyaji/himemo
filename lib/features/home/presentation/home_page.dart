@@ -147,6 +147,19 @@ class NotesScreen extends ConsumerStatefulWidget {
 
 class _NotesScreenState extends ConsumerState<NotesScreen> {
   String? _selectedNoteId;
+  late final PageController _detailPageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _detailPageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _detailPageController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -165,9 +178,22 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
       _selectedNoteId = visibleNotes.first.id;
     }
 
-    final selectedNote = _selectedNoteId == null
-        ? null
-        : ref.watch(noteByIdProvider(_selectedNoteId!));
+    final selectedIndex = _selectedNoteId == null
+        ? -1
+        : visibleNotes.indexWhere((note) => note.id == _selectedNoteId);
+
+    if (useSplitView && selectedIndex >= 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_detailPageController.hasClients) {
+          return;
+        }
+        final currentPage = _detailPageController.page?.round();
+        if (currentPage == selectedIndex) {
+          return;
+        }
+        _detailPageController.jumpToPage(selectedIndex);
+      });
+    }
 
     if (!useSplitView) {
       return ListView(
@@ -197,7 +223,11 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 vault: vault,
                 notes: ref.watch(notesForVaultProvider(vault.id)),
                 selectedNoteId: _selectedNoteId,
-                onNoteSelected: (note) => _openMobileNoteActions(context, note),
+                onNoteSelected: (note) => _openMobileNoteActions(
+                  context,
+                  note,
+                  visibleNotes,
+                ),
               ),
               const SizedBox(height: 16),
             ],
@@ -265,18 +295,21 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
           flex: 6,
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: _NoteDetailPane(
-              note: selectedNote,
-              vaultName: selectedNote == null
-                  ? null
-                  : ref.watch(vaultByIdProvider(selectedNote.vaultId)).name,
-              onEdit: selectedNote == null
-                  ? null
-                  : () => showNoteEditorSheet(context, ref, note: selectedNote),
-              onDelete: selectedNote == null
-                  ? null
-                  : () => _deleteNote(context, selectedNote),
-            ),
+            child: visibleNotes.isEmpty
+                ? const _EmptyNotesState()
+                : _NoteDetailPager(
+                    notes: visibleNotes,
+                    selectedIndex: selectedIndex < 0 ? 0 : selectedIndex,
+                    controller: _detailPageController,
+                    onPageChanged: (index) {
+                      setState(() {
+                        _selectedNoteId = visibleNotes[index].id;
+                      });
+                    },
+                    onEdit: (note) =>
+                        showNoteEditorSheet(context, ref, note: note),
+                    onDelete: (note) => _deleteNote(context, note),
+                  ),
           ),
         ),
       ],
@@ -286,8 +319,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
   Future<void> _openMobileNoteActions(
     BuildContext context,
     NoteEntry note,
+    List<NoteEntry> visibleNotes,
   ) async {
-    final vaultName = ref.read(vaultByIdProvider(note.vaultId)).name;
+    final initialIndex = visibleNotes.indexWhere((entry) => entry.id == note.id);
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -296,16 +330,21 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            child: _NoteDetailPane(
-              note: note,
-              vaultName: vaultName,
-              onEdit: () async {
-                Navigator.of(context).pop();
-                await showNoteEditorSheet(context, ref, note: note);
+            child: _NoteDetailPager(
+              notes: visibleNotes,
+              selectedIndex: initialIndex < 0 ? 0 : initialIndex,
+              onPageChanged: (index) {
+                setState(() {
+                  _selectedNoteId = visibleNotes[index].id;
+                });
               },
-              onDelete: () async {
+              onEdit: (selectedNote) async {
                 Navigator.of(context).pop();
-                await _deleteNote(context, note);
+                await showNoteEditorSheet(context, ref, note: selectedNote);
+              },
+              onDelete: (selectedNote) async {
+                Navigator.of(context).pop();
+                await _deleteNote(context, selectedNote);
               },
             ),
           ),
@@ -2324,9 +2363,10 @@ class _StatTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           Text(
             value,
             style: Theme.of(
@@ -2340,7 +2380,8 @@ class _StatTile extends StatelessWidget {
               context,
             ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2378,9 +2419,10 @@ class _VaultSectionCard extends StatelessWidget {
 
     return Container(
       decoration: _sectionDecoration(context),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
             child: Column(
@@ -2408,7 +2450,8 @@ class _VaultSectionCard extends StatelessWidget {
             if (i != notes.length - 1)
               Divider(height: 1, color: Theme.of(context).dividerColor),
           ],
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2515,6 +2558,76 @@ class _NoteListTile extends StatelessWidget {
   }
 }
 
+class _NoteDetailPager extends ConsumerWidget {
+  const _NoteDetailPager({
+    required this.notes,
+    required this.selectedIndex,
+    required this.onPageChanged,
+    required this.onEdit,
+    required this.onDelete,
+    this.controller,
+  });
+
+  final List<NoteEntry> notes;
+  final int selectedIndex;
+  final PageController? controller;
+  final ValueChanged<int> onPageChanged;
+  final ValueChanged<NoteEntry> onEdit;
+  final ValueChanged<NoteEntry> onDelete;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pageController =
+        controller ?? PageController(initialPage: selectedIndex);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Row(
+            children: [
+              Text(
+                '${selectedIndex + 1} / ${notes.length}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: _mutedTextColor(context),
+                    ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Swipe left or right to move between notes.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: _mutedTextColor(context),
+                      ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: PageView.builder(
+            controller: pageController,
+            itemCount: notes.length,
+            onPageChanged: onPageChanged,
+            itemBuilder: (context, index) {
+              final note = notes[index];
+              return Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: _NoteDetailPane(
+                  note: note,
+                  vaultName: ref.watch(vaultByIdProvider(note.vaultId)).name,
+                  onEdit: () => onEdit(note),
+                  onDelete: () => onDelete(note),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _NoteDetailPane extends StatelessWidget {
   const _NoteDetailPane({
     required this.note,
@@ -2523,36 +2636,32 @@ class _NoteDetailPane extends StatelessWidget {
     this.onDelete,
   });
 
-  final NoteEntry? note;
-  final String? vaultName;
+  final NoteEntry note;
+  final String vaultName;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
-    if (note == null) {
-      return const _EmptyNotesState();
-    }
-
     final createdLabel =
-        '${note!.createdAt.year}/${note!.createdAt.month}/${note!.createdAt.day} ${note!.createdAt.hour.toString().padLeft(2, '0')}:${note!.createdAt.minute.toString().padLeft(2, '0')}';
-    final changedAt = note!.updatedAt ?? note!.createdAt;
+        '${note.createdAt.year}/${note.createdAt.month}/${note.createdAt.day} ${note.createdAt.hour.toString().padLeft(2, '0')}:${note.createdAt.minute.toString().padLeft(2, '0')}';
+    final changedAt = note.updatedAt ?? note.createdAt;
     final updatedLabel =
         '${changedAt.year}/${changedAt.month}/${changedAt.day} ${changedAt.hour.toString().padLeft(2, '0')}:${changedAt.minute.toString().padLeft(2, '0')}';
-    final isEdited =
-        note!.updatedAt != null && note!.updatedAt != note!.createdAt;
+    final isEdited = note.updatedAt != null && note.updatedAt != note.createdAt;
 
     return Container(
       decoration: _sectionDecoration(context),
       padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           Row(
             children: [
               Expanded(
                 child: Text(
-                  vaultName ?? '',
+                  vaultName,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: _mutedTextColor(context),
                       ),
@@ -2572,7 +2681,7 @@ class _NoteDetailPane extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Text(note!.title, style: Theme.of(context).textTheme.headlineSmall),
+          Text(note.title, style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),
           Text(
             isEdited ? 'Edited $updatedLabel' : createdLabel,
@@ -2584,36 +2693,16 @@ class _NoteDetailPane extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                'Created $createdLabel · Revision ${note!.revision}',
+                'Created $createdLabel · Revision ${note.revision}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: _mutedTextColor(context),
                     ),
               ),
             ),
           const SizedBox(height: 20),
-          Expanded(
-            child: SingleChildScrollView(
-              child: Text(
-                note!.body,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-              ),
-            ),
-          ),
-          if (note!.attachments.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            Column(
-              children: [
-                for (final attachment in note!.attachments) ...[
-                  _AttachmentListTile(attachment: attachment),
-                  if (attachment != note!.attachments.last)
-                    const SizedBox(height: 12),
-                ],
-              ],
-            ),
+          ..._buildDetailBlocks(context, note),
           ],
-        ],
+        ),
       ),
     );
   }
@@ -2641,6 +2730,77 @@ class _SectionIntro extends StatelessWidget {
       ],
     );
   }
+}
+
+List<Widget> _buildDetailBlocks(BuildContext context, NoteEntry note) {
+  final blocks = note.blocks.isNotEmpty
+      ? note.blocks
+      : _legacyBlocksFromNote(note);
+  if (blocks.isEmpty) {
+    return [
+      Text(
+        note.body,
+        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+      ),
+    ];
+  }
+
+  final widgets = <Widget>[];
+  for (var i = 0; i < blocks.length; i++) {
+    final block = blocks[i];
+    switch (block.type) {
+      case NoteBlockType.paragraph:
+        final text = block.text?.trim() ?? '';
+        if (text.isNotEmpty) {
+          widgets.add(
+            Text(
+              text,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+            ),
+          );
+        }
+      case NoteBlockType.photo:
+      case NoteBlockType.video:
+      case NoteBlockType.audio:
+        final attachment = block.attachment;
+        if (attachment != null) {
+          widgets.add(_EmbeddedAttachmentBlock(attachment: attachment));
+        }
+    }
+    if (i != blocks.length - 1) {
+      widgets.add(const SizedBox(height: 16));
+    }
+  }
+  return widgets;
+}
+
+List<NoteBlock> _legacyBlocksFromNote(NoteEntry note) {
+  final blocks = <NoteBlock>[];
+  if (note.body.trim().isNotEmpty) {
+    blocks.add(
+      NoteBlock(
+        type: NoteBlockType.paragraph,
+        text: note.body,
+      ),
+    );
+  }
+  for (final attachment in note.attachments) {
+    blocks.add(
+      NoteBlock(
+        type: switch (attachment.type) {
+          AttachmentType.photo => NoteBlockType.photo,
+          AttachmentType.video => NoteBlockType.video,
+          AttachmentType.audio => NoteBlockType.audio,
+        },
+        attachment: attachment,
+      ),
+    );
+  }
+  return blocks;
 }
 
 class _SettingsGroup extends StatelessWidget {
@@ -2844,6 +3004,30 @@ class _EmptyNotesState extends StatelessWidget {
   }
 }
 
+class _RichBlockDraft {
+  _RichBlockDraft.paragraph([String text = ''])
+      : type = NoteBlockType.paragraph,
+        controller = TextEditingController(text: text),
+        attachment = null;
+
+  _RichBlockDraft.attachment(NoteAttachment value)
+      : type = switch (value.type) {
+          AttachmentType.photo => NoteBlockType.photo,
+          AttachmentType.video => NoteBlockType.video,
+          AttachmentType.audio => NoteBlockType.audio,
+        },
+        controller = null,
+        attachment = value;
+
+  final NoteBlockType type;
+  final TextEditingController? controller;
+  final NoteAttachment? attachment;
+
+  void dispose() {
+    controller?.dispose();
+  }
+}
+
 class _NoteEditorSheet extends ConsumerStatefulWidget {
   const _NoteEditorSheet({this.note});
 
@@ -2857,7 +3041,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late final TextEditingController _contentController;
   late DateTime _createdAt;
   late bool _isPinned;
+  late NoteEditorMode _editorMode;
   late List<NoteAttachment> _attachments;
+  late List<_RichBlockDraft> _richBlocks;
   late final Set<String> _initialAttachmentPaths;
   String? _selectedVaultId;
   bool _saved = false;
@@ -2869,7 +3055,15 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _contentController.addListener(_handleTextChanged);
     _createdAt = widget.note?.createdAt ?? DateTime.now();
     _isPinned = widget.note?.isPinned ?? false;
+    _editorMode = widget.note?.editorMode ??
+        ((widget.note?.blocks.isNotEmpty ?? false)
+            ? NoteEditorMode.rich
+            : NoteEditorMode.quick);
     _attachments = [...?widget.note?.attachments];
+    _richBlocks = _buildInitialRichBlocks();
+    for (final block in _richBlocks) {
+      _attachRichBlockListener(block);
+    }
     _initialAttachmentPaths = _attachments
         .map((attachment) => attachment.filePath)
         .whereType<String>()
@@ -2880,7 +3074,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   @override
   void dispose() {
     if (!_saved) {
-      for (final attachment in _attachments) {
+      for (final attachment in _allCurrentAttachments) {
         final filePath = attachment.filePath;
         if (filePath == null || _initialAttachmentPaths.contains(filePath)) {
           continue;
@@ -2892,6 +3086,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     }
     _contentController.removeListener(_handleTextChanged);
     _contentController.dispose();
+    for (final block in _richBlocks) {
+      block.dispose();
+    }
     super.dispose();
   }
 
@@ -2911,6 +3108,53 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       return title;
     }
     return '$title\n$body';
+  }
+
+  List<_RichBlockDraft> _buildInitialRichBlocks() {
+    final sourceBlocks = widget.note?.blocks.isNotEmpty == true
+        ? widget.note!.blocks
+        : _legacyBlocksFromNote(
+            widget.note ??
+                NoteEntry(
+                  id: 'draft',
+                  vaultId: 'everyday',
+                  title: '',
+                  body: _composeEditorContent(),
+                  createdAt: DateTime.now(),
+                  attachments: [...?widget.note?.attachments],
+                ),
+          );
+    final drafts = <_RichBlockDraft>[];
+    for (final block in sourceBlocks) {
+      switch (block.type) {
+        case NoteBlockType.paragraph:
+          drafts.add(_RichBlockDraft.paragraph(block.text ?? ''));
+        case NoteBlockType.photo:
+        case NoteBlockType.video:
+        case NoteBlockType.audio:
+          if (block.attachment != null) {
+            drafts.add(_RichBlockDraft.attachment(block.attachment!));
+          }
+      }
+    }
+    if (drafts.isEmpty) {
+      drafts.add(_RichBlockDraft.paragraph());
+    }
+    return drafts;
+  }
+
+  void _attachRichBlockListener(_RichBlockDraft block) {
+    block.controller?.addListener(_handleTextChanged);
+  }
+
+  List<NoteAttachment> get _allCurrentAttachments {
+    if (_editorMode == NoteEditorMode.quick) {
+      return _attachments;
+    }
+    return [
+      for (final block in _richBlocks)
+        if (block.attachment != null) block.attachment!,
+    ];
   }
 
   @override
@@ -2938,6 +3182,32 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             Expanded(
               child: ListView(
                 children: [
+                  SegmentedButton<NoteEditorMode>(
+                    segments: const [
+                      ButtonSegment(
+                        value: NoteEditorMode.quick,
+                        label: Text('Quick memo'),
+                        icon: Icon(Icons.notes_outlined),
+                      ),
+                      ButtonSegment(
+                        value: NoteEditorMode.rich,
+                        label: Text('Rich memo'),
+                        icon: Icon(Icons.view_stream_outlined),
+                      ),
+                    ],
+                    selected: {_editorMode},
+                    onSelectionChanged: (selection) {
+                      setState(() {
+                        _editorMode = selection.first;
+                        if (_editorMode == NoteEditorMode.rich &&
+                            _richBlocks.isEmpty) {
+                          _richBlocks = [_RichBlockDraft.paragraph()];
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  if (_editorMode == NoteEditorMode.quick) ...[
                   TextField(
                     key: const Key('note-content-input'),
                     controller: _contentController,
@@ -2951,6 +3221,14 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  ] else ...[
+                    _RichMemoEditor(
+                      blocks: _richBlocks,
+                      onAddParagraph: _addRichParagraph,
+                      onRemoveBlock: _removeRichBlock,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   DropdownButtonFormField<String>(
                     key: const Key('note-vault-select'),
                     initialValue: _selectedVaultId,
@@ -2995,96 +3273,30 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Container(
-                    decoration: _sectionDecoration(context),
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              'Attachments',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const Spacer(),
-                            PopupMenuButton<MediaImportAction>(
-                              key: const Key('attachment-add-menu'),
-                              itemBuilder: (context) => [
-                                if (!kIsWeb)
-                                  const PopupMenuItem(
-                                    value: MediaImportAction.takePhoto,
-                                    child: Text('Take photo'),
-                                  ),
-                                const PopupMenuItem(
-                                  value: MediaImportAction.pickPhoto,
-                                  child: Text('Pick photo'),
-                                ),
-                                if (!kIsWeb)
-                                  const PopupMenuItem(
-                                    value: MediaImportAction.recordVideo,
-                                    child: Text('Record video'),
-                                  ),
-                                const PopupMenuItem(
-                                  value: MediaImportAction.pickVideo,
-                                  child: Text('Pick video'),
-                                ),
-                                const PopupMenuItem(
-                                  value: MediaImportAction.pickAudio,
-                                  child: Text('Pick audio'),
-                                ),
-                              ],
-                              onSelected: _handleAttachmentAction,
-                              child: const Padding(
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                child: Text('Add'),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        if (_attachments.isEmpty)
-                          Text(
-                            kIsWeb
-                                ? 'Attach photos, videos, or audio files from this browser.'
-                                : 'Attach photos, videos, or audio files from camera or device storage.',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(color: _mutedTextColor(context)),
-                          )
-                        else
-                          for (var i = 0; i < _attachments.length; i++)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: _EditableAttachmentTile(
-                                attachment: _attachments[i],
-                                onRemove: () {
-                                  final removed = _attachments[i];
-                                  setState(() {
-                                    _attachments.removeAt(i);
-                                  });
-                                  final filePath = removed.filePath;
-                                  if (filePath != null &&
-                                      !_initialAttachmentPaths.contains(
-                                        filePath,
-                                      )) {
-                                    unawaited(
-                                      ref
-                                          .read(
-                                              encryptedAttachmentStoreProvider)
-                                          .deleteAttachment(filePath),
-                                    );
-                                  }
-                                },
-                              ),
-                            ),
-                      ],
+                  if (_editorMode == NoteEditorMode.quick)
+                    _QuickAttachmentSection(
+                      attachments: _attachments,
+                      onSelected: _handleAttachmentAction,
+                      onRemove: (index) {
+                        final removed = _attachments[index];
+                        setState(() {
+                          _attachments.removeAt(index);
+                        });
+                        final filePath = removed.filePath;
+                        if (filePath != null &&
+                            !_initialAttachmentPaths.contains(filePath)) {
+                          unawaited(
+                            ref
+                                .read(encryptedAttachmentStoreProvider)
+                                .deleteAttachment(filePath),
+                          );
+                        }
+                      },
+                    )
+                  else
+                    _RichAttachmentSection(
+                      onSelected: _handleAttachmentAction,
                     ),
-                  ),
                 ],
               ),
             ),
@@ -3098,7 +3310,11 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                   onPressed: () =>
                       _handleAttachmentAction(MediaImportAction.pickPhoto),
                   icon: const Icon(Icons.photo_outlined),
-                  label: const Text('Add photo'),
+                  label: Text(
+                    _editorMode == NoteEditorMode.rich
+                        ? 'Insert photo block'
+                        : 'Add photo',
+                  ),
                 ),
                 OutlinedButton.icon(
                   key: const Key('quick-attach-camera-button'),
@@ -3110,9 +3326,15 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                   icon: kIsWeb
                       ? const Icon(Icons.audiotrack_outlined)
                       : const Icon(Icons.photo_camera_outlined),
-                  label: kIsWeb
-                      ? const Text('Add audio')
-                      : const Text('Use camera'),
+                  label: Text(
+                    kIsWeb
+                        ? (_editorMode == NoteEditorMode.rich
+                            ? 'Insert audio block'
+                            : 'Add audio')
+                        : (_editorMode == NoteEditorMode.rich
+                            ? 'Insert from camera'
+                            : 'Use camera'),
+                  ),
                 ),
               ],
             ),
@@ -3140,8 +3362,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   bool get _canSave {
-    return _splitMemoContent(_contentController.text).title.isNotEmpty &&
-        _selectedVaultId != null;
+    final title = _editorMode == NoteEditorMode.quick
+        ? _splitMemoContent(_contentController.text).title
+        : _deriveRichTitle();
+    return title.isNotEmpty && _selectedVaultId != null;
   }
 
   Future<void> _pickDate() async {
@@ -3182,7 +3406,15 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       return;
     }
     setState(() {
-      _attachments = [..._attachments, attachment];
+      if (_editorMode == NoteEditorMode.quick) {
+        _attachments = [..._attachments, attachment];
+      } else {
+        _richBlocks = [
+          ..._richBlocks,
+          _RichBlockDraft.attachment(attachment),
+          _RichBlockDraft.paragraph(),
+        ];
+      }
     });
   }
 
@@ -3190,7 +3422,12 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (!_canSave) {
       return;
     }
-    final content = _splitMemoContent(_contentController.text);
+    final content = _editorMode == NoteEditorMode.quick
+        ? _splitMemoContent(_contentController.text)
+        : (title: _deriveRichTitle(), body: _deriveRichBody());
+    final blocks = _editorMode == NoteEditorMode.quick
+        ? const <NoteBlock>[]
+        : _richBlocksToNoteBlocks();
     final note = NoteEntry(
       id: widget.note?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
       vaultId: _selectedVaultId!,
@@ -3198,17 +3435,88 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       body: content.body,
       createdAt: _createdAt,
       updatedAt: widget.note == null ? _createdAt : DateTime.now(),
-      attachments: _attachments,
+      attachments: _editorMode == NoteEditorMode.quick
+          ? _attachments
+          : _richBlocks
+              .map((block) => block.attachment)
+              .whereType<NoteAttachment>()
+              .toList(growable: false),
+      blocks: blocks,
       isPinned: _isPinned,
       revision: widget.note?.revision ?? 1,
       deviceId: widget.note?.deviceId,
       syncState: widget.note?.syncState ?? NoteSyncState.localOnly,
+      editorMode: _editorMode,
     );
     await ref.read(notesControllerProvider.notifier).upsert(note);
     _saved = true;
     if (mounted) {
       Navigator.of(context).pop();
     }
+  }
+
+  void _addRichParagraph() {
+    final draft = _RichBlockDraft.paragraph();
+    _attachRichBlockListener(draft);
+    setState(() {
+      _richBlocks = [..._richBlocks, draft];
+    });
+  }
+
+  void _removeRichBlock(int index) {
+    final block = _richBlocks[index];
+    final attachment = block.attachment;
+    block.dispose();
+    setState(() {
+      _richBlocks.removeAt(index);
+      if (_richBlocks.isEmpty) {
+        _richBlocks = [_RichBlockDraft.paragraph()];
+      }
+    });
+    final filePath = attachment?.filePath;
+    if (filePath != null && !_initialAttachmentPaths.contains(filePath)) {
+      unawaited(
+        ref.read(encryptedAttachmentStoreProvider).deleteAttachment(filePath),
+      );
+    }
+  }
+
+  String _deriveRichTitle() {
+    for (final block in _richBlocks) {
+      final text = block.controller?.text.trim() ?? '';
+      if (text.isNotEmpty) {
+        return text.split('\n').first.trim();
+      }
+      final attachment = block.attachment;
+      if (attachment != null) {
+        return attachment.label;
+      }
+    }
+    return '';
+  }
+
+  String _deriveRichBody() {
+    return _richBlocks
+        .map((block) => block.controller?.text.trim())
+        .whereType<String>()
+        .where((text) => text.isNotEmpty)
+        .join('\n\n');
+  }
+
+  List<NoteBlock> _richBlocksToNoteBlocks() {
+    return [
+      for (final block in _richBlocks)
+        if (block.type == NoteBlockType.paragraph)
+          NoteBlock(
+            type: NoteBlockType.paragraph,
+            text: block.controller?.text ?? '',
+          )
+        else if (block.attachment != null)
+          NoteBlock(
+            type: block.type,
+            attachment: block.attachment,
+          ),
+    ];
   }
 }
 
@@ -3222,6 +3530,281 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   final title = lines.first.trim();
   final body = lines.skip(1).join('\n').trim();
   return (title: title, body: body);
+}
+
+class _RichMemoEditor extends StatelessWidget {
+  const _RichMemoEditor({
+    required this.blocks,
+    required this.onAddParagraph,
+    required this.onRemoveBlock,
+  });
+
+  final List<_RichBlockDraft> blocks;
+  final VoidCallback onAddParagraph;
+  final ValueChanged<int> onRemoveBlock;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: _sectionDecoration(context),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Rich blocks',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: onAddParagraph,
+                icon: const Icon(Icons.add),
+                label: const Text('Add text'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          for (var i = 0; i < blocks.length; i++) ...[
+            _RichBlockEditorTile(
+              block: blocks[i],
+              onRemove: () => onRemoveBlock(i),
+            ),
+            if (i != blocks.length - 1) const SizedBox(height: 12),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _RichBlockEditorTile extends StatelessWidget {
+  const _RichBlockEditorTile({
+    required this.block,
+    required this.onRemove,
+  });
+
+  final _RichBlockDraft block;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    if (block.type == NoteBlockType.paragraph) {
+      return Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: Theme.of(context).dividerColor),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  'Text block',
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: onRemove,
+                  icon: const Icon(Icons.delete_outline_rounded),
+                  tooltip: 'Remove block',
+                ),
+              ],
+            ),
+            TextField(
+              controller: block.controller,
+              minLines: 3,
+              maxLines: 8,
+              decoration: const InputDecoration(
+                labelText: 'Paragraph',
+                hintText: 'Write a paragraph',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(_iconForAttachment(block.attachment!.type), size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  block.attachment!.label,
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+              ),
+              IconButton(
+                onPressed: onRemove,
+                icon: const Icon(Icons.delete_outline_rounded),
+                tooltip: 'Remove block',
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _AttachmentPreview(attachment: block.attachment!),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickAttachmentSection extends StatelessWidget {
+  const _QuickAttachmentSection({
+    required this.attachments,
+    required this.onSelected,
+    required this.onRemove,
+  });
+
+  final List<NoteAttachment> attachments;
+  final ValueChanged<MediaImportAction> onSelected;
+  final ValueChanged<int> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: _sectionDecoration(context),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Attachments',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const Spacer(),
+              PopupMenuButton<MediaImportAction>(
+                key: const Key('attachment-add-menu'),
+                itemBuilder: (context) => [
+                  if (!kIsWeb)
+                    const PopupMenuItem(
+                      value: MediaImportAction.takePhoto,
+                      child: Text('Take photo'),
+                    ),
+                  const PopupMenuItem(
+                    value: MediaImportAction.pickPhoto,
+                    child: Text('Pick photo'),
+                  ),
+                  if (!kIsWeb)
+                    const PopupMenuItem(
+                      value: MediaImportAction.recordVideo,
+                      child: Text('Record video'),
+                    ),
+                  const PopupMenuItem(
+                    value: MediaImportAction.pickVideo,
+                    child: Text('Pick video'),
+                  ),
+                  const PopupMenuItem(
+                    value: MediaImportAction.pickAudio,
+                    child: Text('Pick audio'),
+                  ),
+                ],
+                onSelected: onSelected,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: Text('Add'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (attachments.isEmpty)
+            Text(
+              kIsWeb
+                  ? 'Attach photos, videos, or audio files from this browser.'
+                  : 'Attach photos, videos, or audio files from camera or device storage.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: _mutedTextColor(context),
+                  ),
+            )
+          else
+            for (var i = 0; i < attachments.length; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _EditableAttachmentTile(
+                  attachment: attachments[i],
+                  onRemove: () => onRemove(i),
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RichAttachmentSection extends StatelessWidget {
+  const _RichAttachmentSection({required this.onSelected});
+
+  final ValueChanged<MediaImportAction> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: _sectionDecoration(context),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Insert media',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Add photos, videos, or audio as blocks between paragraphs.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (!kIsWeb)
+                OutlinedButton(
+                  onPressed: () => onSelected(MediaImportAction.takePhoto),
+                  child: const Text('Take photo'),
+                ),
+              OutlinedButton(
+                onPressed: () => onSelected(MediaImportAction.pickPhoto),
+                child: const Text('Pick photo'),
+              ),
+              if (!kIsWeb)
+                OutlinedButton(
+                  onPressed: () => onSelected(MediaImportAction.recordVideo),
+                  child: const Text('Record video'),
+                ),
+              OutlinedButton(
+                onPressed: () => onSelected(MediaImportAction.pickVideo),
+                child: const Text('Pick video'),
+              ),
+              OutlinedButton(
+                onPressed: () => onSelected(MediaImportAction.pickAudio),
+                child: const Text('Pick audio'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _EditableAttachmentTile extends StatelessWidget {
@@ -3298,6 +3881,118 @@ class _AttachmentListTile extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _EmbeddedAttachmentBlock extends ConsumerWidget {
+  const _EmbeddedAttachmentBlock({required this.attachment});
+
+  final NoteAttachment attachment;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Container(
+      decoration: _sectionDecoration(context),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(_iconForAttachment(attachment.type), size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  attachment.label,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+              TextButton(
+                onPressed: () => _openAttachmentViewer(context, ref, attachment),
+                child: const Text('Open'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _attachmentDescription(attachment),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
+          ),
+          const SizedBox(height: 12),
+          switch (attachment.type) {
+            AttachmentType.photo => _EmbeddedPhotoAttachment(attachment: attachment),
+            AttachmentType.video => SizedBox(
+                height: 260,
+                child: _VideoAttachmentViewer(attachment: attachment),
+              ),
+            AttachmentType.audio => SizedBox(
+                height: 180,
+                child: _AudioAttachmentViewer(attachment: attachment),
+              ),
+          },
+        ],
+      ),
+    );
+  }
+}
+
+class _EmbeddedPhotoAttachment extends ConsumerWidget {
+  const _EmbeddedPhotoAttachment({required this.attachment});
+
+  final NoteAttachment attachment;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final previewBytesBase64 = attachment.previewBytesBase64;
+    if (previewBytesBase64 != null && previewBytesBase64.isNotEmpty) {
+      return AspectRatio(
+        aspectRatio: 4 / 3,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.memory(
+            Uint8List.fromList(base64Decode(previewBytesBase64)),
+            fit: BoxFit.cover,
+          ),
+        ),
+      );
+    }
+
+    final filePath = attachment.filePath;
+    if (filePath == null || filePath.isEmpty) {
+      return const _AttachmentIconBox(type: AttachmentType.photo);
+    }
+
+    return FutureBuilder<List<int>?>(
+      future: ref
+          .watch(encryptedAttachmentStoreProvider)
+          .readAttachment(filePath, type: attachment.type),
+      builder: (context, snapshot) {
+        final bytes = snapshot.data;
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox(
+            height: 180,
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (bytes == null || bytes.isEmpty) {
+          return const SizedBox(
+            height: 180,
+            child: Center(child: Text('Unable to load this image.')),
+          );
+        }
+        return AspectRatio(
+          aspectRatio: 4 / 3,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.memory(Uint8List.fromList(bytes), fit: BoxFit.cover),
+          ),
+        );
+      },
     );
   }
 }
