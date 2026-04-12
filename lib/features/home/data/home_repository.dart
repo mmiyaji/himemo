@@ -67,7 +67,10 @@ class SeededHomeRepository implements HomeRepository {
           body: '卵、豆乳、洗剤。帰りにドラッグストアへ寄る。',
           createdAt: DateTime(2026, 4, 11, 8, 10),
           updatedAt: DateTime(2026, 4, 11, 8, 10),
+          deviceId: 'seeded-device',
+          contentHash: 'seed-n1',
           isPinned: true,
+          syncState: NoteSyncState.synced,
         ),
         NoteEntry(
           id: 'n2',
@@ -76,6 +79,9 @@ class SeededHomeRepository implements HomeRepository {
           body: '今日は作業時間が長かったので、夜は静かな画面だけ見て終える。',
           createdAt: DateTime(2026, 4, 10, 22, 40),
           updatedAt: DateTime(2026, 4, 10, 22, 40),
+          deviceId: 'seeded-device',
+          contentHash: 'seed-n2',
+          syncState: NoteSyncState.synced,
         ),
         NoteEntry(
           id: 'n3',
@@ -84,11 +90,14 @@ class SeededHomeRepository implements HomeRepository {
           body: '駅前の写真を整理。週末候補の動画を2本だけ残す。',
           createdAt: DateTime(2026, 4, 9, 19, 5),
           updatedAt: DateTime(2026, 4, 9, 19, 5),
+          deviceId: 'seeded-device',
+          contentHash: 'seed-n3',
           attachments: const [
             NoteAttachment(type: AttachmentType.photo, label: 'platform.jpg'),
             NoteAttachment(
                 type: AttachmentType.video, label: 'walkthrough.mp4'),
           ],
+          syncState: NoteSyncState.synced,
         ),
         NoteEntry(
           id: 'n4',
@@ -97,7 +106,10 @@ class SeededHomeRepository implements HomeRepository {
           body: '本番ではここに暗号化後のデータだけを保存し、検索索引も分離する。',
           createdAt: DateTime(2026, 4, 8, 23, 15),
           updatedAt: DateTime(2026, 4, 8, 23, 15),
+          deviceId: 'seeded-device',
+          contentHash: 'seed-n4',
           isPinned: true,
+          syncState: NoteSyncState.synced,
         ),
         NoteEntry(
           id: 'n5',
@@ -106,6 +118,9 @@ class SeededHomeRepository implements HomeRepository {
           body: '同期は秘密領域のみ再暗号化した blob を送る設計にする。',
           createdAt: DateTime(2026, 4, 7, 21, 0),
           updatedAt: DateTime(2026, 4, 7, 21, 0),
+          deviceId: 'seeded-device',
+          contentHash: 'seed-n5',
+          syncState: NoteSyncState.synced,
         ),
       ];
 }

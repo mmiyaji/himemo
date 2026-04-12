@@ -37,6 +37,11 @@ _NoteEntry _$NoteEntryFromJson(Map<String, dynamic> json) => _NoteEntry(
   updatedAt: json['updatedAt'] == null
       ? null
       : DateTime.parse(json['updatedAt'] as String),
+  deletedAt: json['deletedAt'] == null
+      ? null
+      : DateTime.parse(json['deletedAt'] as String),
+  deviceId: json['deviceId'] as String?,
+  contentHash: json['contentHash'] as String?,
   attachments:
       (json['attachments'] as List<dynamic>?)
           ?.map((e) => NoteAttachment.fromJson(e as Map<String, dynamic>))
@@ -44,6 +49,9 @@ _NoteEntry _$NoteEntryFromJson(Map<String, dynamic> json) => _NoteEntry(
       const <NoteAttachment>[],
   isPinned: json['isPinned'] as bool? ?? false,
   revision: (json['revision'] as num?)?.toInt() ?? 1,
+  syncState:
+      $enumDecodeNullable(_$NoteSyncStateEnumMap, json['syncState']) ??
+      NoteSyncState.localOnly,
 );
 
 Map<String, dynamic> _$NoteEntryToJson(_NoteEntry instance) =>
@@ -54,7 +62,19 @@ Map<String, dynamic> _$NoteEntryToJson(_NoteEntry instance) =>
       'body': instance.body,
       'createdAt': instance.createdAt.toIso8601String(),
       'updatedAt': instance.updatedAt?.toIso8601String(),
+      'deletedAt': instance.deletedAt?.toIso8601String(),
+      'deviceId': instance.deviceId,
+      'contentHash': instance.contentHash,
       'attachments': instance.attachments,
       'isPinned': instance.isPinned,
       'revision': instance.revision,
+      'syncState': _$NoteSyncStateEnumMap[instance.syncState]!,
     };
+
+const _$NoteSyncStateEnumMap = {
+  NoteSyncState.localOnly: 'localOnly',
+  NoteSyncState.pendingUpload: 'pendingUpload',
+  NoteSyncState.synced: 'synced',
+  NoteSyncState.pendingDelete: 'pendingDelete',
+  NoteSyncState.conflict: 'conflict',
+};

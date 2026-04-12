@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -17,6 +18,7 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import '../data/home_repository.dart';
 import '../domain/note_entry.dart';
 import '../domain/vault_models.dart';
+import '../../security/data/device_identity_store.dart';
 import '../../security/data/encrypted_note_store.dart';
 import '../../security/data/encrypted_attachment_store.dart';
 import '../../security/data/encryption_service.dart';
@@ -637,6 +639,10 @@ final encryptedNoteStoreProvider = Provider<EncryptedNoteStore>((ref) {
   );
 });
 
+final deviceIdentityStoreProvider = Provider<DeviceIdentityStore>((ref) {
+  return DeviceIdentityStore();
+});
+
 final encryptedAttachmentStoreProvider = Provider<EncryptedAttachmentStore>((
   ref,
 ) {
@@ -1186,27 +1192,37 @@ class NotesController extends _$NotesController {
     final next = [...state];
     final index = next.indexWhere((entry) => entry.id == note.id);
     final existing = index == -1 ? null : next[index];
+    final prepared = await _prepareForSave(note, previous: existing);
     if (index == -1) {
-      next.add(note);
+      next.add(prepared);
     } else {
-      next[index] = note;
+      next[index] = prepared;
     }
     _sort(next);
     state = next;
-    await _cleanupRemovedAttachments(existing, note);
+    await _cleanupRemovedAttachments(existing, prepared);
     await _persist();
   }
 
   Future<void> delete(String noteId) async {
-    NoteEntry? existing;
-    for (final note in state) {
-      if (note.id == noteId) {
-        existing = note;
-        break;
+    final next = [...state];
+    for (var i = 0; i < next.length; i++) {
+      final note = next[i];
+      if (note.id != noteId) {
+        continue;
       }
+      final now = DateTime.now();
+      final tombstone = note.copyWith(
+        deletedAt: now,
+        updatedAt: now,
+        revision: note.revision + 1,
+        syncState: NoteSyncState.pendingDelete,
+      );
+      next[i] = tombstone.copyWith(contentHash: _computeContentHash(tombstone));
+      break;
     }
-    state = state.where((note) => note.id != noteId).toList(growable: false);
-    await _deleteAttachments(existing?.attachments ?? const <NoteAttachment>[]);
+    _sort(next);
+    state = next;
     await _persist();
   }
 
@@ -1268,6 +1284,50 @@ class NotesController extends _$NotesController {
     }
   }
 
+  Future<NoteEntry> _prepareForSave(
+    NoteEntry note, {
+    NoteEntry? previous,
+  }) async {
+    final deviceId =
+        note.deviceId ??
+        previous?.deviceId ??
+        await ref.read(deviceIdentityStoreProvider).obtain();
+    final createdAt = previous?.createdAt ?? note.createdAt;
+    final updatedAt = note.updatedAt ?? DateTime.now();
+    final normalized = note.copyWith(
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      deletedAt: null,
+      deviceId: deviceId,
+      syncState: NoteSyncState.pendingUpload,
+    );
+    return normalized.copyWith(contentHash: _computeContentHash(normalized));
+  }
+
+  String _computeContentHash(NoteEntry note) {
+    final payload = jsonEncode({
+      'id': note.id,
+      'vaultId': note.vaultId,
+      'title': note.title,
+      'body': note.body,
+      'createdAt': note.createdAt.toIso8601String(),
+      'updatedAt': note.updatedAt?.toIso8601String(),
+      'deletedAt': note.deletedAt?.toIso8601String(),
+      'isPinned': note.isPinned,
+      'revision': note.revision,
+      'syncState': note.syncState.name,
+      'attachments': [
+        for (final attachment in note.attachments)
+          {
+            'type': attachment.type.name,
+            'label': attachment.label,
+            'filePath': attachment.filePath,
+          },
+      ],
+    });
+    return sha256.convert(utf8.encode(payload)).toString();
+  }
+
   void _sort(List<NoteEntry> notes) {
     notes.sort((left, right) {
       if (left.isPinned != right.isPinned) {
@@ -1316,6 +1376,7 @@ List<NoteEntry> visibleNotes(Ref ref) {
   final notes = ref
       .watch(notesControllerProvider)
       .where((note) => visibleIds.contains(note.vaultId))
+      .where((note) => note.deletedAt == null)
       .where((note) {
         if (query.isEmpty) {
           return true;

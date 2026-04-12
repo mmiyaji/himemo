@@ -9,6 +9,7 @@ import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/home/domain/vault_models.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
 import 'package:himemo/features/security/data/encrypted_attachment_store.dart';
+import 'package:himemo/features/security/data/device_identity_store.dart';
 import 'package:himemo/features/security/data/encrypted_note_store.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/master_key_service.dart';
@@ -96,8 +97,11 @@ void main() {
           body: 'Only encrypted payload should be stored.',
           createdAt: DateTime(2026, 4, 12, 11, 30),
           updatedAt: DateTime(2026, 4, 12, 11, 45),
+          deviceId: 'device-a',
+          contentHash: 'hash-a',
           isPinned: true,
           revision: 4,
+          syncState: NoteSyncState.pendingUpload,
         ),
       ];
 
@@ -254,6 +258,12 @@ void main() {
           ),
         ),
         encryptedAttachmentStoreProvider.overrideWithValue(fakeAttachmentStore),
+        deviceIdentityStoreProvider.overrideWithValue(
+          DeviceIdentityStore(
+            sharedPreferencesProvider: SharedPreferences.getInstance,
+            random: Random(1),
+          ),
+        ),
         homeRepositoryProvider.overrideWithValue(_SingleNoteRepository()),
       ],
     );
@@ -272,6 +282,76 @@ void main() {
 
     expect(fakeAttachmentStore.deletedReferences, ['secure-attachment://old']);
   });
+
+  test('NotesController writes sync metadata and tombstones deletes', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-sync-metadata-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(31));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            directoryProvider: () async => tempDirectory,
+            sharedPreferencesProvider: SharedPreferences.getInstance,
+          ),
+        ),
+        deviceIdentityStoreProvider.overrideWithValue(
+          DeviceIdentityStore(
+            sharedPreferencesProvider: SharedPreferences.getInstance,
+            random: Random(5),
+          ),
+        ),
+        homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    final controller = container.read(notesControllerProvider.notifier);
+    container.read(notesControllerProvider);
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    await controller.upsert(
+      NoteEntry(
+        id: 'sync-1',
+        vaultId: 'everyday',
+        title: 'Sync note',
+        body: 'Pending upload',
+        createdAt: DateTime(2026, 4, 12, 15, 0),
+      ),
+    );
+
+    final saved = container.read(notesControllerProvider).singleWhere(
+      (note) => note.id == 'sync-1',
+    );
+    expect(saved.deviceId, isNotNull);
+    expect(saved.contentHash, isNotNull);
+    expect(saved.syncState, NoteSyncState.pendingUpload);
+    expect(saved.deletedAt, isNull);
+
+    await controller.delete('sync-1');
+    final deleted = container.read(notesControllerProvider).singleWhere(
+      (note) => note.id == 'sync-1',
+    );
+    expect(deleted.deletedAt, isNotNull);
+    expect(deleted.syncState, NoteSyncState.pendingDelete);
+    expect(container.read(visibleNotesProvider).any((n) => n.id == 'sync-1'), isFalse);
+  });
 }
 
 class _SingleNoteRepository implements HomeRepository {
@@ -286,6 +366,10 @@ class _SingleNoteRepository implements HomeRepository {
       title: 'Tracked',
       body: 'Tracked body',
       createdAt: DateTime(2026, 4, 12, 12, 0),
+      updatedAt: DateTime(2026, 4, 12, 12, 0),
+      deviceId: 'seeded-device',
+      contentHash: 'tracked-hash',
+      syncState: NoteSyncState.synced,
       attachments: const [
         NoteAttachment(
           type: AttachmentType.photo,
@@ -298,6 +382,33 @@ class _SingleNoteRepository implements HomeRepository {
 
   @override
   List<VaultBucket> get vaults => const <VaultBucket>[];
+}
+
+class _MinimalHomeRepository implements HomeRepository {
+  @override
+  List<UnlockIdentity> get identities => const <UnlockIdentity>[
+    UnlockIdentity(
+      id: 'daily',
+      name: 'Daily View',
+      tagline: 'Minimal test identity',
+      lockLabel: 'PIN',
+      visibleVaultIds: ['everyday'],
+      accentHex: 0xFF6B8798,
+      warning: 'Test only',
+    ),
+  ];
+
+  @override
+  List<NoteEntry> get seededNotes => const <NoteEntry>[];
+
+  @override
+  List<VaultBucket> get vaults => const <VaultBucket>[
+    VaultBucket(
+      id: 'everyday',
+      name: 'Daily Notes',
+      description: 'Test vault',
+    ),
+  ];
 }
 
 class _TrackingEncryptedAttachmentStore extends EncryptedAttachmentStore {

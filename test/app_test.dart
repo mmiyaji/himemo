@@ -65,5 +65,9 @@ void main() {
 
     expect(note.updatedAt, isNull);
     expect(note.revision, 1);
+    expect(note.deletedAt, isNull);
+    expect(note.deviceId, isNull);
+    expect(note.contentHash, isNull);
+    expect(note.syncState, NoteSyncState.localOnly);
   });
 }

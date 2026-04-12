@@ -238,7 +238,7 @@ final class NotesControllerProvider
   }
 }
 
-String _$notesControllerHash() => r'66a6639b01433c2297a7481e4215be695f57212e';
+String _$notesControllerHash() => r'80de4dd4d5a7fc98aca00703d2c1a481e4e68957';
 
 abstract class _$NotesController extends $Notifier<List<NoteEntry>> {
   List<NoteEntry> build();
@@ -481,7 +481,7 @@ final class VisibleNotesProvider
   }
 }
 
-String _$visibleNotesHash() => r'e481b17ae1fa985db1c943e972e240460965f188';
+String _$visibleNotesHash() => r'06a7efb99214285c7c02ebf91041bc596923a3b9';
 
 @ProviderFor(notesForVault)
 final notesForVaultProvider = NotesForVaultFamily._();

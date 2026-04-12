@@ -5,6 +5,8 @@ part 'note_entry.g.dart';
 
 enum AttachmentType { photo, video, audio }
 
+enum NoteSyncState { localOnly, pendingUpload, synced, pendingDelete, conflict }
+
 @freezed
 abstract class NoteAttachment with _$NoteAttachment {
   const factory NoteAttachment({
@@ -27,9 +29,13 @@ abstract class NoteEntry with _$NoteEntry {
     required String body,
     required DateTime createdAt,
     DateTime? updatedAt,
+    DateTime? deletedAt,
+    String? deviceId,
+    String? contentHash,
     @Default(<NoteAttachment>[]) List<NoteAttachment> attachments,
     @Default(false) bool isPinned,
     @Default(1) int revision,
+    @Default(NoteSyncState.localOnly) NoteSyncState syncState,
   }) = _NoteEntry;
 
   factory NoteEntry.fromJson(Map<String, dynamic> json) =>

@@ -2410,7 +2410,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       updatedAt: widget.note == null ? _createdAt : DateTime.now(),
       attachments: _attachments,
       isPinned: _isPinned,
-      revision: (widget.note?.revision ?? 0) + 1,
+      revision: widget.note?.revision ?? 1,
+      deviceId: widget.note?.deviceId,
+      syncState: widget.note?.syncState ?? NoteSyncState.localOnly,
     );
     await ref.read(notesControllerProvider.notifier).upsert(note);
     _saved = true;
