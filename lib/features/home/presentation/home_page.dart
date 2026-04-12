@@ -1653,8 +1653,10 @@ class _NoteListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final changedAt = note.updatedAt ?? note.createdAt;
     final dateLabel =
-        '${note.createdAt.month}/${note.createdAt.day} ${note.createdAt.hour.toString().padLeft(2, '0')}:${note.createdAt.minute.toString().padLeft(2, '0')}';
+        '${changedAt.month}/${changedAt.day} ${changedAt.hour.toString().padLeft(2, '0')}:${changedAt.minute.toString().padLeft(2, '0')}';
+    final isEdited = note.updatedAt != null && note.updatedAt != note.createdAt;
 
     return Material(
       color: selected ? _selectedSurfaceColor(context) : Colors.transparent,
@@ -1722,7 +1724,7 @@ class _NoteListTile extends StatelessWidget {
                   ),
                   const Spacer(),
                   Text(
-                    dateLabel,
+                    isEdited ? 'Edited $dateLabel' : dateLabel,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: _mutedTextColor(context),
                     ),
@@ -1756,8 +1758,12 @@ class _NoteDetailPane extends StatelessWidget {
       return const _EmptyNotesState();
     }
 
-    final dateLabel =
+    final createdLabel =
         '${note!.createdAt.year}/${note!.createdAt.month}/${note!.createdAt.day} ${note!.createdAt.hour.toString().padLeft(2, '0')}:${note!.createdAt.minute.toString().padLeft(2, '0')}';
+    final changedAt = note!.updatedAt ?? note!.createdAt;
+    final updatedLabel =
+        '${changedAt.year}/${changedAt.month}/${changedAt.day} ${changedAt.hour.toString().padLeft(2, '0')}:${changedAt.minute.toString().padLeft(2, '0')}';
+    final isEdited = note!.updatedAt != null && note!.updatedAt != note!.createdAt;
 
     return Container(
       decoration: _sectionDecoration(context),
@@ -1792,11 +1798,21 @@ class _NoteDetailPane extends StatelessWidget {
           Text(note!.title, style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),
           Text(
-            dateLabel,
+            isEdited ? 'Edited $updatedLabel' : createdLabel,
             style: Theme.of(
               context,
             ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
           ),
+          if (isEdited)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Created $createdLabel · Revision ${note!.revision}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
+              ),
+            ),
           const SizedBox(height: 20),
           Expanded(
             child: SingleChildScrollView(
@@ -2391,8 +2407,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       title: content.title,
       body: content.body,
       createdAt: _createdAt,
+      updatedAt: widget.note == null ? _createdAt : DateTime.now(),
       attachments: _attachments,
       isPinned: _isPinned,
+      revision: (widget.note?.revision ?? 0) + 1,
     );
     await ref.read(notesControllerProvider.notifier).upsert(note);
     _saved = true;

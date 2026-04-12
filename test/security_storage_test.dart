@@ -62,7 +62,17 @@ void main() {
       ];
       await prefs.setString(
         'notes.entries.v1',
-        jsonEncode(notes.map((entry) => entry.toJson()).toList()),
+        jsonEncode([
+          {
+            'id': 'n1',
+            'vaultId': 'everyday',
+            'title': 'Encrypted title',
+            'body': 'Encrypted body',
+            'createdAt': '2026-04-12T10:00:00.000',
+            'attachments': <Object>[],
+            'isPinned': false,
+          },
+        ]),
       );
 
       final restored = await noteStore.load(fallbackNotes: const []);
@@ -85,7 +95,9 @@ void main() {
           title: 'Vault plan',
           body: 'Only encrypted payload should be stored.',
           createdAt: DateTime(2026, 4, 12, 11, 30),
+          updatedAt: DateTime(2026, 4, 12, 11, 45),
           isPinned: true,
+          revision: 4,
         ),
       ];
 

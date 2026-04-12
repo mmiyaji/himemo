@@ -26,8 +26,10 @@ abstract class NoteEntry with _$NoteEntry {
     required String title,
     required String body,
     required DateTime createdAt,
+    DateTime? updatedAt,
     @Default(<NoteAttachment>[]) List<NoteAttachment> attachments,
     @Default(false) bool isPinned,
+    @Default(1) int revision,
   }) = _NoteEntry;
 
   factory NoteEntry.fromJson(Map<String, dynamic> json) =>

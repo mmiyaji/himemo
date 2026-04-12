@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:himemo/app/app.dart';
 import 'package:himemo/app/app_flavor.dart';
+import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -51,5 +52,18 @@ void main() {
     expect(find.text('Notes'), findsOneWidget);
     expect(find.text('Calendar'), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
+  });
+
+  test('note entry defaults sync metadata safely', () {
+    final note = NoteEntry(
+      id: 'sample',
+      vaultId: 'everyday',
+      title: 'Sample',
+      body: 'Body',
+      createdAt: DateTime(2026, 4, 12, 13, 0),
+    );
+
+    expect(note.updatedAt, isNull);
+    expect(note.revision, 1);
   });
 }

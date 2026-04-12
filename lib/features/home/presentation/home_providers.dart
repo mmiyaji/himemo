@@ -1273,7 +1273,9 @@ class NotesController extends _$NotesController {
       if (left.isPinned != right.isPinned) {
         return right.isPinned ? 1 : -1;
       }
-      return right.createdAt.compareTo(left.createdAt);
+      return (right.updatedAt ?? right.createdAt).compareTo(
+        left.updatedAt ?? left.createdAt,
+      );
     });
   }
 }

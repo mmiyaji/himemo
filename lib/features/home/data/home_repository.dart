@@ -66,6 +66,7 @@ class SeededHomeRepository implements HomeRepository {
           title: '朝の買い物',
           body: '卵、豆乳、洗剤。帰りにドラッグストアへ寄る。',
           createdAt: DateTime(2026, 4, 11, 8, 10),
+          updatedAt: DateTime(2026, 4, 11, 8, 10),
           isPinned: true,
         ),
         NoteEntry(
@@ -74,6 +75,7 @@ class SeededHomeRepository implements HomeRepository {
           title: '日記',
           body: '今日は作業時間が長かったので、夜は静かな画面だけ見て終える。',
           createdAt: DateTime(2026, 4, 10, 22, 40),
+          updatedAt: DateTime(2026, 4, 10, 22, 40),
         ),
         NoteEntry(
           id: 'n3',
@@ -81,6 +83,7 @@ class SeededHomeRepository implements HomeRepository {
           title: '大阪メモ',
           body: '駅前の写真を整理。週末候補の動画を2本だけ残す。',
           createdAt: DateTime(2026, 4, 9, 19, 5),
+          updatedAt: DateTime(2026, 4, 9, 19, 5),
           attachments: const [
             NoteAttachment(type: AttachmentType.photo, label: 'platform.jpg'),
             NoteAttachment(
@@ -93,6 +96,7 @@ class SeededHomeRepository implements HomeRepository {
           title: 'Hidden draft',
           body: '本番ではここに暗号化後のデータだけを保存し、検索索引も分離する。',
           createdAt: DateTime(2026, 4, 8, 23, 15),
+          updatedAt: DateTime(2026, 4, 8, 23, 15),
           isPinned: true,
         ),
         NoteEntry(
@@ -101,6 +105,7 @@ class SeededHomeRepository implements HomeRepository {
           title: 'Sync policy',
           body: '同期は秘密領域のみ再暗号化した blob を送る設計にする。',
           createdAt: DateTime(2026, 4, 7, 21, 0),
+          updatedAt: DateTime(2026, 4, 7, 21, 0),
         ),
       ];
 }

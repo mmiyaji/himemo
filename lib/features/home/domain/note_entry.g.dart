@@ -34,12 +34,16 @@ _NoteEntry _$NoteEntryFromJson(Map<String, dynamic> json) => _NoteEntry(
   title: json['title'] as String,
   body: json['body'] as String,
   createdAt: DateTime.parse(json['createdAt'] as String),
+  updatedAt: json['updatedAt'] == null
+      ? null
+      : DateTime.parse(json['updatedAt'] as String),
   attachments:
       (json['attachments'] as List<dynamic>?)
           ?.map((e) => NoteAttachment.fromJson(e as Map<String, dynamic>))
           .toList() ??
       const <NoteAttachment>[],
   isPinned: json['isPinned'] as bool? ?? false,
+  revision: (json['revision'] as num?)?.toInt() ?? 1,
 );
 
 Map<String, dynamic> _$NoteEntryToJson(_NoteEntry instance) =>
@@ -49,6 +53,8 @@ Map<String, dynamic> _$NoteEntryToJson(_NoteEntry instance) =>
       'title': instance.title,
       'body': instance.body,
       'createdAt': instance.createdAt.toIso8601String(),
+      'updatedAt': instance.updatedAt?.toIso8601String(),
       'attachments': instance.attachments,
       'isPinned': instance.isPinned,
+      'revision': instance.revision,
     };
