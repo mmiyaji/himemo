@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:himemo/features/home/data/home_repository.dart';
@@ -10,6 +11,7 @@ import 'package:himemo/features/home/domain/vault_models.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
 import 'package:himemo/features/security/data/encrypted_attachment_store.dart';
 import 'package:himemo/features/security/data/device_identity_store.dart';
+import 'package:himemo/features/security/data/encrypted_note_database.dart';
 import 'package:himemo/features/security/data/encrypted_note_store.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/master_key_service.dart';
@@ -24,6 +26,7 @@ void main() {
     late MemorySecureKeyValueStore secureStore;
     late EncryptionService encryptionService;
     late SharedPreferences prefs;
+    late EncryptedNoteDatabase database;
     late EncryptedNoteStore noteStore;
 
     setUp(() async {
@@ -34,18 +37,21 @@ void main() {
       );
       secureStore = MemorySecureKeyValueStore();
       encryptionService = EncryptionService(random: Random(7));
+      database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
       noteStore = EncryptedNoteStore(
         encryptionService: encryptionService,
         masterKeyService: MasterKeyService(
           secureStore: secureStore,
           keyFactory: encryptionService.generateKeyBytes,
         ),
+        database: database,
         directoryProvider: () async => tempDirectory,
         sharedPreferencesProvider: () async => prefs,
       );
     });
 
     tearDown(() async {
+      await database.close();
       if (await tempDirectory.exists()) {
         await tempDirectory.delete(recursive: true);
       }
@@ -80,12 +86,9 @@ void main() {
 
       expect(restored, notes);
       expect(prefs.getString('notes.entries.v1'), isNull);
-      final encryptedFile = File(
-        '${tempDirectory.path}${Platform.pathSeparator}notes.entries.enc.v1',
-      );
-      expect(await encryptedFile.exists(), isTrue);
-      final rawPayload = await encryptedFile.readAsString();
-      expect(rawPayload.contains('Encrypted body'), isFalse);
+      final records = await database.loadAll();
+      expect(records, hasLength(1));
+      expect(records.single.encryptedPayload.contains('Encrypted body'), isFalse);
     });
 
     test('persists and restores notes without plaintext leakage', () async {
@@ -109,10 +112,9 @@ void main() {
       final restored = await noteStore.load(fallbackNotes: const []);
 
       expect(restored, notes);
-      final encryptedFile = File(
-        '${tempDirectory.path}${Platform.pathSeparator}notes.entries.enc.v1',
-      );
-      final rawPayload = await encryptedFile.readAsString();
+      final records = await database.loadAll();
+      expect(records, hasLength(1));
+      final rawPayload = records.single.encryptedPayload;
       expect(rawPayload.contains('Vault plan'), isFalse);
       expect(rawPayload.contains('Only encrypted payload should be stored.'), isFalse);
     });
@@ -235,6 +237,9 @@ void main() {
       directoryProvider: () async => tempDirectory,
       sharedPreferencesProvider: SharedPreferences.getInstance,
     );
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
 
     final container = ProviderContainer(
       overrides: [
@@ -253,10 +258,12 @@ void main() {
               secureStore: secureStore,
               keyFactory: encryptionService.generateKeyBytes,
             ),
+            database: noteDatabase,
             directoryProvider: () async => tempDirectory,
             sharedPreferencesProvider: SharedPreferences.getInstance,
           ),
         ),
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
         encryptedAttachmentStoreProvider.overrideWithValue(fakeAttachmentStore),
         deviceIdentityStoreProvider.overrideWithValue(
           DeviceIdentityStore(
@@ -268,6 +275,7 @@ void main() {
       ],
     );
     addTearDown(container.dispose);
+    addTearDown(noteDatabase.close);
     addTearDown(() async {
       if (await tempDirectory.exists()) {
         await tempDirectory.delete(recursive: true);
@@ -294,6 +302,9 @@ void main() {
       secureStore: secureStore,
       keyFactory: encryptionService.generateKeyBytes,
     );
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
     final container = ProviderContainer(
       overrides: [
         secureKeyValueStoreProvider.overrideWithValue(secureStore),
@@ -303,10 +314,12 @@ void main() {
           EncryptedNoteStore(
             encryptionService: encryptionService,
             masterKeyService: masterKeyService,
+            database: noteDatabase,
             directoryProvider: () async => tempDirectory,
             sharedPreferencesProvider: SharedPreferences.getInstance,
           ),
         ),
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
         deviceIdentityStoreProvider.overrideWithValue(
           DeviceIdentityStore(
             sharedPreferencesProvider: SharedPreferences.getInstance,
@@ -317,6 +330,7 @@ void main() {
       ],
     );
     addTearDown(container.dispose);
+    addTearDown(noteDatabase.close);
     addTearDown(() async {
       if (await tempDirectory.exists()) {
         await tempDirectory.delete(recursive: true);

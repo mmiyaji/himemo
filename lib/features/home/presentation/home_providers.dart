@@ -20,6 +20,7 @@ import '../domain/note_entry.dart';
 import '../domain/vault_models.dart';
 import '../../security/data/device_identity_store.dart';
 import '../../security/data/encrypted_note_store.dart';
+import '../../security/data/encrypted_note_database.dart';
 import '../../security/data/encrypted_attachment_store.dart';
 import '../../security/data/encryption_service.dart';
 import '../../security/data/master_key_service.dart';
@@ -636,7 +637,14 @@ final encryptedNoteStoreProvider = Provider<EncryptedNoteStore>((ref) {
   return EncryptedNoteStore(
     encryptionService: ref.watch(encryptionServiceProvider),
     masterKeyService: ref.watch(masterKeyServiceProvider),
+    database: ref.watch(encryptedNoteDatabaseProvider),
   );
+});
+
+final encryptedNoteDatabaseProvider = Provider<EncryptedNoteDatabase>((ref) {
+  final database = EncryptedNoteDatabase();
+  ref.onDispose(database.close);
+  return database;
 });
 
 final deviceIdentityStoreProvider = Provider<DeviceIdentityStore>((ref) {

@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../home/domain/note_entry.dart';
+import 'encrypted_note_database.dart';
 import 'encryption_service.dart';
 import 'master_key_service.dart';
 
@@ -14,6 +15,7 @@ class EncryptedNoteStore {
   EncryptedNoteStore({
     required EncryptionService encryptionService,
     required MasterKeyService masterKeyService,
+    EncryptedNoteDatabase? database,
     Future<Directory> Function()? directoryProvider,
     Future<SharedPreferences> Function()? sharedPreferencesProvider,
     this.storageFileName = 'notes.entries.enc.v1',
@@ -21,12 +23,14 @@ class EncryptedNoteStore {
     this.webStorageKey = 'notes.entries.encrypted.v1',
   }) : _encryptionService = encryptionService,
        _masterKeyService = masterKeyService,
+       _database = database,
        _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
        _sharedPreferencesProvider =
            sharedPreferencesProvider ?? SharedPreferences.getInstance;
 
   final EncryptionService _encryptionService;
   final MasterKeyService _masterKeyService;
+  final EncryptedNoteDatabase? _database;
   final Future<Directory> Function() _directoryProvider;
   final Future<SharedPreferences> Function() _sharedPreferencesProvider;
   final String storageFileName;
@@ -37,6 +41,14 @@ class EncryptedNoteStore {
     required List<NoteEntry> fallbackNotes,
   }) async {
     try {
+      if (!kIsWeb) {
+        final database = _database ?? EncryptedNoteDatabase();
+        final records = await database.loadAll();
+        if (records.isNotEmpty) {
+          return _decryptRecords(records);
+        }
+      }
+
       final encoded = await _readEncryptedPayload();
       if (encoded != null && encoded.isNotEmpty) {
         return _decodeEntries(encoded);
@@ -58,15 +70,32 @@ class EncryptedNoteStore {
   }
 
   Future<void> save(List<NoteEntry> notes) async {
-    final payload = {
-      'notes': notes.map((entry) => entry.toJson()).toList(),
-    };
+    if (kIsWeb) {
+      final payload = {
+        'notes': notes.map((entry) => entry.toJson()).toList(),
+      };
+      final key = await _masterKeyService.obtainOrCreate();
+      final encoded = await _encryptionService.encryptJson(
+        payload: payload,
+        secretKey: key,
+      );
+      await _writeEncryptedPayload(encoded);
+      return;
+    }
+
     final key = await _masterKeyService.obtainOrCreate();
-    final encoded = await _encryptionService.encryptJson(
-      payload: payload,
-      secretKey: key,
-    );
-    await _writeEncryptedPayload(encoded);
+    final database = _database ?? EncryptedNoteDatabase();
+    final records = <EncryptedNoteRecord>[];
+    for (final note in notes) {
+      final payload = await _encryptionService.encryptJson(
+        payload: note.toJson(),
+        secretKey: key,
+      );
+      records.add(
+        EncryptedNoteRecord.fromNote(note: note, encryptedPayload: payload),
+      );
+    }
+    await database.replaceAll(records);
   }
 
   Future<List<NoteEntry>> _decodeEntries(String encodedPayload) async {
@@ -87,6 +116,30 @@ class EncryptedNoteStore {
         .map((entry) => Map<String, dynamic>.from(entry as Map))
         .map(NoteEntry.fromJson)
         .toList(growable: false);
+  }
+
+  Future<List<NoteEntry>> _decryptRecords(List<EncryptedNoteRecord> records) async {
+    final key = await _masterKeyService.obtainOrCreate();
+    final notes = <NoteEntry>[];
+    for (final record in records) {
+      final payload = await _encryptionService.decryptJson(
+        encodedPayload: record.encryptedPayload,
+        secretKey: key,
+      );
+      notes.add(
+        NoteEntry.fromJson(payload).copyWith(
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+          deletedAt: record.deletedAt,
+          isPinned: record.isPinned,
+          revision: record.revision,
+          syncState: record.syncState,
+          deviceId: record.deviceId,
+          contentHash: record.contentHash,
+        ),
+      );
+    }
+    return notes;
   }
 
   Future<String?> _readEncryptedPayload() async {
