@@ -37,7 +37,11 @@ import '../../sync/data/sync_engine.dart';
 
 part 'home_providers.g.dart';
 
-enum AppColorTheme { blue, green, orange }
+enum AppColorTheme { blue, green, orange, slate, teal, rose }
+
+enum AppLocaleSetting { system, japanese, english }
+
+enum NotesListDensity { standard, compact, media }
 
 enum SyncProvider { off, iCloud, googleDrive }
 
@@ -93,6 +97,54 @@ class SearchFilters {
   }
 }
 
+class LastNoteEditorSettings {
+  const LastNoteEditorSettings({
+    this.mode = NoteEditorMode.rich,
+    this.vaultId = 'everyday',
+  });
+
+  final NoteEditorMode mode;
+  final String vaultId;
+}
+
+class WidgetQuickCaptureBridge {
+  WidgetQuickCaptureBridge(this._onOpenRequested);
+
+  static const MethodChannel _channel = MethodChannel(
+    'dev.minamo.himemo/widget',
+  );
+
+  final VoidCallback _onOpenRequested;
+  bool _attached = false;
+
+  void attach() {
+    if (_attached ||
+        kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.android &&
+            defaultTargetPlatform != TargetPlatform.iOS)) {
+      return;
+    }
+    _attached = true;
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'openQuickCapture') {
+        _onOpenRequested();
+      }
+    });
+    unawaited(_consumePendingRequest());
+  }
+
+  Future<void> _consumePendingRequest() async {
+    try {
+      final pending = await _channel.invokeMethod<bool>(
+        'consumePendingQuickCapture',
+      );
+      if (pending == true) {
+        _onOpenRequested();
+      }
+    } catch (_) {}
+  }
+}
+
 class NoteEditorDraftSnapshot {
   const NoteEditorDraftSnapshot({
     required this.createdAt,
@@ -113,14 +165,14 @@ class NoteEditorDraftSnapshot {
   final List<NoteBlock> richBlocks;
 
   Map<String, dynamic> toJson() => {
-        'createdAt': createdAt.toIso8601String(),
-        'isPinned': isPinned,
-        'editorMode': editorMode.name,
-        'vaultId': vaultId,
-        'quickContent': quickContent,
-        'quickAttachments': quickAttachments.map((e) => e.toJson()).toList(),
-        'richBlocks': richBlocks.map((e) => e.toJson()).toList(),
-      };
+    'createdAt': createdAt.toIso8601String(),
+    'isPinned': isPinned,
+    'editorMode': editorMode.name,
+    'vaultId': vaultId,
+    'quickContent': quickContent,
+    'quickAttachments': quickAttachments.map((e) => e.toJson()).toList(),
+    'richBlocks': richBlocks.map((e) => e.toJson()).toList(),
+  };
 
   static NoteEditorDraftSnapshot fromJson(Map<String, dynamic> json) {
     return NoteEditorDraftSnapshot(
@@ -132,10 +184,17 @@ class NoteEditorDraftSnapshot {
       vaultId: json['vaultId'] as String? ?? 'everyday',
       quickContent: json['quickContent'] as String? ?? '',
       quickAttachments: (json['quickAttachments'] as List<dynamic>? ?? const [])
-          .map((entry) => NoteAttachment.fromJson(Map<String, dynamic>.from(entry as Map)))
+          .map(
+            (entry) => NoteAttachment.fromJson(
+              Map<String, dynamic>.from(entry as Map),
+            ),
+          )
           .toList(growable: false),
       richBlocks: (json['richBlocks'] as List<dynamic>? ?? const [])
-          .map((entry) => NoteBlock.fromJson(Map<String, dynamic>.from(entry as Map)))
+          .map(
+            (entry) =>
+                NoteBlock.fromJson(Map<String, dynamic>.from(entry as Map)),
+          )
           .toList(growable: false),
     );
   }
@@ -157,17 +216,13 @@ class MediaImportResult {
   });
 
   const MediaImportResult.success(NoteAttachment attachment)
-      : this._(attachment: attachment, wasCancelled: false);
+    : this._(attachment: attachment, wasCancelled: false);
 
   const MediaImportResult.cancelled()
-      : this._(wasCancelled: true, attachment: null, errorMessage: null);
+    : this._(wasCancelled: true, attachment: null, errorMessage: null);
 
   const MediaImportResult.failure(String errorMessage)
-      : this._(
-          attachment: null,
-          errorMessage: errorMessage,
-          wasCancelled: false,
-        );
+    : this._(attachment: null, errorMessage: errorMessage, wasCancelled: false);
 
   final NoteAttachment? attachment;
   final String? errorMessage;
@@ -182,9 +237,9 @@ class DeviceAuthState {
   });
 
   const DeviceAuthState.unknown()
-      : availability = DeviceAuthAvailability.unknown,
-        methods = const [],
-        lastError = null;
+    : availability = DeviceAuthAvailability.unknown,
+      methods = const [],
+      lastError = null;
 
   final DeviceAuthAvailability availability;
   final List<String> methods;
@@ -207,14 +262,9 @@ class DeviceAuthState {
 }
 
 class AppPinLockState {
-  const AppPinLockState({
-    required this.isConfigured,
-    this.lastError,
-  });
+  const AppPinLockState({required this.isConfigured, this.lastError});
 
-  const AppPinLockState.unconfigured()
-      : isConfigured = false,
-        lastError = null;
+  const AppPinLockState.unconfigured() : isConfigured = false, lastError = null;
 
   final bool isConfigured;
   final String? lastError;
@@ -224,6 +274,20 @@ class AppPinLockState {
       return 'A web-only unlock PIN is configured for this browser session.';
     }
     return lastError ?? 'No unlock PIN is configured for this browser yet.';
+  }
+
+  String localizedSummary({required bool isJapanese}) {
+    if (isConfigured) {
+      return isJapanese
+          ? 'このブラウザでは解除用 PIN が設定されています。'
+          : 'A web-only unlock PIN is configured for this browser session.';
+    }
+    if (lastError != null && lastError!.isNotEmpty) {
+      return lastError!;
+    }
+    return isJapanese
+        ? 'このブラウザでは解除用 PIN はまだ設定されていません。'
+        : 'No unlock PIN is configured for this browser yet.';
   }
 
   AppPinLockState copyWith({
@@ -240,7 +304,7 @@ class AppPinLockState {
 
 class AppPinLockStore {
   AppPinLockStore({required EncryptionService encryptionService})
-      : _encryptionService = encryptionService;
+    : _encryptionService = encryptionService;
 
   static const _storageKey = 'settings.web_app_pin.v1';
 
@@ -261,10 +325,7 @@ class AppPinLockStore {
     );
     await prefs.setString(
       _storageKey,
-      jsonEncode({
-        'salt': base64Encode(salt),
-        'verifier': verifier,
-      }),
+      jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
     );
   }
 
@@ -312,8 +373,8 @@ class SecretVerifierStore {
     required SecureKeyValueStore secureStore,
     required EncryptionService encryptionService,
     required this.storageKey,
-  })  : _secureStore = secureStore,
-        _encryptionService = encryptionService;
+  }) : _secureStore = secureStore,
+       _encryptionService = encryptionService;
 
   final SecureKeyValueStore _secureStore;
   final EncryptionService _encryptionService;
@@ -332,10 +393,7 @@ class SecretVerifierStore {
     );
     await _secureStore.write(
       storageKey,
-      jsonEncode({
-        'salt': base64Encode(salt),
-        'verifier': verifier,
-      }),
+      jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
     );
   }
 
@@ -385,11 +443,11 @@ class SyncAuthState {
   });
 
   const SyncAuthState.idle(this.provider)
-      : stage = SyncAuthStage.idle,
-        userId = null,
-        displayName = null,
-        email = null,
-        message = null;
+    : stage = SyncAuthStage.idle,
+      userId = null,
+      displayName = null,
+      email = null,
+      message = null;
 
   final SyncProvider provider;
   final SyncAuthStage stage;
@@ -459,10 +517,10 @@ class SyncTransferState {
   });
 
   const SyncTransferState.idle()
-      : stage = SyncTransferStage.idle,
-        message = null,
-        remoteStatus = null,
-        localBundle = null;
+    : stage = SyncTransferStage.idle,
+      message = null,
+      remoteStatus = null,
+      localBundle = null;
 
   final SyncTransferStage stage;
   final String? message;
@@ -498,7 +556,7 @@ abstract class DeviceAuthGateway {
 
 class LocalDeviceAuthGateway implements DeviceAuthGateway {
   LocalDeviceAuthGateway({LocalAuthentication? localAuth})
-      : _localAuth = localAuth ?? LocalAuthentication();
+    : _localAuth = localAuth ?? LocalAuthentication();
 
   final LocalAuthentication _localAuth;
 
@@ -631,8 +689,8 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
     try {
       await _ensureGoogleInitialized();
       GoogleSignInAccount? account;
-      final lightweight =
-          GoogleSignIn.instance.attemptLightweightAuthentication();
+      final lightweight = GoogleSignIn.instance
+          .attemptLightweightAuthentication();
       if (lightweight != null) {
         account = await lightweight;
       }
@@ -680,7 +738,8 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
   }
 
   Future<SyncAuthState> _connectApple() async {
-    final supportsAppleSignIn = !kIsWeb &&
+    final supportsAppleSignIn =
+        !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.iOS ||
             defaultTargetPlatform == TargetPlatform.macOS);
     if (!supportsAppleSignIn) {
@@ -744,7 +803,7 @@ abstract class MediaImportService {
 
 class DefaultMediaImportService implements MediaImportService {
   DefaultMediaImportService({required EncryptedAttachmentStore attachmentStore})
-      : _attachmentStore = attachmentStore;
+    : _attachmentStore = attachmentStore;
 
   final EncryptedAttachmentStore _attachmentStore;
 
@@ -794,10 +853,7 @@ class DefaultMediaImportService implements MediaImportService {
       return tooLarge;
     }
     return MediaImportResult.success(
-      await _buildAttachment(
-        type: AttachmentType.photo,
-        sourceFile: picked,
-      ),
+      await _buildAttachment(type: AttachmentType.photo, sourceFile: picked),
     );
   }
 
@@ -871,7 +927,9 @@ class DefaultMediaImportService implements MediaImportService {
     }
     return MediaImportResult.success(
       await _buildAttachment(
-          type: AttachmentType.audio, sourceFile: sourceFile),
+        type: AttachmentType.audio,
+        sourceFile: sourceFile,
+      ),
     );
   }
 
@@ -1056,8 +1114,8 @@ final syncQueueSummaryProvider = FutureProvider<SyncQueueSummary>((ref) async {
 
 final syncTransferControllerProvider =
     NotifierProvider<SyncTransferController, SyncTransferState>(
-  SyncTransferController.new,
-);
+      SyncTransferController.new,
+    );
 
 class SyncTransferController extends Notifier<SyncTransferState> {
   @override
@@ -1085,9 +1143,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         localBundle: state.localBundle,
       );
       if (remoteStatus != null) {
-        await ref.read(syncBundleStateStoreProvider).recordRemoteStatus(
-              remoteStatus,
-            );
+        await ref
+            .read(syncBundleStateStoreProvider)
+            .recordRemoteStatus(remoteStatus);
       }
     } catch (error) {
       state = SyncTransferState(
@@ -1125,21 +1183,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       final snapshot = await ref
           .read(syncEngineProvider)
           .prepareSnapshot(ref.read(notesControllerProvider));
-      final bundle =
-          await ref.read(secureSyncBundleStoreProvider).writeBundle(snapshot);
+      final bundle = await ref
+          .read(secureSyncBundleStoreProvider)
+          .writeBundle(snapshot);
       final encodedPayload = await ref
           .read(secureSyncBundleStoreProvider)
           .readEncryptedBundlePayload(bundle.reference);
       if (encodedPayload == null || encodedPayload.isEmpty) {
         throw StateError('Local sync bundle could not be prepared.');
       }
-      final remoteStatus =
-          await ref.read(googleDriveSyncTransportProvider).uploadBundle(
-                encodedPayload: encodedPayload,
-                deviceId: snapshot.deviceId,
-                noteCount: bundle.noteCount,
-                attachmentCount: bundle.attachmentCount,
-              );
+      final remoteStatus = await ref
+          .read(googleDriveSyncTransportProvider)
+          .uploadBundle(
+            encodedPayload: encodedPayload,
+            deviceId: snapshot.deviceId,
+            noteCount: bundle.noteCount,
+            attachmentCount: bundle.attachmentCount,
+          );
       await ref.read(notesControllerProvider.notifier).markCurrentStateSynced();
       state = SyncTransferState(
         stage: SyncTransferStage.success,
@@ -1213,10 +1273,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             'The selected Google Drive bundle could not be downloaded.',
       );
     } catch (error) {
-      state = state.copyWith(
-        stage: SyncTransferStage.error,
-        message: '$error',
-      );
+      state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
     }
   }
 
@@ -1226,7 +1283,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     await downloadBundle(remoteStatus);
     if (state.stage == SyncTransferStage.error) {
       throw StateError(
-          state.message ?? 'Remote bundle could not be downloaded.');
+        state.message ?? 'Remote bundle could not be downloaded.',
+      );
     }
     return previewDownloadedBundle();
   }
@@ -1283,14 +1341,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
                 ),
                 fileNameHint: payload['label'] as String? ?? attachment.label,
               );
-          importedAttachments
-              .add(attachment.copyWith(filePath: storedReference));
+          importedAttachments.add(
+            attachment.copyWith(filePath: storedReference),
+          );
         }
         importedNotes.add(note.copyWith(attachments: importedAttachments));
       }
-      await ref.read(notesControllerProvider.notifier).replaceFromSync(
-            importedNotes,
-          );
+      await ref
+          .read(notesControllerProvider.notifier)
+          .replaceFromSync(importedNotes);
       await ref
           .read(syncBundleStateStoreProvider)
           .recordApply(state.remoteStatus);
@@ -1299,10 +1358,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         message: 'Downloaded bundle applied to local notes.',
       );
     } catch (error) {
-      state = state.copyWith(
-        stage: SyncTransferStage.error,
-        message: '$error',
-      );
+      state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
     }
   }
 
@@ -1350,14 +1406,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       remoteStatus: remoteBundle.status,
       localBundle: localBundle,
     );
-    await ref.read(syncBundleStateStoreProvider).recordRemoteStatus(
-          remoteBundle.status,
-        );
+    await ref
+        .read(syncBundleStateStoreProvider)
+        .recordRemoteStatus(remoteBundle.status);
   }
 }
 
-final privateVaultSecretStoreProvider =
-    Provider<PrivateVaultSecretStore>((ref) {
+final privateVaultSecretStoreProvider = Provider<PrivateVaultSecretStore>((
+  ref,
+) {
   return PrivateVaultSecretStore(
     secureStore: ref.watch(secureKeyValueStoreProvider),
     encryptionService: ref.watch(encryptionServiceProvider),
@@ -1369,8 +1426,8 @@ HomeRepository homeRepository(Ref ref) => SeededHomeRepository();
 
 final appSessionUnlockControllerProvider =
     NotifierProvider<AppSessionUnlockController, bool>(
-  AppSessionUnlockController.new,
-);
+      AppSessionUnlockController.new,
+    );
 
 class AppSessionUnlockController extends Notifier<bool> {
   @override
@@ -1383,8 +1440,8 @@ class AppSessionUnlockController extends Notifier<bool> {
 
 final appPinLockControllerProvider =
     NotifierProvider<AppPinLockController, AppPinLockState>(
-  AppPinLockController.new,
-);
+      AppPinLockController.new,
+    );
 
 class AppPinLockController extends Notifier<AppPinLockState> {
   bool _restored = false;
@@ -1403,10 +1460,7 @@ class AppPinLockController extends Notifier<AppPinLockState> {
       final configured = await ref.read(appPinLockStoreProvider).hasPin();
       state = AppPinLockState(isConfigured: configured);
     } catch (error) {
-      state = AppPinLockState(
-        isConfigured: false,
-        lastError: '$error',
-      );
+      state = AppPinLockState(isConfigured: false, lastError: '$error');
     }
   }
 
@@ -1445,8 +1499,8 @@ class AppPinLockController extends Notifier<AppPinLockState> {
 
 final coverModeSecretControllerProvider =
     NotifierProvider<CoverModeSecretController, bool>(
-  CoverModeSecretController.new,
-);
+      CoverModeSecretController.new,
+    );
 
 class CoverModeSecretController extends Notifier<bool> {
   bool _restored = false;
@@ -1487,8 +1541,8 @@ class CoverModeSecretController extends Notifier<bool> {
 
 final deviceAuthControllerProvider =
     NotifierProvider<DeviceAuthController, DeviceAuthState>(
-  DeviceAuthController.new,
-);
+      DeviceAuthController.new,
+    );
 
 class DeviceAuthController extends Notifier<DeviceAuthState> {
   @override
@@ -1518,8 +1572,8 @@ class DeviceAuthController extends Notifier<DeviceAuthState> {
 
 final syncAuthControllerProvider =
     NotifierProvider<SyncAuthController, Map<SyncProvider, SyncAuthState>>(
-  SyncAuthController.new,
-);
+      SyncAuthController.new,
+    );
 
 class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
   static const _storageKey = 'sync.auth_accounts.v1';
@@ -1611,8 +1665,8 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
 
 final appLaunchControllerProvider =
     NotifierProvider<AppLaunchController, AppLaunchSurface>(
-  AppLaunchController.new,
-);
+      AppLaunchController.new,
+    );
 
 class AppLaunchController extends Notifier<AppLaunchSurface> {
   static const _storageKey = 'app.onboarding_completed';
@@ -1686,8 +1740,8 @@ class ThemeModeController extends _$ThemeModeController {
 
 final appColorThemeControllerProvider =
     NotifierProvider<AppColorThemeController, AppColorTheme>(
-  AppColorThemeController.new,
-);
+      AppColorThemeController.new,
+    );
 
 class AppColorThemeController extends Notifier<AppColorTheme> {
   static const _storageKey = 'settings.color_theme';
@@ -1726,10 +1780,52 @@ class AppColorThemeController extends Notifier<AppColorTheme> {
   }
 }
 
+final appLocaleControllerProvider =
+    NotifierProvider<AppLocaleController, AppLocaleSetting>(
+      AppLocaleController.new,
+    );
+
+class AppLocaleController extends Notifier<AppLocaleSetting> {
+  static const _storageKey = 'settings.locale';
+  bool _restored = false;
+
+  @override
+  AppLocaleSetting build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return AppLocaleSetting.system;
+  }
+
+  Future<void> setLocale(AppLocaleSetting locale) async {
+    state = locale;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_storageKey, locale.name);
+    } catch (_) {}
+  }
+
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_storageKey);
+      if (stored == null) {
+        return;
+      }
+
+      state = AppLocaleSetting.values.firstWhere(
+        (locale) => locale.name == stored,
+        orElse: () => AppLocaleSetting.system,
+      );
+    } catch (_) {}
+  }
+}
+
 final appLockSettingsControllerProvider =
     NotifierProvider<AppLockSettingsController, bool>(
-  AppLockSettingsController.new,
-);
+      AppLockSettingsController.new,
+    );
 
 class AppLockSettingsController extends Notifier<bool> {
   static const _storageKey = 'settings.app_lock_enabled';
@@ -1760,10 +1856,61 @@ class AppLockSettingsController extends Notifier<bool> {
   }
 }
 
+@Riverpod(keepAlive: true)
+class WidgetQuickCaptureSettingsController
+    extends _$WidgetQuickCaptureSettingsController {
+  static const _storageKey = 'settings.widget_quick_capture_enabled';
+  bool _restored = false;
+
+  @override
+  bool build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return false;
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    state = enabled;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_storageKey, enabled);
+    } catch (_) {}
+  }
+
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      state = prefs.getBool(_storageKey) ?? false;
+    } catch (_) {}
+  }
+}
+
+@Riverpod(keepAlive: true)
+class WidgetQuickCaptureRequestController
+    extends _$WidgetQuickCaptureRequestController {
+  @override
+  int build() => 0;
+
+  void trigger() => state++;
+}
+
+@Riverpod(keepAlive: true)
+WidgetQuickCaptureBridge widgetQuickCaptureBridge(Ref ref) {
+  final bridge = WidgetQuickCaptureBridge(
+    () => ref
+        .read(widgetQuickCaptureRequestControllerProvider.notifier)
+        .trigger(),
+  );
+  bridge.attach();
+  return bridge;
+}
+
 final appLockRelockDelayControllerProvider =
     NotifierProvider<AppLockRelockDelayController, AppLockRelockDelay>(
-  AppLockRelockDelayController.new,
-);
+      AppLockRelockDelayController.new,
+    );
 
 class AppLockRelockDelayController extends Notifier<AppLockRelockDelay> {
   static const _storageKey = 'settings.app_lock_relock_delay';
@@ -1803,8 +1950,8 @@ class AppLockRelockDelayController extends Notifier<AppLockRelockDelay> {
 
 final privateVaultLockOnAppLockControllerProvider =
     NotifierProvider<PrivateVaultLockOnAppLockController, bool>(
-  PrivateVaultLockOnAppLockController.new,
-);
+      PrivateVaultLockOnAppLockController.new,
+    );
 
 class PrivateVaultLockOnAppLockController extends Notifier<bool> {
   static const _storageKey = 'settings.private_vault_lock_on_app_lock';
@@ -1837,8 +1984,8 @@ class PrivateVaultLockOnAppLockController extends Notifier<bool> {
 
 final syncProviderControllerProvider =
     NotifierProvider<SyncProviderController, SyncProvider>(
-  SyncProviderController.new,
-);
+      SyncProviderController.new,
+    );
 
 class SyncProviderController extends Notifier<SyncProvider> {
   static const _storageKey = 'settings.sync_provider';
@@ -1878,8 +2025,8 @@ class SyncProviderController extends Notifier<SyncProvider> {
 
 final privateVaultSessionControllerProvider =
     NotifierProvider<PrivateVaultSessionController, bool>(
-  PrivateVaultSessionController.new,
-);
+      PrivateVaultSessionController.new,
+    );
 
 class PrivateVaultSessionController extends Notifier<bool> {
   @override
@@ -1892,8 +2039,8 @@ class PrivateVaultSessionController extends Notifier<bool> {
 
 final privateVaultSecretControllerProvider =
     NotifierProvider<PrivateVaultSecretController, bool>(
-  PrivateVaultSecretController.new,
-);
+      PrivateVaultSecretController.new,
+    );
 
 class PrivateVaultSecretController extends Notifier<bool> {
   bool _restored = false;
@@ -1915,9 +2062,9 @@ class PrivateVaultSecretController extends Notifier<bool> {
 
   Future<bool> verify(String secret) async {
     try {
-      final matched = await ref.read(privateVaultSecretStoreProvider).verify(
-            secret,
-          );
+      final matched = await ref
+          .read(privateVaultSecretStoreProvider)
+          .verify(secret);
       if (matched) {
         ref.read(privateVaultSessionControllerProvider.notifier).unlock();
       }
@@ -2010,8 +2157,8 @@ class SearchFiltersController extends Notifier<SearchFilters> {
 
 final searchFiltersControllerProvider =
     NotifierProvider<SearchFiltersController, SearchFilters>(
-  SearchFiltersController.new,
-);
+      SearchFiltersController.new,
+    );
 
 class NoteEditorDraftStore {
   static const _storageKey = 'notes.editor_draft.v1';
@@ -2039,6 +2186,75 @@ class NoteEditorDraftStore {
   Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_storageKey);
+  }
+}
+
+@Riverpod(keepAlive: true)
+class NotesListDensityController extends _$NotesListDensityController {
+  static const _storageKey = 'notes.list_density';
+  bool _restored = false;
+
+  @override
+  NotesListDensity build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return NotesListDensity.standard;
+  }
+
+  Future<void> setDensity(NotesListDensity density) async {
+    state = density;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_storageKey, density.name);
+  }
+
+  Future<void> _restore() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_storageKey);
+    if (stored == null || stored.isEmpty) {
+      return;
+    }
+    state = NotesListDensity.values.byName(stored);
+  }
+}
+
+@Riverpod(keepAlive: true)
+class LastNoteEditorSettingsController
+    extends _$LastNoteEditorSettingsController {
+  static const _modeKey = 'notes.last_editor_mode';
+  static const _vaultKey = 'notes.last_vault_id';
+  bool _restored = false;
+
+  @override
+  LastNoteEditorSettings build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return const LastNoteEditorSettings();
+  }
+
+  Future<void> remember({
+    required NoteEditorMode mode,
+    required String vaultId,
+  }) async {
+    state = LastNoteEditorSettings(mode: mode, vaultId: vaultId);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_modeKey, mode.name);
+    await prefs.setString(_vaultKey, vaultId);
+  }
+
+  Future<void> _restore() async {
+    final prefs = await SharedPreferences.getInstance();
+    final modeName = prefs.getString(_modeKey);
+    final vaultId = prefs.getString(_vaultKey);
+    state = LastNoteEditorSettings(
+      mode: modeName == null || modeName.isEmpty
+          ? NoteEditorMode.rich
+          : NoteEditorMode.values.byName(modeName),
+      vaultId: vaultId == null || vaultId.isEmpty ? 'everyday' : vaultId,
+    );
   }
 }
 
@@ -2143,6 +2359,30 @@ class NotesController extends _$NotesController {
     await _persist();
   }
 
+  Future<void> createWidgetQuickCapture(String rawText) async {
+    final text = rawText.trim();
+    if (text.isEmpty) {
+      return;
+    }
+    final now = DateTime.now();
+    final lines = LineSplitter.split(text)
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList(growable: false);
+    final title = lines.isEmpty ? 'Quick memo' : lines.first;
+    await upsert(
+      NoteEntry(
+        id: now.microsecondsSinceEpoch.toString(),
+        vaultId: 'everyday',
+        title: title,
+        body: text,
+        createdAt: now,
+        updatedAt: now,
+        editorMode: NoteEditorMode.quick,
+      ),
+    );
+  }
+
   Future<void> _restore() async {
     try {
       final restored = [
@@ -2195,10 +2435,12 @@ class NotesController extends _$NotesController {
         .map((attachment) => attachment.filePath)
         .whereType<String>()
         .toSet();
-    final removed = previous.attachments.where((attachment) {
-      final filePath = attachment.filePath;
-      return filePath != null && !retained.contains(filePath);
-    }).toList(growable: false);
+    final removed = previous.attachments
+        .where((attachment) {
+          final filePath = attachment.filePath;
+          return filePath != null && !retained.contains(filePath);
+        })
+        .toList(growable: false);
     await _deleteAttachments(removed);
   }
 
@@ -2217,7 +2459,8 @@ class NotesController extends _$NotesController {
     NoteEntry note, {
     NoteEntry? previous,
   }) async {
-    final deviceId = note.deviceId ??
+    final deviceId =
+        note.deviceId ??
         previous?.deviceId ??
         await ref.read(deviceIdentityStoreProvider).obtain();
     final createdAt = note.createdAt;
@@ -2296,30 +2539,33 @@ List<VaultBucket> visibleVaults(Ref ref) {
 
 @riverpod
 List<NoteEntry> visibleNotes(Ref ref) {
-  final visibleIds =
-      ref.watch(visibleVaultsProvider).map((vault) => vault.id).toSet();
+  final visibleIds = ref
+      .watch(visibleVaultsProvider)
+      .map((vault) => vault.id)
+      .toSet();
   final query = ref.watch(searchQueryProvider).trim().toLowerCase();
   final filters = ref.watch(searchFiltersControllerProvider);
   final notes = ref
       .watch(notesControllerProvider)
       .where((note) => visibleIds.contains(note.vaultId))
       .where((note) => note.deletedAt == null)
-      .where((note) => filters.vaultId == null || note.vaultId == filters.vaultId)
-      .where((note) => !filters.pinnedOnly || note.isPinned)
       .where(
-        (note) => !filters.withMediaOnly || note.attachments.isNotEmpty,
+        (note) => filters.vaultId == null || note.vaultId == filters.vaultId,
       )
+      .where((note) => !filters.pinnedOnly || note.isPinned)
+      .where((note) => !filters.withMediaOnly || note.attachments.isNotEmpty)
       .where((note) {
-    if (query.isEmpty) {
-      return true;
-    }
-    final haystacks = [
-      note.title,
-      note.body,
-      ...note.attachments.map((attachment) => attachment.label),
-    ];
-    return haystacks.any((value) => value.toLowerCase().contains(query));
-  }).toList(growable: false);
+        if (query.isEmpty) {
+          return true;
+        }
+        final haystacks = [
+          note.title,
+          note.body,
+          ...note.attachments.map((attachment) => attachment.label),
+        ];
+        return haystacks.any((value) => value.toLowerCase().contains(query));
+      })
+      .toList(growable: false);
   return notes;
 }
 

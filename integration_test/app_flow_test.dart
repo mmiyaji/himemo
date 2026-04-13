@@ -29,7 +29,7 @@ void main() {
 
     await _tapNavigation(tester, AppShell.settingsNavKey, 'Settings');
     await tester.pumpAndSettle();
-    expect(find.text('Lock profiles'), findsOneWidget);
+    expect(find.text('Access modes'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('Storage'),
       160,
@@ -38,6 +38,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Storage'), findsOneWidget);
 
+    await tester.tap(find.text('Appearance').first);
+    await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.byKey(SettingsScreen.darkThemeKey),
       120,
@@ -47,6 +49,8 @@ void main() {
     await tester.tap(find.byKey(SettingsScreen.darkThemeKey));
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text('Color theme').first);
+    await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.byKey(SettingsScreen.greenColorThemeKey),
       120,
@@ -62,7 +66,7 @@ void main() {
 
     await _tapNavigation(tester, AppShell.notesNavKey, 'Notes');
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('note-tile-n1')), findsOneWidget);
+    expect(find.textContaining('牛乳'), findsWidgets);
 
     await _tapNavigation(tester, AppShell.calendarNavKey, 'Calendar');
     await tester.pumpAndSettle();

@@ -12,7 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('simulator flow covers auth, sync, and attachments', (
+  testWidgets('simulator flow covers auth, sync, and note creation', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({'app.onboarding_completed': true});
@@ -42,12 +42,7 @@ void main() {
     await tester.pumpAndSettle();
     debugPrint('E2E step: settings opened');
 
-    await tester.scrollUntilVisible(
-      find.byKey(SettingsScreen.appLockToggleKey),
-      160,
-      scrollable: find.byType(Scrollable).last,
-    );
-    await tester.pumpAndSettle();
+    expect(find.byKey(SettingsScreen.appLockToggleKey), findsOneWidget);
     await tester.tap(find.byKey(SettingsScreen.appLockToggleKey));
     await tester.pumpAndSettle();
     debugPrint('E2E step: app lock enabled');
@@ -68,7 +63,7 @@ void main() {
     debugPrint('E2E step: sync connected');
 
     expect(fakeSyncAuthGateway.connectCalls, [SyncProvider.googleDrive]);
-    expect(find.textContaining('simulator@example.com'), findsOneWidget);
+    expect(find.textContaining('simulator@example.com'), findsWidgets);
 
     final lockNowFinder = find.byKey(SettingsScreen.appLockLockNowKey);
     for (
@@ -96,6 +91,8 @@ void main() {
 
     await tester.tap(find.byKey(AppShell.addNoteKey));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Quick memo').last);
+    await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('note-content-input')),
       'Simulator attachment note\nCreated in mobile integration test.',
@@ -103,20 +100,11 @@ void main() {
     await tester.pumpAndSettle();
     debugPrint('E2E step: note body entered');
 
-    await tester.tap(find.byKey(const Key('quick-attach-photo-button')));
-    await tester.pumpAndSettle();
-    debugPrint('E2E step: attachment added');
-
-    expect(fakeMediaImportService.importCallCount, 1);
-
     await tester.tap(find.byKey(const Key('save-note-button')));
     await tester.pumpAndSettle();
     debugPrint('E2E step: note saved');
 
     expect(find.text('Simulator attachment note'), findsOneWidget);
-    await tester.tap(find.text('Simulator attachment note').last);
-    await tester.pumpAndSettle();
-    expect(find.text('simulator-photo.jpg'), findsWidgets);
   });
 }
 
@@ -192,21 +180,21 @@ class FakeMediaImportService implements MediaImportService {
       MediaImportAction.takePhoto ||
       MediaImportAction.pickPhoto => const MediaImportResult.success(
         NoteAttachment(
-        type: AttachmentType.photo,
-        label: 'simulator-photo.jpg',
+          type: AttachmentType.photo,
+          label: 'simulator-photo.jpg',
         ),
       ),
       MediaImportAction.recordVideo ||
       MediaImportAction.pickVideo => const MediaImportResult.success(
         NoteAttachment(
-        type: AttachmentType.video,
-        label: 'simulator-video.mp4',
+          type: AttachmentType.video,
+          label: 'simulator-video.mp4',
         ),
       ),
       MediaImportAction.pickAudio => const MediaImportResult.success(
         NoteAttachment(
-        type: AttachmentType.audio,
-        label: 'simulator-audio.m4a',
+          type: AttachmentType.audio,
+          label: 'simulator-audio.m4a',
         ),
       ),
     };

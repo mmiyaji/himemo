@@ -74,3 +74,13 @@ flutter {
 }
 
 dependencies {}
+
+tasks.register("copyDevelopmentDebugApkForIntegrationTest", Copy) {
+    from("${rootProject.projectDir.parentFile}/build/app/outputs/apk/development/debug/app-development-debug.apk")
+    into("${rootProject.projectDir.parentFile}/build/app/outputs/flutter-apk")
+    rename { "app-debug.apk" }
+}
+
+tasks.matching { it.name == "assembleDebug" }.configureEach {
+    finalizedBy(tasks.named("copyDevelopmentDebugApkForIntegrationTest"))
+}

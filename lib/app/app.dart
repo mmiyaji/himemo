@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pinput/pinput.dart';
 
 import '../features/home/presentation/home_providers.dart';
+import '../l10n/app_strings.dart';
 import 'app_flavor.dart';
 import 'app_router.dart';
 
@@ -18,14 +20,47 @@ class HiMemoApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeControllerProvider);
     final colorTheme = ref.watch(appColorThemeControllerProvider);
+    final localeSetting = ref.watch(appLocaleControllerProvider);
     final launchSurface = ref.watch(appLaunchControllerProvider);
     final router = ref.watch(appRouterProvider);
+    final currentLocation = router.routeInformationProvider.value.uri.path;
+    final locale = switch (localeSetting) {
+      AppLocaleSetting.system => null,
+      AppLocaleSetting.japanese => const Locale('ja'),
+      AppLocaleSetting.english => const Locale('en'),
+    };
+
+    ref.watch(widgetQuickCaptureBridgeProvider);
+    ref.listen(widgetQuickCaptureRequestControllerProvider, (previous, next) {
+      if (previous == next) {
+        return;
+      }
+      router.go('/widget-capture');
+    });
 
     return FlavorBanner(
       child: MaterialApp.router(
         title: flavor.displayName,
         debugShowCheckedModeBanner: false,
         routerConfig: router,
+        locale: locale,
+        supportedLocales: AppStrings.supportedLocales,
+        localeListResolutionCallback: (locales, supportedLocales) {
+          for (final deviceLocale in locales ?? const <Locale>[]) {
+            for (final supportedLocale in supportedLocales) {
+              if (supportedLocale.languageCode == deviceLocale.languageCode) {
+                return supportedLocale;
+              }
+            }
+          }
+          return const Locale('en');
+        },
+        localizationsDelegates: const [
+          AppStrings.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         themeMode: themeMode,
         theme: _buildTheme(Brightness.light, colorTheme),
         darkTheme: _buildTheme(Brightness.dark, colorTheme),
@@ -33,6 +68,7 @@ class HiMemoApp extends ConsumerWidget {
           return _LaunchSurfaceGate(
             flavor: flavor,
             launchSurface: launchSurface,
+            currentLocation: currentLocation,
             child: child,
           );
         },
@@ -45,11 +81,13 @@ class _LaunchSurfaceGate extends StatefulWidget {
   const _LaunchSurfaceGate({
     required this.flavor,
     required this.launchSurface,
+    required this.currentLocation,
     required this.child,
   });
 
   final AppFlavor flavor;
   final AppLaunchSurface launchSurface;
+  final String currentLocation;
   final Widget? child;
 
   @override
@@ -87,14 +125,18 @@ class _LaunchSurfaceGateState extends State<_LaunchSurfaceGate> {
       case AppLaunchSurface.onboarding:
         return _OnboardingScreen(flavor: widget.flavor);
       case AppLaunchSurface.ready:
-        return _AppLockGate(child: widget.child);
+        return _AppLockGate(
+          currentLocation: widget.currentLocation,
+          child: widget.child,
+        );
     }
   }
 }
 
 class _AppLockGate extends ConsumerStatefulWidget {
-  const _AppLockGate({required this.child});
+  const _AppLockGate({required this.currentLocation, required this.child});
 
+  final String currentLocation;
   final Widget? child;
 
   @override
@@ -203,12 +245,16 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
 
   @override
   Widget build(BuildContext context) {
+    final strings = context.strings;
     final enabled = ref.watch(appLockSettingsControllerProvider);
     final unlocked = ref.watch(appSessionUnlockControllerProvider);
     final authState = ref.watch(deviceAuthControllerProvider);
     final pinState = ref.watch(appPinLockControllerProvider);
+    final bypassForQuickCapture = widget.currentLocation.startsWith(
+      '/widget-capture',
+    );
 
-    if (!enabled || unlocked) {
+    if (!enabled || unlocked || bypassForQuickCapture) {
       return widget.child ?? const SizedBox.shrink();
     }
 
@@ -252,29 +298,23 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                         ),
                         const SizedBox(height: 20),
                         Text(
-                          'Unlock HiMemo',
+                          strings.unlockHiMemo,
                           style: Theme.of(context).textTheme.headlineMedium,
                         ),
                         const SizedBox(height: 12),
                         Text(
                           kIsWeb
-                              ? 'This browser session is protected with a web PIN.'
-                              : 'Resume this session with device authentication.',
-                          style:
-                              Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
-                                  ),
+                              ? strings.browserPinGate
+                              : strings.deviceAuthGate,
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(color: colorScheme.onSurfaceVariant),
                         ),
                         const SizedBox(height: 24),
                         if (wide)
                           Text(
-                            'Private vault access and sync state remain locked until the session is restored.',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
-                                ?.copyWith(
-                                  color: colorScheme.onSurfaceVariant,
-                                ),
+                            strings.privateVaultLockedMessage,
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: colorScheme.onSurfaceVariant),
                           ),
                         const Spacer(),
                       ],
@@ -295,9 +335,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                             Text(
                               kIsWeb ? pinState.summary : authState.summary,
                               textAlign: TextAlign.center,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
+                              style: Theme.of(context).textTheme.bodyMedium
                                   ?.copyWith(
                                     color: colorScheme.onSurfaceVariant,
                                   ),
@@ -310,28 +348,33 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                                 onPressed: () async {
                                   await ref
                                       .read(
-                                          deviceAuthControllerProvider.notifier)
+                                        deviceAuthControllerProvider.notifier,
+                                      )
                                       .authenticate(
                                         reason:
                                             'Unlock HiMemo with device authentication',
                                       );
                                 },
                                 icon: const Icon(Icons.lock_open_rounded),
-                                label: const Text('Authenticate'),
+                                label: Text(strings.authenticate),
                               ),
                             const SizedBox(height: 12),
                             TextButton(
                               onPressed: () async {
                                 await ref
-                                    .read(appLockSettingsControllerProvider
-                                        .notifier)
+                                    .read(
+                                      appLockSettingsControllerProvider
+                                          .notifier,
+                                    )
                                     .setEnabled(false);
                                 ref
-                                    .read(appSessionUnlockControllerProvider
-                                        .notifier)
+                                    .read(
+                                      appSessionUnlockControllerProvider
+                                          .notifier,
+                                    )
                                     .unlock();
                               },
-                              child: const Text('Disable app unlock for now'),
+                              child: Text(strings.disableUnlockForNow),
                             ),
                           ],
                         ),
@@ -366,6 +409,7 @@ class _WebPinUnlockPanelState extends ConsumerState<_WebPinUnlockPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = context.strings;
     final pinState = ref.watch(appPinLockControllerProvider);
     final colorScheme = Theme.of(context).colorScheme;
 
@@ -402,15 +446,15 @@ class _WebPinUnlockPanelState extends ConsumerState<_WebPinUnlockPanel> {
         FilledButton.icon(
           onPressed: _submit,
           icon: const Icon(Icons.lock_open_rounded),
-          label: const Text('Unlock with PIN'),
+          label: Text(strings.unlockWithPin),
         ),
         if (pinState.lastError != null) ...[
           const SizedBox(height: 12),
           Text(
             pinState.lastError!,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colorScheme.error,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: colorScheme.error),
           ),
         ],
       ],
@@ -422,10 +466,9 @@ class _WebPinUnlockPanelState extends ConsumerState<_WebPinUnlockPanel> {
     if (pin.length != 4) {
       return;
     }
-    final matched =
-        await ref.read(appPinLockControllerProvider.notifier).verify(
-              pin,
-            );
+    final matched = await ref
+        .read(appPinLockControllerProvider.notifier)
+        .verify(pin);
     if (matched) {
       _pinController.clear();
     }
@@ -446,14 +489,16 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
   int _pageIndex = 0;
 
   final List<
-      ({
-        String title,
-        String body,
-        IconData icon,
-        String imagePath,
-        String imageSemanticLabel,
-        bool isSetupPage,
-      })> _pages = const [
+    ({
+      String title,
+      String body,
+      IconData icon,
+      String imagePath,
+      String imageSemanticLabel,
+      bool isSetupPage,
+    })
+  >
+  _pages = const [
     (
       title: 'Capture fast',
       body:
@@ -500,6 +545,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = context.strings;
     final colorScheme = Theme.of(context).colorScheme;
     final isLastPage = _pageIndex == _pages.length - 1;
     final pinConfigured = ref.watch(appPinLockControllerProvider).isConfigured;
@@ -537,21 +583,23 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                           onPressed: () => ref
                               .read(appLaunchControllerProvider.notifier)
                               .completeOnboarding(),
-                          child: const Text('Skip'),
+                          child: Text(strings.skip),
                         ),
                       ],
                     ),
                     const SizedBox(height: 28),
                     Text(
-                      'Welcome to HiMemo',
+                      strings.isJapanese ? 'HiMemo へようこそ' : 'Welcome to HiMemo',
                       style: Theme.of(context).textTheme.headlineSmall,
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'A short setup pass before the memo vault opens.',
+                      strings.isJapanese
+                          ? 'メモ庫を開く前に、短い初期設定を行います。'
+                          : 'A short setup pass before the memo vault opens.',
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
+                        color: colorScheme.onSurfaceVariant,
+                      ),
                     ),
                     const SizedBox(height: 28),
                     Expanded(
@@ -580,7 +628,11 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                                 child: SingleChildScrollView(
                                   child: ConstrainedBox(
                                     constraints: BoxConstraints(
-                                      minHeight: constraints.maxHeight - 48,
+                                      minHeight:
+                                          constraints.maxHeight.isFinite &&
+                                              constraints.maxHeight > 48
+                                          ? constraints.maxHeight - 48
+                                          : 0,
                                     ),
                                     child: Column(
                                       crossAxisAlignment:
@@ -590,12 +642,11 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                                           width: 56,
                                           height: 56,
                                           decoration: BoxDecoration(
-                                            color:
-                                                colorScheme.primary.withValues(
-                                              alpha: 0.12,
+                                            color: colorScheme.primary
+                                                .withValues(alpha: 0.12),
+                                            borderRadius: BorderRadius.circular(
+                                              18,
                                             ),
-                                            borderRadius:
-                                                BorderRadius.circular(18),
                                           ),
                                           child: Icon(
                                             page.icon,
@@ -614,16 +665,16 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                                         ],
                                         Text(
                                           page.title,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleLarge,
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.titleLarge,
                                         ),
                                         const SizedBox(height: 12),
                                         Text(
                                           page.body,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodyLarge,
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.bodyLarge,
                                         ),
                                         if (page.isSetupPage) ...[
                                           const SizedBox(height: 24),
@@ -674,7 +725,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                               curve: Curves.easeOut,
                             );
                           },
-                          child: Text(isLastPage ? 'Finish setup' : 'Next'),
+                          child: Text(isLastPage ? strings.finishSetup : strings.next),
                         ),
                       ],
                     ),
@@ -705,68 +756,76 @@ class _OnboardingImageCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
-      child: AspectRatio(
-        aspectRatio: 16 / 9,
-        child: ColoredBox(
-          color: colorScheme.surfaceContainerHighest,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Image.asset(
-                imagePath,
-                fit: BoxFit.cover,
-                semanticLabel: semanticLabel,
-                filterQuality: FilterQuality.medium,
-                errorBuilder: (context, error, stackTrace) {
-                  return DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          colorScheme.surfaceContainerHighest,
-                          colorScheme.primary.withValues(alpha: 0.16),
-                        ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxCardHeight = constraints.maxWidth >= 900 ? 280.0 : 360.0;
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxCardHeight),
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: ColoredBox(
+                color: colorScheme.surfaceContainerHighest,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Image.asset(
+                      imagePath,
+                      fit: BoxFit.cover,
+                      semanticLabel: semanticLabel,
+                      filterQuality: FilterQuality.medium,
+                      errorBuilder: (context, error, stackTrace) {
+                        return DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                colorScheme.surfaceContainerHighest,
+                                colorScheme.primary.withValues(alpha: 0.16),
+                              ],
+                            ),
+                          ),
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  fallbackIcon,
+                                  size: 40,
+                                  color: colorScheme.primary,
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Add an onboarding image',
+                                  style: Theme.of(context).textTheme.labelLarge,
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            colorScheme.surface.withValues(alpha: 0.08),
+                          ],
+                        ),
                       ),
                     ),
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            fallbackIcon,
-                            size: 40,
-                            color: colorScheme.primary,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Add an onboarding image',
-                            style: Theme.of(context).textTheme.labelLarge,
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      colorScheme.surface.withValues(alpha: 0.08),
-                    ],
-                  ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -816,20 +875,31 @@ class _OnboardingSetupPanelBodyState
 
   @override
   Widget build(BuildContext context) {
+    final strings = context.strings;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _OnboardingSetupTile(
           tileKey: const Key('onboarding-set-pin-button'),
-          title: kIsWeb ? 'App unlock PIN' : 'App unlock',
+          title: kIsWeb
+              ? strings.setAppUnlockPin
+              : (strings.isJapanese ? 'アプリ解除' : 'App unlock'),
           subtitle: kIsWeb
               ? (widget.pinConfigured
-                  ? 'Configured for this browser.'
-                  : 'Set a 4 digit PIN for app launch.')
-              : 'Device authentication can be enabled later in Settings.',
+                    ? (strings.isJapanese
+                          ? 'このブラウザに設定済みです。'
+                          : 'Configured for this browser.')
+                    : (strings.isJapanese
+                          ? '起動用の4桁 PIN を設定します。'
+                          : 'Set a 4 digit PIN for app launch.'))
+              : (strings.isJapanese
+                    ? '端末認証は後から設定で有効化できます。'
+                    : 'Device authentication can be enabled later in Settings.'),
           actionLabel: kIsWeb
-              ? (widget.pinConfigured ? 'Change PIN' : 'Set PIN')
-              : 'Later in Settings',
+              ? (widget.pinConfigured
+                    ? (strings.isJapanese ? 'PIN を変更' : 'Change PIN')
+                    : (strings.isJapanese ? 'PIN を設定' : 'Set PIN'))
+              : (strings.isJapanese ? 'あとで設定' : 'Later in Settings'),
           onPressed: kIsWeb
               ? () async {
                   final pin = await _showOnboardingPinSetupDialog(context);
@@ -846,7 +916,9 @@ class _OnboardingSetupPanelBodyState
                     return;
                   }
                   setState(() {
-                    _pinFeedback = 'App unlock PIN saved.';
+                    _pinFeedback = strings.isJapanese
+                        ? 'アプリ解除 PIN を保存しました。'
+                        : 'App unlock PIN saved.';
                   });
                 }
               : null,
@@ -855,17 +927,21 @@ class _OnboardingSetupPanelBodyState
         const SizedBox(height: 12),
         _OnboardingSetupTile(
           tileKey: const Key('onboarding-set-cover-key-button'),
-          title: 'Cover mode key',
+          title: strings.coverKey,
           subtitle: widget.coverConfigured
-              ? 'Configured.'
-              : 'Optional key for the alternate everyday-facing mode.',
-          actionLabel: widget.coverConfigured ? 'Change key' : 'Set key',
+              ? (strings.isJapanese ? '設定済みです。' : 'Configured.')
+              : (strings.isJapanese
+                    ? '別の普段使いモードへ切り替えるための任意キーです。'
+                    : 'Optional key for the alternate everyday-facing mode.'),
+          actionLabel: widget.coverConfigured
+              ? (strings.isJapanese ? 'キーを変更' : 'Change key')
+              : (strings.isJapanese ? 'キーを設定' : 'Set key'),
           onPressed: () async {
             final secret = await _showOnboardingSecretSetupDialog(
               context,
-              title: 'Set cover key',
-              label: 'Cover key',
-              confirmLabel: 'Confirm cover key',
+              title: strings.isJapanese ? 'カバーキーを設定' : 'Set cover key',
+              label: strings.coverKey,
+              confirmLabel: strings.confirmPrivateKey(strings.coverKey),
             );
             if (secret == null) {
               return;
@@ -877,7 +953,9 @@ class _OnboardingSetupPanelBodyState
               return;
             }
             setState(() {
-              _coverFeedback = 'Cover key saved.';
+              _coverFeedback = strings.isJapanese
+                  ? 'カバーキーを保存しました。'
+                  : 'Cover key saved.';
             });
           },
           feedback: _coverFeedback,
@@ -885,17 +963,21 @@ class _OnboardingSetupPanelBodyState
         const SizedBox(height: 12),
         _OnboardingSetupTile(
           tileKey: const Key('onboarding-set-private-key-button'),
-          title: 'Private mode key',
+          title: strings.privateKey,
           subtitle: widget.privateConfigured
-              ? 'Configured.'
-              : 'Used to unlock the private memo mode and private vault.',
-          actionLabel: widget.privateConfigured ? 'Change key' : 'Set key',
+              ? (strings.isJapanese ? '設定済みです。' : 'Configured.')
+              : (strings.isJapanese
+                    ? 'プライベートモードと private vault の解除に使います。'
+                    : 'Used to unlock the private memo mode and private vault.'),
+          actionLabel: widget.privateConfigured
+              ? (strings.isJapanese ? 'キーを変更' : 'Change key')
+              : (strings.isJapanese ? 'キーを設定' : 'Set key'),
           onPressed: () async {
             final secret = await _showOnboardingSecretSetupDialog(
               context,
-              title: 'Set private key',
-              label: 'Private key',
-              confirmLabel: 'Confirm private key',
+              title: strings.setPrivateKey,
+              label: strings.privateKey,
+              confirmLabel: strings.confirmPrivateKey(strings.privateKey),
             );
             if (secret == null) {
               return;
@@ -908,7 +990,9 @@ class _OnboardingSetupPanelBodyState
               return;
             }
             setState(() {
-              _privateFeedback = 'Private key saved.';
+              _privateFeedback = strings.isJapanese
+                  ? 'プライベートキーを保存しました。'
+                  : 'Private key saved.';
             });
           },
           feedback: _privateFeedback,
@@ -955,17 +1039,17 @@ class _OnboardingSetupTile extends StatelessWidget {
                 Text(
                   subtitle,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 if (feedback != null) ...[
                   const SizedBox(height: 8),
                   Text(
                     feedback!,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.primary,
-                          fontWeight: FontWeight.w700,
-                        ),
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ],
               ],
@@ -984,6 +1068,7 @@ class _OnboardingSetupTile extends StatelessWidget {
 }
 
 Future<String?> _showOnboardingPinSetupDialog(BuildContext context) {
+  final strings = context.strings;
   final controller = TextEditingController();
   String? errorText;
   return showDialog<String>(
@@ -993,7 +1078,7 @@ Future<String?> _showOnboardingPinSetupDialog(BuildContext context) {
       return StatefulBuilder(
         builder: (context, setState) {
           return AlertDialog(
-            title: const Text('Set app unlock PIN'),
+            title: Text(strings.setAppUnlockPin),
             content: SizedBox(
               width: 320,
               child: TextField(
@@ -1001,7 +1086,7 @@ Future<String?> _showOnboardingPinSetupDialog(BuildContext context) {
                 obscureText: true,
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
-                  labelText: 'PIN',
+                  labelText: strings.pin,
                   border: const OutlineInputBorder(),
                   errorText: errorText,
                 ),
@@ -1010,26 +1095,26 @@ Future<String?> _showOnboardingPinSetupDialog(BuildContext context) {
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Cancel'),
+                child: Text(strings.cancel),
               ),
               FilledButton(
                 onPressed: () {
                   final pin = controller.text.trim();
                   if (pin.length != 4) {
                     setState(() {
-                      errorText = 'Use exactly 4 digits.';
+                      errorText = strings.useExactly4Digits;
                     });
                     return;
                   }
                   if (!RegExp(r'^\d+$').hasMatch(pin)) {
                     setState(() {
-                      errorText = 'Digits only.';
+                      errorText = strings.digitsOnly;
                     });
                     return;
                   }
                   Navigator.of(context).pop(pin);
                 },
-                child: const Text('Save'),
+                child: Text(strings.save),
               ),
             ],
           );
@@ -1047,6 +1132,7 @@ Future<String?> _showOnboardingSecretSetupDialog(
   bool digitsOnly = false,
   int? exactLength,
 }) {
+  final strings = context.strings;
   final secretController = TextEditingController();
   final confirmController = TextEditingController();
   String? errorText;
@@ -1090,7 +1176,7 @@ Future<String?> _showOnboardingSecretSetupDialog(
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Cancel'),
+                child: Text(strings.cancel),
               ),
               FilledButton(
                 onPressed: () {
@@ -1098,31 +1184,33 @@ Future<String?> _showOnboardingSecretSetupDialog(
                   final confirm = confirmController.text.trim();
                   if (exactLength != null && secret.length != exactLength) {
                     setState(() {
-                      errorText = 'Use exactly $exactLength characters.';
+                      errorText = strings.isJapanese
+                          ? '$exactLength 文字ちょうどで入力してください。'
+                          : 'Use exactly $exactLength characters.';
                     });
                     return;
                   }
                   if (exactLength == null && secret.length < 4) {
                     setState(() {
-                      errorText = 'Use at least 4 characters.';
+                      errorText = strings.useAtLeast4Chars;
                     });
                     return;
                   }
                   if (digitsOnly && !RegExp(r'^\d+$').hasMatch(secret)) {
                     setState(() {
-                      errorText = 'Digits only.';
+                      errorText = strings.digitsOnly;
                     });
                     return;
                   }
                   if (secret != confirm) {
                     setState(() {
-                      errorText = 'Values do not match.';
+                      errorText = strings.keysDoNotMatch;
                     });
                     return;
                   }
                   Navigator.of(context).pop(secret);
                 },
-                child: const Text('Save'),
+                child: Text(strings.save),
               ),
             ],
           );
@@ -1134,33 +1222,36 @@ Future<String?> _showOnboardingSecretSetupDialog(
 
 ThemeData _buildTheme(Brightness brightness, AppColorTheme colorTheme) {
   final palette = _paletteFor(colorTheme, brightness);
-  final scheme = ColorScheme.fromSeed(
-    seedColor: palette.primary,
-    brightness: brightness,
-  ).copyWith(
-    primary: palette.primary,
-    onPrimary: palette.onPrimary,
-    secondary: palette.secondary,
-    onSecondary: palette.onSecondary,
-    tertiary: palette.tertiary,
-    onTertiary: palette.onTertiary,
-    surface: palette.surface,
-    onSurface: palette.onSurface,
-    surfaceContainer: palette.surfaceContainer,
-    surfaceContainerHighest: palette.surfaceContainerHighest,
-    outline: palette.outline,
-    outlineVariant: palette.outlineVariant,
-    onSurfaceVariant: palette.onSurfaceVariant,
-  );
+  final scheme =
+      ColorScheme.fromSeed(
+        seedColor: palette.primary,
+        brightness: brightness,
+      ).copyWith(
+        primary: palette.primary,
+        onPrimary: palette.onPrimary,
+        secondary: palette.secondary,
+        onSecondary: palette.onSecondary,
+        tertiary: palette.tertiary,
+        onTertiary: palette.onTertiary,
+        surface: palette.surface,
+        onSurface: palette.onSurface,
+        surfaceContainer: palette.surfaceContainer,
+        surfaceContainerHighest: palette.surfaceContainerHighest,
+        outline: palette.outline,
+        outlineVariant: palette.outlineVariant,
+        onSurfaceVariant: palette.onSurfaceVariant,
+      );
 
   final baseTypography = Typography.material2021(
     colorScheme: scheme,
     platform: TargetPlatform.android,
   );
-  final textTheme = (brightness == Brightness.dark
-          ? baseTypography.white
-          : baseTypography.black)
-      .apply(bodyColor: scheme.onSurface, displayColor: scheme.onSurface);
+  final textTheme = _applyJapaneseFontFallback(
+    (brightness == Brightness.dark
+            ? baseTypography.white
+            : baseTypography.black)
+        .apply(bodyColor: scheme.onSurface, displayColor: scheme.onSurface),
+  );
 
   return ThemeData(
     colorScheme: scheme,
@@ -1229,6 +1320,43 @@ ThemeData _buildTheme(Brightness brightness, AppColorTheme colorTheme) {
       foregroundColor: scheme.onPrimary,
     ),
     useMaterial3: true,
+  );
+}
+
+const _japaneseFontFallback = <String>[
+  'Noto Sans JP',
+  'Hiragino Sans',
+  'Yu Gothic UI',
+  'Yu Gothic',
+  'Meiryo',
+  'MS PGothic',
+  'sans-serif',
+];
+
+TextTheme _applyJapaneseFontFallback(TextTheme textTheme) {
+  TextStyle? withFallback(TextStyle? style) {
+    if (style == null) {
+      return null;
+    }
+    return style.copyWith(fontFamilyFallback: _japaneseFontFallback);
+  }
+
+  return textTheme.copyWith(
+    displayLarge: withFallback(textTheme.displayLarge),
+    displayMedium: withFallback(textTheme.displayMedium),
+    displaySmall: withFallback(textTheme.displaySmall),
+    headlineLarge: withFallback(textTheme.headlineLarge),
+    headlineMedium: withFallback(textTheme.headlineMedium),
+    headlineSmall: withFallback(textTheme.headlineSmall),
+    titleLarge: withFallback(textTheme.titleLarge),
+    titleMedium: withFallback(textTheme.titleMedium),
+    titleSmall: withFallback(textTheme.titleSmall),
+    bodyLarge: withFallback(textTheme.bodyLarge),
+    bodyMedium: withFallback(textTheme.bodyMedium),
+    bodySmall: withFallback(textTheme.bodySmall),
+    labelLarge: withFallback(textTheme.labelLarge),
+    labelMedium: withFallback(textTheme.labelMedium),
+    labelSmall: withFallback(textTheme.labelSmall),
   );
 }
 
@@ -1347,6 +1475,120 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
               outline: Color(0xFFD1C2B5),
               outlineVariant: Color(0xFFE7DDD4),
               scaffoldBackground: Color(0xFFFCF8F3),
+              appBarBackground: Colors.white,
+              navigationBackground: Colors.white,
+            );
+    case AppColorTheme.slate:
+      return isDark
+          ? const _ThemePalette(
+              primary: Color(0xFFB3C3D6),
+              onPrimary: Color(0xFF17212B),
+              secondary: Color(0xFF90A6BE),
+              onSecondary: Color(0xFF16212A),
+              tertiary: Color(0xFFD5E0EB),
+              onTertiary: Color(0xFF17212B),
+              surface: Color(0xFF1C242C),
+              onSurface: Color(0xFFEAF0F5),
+              onSurfaceVariant: Color(0xFFADB8C2),
+              surfaceContainer: Color(0xFF25303A),
+              surfaceContainerHighest: Color(0xFF313E49),
+              outline: Color(0xFF5B6977),
+              outlineVariant: Color(0xFF46525E),
+              scaffoldBackground: Color(0xFF272C32),
+              appBarBackground: Color(0xFF272C32),
+              navigationBackground: Color(0xFF272C32),
+            )
+          : const _ThemePalette(
+              primary: Color(0xFF445A72),
+              onPrimary: Colors.white,
+              secondary: Color(0xFF6B7F95),
+              onSecondary: Colors.white,
+              tertiary: Color(0xFFD3DCE6),
+              onTertiary: Color(0xFF243240),
+              surface: Colors.white,
+              onSurface: Color(0xFF1E2327),
+              onSurfaceVariant: Color(0xFF63707B),
+              surfaceContainer: Color(0xFFF4F7FA),
+              surfaceContainerHighest: Color(0xFFE7EDF2),
+              outline: Color(0xFFC2CCD5),
+              outlineVariant: Color(0xFFDCE3E9),
+              scaffoldBackground: Color(0xFFF8FAFC),
+              appBarBackground: Colors.white,
+              navigationBackground: Colors.white,
+            );
+    case AppColorTheme.teal:
+      return isDark
+          ? const _ThemePalette(
+              primary: Color(0xFF86D7D0),
+              onPrimary: Color(0xFF0C2A28),
+              secondary: Color(0xFF5DBBB2),
+              onSecondary: Color(0xFF0A2422),
+              tertiary: Color(0xFFC5EEE8),
+              onTertiary: Color(0xFF0C2A28),
+              surface: Color(0xFF182523),
+              onSurface: Color(0xFFE9F3F2),
+              onSurfaceVariant: Color(0xFFA7BDBC),
+              surfaceContainer: Color(0xFF223230),
+              surfaceContainerHighest: Color(0xFF2D413E),
+              outline: Color(0xFF536764),
+              outlineVariant: Color(0xFF3E514E),
+              scaffoldBackground: Color(0xFF272C32),
+              appBarBackground: Color(0xFF272C32),
+              navigationBackground: Color(0xFF272C32),
+            )
+          : const _ThemePalette(
+              primary: Color(0xFF0E6F6A),
+              onPrimary: Colors.white,
+              secondary: Color(0xFF3D8F8A),
+              onSecondary: Colors.white,
+              tertiary: Color(0xFFBDE7E2),
+              onTertiary: Color(0xFF0B3532),
+              surface: Colors.white,
+              onSurface: Color(0xFF1B2221),
+              onSurfaceVariant: Color(0xFF5F6B69),
+              surfaceContainer: Color(0xFFF3FAF9),
+              surfaceContainerHighest: Color(0xFFE0F1EF),
+              outline: Color(0xFFB9CBC9),
+              outlineVariant: Color(0xFFD6E6E4),
+              scaffoldBackground: Color(0xFFF7FBFB),
+              appBarBackground: Colors.white,
+              navigationBackground: Colors.white,
+            );
+    case AppColorTheme.rose:
+      return isDark
+          ? const _ThemePalette(
+              primary: Color(0xFFFFB8C8),
+              onPrimary: Color(0xFF351722),
+              secondary: Color(0xFFE594AA),
+              onSecondary: Color(0xFF31131E),
+              tertiary: Color(0xFFFFD7E1),
+              onTertiary: Color(0xFF351722),
+              surface: Color(0xFF261C20),
+              onSurface: Color(0xFFF6ECEF),
+              onSurfaceVariant: Color(0xFFC9B3BA),
+              surfaceContainer: Color(0xFF33262B),
+              surfaceContainerHighest: Color(0xFF433238),
+              outline: Color(0xFF775E66),
+              outlineVariant: Color(0xFF5D474F),
+              scaffoldBackground: Color(0xFF272C32),
+              appBarBackground: Color(0xFF272C32),
+              navigationBackground: Color(0xFF272C32),
+            )
+          : const _ThemePalette(
+              primary: Color(0xFF9A4860),
+              onPrimary: Colors.white,
+              secondary: Color(0xFFBC6F86),
+              onSecondary: Colors.white,
+              tertiary: Color(0xFFF3CDD8),
+              onTertiary: Color(0xFF44202B),
+              surface: Colors.white,
+              onSurface: Color(0xFF241B1F),
+              onSurfaceVariant: Color(0xFF746168),
+              surfaceContainer: Color(0xFFFCF6F8),
+              surfaceContainerHighest: Color(0xFFF2E3E8),
+              outline: Color(0xFFD4C2C8),
+              outlineVariant: Color(0xFFE8DADF),
+              scaffoldBackground: Color(0xFFFCF8F9),
               appBarBackground: Colors.white,
               navigationBackground: Colors.white,
             );
