@@ -78,6 +78,38 @@ class AppStrings {
 
   String get about => isJapanese ? 'アプリ情報' : 'About';
   String get appVersion => isJapanese ? 'アプリバージョン' : 'App version';
+  String get appUpdates => isJapanese ? 'アプリ更新' : 'App updates';
+  String get appUpdatesDesc => isJapanese
+      ? 'Google Play のアプリ内更新を確認し、必要な更新を開始します。'
+      : 'Check Google Play in-app updates and start the recommended update flow.';
+  String get checkForUpdates => isJapanese ? '更新を確認' : 'Check for updates';
+  String get startUpdate => isJapanese ? '更新を開始' : 'Start update';
+  String get completeUpdateInstall => isJapanese ? '更新を完了' : 'Complete update';
+  String get updateSupportedOnAndroidOnly => isJapanese
+      ? 'アプリ内更新は Android の Google Play 配布で利用できます。'
+      : 'In-app updates are available on Android builds distributed through Google Play.';
+  String get updateStatusUpToDate => isJapanese
+      ? '現在のビルドは最新です。'
+      : 'The installed build is up to date.';
+  String get updateStatusAvailable => isJapanese
+      ? 'Google Play に新しい更新があります。'
+      : 'A newer build is available on Google Play.';
+  String get updateStatusChecking => isJapanese ? '更新を確認しています...' : 'Checking for updates...';
+  String get updateStatusUnsupported => isJapanese
+      ? 'この実行環境ではアプリ内更新を利用できません。'
+      : 'In-app updates are not available in this runtime.';
+  String get updateStatusStarted => isJapanese
+      ? 'Google Play の更新フローを開始しました。'
+      : 'Started the Google Play update flow.';
+  String get updateFlexibleReady => isJapanese
+      ? '柔軟な更新がダウンロード済みです。完了を押すと再起動して更新します。'
+      : 'A flexible update is downloaded. Complete it to restart and apply the update.';
+  String updateVersionLabel(int? versionCode) => isJapanese
+      ? (versionCode == null ? '配信中の更新' : '配信中の更新: $versionCode')
+      : (versionCode == null ? 'Available update' : 'Available update: $versionCode');
+  String updatePriorityLabel(int? priority) => isJapanese
+      ? '優先度: ${priority ?? 0}'
+      : 'Priority: ${priority ?? 0}';
   String get ossLicenses => isJapanese ? 'OSS ライセンス' : 'OSS licenses';
   String get ossLicensesDesc => isJapanese
       ? '利用しているオープンソースソフトウェアのライセンスを表示します。'

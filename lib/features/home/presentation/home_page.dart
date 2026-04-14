@@ -10,6 +10,7 @@ import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
+import 'package:in_app_update/in_app_update.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:pinput/pinput.dart';
 import 'package:share_plus/share_plus.dart';
@@ -1624,6 +1625,9 @@ class SettingsScreen extends ConsumerWidget {
   static const lightThemeKey = Key('theme-light-option');
   static const systemThemeKey = Key('theme-system-option');
   static const darkThemeKey = Key('theme-dark-option');
+  static const localeSystemKey = Key('locale-system-option');
+  static const localeJapaneseKey = Key('locale-japanese-option');
+  static const localeEnglishKey = Key('locale-english-option');
   static const blueColorThemeKey = Key('color-theme-blue-option');
   static const greenColorThemeKey = Key('color-theme-green-option');
   static const orangeColorThemeKey = Key('color-theme-orange-option');
@@ -1774,6 +1778,7 @@ class SettingsScreen extends ConsumerWidget {
     final syncBundleFingerprint = ref.watch(syncBundleFingerprintProvider);
     final syncBundleState = ref.watch(syncBundleStateProvider);
     final syncConflictWarning = ref.watch(syncConflictWarningProvider);
+    final inAppUpdateState = ref.watch(inAppUpdateControllerProvider);
     final packageInfo = ref.watch(packageInfoProvider);
     final flavorName =
         FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
@@ -1804,6 +1809,19 @@ class SettingsScreen extends ConsumerWidget {
       loading: strings.readingVersion,
       error: (_, _) => '1.0.0 (1)',
     );
+    final inAppUpdateSummary = switch (inAppUpdateState.stage) {
+      InAppUpdateStage.checking => strings.updateStatusChecking,
+      InAppUpdateStage.ready => strings.updateStatusAvailable,
+      InAppUpdateStage.completed =>
+        inAppUpdateState.status?.updateAvailable == true
+            ? strings.updateStatusStarted
+            : strings.updateStatusUpToDate,
+      InAppUpdateStage.unsupported => strings.updateSupportedOnAndroidOnly,
+      InAppUpdateStage.error => inAppUpdateState.message ?? strings.updateStatusUnsupported,
+      _ => inAppUpdateState.status?.updateAvailable == true
+            ? strings.updateStatusAvailable
+            : strings.updateSupportedOnAndroidOnly,
+    };
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -3070,6 +3088,7 @@ class SettingsScreen extends ConsumerWidget {
           title: strings.appearance,
           summary: appearanceSummary,
           assetPath: 'assets/settings/appearance.svg',
+          semanticLabel: 'settings-appearance',
           children: [
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
@@ -3079,6 +3098,7 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
             _ThemeOptionTile(
+              tileKey: SettingsScreen.localeSystemKey,
               title: strings.languageSystem,
               subtitle: strings.languageSystemDesc,
               selected: localeSetting == AppLocaleSetting.system,
@@ -3087,6 +3107,7 @@ class SettingsScreen extends ConsumerWidget {
                   .setLocale(AppLocaleSetting.system),
             ),
             _ThemeOptionTile(
+              tileKey: SettingsScreen.localeJapaneseKey,
               title: strings.languageJapanese,
               subtitle: strings.isJapanese ? '表示を日本語に固定します。' : 'Use Japanese across the app.',
               selected: localeSetting == AppLocaleSetting.japanese,
@@ -3095,6 +3116,7 @@ class SettingsScreen extends ConsumerWidget {
                   .setLocale(AppLocaleSetting.japanese),
             ),
             _ThemeOptionTile(
+              tileKey: SettingsScreen.localeEnglishKey,
               title: strings.languageEnglish,
               subtitle: strings.isJapanese ? '表示を英語に固定します。' : 'Use English across the app.',
               selected: localeSetting == AppLocaleSetting.english,
@@ -3188,6 +3210,110 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () => ref
                   .read(appColorThemeControllerProvider.notifier)
                   .setTheme(AppColorTheme.rose),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _SettingsGroup(
+          title: strings.appUpdates,
+          summary: inAppUpdateSummary,
+          assetPath: 'assets/settings/about.svg',
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(strings.appUpdates),
+              subtitle: Text(
+                inAppUpdateState.status == null
+                    ? strings.appUpdatesDesc
+                    : [
+                        inAppUpdateSummary,
+                        if (inAppUpdateState.status?.availableVersionCode != null)
+                          strings.updateVersionLabel(
+                            inAppUpdateState.status?.availableVersionCode,
+                          ),
+                        if (inAppUpdateState.status?.updatePriority != null)
+                          strings.updatePriorityLabel(
+                            inAppUpdateState.status?.updatePriority,
+                          ),
+                        if (inAppUpdateState.status?.installStatus ==
+                            InstallStatus.downloaded)
+                          strings.updateFlexibleReady,
+                      ].join('\n'),
+              ),
+            ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton(
+                  onPressed: inAppUpdateState.isBusy
+                      ? null
+                      : () async {
+                          await ref
+                              .read(inAppUpdateControllerProvider.notifier)
+                              .check();
+                          if (!context.mounted) {
+                            return;
+                          }
+                          final message = ref
+                              .read(inAppUpdateControllerProvider)
+                              .message;
+                          if (message != null && message.isNotEmpty) {
+                            ScaffoldMessenger.of(
+                              context,
+                            ).showSnackBar(SnackBar(content: Text(message)));
+                          }
+                        },
+                  child: Text(strings.checkForUpdates),
+                ),
+                if (inAppUpdateState.status?.updateAvailable == true &&
+                    inAppUpdateState.status?.installStatus !=
+                        InstallStatus.downloaded)
+                  FilledButton(
+                    onPressed: inAppUpdateState.isBusy
+                        ? null
+                        : () async {
+                            await ref
+                                .read(inAppUpdateControllerProvider.notifier)
+                                .startPreferredUpdate();
+                            if (!context.mounted) {
+                              return;
+                            }
+                            final message = ref
+                                .read(inAppUpdateControllerProvider)
+                                .message;
+                            if (message != null && message.isNotEmpty) {
+                              ScaffoldMessenger.of(
+                                context,
+                              ).showSnackBar(SnackBar(content: Text(message)));
+                            }
+                          },
+                    child: Text(strings.startUpdate),
+                  ),
+                if (inAppUpdateState.status?.installStatus ==
+                    InstallStatus.downloaded)
+                  FilledButton.tonal(
+                    onPressed: inAppUpdateState.isBusy
+                        ? null
+                        : () async {
+                            await ref
+                                .read(inAppUpdateControllerProvider.notifier)
+                                .completeFlexibleUpdate();
+                            if (!context.mounted) {
+                              return;
+                            }
+                            final message = ref
+                                .read(inAppUpdateControllerProvider)
+                                .message;
+                            if (message != null && message.isNotEmpty) {
+                              ScaffoldMessenger.of(
+                                context,
+                              ).showSnackBar(SnackBar(content: Text(message)));
+                            }
+                          },
+                    child: Text(strings.completeUpdateInstall),
+                  ),
+              ],
             ),
           ],
         ),
@@ -4444,6 +4570,7 @@ class _SettingsGroup extends StatelessWidget {
     required this.summary,
     required this.assetPath,
     required this.children,
+    this.semanticLabel,
     this.initiallyExpanded = false,
   });
 
@@ -4451,40 +4578,44 @@ class _SettingsGroup extends StatelessWidget {
   final String summary;
   final String assetPath;
   final List<Widget> children;
+  final String? semanticLabel;
   final bool initiallyExpanded;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      decoration: _sectionDecoration(context),
-      child: Theme(
-        data: theme.copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          maintainState: true,
-          initiallyExpanded: initiallyExpanded,
-          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-          leading: _SettingsSectionIcon(assetPath: assetPath),
-          title: Text(title, style: theme.textTheme.titleMedium),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              summary,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: _mutedTextColor(context),
+    return Semantics(
+      label: semanticLabel,
+      child: Container(
+        decoration: _sectionDecoration(context),
+        child: Theme(
+          data: theme.copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            maintainState: true,
+            initiallyExpanded: initiallyExpanded,
+            tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+            leading: _SettingsSectionIcon(assetPath: assetPath),
+            title: Text(title, style: theme.textTheme.titleMedium),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                summary,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
               ),
             ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            collapsedShape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            children: children,
           ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          collapsedShape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          children: children,
         ),
       ),
     );
@@ -4642,9 +4773,13 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                     child: Text(strings.isJapanese ? 'メディア重視' : 'Media list'),
                   ),
                 ],
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  child: Icon(Icons.view_agenda_outlined, size: 20),
+                child: Semantics(
+                  label: 'notes-list-layout',
+                  button: true,
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    child: Icon(Icons.view_agenda_outlined, size: 20),
+                  ),
                 ),
               ),
               TextButton.icon(

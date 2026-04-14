@@ -1,5 +1,11 @@
 plugins {
     id "com.android.application"
+    // START: FlutterFire Configuration
+    id 'com.google.gms.google-services'
+    id 'com.google.firebase.crashlytics'
+    id 'com.google.firebase.firebase-perf'
+    id 'com.google.firebase.appdistribution'
+    // END: FlutterFire Configuration
     id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
 }
@@ -22,11 +28,26 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
+def playIntegrityProjectNumber = (System.getenv('HIMEMO_FIREBASE_PROJECT_NUMBER') ?: '247004759100').trim()
+def appDistributionTesters = (System.getenv('HIMEMO_APPDIST_TESTERS') ?: '').trim()
+def appDistributionGroups = (System.getenv('HIMEMO_APPDIST_GROUPS') ?: '').trim()
+def appDistributionReleaseNotes = (System.getenv('HIMEMO_APPDIST_RELEASE_NOTES') ?: '').trim()
+def appDistributionReleaseNotesFile = (System.getenv('HIMEMO_APPDIST_RELEASE_NOTES_FILE') ?: '').trim()
+def appDistributionCredentials = (
+    System.getenv('HIMEMO_APPDIST_SERVICE_CREDENTIALS_FILE')
+        ?: System.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+        ?: ''
+).trim()
+
 android {
-    namespace "dev.minamo.himemo.himemo"
+    namespace "org.ruhenheim.himemo"
     compileSdk flutter.compileSdkVersion
     ndkVersion flutter.ndkVersion
     flavorDimensions "environment"
+
+    buildFeatures {
+        buildConfig true
+    }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -42,11 +63,12 @@ android {
     }
 
     defaultConfig {
-        applicationId "dev.minamo.himemo.himemo"
+        applicationId "org.ruhenheim.himemo"
         minSdkVersion flutter.minSdkVersion
         targetSdkVersion flutter.targetSdkVersion
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
+        buildConfigField "long", "PLAY_INTEGRITY_PROJECT_NUMBER", "${playIntegrityProjectNumber}L"
     }
 
     productFlavors {
@@ -65,6 +87,23 @@ android {
     buildTypes {
         release {
             signingConfig signingConfigs.debug
+            firebaseAppDistribution {
+                artifactType = "AAB"
+                if (appDistributionReleaseNotesFile) {
+                    releaseNotesFile = appDistributionReleaseNotesFile
+                } else if (appDistributionReleaseNotes) {
+                    releaseNotes = appDistributionReleaseNotes
+                }
+                if (appDistributionTesters) {
+                    testers = appDistributionTesters
+                }
+                if (appDistributionGroups) {
+                    groups = appDistributionGroups
+                }
+                if (appDistributionCredentials) {
+                    serviceCredentialsFile = appDistributionCredentials
+                }
+            }
         }
     }
 }
@@ -73,7 +112,12 @@ flutter {
     source '../..'
 }
 
-dependencies {}
+dependencies {
+    implementation platform('com.google.firebase:firebase-bom:34.4.0')
+    implementation 'com.google.firebase:firebase-crashlytics'
+    implementation 'com.google.firebase:firebase-perf'
+    implementation 'com.google.android.play:integrity:1.4.0'
+}
 
 tasks.register("copyDevelopmentDebugApkForIntegrationTest", Copy) {
     from("${rootProject.projectDir.parentFile}/build/app/outputs/apk/development/debug/app-development-debug.apk")

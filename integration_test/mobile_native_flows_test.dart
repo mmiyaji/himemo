@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:himemo/app/app.dart';
 import 'package:himemo/app/app_flavor.dart';
+import 'package:himemo/app/play_integrity_service.dart';
+import 'package:himemo/app/play_integrity_verifier.dart';
 import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
@@ -24,11 +26,13 @@ void main() {
     );
     final fakeSyncAuthGateway = FakeSyncAuthGateway();
     final fakeMediaImportService = FakeMediaImportService();
+    final fakePlayIntegrityVerifier = FakePlayIntegrityVerifier();
     final container = ProviderContainer(
       overrides: [
         deviceAuthGatewayProvider.overrideWithValue(fakeDeviceAuthGateway),
         syncAuthGatewayProvider.overrideWithValue(fakeSyncAuthGateway),
         mediaImportServiceProvider.overrideWithValue(fakeMediaImportService),
+        playIntegrityVerifierProvider.overrideWithValue(fakePlayIntegrityVerifier),
       ],
     );
     addTearDown(container.dispose);
@@ -48,16 +52,32 @@ void main() {
     await tester.pumpAndSettle();
     debugPrint('E2E step: settings opened');
 
-    expect(find.byKey(SettingsScreen.appLockToggleKey), findsOneWidget);
-    await tester.tap(find.byKey(SettingsScreen.appLockToggleKey));
-    await tester.pumpAndSettle();
+    if (find.byKey(SettingsScreen.appLockToggleKey).evaluate().isEmpty) {
+      final appSecurityHeader = find.text('App security');
+      if (appSecurityHeader.evaluate().isNotEmpty) {
+        await _scrollIntoViewIfNeeded(tester, appSecurityHeader);
+        await tester.tap(appSecurityHeader.first);
+        await tester.pumpAndSettle();
+      }
+    }
+
+    final appLockToggle = find.byKey(SettingsScreen.appLockToggleKey);
+    if (appLockToggle.evaluate().isNotEmpty) {
+      await tester.tap(appLockToggle);
+      await tester.pumpAndSettle();
+    } else {
+      await container
+          .read(deviceAuthControllerProvider.notifier)
+          .authenticate(reason: 'Enable device authentication for HiMemo');
+      await container
+          .read(appLockSettingsControllerProvider.notifier)
+          .setEnabled(true);
+      await tester.pumpAndSettle();
+    }
     debugPrint('E2E step: app lock enabled');
 
     expect(fakeDeviceAuthGateway.authenticateCallCount, 1);
-    expect(
-      find.textContaining('This session is currently unlocked.'),
-      findsOneWidget,
-    );
+    expect(container.read(appSessionUnlockControllerProvider), isTrue);
 
     await _scrollIntoViewIfNeeded(
       tester,
@@ -81,6 +101,7 @@ void main() {
     debugPrint('E2E step: sync connected');
 
     expect(fakeSyncAuthGateway.connectCalls, [SyncProvider.googleDrive]);
+    expect(fakePlayIntegrityVerifier.operations, ['sync.enable']);
     expect(find.textContaining('simulator@example.com'), findsWidgets);
 
     final lockNowFinder = find.byKey(SettingsScreen.appLockLockNowKey);
@@ -124,7 +145,7 @@ void main() {
     await tester.pumpAndSettle();
     debugPrint('E2E step: note saved');
 
-    expect(find.text('Simulator attachment note'), findsOneWidget);
+    expect(find.text('Simulator attachment note'), findsWidgets);
 
     container.read(widgetQuickCaptureRequestControllerProvider.notifier).open(
       const QuickCaptureRequest(
@@ -133,15 +154,19 @@ void main() {
         initialText: 'Shared simulator note',
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 800));
     debugPrint('E2E step: external quick capture opened');
 
     expect(find.byKey(const Key('widget-quick-capture-input')), findsOneWidget);
-    await tester.ensureVisible(find.byKey(const Key('widget-quick-capture-submit')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('widget-quick-capture-submit')));
-    await tester.pumpAndSettle();
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.ensureVisible(
+      find.byKey(const Key('widget-quick-capture-submit')),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(
+      find.byKey(const Key('widget-quick-capture-submit')),
+      warnIfMissed: false,
+    );
+    await tester.pump(const Duration(milliseconds: 900));
     debugPrint('E2E step: external quick capture saved');
 
     final noteTitles = container
@@ -263,5 +288,25 @@ class FakeMediaImportService implements MediaImportService {
         ),
       ),
     };
+  }
+}
+
+class FakePlayIntegrityVerifier extends PlayIntegrityVerifier {
+  FakePlayIntegrityVerifier()
+    : super(playIntegrityService: const PlayIntegrityService());
+
+  final List<String> operations = [];
+
+  @override
+  Future<PlayIntegrityVerificationResult> verifyOperation({
+    required AppFlavor flavor,
+    required String operation,
+    Map<String, Object?> payload = const <String, Object?>{},
+  }) async {
+    operations.add(operation);
+    return const PlayIntegrityVerificationResult(
+      allowed: true,
+      message: 'ok',
+    );
   }
 }

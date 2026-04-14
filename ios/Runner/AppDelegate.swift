@@ -3,7 +3,7 @@ import Flutter
 
 @UIApplicationMain
 @objc class AppDelegate: FlutterAppDelegate {
-  private let widgetChannelName = "dev.minamo.himemo/widget"
+  private let widgetChannelName = "org.ruhenheim.himemo/widget"
   private let quickCaptureUrl = "himemo://widget-capture"
   private var widgetChannel: FlutterMethodChannel?
   private var pendingQuickCaptureRequest = false

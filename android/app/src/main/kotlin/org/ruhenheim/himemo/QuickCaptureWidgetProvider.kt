@@ -1,4 +1,4 @@
-package dev.minamo.himemo.himemo
+package org.ruhenheim.himemo
 
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager

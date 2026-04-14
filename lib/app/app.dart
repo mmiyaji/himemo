@@ -31,6 +31,7 @@ class HiMemoApp extends ConsumerWidget {
     };
 
     ref.watch(widgetQuickCaptureBridgeProvider);
+    ref.watch(inAppUpdateControllerProvider);
     ref.listen(widgetQuickCaptureRequestControllerProvider, (previous, next) {
       if (previous == next || next == null) {
         return;
@@ -146,6 +147,7 @@ class _AppLockGate extends ConsumerStatefulWidget {
 class _AppLockGateState extends ConsumerState<_AppLockGate>
     with WidgetsBindingObserver {
   bool _autoPrompted = false;
+  bool _updateChecked = false;
   DateTime? _backgroundedAt;
 
   @override
@@ -154,6 +156,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncLockState(triggerPrompt: true);
+      _checkForInAppUpdate();
     });
   }
 
@@ -241,6 +244,24 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       ref.read(privateVaultSessionControllerProvider.notifier).lock();
     }
     _autoPrompted = false;
+  }
+
+  Future<void> _checkForInAppUpdate() async {
+    if (_updateChecked) {
+      return;
+    }
+    _updateChecked = true;
+    final controller = ref.read(inAppUpdateControllerProvider.notifier);
+    await controller.check(silentIfUnsupported: true);
+    final updateState = ref.read(inAppUpdateControllerProvider);
+    final status = updateState.status;
+    if (status == null || !status.updateAvailable) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    await controller.startPreferredUpdate();
   }
 
   @override

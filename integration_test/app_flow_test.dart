@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:himemo/app/app.dart';
 import 'package:himemo/app/app_flavor.dart';
+import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
 import 'package:integration_test/integration_test.dart';
@@ -48,7 +49,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Language'), findsOneWidget);
 
-    await _scrollIntoViewIfNeeded(tester, find.byKey(SettingsScreen.darkThemeKey));
+    await _scrollIntoViewIfNeeded(
+      tester,
+      find.byKey(SettingsScreen.darkThemeKey),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(SettingsScreen.darkThemeKey));
     await tester.pumpAndSettle();
@@ -106,7 +110,80 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('widget-quick-capture-input')), findsOneWidget);
-    expect(find.textContaining('Shared note from integration test'), findsWidgets);
+    expect(
+      find.textContaining('Shared note from integration test'),
+      findsWidgets,
+    );
+  });
+
+  testWidgets('language switch and compact list mode behave as expected', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'settings.locale': 'english',
+    });
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const HiMemoApp(flavor: AppFlavor.development),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+
+    await container.read(notesControllerProvider.notifier).upsert(
+      NoteEntry(
+        id: 'compact-test-note',
+        vaultId: 'everyday',
+        title: 'Compact sample',
+        body: 'Line one\n\nLine   two',
+        createdAt: DateTime(2026, 4, 15, 8, 30),
+        updatedAt: DateTime(2026, 4, 15, 8, 31),
+        editorMode: NoteEditorMode.quick,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.view_agenda_outlined).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Compact list').last, warnIfMissed: false);
+    await tester.pumpAndSettle();
+
+    expect(
+      container.read(notesListDensityControllerProvider),
+      NotesListDensity.compact,
+    );
+    expect(find.textContaining('Line one Line two'), findsWidgets);
+
+    await _tapNavigation(tester, AppShell.settingsNavKey, 'Settings');
+    await tester.pumpAndSettle();
+    await _scrollIntoViewIfNeeded(tester, find.text('Appearance'));
+    await tester.tap(find.text('Appearance').first);
+    await tester.pumpAndSettle();
+
+    await _scrollIntoViewIfNeeded(
+      tester,
+      find.byKey(SettingsScreen.localeJapaneseKey),
+    );
+    await tester.tap(find.byKey(SettingsScreen.localeJapaneseKey));
+    await tester.pumpAndSettle();
+
+    expect(
+      container.read(appLocaleControllerProvider),
+      AppLocaleSetting.japanese,
+    );
+    expect(find.text('カレンダー'), findsWidgets);
+    expect(find.text('記録'), findsWidgets);
+    expect(find.text('表示'), findsWidgets);
   });
 }
 

@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -16,6 +17,11 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
+import '../../../app/firebase_observability.dart';
+import '../../../app/app_flavor.dart';
+import '../../../app/in_app_update_service.dart';
+import '../../../app/play_integrity_service.dart';
+import '../../../app/play_integrity_verifier.dart';
 import '../data/home_repository.dart';
 import '../domain/note_entry.dart';
 import '../domain/vault_models.dart';
@@ -125,7 +131,7 @@ class WidgetQuickCaptureBridge {
   WidgetQuickCaptureBridge(this._onOpenRequested);
 
   static const MethodChannel _channel = MethodChannel(
-    'dev.minamo.himemo/widget',
+    'org.ruhenheim.himemo/widget',
   );
 
   final void Function(QuickCaptureRequest request) _onOpenRequested;
@@ -585,6 +591,41 @@ class SyncTransferState {
       message: clearMessage ? null : (message ?? this.message),
       remoteStatus: remoteStatus ?? this.remoteStatus,
       localBundle: localBundle ?? this.localBundle,
+    );
+  }
+}
+
+enum InAppUpdateStage { idle, checking, ready, updating, completed, unsupported, error }
+
+class InAppUpdateState {
+  const InAppUpdateState({
+    required this.stage,
+    this.status,
+    this.message,
+  });
+
+  const InAppUpdateState.idle()
+    : stage = InAppUpdateStage.idle,
+      status = null,
+      message = null;
+
+  final InAppUpdateStage stage;
+  final InAppUpdateStatus? status;
+  final String? message;
+
+  bool get isBusy =>
+      stage == InAppUpdateStage.checking || stage == InAppUpdateStage.updating;
+
+  InAppUpdateState copyWith({
+    InAppUpdateStage? stage,
+    InAppUpdateStatus? status,
+    String? message,
+    bool clearMessage = false,
+  }) {
+    return InAppUpdateState(
+      stage: stage ?? this.stage,
+      status: status ?? this.status,
+      message: clearMessage ? null : (message ?? this.message),
     );
   }
 }
@@ -1156,6 +1197,130 @@ final syncQueueSummaryProvider = FutureProvider<SyncQueueSummary>((ref) async {
   return ref.watch(syncEngineProvider).summarizeQueue();
 });
 
+final playIntegrityServiceProvider = Provider<PlayIntegrityService>(
+  (ref) => const PlayIntegrityService(),
+);
+
+final playIntegrityStatusProvider = FutureProvider<PlayIntegrityStatus>((ref) {
+  return ref.watch(playIntegrityServiceProvider).checkAvailability();
+});
+
+final playIntegrityVerifierProvider = Provider<PlayIntegrityVerifier>(
+  (ref) => PlayIntegrityVerifier(
+    playIntegrityService: ref.watch(playIntegrityServiceProvider),
+  ),
+);
+
+final currentAppFlavorProvider = Provider<AppFlavor>((ref) {
+  final flavorName = FlavorConfig.instance.variables['flavor'] as String?;
+  return flavorName == AppFlavor.production.name
+      ? AppFlavor.production
+      : AppFlavor.development;
+});
+
+final inAppUpdateServiceProvider = Provider<InAppUpdateService>(
+  (ref) => const InAppUpdateService(),
+);
+
+final inAppUpdateControllerProvider =
+    NotifierProvider<InAppUpdateController, InAppUpdateState>(
+      InAppUpdateController.new,
+    );
+
+class InAppUpdateController extends Notifier<InAppUpdateState> {
+  bool _checkedOnce = false;
+
+  @override
+  InAppUpdateState build() => const InAppUpdateState.idle();
+
+  Future<void> check({bool silentIfUnsupported = false}) async {
+    if (_checkedOnce && state.stage != InAppUpdateStage.error) {
+      return;
+    }
+    _checkedOnce = true;
+    state = state.copyWith(
+      stage: InAppUpdateStage.checking,
+      clearMessage: true,
+    );
+    final status = await ref.read(inAppUpdateServiceProvider).checkForUpdate();
+    if (!status.isSupported && silentIfUnsupported) {
+      state = InAppUpdateState(
+        stage: InAppUpdateStage.unsupported,
+        status: status,
+      );
+      return;
+    }
+    state = InAppUpdateState(
+      stage: status.updateAvailable
+          ? InAppUpdateStage.ready
+          : (status.isSupported
+                ? InAppUpdateStage.completed
+                : InAppUpdateStage.unsupported),
+      status: status,
+      message: status.message,
+    );
+  }
+
+  Future<void> startPreferredUpdate() async {
+    final status = state.status;
+    if (status == null || !status.updateAvailable) {
+      return;
+    }
+    state = state.copyWith(
+      stage: InAppUpdateStage.updating,
+      clearMessage: true,
+    );
+    try {
+      await logFirebaseBreadcrumb('in-app update requested');
+      if (status.immediateAllowed) {
+        await ref.read(inAppUpdateServiceProvider).performImmediateUpdate();
+      } else if (status.flexibleAllowed) {
+        await ref.read(inAppUpdateServiceProvider).performFlexibleUpdate();
+      } else {
+        state = state.copyWith(
+          stage: InAppUpdateStage.unsupported,
+          message: 'Google Play update flow is not allowed for this build.',
+        );
+        return;
+      }
+      state = state.copyWith(
+        stage: InAppUpdateStage.completed,
+        message: 'Update flow started with Google Play.',
+      );
+    } catch (error, stackTrace) {
+      await recordNonFatalError(
+        error,
+        stackTrace,
+        reason: 'in_app_update_start_failed',
+      );
+      state = state.copyWith(
+        stage: InAppUpdateStage.error,
+        message: '$error',
+      );
+    }
+  }
+
+  Future<void> completeFlexibleUpdate() async {
+    try {
+      await ref.read(inAppUpdateServiceProvider).completeFlexibleUpdate();
+      state = state.copyWith(
+        stage: InAppUpdateStage.completed,
+        message: 'Flexible update installation completed.',
+      );
+    } catch (error, stackTrace) {
+      await recordNonFatalError(
+        error,
+        stackTrace,
+        reason: 'in_app_update_complete_failed',
+      );
+      state = state.copyWith(
+        stage: InAppUpdateStage.error,
+        message: '$error',
+      );
+    }
+  }
+}
+
 final syncTransferControllerProvider =
     NotifierProvider<SyncTransferController, SyncTransferState>(
       SyncTransferController.new,
@@ -1175,9 +1340,12 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
     state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
     try {
-      final remoteStatus = await ref
-          .read(googleDriveSyncTransportProvider)
-          .fetchLatestBundleStatus();
+      final remoteStatus = await runFirebaseTrace(
+        'sync_refresh_remote_status',
+        () => ref
+            .read(googleDriveSyncTransportProvider)
+            .fetchLatestBundleStatus(),
+      );
       state = SyncTransferState(
         stage: SyncTransferStage.success,
         message: remoteStatus == null
@@ -1224,26 +1392,35 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
     state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
     try {
-      final snapshot = await ref
-          .read(syncEngineProvider)
-          .prepareSnapshot(ref.read(notesControllerProvider));
-      final bundle = await ref
-          .read(secureSyncBundleStoreProvider)
-          .writeBundle(snapshot);
-      final encodedPayload = await ref
-          .read(secureSyncBundleStoreProvider)
-          .readEncryptedBundlePayload(bundle.reference);
+      await logFirebaseBreadcrumb('sync upload requested');
+      final snapshot = await runFirebaseTrace(
+        'sync_prepare_snapshot',
+        () => ref
+            .read(syncEngineProvider)
+            .prepareSnapshot(ref.read(notesControllerProvider)),
+      );
+      final bundle = await runFirebaseTrace(
+        'sync_write_local_bundle',
+        () => ref.read(secureSyncBundleStoreProvider).writeBundle(snapshot),
+      );
+      final encodedPayload = await runFirebaseTrace(
+        'sync_read_local_bundle_payload',
+        () => ref
+            .read(secureSyncBundleStoreProvider)
+            .readEncryptedBundlePayload(bundle.reference),
+      );
       if (encodedPayload == null || encodedPayload.isEmpty) {
         throw StateError('Local sync bundle could not be prepared.');
       }
-      final remoteStatus = await ref
-          .read(googleDriveSyncTransportProvider)
-          .uploadBundle(
-            encodedPayload: encodedPayload,
-            deviceId: snapshot.deviceId,
-            noteCount: bundle.noteCount,
-            attachmentCount: bundle.attachmentCount,
-          );
+      final remoteStatus = await runFirebaseTrace(
+        'sync_upload_remote_bundle',
+        () => ref.read(googleDriveSyncTransportProvider).uploadBundle(
+          encodedPayload: encodedPayload,
+          deviceId: snapshot.deviceId,
+          noteCount: bundle.noteCount,
+          attachmentCount: bundle.attachmentCount,
+        ),
+      );
       await ref.read(notesControllerProvider.notifier).markCurrentStateSynced();
       state = SyncTransferState(
         stage: SyncTransferStage.success,
@@ -1277,9 +1454,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
     state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
     try {
-      final remoteBundle = await ref
-          .read(googleDriveSyncTransportProvider)
-          .downloadLatestBundle();
+      await logFirebaseBreadcrumb('sync download latest requested');
+      final remoteBundle = await runFirebaseTrace(
+        'sync_download_latest_bundle',
+        () => ref.read(googleDriveSyncTransportProvider).downloadLatestBundle(),
+      );
       await _storeDownloadedBundle(
         remoteBundle,
         emptyMessage: 'No remote Google Drive bundle is available.',
@@ -1308,9 +1487,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
     state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
     try {
-      final remoteBundle = await ref
-          .read(googleDriveSyncTransportProvider)
-          .downloadBundleByFileId(remoteStatus.fileId);
+      await logFirebaseBreadcrumb('sync download bundle ${remoteStatus.fileId}');
+      final remoteBundle = await runFirebaseTrace(
+        'sync_download_selected_bundle',
+        () => ref
+            .read(googleDriveSyncTransportProvider)
+            .downloadBundleByFileId(remoteStatus.fileId),
+      );
       await _storeDownloadedBundle(
         remoteBundle,
         emptyMessage:
@@ -1344,9 +1527,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
     state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
     try {
-      final decoded = await ref
-          .read(secureSyncBundleStoreProvider)
-          .readBundleJson(localBundle.reference);
+      await logFirebaseBreadcrumb('sync apply downloaded bundle');
+      final decoded = await runFirebaseTrace(
+        'sync_read_downloaded_bundle',
+        () => ref
+            .read(secureSyncBundleStoreProvider)
+            .readBundleJson(localBundle.reference),
+      );
       if (decoded == null) {
         throw StateError('Downloaded bundle could not be decrypted.');
       }
@@ -1621,6 +1808,7 @@ final syncAuthControllerProvider =
 
 class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
   static const _storageKey = 'sync.auth_accounts.v1';
+  static const _integrityApprovalKey = 'sync.integrity_approved.v1';
   bool _restored = false;
 
   @override
@@ -1654,6 +1842,28 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
         provider,
       ).copyWith(stage: SyncAuthStage.busy, clearMessage: true),
     );
+
+    final alreadyApproved = await _hasIntegrityApproval(provider);
+    if (!alreadyApproved) {
+      final verification = await ref
+          .read(playIntegrityVerifierProvider)
+          .verifyOperation(
+            flavor: ref.read(currentAppFlavorProvider),
+            operation: 'sync.enable',
+            payload: {'provider': provider.name},
+          );
+      if (!verification.allowed) {
+        _update(
+          provider,
+          stateFor(provider).copyWith(
+            stage: SyncAuthStage.error,
+            message: verification.message,
+          ),
+        );
+        return;
+      }
+      await _markIntegrityApproved(provider);
+    }
 
     final next = await ref.read(syncAuthGatewayProvider).connect(provider);
 
@@ -1704,6 +1914,16 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
       });
       await prefs.setString(_storageKey, encoded);
     } catch (_) {}
+  }
+
+  Future<bool> _hasIntegrityApproval(SyncProvider provider) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('$_integrityApprovalKey.${provider.name}') ?? false;
+  }
+
+  Future<void> _markIntegrityApproved(SyncProvider provider) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('$_integrityApprovalKey.${provider.name}', true);
   }
 }
 
@@ -2319,41 +2539,49 @@ class NotesController extends _$NotesController {
   }
 
   Future<void> upsert(NoteEntry note) async {
-    final next = [...state];
-    final index = next.indexWhere((entry) => entry.id == note.id);
-    final existing = index == -1 ? null : next[index];
-    final prepared = await _prepareForSave(note, previous: existing);
-    if (index == -1) {
-      next.add(prepared);
-    } else {
-      next[index] = prepared;
-    }
-    _sort(next);
-    state = next;
-    await _cleanupRemovedAttachments(existing, prepared);
-    await _persist();
+    await runFirebaseTrace('notes_upsert', () async {
+      final next = [...state];
+      final index = next.indexWhere((entry) => entry.id == note.id);
+      final existing = index == -1 ? null : next[index];
+      final prepared = await _prepareForSave(note, previous: existing);
+      if (index == -1) {
+        next.add(prepared);
+      } else {
+        next[index] = prepared;
+      }
+      _sort(next);
+      state = next;
+      await _cleanupRemovedAttachments(existing, prepared);
+      await _persist();
+    }, attributes: {
+      'editor_mode': note.editorMode.name,
+      'vault_id': note.vaultId,
+      'has_media': note.attachments.isNotEmpty ? 'true' : 'false',
+    });
   }
 
   Future<void> delete(String noteId) async {
-    final next = [...state];
-    for (var i = 0; i < next.length; i++) {
-      final note = next[i];
-      if (note.id != noteId) {
-        continue;
+    await runFirebaseTrace('notes_delete', () async {
+      final next = [...state];
+      for (var i = 0; i < next.length; i++) {
+        final note = next[i];
+        if (note.id != noteId) {
+          continue;
+        }
+        final now = DateTime.now();
+        final tombstone = note.copyWith(
+          deletedAt: now,
+          updatedAt: now,
+          revision: note.revision + 1,
+          syncState: NoteSyncState.pendingDelete,
+        );
+        next[i] = tombstone.copyWith(contentHash: _computeContentHash(tombstone));
+        break;
       }
-      final now = DateTime.now();
-      final tombstone = note.copyWith(
-        deletedAt: now,
-        updatedAt: now,
-        revision: note.revision + 1,
-        syncState: NoteSyncState.pendingDelete,
-      );
-      next[i] = tombstone.copyWith(contentHash: _computeContentHash(tombstone));
-      break;
-    }
-    _sort(next);
-    state = next;
-    await _persist();
+      _sort(next);
+      state = next;
+      await _persist();
+    });
   }
 
   Future<void> seedIfEmpty() async {
@@ -2410,6 +2638,7 @@ class NotesController extends _$NotesController {
     if (text.isEmpty) {
       return;
     }
+    await logFirebaseBreadcrumb('widget quick capture saved');
     final now = DateTime.now();
     final lines = LineSplitter.split(text)
         .map((line) => line.trim())
@@ -2446,7 +2675,13 @@ class NotesController extends _$NotesController {
       if (changed) {
         await _persist();
       }
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await recordNonFatalError(
+        error,
+        stackTrace,
+        reason: 'notes_restore_failed',
+      );
+    }
   }
 
   List<NoteEntry> _mergeMissingSeedNotes(
@@ -2467,7 +2702,13 @@ class NotesController extends _$NotesController {
   Future<void> _persist() async {
     try {
       await ref.read(encryptedNoteStoreProvider).save(state);
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await recordNonFatalError(
+        error,
+        stackTrace,
+        reason: 'notes_persist_failed',
+      );
+    }
   }
 
   Future<void> _cleanupRemovedAttachments(

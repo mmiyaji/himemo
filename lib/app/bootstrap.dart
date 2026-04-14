@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
@@ -6,8 +8,10 @@ import 'package:flutter/semantics.dart';
 
 import 'app.dart';
 import 'app_flavor.dart';
+import 'firebase_initializer.dart';
+import 'firebase_observability.dart';
 
-void bootstrap(AppFlavor flavor) {
+Future<void> bootstrap(AppFlavor flavor) async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   if (!kIsWeb) {
     FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
@@ -16,5 +20,12 @@ void bootstrap(AppFlavor flavor) {
     SemanticsBinding.instance.ensureSemantics();
   }
   configureFlavor(flavor);
-  runApp(ProviderScope(child: HiMemoApp(flavor: flavor)));
+  await initializeFirebaseForFlavor(flavor);
+  await configureFirebaseObservability(enableCollection: kReleaseMode);
+  runZonedGuarded(
+    () => runApp(ProviderScope(child: HiMemoApp(flavor: flavor))),
+    (error, stackTrace) {
+      unawaited(recordNonFatalError(error, stackTrace, reason: 'bootstrap'));
+    },
+  );
 }
