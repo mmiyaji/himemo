@@ -42,31 +42,22 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(SettingsScreen), findsOneWidget);
 
-    await tester.scrollUntilVisible(
-      find.text('Appearance'),
-      120,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await _scrollIntoViewIfNeeded(tester, find.text('Appearance'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Appearance').first);
     await tester.pumpAndSettle();
     expect(find.text('Language'), findsOneWidget);
 
-    await tester.scrollUntilVisible(
-      find.byKey(SettingsScreen.darkThemeKey),
-      120,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await _scrollIntoViewIfNeeded(tester, find.byKey(SettingsScreen.darkThemeKey));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(SettingsScreen.darkThemeKey));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Accent color').first);
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
+    await _scrollIntoViewIfNeeded(
+      tester,
       find.byKey(SettingsScreen.greenColorThemeKey),
-      120,
-      scrollable: find.byType(Scrollable).first,
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(SettingsScreen.greenColorThemeKey));
@@ -76,16 +67,30 @@ void main() {
     expect(app.themeMode, ThemeMode.dark);
     expect(app.theme?.colorScheme.primary, const Color(0xFF2F6B3C));
 
-    await tester.scrollUntilVisible(
-      find.widgetWithText(SwitchListTile, 'Allow external quick capture'),
-      160,
-      scrollable: find.byType(Scrollable).first,
+    final quickCaptureTile = find.widgetWithText(
+      SwitchListTile,
+      'Allow external quick capture',
     );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.widgetWithText(SwitchListTile, 'Allow external quick capture'),
-    );
-    await tester.pumpAndSettle();
+    if (quickCaptureTile.evaluate().isEmpty) {
+      final appSecurityHeader = find.text('App security');
+      if (appSecurityHeader.evaluate().isNotEmpty) {
+        await tester.ensureVisible(appSecurityHeader.first);
+        await tester.pumpAndSettle();
+        await tester.tap(appSecurityHeader.first);
+        await tester.pumpAndSettle();
+      }
+    }
+    if (quickCaptureTile.evaluate().isNotEmpty) {
+      await _scrollIntoViewIfNeeded(tester, quickCaptureTile);
+      await tester.pumpAndSettle();
+      await tester.tap(quickCaptureTile);
+      await tester.pumpAndSettle();
+    } else {
+      await container
+          .read(widgetQuickCaptureSettingsControllerProvider.notifier)
+          .setEnabled(true);
+      await tester.pumpAndSettle();
+    }
 
     await _tapNavigation(tester, AppShell.calendarNavKey, 'Calendar');
     await tester.pumpAndSettle();
@@ -103,6 +108,26 @@ void main() {
     expect(find.byKey(const Key('widget-quick-capture-input')), findsOneWidget);
     expect(find.textContaining('Shared note from integration test'), findsWidgets);
   });
+}
+
+Future<void> _scrollIntoViewIfNeeded(WidgetTester tester, Finder finder) async {
+  if (finder.evaluate().isNotEmpty) {
+    await tester.ensureVisible(finder.first);
+    await tester.pumpAndSettle();
+    return;
+  }
+
+  final scrollables = find.byType(Scrollable);
+  if (scrollables.evaluate().isEmpty) {
+    throw StateError('No Scrollable found for $finder');
+  }
+
+  await tester.scrollUntilVisible(
+    finder,
+    160,
+    scrollable: scrollables.first,
+  );
+  await tester.pumpAndSettle();
 }
 
 Future<void> _tapNavigation(

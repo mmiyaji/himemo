@@ -55,56 +55,63 @@ class _WidgetQuickCaptureScreenState
         ],
       ),
       body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 640),
-            child: Padding(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
               padding: const EdgeInsets.all(20),
-              child: enabled && onboardingReady
-                  ? _CapturePanel(
-                      controller: _controller,
-                      vault: everydayVault,
-                      saving: _saving,
-                      source: request?.source ?? QuickCaptureSource.widget,
-                      onSubmit: _submit,
-                    )
-                  : Container(
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: Theme.of(context).dividerColor,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: 640,
+                    minHeight: (constraints.maxHeight - 40).clamp(0, double.infinity),
+                  ),
+                  child: enabled && onboardingReady
+                      ? _CapturePanel(
+                          controller: _controller,
+                          vault: everydayVault,
+                          saving: _saving,
+                          source: request?.source ?? QuickCaptureSource.widget,
+                          onSubmit: _submit,
+                        )
+                      : Container(
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: Theme.of(context).dividerColor,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            color: colorScheme.surface,
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                onboardingReady
+                                    ? context.strings.quickWidgetCaptureOff
+                                    : context.strings.finishSetupFirst,
+                                style: Theme.of(context).textTheme.headlineSmall,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                onboardingReady
+                                    ? context.strings.enableQuickWidgetInSettings
+                                    : context.strings.completeOnboardingBeforeWidget,
+                                style: Theme.of(context).textTheme.bodyLarge
+                                    ?.copyWith(color: colorScheme.onSurfaceVariant),
+                              ),
+                              const SizedBox(height: 20),
+                              FilledButton.tonal(
+                                onPressed: _close,
+                                child: Text(context.strings.close),
+                              ),
+                            ],
+                          ),
                         ),
-                        borderRadius: BorderRadius.circular(12),
-                        color: colorScheme.surface,
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            onboardingReady
-                                ? context.strings.quickWidgetCaptureOff
-                                : context.strings.finishSetupFirst,
-                            style: Theme.of(context).textTheme.headlineSmall,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            onboardingReady
-                                ? context.strings.enableQuickWidgetInSettings
-                                : context.strings.completeOnboardingBeforeWidget,
-                            style: Theme.of(context).textTheme.bodyLarge
-                                ?.copyWith(color: colorScheme.onSurfaceVariant),
-                          ),
-                          const SizedBox(height: 20),
-                          FilledButton.tonal(
-                            onPressed: _close,
-                            child: Text(context.strings.close),
-                          ),
-                        ],
-                      ),
-                    ),
-            ),
-          ),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );

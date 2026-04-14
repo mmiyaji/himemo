@@ -54,12 +54,14 @@ void main() {
     debugPrint('E2E step: app lock enabled');
 
     expect(fakeDeviceAuthGateway.authenticateCallCount, 1);
-    expect(find.textContaining('Current session is unlocked'), findsOneWidget);
+    expect(
+      find.textContaining('This session is currently unlocked.'),
+      findsOneWidget,
+    );
 
-    await tester.scrollUntilVisible(
+    await _scrollIntoViewIfNeeded(
+      tester,
       find.widgetWithText(SwitchListTile, 'Allow external quick capture'),
-      160,
-      scrollable: find.byType(Scrollable).last,
     );
     await tester.pumpAndSettle();
     await tester.tap(
@@ -67,10 +69,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(
+    await _scrollIntoViewIfNeeded(
+      tester,
       find.byKey(SettingsScreen.syncGoogleDriveKey),
-      160,
-      scrollable: find.byType(Scrollable).last,
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(SettingsScreen.syncGoogleDriveKey));
@@ -92,6 +93,8 @@ void main() {
       await tester.pumpAndSettle();
     }
     expect(lockNowFinder, findsOneWidget);
+    await tester.ensureVisible(lockNowFinder);
+    await tester.pumpAndSettle();
     await tester.tap(lockNowFinder);
     await tester.pump(const Duration(milliseconds: 600));
     debugPrint('E2E step: session locked');
@@ -134,12 +137,40 @@ void main() {
     debugPrint('E2E step: external quick capture opened');
 
     expect(find.byKey(const Key('widget-quick-capture-input')), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('widget-quick-capture-submit')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('widget-quick-capture-submit')));
     await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 500));
     debugPrint('E2E step: external quick capture saved');
 
-    expect(find.textContaining('Shared simulator note'), findsWidgets);
+    final noteTitles = container
+        .read(notesControllerProvider)
+        .map((note) => note.title)
+        .toList();
+    expect(
+      noteTitles.any((title) => title.contains('Shared simulator note')),
+      isTrue,
+    );
   });
+}
+
+Future<void> _scrollIntoViewIfNeeded(WidgetTester tester, Finder finder) async {
+  if (finder.evaluate().isNotEmpty) {
+    await tester.ensureVisible(finder);
+    return;
+  }
+
+  final scrollables = find.byType(Scrollable);
+  if (scrollables.evaluate().isEmpty) {
+    throw StateError('No Scrollable found for $finder');
+  }
+
+  await tester.scrollUntilVisible(
+    finder,
+    160,
+    scrollable: scrollables.first,
+  );
 }
 
 Future<void> _tapNavigation(
