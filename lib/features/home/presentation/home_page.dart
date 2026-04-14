@@ -341,11 +341,12 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                   child: Column(
                     children: [
                       for (var i = 0; i < visibleNotes.length; i++) ...[
-                        if (i == 0 ||
-                            !_isSameNoteDay(
-                              visibleNotes[i - 1],
-                              visibleNotes[i],
-                            ))
+                        if (listDensity != NotesListDensity.compact &&
+                            (i == 0 ||
+                                !_isSameNoteDay(
+                                  visibleNotes[i - 1],
+                                  visibleNotes[i],
+                                )))
                           _NoteDayDivider(date: visibleNotes[i].createdAt),
                         _NoteListTile(
                           note: visibleNotes[i],
@@ -362,7 +363,8 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                             });
                           },
                         ),
-                        if (i != visibleNotes.length - 1)
+                        if (listDensity != NotesListDensity.compact &&
+                            i != visibleNotes.length - 1)
                           Divider(
                             height: 1,
                             color: Theme.of(context).dividerColor,
@@ -3842,6 +3844,53 @@ class _NoteListTile extends StatelessWidget {
       NotesListDensity.standard => 2,
       NotesListDensity.media => 3,
     };
+
+    if (density == NotesListDensity.compact) {
+      return Material(
+        color: selected ? _selectedSurfaceColor(context) : Colors.transparent,
+        child: InkWell(
+          key: Key('note-tile-${note.id}'),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 78,
+                  child: Text(
+                    dateLabel,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: _mutedTextColor(context),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _HighlightedText(
+                    text: compactPreview.isEmpty ? note.title : compactPreview,
+                    query: query,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: _strongMutedTextColor(context),
+                    ),
+                  ),
+                ),
+                if (note.isPinned) ...[
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.push_pin_rounded,
+                    size: 14,
+                    color: _mutedTextColor(context),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return Material(
       color: selected ? _selectedSurfaceColor(context) : Colors.transparent,

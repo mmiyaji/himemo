@@ -88,14 +88,14 @@ class AppStrings {
       isJapanese ? 'バージョンを読み込み中...' : 'Reading app version...';
 
   String get homeWidgetQuickCapture => isJapanese
-      ? 'ホームウィジェットのクイックメモ'
-      : 'Allow home widget quick capture';
+      ? '外部クイックメモ'
+      : 'Allow external quick capture';
   String get homeWidgetQuickCaptureDesc => isJapanese
-      ? 'ホームウィジェットから、通常のアプリロックを開かずにテキストだけの簡易メモ画面を開けます。'
-      : 'Let the home widget open a text-only quick memo surface without unlocking the full app.';
+      ? 'ホームウィジェットや共有メニューから、通常のアプリロックを開かずにテキストだけの簡易メモ画面を開けます。'
+      : 'Let the home widget or Android share sheet open a text-only quick memo surface without unlocking the full app.';
   String get homeWidgetQuickCaptureMobileOnly => isJapanese
-      ? 'モバイルのみ。オンにすると、ホームウィジェットから通常のアプリロックを開かずにテキストだけの簡易メモ画面を開けます。'
-      : 'Mobile-only. When enabled, the home widget can open a text-only quick memo surface outside the normal app lock.';
+      ? 'モバイルのみ。オンにすると、ホームウィジェットや共有メニューから通常のアプリロックを開かずにテキストだけの簡易メモ画面を開けます。'
+      : 'Mobile-only. When enabled, the home widget or Android share sheet can open a text-only quick memo surface outside the normal app lock.';
 
   String get unlockHiMemo => isJapanese ? 'HiMemo を解除' : 'Unlock HiMemo';
   String get unlockWithPin => isJapanese ? 'PIN で解除' : 'Unlock with PIN';
@@ -142,11 +142,11 @@ class AppStrings {
   String get finishSetupFirst =>
       isJapanese ? '先に初期設定を完了してください' : 'Finish setup first';
   String get quickWidgetCaptureOff => isJapanese
-      ? 'クイックメモウィジェットはオフです'
-      : 'Quick widget capture is off';
+      ? '外部クイックメモはオフです'
+      : 'External quick capture is off';
   String get enableQuickWidgetInSettings => isJapanese
-      ? '設定でクイックメモウィジェットをオンにすると、ホームウィジェットからフルアプリを開かずにテキストだけのメモを送れます。'
-      : 'Enable widget quick capture in Settings if you want the home widget to send text-only memos without unlocking the full app.';
+      ? '設定で外部クイックメモをオンにすると、ホームウィジェットや共有メニューからフルアプリを開かずにテキストだけのメモを送れます。'
+      : 'Enable external quick capture in Settings if you want the home widget or Android share sheet to send text-only memos without unlocking the full app.';
   String get completeOnboardingBeforeWidget => isJapanese
       ? 'ホームウィジェットから使う前に、初期設定を完了してください。'
       : 'Complete onboarding before using quick capture from the home widget.';

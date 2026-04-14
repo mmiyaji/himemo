@@ -28,10 +28,19 @@ class _WidgetQuickCaptureScreenState
   @override
   Widget build(BuildContext context) {
     final enabled = ref.watch(widgetQuickCaptureSettingsControllerProvider);
+    final request = ref.watch(widgetQuickCaptureRequestControllerProvider);
     final onboardingReady =
         ref.watch(appLaunchControllerProvider) == AppLaunchSurface.ready;
     final everydayVault = ref.watch(vaultByIdProvider('everyday'));
     final colorScheme = Theme.of(context).colorScheme;
+    final requestText = request?.initialText.trim() ?? '';
+
+    if (requestText.isNotEmpty && _controller.text != requestText) {
+      _controller.value = TextEditingValue(
+        text: requestText,
+        selection: TextSelection.collapsed(offset: requestText.length),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -56,6 +65,7 @@ class _WidgetQuickCaptureScreenState
                       controller: _controller,
                       vault: everydayVault,
                       saving: _saving,
+                      source: request?.source ?? QuickCaptureSource.widget,
                       onSubmit: _submit,
                     )
                   : Container(
@@ -111,6 +121,7 @@ class _WidgetQuickCaptureScreenState
     await ref
         .read(notesControllerProvider.notifier)
         .createWidgetQuickCapture(text);
+    ref.read(widgetQuickCaptureRequestControllerProvider.notifier).clear();
     if (!mounted) {
       return;
     }
@@ -122,6 +133,7 @@ class _WidgetQuickCaptureScreenState
   }
 
   void _close() {
+    ref.read(widgetQuickCaptureRequestControllerProvider.notifier).clear();
     SystemNavigator.pop();
   }
 }
@@ -131,12 +143,14 @@ class _CapturePanel extends StatelessWidget {
     required this.controller,
     required this.vault,
     required this.saving,
+    required this.source,
     required this.onSubmit,
   });
 
   final TextEditingController controller;
   final VaultBucket vault;
   final bool saving;
+  final QuickCaptureSource source;
   final Future<void> Function() onSubmit;
 
   @override
@@ -169,7 +183,11 @@ class _CapturePanel extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             context.strings.isJapanese
-                ? 'テキストのみ送信します。この経路では既存ノートや private vault の内容は表示しません。'
+                ? source == QuickCaptureSource.share
+                      ? '共有メニューから受け取ったテキストを、そのまま Daily Notes に送れます。既存ノートや private vault の内容は開きません。'
+                      : 'テキストだけをすばやく記録します。この画面では既存ノートや private vault の内容は表示しません。'
+                : source == QuickCaptureSource.share
+                ? 'Shared text can be sent straight to Daily Notes. This route never reveals existing notes or private vault content.'
                 : 'Text only. This route never reveals existing notes or private vault content.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
@@ -185,7 +203,11 @@ class _CapturePanel extends StatelessWidget {
             textInputAction: TextInputAction.newline,
             decoration: InputDecoration(
               hintText: context.strings.isJapanese
-                  ? 'メモを書いて Daily Notes に送信します。'
+                  ? source == QuickCaptureSource.share
+                        ? '共有されたテキストを整えて、そのまま Daily Notes に保存できます。'
+                        : 'メモを書いて、そのまま Daily Notes に送ります。'
+                  : source == QuickCaptureSource.share
+                  ? 'Tidy the shared text and save it to Daily Notes.'
                   : 'Write a memo and send it to Daily Notes.',
               border: const OutlineInputBorder(),
               alignLabelWithHint: true,

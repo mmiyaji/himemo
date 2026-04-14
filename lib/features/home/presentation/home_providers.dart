@@ -107,6 +107,20 @@ class LastNoteEditorSettings {
   final String vaultId;
 }
 
+enum QuickCaptureSource { widget, share }
+
+class QuickCaptureRequest {
+  const QuickCaptureRequest({
+    required this.nonce,
+    required this.source,
+    this.initialText = '',
+  });
+
+  final int nonce;
+  final QuickCaptureSource source;
+  final String initialText;
+}
+
 class WidgetQuickCaptureBridge {
   WidgetQuickCaptureBridge(this._onOpenRequested);
 
@@ -114,7 +128,7 @@ class WidgetQuickCaptureBridge {
     'dev.minamo.himemo/widget',
   );
 
-  final VoidCallback _onOpenRequested;
+  final void Function(QuickCaptureRequest request) _onOpenRequested;
   bool _attached = false;
 
   void attach() {
@@ -127,7 +141,11 @@ class WidgetQuickCaptureBridge {
     _attached = true;
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'openQuickCapture') {
-        _onOpenRequested();
+        final arguments = Map<String, dynamic>.from(
+          (call.arguments as Map?)?.cast<String, dynamic>() ??
+              const <String, dynamic>{},
+        );
+        _onOpenRequested(_requestFromArguments(arguments));
       }
     });
     unawaited(_consumePendingRequest());
@@ -135,13 +153,39 @@ class WidgetQuickCaptureBridge {
 
   Future<void> _consumePendingRequest() async {
     try {
-      final pending = await _channel.invokeMethod<bool>(
+      final pending = await _channel.invokeMethod<dynamic>(
         'consumePendingQuickCapture',
       );
-      if (pending == true) {
-        _onOpenRequested();
+      if (pending is bool) {
+        if (pending) {
+          _onOpenRequested(
+            QuickCaptureRequest(
+              nonce: DateTime.now().microsecondsSinceEpoch,
+              source: QuickCaptureSource.widget,
+            ),
+          );
+        }
+        return;
+      }
+      if (pending is Map) {
+        _onOpenRequested(
+          _requestFromArguments(Map<String, dynamic>.from(pending.cast())),
+        );
       }
     } catch (_) {}
+  }
+
+  QuickCaptureRequest _requestFromArguments(Map<String, dynamic> arguments) {
+    final sourceValue = '${arguments['source'] ?? 'widget'}';
+    final source = sourceValue == 'share'
+        ? QuickCaptureSource.share
+        : QuickCaptureSource.widget;
+    final initialText = '${arguments['text'] ?? ''}'.trim();
+    return QuickCaptureRequest(
+      nonce: DateTime.now().microsecondsSinceEpoch,
+      source: source,
+      initialText: initialText,
+    );
   }
 }
 
@@ -1891,17 +1935,19 @@ class WidgetQuickCaptureSettingsController
 class WidgetQuickCaptureRequestController
     extends _$WidgetQuickCaptureRequestController {
   @override
-  int build() => 0;
+  QuickCaptureRequest? build() => null;
 
-  void trigger() => state++;
+  void open(QuickCaptureRequest request) => state = request;
+
+  void clear() => state = null;
 }
 
 @Riverpod(keepAlive: true)
 WidgetQuickCaptureBridge widgetQuickCaptureBridge(Ref ref) {
   final bridge = WidgetQuickCaptureBridge(
-    () => ref
+    (request) => ref
         .read(widgetQuickCaptureRequestControllerProvider.notifier)
-        .trigger(),
+        .open(request),
   );
   bridge.attach();
   return bridge;

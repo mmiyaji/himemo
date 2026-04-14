@@ -32,7 +32,7 @@ class HiMemoApp extends ConsumerWidget {
 
     ref.watch(widgetQuickCaptureBridgeProvider);
     ref.listen(widgetQuickCaptureRequestControllerProvider, (previous, next) {
-      if (previous == next) {
+      if (previous == next || next == null) {
         return;
       }
       router.go('/widget-capture');

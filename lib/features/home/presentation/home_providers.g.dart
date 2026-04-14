@@ -164,7 +164,11 @@ final widgetQuickCaptureRequestControllerProvider =
     WidgetQuickCaptureRequestControllerProvider._();
 
 final class WidgetQuickCaptureRequestControllerProvider
-    extends $NotifierProvider<WidgetQuickCaptureRequestController, int> {
+    extends
+        $NotifierProvider<
+          WidgetQuickCaptureRequestController,
+          QuickCaptureRequest?
+        > {
   WidgetQuickCaptureRequestControllerProvider._()
     : super(
         from: null,
@@ -186,28 +190,29 @@ final class WidgetQuickCaptureRequestControllerProvider
       WidgetQuickCaptureRequestController();
 
   /// {@macro riverpod.override_with_value}
-  Override overrideWithValue(int value) {
+  Override overrideWithValue(QuickCaptureRequest? value) {
     return $ProviderOverride(
       origin: this,
-      providerOverride: $SyncValueProvider<int>(value),
+      providerOverride: $SyncValueProvider<QuickCaptureRequest?>(value),
     );
   }
 }
 
 String _$widgetQuickCaptureRequestControllerHash() =>
-    r'7eb28db31976adef7542f654a627be868110f5a7';
+    r'0e0943731fee378b16f9f9780ff1e93622455d98';
 
-abstract class _$WidgetQuickCaptureRequestController extends $Notifier<int> {
-  int build();
+abstract class _$WidgetQuickCaptureRequestController
+    extends $Notifier<QuickCaptureRequest?> {
+  QuickCaptureRequest? build();
   @$mustCallSuper
   @override
   void runBuild() {
-    final ref = this.ref as $Ref<int, int>;
+    final ref = this.ref as $Ref<QuickCaptureRequest?, QuickCaptureRequest?>;
     final element =
         ref.element
             as $ClassProviderElement<
-              AnyNotifier<int, int>,
-              int,
+              AnyNotifier<QuickCaptureRequest?, QuickCaptureRequest?>,
+              QuickCaptureRequest?,
               Object?,
               Object?
             >;
@@ -261,7 +266,7 @@ final class WidgetQuickCaptureBridgeProvider
 }
 
 String _$widgetQuickCaptureBridgeHash() =>
-    r'7bb5e47dd597c306b065775c5e997c2763336cb6';
+    r'11395e86315d7e676b712bda2a12f6532d5b3f29';
 
 @ProviderFor(ActiveIdentity)
 final activeIdentityProvider = ActiveIdentityProvider._();

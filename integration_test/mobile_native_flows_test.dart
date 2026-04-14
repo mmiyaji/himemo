@@ -15,22 +15,28 @@ void main() {
   testWidgets('simulator flow covers auth, sync, and note creation', (
     tester,
   ) async {
-    SharedPreferences.setMockInitialValues({'app.onboarding_completed': true});
-
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'settings.locale': 'english',
+    });
     final fakeDeviceAuthGateway = FakeDeviceAuthGateway(
       authenticateResults: [true, true],
     );
     final fakeSyncAuthGateway = FakeSyncAuthGateway();
     final fakeMediaImportService = FakeMediaImportService();
+    final container = ProviderContainer(
+      overrides: [
+        deviceAuthGatewayProvider.overrideWithValue(fakeDeviceAuthGateway),
+        syncAuthGatewayProvider.overrideWithValue(fakeSyncAuthGateway),
+        mediaImportServiceProvider.overrideWithValue(fakeMediaImportService),
+      ],
+    );
+    addTearDown(container.dispose);
 
     configureFlavor(AppFlavor.development);
     await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          deviceAuthGatewayProvider.overrideWithValue(fakeDeviceAuthGateway),
-          syncAuthGatewayProvider.overrideWithValue(fakeSyncAuthGateway),
-          mediaImportServiceProvider.overrideWithValue(fakeMediaImportService),
-        ],
+      UncontrolledProviderScope(
+        container: container,
         child: const HiMemoApp(flavor: AppFlavor.development),
       ),
     );
@@ -49,6 +55,17 @@ void main() {
 
     expect(fakeDeviceAuthGateway.authenticateCallCount, 1);
     expect(find.textContaining('Current session is unlocked'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.widgetWithText(SwitchListTile, 'Allow external quick capture'),
+      160,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.widgetWithText(SwitchListTile, 'Allow external quick capture'),
+    );
+    await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
       find.byKey(SettingsScreen.syncGoogleDriveKey),
@@ -105,6 +122,23 @@ void main() {
     debugPrint('E2E step: note saved');
 
     expect(find.text('Simulator attachment note'), findsOneWidget);
+
+    container.read(widgetQuickCaptureRequestControllerProvider.notifier).open(
+      const QuickCaptureRequest(
+        nonce: 2,
+        source: QuickCaptureSource.share,
+        initialText: 'Shared simulator note',
+      ),
+    );
+    await tester.pumpAndSettle();
+    debugPrint('E2E step: external quick capture opened');
+
+    expect(find.byKey(const Key('widget-quick-capture-input')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('widget-quick-capture-submit')));
+    await tester.pumpAndSettle();
+    debugPrint('E2E step: external quick capture saved');
+
+    expect(find.textContaining('Shared simulator note'), findsWidgets);
   });
 }
 
