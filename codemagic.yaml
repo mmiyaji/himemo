@@ -76,8 +76,8 @@ workflows:
         certificates:
           - HiMemo Apple Distribution
         provisioning_profiles:
-          - HiMemo Ad Hoc Profile
-          - HiMemo Widget Ad Hoc Profile
+          - HiMemo Ad Hoc
+          - HiMemo Widget Ad Hoc
     cache:
       cache_paths:
         - $FLUTTER_ROOT/.pub-cache
