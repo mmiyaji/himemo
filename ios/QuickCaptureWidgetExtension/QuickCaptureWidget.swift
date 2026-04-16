@@ -78,9 +78,3 @@ private struct QuickCaptureWidgetView: View {
         .widgetURL(URL(string: "himemo://widget-capture"))
     }
 }
-
-#Preview(as: .systemSmall) {
-    QuickCaptureWidget()
-} timeline: {
-    QuickCaptureEntry(date: .now)
-}
