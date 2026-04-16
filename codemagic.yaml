@@ -7,15 +7,16 @@ workflows:
       flutter: 3.41.6
       xcode: latest
       cocoapods: default
-      groups:
-        - app_store_connect
       vars:
         BUNDLE_ID: org.ruhenheim.himemo
         XCODE_WORKSPACE: ios/Runner.xcworkspace
         XCODE_SCHEME: Runner
       ios_signing:
-        distribution_type: app_store
-        bundle_identifier: org.ruhenheim.himemo
+        certificates:
+          - HiMemo Apple Distribution
+        provisioning_profiles:
+          - HiMemo App Store Profile
+          - HiMemo Widget App Store Profile
     cache:
       cache_paths:
         - $FLUTTER_ROOT/.pub-cache
@@ -36,6 +37,8 @@ workflows:
       - name: Configure iOS code signing
         script: |
           xcode-project use-profiles \
+            --project "$CM_BUILD_DIR/ios/Runner.xcodeproj" \
+            --verbose \
             --custom-export-options='{"method":"app-store","signingStyle":"automatic"}'
       - name: Build production IPA
         script: |
@@ -65,15 +68,16 @@ workflows:
       flutter: 3.41.6
       xcode: latest
       cocoapods: default
-      groups:
-        - app_store_connect
       vars:
         BUNDLE_ID: org.ruhenheim.himemo
         XCODE_WORKSPACE: ios/Runner.xcworkspace
         XCODE_SCHEME: Runner
       ios_signing:
-        distribution_type: ad_hoc
-        bundle_identifier: org.ruhenheim.himemo
+        certificates:
+          - HiMemo Apple Distribution
+        provisioning_profiles:
+          - HiMemo Ad Hoc Profile
+          - HiMemo Widget Ad Hoc Profile
     cache:
       cache_paths:
         - $FLUTTER_ROOT/.pub-cache
@@ -87,7 +91,10 @@ workflows:
         script: |
           find ios -name "Podfile" -execdir pod install \;
       - name: Configure iOS code signing
-        script: xcode-project use-profiles
+        script: |
+          xcode-project use-profiles \
+            --project "$CM_BUILD_DIR/ios/Runner.xcodeproj" \
+            --verbose
       - name: Build internal IPA
         script: |
           flutter build ipa --release \
