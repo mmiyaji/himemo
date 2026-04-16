@@ -1,44 +1,102 @@
-# Play Integrity Server API
+# Play Integrity Server
 
-HiMemo では Android の `Play Integrity` token を backend で decode し、同期や鍵操作の直前に検証します。
+HiMemo の `Play Integrity` 検証は、Android のクラウド同期を最初に有効化するときだけ実行します。通常のオフラインメモ利用、既存ノートの閲覧・編集、既に有効化済みの同期処理には毎回の検証を掛けません。
 
-## 提供中の API
+## 目的
 
-- `issuePlayIntegrityChallengeV2`
-  - URL: `https://asia-northeast1-himemo-app-2026.cloudfunctions.net/issuePlayIntegrityChallengeV2`
-  - 役割: 短寿命 challenge を発行する
-- `verifyPlayIntegrityV2`
-  - URL: `https://verifyplayintegrityv2-4yz7jselhq-an.a.run.app`
-  - 役割: Play Integrity token を decode して challenge / package / verdict を検証する
-- region: `asia-northeast1`
-- file: [C:\Users\mail\Documents\git\himemo\functions\index.js](C:\Users\mail\Documents\git\himemo\functions\index.js)
+- 同期を有効化する端末が Google Play 配布の正規アプリかを確認する
+- 改変端末や不正クライアントによる初回同期設定を防ぎやすくする
+- オフライン中心のメモ体験を邪魔しない
 
-## 改善した点
+## デプロイ済み API
 
-従来は client が自前生成した `requestHash` をそのまま backend が照合していました。現在は次の方式です。
+- Challenge 発行
+  - `https://issueplayintegritychallengev2-4yz7jselhq-an.a.run.app`
+- 検証
+  - `https://verifyplayintegrityv2-4yz7jselhq-an.a.run.app`
+- region
+  - `asia-northeast1`
+- 実装
+  - [C:\Users\mail\Documents\git\himemo\functions\index.js](C:\Users\mail\Documents\git\himemo\functions\index.js)
 
-1. backend が短寿命 challenge を発行
-2. Android がその challenge を nonce として Play Integrity token を要求
-3. backend が challenge 署名、期限、package、operation を検証
-4. decode 済み token の `requestHash` または `nonce` が challenge と一致することを確認
-5. verdict を評価して高リスク操作の許可を返す
+## セキュリティ方針
 
-これにより、client 側だけで成立する任意の `requestHash` よりは強い検証になります。
+### App Check を必須にする
 
-## コストを抑える設定
+両 endpoint とも `Firebase App Check` を必須にしています。Flutter Android 側では Firebase 初期化後に App Check を有効化します。
 
-この関数は常時起動を避ける設定にしています。
+- production
+  - `AndroidProvider.playIntegrity`
+- development
+  - `AndroidProvider.debug`
+
+関連実装:
+
+- [C:\Users\mail\Documents\git\himemo\lib\app\firebase_initializer.dart](C:\Users\mail\Documents\git\himemo\lib\app\firebase_initializer.dart)
+- [C:\Users\mail\Documents\git\himemo\lib\app\play_integrity_verifier.dart](C:\Users\mail\Documents\git\himemo\lib\app\play_integrity_verifier.dart)
+
+### server-issued / one-time challenge
+
+challenge は backend が署名付きで発行し、Firestore に一時保存します。
+
+- challenge は `60 秒` の短寿命
+- challenge は `packageName` と `operation` に束縛
+- challenge は `App Check appId` に束縛
+- 検証時に Firestore transaction で消費し、再利用できない
+
+これで client が任意の `requestHash` を作る方式はやめています。
+
+### freshness 検証
+
+decode 後の `requestDetails.timestampMillis` を確認し、次を満たさない token は拒否します。
+
+- challenge 発行時刻より極端に古くない
+- challenge の期限外でない
+- 現在時刻から見て古すぎない
+
+### package / verdict 条件
+
+本番では次を必須にしています。
+
+- `packageName == org.ruhenheim.himemo`
+- `appRecognitionVerdict == PLAY_RECOGNIZED`
+- `appLicensingVerdict == LICENSED`
+- `MEETS_DEVICE_INTEGRITY` 以上
+
+development package を backend で許可する場合は、環境変数で明示します。
+
+## Functions のコスト設定
+
+コストを抑えるため、関数設定は最小寄りです。
 
 - `minInstances: 0`
 - `maxInstances: 3`
 - `memory: 128MiB`
-- `timeoutSeconds: 10` or `15`
+- `timeoutSeconds: 10` または `15`
+- `cors: false`
 
-加えて、challenge 発行側には簡易 rate limit を入れています。
+加えて、endpoint ごとに簡易 rate limit を入れています。
+
+## Firestore 使用
+
+collection:
+
+- `playIntegrityChallenges`
+
+保存内容:
+
+- `packageName`
+- `operation`
+- `appId`
+- `issuedAt`
+- `expiresAt`
+
+challenge は検証時に transaction で削除します。期限切れ challenge は発行時に軽く掃除します。
 
 ## Secret
 
-- secret name: `PLAY_INTEGRITY_CHALLENGE_SECRET`
+- secret 名
+  - `PLAY_INTEGRITY_CHALLENGE_SECRET`
 
 設定例:
 
@@ -49,49 +107,47 @@ firebase functions:secrets:set PLAY_INTEGRITY_CHALLENGE_SECRET --project himemo-
 
 ## 許可 package
 
-既定では本番 package だけを受け付けます。
+本番の既定値:
 
 - `org.ruhenheim.himemo`
 
-開発 package を使う場合は環境変数で明示的に許可します。
+development package を backend で許可したい場合だけ、環境変数で明示します。
 
 - `HIMEMO_ALLOWED_ANDROID_DEV_PACKAGES`
   - 例: `org.ruhenheim.himemo.dev`
 
-本番側 package を追加したい場合:
+## リクエスト例
 
-- `HIMEMO_ALLOWED_ANDROID_PACKAGES`
-
-## Challenge 発行
+### Challenge
 
 `POST /issuePlayIntegrityChallengeV2`
 
 ```json
 {
   "packageName": "org.ruhenheim.himemo",
-  "operation": "sync-upload"
+  "operation": "sync.enable"
 }
 ```
 
-レスポンス例:
+レスポンス:
 
 ```json
 {
   "ok": true,
-  "challenge": "eyJwYWNrYWdlTmFtZSI6Im9yZy5ydWhlbmhlaW0uaGltZW1vIiwiLi4uIn0.sig",
+  "challenge": "eyJjaGFsbGVuZ2VJZCI6Ii4uLiJ9.sig",
   "expiresInSeconds": 60
 }
 ```
 
-## 検証
+### Verify
 
 `POST /verifyPlayIntegrityV2`
 
 ```json
 {
   "packageName": "org.ruhenheim.himemo",
-  "operation": "sync-upload",
-  "challenge": "eyJwYWNrYWdlTmFtZSI6Im9yZy5ydWhlbmhlaW0uaGltZW1vIiwiLi4uIn0.sig",
+  "operation": "sync.enable",
+  "challenge": "eyJjaGFsbGVuZ2VJZCI6Ii4uLiJ9.sig",
   "integrityToken": "eyJhbGciOiJFUzI1NiIs..."
 }
 ```
@@ -104,40 +160,28 @@ firebase functions:secrets:set PLAY_INTEGRITY_CHALLENGE_SECRET --project himemo-
   "verdictOk": true,
   "packageMatches": true,
   "requestChallengeMatches": true,
-  "requestHashMatches": false,
-  "nonceMatches": true,
-  "appIntegrity": {
-    "appRecognitionVerdict": "PLAY_RECOGNIZED",
-    "packageName": "org.ruhenheim.himemo",
-    "certificateDigests": [],
-    "versionCode": "1"
-  },
+  "freshnessOk": true,
   "deviceIntegrity": {
     "verdicts": ["MEETS_DEVICE_INTEGRITY"],
     "requiresDeviceIntegrity": true
-  },
-  "accountDetails": {
-    "appLicensingVerdict": "LICENSED"
-  },
-  "requestDetails": {
-    "requestHash": null,
-    "nonce": "ZXlKd1lXTnJZV2RsVG1GdFpTSTZJbTl5Wnk1eWRXaGxibWhsYVcwdWFHbHRaVzF2Li4u",
-    "timestampMillis": "1713090000000"
   }
 }
 ```
 
-## 判定ルール
+## Flutter 側の流れ
 
-本番 package では次を満たしたときだけ `verdictOk == true` です。
+1. App Check token を取得
+2. backend に challenge を要求
+3. challenge を `requestHash` として Play Integrity token を取得
+4. backend に token と challenge を送る
+5. backend が `App Check / one-time challenge / freshness / verdict` を検証
+6. 成功したら同期有効化を許可
 
-- package が一致
-- challenge が一致
-- `appRecognitionVerdict == PLAY_RECOGNIZED`
-- `deviceRecognitionVerdict` に `MEETS_DEVICE_INTEGRITY` 以上が含まれる
-- `appLicensingVerdict == LICENSED`
+関連実装:
 
-開発 package は `MEETS_BASIC_INTEGRITY` まで許容できますが、明示的に許可した場合だけ使う想定です。
+- [C:\Users\mail\Documents\git\himemo\lib\app\play_integrity_verifier.dart](C:\Users\mail\Documents\git\himemo\lib\app\play_integrity_verifier.dart)
+- [C:\Users\mail\Documents\git\himemo\lib\app\play_integrity_service.dart](C:\Users\mail\Documents\git\himemo\lib\app\play_integrity_service.dart)
+- [C:\Users\mail\Documents\git\himemo\android\app\src\main\kotlin\org\ruhenheim\himemo\MainActivity.kt](C:\Users\mail\Documents\git\himemo\android\app\src\main\kotlin\org\ruhenheim\himemo\MainActivity.kt)
 
 ## デプロイ
 
@@ -148,25 +192,9 @@ cd ..
 firebase deploy --only functions --project himemo-app-2026
 ```
 
-## Flutter 側
-
-challenge 発行と検証 client:
-
-- [C:\Users\mail\Documents\git\himemo\lib\app\play_integrity_verifier.dart](C:\Users\mail\Documents\git\himemo\lib\app\play_integrity_verifier.dart)
-- [C:\Users\mail\Documents\git\himemo\lib\app\play_integrity_service.dart](C:\Users\mail\Documents\git\himemo\lib\app\play_integrity_service.dart)
-
-Android bridge:
-
-- [C:\Users\mail\Documents\git\himemo\android\app\src\main\kotlin\org\ruhenheim\himemo\MainActivity.kt](C:\Users\mail\Documents\git\himemo\android\app\src\main\kotlin\org\ruhenheim\himemo\MainActivity.kt)
-
-現在の高リスク適用箇所:
-
-- Google Drive への同期 upload
-- sync key import
-
 ## 今後の強化候補
 
-- App Check 連携
-- Cloud Armor か前段の rate limit 強化
-- 証明書 digest の allowlist
-- backend 側の操作別ログとアラート
+- Firestore TTL policy の有効化
+- Cloud Armor など前段の rate limit 強化
+- `certificateDigests` の allowlist 化
+- 同期有効化成功イベントの監査ログ追加

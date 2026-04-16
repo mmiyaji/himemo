@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
@@ -28,7 +29,7 @@ class PlayIntegrityVerifier {
        _httpClient = httpClient;
 
   static const _challengeEndpoint =
-      'https://asia-northeast1-himemo-app-2026.cloudfunctions.net/issuePlayIntegrityChallengeV2';
+      'https://issueplayintegritychallengev2-4yz7jselhq-an.a.run.app';
   static const _verifyEndpoint =
       'https://verifyplayintegrityv2-4yz7jselhq-an.a.run.app';
 
@@ -64,8 +65,19 @@ class PlayIntegrityVerifier {
 
     final client = _httpClient ?? http.Client();
     try {
+      final headers = await _buildHeaders();
+      if (headers == null) {
+        return PlayIntegrityVerificationResult(
+          allowed: flavor == AppFlavor.development,
+          message: flavor == AppFlavor.development
+              ? 'Firebase App Check token was unavailable in development.'
+              : 'Firebase App Check token was unavailable.',
+        );
+      }
+
       final challengeResult = await _requestChallenge(
         client: client,
+        headers: headers,
         flavor: flavor,
         packageName: packageName,
         operation: operation,
@@ -80,7 +92,7 @@ class PlayIntegrityVerifier {
 
       final response = await client.post(
         Uri.parse(_verifyEndpoint),
-        headers: const {'Content-Type': 'application/json'},
+        headers: headers,
         body: jsonEncode({
           'packageName': packageName,
           'operation': operation,
@@ -135,13 +147,14 @@ class PlayIntegrityVerifier {
 
   Future<PlayIntegrityVerificationResult> _requestChallenge({
     required http.Client client,
+    required Map<String, String> headers,
     required AppFlavor flavor,
     required String packageName,
     required String operation,
   }) async {
     final response = await client.post(
       Uri.parse(_challengeEndpoint),
-      headers: const {'Content-Type': 'application/json'},
+      headers: headers,
       body: jsonEncode({
         'packageName': packageName,
         'operation': operation,
@@ -173,5 +186,16 @@ class PlayIntegrityVerifier {
       message: 'Challenge issued.',
       challenge: challenge,
     );
+  }
+
+  Future<Map<String, String>?> _buildHeaders() async {
+    final token = await FirebaseAppCheck.instance.getToken();
+    if (token == null || token.isEmpty) {
+      return null;
+    }
+    return <String, String>{
+      'Content-Type': 'application/json',
+      'X-Firebase-AppCheck': token,
+    };
   }
 }

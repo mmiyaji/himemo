@@ -1,0 +1,99 @@
+workflows:
+  ios-testflight-production:
+    name: iOS TestFlight (Production)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: 3.41.6
+      xcode: latest
+      cocoapods: default
+      groups:
+        - app_store_connect
+      vars:
+        BUNDLE_ID: org.ruhenheim.himemo
+        XCODE_WORKSPACE: ios/Runner.xcworkspace
+        XCODE_SCHEME: Runner
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: org.ruhenheim.himemo
+    cache:
+      cache_paths:
+        - $FLUTTER_ROOT/.pub-cache
+        - ~/.pub-cache
+        - ~/Library/Caches/CocoaPods
+        - ~/.cocoapods/repos
+    scripts:
+      - name: Show toolchain versions
+        script: |
+          flutter --version
+          xcodebuild -version
+          pod --version
+      - name: Install Flutter dependencies
+        script: flutter pub get
+      - name: Install CocoaPods dependencies
+        script: |
+          find ios -name "Podfile" -execdir pod install \;
+      - name: Configure iOS code signing
+        script: |
+          xcode-project use-profiles \
+            --custom-export-options='{"method":"app-store","signingStyle":"automatic"}'
+      - name: Build production IPA
+        script: |
+          flutter build ipa --release \
+            --flavor production \
+            -t lib/main_production.dart \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
+      - test-results/**/*.xml
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true
+        beta_groups:
+          - Internal
+
+  ios-internal-production:
+    name: iOS Internal Signed Build
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: 3.41.6
+      xcode: latest
+      cocoapods: default
+      groups:
+        - app_store_connect
+      vars:
+        BUNDLE_ID: org.ruhenheim.himemo
+        XCODE_WORKSPACE: ios/Runner.xcworkspace
+        XCODE_SCHEME: Runner
+      ios_signing:
+        distribution_type: ad_hoc
+        bundle_identifier: org.ruhenheim.himemo
+    cache:
+      cache_paths:
+        - $FLUTTER_ROOT/.pub-cache
+        - ~/.pub-cache
+        - ~/Library/Caches/CocoaPods
+        - ~/.cocoapods/repos
+    scripts:
+      - name: Install Flutter dependencies
+        script: flutter pub get
+      - name: Install CocoaPods dependencies
+        script: |
+          find ios -name "Podfile" -execdir pod install \;
+      - name: Configure iOS code signing
+        script: xcode-project use-profiles
+      - name: Build internal IPA
+        script: |
+          flutter build ipa --release \
+            --flavor production \
+            -t lib/main_production.dart \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
