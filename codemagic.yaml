@@ -43,7 +43,6 @@ workflows:
       - name: Build production IPA
         script: |
           flutter build ipa --release \
-            --flavor production \
             -t lib/main_production.dart \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
@@ -98,7 +97,6 @@ workflows:
       - name: Build internal IPA
         script: |
           flutter build ipa --release \
-            --flavor production \
             -t lib/main_production.dart \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
