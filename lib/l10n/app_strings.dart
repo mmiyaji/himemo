@@ -164,6 +164,58 @@ class AppStrings {
       isJapanese ? '4文字以上で入力してください。' : 'Use at least 4 characters.';
   String get quickMemo => isJapanese ? 'クイックメモ' : 'Quick memo';
   String get richMemo => isJapanese ? 'リッチメモ' : 'Rich memo';
+  String get newNote => isJapanese ? '新しいノート' : 'New note';
+  String get editNote => isJapanese ? 'ノートを編集' : 'Edit note';
+  String get memoLabel => isJapanese ? 'メモ' : 'Memo';
+  String get memoFirstLineHint => isJapanese
+      ? '1行目をタイトルとして使います'
+      : 'Use the first line as the title';
+  String get vault => isJapanese ? '分類' : 'Vault';
+  String get pinThisNote => isJapanese ? 'このノートを固定' : 'Pin this note';
+  String get pinThisNoteDesc => isJapanese
+      ? '固定したノートは一覧の上に表示されます。'
+      : 'Pinned notes stay near the top.';
+  String get createNote => isJapanese ? 'ノートを作成' : 'Create note';
+  String get saveChanges => isJapanese ? '変更を保存' : 'Save changes';
+  String get startWritingHere => isJapanese ? 'ここから書き始めます' : 'Start writing here';
+  String get attachments => isJapanese ? '添付' : 'Attachments';
+  String get addMedia => isJapanese ? 'メディアを追加' : 'Add media';
+  String get pickPhoto => isJapanese ? '写真を選ぶ' : 'Pick photo';
+  String get takePhoto => isJapanese ? '写真を撮る' : 'Take photo';
+  String get pickVideo => isJapanese ? '動画を選ぶ' : 'Pick video';
+  String get recordVideo => isJapanese ? '動画を撮る' : 'Record video';
+  String get pickAudio => isJapanese ? '音声を選ぶ' : 'Pick audio';
+  String get attachFromBrowser => isJapanese
+      ? 'このブラウザから写真・動画・音声を添付できます。'
+      : 'Attach photos, videos, or audio files from this browser.';
+  String get attachFromDevice => isJapanese
+      ? 'カメラや端末内の写真・動画・音声を添付できます。'
+      : 'Attach photos, videos, or audio files from camera or device storage.';
+  String get dateTimeUpdated => isJapanese ? '日時を更新しました' : 'Date and time updated';
+  String get undo => isJapanese ? '元に戻す' : 'Undo';
+  String get draftRestored => isJapanese ? '下書きを復元しました' : 'Draft restored';
+  String get discardDraft => isJapanese ? '破棄' : 'Discard';
+  String get dismiss => isJapanese ? '閉じる' : 'Dismiss';
+  String attachmentRemoved(String label) =>
+      isJapanese ? '$label を削除しました' : '$label removed';
+  String get removeBlock => isJapanese ? 'この添付を削除' : 'Remove block';
+  String get moveEarlier => isJapanese ? '前へ移動' : 'Move earlier';
+  String get moveLater => isJapanese ? '後へ移動' : 'Move later';
+  String get syncAppleIdUnsupported => isJapanese
+      ? 'このビルドでは iOS / macOS のみ iCloud 同期を利用できます。'
+      : 'iCloud sync is only available on iOS and macOS in this build.';
+  String get syncAppleIdUnavailable => isJapanese
+      ? 'この端末では iCloud を利用できません。'
+      : 'iCloud is not available on this device.';
+  String get syncAppleIdConnected => isJapanese
+      ? 'iCloud の利用状態を確認できました。同期設定を続けてください。'
+      : 'iCloud is available. Continue setting up sync.';
+  String get syncApplePluginMissing => isJapanese
+      ? 'この実行環境では iCloud 同期を利用できません。'
+      : 'iCloud sync is not configured in this runtime.';
+  String get syncAppleUnknownError => isJapanese
+      ? 'iCloud の状態を確認できませんでした。iCloud へのサインイン状態とアプリの権限を確認してください。'
+      : 'Unable to confirm iCloud availability. Check the iCloud sign-in state and app capabilities.';
   String get close => isJapanese ? '閉じる' : 'Close';
   String get sendMemo => isJapanese ? 'メモを送信' : 'Send memo';
   String get sending => isJapanese ? '送信中...' : 'Sending...';

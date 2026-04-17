@@ -9,8 +9,12 @@ abstract class SecureKeyValueStore {
 }
 
 class FlutterSecureKeyValueStore implements SecureKeyValueStore {
-  FlutterSecureKeyValueStore({FlutterSecureStorage? storage})
-    : _storage = storage ?? const FlutterSecureStorage();
+  FlutterSecureKeyValueStore({
+    FlutterSecureStorage? storage,
+    IOSOptions iOptions = IOSOptions.defaultOptions,
+    AppleOptions mOptions = MacOsOptions.defaultOptions,
+  }) : _storage =
+           storage ?? FlutterSecureStorage(iOptions: iOptions, mOptions: mOptions);
 
   final FlutterSecureStorage _storage;
 

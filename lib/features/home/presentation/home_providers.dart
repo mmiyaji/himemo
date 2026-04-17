@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -15,7 +16,6 @@ import 'package:path/path.dart' as path;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import '../../../app/firebase_observability.dart';
 import '../../../app/app_flavor.dart';
@@ -34,6 +34,7 @@ import '../../security/data/master_key_service.dart';
 import '../../security/data/private_vault_secret_store.dart';
 import '../../security/data/secure_key_value_store.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
+import '../../sync/data/icloud_sync_transport.dart';
 import '../../sync/data/sync_conflict_policy.dart';
 import '../../sync/data/sync_bundle_preview.dart';
 import '../../sync/data/secure_sync_bundle_store.dart';
@@ -748,7 +749,7 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
     return switch (provider) {
       SyncProvider.off => Future.value(SyncAuthState.idle(provider)),
       SyncProvider.googleDrive => _connectGoogle(),
-      SyncProvider.iCloud => _connectApple(),
+      SyncProvider.iCloud => _connectICloud(),
     };
   }
 
@@ -822,63 +823,35 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
     }
   }
 
-  Future<SyncAuthState> _connectApple() async {
-    final supportsAppleSignIn =
-        !kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.iOS ||
-            defaultTargetPlatform == TargetPlatform.macOS);
-    if (!supportsAppleSignIn) {
+  Future<SyncAuthState> _connectICloud() async {
+    final supportsICloud =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+    if (!supportsICloud) {
       return const SyncAuthState(
         provider: SyncProvider.iCloud,
         stage: SyncAuthStage.unsupported,
-        message:
-            'Apple ID authentication for iCloud sync is only available on iOS and macOS in this build.',
+        message: 'iCloud sync is currently available on iPhone and iPad only.',
       );
     }
 
-    try {
-      if (!await SignInWithApple.isAvailable()) {
-        return const SyncAuthState(
-          provider: SyncProvider.iCloud,
-          stage: SyncAuthStage.unsupported,
-          message: 'Apple ID authentication is not available on this device.',
-        );
-      }
-
-      final credential = await SignInWithApple.getAppleIDCredential(
-        scopes: const [
-          AppleIDAuthorizationScopes.email,
-          AppleIDAuthorizationScopes.fullName,
-        ],
-      );
-
-      final fullName = [
-        credential.givenName,
-        credential.familyName,
-      ].whereType<String>().where((part) => part.trim().isNotEmpty).join(' ');
-
-      return SyncAuthState(
+    final status = await MethodChannelICloudSyncTransport().checkAccountStatus();
+    if (status.isAvailable) {
+      return const SyncAuthState(
         provider: SyncProvider.iCloud,
         stage: SyncAuthStage.authenticated,
-        userId: credential.userIdentifier,
-        displayName: fullName.isEmpty ? 'Apple ID user' : fullName,
-        email: credential.email,
-        message:
-            'Apple ID credential captured. Server-side validation is still required before real iCloud sync.',
-      );
-    } on MissingPluginException {
-      return const SyncAuthState(
-        provider: SyncProvider.iCloud,
-        stage: SyncAuthStage.unsupported,
-        message: 'Apple sign-in plugin is not configured in this runtime.',
-      );
-    } catch (error) {
-      return SyncAuthState(
-        provider: SyncProvider.iCloud,
-        stage: SyncAuthStage.error,
-        message: '$error',
+        displayName: 'iCloud',
       );
     }
+
+    final stage = switch (status.availability) {
+      ICloudAccountAvailability.unsupported => SyncAuthStage.unsupported,
+      _ => SyncAuthStage.error,
+    };
+    return SyncAuthState(
+      provider: SyncProvider.iCloud,
+      stage: stage,
+      message: status.message,
+    );
   }
 }
 
@@ -975,8 +948,24 @@ class DefaultMediaImportService implements MediaImportService {
   Future<MediaImportResult> _pickAudio() async {
     FilePickerResult? result;
     try {
+      final audioExtensions = <String>[
+        'm4a',
+        'aac',
+        'mp3',
+        'wav',
+        'aiff',
+        'aif',
+        'caf',
+        'flac',
+        'ogg',
+      ];
       result = await FilePicker.platform.pickFiles(
-        type: FileType.audio,
+        type:
+            defaultTargetPlatform == TargetPlatform.iOS
+                ? FileType.custom
+                : FileType.audio,
+        allowedExtensions:
+            defaultTargetPlatform == TargetPlatform.iOS ? audioExtensions : null,
         withData: kIsWeb,
       );
     } on MissingPluginException {
@@ -987,6 +976,10 @@ class DefaultMediaImportService implements MediaImportService {
       return MediaImportResult.failure(
         error.message ?? 'Audio import failed on this device.',
       );
+    } catch (error) {
+      return MediaImportResult.failure(
+        'Audio import failed on this device. ($error)',
+      );
     }
     if (result == null || result.files.isEmpty) {
       return const MediaImportResult.cancelled();
@@ -994,6 +987,11 @@ class DefaultMediaImportService implements MediaImportService {
 
     final file = result.files.single;
     final bytes = file.bytes;
+    if (file.path == null && bytes == null) {
+      return const MediaImportResult.failure(
+        'The selected audio file could not be opened on this device.',
+      );
+    }
     if (bytes != null && bytes.length > 50 * 1024 * 1024) {
       return const MediaImportResult.failure(
         'Audio files over 50 MB are not supported yet.',
@@ -1069,6 +1067,22 @@ final secureKeyValueStoreProvider = Provider<SecureKeyValueStore>((ref) {
   return FlutterSecureKeyValueStore();
 });
 
+final iCloudSynchronizableKeyValueStoreProvider = Provider<SecureKeyValueStore>((
+  ref,
+) {
+  return FlutterSecureKeyValueStore(
+    iOptions: const IOSOptions(
+      accountName: 'org.ruhenheim.himemo.cloud_recovery_key',
+      synchronizable: true,
+      accessibility: KeychainAccessibility.first_unlock,
+    ),
+    mOptions: const MacOsOptions(
+      accountName: 'org.ruhenheim.himemo.cloud_recovery_key',
+      synchronizable: true,
+    ),
+  );
+});
+
 final encryptionServiceProvider = Provider<EncryptionService>((ref) {
   return EncryptionService();
 });
@@ -1140,8 +1154,19 @@ final secureSyncBundleStoreProvider = Provider<SecureSyncBundleStore>((ref) {
 
 final syncBundleKeyServiceProvider = Provider<SyncBundleKeyService>((ref) {
   final encryption = ref.watch(encryptionServiceProvider);
+  final provider = ref.watch(syncProviderControllerProvider);
+  final usesICloudSharedKey =
+      provider == SyncProvider.iCloud &&
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.macOS);
   return SyncBundleKeyService(
-    secureStore: ref.watch(secureKeyValueStoreProvider),
+    secureStore: usesICloudSharedKey
+        ? ref.watch(iCloudSynchronizableKeyValueStoreProvider)
+        : ref.watch(secureKeyValueStoreProvider),
+    fallbackStore: usesICloudSharedKey
+        ? ref.watch(secureKeyValueStoreProvider)
+        : null,
     keyFactory: encryption.generateKeyBytes,
   );
 });
@@ -1173,6 +1198,10 @@ final googleDriveSyncTransportProvider = Provider<GoogleDriveSyncTransport>((
   return GoogleApisGoogleDriveSyncTransport();
 });
 
+final iCloudSyncTransportProvider = Provider<ICloudSyncTransport>((ref) {
+  return MethodChannelICloudSyncTransport();
+});
+
 final syncBundleStateStoreProvider = Provider<SyncBundleStateStore>((ref) {
   return SyncBundleStateStore();
 });
@@ -1182,9 +1211,9 @@ final syncBundleStateProvider = FutureProvider<SyncBundleState>((ref) async {
 });
 
 final syncConflictWarningProvider = Provider<String?>((ref) {
+  final provider = ref.watch(syncProviderControllerProvider);
   final assessment = assessSyncConflict(
-    googleDriveSelected:
-        ref.watch(syncProviderControllerProvider) == SyncProvider.googleDrive,
+    googleDriveSelected: provider != SyncProvider.off,
     queue: ref.watch(syncQueueSummaryProvider).asData?.value,
     remoteStatus: ref.watch(syncTransferControllerProvider).remoteStatus,
     bundleState: ref.watch(syncBundleStateProvider).asData?.value,
@@ -1331,10 +1360,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   SyncTransferState build() => const SyncTransferState.idle();
 
   Future<void> refreshRemoteStatus() async {
-    if (ref.read(syncProviderControllerProvider) != SyncProvider.googleDrive) {
+    final provider = ref.read(syncProviderControllerProvider);
+    if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
         stage: SyncTransferStage.idle,
-        message: 'Remote status is only available for Google Drive right now.',
+        message: 'Select a cloud sync target before checking remote status.',
       );
       return;
     }
@@ -1342,15 +1372,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     try {
       final remoteStatus = await runFirebaseTrace(
         'sync_refresh_remote_status',
-        () => ref
-            .read(googleDriveSyncTransportProvider)
-            .fetchLatestBundleStatus(),
+        _fetchLatestRemoteStatus,
       );
       state = SyncTransferState(
         stage: SyncTransferStage.success,
         message: remoteStatus == null
-            ? 'No Google Drive bundle is stored yet.'
-            : 'Google Drive bundle metadata refreshed.',
+            ? 'No remote bundle is stored yet.'
+            : '${_providerLabel(provider)} bundle metadata refreshed.',
         remoteStatus: remoteStatus,
         localBundle: state.localBundle,
       );
@@ -1369,10 +1397,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   Future<void> uploadCurrentBundle({bool force = false}) async {
-    if (ref.read(syncProviderControllerProvider) != SyncProvider.googleDrive) {
+    final provider = ref.read(syncProviderControllerProvider);
+    if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
         stage: SyncTransferStage.error,
-        message: 'Switch the sync target to Google Drive before uploading.',
+        message: 'Select a cloud sync target before uploading.',
       );
       return;
     }
@@ -1414,7 +1443,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       }
       final remoteStatus = await runFirebaseTrace(
         'sync_upload_remote_bundle',
-        () => ref.read(googleDriveSyncTransportProvider).uploadBundle(
+        () => _uploadRemoteBundle(
           encodedPayload: encodedPayload,
           deviceId: snapshot.deviceId,
           noteCount: bundle.noteCount,
@@ -1424,7 +1453,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await ref.read(notesControllerProvider.notifier).markCurrentStateSynced();
       state = SyncTransferState(
         stage: SyncTransferStage.success,
-        message: 'Encrypted bundle uploaded to Google Drive app-data.',
+        message:
+            'Encrypted bundle uploaded to ${_providerLabel(provider)}.',
         remoteStatus: remoteStatus,
         localBundle: bundle,
       );
@@ -1445,10 +1475,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await downloadBundle(remoteStatus);
       return;
     }
-    if (ref.read(syncProviderControllerProvider) != SyncProvider.googleDrive) {
+    final provider = ref.read(syncProviderControllerProvider);
+    if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
         stage: SyncTransferStage.error,
-        message: 'Switch the sync target to Google Drive before downloading.',
+        message: 'Select a cloud sync target before downloading.',
       );
       return;
     }
@@ -1457,11 +1488,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await logFirebaseBreadcrumb('sync download latest requested');
       final remoteBundle = await runFirebaseTrace(
         'sync_download_latest_bundle',
-        () => ref.read(googleDriveSyncTransportProvider).downloadLatestBundle(),
+        _downloadLatestRemoteBundle,
       );
       await _storeDownloadedBundle(
         remoteBundle,
-        emptyMessage: 'No remote Google Drive bundle is available.',
+        emptyMessage: 'No remote ${_providerLabel(provider)} bundle is available.',
       );
     } catch (error) {
       state = SyncTransferState(
@@ -1474,14 +1505,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   Future<List<RemoteSyncBundleStatus>> listRemoteBundleHistory() async {
-    return ref.read(googleDriveSyncTransportProvider).listBundleHistory();
+    return _listRemoteHistory();
   }
 
   Future<void> downloadBundle(RemoteSyncBundleStatus remoteStatus) async {
-    if (ref.read(syncProviderControllerProvider) != SyncProvider.googleDrive) {
+    final provider = ref.read(syncProviderControllerProvider);
+    if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
         stage: SyncTransferStage.error,
-        message: 'Switch the sync target to Google Drive before downloading.',
+        message: 'Select a cloud sync target before downloading.',
       );
       return;
     }
@@ -1490,14 +1522,12 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await logFirebaseBreadcrumb('sync download bundle ${remoteStatus.fileId}');
       final remoteBundle = await runFirebaseTrace(
         'sync_download_selected_bundle',
-        () => ref
-            .read(googleDriveSyncTransportProvider)
-            .downloadBundleByFileId(remoteStatus.fileId),
+        () => _downloadRemoteBundleById(remoteStatus.fileId),
       );
       await _storeDownloadedBundle(
         remoteBundle,
         emptyMessage:
-            'The selected Google Drive bundle could not be downloaded.',
+            'The selected ${_providerLabel(provider)} bundle could not be downloaded.',
       );
     } catch (error) {
       state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
@@ -1633,13 +1663,96 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         );
     state = SyncTransferState(
       stage: SyncTransferStage.success,
-      message: 'Remote Google Drive bundle downloaded to local secure storage.',
+      message:
+          'Remote ${_providerLabel(ref.read(syncProviderControllerProvider))} bundle downloaded to local secure storage.',
       remoteStatus: remoteBundle.status,
       localBundle: localBundle,
     );
     await ref
         .read(syncBundleStateStoreProvider)
         .recordRemoteStatus(remoteBundle.status);
+  }
+
+  bool _supportsRemoteTransport(SyncProvider provider) {
+    return provider == SyncProvider.googleDrive || provider == SyncProvider.iCloud;
+  }
+
+  String _providerLabel(SyncProvider provider) {
+    return switch (provider) {
+      SyncProvider.iCloud => 'iCloud',
+      SyncProvider.googleDrive => 'Google Drive',
+      SyncProvider.off => 'remote storage',
+    };
+  }
+
+  Future<RemoteSyncBundleStatus?> _fetchLatestRemoteStatus() {
+    final provider = ref.read(syncProviderControllerProvider);
+    return switch (provider) {
+      SyncProvider.iCloud =>
+        ref.read(iCloudSyncTransportProvider).fetchLatestBundleStatus(),
+      SyncProvider.googleDrive =>
+        ref.read(googleDriveSyncTransportProvider).fetchLatestBundleStatus(),
+      SyncProvider.off => Future.value(null),
+    };
+  }
+
+  Future<List<RemoteSyncBundleStatus>> _listRemoteHistory() {
+    final provider = ref.read(syncProviderControllerProvider);
+    return switch (provider) {
+      SyncProvider.iCloud =>
+        ref.read(iCloudSyncTransportProvider).listBundleHistory(),
+      SyncProvider.googleDrive =>
+        ref.read(googleDriveSyncTransportProvider).listBundleHistory(),
+      SyncProvider.off => Future.value(const <RemoteSyncBundleStatus>[]),
+    };
+  }
+
+  Future<RemoteSyncBundleStatus> _uploadRemoteBundle({
+    required String encodedPayload,
+    required String deviceId,
+    required int noteCount,
+    required int attachmentCount,
+  }) {
+    final provider = ref.read(syncProviderControllerProvider);
+    return switch (provider) {
+      SyncProvider.iCloud => ref.read(iCloudSyncTransportProvider).uploadBundle(
+        encodedPayload: encodedPayload,
+        deviceId: deviceId,
+        noteCount: noteCount,
+        attachmentCount: attachmentCount,
+      ),
+      SyncProvider.googleDrive => ref.read(googleDriveSyncTransportProvider).uploadBundle(
+        encodedPayload: encodedPayload,
+        deviceId: deviceId,
+        noteCount: noteCount,
+        attachmentCount: attachmentCount,
+      ),
+      SyncProvider.off => Future.error(
+        StateError('Remote sync is not enabled.'),
+      ),
+    };
+  }
+
+  Future<DownloadedRemoteSyncBundle?> _downloadLatestRemoteBundle() {
+    final provider = ref.read(syncProviderControllerProvider);
+    return switch (provider) {
+      SyncProvider.iCloud =>
+        ref.read(iCloudSyncTransportProvider).downloadLatestBundle(),
+      SyncProvider.googleDrive =>
+        ref.read(googleDriveSyncTransportProvider).downloadLatestBundle(),
+      SyncProvider.off => Future.value(null),
+    };
+  }
+
+  Future<DownloadedRemoteSyncBundle?> _downloadRemoteBundleById(String id) {
+    final provider = ref.read(syncProviderControllerProvider);
+    return switch (provider) {
+      SyncProvider.iCloud =>
+        ref.read(iCloudSyncTransportProvider).downloadBundleByRecordName(id),
+      SyncProvider.googleDrive =>
+        ref.read(googleDriveSyncTransportProvider).downloadBundleByFileId(id),
+      SyncProvider.off => Future.value(null),
+    };
   }
 }
 
@@ -1843,7 +1956,8 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
       ).copyWith(stage: SyncAuthStage.busy, clearMessage: true),
     );
 
-    final alreadyApproved = await _hasIntegrityApproval(provider);
+    final requiresIntegrity = provider == SyncProvider.googleDrive;
+    final alreadyApproved = !requiresIntegrity || await _hasIntegrityApproval(provider);
     if (!alreadyApproved) {
       final verification = await ref
           .read(playIntegrityVerifierProvider)

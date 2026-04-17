@@ -25,68 +25,6 @@ import 'home_providers.dart';
 
 enum AppSection { notes, calendar, insights, settings }
 
-class _NoteTemplate {
-  const _NoteTemplate({
-    required this.id,
-    required this.label,
-    required this.quickContent,
-    required this.richBlocks,
-  });
-
-  final String id;
-  final String label;
-  final String quickContent;
-  final List<NoteBlock> richBlocks;
-}
-
-const _noteTemplates = <_NoteTemplate>[
-  _NoteTemplate(
-    id: 'diary',
-    label: 'Diary',
-    quickContent: 'Today\n\nWhat happened today?\nHow did it feel?',
-    richBlocks: [
-      NoteBlock(type: NoteBlockType.paragraph, text: 'Today'),
-      NoteBlock(
-        type: NoteBlockType.paragraph,
-        text: 'What happened today?\nHow did it feel?',
-      ),
-    ],
-  ),
-  _NoteTemplate(
-    id: 'shopping',
-    label: 'Shopping',
-    quickContent: 'Shopping list\n\n- Milk\n- Eggs\n- Fruit',
-    richBlocks: [
-      NoteBlock(type: NoteBlockType.paragraph, text: 'Shopping list'),
-      NoteBlock(type: NoteBlockType.paragraph, text: '- Milk\n- Eggs\n- Fruit'),
-    ],
-  ),
-  _NoteTemplate(
-    id: 'meeting',
-    label: 'Meeting',
-    quickContent: 'Meeting notes\n\nAgenda\n\nDecisions\n\nNext actions',
-    richBlocks: [
-      NoteBlock(type: NoteBlockType.paragraph, text: 'Meeting notes'),
-      NoteBlock(
-        type: NoteBlockType.paragraph,
-        text: 'Agenda\n\nDecisions\n\nNext actions',
-      ),
-    ],
-  ),
-  _NoteTemplate(
-    id: 'travel',
-    label: 'Travel',
-    quickContent: 'Trip log\n\nPlace\n\nWhat stood out?',
-    richBlocks: [
-      NoteBlock(type: NoteBlockType.paragraph, text: 'Trip log'),
-      NoteBlock(
-        type: NoteBlockType.paragraph,
-        text: 'Place\n\nWhat stood out?',
-      ),
-    ],
-  ),
-];
-
 class AppShell extends ConsumerWidget {
   const AppShell({super.key, required this.child});
 
@@ -1889,7 +1827,8 @@ class SettingsScreen extends ConsumerWidget {
               ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
             ),
             const SizedBox(height: 12),
-            Wrap(
+            if (syncProvider != SyncProvider.iCloud)
+              Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
@@ -2023,6 +1962,16 @@ class SettingsScreen extends ConsumerWidget {
                     .setEnabled(true);
               },
             ),
+            if (syncProvider == SyncProvider.iCloud)
+              Padding(
+                padding: const EdgeInsets.only(top: 4, bottom: 8),
+                child: Text(
+                  strings.isJapanese
+                      ? 'iCloud を使う場合、この鍵は同じ iCloud アカウントの Apple デバイス間で自動共有されます。手動でコピーする必要はありません。'
+                      : 'When iCloud sync is selected, this key is shared automatically across Apple devices signed in with the same iCloud account. Manual transfer is not required.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(strings.isJapanese ? 'セッション状態' : 'Session status'),
@@ -2472,18 +2421,18 @@ class SettingsScreen extends ConsumerWidget {
               contentPadding: EdgeInsets.zero,
               title: Text(
                 strings.isJapanese
-                    ? '同期キーのフィンガープリント'
-                    : 'Sync key fingerprint',
+                    ? 'クラウド復元キーのフィンガープリント'
+                    : 'Cloud recovery key fingerprint',
               ),
               subtitle: Text(
                 syncBundleFingerprint.when(
                   data: (value) => value,
                   loading: () => strings.isJapanese
-                      ? '同期キーを準備中...'
-                      : 'Preparing sync key...',
+                      ? 'クラウド復元キーを準備中...'
+                      : 'Preparing cloud recovery key...',
                   error: (_, _) => strings.isJapanese
-                      ? '同期キーのフィンガープリントを読めませんでした。'
-                      : 'Unable to read the sync key fingerprint.',
+                      ? 'クラウド復元キーのフィンガープリントを読めませんでした。'
+                      : 'Unable to read the cloud recovery key fingerprint.',
                 ),
               ),
             ),
@@ -2506,8 +2455,8 @@ class SettingsScreen extends ConsumerWidget {
                         SnackBar(
                           content: Text(
                             strings.isJapanese
-                                ? '同期キーをクリップボードにコピーしました。'
-                                : 'Sync key copied to clipboard.',
+                                ? 'クラウド復元キーをクリップボードにコピーしました。'
+                                : 'Cloud recovery key copied to clipboard.',
                           ),
                         ),
                       );
@@ -2518,7 +2467,7 @@ class SettingsScreen extends ConsumerWidget {
                       messenger.showSnackBar(SnackBar(content: Text('$error')));
                     }
                   },
-                  child: Text(strings.isJapanese ? '同期キーをコピー' : 'Copy sync key'),
+                  child: Text(strings.isJapanese ? 'クラウド復元キーをコピー' : 'Copy recovery key'),
                 ),
                 OutlinedButton(
                   onPressed: () async {
@@ -2558,8 +2507,8 @@ class SettingsScreen extends ConsumerWidget {
                         SnackBar(
                           content: Text(
                             strings.isJapanese
-                                ? '同期キーを読み込みました。フィンガープリント: $fingerprint'
-                                : 'Sync key imported. Fingerprint: $fingerprint',
+                                ? 'クラウド復元キーを読み込みました。フィンガープリント: $fingerprint'
+                                : 'Cloud recovery key imported. Fingerprint: $fingerprint',
                           ),
                         ),
                       );
@@ -2570,7 +2519,7 @@ class SettingsScreen extends ConsumerWidget {
                       messenger.showSnackBar(SnackBar(content: Text('$error')));
                     }
                   },
-                  child: Text(strings.isJapanese ? '同期キーを読み込む' : 'Import sync key'),
+                  child: Text(strings.isJapanese ? 'クラウド復元キーを読み込む' : 'Import recovery key'),
                 ),
               ],
             ),
@@ -2711,7 +2660,7 @@ class SettingsScreen extends ConsumerWidget {
                         },
                   child: Text(strings.isJapanese ? 'リモートを更新' : 'Refresh remote'),
                 ),
-                if (syncProvider == SyncProvider.googleDrive &&
+                if (syncProvider != SyncProvider.off &&
                     syncAuthState.isAuthenticated)
                   OutlinedButton(
                     key: syncUploadBundleKey,
@@ -2741,7 +2690,7 @@ class SettingsScreen extends ConsumerWidget {
                           : 'Upload bundle',
                     ),
                   ),
-                if (syncProvider == SyncProvider.googleDrive &&
+                if (syncProvider != SyncProvider.off &&
                     syncAuthState.isAuthenticated &&
                     syncConflictWarning != null)
                   FilledButton.tonal(
@@ -2808,7 +2757,7 @@ class SettingsScreen extends ConsumerWidget {
                           : 'Force upload',
                     ),
                   ),
-                if (syncProvider == SyncProvider.googleDrive &&
+                if (syncProvider != SyncProvider.off &&
                     syncAuthState.isAuthenticated)
                   OutlinedButton(
                     onPressed: syncTransferState.isBusy
@@ -2888,7 +2837,7 @@ class SettingsScreen extends ConsumerWidget {
                           },
                     child: Text(strings.isJapanese ? 'バンドル履歴' : 'Bundle history'),
                   ),
-                if (syncProvider == SyncProvider.googleDrive &&
+                if (syncProvider != SyncProvider.off &&
                     syncAuthState.isAuthenticated)
                   OutlinedButton(
                     key: syncDownloadBundleKey,
@@ -3361,6 +3310,53 @@ class SettingsScreen extends ConsumerWidget {
 
   String _syncSubtitle(BuildContext context, SyncProvider provider) {
     final strings = context.strings;
+    if (provider == SyncProvider.off) {
+      return strings.isJapanese ? '同期はオフです。' : 'Sync is disabled.';
+    }
+    if (provider == SyncProvider.iCloud) {
+      return strings.isJapanese
+          ? 'iCloud を選択中です。この端末の iCloud と CloudKit の利用状態を確認して同期します。'
+          : 'iCloud selected. The app checks this device’s iCloud and CloudKit availability before syncing.';
+    }
+    if (provider == SyncProvider.googleDrive) {
+      return strings.isJapanese
+          ? 'Google Drive を選択中です。次に Google アカウントで接続します。'
+          : 'Google Drive selected. Account wiring comes next.';
+    }
+    if (provider == SyncProvider.off) {
+      return strings.isJapanese ? '同期はオフです。' : 'Sync is disabled.';
+    }
+    if (provider == SyncProvider.iCloud) {
+      return strings.isJapanese
+          ? 'iCloud を選択中です。この端末の iCloud 状態を確認して同期します。'
+          : 'iCloud selected. The app checks this device’s iCloud availability before syncing.';
+    }
+    if (provider == SyncProvider.googleDrive) {
+      return strings.isJapanese
+          ? 'Google Drive を選択中です。次に Google アカウントで接続します。'
+          : 'Google Drive selected. Account wiring comes next.';
+    }
+    switch (provider) {
+      case SyncProvider.off:
+        return strings.isJapanese ? '同期はオフです。' : 'Sync is disabled.';
+      case SyncProvider.iCloud:
+        return strings.isJapanese
+            ? 'iCloud を選択中です。次に Apple ID で接続します。'
+            : 'iCloud selected. Account wiring comes next.';
+      case SyncProvider.googleDrive:
+        return strings.isJapanese
+            ? 'Google Drive を選択中です。次に Google アカウントで接続します。'
+            : 'Google Drive selected. Account wiring comes next.';
+    }
+  }
+
+  String syncSubtitleLegacy(BuildContext context, SyncProvider provider) {
+    if (provider == SyncProvider.off ||
+        provider == SyncProvider.iCloud ||
+        provider == SyncProvider.googleDrive) {
+      return _syncSubtitle(context, provider);
+    }
+    final strings = context.strings;
     switch (provider) {
       case SyncProvider.off:
         return strings.isJapanese ? '同期はオフです。' : 'Sync is disabled.';
@@ -3376,6 +3372,45 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   String _syncAuthSummary(
+    BuildContext context,
+    SyncProvider provider,
+    SyncAuthState authState,
+  ) {
+    final strings = context.strings;
+    if (provider == SyncProvider.off) {
+      return strings.isJapanese
+          ? 'クラウド同期は接続されていません。'
+          : 'No cloud account is connected.';
+    }
+
+    switch (authState.stage) {
+      case SyncAuthStage.idle:
+        return strings.isJapanese
+            ? 'まだアカウントは接続されていません。'
+            : 'No account connected yet.';
+      case SyncAuthStage.busy:
+        return strings.isJapanese
+            ? '認証の完了を待っています...'
+            : 'Waiting for authentication to complete...';
+      case SyncAuthStage.authenticated:
+        final identity =
+            authState.email ?? authState.displayName ?? authState.userId;
+        final suffix = authState.message == null ? '' : ' ${authState.message}';
+        return identity == null
+            ? (strings.isJapanese ? '接続済みです。$suffix' : 'Connected.$suffix')
+            : (strings.isJapanese
+                  ? '$identity で接続済みです。$suffix'
+                  : 'Connected as $identity.$suffix');
+      case SyncAuthStage.unsupported:
+      case SyncAuthStage.error:
+        return authState.message ??
+            (strings.isJapanese
+                ? '認証を利用できません。'
+                : 'Authentication is not available.');
+    }
+  }
+
+  String syncAuthSummaryLegacy(
     BuildContext context,
     SyncProvider provider,
     SyncAuthState authState,
@@ -5069,7 +5104,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   String? _selectedVaultId;
   bool _saved = false;
   bool _draftLoaded = false;
-  bool _showTemplates = false;
   Timer? _draftSaveTimer;
 
   @override
@@ -5254,15 +5288,13 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Draft restored'),
-        action: SnackBarAction(
-          label: 'Discard',
-          onPressed: () {
-            ref.read(noteEditorDraftStoreProvider).clear();
-          },
-        ),
+    _showEditorSnackBar(
+      content: Text(context.strings.draftRestored),
+      action: SnackBarAction(
+        label: context.strings.discardDraft,
+        onPressed: () {
+          ref.read(noteEditorDraftStoreProvider).clear();
+        },
       ),
     );
   }
@@ -5291,34 +5323,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             ),
           );
     });
-  }
-
-  void _applyTemplate(_NoteTemplate template) {
-    setState(() {
-      _contentController.text = template.quickContent;
-      _attachments = [];
-      for (final block in _richBlocks) {
-        block.dispose();
-      }
-      _richBlocks = [
-        for (final block in template.richBlocks)
-          if (block.type == NoteBlockType.paragraph)
-            _RichBlockDraft.paragraph(block.text ?? '')
-          else if (block.attachment != null)
-            _RichBlockDraft.attachment(block.attachment!),
-      ];
-      if (_richBlocks.isEmpty) {
-        _richBlocks = [_RichBlockDraft.paragraph()];
-      }
-      for (final block in _richBlocks) {
-        _attachRichBlockListener(block);
-      }
-      _activeRichParagraphIndex = _richBlocks.indexWhere(
-        (block) => block.type == NoteBlockType.paragraph,
-      );
-      _showTemplates = false;
-    });
-    _scheduleDraftPersist();
   }
 
   int _resolveRichInsertionIndex() {
@@ -5379,6 +5383,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = context.strings;
     final visibleVaults = ref.watch(visibleVaultsProvider);
     if (_selectedVaultId == null && visibleVaults.isNotEmpty) {
       _selectedVaultId = visibleVaults.first.id;
@@ -5411,12 +5416,43 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       Icons.chevron_right_rounded,
                       color: _mutedTextColor(context),
                     ),
+                    const SizedBox(width: 4),
+                    PopupMenuButton<MediaImportAction>(
+                      key: const Key('note-media-menu'),
+                      tooltip: strings.addMedia,
+                      icon: const Icon(Icons.add_photo_alternate_outlined),
+                      onSelected: _handleAttachmentAction,
+                      itemBuilder: (context) => [
+                        if (!kIsWeb)
+                          PopupMenuItem(
+                            value: MediaImportAction.takePhoto,
+                            child: Text(strings.takePhoto),
+                          ),
+                        PopupMenuItem(
+                          value: MediaImportAction.pickPhoto,
+                          child: Text(strings.pickPhoto),
+                        ),
+                        if (!kIsWeb)
+                          PopupMenuItem(
+                            value: MediaImportAction.recordVideo,
+                            child: Text(strings.recordVideo),
+                          ),
+                        PopupMenuItem(
+                          value: MediaImportAction.pickVideo,
+                          child: Text(strings.pickVideo),
+                        ),
+                        PopupMenuItem(
+                          value: MediaImportAction.pickAudio,
+                          child: Text(strings.pickAudio),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
             ),
             Text(
-              widget.note == null ? 'New note' : 'Edit note',
+              widget.note == null ? strings.newNote : strings.editNote,
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
@@ -5425,58 +5461,17 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             Expanded(
               child: ListView(
                 children: [
-                  if (widget.note == null) ...[
-                    Container(
-                      decoration: _sectionDecoration(context),
-                      child: ExpansionTile(
-                        tilePadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 2,
-                        ),
-                        childrenPadding: const EdgeInsets.fromLTRB(
-                          12,
-                          0,
-                          12,
-                          12,
-                        ),
-                        initiallyExpanded: _showTemplates,
-                        onExpansionChanged: (value) {
-                          setState(() {
-                            _showTemplates = value;
-                          });
-                        },
-                        title: const Text('Start from template'),
-                        subtitle: const Text(
-                          'Optional. Begin with a simple writing pattern.',
-                        ),
-                        children: [
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              for (final template in _noteTemplates)
-                                ActionChip(
-                                  label: Text(template.label),
-                                  onPressed: () => _applyTemplate(template),
-                                ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
                   SegmentedButton<NoteEditorMode>(
-                    segments: const [
+                    segments: [
                       ButtonSegment(
                         value: NoteEditorMode.quick,
-                        label: Text('Quick memo'),
-                        icon: Icon(Icons.notes_outlined),
+                        label: Text(strings.quickMemo),
+                        icon: const Icon(Icons.notes_outlined),
                       ),
                       ButtonSegment(
                         value: NoteEditorMode.rich,
-                        label: Text('Rich memo'),
-                        icon: Icon(Icons.view_stream_outlined),
+                        label: Text(strings.richMemo),
+                        icon: const Icon(Icons.view_stream_outlined),
                       ),
                     ],
                     selected: {_editorMode},
@@ -5502,11 +5497,11 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       autofocus: widget.note == null,
                       minLines: 12,
                       maxLines: null,
-                      decoration: const InputDecoration(
-                        labelText: 'Memo',
-                        hintText: 'Use the first line as the title',
+                      decoration: InputDecoration(
+                        labelText: strings.memoLabel,
+                        hintText: strings.memoFirstLineHint,
                         alignLabelWithHint: true,
-                        border: OutlineInputBorder(),
+                        border: const OutlineInputBorder(),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -5517,12 +5512,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _RichAttachmentSection(
-                            onSelected: _handleAttachmentAction,
-                          ),
-                          const SizedBox(height: 12),
                           _RichMemoEditor(
                             blocks: _richBlocks,
+                            strings: strings,
                             onRemoveBlock: _removeRichBlock,
                             onBackspaceAtParagraphStart:
                                 _removeMediaBeforeParagraph,
@@ -5536,9 +5528,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                   DropdownButtonFormField<String>(
                     key: const Key('note-vault-select'),
                     initialValue: _selectedVaultId,
-                    decoration: const InputDecoration(
-                      labelText: 'Vault',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: strings.vault,
+                      border: const OutlineInputBorder(),
                     ),
                     items: [
                       for (final vault in visibleVaults)
@@ -5558,8 +5550,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                   SwitchListTile.adaptive(
                     value: _isPinned,
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Pin this note'),
-                    subtitle: const Text('Pinned notes stay near the top.'),
+                    title: Text(strings.pinThisNote),
+                    subtitle: Text(strings.pinThisNoteDesc),
                     onChanged: (value) {
                       setState(() {
                         _isPinned = value;
@@ -5569,8 +5561,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                   ),
                   if (_editorMode == NoteEditorMode.quick)
                     _QuickAttachmentSection(
+                      strings: strings,
                       attachments: _attachments,
-                      onSelected: _handleAttachmentAction,
                       onRemove: _removeQuickAttachmentAt,
                       onMove: _moveQuickAttachment,
                     ),
@@ -5582,14 +5574,16 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
               children: [
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
+                  child: Text(strings.cancel),
                 ),
                 const Spacer(),
                 FilledButton(
                   key: const Key('save-note-button'),
                   onPressed: _canSave ? _save : null,
                   child: Text(
-                    widget.note == null ? 'Create note' : 'Save changes',
+                    widget.note == null
+                        ? strings.createNote
+                        : strings.saveChanges,
                   ),
                 ),
               ],
@@ -5601,16 +5595,19 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   bool get _canSave {
-    final title = _editorMode == NoteEditorMode.quick
-        ? _splitMemoContent(_contentController.text).title
-        : _deriveRichTitle();
-    return title.isNotEmpty && _selectedVaultId != null;
+    final hasText = _editorMode == NoteEditorMode.quick
+        ? _splitMemoContent(_contentController.text).title.isNotEmpty ||
+            _splitMemoContent(_contentController.text).body.isNotEmpty
+        : _deriveRichTitle().isNotEmpty || _deriveRichBody().isNotEmpty;
+    final hasAttachments = _allCurrentAttachments.isNotEmpty;
+    return (hasText || hasAttachments) && _selectedVaultId != null;
   }
 
   void _showEditorSnackBar({
     required Widget content,
     SnackBarAction? action,
   }) {
+    final strings = context.strings;
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
     final mediaQuery = MediaQuery.of(context);
@@ -5628,7 +5625,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             IconButton(
               onPressed: messenger.hideCurrentSnackBar,
               icon: const Icon(Icons.close_rounded),
-              tooltip: 'Dismiss',
+              tooltip: strings.dismiss,
               visualDensity: VisualDensity.compact,
               iconSize: 18,
               padding: const EdgeInsets.all(4),
@@ -5685,9 +5682,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       return;
     }
     _showEditorSnackBar(
-      content: const Text('Date and time updated'),
+      content: Text(context.strings.dateTimeUpdated),
       action: SnackBarAction(
-          label: 'Undo',
+          label: context.strings.undo,
           onPressed: () {
             if (!mounted) {
               return;
@@ -5890,9 +5887,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       return;
     }
     _showEditorSnackBar(
-      content: Text('${removed.label} removed'),
+      content: Text(context.strings.attachmentRemoved(removed.label)),
       action: SnackBarAction(
-          label: 'Undo',
+          label: context.strings.undo,
           onPressed: () {
             if (!mounted) {
               return;
@@ -6039,9 +6036,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (mounted) {
       final restoreIndex = mediaIndex.clamp(0, _richBlocks.length);
       _showEditorSnackBar(
-        content: Text('${attachment.label} removed'),
+        content: Text(context.strings.attachmentRemoved(attachment.label)),
         action: SnackBarAction(
-            label: 'Undo',
+            label: context.strings.undo,
             onPressed: () {
               if (!mounted) {
                 return;
@@ -6066,10 +6063,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       final text = block.controller?.text.trim() ?? '';
       if (text.isNotEmpty) {
         return text.split('\n').first.trim();
-      }
-      final attachment = block.attachment;
-      if (attachment != null) {
-        return attachment.label;
       }
     }
     return '';
@@ -6112,12 +6105,14 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
 class _RichMemoEditor extends StatelessWidget {
   const _RichMemoEditor({
     required this.blocks,
+    required this.strings,
     required this.onRemoveBlock,
     required this.onBackspaceAtParagraphStart,
     required this.onMoveBlock,
   });
 
   final List<_RichBlockDraft> blocks;
+  final AppStrings strings;
   final ValueChanged<int> onRemoveBlock;
   final ValueChanged<int> onBackspaceAtParagraphStart;
   final void Function(int index, int delta) onMoveBlock;
@@ -6130,6 +6125,7 @@ class _RichMemoEditor extends StatelessWidget {
         for (var i = 0; i < blocks.length; i++) ...[
           _RichBlockEditorTile(
             block: blocks[i],
+            strings: strings,
             emphasizeInput: i == 0,
             onRemove: () => onRemoveBlock(i),
             onBackspaceAtStart: () => onBackspaceAtParagraphStart(i),
@@ -6148,6 +6144,7 @@ class _RichMemoEditor extends StatelessWidget {
 class _RichBlockEditorTile extends StatelessWidget {
   const _RichBlockEditorTile({
     required this.block,
+    required this.strings,
     this.emphasizeInput = false,
     required this.onRemove,
     required this.onBackspaceAtStart,
@@ -6158,6 +6155,7 @@ class _RichBlockEditorTile extends StatelessWidget {
   });
 
   final _RichBlockDraft block;
+  final AppStrings strings;
   final bool emphasizeInput;
   final VoidCallback onRemove;
   final VoidCallback onBackspaceAtStart;
@@ -6180,7 +6178,7 @@ class _RichBlockEditorTile extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(left: 4, bottom: 8),
                 child: Text(
-                  'Start writing here',
+                  strings.startWritingHere,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: _mutedTextColor(context),
                   ),
@@ -6237,7 +6235,7 @@ class _RichBlockEditorTile extends StatelessWidget {
                 child: IconButton.filledTonal(
                   onPressed: onRemove,
                   icon: const Icon(Icons.delete_outline_rounded),
-                  tooltip: 'Remove block',
+                  tooltip: strings.removeBlock,
                   visualDensity: VisualDensity.compact,
                   iconSize: 18,
                   padding: const EdgeInsets.all(6),
@@ -6293,13 +6291,13 @@ class _CompactMediaActionRail extends StatelessWidget {
           _CompactMediaIconButton(
             onPressed: canMovePrevious ? onMovePrevious : null,
             icon: Icons.keyboard_arrow_up_rounded,
-            tooltip: 'Move earlier',
+            tooltip: context.strings.moveEarlier,
           ),
           Divider(height: 1, thickness: 1, color: borderColor),
           _CompactMediaIconButton(
             onPressed: canMoveNext ? onMoveNext : null,
             icon: Icons.keyboard_arrow_down_rounded,
-            tooltip: 'Move later',
+            tooltip: context.strings.moveLater,
           ),
         ],
       ),
@@ -6336,14 +6334,14 @@ class _CompactMediaIconButton extends StatelessWidget {
 
 class _QuickAttachmentSection extends StatelessWidget {
   const _QuickAttachmentSection({
+    required this.strings,
     required this.attachments,
-    required this.onSelected,
     required this.onRemove,
     required this.onMove,
   });
 
+  final AppStrings strings;
   final List<NoteAttachment> attachments;
-  final ValueChanged<MediaImportAction> onSelected;
   final ValueChanged<int> onRemove;
   final void Function(int index, int delta) onMove;
 
@@ -6355,53 +6353,16 @@ class _QuickAttachmentSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(
-                'Attachments',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const Spacer(),
-              PopupMenuButton<MediaImportAction>(
-                key: const Key('attachment-add-menu'),
-                itemBuilder: (context) => [
-                  if (!kIsWeb)
-                    const PopupMenuItem(
-                      value: MediaImportAction.takePhoto,
-                      child: Text('Take photo'),
-                    ),
-                  const PopupMenuItem(
-                    value: MediaImportAction.pickPhoto,
-                    child: Text('Pick photo'),
-                  ),
-                  if (!kIsWeb)
-                    const PopupMenuItem(
-                      value: MediaImportAction.recordVideo,
-                      child: Text('Record video'),
-                    ),
-                  const PopupMenuItem(
-                    value: MediaImportAction.pickVideo,
-                    child: Text('Pick video'),
-                  ),
-                  const PopupMenuItem(
-                    value: MediaImportAction.pickAudio,
-                    child: Text('Pick audio'),
-                  ),
-                ],
-                onSelected: onSelected,
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  child: Text('Add'),
-                ),
-              ),
-            ],
+          Text(
+            strings.attachments,
+            style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
           if (attachments.isEmpty)
             Text(
               kIsWeb
-                  ? 'Attach photos, videos, or audio files from this browser.'
-                  : 'Attach photos, videos, or audio files from camera or device storage.',
+                  ? strings.attachFromBrowser
+                  : strings.attachFromDevice,
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
@@ -6421,74 +6382,6 @@ class _QuickAttachmentSection extends StatelessWidget {
               ),
         ],
       ),
-    );
-  }
-}
-
-class _RichAttachmentSection extends StatelessWidget {
-  const _RichAttachmentSection({required this.onSelected});
-
-  final ValueChanged<MediaImportAction> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        _CompactMediaButton(
-          icon: Icons.photo_outlined,
-          label: 'Photo',
-          onPressed: () => onSelected(MediaImportAction.pickPhoto),
-        ),
-        if (!kIsWeb)
-          _CompactMediaButton(
-            icon: Icons.photo_camera_outlined,
-            label: 'Camera',
-            onPressed: () => onSelected(MediaImportAction.takePhoto),
-          ),
-        _CompactMediaButton(
-          icon: Icons.videocam_outlined,
-          label: 'Video',
-          onPressed: () => onSelected(MediaImportAction.pickVideo),
-        ),
-        if (!kIsWeb)
-          _CompactMediaButton(
-            icon: Icons.videocam_rounded,
-            label: 'Record',
-            onPressed: () => onSelected(MediaImportAction.recordVideo),
-          ),
-        _CompactMediaButton(
-          icon: Icons.audiotrack_outlined,
-          label: 'Audio',
-          onPressed: () => onSelected(MediaImportAction.pickAudio),
-        ),
-      ],
-    );
-  }
-}
-
-class _CompactMediaButton extends StatelessWidget {
-  const _CompactMediaButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton.icon(
-      style: OutlinedButton.styleFrom(
-        visualDensity: VisualDensity.compact,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      ),
-      onPressed: onPressed,
-      icon: Icon(icon, size: 18),
-      label: Text(label),
     );
   }
 }
@@ -6519,17 +6412,17 @@ class _EditableAttachmentTile extends StatelessWidget {
               IconButton(
                 onPressed: onMovePrevious,
                 icon: const Icon(Icons.chevron_left_rounded),
-                tooltip: 'Move earlier',
+                tooltip: context.strings.moveEarlier,
               ),
               IconButton(
                 onPressed: onMoveNext,
                 icon: const Icon(Icons.chevron_right_rounded),
-                tooltip: 'Move later',
+                tooltip: context.strings.moveLater,
               ),
               IconButton(
                 onPressed: onRemove,
                 icon: const Icon(Icons.close_rounded),
-                tooltip: 'Remove attachment',
+                tooltip: context.strings.removeBlock,
               ),
             ],
           ),
@@ -6853,7 +6746,34 @@ String _remoteBundleSummary(
   final strings = AppStrings(
     WidgetsBinding.instance.platformDispatcher.locale,
   );
-  if (provider != SyncProvider.googleDrive) {
+  if (provider == SyncProvider.off) {
+    return strings.isJapanese
+        ? 'リモートバンドル保存先はまだ設定されていません。'
+        : 'Remote bundle storage is not configured yet.';
+  }
+  if (provider == SyncProvider.iCloud && transferState.remoteStatus == null) {
+    return transferState.message ??
+        (strings.isJapanese
+            ? 'iCloud 側のバンドル情報はまだ取得されていません。'
+            : 'No iCloud bundle metadata loaded yet.');
+  }
+  if (provider != SyncProvider.googleDrive && provider != SyncProvider.iCloud) {
+    return strings.isJapanese
+        ? 'リモートバンドル転送はまだ利用できません。'
+        : 'Remote bundle transport is not available yet.';
+  }
+  if (provider == SyncProvider.off) {
+    return strings.isJapanese
+        ? 'リモートバンドルはまだ設定されていません。'
+        : 'Remote bundle storage is not configured yet.';
+  }
+  if (provider == SyncProvider.iCloud && transferState.remoteStatus == null) {
+    return transferState.message ??
+        (strings.isJapanese
+            ? 'iCloud 側のバンドル情報はまだ取得されていません。'
+            : 'No iCloud bundle metadata loaded yet.');
+  }
+  if (provider != SyncProvider.googleDrive && provider != SyncProvider.iCloud) {
     return strings.isJapanese
         ? 'リモートバンドル転送は現在 Google Drive のみ対応しています。'
         : 'Remote bundle transport is only wired for Google Drive right now.';
@@ -7040,7 +6960,7 @@ Future<String?> _showSyncKeyImportDialog(BuildContext context) {
     context: context,
     builder: (context) {
       return AlertDialog(
-        title: Text(strings.isJapanese ? '同期キーを読み込む' : 'Import sync key'),
+        title: Text(strings.isJapanese ? 'クラウド復元キーを読み込む' : 'Import recovery key'),
         content: TextField(
           controller: controller,
           minLines: 2,
@@ -7224,11 +7144,11 @@ Future<bool?> _showSyncKeyImportConfirmDialog(
     context: context,
     builder: (context) {
       return AlertDialog(
-        title: const Text('Replace sync key'),
+        title: const Text('Replace recovery key'),
         content: Text(
           'Current fingerprint: $currentFingerprint\n'
           'Imported fingerprint: $incomingFingerprint\n\n'
-          'Replacing the sync key can make existing remote bundles unreadable on this device until the original key is restored.',
+          'Replacing the recovery key can make existing remote bundles unreadable on this device until the original key is restored.',
         ),
         actions: [
           TextButton(
