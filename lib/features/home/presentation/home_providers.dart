@@ -2540,6 +2540,20 @@ final searchFiltersControllerProvider =
       SearchFiltersController.new,
     );
 
+class SelectedNoteIdController extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void select(String? noteId) {
+    state = noteId;
+  }
+}
+
+final selectedNoteIdProvider =
+    NotifierProvider<SelectedNoteIdController, String?>(
+      SelectedNoteIdController.new,
+    );
+
 class NoteEditorDraftStore {
   static const _storageKey = 'notes.editor_draft.v1';
 

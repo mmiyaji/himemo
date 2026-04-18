@@ -17,6 +17,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../l10n/app_strings.dart';
+import '../../security/data/encrypted_attachment_store.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/sync_bundle_preview.dart';
 import '../domain/note_entry.dart';
@@ -63,7 +64,7 @@ class AppShell extends ConsumerWidget {
                     activeIdentity: activeIdentity,
                     flavorName: flavor,
                     onSectionSelected: (target) =>
-                        _goToSection(context, target),
+                        _goToSection(context, ref, target),
                   ),
                   VerticalDivider(
                     width: 1,
@@ -79,7 +80,7 @@ class AppShell extends ConsumerWidget {
           : NavigationBar(
               selectedIndex: AppSection.values.indexOf(section),
               onDestinationSelected: (index) {
-                _goToSection(context, AppSection.values[index]);
+                _goToSection(context, ref, AppSection.values[index]);
               },
               destinations: [
                 NavigationDestination(
@@ -119,7 +120,11 @@ class AppShell extends ConsumerWidget {
     );
   }
 
-  void _goToSection(BuildContext context, AppSection section) {
+  void _goToSection(BuildContext context, WidgetRef ref, AppSection section) {
+    final currentSection = _sectionForLocation(GoRouterState.of(context).uri.path);
+    if (currentSection == AppSection.notes && section != AppSection.notes) {
+      ref.read(selectedNoteIdProvider.notifier).select(null);
+    }
     switch (section) {
       case AppSection.notes:
         context.go('/notes');
@@ -168,7 +173,6 @@ class NotesScreen extends ConsumerStatefulWidget {
 }
 
 class _NotesScreenState extends ConsumerState<NotesScreen> {
-  String? _selectedNoteId;
   late final PageController _detailPageController;
 
   @override
@@ -198,16 +202,16 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final visibleVaults = ref.watch(visibleVaultsProvider);
     final listDensity = ref.watch(notesListDensityControllerProvider);
     final query = ref.watch(searchQueryProvider).trim();
+    final selectedNoteId = ref.watch(selectedNoteIdProvider);
+    final effectiveSelectedNoteId =
+        selectedNoteId != null &&
+            visibleNotes.any((note) => note.id == selectedNoteId)
+        ? selectedNoteId
+        : null;
 
-    if (visibleNotes.isNotEmpty &&
-        (_selectedNoteId == null ||
-            visibleNotes.every((note) => note.id != _selectedNoteId))) {
-      _selectedNoteId = visibleNotes.first.id;
-    }
-
-    final selectedIndex = _selectedNoteId == null
+    final selectedIndex = effectiveSelectedNoteId == null
         ? -1
-        : visibleNotes.indexWhere((note) => note.id == _selectedNoteId);
+        : visibleNotes.indexWhere((note) => note.id == effectiveSelectedNoteId);
 
     if (useSplitView && selectedIndex >= 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -243,7 +247,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               _VaultSectionCard(
                 vault: vault,
                 notes: ref.watch(notesForVaultProvider(vault.id)),
-                selectedNoteId: _selectedNoteId,
+                selectedNoteId: effectiveSelectedNoteId,
                 density: listDensity,
                 query: query,
                 onNoteSelected: (note) =>
@@ -295,12 +299,11 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                           showVaultName: visibleVaults.length > 1,
                           density: listDensity,
                           query: query,
-                          selected: _selectedNoteId == visibleNotes[i].id,
-                          onTap: () {
-                            setState(() {
-                              _selectedNoteId = visibleNotes[i].id;
-                            });
-                          },
+                          selected:
+                              effectiveSelectedNoteId == visibleNotes[i].id,
+                          onTap: () => ref
+                              .read(selectedNoteIdProvider.notifier)
+                              .select(visibleNotes[i].id),
                         ),
                         if (listDensity != NotesListDensity.compact &&
                             i != visibleNotes.length - 1)
@@ -322,15 +325,15 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             padding: const EdgeInsets.all(16),
             child: visibleNotes.isEmpty
                 ? const _EmptyNotesState()
+                : selectedIndex < 0
+                ? const _EmptyNoteSelectionState()
                 : _NoteDetailPager(
                     notes: visibleNotes,
-                    selectedIndex: selectedIndex < 0 ? 0 : selectedIndex,
+                    selectedIndex: selectedIndex,
                     controller: _detailPageController,
-                    onPageChanged: (index) {
-                      setState(() {
-                        _selectedNoteId = visibleNotes[index].id;
-                      });
-                    },
+                    onPageChanged: (index) => ref
+                        .read(selectedNoteIdProvider.notifier)
+                        .select(visibleNotes[index].id),
                     onEdit: (note) =>
                         showNoteEditorSheet(context, ref, note: note),
                     onDelete: (note) => _deleteNote(context, note),
@@ -360,11 +363,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             child: _NoteDetailPager(
               notes: visibleNotes,
               selectedIndex: initialIndex < 0 ? 0 : initialIndex,
-              onPageChanged: (index) {
-                setState(() {
-                  _selectedNoteId = visibleNotes[index].id;
-                });
-              },
+              onPageChanged: (index) => ref
+                  .read(selectedNoteIdProvider.notifier)
+                  .select(visibleNotes[index].id),
               onEdit: (selectedNote) async {
                 Navigator.of(context).pop();
                 await showNoteEditorSheet(context, ref, note: selectedNote);
@@ -404,10 +405,8 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
 
     if (confirmed == true) {
       await ref.read(notesControllerProvider.notifier).delete(note.id);
-      if (_selectedNoteId == note.id) {
-        setState(() {
-          _selectedNoteId = null;
-        });
+      if (ref.read(selectedNoteIdProvider) == note.id) {
+        ref.read(selectedNoteIdProvider.notifier).select(null);
       }
       if (!context.mounted) {
         return;
@@ -5054,6 +5053,37 @@ class _EmptyNotesState extends StatelessWidget {
   }
 }
 
+class _EmptyNoteSelectionState extends StatelessWidget {
+  const _EmptyNoteSelectionState();
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    return Container(
+      decoration: _sectionDecoration(context),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            strings.isJapanese ? 'メモを選択してください' : 'Select a note',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            strings.isJapanese
+                ? '一覧からメモを選ぶと、ここに内容が表示されます。'
+                : 'Pick a note from the list to preview it here.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RichBlockDraft {
   _RichBlockDraft.paragraph([String text = ''])
     : type = NoteBlockType.paragraph,
@@ -5093,6 +5123,8 @@ class _NoteEditorSheet extends ConsumerStatefulWidget {
 
 class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late final TextEditingController _contentController;
+  late final NoteEditorDraftStore _draftStore;
+  late final EncryptedAttachmentStore _attachmentStore;
   late DateTime _createdAt;
   late bool _isPinned;
   late NoteEditorMode _editorMode;
@@ -5109,6 +5141,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   @override
   void initState() {
     super.initState();
+    _draftStore = ref.read(noteEditorDraftStoreProvider);
+    _attachmentStore = ref.read(encryptedAttachmentStoreProvider);
     final lastSettings = ref.read(lastNoteEditorSettingsControllerProvider);
     _contentController = TextEditingController(text: _composeEditorContent());
     _contentController.addListener(_handleTextChanged);
@@ -5142,9 +5176,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _draftSaveTimer?.cancel();
     if (!_saved && widget.note == null && _selectedVaultId != null) {
       unawaited(
-        ref
-            .read(noteEditorDraftStoreProvider)
-            .save(
+        _draftStore.save(
               NoteEditorDraftSnapshot(
                 createdAt: _createdAt,
                 isPinned: _isPinned,
@@ -5160,7 +5192,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (!_saved) {
       for (final filePath in _pendingAttachmentDeletes) {
         unawaited(
-          ref.read(encryptedAttachmentStoreProvider).deleteAttachment(filePath),
+          _attachmentStore.deleteAttachment(filePath),
         );
       }
       for (final attachment in _allCurrentAttachments) {
@@ -5169,7 +5201,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
           continue;
         }
         unawaited(
-          ref.read(encryptedAttachmentStoreProvider).deleteAttachment(filePath),
+          _attachmentStore.deleteAttachment(filePath),
         );
       }
     }
@@ -5416,6 +5448,23 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       Icons.chevron_right_rounded,
                       color: _mutedTextColor(context),
                     ),
+                    IconButton(
+                      tooltip: strings.pinThisNote,
+                      onPressed: () {
+                        setState(() {
+                          _isPinned = !_isPinned;
+                        });
+                        _scheduleDraftPersist();
+                      },
+                      icon: Icon(
+                        _isPinned
+                            ? Icons.push_pin_rounded
+                            : Icons.push_pin_outlined,
+                        color: _isPinned
+                            ? Theme.of(context).colorScheme.primary
+                            : _mutedTextColor(context),
+                      ),
+                    ),
                     const SizedBox(width: 4),
                     PopupMenuButton<MediaImportAction>(
                       key: const Key('note-media-menu'),
@@ -5525,6 +5574,14 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                     ),
                     const SizedBox(height: 12),
                   ],
+                  if (_editorMode == NoteEditorMode.quick)
+                    _QuickAttachmentSection(
+                      strings: strings,
+                      attachments: _attachments,
+                      onRemove: _removeQuickAttachmentAt,
+                      onMove: _moveQuickAttachment,
+                    ),
+                  const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     key: const Key('note-vault-select'),
                     initialValue: _selectedVaultId,
@@ -5546,26 +5603,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       _scheduleDraftPersist();
                     },
                   ),
-                  const SizedBox(height: 12),
-                  SwitchListTile.adaptive(
-                    value: _isPinned,
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(strings.pinThisNote),
-                    subtitle: Text(strings.pinThisNoteDesc),
-                    onChanged: (value) {
-                      setState(() {
-                        _isPinned = value;
-                      });
-                      _scheduleDraftPersist();
-                    },
-                  ),
-                  if (_editorMode == NoteEditorMode.quick)
-                    _QuickAttachmentSection(
-                      strings: strings,
-                      attachments: _attachments,
-                      onRemove: _removeQuickAttachmentAt,
-                      onMove: _moveQuickAttachment,
-                    ),
                 ],
               ),
             ),
@@ -6174,16 +6211,6 @@ class _RichBlockEditorTile extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (showPrompt)
-              Padding(
-                padding: const EdgeInsets.only(left: 4, bottom: 8),
-                child: Text(
-                  strings.startWritingHere,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: _mutedTextColor(context),
-                  ),
-                ),
-              ),
             Focus(
               onKeyEvent: (_, event) {
                 if (event is! KeyDownEvent ||
@@ -6207,8 +6234,12 @@ class _RichBlockEditorTile extends StatelessWidget {
                 focusNode: block.focusNode,
                 minLines: 1,
                 maxLines: null,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   semanticCounterText: '',
+                  hintText: showPrompt ? strings.startWritingHere : null,
+                  hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: _mutedTextColor(context),
+                  ),
                   border: InputBorder.none,
                   contentPadding: EdgeInsets.zero,
                 ),

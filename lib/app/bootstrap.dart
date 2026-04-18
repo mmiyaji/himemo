@@ -12,18 +12,20 @@ import 'firebase_initializer.dart';
 import 'firebase_observability.dart';
 
 Future<void> bootstrap(AppFlavor flavor) async {
-  final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
-  if (!kIsWeb) {
-    FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
-  }
-  if (kIsWeb && flavor == AppFlavor.development) {
-    SemanticsBinding.instance.ensureSemantics();
-  }
-  configureFlavor(flavor);
-  await initializeFirebaseForFlavor(flavor);
-  await configureFirebaseObservability(enableCollection: kReleaseMode);
-  runZonedGuarded(
-    () => runApp(ProviderScope(child: HiMemoApp(flavor: flavor))),
+  await runZonedGuarded(
+    () async {
+      final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+      if (!kIsWeb) {
+        FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
+      }
+      if (kIsWeb && flavor == AppFlavor.development) {
+        SemanticsBinding.instance.ensureSemantics();
+      }
+      configureFlavor(flavor);
+      await initializeFirebaseForFlavor(flavor);
+      await configureFirebaseObservability(enableCollection: kReleaseMode);
+      runApp(ProviderScope(child: HiMemoApp(flavor: flavor)));
+    },
     (error, stackTrace) {
       unawaited(recordNonFatalError(error, stackTrace, reason: 'bootstrap'));
     },
