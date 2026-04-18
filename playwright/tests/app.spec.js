@@ -75,6 +75,53 @@ test('new note draft restores after closing editor', async ({ page }) => {
   await expect(page.locator('flutter-view')).toContainText('Draft note');
 });
 
+test('private profile unlock and relock work from the app bar', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await waitForApp(page);
+  await completeOnboarding(page);
+
+  await activateTabIndex(page, 3);
+  await page.getByRole('button', { name: /Add profile|プロファイルを追加/ }).click();
+  await page.getByLabel(/Profile name|プロフィール名/).fill('Cover profile');
+  await page.getByLabel(/Profile password|プロフィールパスワード/).fill('cover-pass-123');
+  await page.getByLabel(/Confirm password|パスワードを確認/).fill('cover-pass-123');
+  await page.getByRole('button', { name: /Add|追加/ }).click();
+  await expect(page.locator('flutter-view')).toContainText(
+    /Private profile added\.|プロファイルを追加しました。|Profile 1/,
+  );
+
+  await activateTabIndex(page, 0);
+  await page.getByRole('button', { name: 'Add note' }).click();
+  await expect(page.getByRole('checkbox', { name: /Save to private profile|プライベートプロファイルに保存/ })).toHaveCount(0);
+  await page.getByRole('button', { name: /Cancel|キャンセル/ }).click();
+
+  await page.getByRole('button', {
+    name: /Unlock private profile|プライベートプロファイルを開く|Switch private access/,
+  }).click();
+  await page.getByLabel(/Profile password|プロフィールパスワード/).fill('cover-pass-123');
+  await page.getByRole('button', { name: /Unlock|開く/ }).click();
+  await expect(page.locator('flutter-view')).toContainText(
+    /Private profile unlocked\.|プライベートプロファイルを開きました。/,
+  );
+  const unlockedAccessButton = page.getByRole('button', {
+    name: /Viewing .*|Switch private access|.+ を表示中/,
+  });
+  await expect(unlockedAccessButton).toHaveCount(1);
+
+  await unlockedAccessButton.click();
+  await page.getByRole('button', { name: /Lock|閉じる/ }).click();
+  await expect(page.locator('flutter-view')).not.toContainText(
+    /Private profile unlocked\.|プライベートプロファイルを開きました。/,
+  );
+  await expect(
+    page.getByRole('button', {
+      name: /Unlock private profile|プライベートプロファイルを開く/,
+    }),
+  ).toHaveCount(1);
+});
+
 test.describe('localized surfaces english', () => {
   test.use({ locale: 'en-US' });
 
@@ -85,7 +132,8 @@ test.describe('localized surfaces english', () => {
 
     await activateTabIndex(page, 3);
     await expect(page.locator('flutter-view')).toContainText('Manage access, sync, and display policy.');
-    await expect(page.locator('flutter-view')).toContainText('Access modes');
+    await expect(page.locator('flutter-view')).toContainText('Add profile');
+    await expect(page.locator('flutter-view')).toContainText('Enter admin mode');
     await expect(page.locator('flutter-view')).toContainText('App security');
 
     await activateTabIndex(page, 1);
@@ -109,7 +157,8 @@ test.describe('localized surfaces japanese', () => {
 
     await activateTabIndex(page, 3);
     await expect(page.locator('flutter-view')).toContainText('アクセス、同期、表示ポリシーを管理します。');
-    await expect(page.locator('flutter-view')).toContainText('アクセスモード');
+    await expect(page.locator('flutter-view')).toContainText('プロファイルを追加');
+    await expect(page.locator('flutter-view')).toContainText('管理者モードへ移行');
     await expect(page.locator('flutter-view')).toContainText('アプリ保護');
 
     await activateTabIndex(page, 1);

@@ -1,0 +1,14 @@
+appId: org.ruhenheim.himemo.dev
+---
+- extendedWaitUntil:
+    visible: "(Next|次へ)"
+    timeout: 15000
+- tapOn: "(Next|次へ)"
+- tapOn: "(Next|次へ)"
+- tapOn: "(Next|次へ)"
+- assertVisible: "(Set initial keys|初期キーを設定)"
+- tapOn: "(Set PIN|PIN を設定)"
+- inputText: "1234"
+- tapOn: "(Save|保存)"
+- assertVisible: "(App unlock PIN saved\\.|アプリ解除 PIN を保存しました。)"
+- tapOn: "(Finish setup|セットアップ完了)"

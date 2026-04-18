@@ -15,7 +15,8 @@ import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  test('providers expose separate profiles', () {
+  test('providers expose private profiles only after unlock', () async {
+    SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();
     final encryptionService = EncryptionService(random: Random(3));
     final masterKeyService = MasterKeyService(
@@ -44,13 +45,25 @@ void main() {
     expect(container.read(identitiesProvider).length, 3);
     expect(container.read(visibleVaultsProvider).length, 1);
 
-    container.read(activeIdentityProvider.notifier).switchTo('private');
+    final addError = await container
+        .read(privateMemoProfilesControllerProvider.notifier)
+        .addProfile(name: 'Cover profile', password: 'cover-pass-123');
+    expect(addError, isNull);
+    expect(container.read(privateMemoProfilesProvider).length, 1);
     expect(container.read(visibleVaultsProvider).length, 1);
 
-    container.read(privateVaultSessionControllerProvider.notifier).unlock();
+    final unlocked = await container
+        .read(privateProfileUnlockControllerProvider.notifier)
+        .unlockWithPassword('cover-pass-123');
+    expect(unlocked, isNotNull);
 
     expect(container.read(visibleVaultsProvider).length, 2);
-    expect(container.read(visibleNotesProvider).length, greaterThanOrEqualTo(4));
+    expect(
+      container.read(visibleVaultsProvider).any(
+            (vault) => vault.id == unlocked!.vaultId,
+          ),
+      isTrue,
+    );
   });
 
   test('app lock policy providers expose secure defaults', () {

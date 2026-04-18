@@ -1,0 +1,25 @@
+appId: org.ruhenheim.himemo.dev
+---
+- launchApp:
+    clearState: true
+- runFlow: subflows/complete_onboarding.yaml
+- tapOn: "(Settings|設定)"
+- tapOn: "(Add profile|プロファイルを追加)"
+- tapOn: "(Profile name|プロフィール名)"
+- inputText: "Cover profile"
+- tapOn: "(Profile password|プロフィールパスワード)"
+- inputText: "cover-pass-123"
+- tapOn: "(Confirm password|パスワードを確認)"
+- inputText: "cover-pass-123"
+- tapOn: "(Add|追加)"
+- assertVisible: "Cover profile"
+- tapOn: "(Notes|ノート)"
+- tapOn: "(Add note|ノートを追加)"
+- assertNotVisible: "(Save to private profile|プライベートプロファイルに保存)"
+- tapOn: "(Cancel|キャンセル)"
+- tapOn: "(Unlock private profile|プライベートプロファイルを開く|Switch private access)"
+- tapOn: "(Profile password|プロフィールパスワード)"
+- inputText: "cover-pass-123"
+- tapOn: "(Unlock|開く)"
+- tapOn: "(Add note|ノートを追加)"
+- assertVisible: "(Save to private profile|プライベートプロファイルに保存)"
