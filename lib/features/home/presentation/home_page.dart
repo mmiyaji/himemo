@@ -34,6 +34,7 @@ class AppShell extends ConsumerWidget {
   static const insightsNavKey = Key('nav-insights');
   static const settingsNavKey = Key('nav-settings');
   static const addNoteKey = Key('add-note-button');
+  static const privateProfileAccessKey = Key('private-profile-access-button');
 
   final Widget child;
 
@@ -44,12 +45,34 @@ class AppShell extends ConsumerWidget {
     final useRail = width >= 840;
     final section = _sectionForLocation(GoRouterState.of(context).uri.path);
     final activeIdentity = ref.watch(activeIdentityDataProvider);
+    final activePrivateProfileLabel = ref.watch(activePrivateProfileLabelProvider);
+    final adminMode = ref.watch(adminModeSessionControllerProvider);
     final flavor =
         FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
 
     return Scaffold(
       appBar: AppBar(
         title: Text(_titleForSection(context, section)),
+        actions: [
+          IconButton(
+            key: privateProfileAccessKey,
+            tooltip: adminMode
+                ? (context.strings.isJapanese ? '管理者モード中' : 'Admin mode active')
+                : (activePrivateProfileLabel != null
+                    ? (context.strings.isJapanese
+                          ? '$activePrivateProfileLabel を表示中'
+                          : 'Viewing $activePrivateProfileLabel')
+                    : (context.strings.isJapanese
+                          ? 'プライベートプロファイルを開く'
+                          : 'Unlock private profile')),
+            onPressed: () => _showProfileAccessDialog(context, ref),
+            icon: Icon(
+              adminMode || activePrivateProfileLabel != null
+                  ? Icons.key_rounded
+                  : Icons.key_outlined,
+            ),
+          ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Container(height: 1, color: Theme.of(context).dividerColor),
@@ -163,6 +186,116 @@ class AppShell extends ConsumerWidget {
     }
     return AppSection.notes;
   }
+}
+
+Future<void> _showProfileAccessDialog(BuildContext context, WidgetRef ref) async {
+  final strings = context.strings;
+  final controller = TextEditingController();
+  final formKey = GlobalKey<FormState>();
+  final activeLabel = ref.read(activePrivateProfileLabelProvider);
+  final adminMode = ref.read(adminModeSessionControllerProvider);
+  final result = await showDialog<String>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text(
+          adminMode || activeLabel != null
+              ? (strings.isJapanese ? 'プライベート表示を切り替え' : 'Switch private access')
+              : (strings.isJapanese ? 'プライベートプロファイルを開く' : 'Unlock private profile'),
+        ),
+        content: Form(
+          key: formKey,
+          child: SingleChildScrollView(
+            child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (adminMode || activeLabel != null) ...[
+                Text(
+                  adminMode
+                      ? (strings.isJapanese ? '現在は管理者モードです。' : 'Admin mode is currently active.')
+                      : (strings.isJapanese
+                            ? '現在は $activeLabel を表示しています。'
+                            : 'Currently viewing $activeLabel.'),
+                ),
+                const SizedBox(height: 12),
+              ],
+              TextFormField(
+                key: const Key('private-profile-unlock-password-input'),
+                controller: controller,
+                obscureText: true,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: strings.isJapanese ? 'プロファイルパスワード' : 'Profile password',
+                  border: const OutlineInputBorder(),
+                ),
+                validator: (value) => (value == null || value.isEmpty)
+                    ? (strings.isJapanese ? 'パスワードを入力してください。' : 'Enter a password.')
+                    : null,
+                onFieldSubmitted: (_) {
+                  if (formKey.currentState?.validate() ?? false) {
+                    Navigator.of(dialogContext).pop(controller.text);
+                  }
+                },
+              ),
+            ],
+            ),
+          ),
+        ),
+        actions: [
+          if (adminMode || activeLabel != null)
+            TextButton(
+              onPressed: () {
+                ref.read(adminModeSessionControllerProvider.notifier).lock();
+                ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+                Navigator.of(dialogContext).pop();
+              },
+              child: Text(strings.isJapanese ? '閉じる' : 'Lock'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(strings.cancel),
+          ),
+          FilledButton(
+            key: const Key('private-profile-unlock-submit'),
+            onPressed: () {
+              if (formKey.currentState?.validate() ?? false) {
+                Navigator.of(dialogContext).pop(controller.text);
+              }
+            },
+            child: Text(strings.isJapanese ? '開く' : 'Unlock'),
+          ),
+        ],
+      );
+    },
+  );
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    controller.dispose();
+  });
+  if (result == null || result.isEmpty || !context.mounted) {
+    return;
+  }
+  final unlocked = await ref
+      .read(privateProfileUnlockControllerProvider.notifier)
+      .unlockWithPassword(result);
+  if (!context.mounted) {
+    return;
+  }
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.hideCurrentSnackBar();
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(
+        unlocked == null
+            ? (strings.isJapanese
+                  ? '一致するプライベートプロファイルは見つかりませんでした。'
+                  : 'No private profile matched that password.')
+            : (strings.isJapanese
+                  ? 'プライベートプロファイルを開きました。'
+                  : 'Private profile unlocked.'),
+      ),
+    ),
+  );
 }
 
 class NotesScreen extends ConsumerStatefulWidget {
@@ -1581,6 +1714,13 @@ class SettingsScreen extends ConsumerWidget {
   static const privateVaultUnlockKey = Key('private-vault-unlock-key');
   static const privateVaultLockKey = Key('private-vault-lock-key');
   static const privateVaultResetKey = Key('private-vault-reset-key');
+  static const privateProfileAddKey = Key('private-profile-add-key');
+  static const privateProfileAdminModeKey = Key('private-profile-admin-mode-key');
+  static const privateProfileNameInputKey = Key('private-profile-name-input');
+  static const privateProfilePasswordInputKey = Key('private-profile-password-input');
+  static const privateProfileConfirmInputKey = Key('private-profile-confirm-input');
+  static const privateProfileSubmitKey = Key('private-profile-submit');
+  static const privateProfileExitAdminModeKey = Key('private-profile-exit-admin-mode');
 
   Future<void> _switchIdentity(WidgetRef ref, String identityId) async {
     await ref.read(activeIdentityProvider.notifier).switchTo(identityId);
@@ -1683,6 +1823,197 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
+  Future<void> _showAddPrivateProfileDialog(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final strings = context.strings;
+    final nameController = TextEditingController();
+    final passwordController = TextEditingController();
+    final confirmController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final submitted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          strings.isJapanese ? 'プライベートプロファイルを追加' : 'Add private profile',
+        ),
+        content: Form(
+          key: formKey,
+          child: SingleChildScrollView(
+            child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                key: privateProfileNameInputKey,
+                controller: nameController,
+                decoration: InputDecoration(
+                  labelText: strings.isJapanese ? '表示名' : 'Profile name',
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: privateProfilePasswordInputKey,
+                controller: passwordController,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: strings.isJapanese ? 'プロファイルパスワード' : 'Profile password',
+                  border: const OutlineInputBorder(),
+                ),
+                validator: (value) => (value == null || value.isEmpty)
+                    ? (strings.isJapanese ? 'パスワードを入力してください。' : 'Enter a password.')
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: privateProfileConfirmInputKey,
+                controller: confirmController,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: strings.isJapanese
+                      ? 'パスワードを再入力'
+                      : 'Confirm password',
+                  border: const OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value != passwordController.text) {
+                    return strings.isJapanese
+                        ? 'パスワードが一致しません。'
+                        : 'Passwords do not match.';
+                  }
+                  return null;
+                },
+              ),
+            ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(strings.cancel),
+          ),
+          FilledButton(
+            key: privateProfileSubmitKey,
+            onPressed: () {
+              if (formKey.currentState?.validate() ?? false) {
+                Navigator.of(dialogContext).pop(true);
+              }
+            },
+            child: Text(strings.isJapanese ? '追加' : 'Add'),
+          ),
+        ],
+      ),
+    );
+    if (submitted != true) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        nameController.dispose();
+        passwordController.dispose();
+        confirmController.dispose();
+      });
+      return;
+    }
+    final error = await ref
+        .read(privateMemoProfilesControllerProvider.notifier)
+        .addProfile(
+          name: nameController.text,
+          password: passwordController.text,
+        );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      nameController.dispose();
+      passwordController.dispose();
+      confirmController.dispose();
+    });
+    if (!context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          error ??
+              (strings.isJapanese
+                  ? 'プライベートプロファイルを追加しました。'
+                  : 'Private profile added.'),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _enterAdminMode(BuildContext context, WidgetRef ref) async {
+    final strings = context.strings;
+    if (kIsWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            strings.isJapanese
+                ? '管理者モードはこの環境では利用できません。'
+                : 'Admin mode is not available in this environment.',
+          ),
+        ),
+      );
+      return;
+    }
+    final authenticated = await ref
+        .read(deviceAuthControllerProvider.notifier)
+        .authenticate(
+          reason: 'Enter admin mode to manage private profiles',
+        );
+    if (!authenticated || !context.mounted) {
+      return;
+    }
+    ref.read(adminModeSessionControllerProvider.notifier).unlock();
+    ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          strings.isJapanese
+              ? '管理者モードで全プロファイルを表示します。'
+              : 'Admin mode unlocked. All profiles are now visible.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeletePrivateProfile(
+    BuildContext context,
+    WidgetRef ref,
+    PrivateMemoProfile profile,
+  ) async {
+    final strings = context.strings;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          strings.isJapanese
+              ? 'プライベートプロファイルを削除'
+              : 'Delete private profile',
+        ),
+        content: Text(
+          strings.isJapanese
+              ? '「${profile.name}」を削除します。既存ノートの保存先はそのまま残るため、必要なら後で移行してください。'
+              : 'Delete "${profile.name}". Existing notes stay in place, so move them first if needed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(strings.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(strings.isJapanese ? '削除' : 'Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+    await ref
+        .read(privateMemoProfilesControllerProvider.notifier)
+        .deleteProfile(profile.id);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
@@ -1705,6 +2036,9 @@ class SettingsScreen extends ConsumerWidget {
     final privateVaultUnlocked = ref.watch(
       privateVaultSessionControllerProvider,
     );
+    final privateProfiles = ref.watch(privateMemoProfilesControllerProvider);
+    final adminMode = ref.watch(adminModeSessionControllerProvider);
+    final activePrivateProfileLabel = ref.watch(activePrivateProfileLabelProvider);
     final privateVaultLockOnAppLock = ref.watch(
       privateVaultLockOnAppLockControllerProvider,
     );
@@ -1800,6 +2134,103 @@ class SettingsScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _SettingsGroup(
+          title: strings.isJapanese ? 'プライベートプロファイル' : 'Private profiles',
+          summary: adminMode
+              ? (strings.isJapanese
+                    ? '管理者モードで全プロファイルを表示しています。'
+                    : 'Admin mode is showing all private profiles.')
+              : (activePrivateProfileLabel != null
+                    ? (strings.isJapanese
+                          ? '$activePrivateProfileLabel を表示中です。'
+                          : 'Currently viewing $activePrivateProfileLabel.')
+                    : (strings.isJapanese
+                          ? '通常は Daily Notes のみを表示し、必要なときだけ別プロファイルを開きます。'
+                          : 'Daily Notes stays visible by default. Unlock another profile only when needed.')),
+          assetPath: 'assets/settings/security.svg',
+          initiallyExpanded: true,
+          children: [
+            Text(
+              strings.isJapanese
+                  ? '右上の鍵アイコンにパスワードを入れると、一致するプロファイルだけ開きます。'
+                  : 'Use the key icon in the app bar to unlock whichever profile matches the entered password.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonal(
+                  key: privateProfileAddKey,
+                  onPressed: () => _showAddPrivateProfileDialog(context, ref),
+                  child: Text(
+                    strings.isJapanese
+                        ? 'プロファイルを追加'
+                        : 'Add profile',
+                  ),
+                ),
+                FilledButton.tonal(
+                  key: privateProfileAdminModeKey,
+                  onPressed: adminMode ? null : () => _enterAdminMode(context, ref),
+                  child: Text(
+                    adminMode
+                        ? (strings.isJapanese ? '管理者モード中' : 'Admin mode active')
+                        : (strings.isJapanese ? '管理者モードへ移行' : 'Enter admin mode'),
+                  ),
+                ),
+                if (adminMode)
+                  OutlinedButton(
+                    key: privateProfileExitAdminModeKey,
+                    onPressed: () => ref
+                        .read(adminModeSessionControllerProvider.notifier)
+                        .lock(),
+                    child: Text(strings.isJapanese ? '管理者モードを終了' : 'Exit admin mode'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (privateProfiles.isEmpty)
+              Text(
+                strings.isJapanese
+                    ? 'まだプライベートプロファイルはありません。'
+                    : 'No private profiles yet.',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
+              )
+            else
+              Column(
+                children: [
+                  for (final profile in privateProfiles)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(profile.name),
+                      subtitle: Text(
+                        adminMode
+                            ? (strings.isJapanese
+                                  ? '保存先ID: ${profile.vaultId}'
+                                  : 'Vault id: ${profile.vaultId}')
+                            : (strings.isJapanese
+                                  ? 'パスワード一致時にだけ表示されます。'
+                                  : 'Visible only when its password is entered.'),
+                      ),
+                      trailing: adminMode
+                          ? IconButton(
+                              onPressed: () =>
+                                  _confirmDeletePrivateProfile(context, ref, profile),
+                              icon: const Icon(Icons.delete_outline_rounded),
+                            )
+                          : null,
+                    ),
+                ],
+              ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (kDebugMode)
+          _SettingsGroup(
           title: strings.isJapanese ? 'アクセスモード' : 'Access modes',
           summary:
               strings.isJapanese
@@ -1876,7 +2307,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        if (kDebugMode) const SizedBox(height: 16),
         _SettingsGroup(
           title: strings.isJapanese ? 'アプリ保護' : 'App security',
           summary: lockSummary,
@@ -2226,9 +2657,34 @@ class SettingsScreen extends ConsumerWidget {
                   OutlinedButton(
                     key: appLockLockNowKey,
                     onPressed: appLockEnabled
-                        ? () => ref
-                              .read(appSessionUnlockControllerProvider.notifier)
-                              .lock()
+                        ? () {
+                              ref
+                                  .read(
+                                    appSessionUnlockControllerProvider.notifier,
+                                  )
+                                  .lock();
+                              if (ref.read(
+                                privateVaultLockOnAppLockControllerProvider,
+                              )) {
+                                ref
+                                    .read(
+                                      privateVaultSessionControllerProvider
+                                          .notifier,
+                                    )
+                                    .lock();
+                              }
+                              ref
+                                  .read(
+                                    unlockedPrivateProfileVaultIdProvider
+                                        .notifier,
+                                  )
+                                  .lock();
+                              ref
+                                  .read(
+                                    adminModeSessionControllerProvider.notifier,
+                                  )
+                                  .lock();
+                            }
                         : null,
                     child: Text(
                       strings.isJapanese
@@ -2260,7 +2716,8 @@ class SettingsScreen extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 16),
-        _SettingsGroup(
+        if (kDebugMode)
+          _SettingsGroup(
           title: strings.isJapanese ? 'Private vault' : 'Private vault',
           summary: privateVaultConfigured
               ? (privateVaultUnlocked
@@ -2343,7 +2800,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        if (kDebugMode) const SizedBox(height: 16),
         _SettingsGroup(
           title: strings.isJapanese ? 'バックアップと同期' : 'Backup and sync',
           summary: syncSummary,
@@ -3983,6 +4440,7 @@ class _NoteListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isPrivateNote = isPrivateVaultId(note.vaultId);
     final changedAt = note.updatedAt ?? note.createdAt;
     final dateLabel =
         '${changedAt.month}/${changedAt.day} ${changedAt.hour.toString().padLeft(2, '0')}:${changedAt.minute.toString().padLeft(2, '0')}';
@@ -3992,7 +4450,8 @@ class _NoteListTile extends StatelessWidget {
     final hasDistinctBody =
         bodyText.isNotEmpty &&
         bodyText.replaceAll('\n', ' ').trim() != note.title.trim();
-    final showAttachmentPreviews = density != NotesListDensity.compact;
+    final showAttachmentPreviews =
+        density != NotesListDensity.compact && !isPrivateNote;
     final thumbnailSize = switch (density) {
       NotesListDensity.compact => 44.0,
       NotesListDensity.standard => 56.0,
@@ -4140,14 +4599,14 @@ class _NoteListTile extends StatelessWidget {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  if (showVaultName)
+                  if (showVaultName && !isPrivateNote)
                     Text(
                       vaultName,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: _mutedTextColor(context),
                       ),
                     ),
-                  if (showVaultName) const Spacer() else const Spacer(),
+                  const Spacer(),
                   Text(
                     isEdited ? 'Edited $dateLabel' : dateLabel,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -4720,12 +5179,11 @@ Future<void> showNoteEditorSheet(
     isScrollControlled: true,
     showDragHandle: true,
     builder: (context) {
-      return Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: FractionallySizedBox(
-          heightFactor: 0.92,
+      final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+      return FractionallySizedBox(
+        heightFactor: bottomInset > 0 ? 1 : 0.92,
+        child: Padding(
+          padding: EdgeInsets.only(bottom: bottomInset),
           child: _NoteEditorSheet(note: note),
         ),
       );
@@ -4753,6 +5211,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     final visibleVaults = ref.watch(visibleVaultsProvider);
     final hasAdvancedFilters = !filters.isDefault;
     final listDensity = ref.watch(notesListDensityControllerProvider);
+    final privateModeActive = ref.watch(privacyScreenActiveProvider);
 
     return Container(
       decoration: _sectionDecoration(context),
@@ -4774,6 +5233,17 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
             ),
             onChanged: ref.read(searchQueryProvider.notifier).setQuery,
           ),
+          if (privateModeActive) ...[
+            const SizedBox(height: 8),
+            Text(
+              strings.isJapanese
+                  ? 'プライベート表示を閉じると検索語は消去されます。'
+                  : 'Search terms are cleared when private mode closes.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: _mutedTextColor(context),
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           Row(
             children: [
@@ -5416,13 +5886,39 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final visibleVaults = ref.watch(visibleVaultsProvider);
-    if (_selectedVaultId == null && visibleVaults.isNotEmpty) {
-      _selectedVaultId = visibleVaults.first.id;
+    final privateProfiles = ref.watch(privateMemoProfilesControllerProvider);
+    final accessiblePrivateVaultIds = ref.watch(accessiblePrivateVaultIdsProvider);
+    final adminMode = ref.watch(adminModeSessionControllerProvider);
+    final privateTargets = <VaultBucket>[
+      for (final vaultId in accessiblePrivateVaultIds)
+        if (vaultId == legacyPrivateVaultId)
+          const VaultBucket(
+            id: legacyPrivateVaultId,
+            name: 'Private profile',
+            description: 'Unlocked private notes',
+          )
+        else
+          for (final profile in privateProfiles.where(
+            (entry) => entry.vaultId == vaultId,
+          ))
+            VaultBucket(
+              id: profile.vaultId,
+              name: profile.name,
+              description: 'Unlocked private notes',
+            ),
+    ];
+    final hasPrivateTargets = privateTargets.isNotEmpty;
+    final isPrivateSelection = _selectedVaultId != null && _selectedVaultId != 'everyday';
+    _selectedVaultId ??= widget.note?.vaultId ?? 'everyday';
+    if (_selectedVaultId != 'everyday' &&
+        !privateTargets.any((vault) => vault.id == _selectedVaultId)) {
+      _selectedVaultId = 'everyday';
     }
-    if (!visibleVaults.any((vault) => vault.id == _selectedVaultId) &&
-        visibleVaults.isNotEmpty) {
-      _selectedVaultId = visibleVaults.first.id;
+    if (_selectedVaultId == 'everyday' &&
+        widget.note != null &&
+        widget.note!.vaultId != 'everyday' &&
+        privateTargets.any((vault) => vault.id == widget.note!.vaultId)) {
+      _selectedVaultId = widget.note!.vaultId;
     }
 
     return SafeArea(
@@ -5436,65 +5932,78 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
               onTap: _pickDateTime,
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Text(
-                        '${_createdAt.year}/${_createdAt.month.toString().padLeft(2, '0')}/${_createdAt.day.toString().padLeft(2, '0')} ${_createdAt.hour.toString().padLeft(2, '0')}:${_createdAt.minute.toString().padLeft(2, '0')}',
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                    ),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      color: _mutedTextColor(context),
-                    ),
-                    IconButton(
-                      tooltip: strings.pinThisNote,
-                      onPressed: () {
-                        setState(() {
-                          _isPinned = !_isPinned;
-                        });
-                        _scheduleDraftPersist();
-                      },
-                      icon: Icon(
-                        _isPinned
-                            ? Icons.push_pin_rounded
-                            : Icons.push_pin_outlined,
-                        color: _isPinned
-                            ? Theme.of(context).colorScheme.primary
-                            : _mutedTextColor(context),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    PopupMenuButton<MediaImportAction>(
-                      key: const Key('note-media-menu'),
-                      tooltip: strings.addMedia,
-                      icon: const Icon(Icons.add_photo_alternate_outlined),
-                      onSelected: _handleAttachmentAction,
-                      itemBuilder: (context) => [
-                        if (!kIsWeb)
-                          PopupMenuItem(
-                            value: MediaImportAction.takePhoto,
-                            child: Text(strings.takePhoto),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${_createdAt.year}/${_createdAt.month.toString().padLeft(2, '0')}/${_createdAt.day.toString().padLeft(2, '0')} ${_createdAt.hour.toString().padLeft(2, '0')}:${_createdAt.minute.toString().padLeft(2, '0')}',
+                            style: Theme.of(context).textTheme.headlineSmall,
                           ),
-                        PopupMenuItem(
-                          value: MediaImportAction.pickPhoto,
-                          child: Text(strings.pickPhoto),
                         ),
-                        if (!kIsWeb)
-                          PopupMenuItem(
-                            value: MediaImportAction.recordVideo,
-                            child: Text(strings.recordVideo),
-                          ),
-                        PopupMenuItem(
-                          value: MediaImportAction.pickVideo,
-                          child: Text(strings.pickVideo),
-                        ),
-                        PopupMenuItem(
-                          value: MediaImportAction.pickAudio,
-                          child: Text(strings.pickAudio),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: _mutedTextColor(context),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Wrap(
+                        spacing: 4,
+                        children: [
+                          IconButton(
+                            tooltip: strings.pinThisNote,
+                            onPressed: () {
+                              setState(() {
+                                _isPinned = !_isPinned;
+                              });
+                              _scheduleDraftPersist();
+                            },
+                            icon: Icon(
+                              _isPinned
+                                  ? Icons.push_pin_rounded
+                                  : Icons.push_pin_outlined,
+                              color: _isPinned
+                                  ? Theme.of(context).colorScheme.primary
+                                  : _mutedTextColor(context),
+                            ),
+                          ),
+                          PopupMenuButton<MediaImportAction>(
+                            key: const Key('note-media-menu'),
+                            tooltip: strings.addMedia,
+                            icon: const Icon(Icons.add_photo_alternate_outlined),
+                            onSelected: _handleAttachmentAction,
+                            itemBuilder: (context) => [
+                              if (!kIsWeb)
+                                PopupMenuItem(
+                                  value: MediaImportAction.takePhoto,
+                                  child: Text(strings.takePhoto),
+                                ),
+                              PopupMenuItem(
+                                value: MediaImportAction.pickPhoto,
+                                child: Text(strings.pickPhoto),
+                              ),
+                              if (!kIsWeb)
+                                PopupMenuItem(
+                                  value: MediaImportAction.recordVideo,
+                                  child: Text(strings.recordVideo),
+                                ),
+                              PopupMenuItem(
+                                value: MediaImportAction.pickVideo,
+                                child: Text(strings.pickVideo),
+                              ),
+                              PopupMenuItem(
+                                value: MediaImportAction.pickAudio,
+                                child: Text(strings.pickAudio),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -5582,27 +6091,63 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       onMove: _moveQuickAttachment,
                     ),
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    key: const Key('note-vault-select'),
-                    initialValue: _selectedVaultId,
-                    decoration: InputDecoration(
-                      labelText: strings.vault,
-                      border: const OutlineInputBorder(),
+                  if (hasPrivateTargets)
+                    SwitchListTile.adaptive(
+                      key: const Key('note-save-private-toggle'),
+                      value: isPrivateSelection,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        strings.isJapanese
+                            ? 'プライベートプロファイルに保存'
+                            : 'Save to private profile',
+                      ),
+                      subtitle: Text(
+                        adminMode
+                            ? (strings.isJapanese
+                                  ? '管理者モードでは保存先のプロファイルを選べます。'
+                                  : 'Choose which private profile to save into while in admin mode.')
+                            : (strings.isJapanese
+                                  ? '現在開いているプライベートプロファイルに保存します。'
+                                  : 'Save into the currently unlocked private profile.'),
+                      ),
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedVaultId = value
+                              ? (privateTargets.isEmpty
+                                    ? 'everyday'
+                                    : privateTargets.first.id)
+                              : 'everyday';
+                        });
+                        _scheduleDraftPersist();
+                      },
                     ),
-                    items: [
-                      for (final vault in visibleVaults)
-                        DropdownMenuItem(
-                          value: vault.id,
-                          child: Text(vault.name),
+                  if (isPrivateSelection && adminMode && privateTargets.length > 1)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: DropdownButtonFormField<String>(
+                        key: const Key('note-private-profile-select'),
+                        initialValue: _selectedVaultId,
+                        decoration: InputDecoration(
+                          labelText: strings.isJapanese
+                              ? '保存先プロファイル'
+                              : 'Private profile',
+                          border: const OutlineInputBorder(),
                         ),
-                    ],
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedVaultId = value;
-                      });
-                      _scheduleDraftPersist();
-                    },
-                  ),
+                        items: [
+                          for (final vault in privateTargets)
+                            DropdownMenuItem(
+                              value: vault.id,
+                              child: Text(vault.name),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedVaultId = value;
+                          });
+                          _scheduleDraftPersist();
+                        },
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -5653,6 +6198,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     final snackBarWidth = availableWidth <= 420
         ? null
         : math.min(420.0, availableWidth);
+    final useFloating =
+        mediaQuery.size.width >= 520 && mediaQuery.size.height - bottomInset >= 720;
     messenger.showSnackBar(
       SnackBar(
         content: Row(
@@ -5671,9 +6218,11 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
           ],
         ),
         action: action,
-        behavior: SnackBarBehavior.floating,
-        width: snackBarWidth,
-        margin: EdgeInsets.fromLTRB(16, 0, 16, bottomInset + 16),
+        behavior: useFloating ? SnackBarBehavior.floating : SnackBarBehavior.fixed,
+        width: useFloating ? snackBarWidth : null,
+        margin: useFloating
+            ? EdgeInsets.fromLTRB(16, 0, 16, bottomInset + 16)
+            : null,
         duration: action == null
             ? const Duration(seconds: 2)
             : const Duration(seconds: 3),

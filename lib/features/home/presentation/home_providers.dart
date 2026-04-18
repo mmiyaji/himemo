@@ -62,6 +62,54 @@ enum SyncAuthStage { idle, busy, authenticated, unsupported, error }
 
 enum SyncTransferStage { idle, busy, success, error }
 
+const legacyPrivateVaultId = 'private';
+const customPrivateVaultPrefix = 'private_profile:';
+
+bool isPrivateVaultId(String vaultId) {
+  return vaultId == legacyPrivateVaultId ||
+      vaultId.startsWith(customPrivateVaultPrefix);
+}
+
+class PrivateMemoProfile {
+  const PrivateMemoProfile({
+    required this.id,
+    required this.name,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String name;
+  final DateTime createdAt;
+
+  String get vaultId => '$customPrivateVaultPrefix$id';
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'createdAt': createdAt.toIso8601String(),
+  };
+
+  factory PrivateMemoProfile.fromJson(Map<String, dynamic> json) {
+    return PrivateMemoProfile(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      createdAt: DateTime.parse(json['createdAt'] as String),
+    );
+  }
+}
+
+class UnlockProfileResult {
+  const UnlockProfileResult({
+    required this.vaultId,
+    required this.label,
+    required this.isLegacy,
+  });
+
+  final String vaultId;
+  final String label;
+  final bool isLegacy;
+}
+
 class AppPackageDetails {
   const AppPackageDetails({
     required this.appName,
@@ -1756,6 +1804,140 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 }
 
+class PrivateMemoProfileStore {
+  PrivateMemoProfileStore({
+    required SecureKeyValueStore secureStore,
+    required EncryptionService encryptionService,
+    Future<SharedPreferences> Function()? sharedPreferencesProvider,
+    this.listStorageKey = 'security.private_profiles.list.v1',
+    this.verifierStoragePrefix = 'security.private_profile.verifier.',
+  }) : _secureStore = secureStore,
+       _encryptionService = encryptionService,
+       _sharedPreferencesProvider =
+           sharedPreferencesProvider ?? SharedPreferences.getInstance;
+
+  final SecureKeyValueStore _secureStore;
+  final EncryptionService _encryptionService;
+  final Future<SharedPreferences> Function() _sharedPreferencesProvider;
+  final String listStorageKey;
+  final String verifierStoragePrefix;
+
+  Future<List<PrivateMemoProfile>> listProfiles() async {
+    final prefs = await _sharedPreferencesProvider();
+    final payload = prefs.getString(listStorageKey);
+    if (payload == null || payload.isEmpty) {
+      return const <PrivateMemoProfile>[];
+    }
+    try {
+      final decoded = (jsonDecode(payload) as List)
+          .cast<Map>()
+          .map((entry) => PrivateMemoProfile.fromJson(
+                Map<String, dynamic>.from(entry.cast<String, dynamic>()),
+              ))
+          .toList(growable: false);
+      return decoded;
+    } catch (_) {
+      return const <PrivateMemoProfile>[];
+    }
+  }
+
+  Future<bool> hasProfiles() async => (await listProfiles()).isNotEmpty;
+
+  Future<String?> addProfile({
+    required String name,
+    required String password,
+  }) async {
+    final existing = await listProfiles();
+    final duplicate = await verifyAny(password);
+    if (duplicate != null) {
+      return 'That password already unlocks another profile.';
+    }
+    final profile = PrivateMemoProfile(
+      id: _createProfileId(),
+      name: name.trim().isEmpty ? _nextDefaultName(existing.length + 1) : name.trim(),
+      createdAt: DateTime.now(),
+    );
+    final salt = _encryptionService.generateSalt();
+    final verifier = await _encryptionService.deriveSecretVerifier(
+      secret: password,
+      salt: salt,
+    );
+    await _secureStore.write(
+      '$verifierStoragePrefix${profile.id}',
+      jsonEncode({
+        'salt': base64Encode(salt),
+        'verifier': verifier,
+      }),
+    );
+    await _saveProfiles([...existing, profile]);
+    return null;
+  }
+
+  Future<UnlockProfileResult?> verifyAny(String password) async {
+    final profiles = await listProfiles();
+    for (final profile in profiles) {
+      final matched = await _verifyProfilePassword(profile.id, password);
+      if (matched) {
+        return UnlockProfileResult(
+          vaultId: profile.vaultId,
+          label: profile.name,
+          isLegacy: false,
+        );
+      }
+    }
+    return null;
+  }
+
+  Future<void> deleteProfile(String id) async {
+    final existing = await listProfiles();
+    await _saveProfiles(
+      existing.where((profile) => profile.id != id).toList(growable: false),
+    );
+    await _secureStore.delete('$verifierStoragePrefix$id');
+  }
+
+  Future<bool> _verifyProfilePassword(String id, String password) async {
+    final stored = await _secureStore.read('$verifierStoragePrefix$id');
+    if (stored == null || stored.isEmpty) {
+      return false;
+    }
+    try {
+      final decoded = Map<String, dynamic>.from(
+        jsonDecode(stored) as Map<String, dynamic>,
+      );
+      final verifier = await _encryptionService.deriveSecretVerifier(
+        secret: password,
+        salt: base64Decode(decoded['salt'] as String),
+      );
+      return verifier == decoded['verifier'];
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _saveProfiles(List<PrivateMemoProfile> profiles) async {
+    final prefs = await _sharedPreferencesProvider();
+    await prefs.setString(
+      listStorageKey,
+      jsonEncode([for (final profile in profiles) profile.toJson()]),
+    );
+  }
+
+  String _createProfileId() {
+    final random = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+    return 'profile_$random';
+  }
+
+  String _nextDefaultName(int index) => 'Profile $index';
+}
+
+final privateMemoProfileStoreProvider = Provider<PrivateMemoProfileStore>((ref) {
+  return PrivateMemoProfileStore(
+    secureStore: ref.watch(secureKeyValueStoreProvider),
+    encryptionService: ref.watch(encryptionServiceProvider),
+  );
+});
+
 final privateVaultSecretStoreProvider = Provider<PrivateVaultSecretStore>((
   ref,
 ) {
@@ -2926,6 +3108,171 @@ class NotesController extends _$NotesController {
   }
 }
 
+final unlockedPrivateProfileVaultIdProvider =
+    NotifierProvider<UnlockedPrivateProfileVaultIdController, String?>(
+      UnlockedPrivateProfileVaultIdController.new,
+    );
+
+class UnlockedPrivateProfileVaultIdController extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void unlock(String vaultId) => state = vaultId;
+
+  void lock() => state = null;
+}
+
+final adminModeSessionControllerProvider =
+    NotifierProvider<AdminModeSessionController, bool>(
+      AdminModeSessionController.new,
+    );
+
+class AdminModeSessionController extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void unlock() => state = true;
+
+  void lock() => state = false;
+}
+
+final privateProfileUnlockControllerProvider =
+    NotifierProvider<PrivateProfileUnlockController, AsyncValue<void>>(
+      PrivateProfileUnlockController.new,
+    );
+
+class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
+  @override
+  AsyncValue<void> build() => const AsyncData(null);
+
+  Future<UnlockProfileResult?> unlockWithPassword(String password) async {
+    state = const AsyncLoading();
+    try {
+      final custom = await ref.read(privateMemoProfileStoreProvider).verifyAny(
+        password,
+      );
+      if (custom != null) {
+        ref
+            .read(unlockedPrivateProfileVaultIdProvider.notifier)
+            .unlock(custom.vaultId);
+        ref.read(adminModeSessionControllerProvider.notifier).lock();
+        state = const AsyncData(null);
+        return custom;
+      }
+      final legacyMatched = await ref
+          .read(privateVaultSecretControllerProvider.notifier)
+          .verify(password);
+      if (legacyMatched) {
+        const result = UnlockProfileResult(
+          vaultId: legacyPrivateVaultId,
+          label: 'Private profile',
+          isLegacy: true,
+        );
+        ref
+            .read(unlockedPrivateProfileVaultIdProvider.notifier)
+            .unlock(result.vaultId);
+        ref.read(adminModeSessionControllerProvider.notifier).lock();
+        state = const AsyncData(null);
+        return result;
+      }
+      state = const AsyncData(null);
+      return null;
+    } catch (error, stackTrace) {
+      state = AsyncError(error, stackTrace);
+      return null;
+    }
+  }
+}
+
+final privateMemoProfilesProvider = Provider<List<PrivateMemoProfile>>(
+  (ref) => ref.watch(privateMemoProfilesControllerProvider),
+);
+
+final privateMemoProfilesControllerProvider =
+    NotifierProvider<PrivateMemoProfilesController, List<PrivateMemoProfile>>(
+      PrivateMemoProfilesController.new,
+    );
+
+class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
+  bool _restored = false;
+
+  @override
+  List<PrivateMemoProfile> build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(refresh());
+    }
+    return const <PrivateMemoProfile>[];
+  }
+
+  Future<void> refresh() async {
+    state = await ref.read(privateMemoProfileStoreProvider).listProfiles();
+  }
+
+  Future<String?> addProfile({
+    required String name,
+    required String password,
+  }) async {
+    final error = await ref.read(privateMemoProfileStoreProvider).addProfile(
+      name: name,
+      password: password,
+    );
+    await refresh();
+    return error;
+  }
+
+  Future<void> deleteProfile(String id) async {
+    await ref.read(privateMemoProfileStoreProvider).deleteProfile(id);
+    final unlockedVaultId = ref.read(unlockedPrivateProfileVaultIdProvider);
+    if (unlockedVaultId == '$customPrivateVaultPrefix$id') {
+      ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+    }
+    await refresh();
+  }
+}
+
+final accessiblePrivateVaultIdsProvider = Provider<List<String>>((ref) {
+  final adminMode = ref.watch(adminModeSessionControllerProvider);
+  final unlockedVaultId = ref.watch(unlockedPrivateProfileVaultIdProvider);
+  final profiles = ref.watch(privateMemoProfilesControllerProvider);
+  final legacyConfigured = ref.watch(privateVaultSecretControllerProvider);
+  if (adminMode) {
+    return [
+      if (legacyConfigured) legacyPrivateVaultId,
+      for (final profile in profiles) profile.vaultId,
+    ];
+  }
+  return [
+    if (unlockedVaultId != null) unlockedVaultId,
+  ];
+});
+
+final activePrivateProfileLabelProvider = Provider<String?>((ref) {
+  final adminMode = ref.watch(adminModeSessionControllerProvider);
+  if (adminMode) {
+    return 'Admin mode';
+  }
+  final unlockedVaultId = ref.watch(unlockedPrivateProfileVaultIdProvider);
+  if (unlockedVaultId == null) {
+    return null;
+  }
+  if (unlockedVaultId == legacyPrivateVaultId) {
+    return 'Private profile';
+  }
+  final profiles = ref.watch(privateMemoProfilesControllerProvider);
+  final match = profiles.where((profile) => profile.vaultId == unlockedVaultId);
+  if (match.isEmpty) {
+    return null;
+  }
+  return match.first.name;
+});
+
+final privacyScreenActiveProvider = Provider<bool>((ref) {
+  final adminMode = ref.watch(adminModeSessionControllerProvider);
+  final unlockedVaultId = ref.watch(unlockedPrivateProfileVaultIdProvider);
+  return adminMode || unlockedVaultId != null;
+});
+
 @riverpod
 List<VaultBucket> vaults(Ref ref) => ref.watch(homeRepositoryProvider).vaults;
 
@@ -2943,13 +3290,37 @@ UnlockIdentity activeIdentityData(Ref ref) {
 
 @riverpod
 List<VaultBucket> visibleVaults(Ref ref) {
-  final activeIdentity = ref.watch(activeIdentityDataProvider);
-  final privateVaultUnlocked = ref.watch(privateVaultSessionControllerProvider);
-  return ref
+  final baseVault = ref
       .watch(vaultsProvider)
-      .where((vault) => activeIdentity.visibleVaultIds.contains(vault.id))
-      .where((vault) => vault.id != 'private' || privateVaultUnlocked)
-      .toList(growable: false);
+      .firstWhere((vault) => vault.id == 'everyday');
+  final accessiblePrivateVaultIds = ref.watch(accessiblePrivateVaultIdsProvider);
+  final profiles = ref.watch(privateMemoProfilesControllerProvider);
+  final visible = <VaultBucket>[baseVault];
+  for (final vaultId in accessiblePrivateVaultIds) {
+    if (vaultId == legacyPrivateVaultId) {
+      visible.add(
+        const VaultBucket(
+          id: legacyPrivateVaultId,
+          name: 'Private profile',
+          description: 'Unlocked private notes',
+        ),
+      );
+      continue;
+    }
+    final match = profiles.where((profile) => profile.vaultId == vaultId);
+    if (match.isEmpty) {
+      continue;
+    }
+    final profile = match.first;
+    visible.add(
+      VaultBucket(
+        id: profile.vaultId,
+        name: profile.name,
+        description: 'Unlocked private notes',
+      ),
+    );
+  }
+  return visible;
 }
 
 @riverpod

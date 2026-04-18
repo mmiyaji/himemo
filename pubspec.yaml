@@ -69,6 +69,7 @@ dependencies:
   path: ^1.9.1
   share_plus: ^10.1.4
   firebase_app_check: ^0.4.3
+  no_screenshot: ^1.1.0
 
 dev_dependencies:
   flutter_test:
@@ -91,6 +92,15 @@ dev_dependencies:
   json_serializable: ^6.13.0
   flutter_launcher_icons: ^0.14.4
   test: ^1.30.0
+  patrol: ^4.5.0
+
+patrol:
+  flavor: development
+  app_name: HiMemo Dev
+  android:
+    package_name: org.ruhenheim.himemo.dev
+  ios:
+    bundle_id: org.ruhenheim.himemo
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

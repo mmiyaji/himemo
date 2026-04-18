@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+
 import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:no_screenshot/overlay_mode.dart';
+import 'package:no_screenshot/secure_widget.dart';
 import 'package:pinput/pinput.dart';
 
 import '../features/home/presentation/home_providers.dart';
@@ -22,6 +26,7 @@ class HiMemoApp extends ConsumerWidget {
     final colorTheme = ref.watch(appColorThemeControllerProvider);
     final localeSetting = ref.watch(appLocaleControllerProvider);
     final launchSurface = ref.watch(appLaunchControllerProvider);
+    final privacyScreenActive = ref.watch(privacyScreenActiveProvider);
     final router = ref.watch(appRouterProvider);
     final currentLocation = router.routeInformationProvider.value.uri.path;
     final locale = switch (localeSetting) {
@@ -40,39 +45,42 @@ class HiMemoApp extends ConsumerWidget {
     });
 
     return FlavorBanner(
-      child: MaterialApp.router(
-        title: flavor.displayName,
-        debugShowCheckedModeBanner: false,
-        routerConfig: router,
-        locale: locale,
-        supportedLocales: AppStrings.supportedLocales,
-        localeListResolutionCallback: (locales, supportedLocales) {
-          for (final deviceLocale in locales ?? const <Locale>[]) {
-            for (final supportedLocale in supportedLocales) {
-              if (supportedLocale.languageCode == deviceLocale.languageCode) {
-                return supportedLocale;
+      child: SecureWidget(
+        mode: privacyScreenActive ? OverlayMode.secure : OverlayMode.none,
+        child: MaterialApp.router(
+          title: flavor.displayName,
+          debugShowCheckedModeBanner: false,
+          routerConfig: router,
+          locale: locale,
+          supportedLocales: AppStrings.supportedLocales,
+          localeListResolutionCallback: (locales, supportedLocales) {
+            for (final deviceLocale in locales ?? const <Locale>[]) {
+              for (final supportedLocale in supportedLocales) {
+                if (supportedLocale.languageCode == deviceLocale.languageCode) {
+                  return supportedLocale;
+                }
               }
             }
-          }
-          return const Locale('en');
-        },
-        localizationsDelegates: const [
-          AppStrings.delegate,
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        themeMode: themeMode,
-        theme: _buildTheme(Brightness.light, colorTheme),
-        darkTheme: _buildTheme(Brightness.dark, colorTheme),
-        builder: (context, child) {
-          return _LaunchSurfaceGate(
-            flavor: flavor,
-            launchSurface: launchSurface,
-            currentLocation: currentLocation,
-            child: child,
-          );
-        },
+            return const Locale('en');
+          },
+          localizationsDelegates: const [
+            AppStrings.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          themeMode: themeMode,
+          theme: _buildTheme(Brightness.light, colorTheme),
+          darkTheme: _buildTheme(Brightness.dark, colorTheme),
+          builder: (context, child) {
+            return _LaunchSurfaceGate(
+              flavor: flavor,
+              launchSurface: launchSurface,
+              currentLocation: currentLocation,
+              child: child,
+            );
+          },
+        ),
       ),
     );
   }
@@ -146,9 +154,12 @@ class _AppLockGate extends ConsumerStatefulWidget {
 
 class _AppLockGateState extends ConsumerState<_AppLockGate>
     with WidgetsBindingObserver {
+  static const _privateSessionTimeout = Duration(minutes: 5);
+
   bool _autoPrompted = false;
   bool _updateChecked = false;
   DateTime? _backgroundedAt;
+  Timer? _privateSessionTimer;
 
   @override
   void initState() {
@@ -163,6 +174,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _privateSessionTimer?.cancel();
     super.dispose();
   }
 
@@ -170,16 +182,21 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _syncLockState(triggerPrompt: true);
+      _refreshPrivateSessionTimer();
       return;
     }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
       _backgroundedAt = DateTime.now();
+      if (_isPrivateOrAdminActive()) {
+        _lockProtectedSessions(lockAppSession: false);
+        return;
+      }
       if (ref.read(appLockSettingsControllerProvider) &&
           ref.read(appLockRelockDelayControllerProvider) ==
               AppLockRelockDelay.immediate) {
-        _lockProtectedSessions();
+        _lockAllProtectedSessions();
       }
     }
   }
@@ -188,14 +205,16 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     final enabled = ref.read(appLockSettingsControllerProvider);
     if (!enabled) {
       ref.read(appSessionUnlockControllerProvider.notifier).unlock();
+      _refreshPrivateSessionTimer();
       return;
     }
 
     if (_shouldRelockAfterBackground()) {
-      _lockProtectedSessions();
+      _lockAllProtectedSessions();
     }
 
     if (ref.read(appSessionUnlockControllerProvider)) {
+      _refreshPrivateSessionTimer();
       return;
     }
 
@@ -238,12 +257,46 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     };
   }
 
-  void _lockProtectedSessions() {
-    ref.read(appSessionUnlockControllerProvider.notifier).lock();
-    if (ref.read(privateVaultLockOnAppLockControllerProvider)) {
+  void _lockAllProtectedSessions() {
+    _lockProtectedSessions(lockAppSession: true);
+  }
+
+  void _lockProtectedSessions({required bool lockAppSession}) {
+    final wasPrivateActive = _isPrivateOrAdminActive();
+    if (lockAppSession) {
+      ref.read(appSessionUnlockControllerProvider.notifier).lock();
+    }
+    if (lockAppSession &&
+        ref.read(privateVaultLockOnAppLockControllerProvider)) {
       ref.read(privateVaultSessionControllerProvider.notifier).lock();
     }
+    ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+    ref.read(adminModeSessionControllerProvider.notifier).lock();
+    if (wasPrivateActive) {
+      ref.read(searchQueryProvider.notifier).setQuery('');
+      ref.read(searchFiltersControllerProvider.notifier).reset();
+      ref.read(selectedNoteIdProvider.notifier).select(null);
+    }
+    _privateSessionTimer?.cancel();
     _autoPrompted = false;
+  }
+
+  bool _isPrivateOrAdminActive() {
+    return ref.read(unlockedPrivateProfileVaultIdProvider) != null ||
+        ref.read(adminModeSessionControllerProvider);
+  }
+
+  void _refreshPrivateSessionTimer() {
+    _privateSessionTimer?.cancel();
+    if (!_isPrivateOrAdminActive()) {
+      return;
+    }
+    _privateSessionTimer = Timer(_privateSessionTimeout, () {
+      if (!mounted) {
+        return;
+      }
+      _lockProtectedSessions(lockAppSession: false);
+    });
   }
 
   Future<void> _checkForInAppUpdate() async {
@@ -276,7 +329,21 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     );
 
     if (!enabled || unlocked || bypassForQuickCapture) {
-      return widget.child ?? const SizedBox.shrink();
+      _refreshPrivateSessionTimer();
+      return Focus(
+        canRequestFocus: false,
+        onKeyEvent: (_, __) {
+          _refreshPrivateSessionTimer();
+          return KeyEventResult.ignored;
+        },
+        child: Listener(
+          behavior: HitTestBehavior.translucent,
+          onPointerDown: (_) => _refreshPrivateSessionTimer(),
+          onPointerMove: (_) => _refreshPrivateSessionTimer(),
+          onPointerSignal: (_) => _refreshPrivateSessionTimer(),
+          child: widget.child ?? const SizedBox.shrink(),
+        ),
+      );
     }
 
     return Scaffold(
@@ -532,7 +599,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
     (
       title: 'Separate private access',
       body:
-          'Keep app unlock and private-vault unlock separate. Sensitive notes can stay behind their own key.',
+          'Unlocking the app and opening private profiles are separate steps. You can keep decoy and sensitive notes behind different passwords.',
       icon: Icons.lock_person_rounded,
       imagePath: 'assets/onboarding/private.png',
       imageSemanticLabel: 'Private vault unlock preview',
@@ -548,9 +615,9 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       isSetupPage: false,
     ),
     (
-      title: 'Set initial keys',
+      title: 'Finish the basics',
       body:
-          'Configure the first access keys now, or skip and finish the setup from Settings later.',
+          'Set the app unlock first. Private profiles and cloud sync can be added later from Settings.',
       icon: Icons.key_rounded,
       imagePath: 'assets/onboarding/private.png',
       imageSemanticLabel: 'Initial access setup preview',
@@ -570,8 +637,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
     final colorScheme = Theme.of(context).colorScheme;
     final isLastPage = _pageIndex == _pages.length - 1;
     final pinConfigured = ref.watch(appPinLockControllerProvider).isConfigured;
-    final coverConfigured = ref.watch(coverModeSecretControllerProvider);
-    final privateConfigured = ref.watch(privateVaultSecretControllerProvider);
+    final privateProfiles = ref.watch(privateMemoProfilesControllerProvider);
 
     return Navigator(
       pages: [
@@ -701,9 +767,8 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                                           const SizedBox(height: 24),
                                           _OnboardingSetupPanel(
                                             pinConfigured: pinConfigured,
-                                            coverConfigured: coverConfigured,
-                                            privateConfigured:
-                                                privateConfigured,
+                                            privateProfileCount:
+                                                privateProfiles.length,
                                           ),
                                         ],
                                       ],
@@ -854,20 +919,17 @@ class _OnboardingImageCard extends StatelessWidget {
 class _OnboardingSetupPanel extends ConsumerWidget {
   const _OnboardingSetupPanel({
     required this.pinConfigured,
-    required this.coverConfigured,
-    required this.privateConfigured,
+    required this.privateProfileCount,
   });
 
   final bool pinConfigured;
-  final bool coverConfigured;
-  final bool privateConfigured;
+  final int privateProfileCount;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return _OnboardingSetupPanelBody(
       pinConfigured: pinConfigured,
-      coverConfigured: coverConfigured,
-      privateConfigured: privateConfigured,
+      privateProfileCount: privateProfileCount,
     );
   }
 }
@@ -875,13 +937,11 @@ class _OnboardingSetupPanel extends ConsumerWidget {
 class _OnboardingSetupPanelBody extends ConsumerStatefulWidget {
   const _OnboardingSetupPanelBody({
     required this.pinConfigured,
-    required this.coverConfigured,
-    required this.privateConfigured,
+    required this.privateProfileCount,
   });
 
   final bool pinConfigured;
-  final bool coverConfigured;
-  final bool privateConfigured;
+  final int privateProfileCount;
 
   @override
   ConsumerState<_OnboardingSetupPanelBody> createState() =>
@@ -891,8 +951,6 @@ class _OnboardingSetupPanelBody extends ConsumerStatefulWidget {
 class _OnboardingSetupPanelBodyState
     extends ConsumerState<_OnboardingSetupPanelBody> {
   String? _pinFeedback;
-  String? _coverFeedback;
-  String? _privateFeedback;
 
   @override
   Widget build(BuildContext context) {
@@ -904,17 +962,17 @@ class _OnboardingSetupPanelBodyState
           tileKey: const Key('onboarding-set-pin-button'),
           title: kIsWeb
               ? strings.setAppUnlockPin
-              : (strings.isJapanese ? 'アプリ解除' : 'App unlock'),
+              : (strings.isJapanese ? 'アプリ起動ロック' : 'App unlock'),
           subtitle: kIsWeb
               ? (widget.pinConfigured
                     ? (strings.isJapanese
-                          ? 'このブラウザに設定済みです。'
+                          ? 'このブラウザでは解除用 PIN が設定されています。'
                           : 'Configured for this browser.')
                     : (strings.isJapanese
-                          ? '起動用の4桁 PIN を設定します。'
+                          ? '起動時の保護として 4 桁の PIN を設定できます。'
                           : 'Set a 4 digit PIN for app launch.'))
               : (strings.isJapanese
-                    ? '端末認証は後から設定で有効化できます。'
+                    ? 'iPhone や Android では、端末の生体認証や端末 PIN を起動ロックとして使います。'
                     : 'Device authentication can be enabled later in Settings.'),
           actionLabel: kIsWeb
               ? (widget.pinConfigured
@@ -947,76 +1005,27 @@ class _OnboardingSetupPanelBodyState
         ),
         const SizedBox(height: 12),
         _OnboardingSetupTile(
-          tileKey: const Key('onboarding-set-cover-key-button'),
-          title: strings.coverKey,
-          subtitle: widget.coverConfigured
-              ? (strings.isJapanese ? '設定済みです。' : 'Configured.')
+          tileKey: const Key('onboarding-private-profiles-info-button'),
+          title: strings.isJapanese ? 'プライベートプロファイル' : 'Private profiles',
+          subtitle: widget.privateProfileCount > 0
+              ? (strings.isJapanese
+                    ? '${widget.privateProfileCount} 件のプライベートプロファイルが登録されています。'
+                    : '${widget.privateProfileCount} private profiles are configured.')
               : (strings.isJapanese
-                    ? '別の普段使いモードへ切り替えるための任意キーです。'
-                    : 'Optional key for the alternate everyday-facing mode.'),
-          actionLabel: widget.coverConfigured
-              ? (strings.isJapanese ? 'キーを変更' : 'Change key')
-              : (strings.isJapanese ? 'キーを設定' : 'Set key'),
-          onPressed: () async {
-            final secret = await _showOnboardingSecretSetupDialog(
-              context,
-              title: strings.isJapanese ? 'カバーキーを設定' : 'Set cover key',
-              label: strings.coverKey,
-              confirmLabel: strings.confirmPrivateKey(strings.coverKey),
-            );
-            if (secret == null) {
-              return;
-            }
-            await ref
-                .read(coverModeSecretControllerProvider.notifier)
-                .configure(secret);
-            if (!mounted) {
-              return;
-            }
-            setState(() {
-              _coverFeedback = strings.isJapanese
-                  ? 'カバーキーを保存しました。'
-                  : 'Cover key saved.';
-            });
-          },
-          feedback: _coverFeedback,
+                    ? '鍵アイコンから各プロファイルを開く方式です。カバー用と本命用を分けて運用できます。'
+                    : 'Open each profile from the key icon. This supports both cover and truly private profiles.'),
+          actionLabel: strings.isJapanese ? '設定で追加' : 'Add in Settings',
+          onPressed: null,
         ),
         const SizedBox(height: 12),
         _OnboardingSetupTile(
-          tileKey: const Key('onboarding-set-private-key-button'),
-          title: strings.privateKey,
-          subtitle: widget.privateConfigured
-              ? (strings.isJapanese ? '設定済みです。' : 'Configured.')
-              : (strings.isJapanese
-                    ? 'プライベートモードと private vault の解除に使います。'
-                    : 'Used to unlock the private memo mode and private vault.'),
-          actionLabel: widget.privateConfigured
-              ? (strings.isJapanese ? 'キーを変更' : 'Change key')
-              : (strings.isJapanese ? 'キーを設定' : 'Set key'),
-          onPressed: () async {
-            final secret = await _showOnboardingSecretSetupDialog(
-              context,
-              title: strings.setPrivateKey,
-              label: strings.privateKey,
-              confirmLabel: strings.confirmPrivateKey(strings.privateKey),
-            );
-            if (secret == null) {
-              return;
-            }
-            await ref
-                .read(privateVaultSecretControllerProvider.notifier)
-                .configure(secret);
-            ref.read(privateVaultSessionControllerProvider.notifier).lock();
-            if (!mounted) {
-              return;
-            }
-            setState(() {
-              _privateFeedback = strings.isJapanese
-                  ? 'プライベートキーを保存しました。'
-                  : 'Private key saved.';
-            });
-          },
-          feedback: _privateFeedback,
+          tileKey: const Key('onboarding-sync-info-button'),
+          title: strings.isJapanese ? 'クラウド同期' : 'Cloud sync',
+          subtitle: strings.isJapanese
+              ? 'iCloud や Google Drive への同期は、あとから Settings で有効化できます。最初はオフラインのまま始められます。'
+              : 'Enable iCloud or Google Drive later in Settings. You can start as an offline-first memo app.',
+          actionLabel: strings.isJapanese ? 'あとで設定' : 'Set later',
+          onPressed: null,
         ),
       ],
     );
@@ -1134,102 +1143,6 @@ Future<String?> _showOnboardingPinSetupDialog(BuildContext context) {
                     return;
                   }
                   Navigator.of(context).pop(pin);
-                },
-                child: Text(strings.save),
-              ),
-            ],
-          );
-        },
-      );
-    },
-  );
-}
-
-Future<String?> _showOnboardingSecretSetupDialog(
-  BuildContext context, {
-  required String title,
-  required String label,
-  required String confirmLabel,
-  bool digitsOnly = false,
-  int? exactLength,
-}) {
-  final strings = context.strings;
-  final secretController = TextEditingController();
-  final confirmController = TextEditingController();
-  String? errorText;
-
-  return showDialog<String>(
-    context: context,
-    useRootNavigator: true,
-    builder: (context) {
-      return StatefulBuilder(
-        builder: (context, setState) {
-          return AlertDialog(
-            title: Text(title),
-            content: SizedBox(
-              width: 360,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: secretController,
-                    obscureText: true,
-                    keyboardType: digitsOnly ? TextInputType.number : null,
-                    decoration: InputDecoration(
-                      labelText: label,
-                      border: const OutlineInputBorder(),
-                      errorText: errorText,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: confirmController,
-                    obscureText: true,
-                    keyboardType: digitsOnly ? TextInputType.number : null,
-                    decoration: InputDecoration(
-                      labelText: confirmLabel,
-                      border: const OutlineInputBorder(),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text(strings.cancel),
-              ),
-              FilledButton(
-                onPressed: () {
-                  final secret = secretController.text.trim();
-                  final confirm = confirmController.text.trim();
-                  if (exactLength != null && secret.length != exactLength) {
-                    setState(() {
-                      errorText = strings.isJapanese
-                          ? '$exactLength 文字ちょうどで入力してください。'
-                          : 'Use exactly $exactLength characters.';
-                    });
-                    return;
-                  }
-                  if (exactLength == null && secret.length < 4) {
-                    setState(() {
-                      errorText = strings.useAtLeast4Chars;
-                    });
-                    return;
-                  }
-                  if (digitsOnly && !RegExp(r'^\d+$').hasMatch(secret)) {
-                    setState(() {
-                      errorText = strings.digitsOnly;
-                    });
-                    return;
-                  }
-                  if (secret != confirm) {
-                    setState(() {
-                      errorText = strings.keysDoNotMatch;
-                    });
-                    return;
-                  }
-                  Navigator.of(context).pop(secret);
                 },
                 child: Text(strings.save),
               ),
