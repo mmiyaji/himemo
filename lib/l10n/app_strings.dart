@@ -144,6 +144,82 @@ class AppStrings {
       ? 'private vault と同期状態は、セッションを戻すまでロックされたままです。'
       : 'Private vault access and sync state remain locked until the session is restored.';
 
+  String get onboardingWelcome =>
+      isJapanese ? 'HiMemo へようこそ' : 'Welcome to HiMemo';
+  String get onboardingIntro => isJapanese
+      ? 'メモを書き始める前に、短い初期設定だけ済ませます。'
+      : 'A short setup pass before the memo vault opens.';
+  String get onboardingCaptureTitle =>
+      isJapanese ? 'すばやく記録' : 'Capture fast';
+  String get onboardingCaptureBody => isJapanese
+      ? '1行目がそのままタイトルになるので、思いついた内容をそのまま軽く書き始められます。'
+      : 'The first line becomes the memo title, so quick notes stay lightweight from the first tap.';
+  String get onboardingCaptureImageLabel => isJapanese
+      ? 'クイックメモ入力のプレビュー'
+      : 'Quick memo capture preview';
+  String get onboardingPrivateTitle => isJapanese
+      ? 'プライベート領域を分ける'
+      : 'Separate private access';
+  String get onboardingPrivateBody => isJapanese
+      ? 'アプリの起動ロックと、プライベートプロファイルを開く操作は分かれています。ダミー用と本命用を別パスワードで使い分けられます。'
+      : 'Unlocking the app and opening private profiles are separate steps. You can keep decoy and sensitive notes behind different passwords.';
+  String get onboardingPrivateImageLabel => isJapanese
+      ? 'プライベートプロファイル解錠のプレビュー'
+      : 'Private vault unlock preview';
+  String get onboardingSyncTitle =>
+      isJapanese ? '同期はあとから設定' : 'Prepare sync later';
+  String get onboardingSyncBody => isJapanese
+      ? 'iCloud や Google Drive は、あとから同期先として選べます。最初は自前サーバーなしで始められます。'
+      : 'Choose iCloud or Google Drive as the future sync target without turning your own server into a dependency.';
+  String get onboardingSyncImageLabel => isJapanese
+      ? 'クラウド同期先のプレビュー'
+      : 'Cloud sync target preview';
+  String get onboardingFinishTitle =>
+      isJapanese ? '最初に基本だけ設定' : 'Finish the basics';
+  String get onboardingFinishBody => isJapanese
+      ? 'まずはアプリ起動ロックだけ設定します。プライベートプロファイルやクラウド同期は、あとから設定で追加できます。'
+      : 'Set the app unlock first. Private profiles and cloud sync can be added later from Settings.';
+  String get onboardingFinishImageLabel => isJapanese
+      ? '初期アクセス設定のプレビュー'
+      : 'Initial access setup preview';
+  String get onboardingAddImageFallback => isJapanese
+      ? 'オンボーディング画像を追加'
+      : 'Add an onboarding image';
+  String get onboardingAppUnlockTitle =>
+      isJapanese ? 'アプリ起動ロック' : 'App unlock';
+  String get onboardingPinConfiguredBrowser => isJapanese
+      ? 'このブラウザでは解除用 PIN が設定されています。'
+      : 'Configured for this browser.';
+  String get onboardingSetPinBrowser => isJapanese
+      ? '起動時の保護として 4 桁の PIN を設定できます。'
+      : 'Set a 4 digit PIN for app launch.';
+  String get onboardingDeviceAuthLater => isJapanese
+      ? 'iPhone や Android では、端末の生体認証や端末 PIN を起動ロックとして使います。'
+      : 'Device authentication can be enabled later in Settings.';
+  String get onboardingChangePin =>
+      isJapanese ? 'PIN を変更' : 'Change PIN';
+  String get onboardingSetPin => isJapanese ? 'PIN を設定' : 'Set PIN';
+  String get onboardingLaterInSettings =>
+      isJapanese ? 'あとで設定' : 'Later in Settings';
+  String get onboardingPinSaved => isJapanese
+      ? 'アプリ解除 PIN を保存しました。'
+      : 'App unlock PIN saved.';
+  String get onboardingPrivateProfilesTitle =>
+      isJapanese ? 'プライベートプロファイル' : 'Private profiles';
+  String onboardingPrivateProfilesConfigured(int count) => isJapanese
+      ? '$count 件のプライベートプロファイルが登録されています。'
+      : '$count private profiles are configured.';
+  String get onboardingPrivateProfilesBody => isJapanese
+      ? '鍵アイコンから各プロファイルを開けます。カバー用と本命用を分けて使う前提です。'
+      : 'Open each profile from the key icon. This supports both cover and truly private profiles.';
+  String get onboardingAddInSettings =>
+      isJapanese ? '設定で追加' : 'Add in Settings';
+  String get onboardingCloudSyncTitle =>
+      isJapanese ? 'クラウド同期' : 'Cloud sync';
+  String get onboardingCloudSyncBody => isJapanese
+      ? 'iCloud や Google Drive への同期は、あとから設定で有効化できます。最初はオフラインのまま始められます。'
+      : 'Enable iCloud or Google Drive later in Settings. You can start as an offline-first memo app.';
+
   String get skip => isJapanese ? 'スキップ' : 'Skip';
   String get next => isJapanese ? '次へ' : 'Next';
   String get finishSetup => isJapanese ? 'セットアップ完了' : 'Finish setup';

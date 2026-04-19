@@ -4342,7 +4342,8 @@ class _VaultSectionCard extends StatelessWidget {
             ),
             Divider(height: 1, color: Theme.of(context).dividerColor),
             for (var i = 0; i < notes.length; i++) ...[
-              if (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i]))
+              if (density != NotesListDensity.compact &&
+                  (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i])))
                 _NoteDayDivider(date: notes[i].createdAt),
               _NoteListTile(
                 note: notes[i],
@@ -4455,13 +4456,11 @@ class _NoteListTile extends StatelessWidget {
     final thumbnailSize = switch (density) {
       NotesListDensity.compact => 44.0,
       NotesListDensity.standard => 56.0,
-      NotesListDensity.media => 76.0,
     };
-    final maxThumbs = density == NotesListDensity.media ? 4 : 3;
+    const maxThumbs = 3;
     final bodyLines = switch (density) {
       NotesListDensity.compact => 1,
       NotesListDensity.standard => 2,
-      NotesListDensity.media => 3,
     };
 
     if (density == NotesListDensity.compact) {
@@ -5212,6 +5211,12 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     final hasAdvancedFilters = !filters.isDefault;
     final listDensity = ref.watch(notesListDensityControllerProvider);
     final privateModeActive = ref.watch(privacyScreenActiveProvider);
+    final availableWidth = MediaQuery.sizeOf(context).width;
+    final compactToolbarButtons = widget.compact || availableWidth < 560;
+    final activeFilterCount =
+        (filters.pinnedOnly ? 1 : 0) +
+        (filters.withMediaOnly ? 1 : 0) +
+        (filters.vaultId != null ? 1 : 0);
 
     return Container(
       decoration: _sectionDecoration(context),
@@ -5219,44 +5224,28 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextFormField(
-            key: const Key('notes-search-input'),
-            initialValue: query,
-            decoration: InputDecoration(
-              labelText: strings.search,
-              hintText: strings.isJapanese
-                  ? 'ノート、日記、添付の名前を検索'
-                  : 'Search notes, diary entries, and attachment labels',
-              prefixIcon: const Icon(Icons.search_rounded),
-              border: const OutlineInputBorder(),
-              isDense: true,
-            ),
-            onChanged: ref.read(searchQueryProvider.notifier).setQuery,
-          ),
-          if (privateModeActive) ...[
-            const SizedBox(height: 8),
-            Text(
-              strings.isJapanese
-                  ? 'プライベート表示を閉じると検索語は消去されます。'
-                  : 'Search terms are cleared when private mode closes.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: _mutedTextColor(context),
-              ),
-            ),
-          ],
-          const SizedBox(height: 8),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (hasAdvancedFilters)
-                Text(
-                  strings.isJapanese ? '詳細検索を適用中' : 'Advanced search active',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: _mutedTextColor(context),
+              Expanded(
+                child: TextFormField(
+                  key: const Key('notes-search-input'),
+                  initialValue: query,
+                  decoration: InputDecoration(
+                    labelText: strings.search,
+                    hintText: strings.isJapanese
+                        ? 'ノート、日記、添付名を検索'
+                        : 'Search notes, diary entries, and attachment labels',
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    border: const OutlineInputBorder(),
+                    isDense: true,
                   ),
+                  onChanged: ref.read(searchQueryProvider.notifier).setQuery,
                 ),
-              const Spacer(),
+              ),
+              const SizedBox(width: 8),
               PopupMenuButton<NotesListDensity>(
-                tooltip: strings.isJapanese ? '一覧表示' : 'List layout',
+                tooltip: strings.isJapanese ? '表示形式' : 'List layout',
                 onSelected: ref
                     .read(notesListDensityControllerProvider.notifier)
                     .setDensity,
@@ -5271,75 +5260,199 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                     checked: listDensity == NotesListDensity.compact,
                     child: Text(strings.isJapanese ? 'コンパクト表示' : 'Compact list'),
                   ),
-                  CheckedPopupMenuItem(
-                    value: NotesListDensity.media,
-                    checked: listDensity == NotesListDensity.media,
-                    child: Text(strings.isJapanese ? 'メディア重視' : 'Media list'),
-                  ),
                 ],
-                child: Semantics(
-                  label: 'notes-list-layout',
-                  button: true,
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    child: Icon(Icons.view_agenda_outlined, size: 20),
+                child: Tooltip(
+                  message: strings.isJapanese ? '表示形式' : 'List layout',
+                  child: Container(
+                    height: 48,
+                    width: 48,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Theme.of(context).dividerColor),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.view_agenda_outlined, size: 20),
                   ),
                 ),
               ),
-              TextButton.icon(
-                onPressed: () {
+              const SizedBox(width: 8),
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () {
                   setState(() {
                     _showAdvanced = !_showAdvanced;
                   });
                 },
-                icon: Icon(
-                  _showAdvanced
-                      ? Icons.expand_less_rounded
-                      : Icons.tune_rounded,
-                ),
-                label: Text(
-                  _showAdvanced
-                      ? (strings.isJapanese ? '条件を閉じる' : 'Hide filters')
-                      : (strings.isJapanese ? '詳細条件' : 'More filters'),
+                child: Container(
+                  height: 48,
+                  width: compactToolbarButtons ? 48 : null,
+                  constraints: BoxConstraints(
+                    minWidth: compactToolbarButtons ? 48 : 84,
+                  ),
+                  alignment: Alignment.center,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: compactToolbarButtons ? 0 : 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _showAdvanced || hasAdvancedFilters
+                        ? Theme.of(context).colorScheme.primaryContainer
+                        : null,
+                    border: Border.all(color: Theme.of(context).dividerColor),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: compactToolbarButtons
+                      ? Stack(
+                          alignment: Alignment.center,
+                          clipBehavior: Clip.none,
+                          children: [
+                            const Icon(Icons.tune_rounded, size: 20),
+                            if (activeFilterCount > 0)
+                              Positioned(
+                                top: 6,
+                                right: 6,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 5,
+                                    vertical: 1,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context).colorScheme.primary,
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    '$activeFilterCount',
+                                    style: Theme.of(context).textTheme.labelSmall
+                                        ?.copyWith(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onPrimary,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        )
+                      : Stack(
+                          alignment: Alignment.center,
+                          clipBehavior: Clip.none,
+                          children: [
+                            Align(
+                              alignment: Alignment.center,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.tune_rounded, size: 20),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    strings.isJapanese ? '詳細' : 'Filters',
+                                    style: Theme.of(context).textTheme.labelLarge,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (activeFilterCount > 0)
+                              Positioned(
+                                top: 6,
+                                right: 8,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 5,
+                                    vertical: 1,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context).colorScheme.primary,
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    '$activeFilterCount',
+                                    style: Theme.of(context).textTheme.labelSmall
+                                        ?.copyWith(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onPrimary,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                 ),
               ),
             ],
           ),
+          if (privateModeActive) ...[
+            const SizedBox(height: 8),
+            Text(
+              strings.isJapanese
+                  ? 'プライベート表示を閉じると検索語は消去されます。'
+                  : 'Search terms are cleared when private mode closes.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: _mutedTextColor(context),
+              ),
+            ),
+          ],
           if (_showAdvanced) ...[
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                FilterChip(
-                  label: Text(strings.isJapanese ? 'ピン留めのみ' : 'Pinned only'),
-                  selected: filters.pinnedOnly,
-                  onSelected: ref
-                      .read(searchFiltersControllerProvider.notifier)
-                      .setPinnedOnly,
-                ),
-                FilterChip(
-                  label: Text(strings.isJapanese ? '添付あり' : 'With media'),
-                  selected: filters.withMediaOnly,
-                  onSelected: ref
-                      .read(searchFiltersControllerProvider.notifier)
-                      .setWithMediaOnly,
-                ),
-                SizedBox(
-                  width: widget.compact ? 240 : 220,
-                  child: DropdownButtonFormField<String?>(
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                border: Border.all(color: Theme.of(context).dividerColor),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    strings.isJapanese ? '詳細条件' : 'Filters',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  CheckboxListTile(
+                    value: filters.pinnedOnly,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    title: Text(
+                      strings.isJapanese ? '固定したノートだけ' : 'Pinned only',
+                    ),
+                    onChanged: (value) => ref
+                        .read(searchFiltersControllerProvider.notifier)
+                        .setPinnedOnly(value ?? false),
+                  ),
+                  CheckboxListTile(
+                    value: filters.withMediaOnly,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    title: Text(
+                      strings.isJapanese ? '添付があるノートだけ' : 'With media',
+                    ),
+                    onChanged: (value) => ref
+                        .read(searchFiltersControllerProvider.notifier)
+                        .setWithMediaOnly(value ?? false),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String?>(
                     key: ValueKey(filters.vaultId ?? 'all-vaults'),
                     initialValue: filters.vaultId,
                     decoration: InputDecoration(
-                      labelText: strings.isJapanese ? '保管先' : 'Vault',
+                      labelText: strings.isJapanese ? '保存先' : 'Vault',
                       border: const OutlineInputBorder(),
                       isDense: true,
                     ),
                     items: [
-                      const DropdownMenuItem<String?>(
+                      DropdownMenuItem<String?>(
                         value: null,
-                        child: Text('All visible vaults'),
+                        child: Text(
+                          strings.isJapanese
+                              ? '表示中の保存先すべて'
+                              : 'All visible vaults',
+                        ),
                       ),
                       for (final vault in visibleVaults)
                         DropdownMenuItem<String?>(
@@ -5351,15 +5464,22 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                         .read(searchFiltersControllerProvider.notifier)
                         .setVault,
                   ),
-                ),
-                if (hasAdvancedFilters)
-                  TextButton(
-                    onPressed: ref
-                        .read(searchFiltersControllerProvider.notifier)
-                        .reset,
-                    child: const Text('Reset'),
-                  ),
-              ],
+                  if (hasAdvancedFilters) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: ref
+                            .read(searchFiltersControllerProvider.notifier)
+                            .reset,
+                        child: Text(
+                          strings.isJapanese ? '条件をリセット' : 'Reset filters',
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ],
           if (!widget.compact &&
@@ -5593,6 +5713,7 @@ class _NoteEditorSheet extends ConsumerStatefulWidget {
 
 class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late final TextEditingController _contentController;
+  late final FocusNode _quickContentFocusNode;
   late final NoteEditorDraftStore _draftStore;
   late final EncryptedAttachmentStore _attachmentStore;
   late DateTime _createdAt;
@@ -5606,6 +5727,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   String? _selectedVaultId;
   bool _saved = false;
   bool _draftLoaded = false;
+  bool _editorDisposed = false;
   Timer? _draftSaveTimer;
 
   @override
@@ -5615,6 +5737,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _attachmentStore = ref.read(encryptedAttachmentStoreProvider);
     final lastSettings = ref.read(lastNoteEditorSettingsControllerProvider);
     _contentController = TextEditingController(text: _composeEditorContent());
+    _quickContentFocusNode = FocusNode();
     _contentController.addListener(_handleTextChanged);
     _createdAt = widget.note?.createdAt ?? DateTime.now();
     _isPinned = widget.note?.isPinned ?? false;
@@ -5636,6 +5759,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         .whereType<String>()
         .toSet();
     _selectedVaultId = widget.note?.vaultId ?? lastSettings.vaultId;
+    _scheduleInitialEditorFocus();
     if (widget.note == null) {
       unawaited(_restoreDraftIfAny());
     }
@@ -5643,6 +5767,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
 
   @override
   void dispose() {
+    _editorDisposed = true;
     _draftSaveTimer?.cancel();
     if (!_saved && widget.note == null && _selectedVaultId != null) {
       unawaited(
@@ -5677,6 +5802,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     }
     _contentController.removeListener(_handleTextChanged);
     _contentController.dispose();
+    _quickContentFocusNode.dispose();
     for (final block in _richBlocks) {
       block.dispose();
     }
@@ -5790,6 +5916,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (!mounted) {
       return;
     }
+    _scheduleInitialEditorFocus();
     _showEditorSnackBar(
       content: Text(context.strings.draftRestored),
       action: SnackBarAction(
@@ -5841,14 +5968,49 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     return lastParagraphIndex == -1 ? _richBlocks.length : lastParagraphIndex;
   }
 
+  void _scheduleInitialEditorFocus() {
+    if (!mounted || _editorDisposed || widget.note != null) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _editorDisposed) {
+        return;
+      }
+      if (_editorMode == NoteEditorMode.quick) {
+        if (!_quickContentFocusNode.canRequestFocus) {
+          return;
+        }
+        _quickContentFocusNode.requestFocus();
+        final textLength = _contentController.text.length;
+        _contentController.selection = TextSelection.collapsed(
+          offset: textLength,
+        );
+        return;
+      }
+      final paragraphIndex = _richBlocks.indexWhere(
+        (block) => block.type == NoteBlockType.paragraph,
+      );
+      if (paragraphIndex == -1) {
+        return;
+      }
+      final paragraphToFocus = _richBlocks[paragraphIndex];
+      _requestParagraphFocus(
+        paragraphToFocus,
+        paragraphToFocus.controller?.text.length ?? 0,
+      );
+    });
+  }
+
   void _requestParagraphFocus(_RichBlockDraft block, int offset) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
+      if (!mounted || _editorDisposed || !_richBlocks.contains(block)) {
         return;
       }
       final controller = block.controller;
       final focusNode = block.focusNode;
-      if (controller == null || focusNode == null) {
+      if (controller == null ||
+          focusNode == null ||
+          !focusNode.canRequestFocus) {
         return;
       }
       focusNode.requestFocus();
@@ -6034,6 +6196,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                     ],
                     selected: {_editorMode},
                     onSelectionChanged: (selection) {
+                      _RichBlockDraft? paragraphToFocus;
                       setState(() {
                         _editorMode = selection.first;
                         if (_editorMode == NoteEditorMode.rich &&
@@ -6042,8 +6205,22 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                           _attachRichBlockListener(draft);
                           _richBlocks = [draft];
                           _activeRichParagraphIndex = 0;
+                          paragraphToFocus = draft;
                         }
                       });
+                      if (_editorMode == NoteEditorMode.quick) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!mounted) {
+                            return;
+                          }
+                          _quickContentFocusNode.requestFocus();
+                          final textLength = _contentController.text.length;
+                          _contentController.selection =
+                              TextSelection.collapsed(offset: textLength);
+                        });
+                      } else if (paragraphToFocus != null) {
+                        _requestParagraphFocus(paragraphToFocus!, 0);
+                      }
                       _scheduleDraftPersist();
                     },
                   ),
@@ -6052,6 +6229,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                     TextField(
                       key: const Key('note-content-input'),
                       controller: _contentController,
+                      focusNode: _quickContentFocusNode,
                       autofocus: widget.note == null,
                       minLines: 12,
                       maxLines: null,

@@ -576,7 +576,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
   final PageController _pageController = PageController();
   int _pageIndex = 0;
 
-  final List<
+  List<
     ({
       String title,
       String body,
@@ -586,41 +586,37 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       bool isSetupPage,
     })
   >
-  _pages = const [
+  _pages(AppStrings strings) => [
     (
-      title: 'Capture fast',
-      body:
-          'The first line becomes the memo title, so quick notes stay lightweight from the first tap.',
+      title: strings.onboardingCaptureTitle,
+      body: strings.onboardingCaptureBody,
       icon: Icons.bolt_rounded,
       imagePath: 'assets/onboarding/capture.png',
-      imageSemanticLabel: 'Quick memo capture preview',
+      imageSemanticLabel: strings.onboardingCaptureImageLabel,
       isSetupPage: false,
     ),
     (
-      title: 'Separate private access',
-      body:
-          'Unlocking the app and opening private profiles are separate steps. You can keep decoy and sensitive notes behind different passwords.',
+      title: strings.onboardingPrivateTitle,
+      body: strings.onboardingPrivateBody,
       icon: Icons.lock_person_rounded,
       imagePath: 'assets/onboarding/private.png',
-      imageSemanticLabel: 'Private vault unlock preview',
+      imageSemanticLabel: strings.onboardingPrivateImageLabel,
       isSetupPage: false,
     ),
     (
-      title: 'Prepare sync later',
-      body:
-          'Choose iCloud or Google Drive as the future sync target without turning your own server into a dependency.',
+      title: strings.onboardingSyncTitle,
+      body: strings.onboardingSyncBody,
       icon: Icons.cloud_sync_rounded,
       imagePath: 'assets/onboarding/sync.png',
-      imageSemanticLabel: 'Cloud sync target preview',
+      imageSemanticLabel: strings.onboardingSyncImageLabel,
       isSetupPage: false,
     ),
     (
-      title: 'Finish the basics',
-      body:
-          'Set the app unlock first. Private profiles and cloud sync can be added later from Settings.',
+      title: strings.onboardingFinishTitle,
+      body: strings.onboardingFinishBody,
       icon: Icons.key_rounded,
       imagePath: 'assets/onboarding/private.png',
-      imageSemanticLabel: 'Initial access setup preview',
+      imageSemanticLabel: strings.onboardingFinishImageLabel,
       isSetupPage: true,
     ),
   ];
@@ -634,8 +630,9 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final pages = _pages(strings);
     final colorScheme = Theme.of(context).colorScheme;
-    final isLastPage = _pageIndex == _pages.length - 1;
+    final isLastPage = _pageIndex == pages.length - 1;
     final pinConfigured = ref.watch(appPinLockControllerProvider).isConfigured;
     final privateProfiles = ref.watch(privateMemoProfilesControllerProvider);
 
@@ -676,14 +673,12 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                     ),
                     const SizedBox(height: 28),
                     Text(
-                      strings.isJapanese ? 'HiMemo へようこそ' : 'Welcome to HiMemo',
+                      strings.onboardingWelcome,
                       style: Theme.of(context).textTheme.headlineSmall,
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      strings.isJapanese
-                          ? 'メモ庫を開く前に、短い初期設定を行います。'
-                          : 'A short setup pass before the memo vault opens.',
+                      strings.onboardingIntro,
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                       ),
@@ -692,14 +687,14 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                     Expanded(
                       child: PageView.builder(
                         controller: _pageController,
-                        itemCount: _pages.length,
+                        itemCount: pages.length,
                         onPageChanged: (index) {
                           setState(() {
                             _pageIndex = index;
                           });
                         },
                         itemBuilder: (context, index) {
-                          final page = _pages[index];
+                          final page = pages[index];
                           return LayoutBuilder(
                             builder: (context, constraints) {
                               return Container(
@@ -783,7 +778,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                     ),
                     Row(
                       children: [
-                        for (var i = 0; i < _pages.length; i++)
+                        for (var i = 0; i < pages.length; i++)
                           AnimatedContainer(
                             duration: const Duration(milliseconds: 180),
                             margin: const EdgeInsets.only(right: 8),
@@ -841,6 +836,7 @@ class _OnboardingImageCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final strings = context.strings;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -884,7 +880,7 @@ class _OnboardingImageCard extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 12),
                                 Text(
-                                  'Add an onboarding image',
+                                  strings.onboardingAddImageFallback,
                                   style: Theme.of(context).textTheme.labelLarge,
                                 ),
                               ],
@@ -962,23 +958,17 @@ class _OnboardingSetupPanelBodyState
           tileKey: const Key('onboarding-set-pin-button'),
           title: kIsWeb
               ? strings.setAppUnlockPin
-              : (strings.isJapanese ? 'アプリ起動ロック' : 'App unlock'),
+              : strings.onboardingAppUnlockTitle,
           subtitle: kIsWeb
               ? (widget.pinConfigured
-                    ? (strings.isJapanese
-                          ? 'このブラウザでは解除用 PIN が設定されています。'
-                          : 'Configured for this browser.')
-                    : (strings.isJapanese
-                          ? '起動時の保護として 4 桁の PIN を設定できます。'
-                          : 'Set a 4 digit PIN for app launch.'))
-              : (strings.isJapanese
-                    ? 'iPhone や Android では、端末の生体認証や端末 PIN を起動ロックとして使います。'
-                    : 'Device authentication can be enabled later in Settings.'),
+                    ? strings.onboardingPinConfiguredBrowser
+                    : strings.onboardingSetPinBrowser)
+              : strings.onboardingDeviceAuthLater,
           actionLabel: kIsWeb
               ? (widget.pinConfigured
-                    ? (strings.isJapanese ? 'PIN を変更' : 'Change PIN')
-                    : (strings.isJapanese ? 'PIN を設定' : 'Set PIN'))
-              : (strings.isJapanese ? 'あとで設定' : 'Later in Settings'),
+                    ? strings.onboardingChangePin
+                    : strings.onboardingSetPin)
+              : strings.onboardingLaterInSettings,
           onPressed: kIsWeb
               ? () async {
                   final pin = await _showOnboardingPinSetupDialog(context);
@@ -995,9 +985,7 @@ class _OnboardingSetupPanelBodyState
                     return;
                   }
                   setState(() {
-                    _pinFeedback = strings.isJapanese
-                        ? 'アプリ解除 PIN を保存しました。'
-                        : 'App unlock PIN saved.';
+                    _pinFeedback = strings.onboardingPinSaved;
                   });
                 }
               : null,
@@ -1006,25 +994,21 @@ class _OnboardingSetupPanelBodyState
         const SizedBox(height: 12),
         _OnboardingSetupTile(
           tileKey: const Key('onboarding-private-profiles-info-button'),
-          title: strings.isJapanese ? 'プライベートプロファイル' : 'Private profiles',
+          title: strings.onboardingPrivateProfilesTitle,
           subtitle: widget.privateProfileCount > 0
-              ? (strings.isJapanese
-                    ? '${widget.privateProfileCount} 件のプライベートプロファイルが登録されています。'
-                    : '${widget.privateProfileCount} private profiles are configured.')
-              : (strings.isJapanese
-                    ? '鍵アイコンから各プロファイルを開く方式です。カバー用と本命用を分けて運用できます。'
-                    : 'Open each profile from the key icon. This supports both cover and truly private profiles.'),
-          actionLabel: strings.isJapanese ? '設定で追加' : 'Add in Settings',
+              ? strings.onboardingPrivateProfilesConfigured(
+                  widget.privateProfileCount,
+                )
+              : strings.onboardingPrivateProfilesBody,
+          actionLabel: strings.onboardingAddInSettings,
           onPressed: null,
         ),
         const SizedBox(height: 12),
         _OnboardingSetupTile(
           tileKey: const Key('onboarding-sync-info-button'),
-          title: strings.isJapanese ? 'クラウド同期' : 'Cloud sync',
-          subtitle: strings.isJapanese
-              ? 'iCloud や Google Drive への同期は、あとから Settings で有効化できます。最初はオフラインのまま始められます。'
-              : 'Enable iCloud or Google Drive later in Settings. You can start as an offline-first memo app.',
-          actionLabel: strings.isJapanese ? 'あとで設定' : 'Set later',
+          title: strings.onboardingCloudSyncTitle,
+          subtitle: strings.onboardingCloudSyncBody,
+          actionLabel: strings.onboardingLaterInSettings,
           onPressed: null,
         ),
       ],

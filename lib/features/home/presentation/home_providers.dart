@@ -48,7 +48,7 @@ enum AppColorTheme { blue, green, orange, slate, teal, rose }
 
 enum AppLocaleSetting { system, japanese, english }
 
-enum NotesListDensity { standard, compact, media }
+enum NotesListDensity { standard, compact }
 
 enum SyncProvider { off, iCloud, googleDrive }
 
@@ -2791,7 +2791,10 @@ class NotesListDensityController extends _$NotesListDensityController {
     if (stored == null || stored.isEmpty) {
       return;
     }
-    state = NotesListDensity.values.byName(stored);
+    state = NotesListDensity.values.firstWhere(
+      (density) => density.name == stored,
+      orElse: () => NotesListDensity.standard,
+    );
   }
 }
 
