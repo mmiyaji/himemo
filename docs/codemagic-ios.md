@@ -1,25 +1,28 @@
 # Codemagic iOS Build Guide
 
-このドキュメントは、Windows を主開発環境にした Flutter アプリで iOS ビルドを Codemagic に任せるときの実務メモです。HiMemo で実際に通した設定と、ハマりやすいポイントを残しています。
+このドキュメントは、Windows 主体で Flutter アプリの iOS ビルドを回すための Codemagic 設定メモです。HiMemo で実際に通した構成を整理しています。
 
 関連ファイル:
-- [C:\Users\mail\Documents\git\himemo\codemagic.yaml](C:\Users\mail\Documents\git\himemo\codemagic.yaml)
-- [C:\Users\mail\Documents\git\himemo\ios\Runner.xcodeproj\project.pbxproj](C:\Users\mail\Documents\git\himemo\ios\Runner.xcodeproj\project.pbxproj)
-- [C:\Users\mail\Documents\git\himemo\ios\Podfile](C:\Users\mail\Documents\git\himemo\ios\Podfile)
+- [codemagic.yaml](/C:/Users/mail/Documents/git/himemo/codemagic.yaml)
+- [ios/Runner.xcodeproj/project.pbxproj](/C:/Users/mail/Documents/git/himemo/ios/Runner.xcodeproj/project.pbxproj)
+- [ios/Podfile](/C:/Users/mail/Documents/git/himemo/ios/Podfile)
 
 ## 方針
 
 - iOS のローカル archive は前提にしない
-- iOS は `codemagic.yaml` を正本にする
-- app 本体と widget / extension は bundle ID と provisioning profile を分ける
-- Apple の API key は `.p8` を環境変数に手貼りするより、Codemagic UI の integration を優先する
-- 最初は `internal signed build` を通してから TestFlight に進む
+- `codemagic.yaml` を正として build 設定を repo に残す
+- app 本体と widget / extension は別 bundle id と別 profile で扱う
+- Apple API key は environment variable 直貼りより Codemagic の integration を優先する
+- 最初は internal signed build を通してから TestFlight に進む
 
-## HiMemo の前提値
+## HiMemo の識別子
 
 bundle ID:
 - app: `org.ruhenheim.himemo`
 - widget extension: `org.ruhenheim.himemo.QuickCaptureWidget`
+
+App Group:
+- `group.org.ruhenheim.himemo`
 
 Codemagic integration:
 - `Codemagic HiMemo`
@@ -30,8 +33,8 @@ workflow:
 
 ## Apple 側で必要なもの
 
-最低限必要なもの:
-- Apple Developer Program 加入
+最低限必要:
+- Apple Developer Program
 - App Store Connect API key
 - App ID
   - `org.ruhenheim.himemo`
@@ -45,36 +48,30 @@ workflow:
     - app
     - widget
 
-HiMemo ではさらに次も設定しています。
+HiMemo で追加したもの:
 - App Groups
   - `group.org.ruhenheim.himemo`
 - iCloud / CloudKit
   - CloudKit を使う場合は capability 追加後に profile を再生成する
 
-App Store Connect の app record:
+App Store Connect app record:
 - Name: `HiMemo Secure Notes`
 - Bundle ID: `org.ruhenheim.himemo`
 - Primary language: `Japanese`
 
-## Codemagic の設定
+## Codemagic 側の設定
 
-### 1. Apple integration を先に作る
+### 1. Apple integration
 
-Codemagic の `Settings > Integrations` で App Store Connect API key を登録します。
+Codemagic の UI で Apple Developer Portal integration を追加する。HiMemo では `Codemagic HiMemo` を使っている。
 
-HiMemo では:
-- Integration 名: `Codemagic HiMemo`
+理由:
+- `.p8` を env var に直接貼るより壊れにくい
+- build と publish の両方で同じ integration を使える
 
-この方式を使う理由:
-- `.p8` の PEM 形式崩れを避けやすい
-- `APP_STORE_CONNECT_PRIVATE_KEY` の改行事故を避けられる
-- signing と publishing を同じ Apple 連携へ寄せられる
+### 2. Signing
 
-### 2. Code signing identities の reference 名を固定する
-
-Codemagic UI で保存した reference 名と `codemagic.yaml` を必ず一致させます。
-
-HiMemo の reference 名:
+登録するもの:
 - certificate
   - `HiMemo Apple Distribution`
 - App Store profile
@@ -84,110 +81,62 @@ HiMemo の reference 名:
   - `HiMemo Ad Hoc`
   - `HiMemo Widget Ad Hoc`
 
-## codemagic.yaml の考え方
+### 3. Build workflow
 
-### iOS では Flutter flavor を無理に使わない
+最初に回す:
+- `ios-internal-production`
 
-Android の `--flavor production` をそのまま iOS に持ち込まない方が安全です。
-HiMemo では iOS 側に `production` scheme を作らず、entrypoint だけ production 用に切り替えています。
+目的:
+- signing
+- archive
+- IPA export
+- widget extension を含む build 成功確認
 
-使う形:
-- `-t lib/main_production.dart`
+次に回す:
+- `ios-testflight-production`
 
-外すもの:
-- `--flavor production`
+目的:
+- App Store profile で archive / export
+- App Store Connect / TestFlight upload
 
-### export options は manual profile 前提にする
+## HiMemo で実際に詰まった点
 
-`xcode-project use-profiles` で profile を解決した後に、export だけ `signingStyle: automatic` にすると IPA export で失敗しやすくなります。
+### 1. `DEVELOPMENT_TEAM`
 
-HiMemo では:
-- TestFlight: `{"method":"app-store"}`
-- Internal: `{"method":"ad-hoc"}`
+Codemagic の code signing step では Xcode project に Team ID が入っていないと失敗しやすい。HiMemo では `project.pbxproj` に Team ID `B8LGAS7YHH` を入れている。
 
-にしています。
+### 2. BOM 付き `project.pbxproj`
 
-### publishing は integration 認証に寄せる
+UTF-8 BOM が入ると Codemagic の `xcode-project use-profiles` が Xcode project として読めず失敗する。`project.pbxproj` は BOM なしで保存する。
 
-HiMemo では:
-- `integrations.app_store_connect: Codemagic HiMemo`
-- `publishing.app_store_connect.auth: integration`
+### 3. profile reference 名
 
-を使っています。
+`codemagic.yaml` 側の profile reference は、Codemagic UI に登録した名前と一致している必要がある。
 
-## 実際にハマったポイント
+### 4. `--flavor` 指定
 
-### 1. `project.pbxproj` の BOM
+iOS の Xcode scheme が `Runner` ベースなら、Flutter の `--flavor production` は不要なことがある。HiMemo では iOS build から `--flavor production` を外し、entrypoint だけ `lib/main_production.dart` にしている。
 
-症状:
-- `Invalid character "\xEF"`
-- `... is not a valid Xcode project`
+### 5. iOS 17 `#Preview`
 
-原因:
-- `ios/Runner.xcodeproj/project.pbxproj` の先頭に UTF-8 BOM が入っていた
+Widget extension 内の `#Preview` は archive で落ちる場合がある。古い deployment target と混ざるなら削除する。
 
-対策:
-- BOM を除去する
+### 6. export 時の signing
 
-### 2. `DEVELOPMENT_TEAM` 未設定
+archive が通っても `exportArchive No profiles were found` で落ちることがある。HiMemo では `signingStyle: automatic` を外し、Codemagic が解決した profile を使う形に寄せた。
 
-症状:
-- `Failed to set code signing settings for ios/Runner.xcodeproj`
+## 推奨確認順
 
-原因:
-- project に team id が入っていない
+1. internal signed build
+2. IPA artifact の生成確認
+3. TestFlight workflow
+4. 実機インストール
+5. widget / iCloud / private profile の smoke test
 
-HiMemo の team id:
-- `B8LGAS7YHH`
+## 公開前に確認するもの
 
-### 3. Widget の `#Preview`
-
-症状:
-- `Preview(_:as:widget:timeline:) is only available in iOS 17.0 or newer`
-
-原因:
-- deployment target が低いのに iOS 17 preview を含めていた
-
-対策:
-- preview を削除する
-
-### 4. profile の reference 名不一致
-
-症状:
-- `No provisioning profile with reference ... were found`
-
-原因:
-- Codemagic UI の profile 名と `codemagic.yaml` の参照名が違う
-
-対策:
-- reference 名を UI に合わせる
-
-### 5. `.p8` を環境変数へ直接入れて publish 失敗
-
-症状:
-- `Provided value is not a valid PEM encoded private key`
-
-原因:
-- `.p8` の改行や PEM 形式を env var で壊した
-
-対策:
-- UI integration に寄せる
-
-## 推奨の確認順
-
-1. `ios-internal-production`
-2. archive と export が通ることを確認
-3. widget extension を含めて IPA ができることを確認
-4. `ios-testflight-production`
-5. App Store Connect upload
-6. TestFlight で実機確認
-
-## 他の Flutter アプリでも使えるルール
-
-- iOS CI は YAML を正本にする
-- app / extension / notification service は bundle ID と profile を分ける
-- API key は UI integration を優先する
-- capability を増やしたら profile を再生成する
-- Xcode project は UTF-8 BOM を入れない
-- Android flavor と iOS scheme は別概念として扱う
-- まず internal build、次に TestFlight の順で切り分ける
+- app record が App Store Connect にある
+- bundle id が app / widget ともに一致している
+- profile が capability 追加後の最新状態で再生成されている
+- TestFlight build が処理完了する
+- 実機で起動、widget、private profile、同期が最低限動く
