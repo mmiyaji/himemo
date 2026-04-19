@@ -1,0 +1,13 @@
+appId: org.ruhenheim.himemo.dev
+---
+- launchApp:
+    clearState: true
+- runFlow: subflows/complete_onboarding.yaml
+- assertVisible: "HiMemo"
+- tapOn: "(Calendar|カレンダー)"
+- assertVisible: "(Review notes grouped by day|日付ごとにノートを振り返り)"
+- tapOn: "(Settings|設定)"
+- assertVisible: "(Private profiles|プライベートプロファイル)"
+- assertVisible: "(App security|アプリ保護)"
+- tapOn: "(Notes|ノート)"
+- assertVisible: "HiMemo"

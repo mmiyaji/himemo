@@ -1,0 +1,40 @@
+{
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default"
+    }
+  ],
+  "flutter": {
+    "platforms": {
+      "android": {
+        "buildConfigurations": {
+          "src\\production": {
+            "projectId": "himemo-app-2026",
+            "appId": "1:247004759100:android:731ee95cea0c3193ff6f39",
+            "fileOutput": "android/app/src/production/google-services.json"
+          },
+          "src\\development": {
+            "projectId": "himemo-app-2026",
+            "appId": "1:247004759100:android:1c6a0a7dd6b88d35ff6f39",
+            "fileOutput": "android/app/src/development/google-services.json"
+          }
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "himemo-app-2026",
+          "configurations": {
+            "android": "1:247004759100:android:731ee95cea0c3193ff6f39"
+          }
+        },
+        "lib/firebase_options_development.dart": {
+          "projectId": "himemo-app-2026",
+          "configurations": {
+            "android": "1:247004759100:android:1c6a0a7dd6b88d35ff6f39"
+          }
+        }
+      }
+    }
+  }
+}

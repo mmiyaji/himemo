@@ -83,7 +83,7 @@ final class ThemeModeControllerProvider
 }
 
 String _$themeModeControllerHash() =>
-    r'62c597dfc68f82ca7d99a431f420a9846ff92658';
+    r'edde557ac82fa3bdcba52e8465098fd74e3422cc';
 
 abstract class _$ThemeModeController extends $Notifier<ThemeMode> {
   ThemeMode build();
@@ -102,6 +102,171 @@ abstract class _$ThemeModeController extends $Notifier<ThemeMode> {
     element.handleCreate(ref, build);
   }
 }
+
+@ProviderFor(WidgetQuickCaptureSettingsController)
+final widgetQuickCaptureSettingsControllerProvider =
+    WidgetQuickCaptureSettingsControllerProvider._();
+
+final class WidgetQuickCaptureSettingsControllerProvider
+    extends $NotifierProvider<WidgetQuickCaptureSettingsController, bool> {
+  WidgetQuickCaptureSettingsControllerProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'widgetQuickCaptureSettingsControllerProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() =>
+      _$widgetQuickCaptureSettingsControllerHash();
+
+  @$internal
+  @override
+  WidgetQuickCaptureSettingsController create() =>
+      WidgetQuickCaptureSettingsController();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(bool value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<bool>(value),
+    );
+  }
+}
+
+String _$widgetQuickCaptureSettingsControllerHash() =>
+    r'8d5f4dd6def5256df5ac081fb5c61259aee6efb3';
+
+abstract class _$WidgetQuickCaptureSettingsController extends $Notifier<bool> {
+  bool build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<bool, bool>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<bool, bool>,
+              bool,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
+@ProviderFor(WidgetQuickCaptureRequestController)
+final widgetQuickCaptureRequestControllerProvider =
+    WidgetQuickCaptureRequestControllerProvider._();
+
+final class WidgetQuickCaptureRequestControllerProvider
+    extends
+        $NotifierProvider<
+          WidgetQuickCaptureRequestController,
+          QuickCaptureRequest?
+        > {
+  WidgetQuickCaptureRequestControllerProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'widgetQuickCaptureRequestControllerProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() =>
+      _$widgetQuickCaptureRequestControllerHash();
+
+  @$internal
+  @override
+  WidgetQuickCaptureRequestController create() =>
+      WidgetQuickCaptureRequestController();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(QuickCaptureRequest? value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<QuickCaptureRequest?>(value),
+    );
+  }
+}
+
+String _$widgetQuickCaptureRequestControllerHash() =>
+    r'0e0943731fee378b16f9f9780ff1e93622455d98';
+
+abstract class _$WidgetQuickCaptureRequestController
+    extends $Notifier<QuickCaptureRequest?> {
+  QuickCaptureRequest? build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<QuickCaptureRequest?, QuickCaptureRequest?>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<QuickCaptureRequest?, QuickCaptureRequest?>,
+              QuickCaptureRequest?,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
+@ProviderFor(widgetQuickCaptureBridge)
+final widgetQuickCaptureBridgeProvider = WidgetQuickCaptureBridgeProvider._();
+
+final class WidgetQuickCaptureBridgeProvider
+    extends
+        $FunctionalProvider<
+          WidgetQuickCaptureBridge,
+          WidgetQuickCaptureBridge,
+          WidgetQuickCaptureBridge
+        >
+    with $Provider<WidgetQuickCaptureBridge> {
+  WidgetQuickCaptureBridgeProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'widgetQuickCaptureBridgeProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$widgetQuickCaptureBridgeHash();
+
+  @$internal
+  @override
+  $ProviderElement<WidgetQuickCaptureBridge> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  WidgetQuickCaptureBridge create(Ref ref) {
+    return widgetQuickCaptureBridge(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(WidgetQuickCaptureBridge value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<WidgetQuickCaptureBridge>(value),
+    );
+  }
+}
+
+String _$widgetQuickCaptureBridgeHash() =>
+    r'11395e86315d7e676b712bda2a12f6532d5b3f29';
 
 @ProviderFor(ActiveIdentity)
 final activeIdentityProvider = ActiveIdentityProvider._();
@@ -135,7 +300,7 @@ final class ActiveIdentityProvider
   }
 }
 
-String _$activeIdentityHash() => r'5749aa82c3fcf1f586465d1fa0add4f0ae317c11';
+String _$activeIdentityHash() => r'033c86b481da0b3bb2dc8c997b240e776e09d458';
 
 abstract class _$ActiveIdentity extends $Notifier<String> {
   String build();
@@ -148,6 +313,225 @@ abstract class _$ActiveIdentity extends $Notifier<String> {
             as $ClassProviderElement<
               AnyNotifier<String, String>,
               String,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
+@ProviderFor(SearchQuery)
+final searchQueryProvider = SearchQueryProvider._();
+
+final class SearchQueryProvider extends $NotifierProvider<SearchQuery, String> {
+  SearchQueryProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'searchQueryProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$searchQueryHash();
+
+  @$internal
+  @override
+  SearchQuery create() => SearchQuery();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(String value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<String>(value),
+    );
+  }
+}
+
+String _$searchQueryHash() => r'0fa228511ddd8c322643e29f0040d15dd9c2b8d9';
+
+abstract class _$SearchQuery extends $Notifier<String> {
+  String build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<String, String>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<String, String>,
+              String,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
+@ProviderFor(NotesListDensityController)
+final notesListDensityControllerProvider =
+    NotesListDensityControllerProvider._();
+
+final class NotesListDensityControllerProvider
+    extends $NotifierProvider<NotesListDensityController, NotesListDensity> {
+  NotesListDensityControllerProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'notesListDensityControllerProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$notesListDensityControllerHash();
+
+  @$internal
+  @override
+  NotesListDensityController create() => NotesListDensityController();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(NotesListDensity value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<NotesListDensity>(value),
+    );
+  }
+}
+
+String _$notesListDensityControllerHash() =>
+    r'4a0ab978c67ae2fb498c62be83d24c9084687b9f';
+
+abstract class _$NotesListDensityController
+    extends $Notifier<NotesListDensity> {
+  NotesListDensity build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<NotesListDensity, NotesListDensity>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<NotesListDensity, NotesListDensity>,
+              NotesListDensity,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
+@ProviderFor(LastNoteEditorSettingsController)
+final lastNoteEditorSettingsControllerProvider =
+    LastNoteEditorSettingsControllerProvider._();
+
+final class LastNoteEditorSettingsControllerProvider
+    extends
+        $NotifierProvider<
+          LastNoteEditorSettingsController,
+          LastNoteEditorSettings
+        > {
+  LastNoteEditorSettingsControllerProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'lastNoteEditorSettingsControllerProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$lastNoteEditorSettingsControllerHash();
+
+  @$internal
+  @override
+  LastNoteEditorSettingsController create() =>
+      LastNoteEditorSettingsController();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(LastNoteEditorSettings value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<LastNoteEditorSettings>(value),
+    );
+  }
+}
+
+String _$lastNoteEditorSettingsControllerHash() =>
+    r'58e05d87cec62f830d88ba5835a8f120a9243a18';
+
+abstract class _$LastNoteEditorSettingsController
+    extends $Notifier<LastNoteEditorSettings> {
+  LastNoteEditorSettings build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref =
+        this.ref as $Ref<LastNoteEditorSettings, LastNoteEditorSettings>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<LastNoteEditorSettings, LastNoteEditorSettings>,
+              LastNoteEditorSettings,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
+@ProviderFor(NotesController)
+final notesControllerProvider = NotesControllerProvider._();
+
+final class NotesControllerProvider
+    extends $NotifierProvider<NotesController, List<NoteEntry>> {
+  NotesControllerProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'notesControllerProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$notesControllerHash();
+
+  @$internal
+  @override
+  NotesController create() => NotesController();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(List<NoteEntry> value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<List<NoteEntry>>(value),
+    );
+  }
+}
+
+String _$notesControllerHash() => r'ef205fdad0329adf552900289bb2694d8dcb8041';
+
+abstract class _$NotesController extends $Notifier<List<NoteEntry>> {
+  List<NoteEntry> build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<List<NoteEntry>, List<NoteEntry>>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<List<NoteEntry>, List<NoteEntry>>,
+              List<NoteEntry>,
               Object?,
               Object?
             >;
@@ -336,7 +720,7 @@ final class VisibleVaultsProvider
   }
 }
 
-String _$visibleVaultsHash() => r'e0daa9a90ac3b7d952c9757ebf31be5219892ba5';
+String _$visibleVaultsHash() => r'cd72d7281f498471af92dec611cea16c0ab92c3e';
 
 @ProviderFor(visibleNotes)
 final visibleNotesProvider = VisibleNotesProvider._();
@@ -378,7 +762,7 @@ final class VisibleNotesProvider
   }
 }
 
-String _$visibleNotesHash() => r'6bd731db560f397fb5a16cdbd2e158a38bf0c14e';
+String _$visibleNotesHash() => r'd53ea7fc754a7f3f259e697b1039d67801f5d9d3';
 
 @ProviderFor(notesForVault)
 final notesForVaultProvider = NotesForVaultFamily._();
@@ -457,6 +841,48 @@ final class NotesForVaultFamily extends $Family
   @override
   String toString() => r'notesForVaultProvider';
 }
+
+@ProviderFor(selectedSyncAuthState)
+final selectedSyncAuthStateProvider = SelectedSyncAuthStateProvider._();
+
+final class SelectedSyncAuthStateProvider
+    extends $FunctionalProvider<SyncAuthState, SyncAuthState, SyncAuthState>
+    with $Provider<SyncAuthState> {
+  SelectedSyncAuthStateProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'selectedSyncAuthStateProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$selectedSyncAuthStateHash();
+
+  @$internal
+  @override
+  $ProviderElement<SyncAuthState> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  SyncAuthState create(Ref ref) {
+    return selectedSyncAuthState(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(SyncAuthState value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<SyncAuthState>(value),
+    );
+  }
+}
+
+String _$selectedSyncAuthStateHash() =>
+    r'35f5290140c6d298be03ec709cda2a043ed29d47';
 
 @ProviderFor(vaultById)
 final vaultByIdProvider = VaultByIdFamily._();

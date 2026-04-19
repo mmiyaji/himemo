@@ -1,0 +1,86 @@
+{
+  "project_info": {
+    "project_number": "247004759100",
+    "project_id": "himemo-app-2026",
+    "storage_bucket": "himemo-app-2026.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:247004759100:android:94bbb6b373249326ff6f39",
+        "android_client_info": {
+          "package_name": "dev.minamo.himemo.himemo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB894eFu8JOX588NQ7Z7Up6lqxkD_BaDLs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:247004759100:android:44bce3c670ece4eaff6f39",
+        "android_client_info": {
+          "package_name": "dev.minamo.himemo.himemo.dev"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB894eFu8JOX588NQ7Z7Up6lqxkD_BaDLs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:247004759100:android:731ee95cea0c3193ff6f39",
+        "android_client_info": {
+          "package_name": "org.ruhenheim.himemo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB894eFu8JOX588NQ7Z7Up6lqxkD_BaDLs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:247004759100:android:1c6a0a7dd6b88d35ff6f39",
+        "android_client_info": {
+          "package_name": "org.ruhenheim.himemo.dev"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB894eFu8JOX588NQ7Z7Up6lqxkD_BaDLs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
