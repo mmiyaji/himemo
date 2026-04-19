@@ -147,6 +147,10 @@ class AppShell extends ConsumerWidget {
     final currentSection = _sectionForLocation(GoRouterState.of(context).uri.path);
     if (currentSection == AppSection.notes && section != AppSection.notes) {
       ref.read(selectedNoteIdProvider.notifier).select(null);
+      final rootNavigator = Navigator.of(context, rootNavigator: true);
+      if (rootNavigator.canPop()) {
+        rootNavigator.pop();
+      }
     }
     switch (section) {
       case AppSection.notes:
@@ -3075,9 +3079,32 @@ class SettingsScreen extends ConsumerWidget {
                     key: syncConnectKey,
                     onPressed: syncAuthState.stage == SyncAuthStage.busy
                         ? null
-                        : () => ref
-                              .read(syncAuthControllerProvider.notifier)
-                              .connectSelected(),
+                        : () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            try {
+                              await ref
+                                  .read(syncAuthControllerProvider.notifier)
+                                  .connectSelected();
+                              if (!context.mounted) {
+                                return;
+                              }
+                              final message = ref
+                                  .read(syncAuthControllerProvider)[syncProvider]
+                                  ?.message;
+                              if (message != null && message.isNotEmpty) {
+                                messenger.showSnackBar(
+                                  SnackBar(content: Text(message)),
+                                );
+                              }
+                            } catch (error) {
+                              if (!context.mounted) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(content: Text('$error')),
+                              );
+                            }
+                          },
                     child: Text(
                       syncAuthState.isAuthenticated
                           ? (strings.isJapanese ? '再接続' : 'Reconnect')
@@ -3098,21 +3125,31 @@ class SettingsScreen extends ConsumerWidget {
                   onPressed: syncTransferState.isBusy
                       ? null
                       : () async {
-                          await ref
-                              .read(syncTransferControllerProvider.notifier)
-                              .refreshRemoteStatus();
-                          if (!context.mounted) {
-                            return;
+                          final messenger = ScaffoldMessenger.of(context);
+                          try {
+                            await ref
+                                .read(syncTransferControllerProvider.notifier)
+                                .refreshRemoteStatus();
+                            if (!context.mounted) {
+                              return;
+                            }
+                            final message = ref
+                                .read(syncTransferControllerProvider)
+                                .message;
+                            if (message == null || message.isEmpty) {
+                              return;
+                            }
+                            messenger.showSnackBar(
+                              SnackBar(content: Text(message)),
+                            );
+                          } catch (error) {
+                            if (!context.mounted) {
+                              return;
+                            }
+                            messenger.showSnackBar(
+                              SnackBar(content: Text('$error')),
+                            );
                           }
-                          final message = ref
-                              .read(syncTransferControllerProvider)
-                              .message;
-                          if (message == null || message.isEmpty) {
-                            return;
-                          }
-                          ScaffoldMessenger.of(
-                            context,
-                          ).showSnackBar(SnackBar(content: Text(message)));
                         },
                   child: Text(strings.isJapanese ? 'リモートを更新' : 'Refresh remote'),
                 ),
@@ -3124,21 +3161,31 @@ class SettingsScreen extends ConsumerWidget {
                         syncTransferState.isBusy || syncConflictWarning != null
                         ? null
                         : () async {
-                            await ref
-                                .read(syncTransferControllerProvider.notifier)
-                                .uploadCurrentBundle();
-                            if (!context.mounted) {
-                              return;
+                            final messenger = ScaffoldMessenger.of(context);
+                            try {
+                              await ref
+                                  .read(syncTransferControllerProvider.notifier)
+                                  .uploadCurrentBundle();
+                              if (!context.mounted) {
+                                return;
+                              }
+                              final message = ref
+                                  .read(syncTransferControllerProvider)
+                                  .message;
+                              if (message == null || message.isEmpty) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(content: Text(message)),
+                              );
+                            } catch (error) {
+                              if (!context.mounted) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(content: Text('$error')),
+                              );
                             }
-                            final message = ref
-                                .read(syncTransferControllerProvider)
-                                .message;
-                            if (message == null || message.isEmpty) {
-                              return;
-                            }
-                            ScaffoldMessenger.of(
-                              context,
-                            ).showSnackBar(SnackBar(content: Text(message)));
                           },
                     child: Text(
                       strings.isJapanese
@@ -3153,6 +3200,7 @@ class SettingsScreen extends ConsumerWidget {
                     onPressed: syncTransferState.isBusy
                         ? null
                         : () async {
+                            final messenger = ScaffoldMessenger.of(context);
                             final shouldForce =
                                 await showDialog<bool>(
                                   context: context,
@@ -3203,9 +3251,9 @@ class SettingsScreen extends ConsumerWidget {
                             if (message == null || message.isEmpty) {
                               return;
                             }
-                            ScaffoldMessenger.of(
-                              context,
-                            ).showSnackBar(SnackBar(content: Text(message)));
+                            messenger.showSnackBar(
+                              SnackBar(content: Text(message)),
+                            );
                           },
                     child: Text(
                       strings.isJapanese
@@ -3300,21 +3348,31 @@ class SettingsScreen extends ConsumerWidget {
                     onPressed: syncTransferState.isBusy
                         ? null
                         : () async {
-                            await ref
-                                .read(syncTransferControllerProvider.notifier)
-                                .downloadLatestBundle();
-                            if (!context.mounted) {
-                              return;
+                            final messenger = ScaffoldMessenger.of(context);
+                            try {
+                              await ref
+                                  .read(syncTransferControllerProvider.notifier)
+                                  .downloadLatestBundle();
+                              if (!context.mounted) {
+                                return;
+                              }
+                              final message = ref
+                                  .read(syncTransferControllerProvider)
+                                  .message;
+                              if (message == null || message.isEmpty) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(content: Text(message)),
+                              );
+                            } catch (error) {
+                              if (!context.mounted) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(content: Text('$error')),
+                              );
                             }
-                            final message = ref
-                                .read(syncTransferControllerProvider)
-                                .message;
-                            if (message == null || message.isEmpty) {
-                              return;
-                            }
-                            ScaffoldMessenger.of(
-                              context,
-                            ).showSnackBar(SnackBar(content: Text(message)));
                           },
                     child: Text(
                       strings.isJapanese
@@ -6143,24 +6201,39 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                               if (!kIsWeb)
                                 PopupMenuItem(
                                   value: MediaImportAction.takePhoto,
-                                  child: Text(strings.takePhoto),
+                                  child: _MediaMenuEntry(
+                                    icon: Icons.photo_camera_outlined,
+                                    label: strings.takePhoto,
+                                  ),
                                 ),
                               PopupMenuItem(
                                 value: MediaImportAction.pickPhoto,
-                                child: Text(strings.pickPhoto),
+                                child: _MediaMenuEntry(
+                                  icon: Icons.photo_library_outlined,
+                                  label: strings.pickPhoto,
+                                ),
                               ),
                               if (!kIsWeb)
                                 PopupMenuItem(
                                   value: MediaImportAction.recordVideo,
-                                  child: Text(strings.recordVideo),
+                                  child: _MediaMenuEntry(
+                                    icon: Icons.videocam_outlined,
+                                    label: strings.recordVideo,
+                                  ),
                                 ),
                               PopupMenuItem(
                                 value: MediaImportAction.pickVideo,
-                                child: Text(strings.pickVideo),
+                                child: _MediaMenuEntry(
+                                  icon: Icons.video_library_outlined,
+                                  label: strings.pickVideo,
+                                ),
                               ),
                               PopupMenuItem(
                                 value: MediaImportAction.pickAudio,
-                                child: Text(strings.pickAudio),
+                                child: _MediaMenuEntry(
+                                  icon: Icons.graphic_eq_rounded,
+                                  label: strings.pickAudio,
+                                ),
                               ),
                             ],
                           ),
@@ -7014,6 +7087,25 @@ class _RichBlockEditorTile extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _MediaMenuEntry extends StatelessWidget {
+  const _MediaMenuEntry({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
+        const SizedBox(width: 12),
+        Flexible(child: Text(label)),
+      ],
     );
   }
 }

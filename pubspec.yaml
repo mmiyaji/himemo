@@ -69,7 +69,6 @@ dependencies:
   path: ^1.9.1
   share_plus: ^10.1.4
   firebase_app_check: ^0.4.3
-  no_screenshot: ^1.1.0
 
 dev_dependencies:
   flutter_test:

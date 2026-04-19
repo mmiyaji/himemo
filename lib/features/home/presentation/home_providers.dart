@@ -882,24 +882,33 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
       );
     }
 
-    final status = await MethodChannelICloudSyncTransport().checkAccountStatus();
-    if (status.isAvailable) {
-      return const SyncAuthState(
+    try {
+      final status = await MethodChannelICloudSyncTransport()
+          .checkAccountStatus();
+      if (status.isAvailable) {
+        return const SyncAuthState(
+          provider: SyncProvider.iCloud,
+          stage: SyncAuthStage.authenticated,
+          displayName: 'iCloud',
+        );
+      }
+
+      final stage = switch (status.availability) {
+        ICloudAccountAvailability.unsupported => SyncAuthStage.unsupported,
+        _ => SyncAuthStage.error,
+      };
+      return SyncAuthState(
         provider: SyncProvider.iCloud,
-        stage: SyncAuthStage.authenticated,
-        displayName: 'iCloud',
+        stage: stage,
+        message: status.message,
+      );
+    } catch (error) {
+      return SyncAuthState(
+        provider: SyncProvider.iCloud,
+        stage: SyncAuthStage.error,
+        message: '$error',
       );
     }
-
-    final stage = switch (status.availability) {
-      ICloudAccountAvailability.unsupported => SyncAuthStage.unsupported,
-      _ => SyncAuthStage.error,
-    };
-    return SyncAuthState(
-      provider: SyncProvider.iCloud,
-      stage: stage,
-      message: status.message,
-    );
   }
 }
 

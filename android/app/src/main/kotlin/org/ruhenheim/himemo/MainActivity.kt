@@ -2,6 +2,7 @@ package org.ruhenheim.himemo
 
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.view.WindowManager
 import android.util.Base64
 import com.google.android.play.core.integrity.IntegrityManagerFactory
 import com.google.android.play.core.integrity.IntegrityTokenRequest
@@ -15,10 +16,12 @@ class MainActivity : FlutterFragmentActivity() {
         private const val ACTION_SEND = Intent.ACTION_SEND
         private const val WIDGET_CHANNEL = "org.ruhenheim.himemo/widget"
         private const val INTEGRITY_CHANNEL = "org.ruhenheim.himemo/integrity"
+        private const val PRIVACY_CHANNEL = "org.ruhenheim.himemo/privacy"
     }
 
     private var widgetChannel: MethodChannel? = null
     private var integrityChannel: MethodChannel? = null
+    private var privacyChannel: MethodChannel? = null
 
     override fun getInitialRoute(): String? {
         return if (shouldOpenQuickCapture(intent)) {
@@ -32,6 +35,7 @@ class MainActivity : FlutterFragmentActivity() {
         super.configureFlutterEngine(flutterEngine)
         widgetChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WIDGET_CHANNEL)
         integrityChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, INTEGRITY_CHANNEL)
+        privacyChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PRIVACY_CHANNEL)
         integrityChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "checkAvailability" -> result.success(buildIntegrityAvailability())
@@ -42,6 +46,16 @@ class MainActivity : FlutterFragmentActivity() {
                         return@setMethodCallHandler
                     }
                     requestIntegrityToken(requestHash, result)
+                }
+                else -> result.notImplemented()
+            }
+        }
+        privacyChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "setProtected" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    setPrivacyProtected(enabled)
+                    result.success(null)
                 }
                 else -> result.notImplemented()
             }
@@ -124,5 +138,15 @@ class MainActivity : FlutterFragmentActivity() {
                     error.javaClass.simpleName,
                 )
             }
+    }
+
+    private fun setPrivacyProtected(enabled: Boolean) {
+        runOnUiThread {
+            if (enabled) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            } else {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
     }
 }

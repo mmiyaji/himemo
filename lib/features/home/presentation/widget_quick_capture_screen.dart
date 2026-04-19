@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../l10n/app_strings.dart';
 import '../domain/vault_models.dart';
@@ -125,22 +126,40 @@ class _WidgetQuickCaptureScreenState
     setState(() {
       _saving = true;
     });
-    await ref
-        .read(notesControllerProvider.notifier)
-        .createWidgetQuickCapture(text);
-    ref.read(widgetQuickCaptureRequestControllerProvider.notifier).clear();
-    if (!mounted) {
-      return;
+    try {
+      await ref
+          .read(notesControllerProvider.notifier)
+          .createWidgetQuickCapture(text);
+      ref.read(widgetQuickCaptureRequestControllerProvider.notifier).clear();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.strings.quickMemoSaved)),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      _close();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(context.strings.quickMemoSaved)),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 250));
-    _close();
   }
 
   void _close() {
     ref.read(widgetQuickCaptureRequestControllerProvider.notifier).clear();
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+    final router = GoRouter.maybeOf(context);
+    if (router != null) {
+      router.go('/notes');
+      return;
+    }
     SystemNavigator.pop();
   }
 }
