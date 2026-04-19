@@ -161,8 +161,8 @@ class AppStrings {
       ? 'プライベート領域を分ける'
       : 'Separate private access';
   String get onboardingPrivateBody => isJapanese
-      ? 'アプリの起動ロックと、プライベートプロファイルを開く操作は分かれています。ダミー用と本命用を別パスワードで使い分けられます。'
-      : 'Unlocking the app and opening private profiles are separate steps. You can keep decoy and sensitive notes behind different passwords.';
+      ? 'アプリの起動ロックとは別に、複数のプロファイルを個別のパスワードで管理できます。必要なプロファイルだけをその場で開けます。'
+      : 'App unlock stays separate from profile access. You can manage multiple profiles with different passwords and open only the one you need.';
   String get onboardingPrivateImageLabel => isJapanese
       ? 'プライベートプロファイル解錠のプレビュー'
       : 'Private vault unlock preview';
@@ -210,8 +210,8 @@ class AppStrings {
       ? '$count 件のプライベートプロファイルが登録されています。'
       : '$count private profiles are configured.';
   String get onboardingPrivateProfilesBody => isJapanese
-      ? '鍵アイコンから各プロファイルを開けます。カバー用と本命用を分けて使う前提です。'
-      : 'Open each profile from the key icon. This supports both cover and truly private profiles.';
+      ? '鍵アイコンから、入力したパスワードに合うプロファイルだけを開けます。用途ごとに分けて管理する前提です。'
+      : 'Use the key icon to open only the profile that matches the entered password. This works well for keeping different spaces under separate locks.';
   String get onboardingAddInSettings =>
       isJapanese ? '設定で追加' : 'Add in Settings';
   String get onboardingCloudSyncTitle =>
@@ -219,6 +219,39 @@ class AppStrings {
   String get onboardingCloudSyncBody => isJapanese
       ? 'iCloud や Google Drive への同期は、あとから設定で有効化できます。最初はオフラインのまま始められます。'
       : 'Enable iCloud or Google Drive later in Settings. You can start as an offline-first memo app.';
+
+  String get privateProfilesSettingsTitle =>
+      isJapanese ? 'プライベートプロファイル' : 'Private profiles';
+  String get privateProfilesSettingsAdminSummary => isJapanese
+      ? '管理者モードでは、登録されているすべてのプロファイルを確認できます。'
+      : 'Admin mode lets you review every configured profile.';
+  String privateProfilesSettingsActiveSummary(String profileName) => isJapanese
+      ? '現在は「$profileName」を表示しています。'
+      : 'Currently viewing "$profileName".';
+  String get privateProfilesSettingsDefaultSummary => isJapanese
+      ? '通常は Daily Notes だけを表示し、必要なときだけ別のプロファイルを開きます。'
+      : 'Daily Notes stays visible by default. Open another profile only when you need it.';
+  String get privateProfilesSettingsBody => isJapanese
+      ? '右上の鍵アイコンからパスワードを入力すると、一致するプロファイルだけを開けます。プロファイルごとに別のロックを設定できます。'
+      : 'Enter a password from the key icon in the top bar to open only the matching profile. Each profile can have its own lock.';
+  String get addPrivateProfile => isJapanese ? 'プロファイルを追加' : 'Add profile';
+  String get adminModeActiveLabel =>
+      isJapanese ? '管理者モード中' : 'Admin mode active';
+  String get enterAdminModeLabel =>
+      isJapanese ? '管理者モードへ移行' : 'Enter admin mode';
+  String get exitAdminModeLabel =>
+      isJapanese ? '管理者モードを終了' : 'Exit admin mode';
+  String get noPrivateProfilesMessage =>
+      isJapanese ? 'まだプライベートプロファイルはありません。' : 'No private profiles yet.';
+  String get setAlternateProfilePassword => isJapanese
+      ? '別プロファイル用パスワードを設定'
+      : 'Set alternate profile password';
+  String get changeAlternateProfilePassword => isJapanese
+      ? '別プロファイル用パスワードを変更'
+      : 'Change alternate profile password';
+  String get resetAlternateProfilePassword => isJapanese
+      ? '別プロファイル用パスワードをリセット'
+      : 'Reset alternate profile password';
 
   String get skip => isJapanese ? 'スキップ' : 'Skip';
   String get next => isJapanese ? '次へ' : 'Next';

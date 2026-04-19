@@ -1733,12 +1733,15 @@ class SettingsScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
   ) async {
+    final strings = context.strings;
     final secret = await _showSecretSetupDialog(
       context,
-      title: 'Set cover key',
-      label: 'Cover key',
-      confirmLabel: 'Confirm cover key',
-      helperText: 'Use this key to open the alternate everyday view.',
+      title: strings.setAlternateProfilePassword,
+      label: strings.isJapanese ? '別プロファイル用パスワード' : 'Alternate profile password',
+      confirmLabel: strings.isJapanese ? '別プロファイル用パスワードを確認' : 'Confirm alternate profile password',
+      helperText: strings.isJapanese
+          ? '通常の表示とは別のプロファイルへ切り替えるためのパスワードです。'
+          : 'Use this password to switch to a different everyday profile.',
     );
     if (secret == null) {
       return;
@@ -1749,7 +1752,15 @@ class SettingsScreen extends ConsumerWidget {
     if (context.mounted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Cover key saved.')));
+      ).showSnackBar(
+        SnackBar(
+          content: Text(
+            strings.isJapanese
+                ? '別プロファイル用パスワードを保存しました。'
+                : 'Alternate profile password saved.',
+          ),
+        ),
+      );
     }
   }
 
@@ -1757,21 +1768,24 @@ class SettingsScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
   ) async {
+    final strings = context.strings;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Reset cover key'),
-        content: const Text(
-          'This removes the configured cover key for alternate mode access.',
+        title: Text(strings.resetAlternateProfilePassword),
+        content: Text(
+          strings.isJapanese
+              ? '別プロファイル用に設定したパスワードを削除します。'
+              : 'This removes the configured password for the alternate profile.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: Text(strings.cancel),
           ),
           FilledButton.tonal(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Reset'),
+            child: Text(strings.isJapanese ? 'リセット' : 'Reset'),
           ),
         ],
       ),
@@ -2134,25 +2148,17 @@ class SettingsScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _SettingsGroup(
-          title: strings.isJapanese ? 'プライベートプロファイル' : 'Private profiles',
+          title: strings.privateProfilesSettingsTitle,
           summary: adminMode
-              ? (strings.isJapanese
-                    ? '管理者モードで全プロファイルを表示しています。'
-                    : 'Admin mode is showing all private profiles.')
+              ? strings.privateProfilesSettingsAdminSummary
               : (activePrivateProfileLabel != null
-                    ? (strings.isJapanese
-                          ? '$activePrivateProfileLabel を表示中です。'
-                          : 'Currently viewing $activePrivateProfileLabel.')
-                    : (strings.isJapanese
-                          ? '通常は Daily Notes のみを表示し、必要なときだけ別プロファイルを開きます。'
-                          : 'Daily Notes stays visible by default. Unlock another profile only when needed.')),
+                    ? strings.privateProfilesSettingsActiveSummary(activePrivateProfileLabel)
+                    : strings.privateProfilesSettingsDefaultSummary),
           assetPath: 'assets/settings/security.svg',
           initiallyExpanded: true,
           children: [
             Text(
-              strings.isJapanese
-                  ? '右上の鍵アイコンにパスワードを入れると、一致するプロファイルだけ開きます。'
-                  : 'Use the key icon in the app bar to unlock whichever profile matches the entered password.',
+              strings.privateProfilesSettingsBody,
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
@@ -2165,19 +2171,15 @@ class SettingsScreen extends ConsumerWidget {
                 FilledButton.tonal(
                   key: privateProfileAddKey,
                   onPressed: () => _showAddPrivateProfileDialog(context, ref),
-                  child: Text(
-                    strings.isJapanese
-                        ? 'プロファイルを追加'
-                        : 'Add profile',
-                  ),
+                  child: Text(strings.addPrivateProfile),
                 ),
                 FilledButton.tonal(
                   key: privateProfileAdminModeKey,
                   onPressed: adminMode ? null : () => _enterAdminMode(context, ref),
                   child: Text(
                     adminMode
-                        ? (strings.isJapanese ? '管理者モード中' : 'Admin mode active')
-                        : (strings.isJapanese ? '管理者モードへ移行' : 'Enter admin mode'),
+                        ? strings.adminModeActiveLabel
+                        : strings.enterAdminModeLabel,
                   ),
                 ),
                 if (adminMode)
@@ -2186,16 +2188,14 @@ class SettingsScreen extends ConsumerWidget {
                     onPressed: () => ref
                         .read(adminModeSessionControllerProvider.notifier)
                         .lock(),
-                    child: Text(strings.isJapanese ? '管理者モードを終了' : 'Exit admin mode'),
+                    child: Text(strings.exitAdminModeLabel),
                   ),
               ],
             ),
             const SizedBox(height: 12),
             if (privateProfiles.isEmpty)
               Text(
-                strings.isJapanese
-                    ? 'まだプライベートプロファイルはありません。'
-                    : 'No private profiles yet.',
+                strings.noPrivateProfilesMessage,
                 style: Theme.of(
                   context,
                 ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
@@ -2291,8 +2291,8 @@ class SettingsScreen extends ConsumerWidget {
                   onPressed: () => _showSetCoverKeyDialog(context, ref),
                   child: Text(
                     coverModeConfigured
-                        ? (strings.isJapanese ? 'カバーキーを変更' : 'Change cover key')
-                        : (strings.isJapanese ? 'カバーキーを設定' : 'Set cover key'),
+                        ? strings.changeAlternateProfilePassword
+                        : strings.setAlternateProfilePassword,
                   ),
                 ),
                 OutlinedButton(
@@ -2300,7 +2300,7 @@ class SettingsScreen extends ConsumerWidget {
                       ? () => _confirmResetCoverKey(context, ref)
                       : null,
                   child: Text(
-                    strings.isJapanese ? 'カバーキーをリセット' : 'Reset cover key',
+                    strings.resetAlternateProfilePassword,
                   ),
                 ),
               ],
