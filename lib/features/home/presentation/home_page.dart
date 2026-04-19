@@ -5319,29 +5319,36 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                     child: Text(strings.isJapanese ? 'コンパクト表示' : 'Compact list'),
                   ),
                 ],
-                child: Tooltip(
-                  message: strings.isJapanese ? '表示形式' : 'List layout',
-                  child: Container(
-                    height: 48,
-                    width: 48,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Theme.of(context).dividerColor),
-                      borderRadius: BorderRadius.circular(12),
+                child: Semantics(
+                  button: true,
+                  label: strings.isJapanese ? '表示形式' : 'List layout',
+                  child: Tooltip(
+                    message: strings.isJapanese ? '表示形式' : 'List layout',
+                    child: Container(
+                      height: 48,
+                      width: 48,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Theme.of(context).dividerColor),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.view_agenda_outlined, size: 20),
                     ),
-                    child: const Icon(Icons.view_agenda_outlined, size: 20),
                   ),
                 ),
               ),
               const SizedBox(width: 8),
-              InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () {
-                  setState(() {
-                    _showAdvanced = !_showAdvanced;
-                  });
-                },
-                child: Container(
+              Semantics(
+                button: true,
+                label: strings.isJapanese ? '詳細' : 'Filters',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    setState(() {
+                      _showAdvanced = !_showAdvanced;
+                    });
+                  },
+                  child: Container(
                   height: 48,
                   width: compactToolbarButtons ? 48 : null,
                   constraints: BoxConstraints(
@@ -5436,6 +5443,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                               ),
                           ],
                         ),
+                  ),
                 ),
               ),
             ],

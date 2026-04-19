@@ -51,10 +51,10 @@ test('advanced search stays folded until needed', async ({ page }) => {
   await waitForApp(page);
   await completeOnboarding(page);
 
-  await page.getByRole('button', { name: 'More filters' }).click();
-  await expect(page.getByRole('checkbox', { name: 'Pinned only' })).toBeVisible();
-  await page.getByRole('checkbox', { name: 'Pinned only' }).click();
-  await expect(page.getByRole('button', { name: 'Hide filters' })).toBeVisible();
+  await page.getByRole('button', { name: /Filters|詳細/ }).click();
+  await expect(page.getByRole('checkbox', { name: /Pinned only|固定したノートだけ/ })).toBeVisible();
+  await page.getByRole('checkbox', { name: /Pinned only|固定したノートだけ/ }).click();
+  await expect(page.locator('flutter-view')).toContainText(/Filters|詳細条件/);
 });
 
 test('new note draft restores after closing editor', async ({ page }) => {
@@ -190,7 +190,9 @@ async function completeOnboarding(page) {
     await page.waitForTimeout(250);
   }
 
-  await expect(page.locator('flutter-view')).toContainText(/Set initial keys|初期キーを設定/);
+  await expect(page.locator('flutter-view')).toContainText(
+    /Finish the basics|最初に基本だけ設定/,
+  );
   const setPinButton =
     (await page.getByRole('button', { name: 'Set PIN' }).count())
       ? page.getByRole('button', { name: 'Set PIN' })
