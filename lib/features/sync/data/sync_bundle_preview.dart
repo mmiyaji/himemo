@@ -1,4 +1,5 @@
 import '../../home/domain/note_entry.dart';
+import '../../security/data/encrypted_note_database.dart';
 
 class SyncBundlePreview {
   const SyncBundlePreview({
@@ -34,26 +35,28 @@ SyncBundlePreview buildSyncBundlePreview({
   required Map<String, dynamic> decodedBundle,
   required List<NoteEntry> currentNotes,
 }) {
-  final importedNotes = <NoteEntry>[
+  final importedChanges = [
     for (final rawEntry
         in (decodedBundle['notes'] as List<dynamic>? ?? const <dynamic>[]))
-      NoteEntry.fromJson(
-        Map<String, dynamic>.from(
-          Map<String, dynamic>.from(rawEntry as Map)['note'] as Map,
-        ),
-      ),
+      _PreviewChange.fromRaw(Map<String, dynamic>.from(rawEntry as Map)),
   ];
-  final importedIds = importedNotes.map((note) => note.id).toSet();
-  final currentById = {
-    for (final note in currentNotes) note.id: note,
-  };
+  final importedNotes = importedChanges.map((change) => change.note).toList();
+  final currentById = {for (final note in currentNotes) note.id: note};
 
   var addedCount = 0;
   var updatedCount = 0;
+  var removedCount = 0;
   final addedTitles = <String>[];
   final updatedTitles = <String>[];
-  for (final note in importedNotes) {
+  final removedTitles = <String>[];
+  for (final change in importedChanges) {
+    final note = change.note;
     final current = currentById[note.id];
+    if (change.action == PendingNoteChangeAction.delete) {
+      removedCount += 1;
+      removedTitles.add(_displayTitle(current ?? note));
+      continue;
+    }
     if (current == null) {
       addedCount += 1;
       addedTitles.add(_displayTitle(note));
@@ -65,13 +68,9 @@ SyncBundlePreview buildSyncBundlePreview({
     }
   }
 
-  final removedTitles = [
-    for (final note in currentNotes)
-      if (!importedIds.contains(note.id)) _displayTitle(note),
-  ];
-  final removedCount = removedTitles.length;
-  final privateVaultNoteCount =
-      importedNotes.where((note) => note.vaultId == 'private').length;
+  final privateVaultNoteCount = importedNotes
+      .where((note) => note.vaultId == 'private')
+      .length;
 
   return SyncBundlePreview(
     deviceId: decodedBundle['deviceId'] as String?,
@@ -86,12 +85,35 @@ SyncBundlePreview buildSyncBundlePreview({
     updatedCount: updatedCount,
     removedCount: removedCount,
     privateVaultNoteCount: privateVaultNoteCount,
-    sampleTitles:
-        importedNotes.map(_displayTitle).take(3).toList(growable: false),
+    sampleTitles: importedChanges
+        .where((change) => change.action != PendingNoteChangeAction.delete)
+        .map((change) => _displayTitle(change.note))
+        .take(3)
+        .toList(growable: false),
     addedTitles: addedTitles.take(5).toList(growable: false),
     updatedTitles: updatedTitles.take(5).toList(growable: false),
     removedTitles: removedTitles.take(5).toList(growable: false),
   );
+}
+
+class _PreviewChange {
+  const _PreviewChange({required this.note, required this.action});
+
+  final NoteEntry note;
+  final PendingNoteChangeAction action;
+
+  factory _PreviewChange.fromRaw(Map<String, dynamic> rawEntry) {
+    final note = NoteEntry.fromJson(
+      Map<String, dynamic>.from(rawEntry['note'] as Map),
+    );
+    final action = PendingNoteChangeAction.values.firstWhere(
+      (value) => value.name == rawEntry['action'],
+      orElse: () => note.deletedAt == null
+          ? PendingNoteChangeAction.upsert
+          : PendingNoteChangeAction.delete,
+    );
+    return _PreviewChange(note: note, action: action);
+  }
 }
 
 String _displayTitle(NoteEntry note) {

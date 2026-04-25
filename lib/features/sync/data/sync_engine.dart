@@ -34,10 +34,7 @@ class PreparedSyncAttachment {
 }
 
 class PreparedSyncNote {
-  const PreparedSyncNote({
-    required this.note,
-    required this.action,
-  });
+  const PreparedSyncNote({required this.note, required this.action});
 
   final NoteEntry note;
   final PendingNoteChangeAction action;
@@ -130,7 +127,10 @@ class SyncEngine {
 
       preparedNotes.add(
         PreparedSyncNote(
-          note: note.copyWith(attachments: sanitizedAttachments),
+          note: note.copyWith(
+            attachments: sanitizedAttachments,
+            syncState: NoteSyncState.synced,
+          ),
           action: change.action,
         ),
       );

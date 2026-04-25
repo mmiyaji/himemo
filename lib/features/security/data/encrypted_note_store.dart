@@ -38,9 +38,7 @@ class EncryptedNoteStore {
   final String legacyStorageKey;
   final String webStorageKey;
 
-  Future<List<NoteEntry>> load({
-    required List<NoteEntry> fallbackNotes,
-  }) async {
+  Future<List<NoteEntry>> load({required List<NoteEntry> fallbackNotes}) async {
     try {
       if (!kIsWeb) {
         final database = _database ?? EncryptedNoteDatabase();
@@ -77,9 +75,7 @@ class EncryptedNoteStore {
 
   Future<void> save(List<NoteEntry> notes) async {
     if (kIsWeb) {
-      final payload = {
-        'notes': notes.map((entry) => entry.toJson()).toList(),
-      };
+      final payload = {'notes': notes.map((entry) => entry.toJson()).toList()};
       final key = await _masterKeyService.obtainOrCreate();
       final encoded = await _encryptionService.encryptJson(
         payload: payload,
@@ -115,8 +111,8 @@ class EncryptedNoteStore {
           ),
         );
       }
-      if (note.syncState != NoteSyncState.synced &&
-          note.syncState != NoteSyncState.localOnly) {
+      if (note.syncState == NoteSyncState.pendingUpload ||
+          note.syncState == NoteSyncState.pendingDelete) {
         pendingChanges.add(
           PendingNoteChangeRecord(
             noteId: note.id,
@@ -174,10 +170,11 @@ class EncryptedNoteStore {
         snapshot.attachments,
         secretKey: key,
       );
-      final legacyAttachments = (payload['attachments'] as List<dynamic>? ?? const <dynamic>[])
-          .map((entry) => Map<String, dynamic>.from(entry as Map))
-          .map(NoteAttachment.fromJson)
-          .toList(growable: false);
+      final legacyAttachments =
+          (payload['attachments'] as List<dynamic>? ?? const <dynamic>[])
+              .map((entry) => Map<String, dynamic>.from(entry as Map))
+              .map(NoteAttachment.fromJson)
+              .toList(growable: false);
       final mergedAttachments = attachmentList.isNotEmpty
           ? attachmentList
           : legacyAttachments;

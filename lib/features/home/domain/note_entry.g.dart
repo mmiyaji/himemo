@@ -74,6 +74,9 @@ _NoteEntry _$NoteEntryFromJson(Map<String, dynamic> json) => _NoteEntry(
           ?.map((e) => NoteBlock.fromJson(e as Map<String, dynamic>))
           .toList() ??
       const <NoteBlock>[],
+  tags:
+      (json['tags'] as List<dynamic>?)?.map((e) => e as String).toList() ??
+      const <String>[],
   isPinned: json['isPinned'] as bool? ?? false,
   revision: (json['revision'] as num?)?.toInt() ?? 1,
   syncState:
@@ -97,6 +100,7 @@ Map<String, dynamic> _$NoteEntryToJson(_NoteEntry instance) =>
       'contentHash': instance.contentHash,
       'attachments': instance.attachments,
       'blocks': instance.blocks,
+      'tags': instance.tags,
       'isPinned': instance.isPinned,
       'revision': instance.revision,
       'syncState': _$NoteSyncStateEnumMap[instance.syncState]!,

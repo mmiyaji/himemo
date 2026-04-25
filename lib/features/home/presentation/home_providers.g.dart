@@ -405,7 +405,7 @@ final class NotesListDensityControllerProvider
 }
 
 String _$notesListDensityControllerHash() =>
-    r'4a0ab978c67ae2fb498c62be83d24c9084687b9f';
+    r'1fb15ccf5157b1b9ac49e2a07c68ac45f3db2b0f';
 
 abstract class _$NotesListDensityController
     extends $Notifier<NotesListDensity> {
@@ -519,7 +519,7 @@ final class NotesControllerProvider
   }
 }
 
-String _$notesControllerHash() => r'ef205fdad0329adf552900289bb2694d8dcb8041';
+String _$notesControllerHash() => r'2e9657f85dd72eab0083bd9e7ac0d944fd80e4cf';
 
 abstract class _$NotesController extends $Notifier<List<NoteEntry>> {
   List<NoteEntry> build();
@@ -720,7 +720,7 @@ final class VisibleVaultsProvider
   }
 }
 
-String _$visibleVaultsHash() => r'cd72d7281f498471af92dec611cea16c0ab92c3e';
+String _$visibleVaultsHash() => r'58b29ca73aabb03ee52aea0d03f0279677f84b3d';
 
 @ProviderFor(visibleNotes)
 final visibleNotesProvider = VisibleNotesProvider._();
@@ -762,7 +762,49 @@ final class VisibleNotesProvider
   }
 }
 
-String _$visibleNotesHash() => r'd53ea7fc754a7f3f259e697b1039d67801f5d9d3';
+String _$visibleNotesHash() => r'cddb87c507b5931fabf38064c1cb15c155152396';
+
+@ProviderFor(visibleTagSuggestions)
+final visibleTagSuggestionsProvider = VisibleTagSuggestionsProvider._();
+
+final class VisibleTagSuggestionsProvider
+    extends $FunctionalProvider<List<String>, List<String>, List<String>>
+    with $Provider<List<String>> {
+  VisibleTagSuggestionsProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'visibleTagSuggestionsProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$visibleTagSuggestionsHash();
+
+  @$internal
+  @override
+  $ProviderElement<List<String>> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  List<String> create(Ref ref) {
+    return visibleTagSuggestions(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(List<String> value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<List<String>>(value),
+    );
+  }
+}
+
+String _$visibleTagSuggestionsHash() =>
+    r'15b64988aa47e406fe48e5bfb8311f54f880cd38';
 
 @ProviderFor(notesForVault)
 final notesForVaultProvider = NotesForVaultFamily._();

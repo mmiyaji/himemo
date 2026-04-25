@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:himemo/app/app.dart';
 import 'package:himemo/app/app_flavor.dart';
 import 'package:himemo/features/home/domain/note_entry.dart';
+import 'package:himemo/features/home/domain/note_tags.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
 import 'package:himemo/features/security/data/encrypted_note_database.dart';
 import 'package:himemo/features/security/data/encrypted_note_store.dart';
@@ -158,5 +159,61 @@ void main() {
     expect(note.syncState, NoteSyncState.localOnly);
     expect(note.blocks, isEmpty);
     expect(note.editorMode, NoteEditorMode.rich);
+  });
+
+  test('search filters can narrow notes by tags', () async {
+    SharedPreferences.setMockInitialValues({});
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(6));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    await container.read(notesControllerProvider.notifier).upsert(
+      NoteEntry(
+        id: 'tag-1',
+        vaultId: 'everyday',
+        title: 'Project alpha',
+        body: 'First body',
+        tags: const ['Work', 'Alpha'],
+        createdAt: DateTime(2026, 4, 20, 10, 0),
+      ),
+    );
+    await container.read(notesControllerProvider.notifier).upsert(
+      NoteEntry(
+        id: 'tag-2',
+        vaultId: 'everyday',
+        title: 'Personal errands',
+        body: 'Second body',
+        tags: const ['Home'],
+        createdAt: DateTime(2026, 4, 20, 11, 0),
+      ),
+    );
+
+    container.read(searchFiltersControllerProvider.notifier).addTag('alpha');
+
+    final visible = container.read(visibleNotesProvider);
+    expect(visible.map((note) => note.id), ['tag-1']);
+    expect(container.read(visibleTagSuggestionsProvider), contains('Alpha'));
+    expect(dedupeNoteTags([' Alpha ', '#alpha', 'HOME']), ['Alpha', 'HOME']);
   });
 }

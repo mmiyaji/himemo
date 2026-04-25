@@ -1,5 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'note_tags.dart';
+
 part 'note_entry.freezed.dart';
 part 'note_entry.g.dart';
 
@@ -50,6 +52,7 @@ abstract class NoteEntry with _$NoteEntry {
     String? contentHash,
     @Default(<NoteAttachment>[]) List<NoteAttachment> attachments,
     @Default(<NoteBlock>[]) List<NoteBlock> blocks,
+    @Default(<String>[]) List<String> tags,
     @Default(false) bool isPinned,
     @Default(1) int revision,
     @Default(NoteSyncState.localOnly) NoteSyncState syncState,
@@ -58,4 +61,8 @@ abstract class NoteEntry with _$NoteEntry {
 
   factory NoteEntry.fromJson(Map<String, dynamic> json) =>
       _$NoteEntryFromJson(json);
+}
+
+extension NoteEntryTagAccess on NoteEntry {
+  List<String> get normalizedTags => dedupeNoteTags(tags);
 }

@@ -76,6 +76,7 @@ class SeededHomeRepository implements HomeRepository {
           updatedAt: DateTime(2026, 4, 12, 23, 7),
           deviceId: 'seeded-device',
           contentHash: 'seed-2026-04-12-groceries',
+          tags: const ['買い物', '日常'],
           isPinned: true,
           syncState: NoteSyncState.synced,
           editorMode: NoteEditorMode.rich,
@@ -121,6 +122,7 @@ class SeededHomeRepository implements HomeRepository {
           updatedAt: DateTime(2026, 4, 11, 21, 39),
           deviceId: 'seeded-device',
           contentHash: 'seed-2026-04-11-diary',
+          tags: const ['日記'],
           syncState: NoteSyncState.synced,
         ),
         NoteEntry(
@@ -169,6 +171,7 @@ class SeededHomeRepository implements HomeRepository {
           updatedAt: DateTime(2026, 4, 10, 8, 20),
           deviceId: 'seeded-device',
           contentHash: 'seed-2026-04-10-plan',
+          tags: const ['予定', '仕事'],
           syncState: NoteSyncState.synced,
         ),
         NoteEntry(
@@ -180,6 +183,7 @@ class SeededHomeRepository implements HomeRepository {
           updatedAt: DateTime(2026, 4, 9, 19, 5),
           deviceId: 'seeded-device',
           contentHash: 'seed-2026-04-09-trip',
+          tags: const ['旅行', '駅'],
           syncState: NoteSyncState.synced,
           editorMode: NoteEditorMode.rich,
           attachments: const [
@@ -224,6 +228,7 @@ class SeededHomeRepository implements HomeRepository {
           updatedAt: DateTime(2026, 4, 8, 14, 10),
           deviceId: 'seeded-device',
           contentHash: 'seed-2026-04-08-cafe',
+          tags: const ['音声', 'カフェ'],
           syncState: NoteSyncState.synced,
           editorMode: NoteEditorMode.rich,
           attachments: const [
@@ -266,6 +271,7 @@ class SeededHomeRepository implements HomeRepository {
           updatedAt: DateTime(2026, 4, 6, 23, 15),
           deviceId: 'seeded-device',
           contentHash: 'seed-2026-04-06-private-draft',
+          tags: const ['個人', '下書き'],
           isPinned: true,
           syncState: NoteSyncState.synced,
         ),

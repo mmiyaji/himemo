@@ -95,8 +95,10 @@ void main() {
       expect(prefs.getString('notes.entries.v1'), isNull);
       final records = await database.loadAll();
       expect(records, hasLength(1));
-      expect(records.single.note.encryptedPayload.contains('Encrypted body'),
-          isFalse);
+      expect(
+        records.single.note.encryptedPayload.contains('Encrypted body'),
+        isFalse,
+      );
     });
 
     test('persists and restores notes without plaintext leakage', () async {
@@ -131,13 +133,16 @@ void main() {
       expect(records, hasLength(1));
       final rawPayload = records.single.note.encryptedPayload;
       expect(rawPayload.contains('Vault plan'), isFalse);
-      expect(rawPayload.contains('Only encrypted payload should be stored.'),
-          isFalse);
+      expect(
+        rawPayload.contains('Only encrypted payload should be stored.'),
+        isFalse,
+      );
       expect(rawPayload.contains('vault-proof.jpg'), isFalse);
       expect(records.single.attachments, hasLength(1));
       expect(
-        records.single.attachments.single.encryptedPayload
-            .contains('vault-proof.jpg'),
+        records.single.attachments.single.encryptedPayload.contains(
+          'vault-proof.jpg',
+        ),
         isFalse,
       );
       final pendingChanges = await database.loadPendingChanges();
@@ -146,48 +151,48 @@ void main() {
       expect(pendingChanges.single.action, PendingNoteChangeAction.upsert);
     });
 
-    test('migrates native encrypted blob into drift and removes legacy file',
-        () async {
-      final notes = [
-        NoteEntry(
-          id: 'n2',
-          vaultId: 'everyday',
-          title: 'Migrated note',
-          body: 'This should move into sqlite.',
-          createdAt: DateTime(2026, 4, 12, 12, 15),
-          attachments: const [
-            NoteAttachment(
-              type: AttachmentType.audio,
-              label: 'memo.m4a',
-              filePath: 'secure-attachment://memo',
-            ),
-          ],
-          syncState: NoteSyncState.pendingUpload,
-        ),
-      ];
-      final key = await MasterKeyService(
-        secureStore: secureStore,
-        keyFactory: encryptionService.generateKeyBytes,
-      ).obtainOrCreate();
-      final encoded = await encryptionService.encryptJson(
-        payload: {
-          'notes': notes.map((note) => note.toJson()).toList(),
-        },
-        secretKey: key,
-      );
-      final encryptedFile = File(
-        '${tempDirectory.path}${Platform.pathSeparator}notes.entries.enc.v1',
-      );
-      await encryptedFile.writeAsString(encoded, flush: true);
+    test(
+      'migrates native encrypted blob into drift and removes legacy file',
+      () async {
+        final notes = [
+          NoteEntry(
+            id: 'n2',
+            vaultId: 'everyday',
+            title: 'Migrated note',
+            body: 'This should move into sqlite.',
+            createdAt: DateTime(2026, 4, 12, 12, 15),
+            attachments: const [
+              NoteAttachment(
+                type: AttachmentType.audio,
+                label: 'memo.m4a',
+                filePath: 'secure-attachment://memo',
+              ),
+            ],
+            syncState: NoteSyncState.pendingUpload,
+          ),
+        ];
+        final key = await MasterKeyService(
+          secureStore: secureStore,
+          keyFactory: encryptionService.generateKeyBytes,
+        ).obtainOrCreate();
+        final encoded = await encryptionService.encryptJson(
+          payload: {'notes': notes.map((note) => note.toJson()).toList()},
+          secretKey: key,
+        );
+        final encryptedFile = File(
+          '${tempDirectory.path}${Platform.pathSeparator}notes.entries.enc.v1',
+        );
+        await encryptedFile.writeAsString(encoded, flush: true);
 
-      final restored = await noteStore.load(fallbackNotes: const []);
+        final restored = await noteStore.load(fallbackNotes: const []);
 
-      expect(restored, notes);
-      expect(await encryptedFile.exists(), isFalse);
-      final records = await database.loadAll();
-      expect(records, hasLength(1));
-      expect(records.single.attachments, hasLength(1));
-    });
+        expect(restored, notes);
+        expect(await encryptedFile.exists(), isFalse);
+        final records = await database.loadAll();
+        expect(records, hasLength(1));
+        expect(records.single.attachments, hasLength(1));
+      },
+    );
   });
 
   group('PrivateVaultSecretStore', () {
@@ -208,20 +213,23 @@ void main() {
       );
     });
 
-    test('stores and verifies private vault secret in secure storage',
-        () async {
-      expect(await secretStore.hasSecret(), isFalse);
+    test(
+      'stores and verifies private vault secret in secure storage',
+      () async {
+        expect(await secretStore.hasSecret(), isFalse);
 
-      await secretStore.configure('top-secret');
+        await secretStore.configure('top-secret');
 
-      expect(await secretStore.hasSecret(), isTrue);
-      expect(await secretStore.verify('top-secret'), isTrue);
-      expect(await secretStore.verify('not-it'), isFalse);
-      final stored =
-          await secureStore.read('security.private_vault.verifier.v1');
-      expect(stored, isNotNull);
-      expect(stored!.contains('top-secret'), isFalse);
-    });
+        expect(await secretStore.hasSecret(), isTrue);
+        expect(await secretStore.verify('top-secret'), isTrue);
+        expect(await secretStore.verify('not-it'), isFalse);
+        final stored = await secureStore.read(
+          'security.private_vault.verifier.v1',
+        );
+        expect(stored, isNotNull);
+        expect(stored!.contains('top-secret'), isFalse);
+      },
+    );
 
     test('migrates legacy verifier out of shared preferences', () async {
       final salt = encryptionService.generateSalt();
@@ -272,8 +280,9 @@ void main() {
     });
 
     test('stores attachment bytes encrypted on disk', () async {
-      final source =
-          File('${tempDirectory.path}${Platform.pathSeparator}raw.jpg');
+      final source = File(
+        '${tempDirectory.path}${Platform.pathSeparator}raw.jpg',
+      );
       await source.writeAsBytes(const [1, 2, 3, 4, 5, 6], flush: true);
 
       final storedReference = await attachmentStore.storeAttachment(
@@ -423,295 +432,311 @@ void main() {
       ),
     );
 
-    final saved = container.read(notesControllerProvider).singleWhere(
-          (note) => note.id == 'sync-1',
-        );
+    final saved = container
+        .read(notesControllerProvider)
+        .singleWhere((note) => note.id == 'sync-1');
     expect(saved.deviceId, isNotNull);
     expect(saved.contentHash, isNotNull);
     expect(saved.syncState, NoteSyncState.pendingUpload);
     expect(saved.deletedAt, isNull);
 
     await controller.delete('sync-1');
-    final deleted = container.read(notesControllerProvider).singleWhere(
-          (note) => note.id == 'sync-1',
-        );
+    final deleted = container
+        .read(notesControllerProvider)
+        .singleWhere((note) => note.id == 'sync-1');
     expect(deleted.deletedAt, isNotNull);
     expect(deleted.syncState, NoteSyncState.pendingDelete);
-    expect(container.read(visibleNotesProvider).any((n) => n.id == 'sync-1'),
-        isFalse);
+    expect(
+      container.read(visibleNotesProvider).any((n) => n.id == 'sync-1'),
+      isFalse,
+    );
     final pendingChanges = await noteDatabase.loadPendingChanges();
     expect(pendingChanges, hasLength(1));
     expect(pendingChanges.single.noteId, 'sync-1');
     expect(pendingChanges.single.action, PendingNoteChangeAction.delete);
   });
 
-  test('NotesController can mark pending notes as synced and clear the queue',
-      () async {
-    SharedPreferences.setMockInitialValues({});
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'himemo-mark-synced-',
-    );
-    final secureStore = MemorySecureKeyValueStore();
-    final encryptionService = EncryptionService(random: Random(35));
-    final masterKeyService = MasterKeyService(
-      secureStore: secureStore,
-      keyFactory: encryptionService.generateKeyBytes,
-    );
-    final noteDatabase = EncryptedNoteDatabase(
-      executor: NativeDatabase.memory(),
-    );
-    final container = ProviderContainer(
-      overrides: [
-        secureKeyValueStoreProvider.overrideWithValue(secureStore),
-        encryptionServiceProvider.overrideWithValue(encryptionService),
-        masterKeyServiceProvider.overrideWithValue(masterKeyService),
-        encryptedNoteStoreProvider.overrideWithValue(
-          EncryptedNoteStore(
-            encryptionService: encryptionService,
-            masterKeyService: masterKeyService,
-            database: noteDatabase,
-            directoryProvider: () async => tempDirectory,
-            sharedPreferencesProvider: SharedPreferences.getInstance,
+  test(
+    'NotesController can mark pending notes as synced and clear the queue',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-mark-synced-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(35));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: noteDatabase,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
           ),
-        ),
-        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
-        deviceIdentityStoreProvider.overrideWithValue(
-          DeviceIdentityStore(
-            sharedPreferencesProvider: SharedPreferences.getInstance,
-            random: Random(6),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          deviceIdentityStoreProvider.overrideWithValue(
+            DeviceIdentityStore(
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+              random: Random(6),
+            ),
           ),
+          homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+
+      final controller = container.read(notesControllerProvider.notifier);
+      container.read(notesControllerProvider);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await controller.upsert(
+        NoteEntry(
+          id: 'sync-2',
+          vaultId: 'everyday',
+          title: 'Uploaded note',
+          body: 'Will become synced',
+          createdAt: DateTime(2026, 4, 12, 15, 30),
         ),
-        homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
-      ],
-    );
-    addTearDown(container.dispose);
-    addTearDown(noteDatabase.close);
-    addTearDown(() async {
+      );
+
+      expect(
+        container
+            .read(notesControllerProvider)
+            .singleWhere((note) => note.id == 'sync-2')
+            .syncState,
+        NoteSyncState.pendingUpload,
+      );
+      expect(await noteDatabase.loadPendingChanges(), isNotEmpty);
+
+      await controller.markCurrentStateSynced();
+
+      expect(
+        container
+            .read(notesControllerProvider)
+            .singleWhere((note) => note.id == 'sync-2')
+            .syncState,
+        NoteSyncState.synced,
+      );
+      expect(await noteDatabase.loadPendingChanges(), isEmpty);
+    },
+  );
+
+  test(
+    'SyncEngine prepares sanitized snapshot without local attachment paths',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-engine-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(41));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final attachmentStore = EncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+      final noteStore = EncryptedNoteStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        database: database,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final source = File(
+        '${tempDirectory.path}${Platform.pathSeparator}clip.jpg',
+      );
+      await source.writeAsBytes(const [9, 8, 7, 6], flush: true);
+      final storedAttachment = await attachmentStore.storeAttachment(
+        XFile(source.path, name: 'clip.jpg'),
+        type: AttachmentType.photo,
+      );
+      final note = NoteEntry(
+        id: 'sync-preview-1',
+        vaultId: 'everyday',
+        title: 'Snapshot',
+        body: 'Pending queue item',
+        createdAt: DateTime(2026, 4, 12, 16, 0),
+        updatedAt: DateTime(2026, 4, 12, 16, 5),
+        revision: 2,
+        syncState: NoteSyncState.pendingUpload,
+        deviceId: 'device-123',
+        contentHash: 'hash-123',
+        attachments: [
+          NoteAttachment(
+            type: AttachmentType.photo,
+            label: 'clip.jpg',
+            filePath: storedAttachment,
+          ),
+        ],
+      );
+      await noteStore.save([note]);
+      final engine = SyncEngine(
+        database: database,
+        attachmentStore: attachmentStore,
+        deviceIdentityStore: DeviceIdentityStore(
+          sharedPreferencesProvider: SharedPreferences.getInstance,
+          random: Random(42),
+        ),
+      );
+
+      final summary = await engine.summarizeQueue();
+      final snapshot = await engine.prepareSnapshot([note]);
+
+      expect(summary.totalChanges, 1);
+      expect(summary.upserts, 1);
+      expect(snapshot.notes, hasLength(1));
+      expect(snapshot.attachments, hasLength(1));
+      expect(
+        snapshot.notes.single.note.attachments.single.filePath,
+        'sync-attachment://sync-preview-1-0',
+      );
+      expect(
+        snapshot.notes.single.note.attachments.single.filePath,
+        isNot(storedAttachment),
+      );
+      expect(
+        snapshot.attachments.single.encryptedPayload.contains('clip.jpg'),
+        isFalse,
+      );
+
+      await database.close();
       if (await tempDirectory.exists()) {
         await tempDirectory.delete(recursive: true);
       }
-    });
-
-    final controller = container.read(notesControllerProvider.notifier);
-    container.read(notesControllerProvider);
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-    await controller.upsert(
-      NoteEntry(
-        id: 'sync-2',
-        vaultId: 'everyday',
-        title: 'Uploaded note',
-        body: 'Will become synced',
-        createdAt: DateTime(2026, 4, 12, 15, 30),
-      ),
-    );
-
-    expect(
-      container
-          .read(notesControllerProvider)
-          .singleWhere((note) => note.id == 'sync-2')
-          .syncState,
-      NoteSyncState.pendingUpload,
-    );
-    expect(await noteDatabase.loadPendingChanges(), isNotEmpty);
-
-    await controller.markCurrentStateSynced();
-
-    expect(
-      container
-          .read(notesControllerProvider)
-          .singleWhere((note) => note.id == 'sync-2')
-          .syncState,
-      NoteSyncState.synced,
-    );
-    expect(await noteDatabase.loadPendingChanges(), isEmpty);
-  });
-
-  test('SyncEngine prepares sanitized snapshot without local attachment paths',
-      () async {
-    SharedPreferences.setMockInitialValues({});
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'himemo-sync-engine-',
-    );
-    final secureStore = MemorySecureKeyValueStore();
-    final encryptionService = EncryptionService(random: Random(41));
-    final masterKeyService = MasterKeyService(
-      secureStore: secureStore,
-      keyFactory: encryptionService.generateKeyBytes,
-    );
-    final attachmentStore = EncryptedAttachmentStore(
-      encryptionService: encryptionService,
-      masterKeyService: masterKeyService,
-      directoryProvider: () async => tempDirectory,
-      sharedPreferencesProvider: SharedPreferences.getInstance,
-    );
-    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
-    final noteStore = EncryptedNoteStore(
-      encryptionService: encryptionService,
-      masterKeyService: masterKeyService,
-      database: database,
-      directoryProvider: () async => tempDirectory,
-      sharedPreferencesProvider: SharedPreferences.getInstance,
-    );
-    final source =
-        File('${tempDirectory.path}${Platform.pathSeparator}clip.jpg');
-    await source.writeAsBytes(const [9, 8, 7, 6], flush: true);
-    final storedAttachment = await attachmentStore.storeAttachment(
-      XFile(source.path, name: 'clip.jpg'),
-      type: AttachmentType.photo,
-    );
-    final note = NoteEntry(
-      id: 'sync-preview-1',
-      vaultId: 'everyday',
-      title: 'Snapshot',
-      body: 'Pending queue item',
-      createdAt: DateTime(2026, 4, 12, 16, 0),
-      updatedAt: DateTime(2026, 4, 12, 16, 5),
-      revision: 2,
-      syncState: NoteSyncState.pendingUpload,
-      deviceId: 'device-123',
-      contentHash: 'hash-123',
-      attachments: [
-        NoteAttachment(
-          type: AttachmentType.photo,
-          label: 'clip.jpg',
-          filePath: storedAttachment,
-        ),
-      ],
-    );
-    await noteStore.save([note]);
-    final engine = SyncEngine(
-      database: database,
-      attachmentStore: attachmentStore,
-      deviceIdentityStore: DeviceIdentityStore(
-        sharedPreferencesProvider: SharedPreferences.getInstance,
-        random: Random(42),
-      ),
-    );
-
-    final summary = await engine.summarizeQueue();
-    final snapshot = await engine.prepareSnapshot([note]);
-
-    expect(summary.totalChanges, 1);
-    expect(summary.upserts, 1);
-    expect(snapshot.notes, hasLength(1));
-    expect(snapshot.attachments, hasLength(1));
-    expect(snapshot.notes.single.note.attachments.single.filePath,
-        'sync-attachment://sync-preview-1-0');
-    expect(snapshot.notes.single.note.attachments.single.filePath,
-        isNot(storedAttachment));
-    expect(snapshot.attachments.single.encryptedPayload.contains('clip.jpg'),
-        isFalse);
-
-    await database.close();
-    if (await tempDirectory.exists()) {
-      await tempDirectory.delete(recursive: true);
-    }
-  });
+    },
+  );
 
   test(
-      'SecureSyncBundleStore writes encrypted bundle without plaintext note leakage',
-      () async {
-    SharedPreferences.setMockInitialValues({});
-    final tempDirectory = await Directory.systemTemp.createTemp(
-      'himemo-sync-bundle-',
-    );
-    final secureStore = MemorySecureKeyValueStore();
-    final encryptionService = EncryptionService(random: Random(51));
-    final masterKeyService = MasterKeyService(
-      secureStore: secureStore,
-      keyFactory: encryptionService.generateKeyBytes,
-    );
-    final bundleStore = SecureSyncBundleStore(
-      encryptionService: encryptionService,
-      syncBundleKeyService: SyncBundleKeyService(
+    'SecureSyncBundleStore writes encrypted bundle without plaintext note leakage',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-bundle-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(51));
+      final masterKeyService = MasterKeyService(
         secureStore: secureStore,
         keyFactory: encryptionService.generateKeyBytes,
-      ),
-      legacyMasterKeyService: masterKeyService,
-      directoryProvider: () async => tempDirectory,
-      sharedPreferencesProvider: SharedPreferences.getInstance,
-    );
-    final snapshot = PreparedSyncSnapshot(
-      deviceId: 'device-export',
-      exportedAt: DateTime(2026, 4, 12, 17, 0),
-      summary: const SyncQueueSummary(
-        totalChanges: 1,
-        upserts: 1,
-        deletes: 0,
-      ),
-      notes: [
-        PreparedSyncNote(
-          action: PendingNoteChangeAction.upsert,
-          note: NoteEntry(
-            id: 'export-1',
-            vaultId: 'everyday',
-            title: 'Sensitive title',
-            body: 'Sensitive body',
-            createdAt: DateTime(2026, 4, 12, 17, 0),
-            attachments: const [
-              NoteAttachment(
-                type: AttachmentType.photo,
-                label: 'secret.jpg',
-                filePath: 'sync-attachment://export-1-0',
-              ),
-            ],
+      );
+      final bundleStore = SecureSyncBundleStore(
+        encryptionService: encryptionService,
+        syncBundleKeyService: SyncBundleKeyService(
+          secureStore: secureStore,
+          keyFactory: encryptionService.generateKeyBytes,
+        ),
+        legacyMasterKeyService: masterKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final snapshot = PreparedSyncSnapshot(
+        deviceId: 'device-export',
+        exportedAt: DateTime(2026, 4, 12, 17, 0),
+        summary: const SyncQueueSummary(
+          totalChanges: 1,
+          upserts: 1,
+          deletes: 0,
+        ),
+        notes: [
+          PreparedSyncNote(
+            action: PendingNoteChangeAction.upsert,
+            note: NoteEntry(
+              id: 'export-1',
+              vaultId: 'everyday',
+              title: 'Sensitive title',
+              body: 'Sensitive body',
+              createdAt: DateTime(2026, 4, 12, 17, 0),
+              attachments: const [
+                NoteAttachment(
+                  type: AttachmentType.photo,
+                  label: 'secret.jpg',
+                  filePath: 'sync-attachment://export-1-0',
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
-      attachments: const [
-        PreparedSyncAttachment(
-          id: 'export-1-0',
-          type: AttachmentType.photo,
-          label: 'secret.jpg',
-          encryptedPayload: '{"cipherText":"abc"}',
-        ),
-      ],
-    );
+        ],
+        attachments: const [
+          PreparedSyncAttachment(
+            id: 'export-1-0',
+            type: AttachmentType.photo,
+            label: 'secret.jpg',
+            encryptedPayload: '{"cipherText":"abc"}',
+          ),
+        ],
+      );
 
-    final stored = await bundleStore.writeBundle(snapshot);
-    final file = File(stored.reference);
-    final rawPayload = await file.readAsString();
+      final stored = await bundleStore.writeBundle(snapshot);
+      final file = File(stored.reference);
+      final rawPayload = await file.readAsString();
 
-    expect(rawPayload.contains('Sensitive title'), isFalse);
-    expect(rawPayload.contains('Sensitive body'), isFalse);
-    expect(rawPayload.contains('sync-attachment://export-1-0'), isFalse);
+      expect(rawPayload.contains('Sensitive title'), isFalse);
+      expect(rawPayload.contains('Sensitive body'), isFalse);
+      expect(rawPayload.contains('sync-attachment://export-1-0'), isFalse);
 
-    final decoded = await bundleStore.readBundleJson(stored.reference);
-    expect(decoded?['deviceId'], 'device-export');
-    expect((decoded?['notes'] as List<dynamic>).length, 1);
-    final encryptedPayload = await bundleStore.readEncryptedBundlePayload(
-      stored.reference,
-    );
-    expect(encryptedPayload, isNotNull);
-    expect(encryptedPayload!.contains('Sensitive title'), isFalse);
-    final copied = await bundleStore.writeEncryptedBundlePayload(
-      encryptedPayload,
-      noteCount: stored.noteCount,
-      attachmentCount: stored.attachmentCount,
-      fileNameOverride: 'copied_bundle.enc',
-    );
-    final copiedDecoded = await bundleStore.readBundleJson(copied.reference);
-    expect(copiedDecoded?['deviceId'], 'device-export');
+      final decoded = await bundleStore.readBundleJson(stored.reference);
+      expect(decoded?['deviceId'], 'device-export');
+      expect((decoded?['notes'] as List<dynamic>).length, 1);
+      final encryptedPayload = await bundleStore.readEncryptedBundlePayload(
+        stored.reference,
+      );
+      expect(encryptedPayload, isNotNull);
+      expect(encryptedPayload!.contains('Sensitive title'), isFalse);
+      final copied = await bundleStore.writeEncryptedBundlePayload(
+        encryptedPayload,
+        noteCount: stored.noteCount,
+        attachmentCount: stored.attachmentCount,
+        fileNameOverride: 'copied_bundle.enc',
+      );
+      final copiedDecoded = await bundleStore.readBundleJson(copied.reference);
+      expect(copiedDecoded?['deviceId'], 'device-export');
 
-    if (await tempDirectory.exists()) {
-      await tempDirectory.delete(recursive: true);
-    }
-  });
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    },
+  );
 
-  test('SyncBundleKeyService creates stable fingerprint from secure storage',
-      () async {
-    final secureStore = MemorySecureKeyValueStore();
-    final service = SyncBundleKeyService(
-      secureStore: secureStore,
-      keyFactory: () => List<int>.generate(32, (index) => index),
-    );
+  test(
+    'SyncBundleKeyService creates stable fingerprint from secure storage',
+    () async {
+      final secureStore = MemorySecureKeyValueStore();
+      final service = SyncBundleKeyService(
+        secureStore: secureStore,
+        keyFactory: () => List<int>.generate(32, (index) => index),
+      );
 
-    final first = await service.fingerprint();
-    final second = await service.fingerprint();
+      final first = await service.fingerprint();
+      final second = await service.fingerprint();
 
-    expect(first, hasLength(12));
-    expect(second, first);
-  });
+      expect(first, hasLength(12));
+      expect(second, first);
+    },
+  );
 
   test('SyncBundleKeyService can export and import backup codes', () async {
     final sourceStore = MemorySecureKeyValueStore();
@@ -735,24 +760,26 @@ void main() {
     expect(await targetService.fingerprint(), expectedFingerprint);
   });
 
-  test('SyncBundleKeyService previews imported backup code fingerprint',
-      () async {
-    final sourceService = SyncBundleKeyService(
-      secureStore: MemorySecureKeyValueStore(),
-      keyFactory: () => List<int>.generate(32, (index) => index + 3),
-    );
-    final backupCode = await sourceService.exportBackupCode();
+  test(
+    'SyncBundleKeyService previews imported backup code fingerprint',
+    () async {
+      final sourceService = SyncBundleKeyService(
+        secureStore: MemorySecureKeyValueStore(),
+        keyFactory: () => List<int>.generate(32, (index) => index + 3),
+      );
+      final backupCode = await sourceService.exportBackupCode();
 
-    final targetService = SyncBundleKeyService(
-      secureStore: MemorySecureKeyValueStore(),
-      keyFactory: () => List<int>.generate(32, (index) => 255 - index),
-    );
+      final targetService = SyncBundleKeyService(
+        secureStore: MemorySecureKeyValueStore(),
+        keyFactory: () => List<int>.generate(32, (index) => 255 - index),
+      );
 
-    expect(
-      targetService.previewBackupCodeFingerprint(backupCode),
-      await sourceService.fingerprint(),
-    );
-  });
+      expect(
+        targetService.previewBackupCodeFingerprint(backupCode),
+        await sourceService.fingerprint(),
+      );
+    },
+  );
 
   test('SyncBundleKeyService rejects malformed backup code', () async {
     final service = SyncBundleKeyService(
@@ -777,8 +804,9 @@ void main() {
       secureStore: secureStore,
       keyFactory: encryptionService.generateKeyBytes,
     );
-    final noteDatabase =
-        EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
     final attachmentStore = EncryptedAttachmentStore(
       encryptionService: encryptionService,
       masterKeyService: masterKeyService,
@@ -838,6 +866,145 @@ void main() {
     }
   });
 
+  test(
+    'NotesController merges sync changes without replacing local state',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-merge-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(62));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: noteDatabase,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+
+      final controller = container.read(notesControllerProvider.notifier);
+      await controller.mergeFromSync([
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.upsert,
+          note: NoteEntry(
+            id: 'remote-a',
+            vaultId: 'everyday',
+            title: 'Remote A',
+            body: 'From another device',
+            createdAt: DateTime(2026, 4, 13, 9, 0),
+            updatedAt: DateTime(2026, 4, 13, 9, 5),
+            revision: 2,
+            contentHash: 'remote-a-v2',
+          ),
+        ),
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.upsert,
+          note: NoteEntry(
+            id: 'remote-b',
+            vaultId: 'everyday',
+            title: 'Remote B',
+            body: 'Also from remote',
+            createdAt: DateTime(2026, 4, 13, 10, 0),
+            contentHash: 'remote-b-v1',
+          ),
+        ),
+      ]);
+
+      expect(
+        container.read(notesControllerProvider).map((note) => note.id),
+        containsAll(['remote-a', 'remote-b']),
+      );
+      expect(
+        container
+            .read(notesControllerProvider)
+            .singleWhere((note) => note.id == 'remote-a')
+            .syncState,
+        NoteSyncState.synced,
+      );
+
+      await controller.mergeFromSync([
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.delete,
+          note: NoteEntry(
+            id: 'remote-b',
+            vaultId: 'everyday',
+            title: 'Remote B',
+            body: 'Deleted elsewhere',
+            createdAt: DateTime(2026, 4, 13, 10, 0),
+            updatedAt: DateTime(2026, 4, 13, 10, 30),
+            deletedAt: DateTime(2026, 4, 13, 10, 30),
+            revision: 2,
+            contentHash: 'remote-b-delete',
+          ),
+        ),
+      ]);
+
+      expect(
+        container
+            .read(visibleNotesProvider)
+            .any((note) => note.id == 'remote-b'),
+        isFalse,
+      );
+
+      await controller.upsert(
+        NoteEntry(
+          id: 'remote-a',
+          vaultId: 'everyday',
+          title: 'Local edit',
+          body: 'Pending local change',
+          createdAt: DateTime(2026, 4, 13, 9, 0),
+        ),
+      );
+      await controller.mergeFromSync([
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.upsert,
+          note: NoteEntry(
+            id: 'remote-a',
+            vaultId: 'everyday',
+            title: 'Remote competing edit',
+            body: 'Remote changed too',
+            createdAt: DateTime(2026, 4, 13, 9, 0),
+            updatedAt: DateTime(2026, 4, 13, 11, 0),
+            revision: 4,
+            contentHash: 'remote-a-v4',
+          ),
+        ),
+      ]);
+
+      final conflicted = container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'remote-a');
+      expect(conflicted.title, 'Local edit');
+      expect(conflicted.syncState, NoteSyncState.conflict);
+      expect(await noteDatabase.loadPendingChanges(), isEmpty);
+
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    },
+  );
+
   test('SyncBundleStateStore persists remote and apply metadata', () async {
     SharedPreferences.setMockInitialValues({});
     final store = SyncBundleStateStore(
@@ -861,41 +1028,34 @@ void main() {
   });
 
   test(
-      'assessSyncConflict reports newer remote bundle against pending local queue',
-      () {
-    final assessment = assessSyncConflict(
-      googleDriveSelected: true,
-      queue: const SyncQueueSummary(
-        totalChanges: 2,
-        upserts: 1,
-        deletes: 1,
-      ),
-      remoteStatus: RemoteSyncBundleStatus(
-        fileId: 'remote-1',
-        fileName: 'himemo_sync_bundle.enc',
-        modifiedAt: DateTime(2026, 4, 12, 20, 0),
-        deviceId: 'other-device',
-      ),
-      bundleState: SyncBundleState(
-        lastRemoteFileId: 'remote-0',
-        lastRemoteModifiedAt: DateTime(2026, 4, 12, 19, 0),
-        lastRemoteDeviceId: 'device-a',
-        lastUploadedAt: DateTime(2026, 4, 12, 19, 15),
-      ),
-    );
+    'assessSyncConflict reports newer remote bundle against pending local queue',
+    () {
+      final assessment = assessSyncConflict(
+        googleDriveSelected: true,
+        queue: const SyncQueueSummary(totalChanges: 2, upserts: 1, deletes: 1),
+        remoteStatus: RemoteSyncBundleStatus(
+          fileId: 'remote-1',
+          fileName: 'himemo_sync_bundle.enc',
+          modifiedAt: DateTime(2026, 4, 12, 20, 0),
+          deviceId: 'other-device',
+        ),
+        bundleState: SyncBundleState(
+          lastRemoteFileId: 'remote-0',
+          lastRemoteModifiedAt: DateTime(2026, 4, 12, 19, 0),
+          lastRemoteDeviceId: 'device-a',
+          lastUploadedAt: DateTime(2026, 4, 12, 19, 15),
+        ),
+      );
 
-    expect(assessment.hasConflict, isTrue);
-    expect(assessment.message, isNotNull);
-  });
+      expect(assessment.hasConflict, isTrue);
+      expect(assessment.message, isNotNull);
+    },
+  );
 
   test('assessSyncConflict ignores matching device or stale remote bundle', () {
     final assessment = assessSyncConflict(
       googleDriveSelected: true,
-      queue: const SyncQueueSummary(
-        totalChanges: 1,
-        upserts: 1,
-        deletes: 0,
-      ),
+      queue: const SyncQueueSummary(totalChanges: 1, upserts: 1, deletes: 0),
       remoteStatus: RemoteSyncBundleStatus(
         fileId: 'remote-1',
         fileName: 'himemo_sync_bundle.enc',
@@ -921,6 +1081,7 @@ void main() {
         'exportedAt': '2026-04-12T20:15:00.000',
         'notes': [
           {
+            'action': 'upsert',
             'note': NoteEntry(
               id: 'existing',
               vaultId: 'everyday',
@@ -932,12 +1093,24 @@ void main() {
             ).toJson(),
           },
           {
+            'action': 'upsert',
             'note': NoteEntry(
               id: 'added',
               vaultId: 'everyday',
               title: 'Added note',
               body: 'Fresh from remote',
               createdAt: DateTime(2026, 4, 12, 11, 0),
+            ).toJson(),
+          },
+          {
+            'action': 'delete',
+            'note': NoteEntry(
+              id: 'removed',
+              vaultId: 'everyday',
+              title: 'Remote removed',
+              body: 'Deleted on another device',
+              createdAt: DateTime(2026, 4, 12, 9, 0),
+              deletedAt: DateTime(2026, 4, 12, 20, 0),
             ).toJson(),
           },
         ],
@@ -966,7 +1139,7 @@ void main() {
     );
 
     expect(preview.deviceId, 'remote-device');
-    expect(preview.noteCount, 2);
+    expect(preview.noteCount, 3);
     expect(preview.attachmentCount, 1);
     expect(preview.addedCount, 1);
     expect(preview.updatedCount, 1);
@@ -985,25 +1158,25 @@ class _SingleNoteRepository implements HomeRepository {
 
   @override
   List<NoteEntry> get seededNotes => [
-        NoteEntry(
-          id: 'tracked',
-          vaultId: 'everyday',
-          title: 'Tracked',
-          body: 'Tracked body',
-          createdAt: DateTime(2026, 4, 12, 12, 0),
-          updatedAt: DateTime(2026, 4, 12, 12, 0),
-          deviceId: 'seeded-device',
-          contentHash: 'tracked-hash',
-          syncState: NoteSyncState.synced,
-          attachments: const [
-            NoteAttachment(
-              type: AttachmentType.photo,
-              label: 'proof.jpg',
-              filePath: 'secure-attachment://old',
-            ),
-          ],
+    NoteEntry(
+      id: 'tracked',
+      vaultId: 'everyday',
+      title: 'Tracked',
+      body: 'Tracked body',
+      createdAt: DateTime(2026, 4, 12, 12, 0),
+      updatedAt: DateTime(2026, 4, 12, 12, 0),
+      deviceId: 'seeded-device',
+      contentHash: 'tracked-hash',
+      syncState: NoteSyncState.synced,
+      attachments: const [
+        NoteAttachment(
+          type: AttachmentType.photo,
+          label: 'proof.jpg',
+          filePath: 'secure-attachment://old',
         ),
-      ];
+      ],
+    ),
+  ];
 
   @override
   List<VaultBucket> get vaults => const <VaultBucket>[];
@@ -1019,21 +1192,21 @@ class _AttachmentSeedRepository implements HomeRepository {
 
   @override
   List<NoteEntry> get seededNotes => [
-        NoteEntry(
-          id: 'seeded-old',
-          vaultId: 'everyday',
-          title: 'Seeded old',
-          body: 'Old attachment note',
-          createdAt: DateTime(2026, 4, 12, 11, 0),
-          attachments: [
-            NoteAttachment(
-              type: AttachmentType.photo,
-              label: 'legacy.jpg',
-              filePath: attachmentPath,
-            ),
-          ],
+    NoteEntry(
+      id: 'seeded-old',
+      vaultId: 'everyday',
+      title: 'Seeded old',
+      body: 'Old attachment note',
+      createdAt: DateTime(2026, 4, 12, 11, 0),
+      attachments: [
+        NoteAttachment(
+          type: AttachmentType.photo,
+          label: 'legacy.jpg',
+          filePath: attachmentPath,
         ),
-      ];
+      ],
+    ),
+  ];
 
   @override
   List<VaultBucket> get vaults => const <VaultBucket>[];
@@ -1042,28 +1215,24 @@ class _AttachmentSeedRepository implements HomeRepository {
 class _MinimalHomeRepository implements HomeRepository {
   @override
   List<UnlockIdentity> get identities => const <UnlockIdentity>[
-        UnlockIdentity(
-          id: 'daily',
-          name: 'Daily View',
-          tagline: 'Minimal test identity',
-          lockLabel: 'PIN',
-          visibleVaultIds: ['everyday'],
-          accentHex: 0xFF6B8798,
-          warning: 'Test only',
-        ),
-      ];
+    UnlockIdentity(
+      id: 'daily',
+      name: 'Daily View',
+      tagline: 'Minimal test identity',
+      lockLabel: 'PIN',
+      visibleVaultIds: ['everyday'],
+      accentHex: 0xFF6B8798,
+      warning: 'Test only',
+    ),
+  ];
 
   @override
   List<NoteEntry> get seededNotes => const <NoteEntry>[];
 
   @override
   List<VaultBucket> get vaults => const <VaultBucket>[
-        VaultBucket(
-          id: 'everyday',
-          name: 'Daily Notes',
-          description: 'Test vault',
-        ),
-      ];
+    VaultBucket(id: 'everyday', name: 'Daily Notes', description: 'Test vault'),
+  ];
 }
 
 class _TrackingEncryptedAttachmentStore extends EncryptedAttachmentStore {

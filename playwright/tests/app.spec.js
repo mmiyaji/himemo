@@ -75,6 +75,26 @@ test('new note draft restores after closing editor', async ({ page }) => {
   await expect(page.locator('flutter-view')).toContainText('Draft note');
 });
 
+test('tags can be added to a note and found from search', async ({ page }) => {
+  await page.goto('/');
+  await waitForApp(page);
+  await completeOnboarding(page);
+
+  await page.getByRole('button', { name: 'Add note' }).click();
+  await page.getByRole('button', { name: 'Quick memo' }).click();
+  await page.getByLabel('Memo').pressSequentially('Tagged note\nAlpha body');
+
+  const tagInput = page.getByLabel(/Add a tag|タグを追加/);
+  await tagInput.fill('alpha');
+  await tagInput.press('Enter');
+
+  await page.getByRole('button', { name: 'Create note' }).click();
+  await expect(page.locator('flutter-view')).toContainText('Tagged note');
+
+  await page.getByLabel(/Search|検索/).fill('alpha');
+  await expect(page.locator('flutter-view')).toContainText('Tagged note');
+});
+
 test('private profile unlock and relock work from the app bar', async ({
   page,
 }) => {
