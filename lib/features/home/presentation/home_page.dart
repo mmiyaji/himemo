@@ -55,7 +55,7 @@ class AppShell extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_titleForSection(context, section)),
+        title: const _AppBrandTitle(),
         actions: [
           IconButton(
             key: privateProfileAccessKey,
@@ -171,20 +171,6 @@ class AppShell extends ConsumerWidget {
     }
   }
 
-  String _titleForSection(BuildContext context, AppSection section) {
-    final strings = context.strings;
-    switch (section) {
-      case AppSection.notes:
-        return strings.appTitle;
-      case AppSection.calendar:
-        return strings.calendar;
-      case AppSection.insights:
-        return strings.insights;
-      case AppSection.settings:
-        return strings.settings;
-    }
-  }
-
   AppSection _sectionForLocation(String location) {
     if (location.startsWith('/calendar')) {
       return AppSection.calendar;
@@ -196,6 +182,35 @@ class AppShell extends ConsumerWidget {
       return AppSection.settings;
     }
     return AppSection.notes;
+  }
+}
+
+class _AppBrandTitle extends StatelessWidget {
+  const _AppBrandTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: Image.asset(
+            'assets/app-icon.png',
+            width: 28,
+            height: 28,
+            fit: BoxFit.cover,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          'HiMemo',
+          style: Theme.of(
+            context,
+          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+        ),
+      ],
+    );
   }
 }
 
@@ -4641,17 +4656,11 @@ class _Sidebar extends StatelessWidget {
               padding: EdgeInsets.zero,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'HiMemo',
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w700),
-                      ),
                       if (activeIdentity.id != 'daily') ...[
-                        const SizedBox(height: 12),
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
@@ -4670,8 +4679,8 @@ class _Sidebar extends StatelessWidget {
                             style: Theme.of(context).textTheme.labelMedium,
                           ),
                         ),
+                        const SizedBox(height: 10),
                       ],
-                      const SizedBox(height: 8),
                       Text(
                         flavorName,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
