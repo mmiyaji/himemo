@@ -261,8 +261,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     if (lockAppSession) {
       ref.read(appSessionUnlockControllerProvider.notifier).lock();
     }
-    if (lockAppSession &&
-        ref.read(privateVaultLockOnAppLockControllerProvider)) {
+    if (lockAppSession) {
       ref.read(privateVaultSessionControllerProvider.notifier).lock();
     }
     ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
@@ -612,7 +611,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       title: strings.onboardingCaptureTitle,
       body: strings.onboardingCaptureBody,
       icon: Icons.bolt_rounded,
-      imagePath: 'assets/onboarding/capture.png',
+      imagePath: 'assets/onboarding/capture-illustration.png',
       imageSemanticLabel: strings.onboardingCaptureImageLabel,
       isSetupPage: false,
     ),
@@ -620,7 +619,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       title: strings.onboardingPrivateTitle,
       body: strings.onboardingPrivateBody,
       icon: Icons.lock_person_rounded,
-      imagePath: 'assets/onboarding/private.png',
+      imagePath: 'assets/onboarding/private-illustration.png',
       imageSemanticLabel: strings.onboardingPrivateImageLabel,
       isSetupPage: false,
     ),
@@ -628,7 +627,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       title: strings.onboardingSyncTitle,
       body: strings.onboardingSyncBody,
       icon: Icons.cloud_sync_rounded,
-      imagePath: 'assets/onboarding/sync.png',
+      imagePath: 'assets/onboarding/sync-illustration.png',
       imageSemanticLabel: strings.onboardingSyncImageLabel,
       isSetupPage: false,
     ),
@@ -827,7 +826,9 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                               curve: Curves.easeOut,
                             );
                           },
-                          child: Text(isLastPage ? strings.finishSetup : strings.next),
+                          child: Text(
+                            isLastPage ? strings.finishSetup : strings.next,
+                          ),
                         ),
                       ],
                     ),

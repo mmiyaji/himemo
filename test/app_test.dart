@@ -137,7 +137,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('HiMemo'), findsOneWidget);
-    expect(find.text('Notes'), findsOneWidget);
+    expect(find.text('Notes'), findsAtLeastNWidgets(1));
     expect(find.text('Calendar'), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
   });

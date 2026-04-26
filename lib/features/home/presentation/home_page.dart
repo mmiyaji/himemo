@@ -70,9 +70,11 @@ class AppShell extends ConsumerWidget {
                             : 'Unlock private profile')),
             onPressed: () => _showProfileAccessDialog(context, ref),
             icon: Icon(
-              adminMode || activePrivateProfileLabel != null
-                  ? Icons.key_rounded
-                  : Icons.key_outlined,
+              adminMode
+                  ? Icons.admin_panel_settings_rounded
+                  : activePrivateProfileLabel != null
+                  ? Icons.lock_open_rounded
+                  : Icons.lock_rounded,
             ),
           ),
         ],
@@ -202,96 +204,13 @@ Future<void> _showProfileAccessDialog(
   WidgetRef ref,
 ) async {
   final strings = context.strings;
-  final controller = TextEditingController();
-  final formKey = GlobalKey<FormState>();
   final activeLabel = ref.read(activePrivateProfileLabelProvider);
   final adminMode = ref.read(adminModeSessionControllerProvider);
   final result = await showDialog<String>(
     context: context,
-    builder: (dialogContext) {
-      return AlertDialog(
-        title: Text(
-          adminMode || activeLabel != null
-              ? (strings.isJapanese ? 'プライベート表示を切り替え' : 'Switch private access')
-              : (strings.isJapanese
-                    ? 'プライベートプロファイルを開く'
-                    : 'Unlock private profile'),
-        ),
-        content: Form(
-          key: formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (adminMode || activeLabel != null) ...[
-                  Text(
-                    adminMode
-                        ? (strings.isJapanese
-                              ? '現在は管理者モードです。'
-                              : 'Admin mode is currently active.')
-                        : (strings.isJapanese
-                              ? '現在は $activeLabel を表示しています。'
-                              : 'Currently viewing $activeLabel.'),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                TextFormField(
-                  key: const Key('private-profile-unlock-password-input'),
-                  controller: controller,
-                  obscureText: true,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    labelText: strings.isJapanese
-                        ? 'プロファイルパスワード'
-                        : 'Profile password',
-                    border: const OutlineInputBorder(),
-                  ),
-                  validator: (value) => (value == null || value.isEmpty)
-                      ? (strings.isJapanese
-                            ? 'パスワードを入力してください。'
-                            : 'Enter a password.')
-                      : null,
-                  onFieldSubmitted: (_) {
-                    if (formKey.currentState?.validate() ?? false) {
-                      Navigator.of(dialogContext).pop(controller.text);
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          if (adminMode || activeLabel != null)
-            TextButton(
-              onPressed: () {
-                ref.read(adminModeSessionControllerProvider.notifier).lock();
-                ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
-                Navigator.of(dialogContext).pop();
-              },
-              child: Text(strings.isJapanese ? '閉じる' : 'Lock'),
-            ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(strings.cancel),
-          ),
-          FilledButton(
-            key: const Key('private-profile-unlock-submit'),
-            onPressed: () {
-              if (formKey.currentState?.validate() ?? false) {
-                Navigator.of(dialogContext).pop(controller.text);
-              }
-            },
-            child: Text(strings.isJapanese ? '開く' : 'Unlock'),
-          ),
-        ],
-      );
-    },
+    builder: (_) =>
+        _ProfileAccessDialog(adminMode: adminMode, activeLabel: activeLabel),
   );
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    controller.dispose();
-  });
   if (result == null || result.isEmpty || !context.mounted) {
     return;
   }
@@ -316,6 +235,113 @@ Future<void> _showProfileAccessDialog(
       ),
     ),
   );
+}
+
+class _ProfileAccessDialog extends ConsumerStatefulWidget {
+  const _ProfileAccessDialog({
+    required this.adminMode,
+    required this.activeLabel,
+  });
+
+  final bool adminMode;
+  final String? activeLabel;
+
+  @override
+  ConsumerState<_ProfileAccessDialog> createState() =>
+      _ProfileAccessDialogState();
+}
+
+class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
+  final _controller = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_formKey.currentState?.validate() ?? false) {
+      Navigator.of(context).pop(_controller.text);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final hasActiveAccess = widget.adminMode || widget.activeLabel != null;
+    return AlertDialog(
+      title: Text(
+        hasActiveAccess
+            ? (strings.isJapanese ? 'プライベート表示を切り替え' : 'Switch private access')
+            : (strings.isJapanese
+                  ? 'プライベートプロファイルを開く'
+                  : 'Unlock private profile'),
+      ),
+      content: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (hasActiveAccess) ...[
+                Text(
+                  widget.adminMode
+                      ? (strings.isJapanese
+                            ? '現在は管理者モードです。'
+                            : 'Admin mode is currently active.')
+                      : (strings.isJapanese
+                            ? '現在は ${widget.activeLabel} を表示しています。'
+                            : 'Currently viewing ${widget.activeLabel}.'),
+                ),
+                const SizedBox(height: 12),
+              ],
+              TextFormField(
+                key: const Key('private-profile-unlock-password-input'),
+                controller: _controller,
+                obscureText: true,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: strings.isJapanese
+                      ? 'プロファイルパスワード'
+                      : 'Profile password',
+                  border: const OutlineInputBorder(),
+                ),
+                validator: (value) => (value == null || value.isEmpty)
+                    ? (strings.isJapanese
+                          ? 'パスワードを入力してください。'
+                          : 'Enter a password.')
+                    : null,
+                onFieldSubmitted: (_) => _submit(),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        if (hasActiveAccess)
+          TextButton(
+            onPressed: () {
+              ref.read(adminModeSessionControllerProvider.notifier).lock();
+              ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+              Navigator.of(context).pop();
+            },
+            child: Text(strings.isJapanese ? '閉じる' : 'Lock'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(strings.cancel),
+        ),
+        FilledButton(
+          key: const Key('private-profile-unlock-submit'),
+          onPressed: _submit,
+          child: Text(strings.isJapanese ? '開く' : 'Unlock'),
+        ),
+      ],
+    );
+  }
 }
 
 class NotesScreen extends ConsumerStatefulWidget {
@@ -1977,12 +2003,16 @@ class SettingsScreen extends ConsumerWidget {
       });
       return;
     }
+    final profileName = nameController.text;
+    final profilePassword = passwordController.text;
     final error = await ref
         .read(privateMemoProfilesControllerProvider.notifier)
-        .addProfile(
-          name: nameController.text,
-          password: passwordController.text,
-        );
+        .addProfile(name: profileName, password: profilePassword);
+    if (error == null) {
+      await ref
+          .read(privateProfileUnlockControllerProvider.notifier)
+          .unlockWithPassword(profilePassword);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       nameController.dispose();
       passwordController.dispose();
@@ -1996,8 +2026,8 @@ class SettingsScreen extends ConsumerWidget {
         content: Text(
           error ??
               (strings.isJapanese
-                  ? 'プライベートプロファイルを追加しました。'
-                  : 'Private profile added.'),
+                  ? 'プライベートプロファイルを追加して開きました。'
+                  : 'Private profile added and opened.'),
         ),
       ),
     );
@@ -2029,48 +2059,55 @@ class SettingsScreen extends ConsumerWidget {
       SnackBar(
         content: Text(
           strings.isJapanese
-              ? '管理者モードで全プロファイルを表示します。'
-              : 'Admin mode unlocked. All profiles are now visible.',
+              ? '管理者モードに入りました。プロファイル名と保存先IDは引き続き非表示です。'
+              : 'Admin mode unlocked. Profile names and vault IDs remain hidden.',
         ),
       ),
     );
   }
 
-  Future<void> _confirmDeletePrivateProfile(
+  Future<void> _showChangeCurrentProfilePasswordDialog(
     BuildContext context,
     WidgetRef ref,
-    PrivateMemoProfile profile,
   ) async {
     final strings = context.strings;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(
-          strings.isJapanese ? 'プライベートプロファイルを削除' : 'Delete private profile',
-        ),
-        content: Text(
-          strings.isJapanese
-              ? '「${profile.name}」を削除します。既存ノートの保存先はそのまま残るため、必要なら後で移行してください。'
-              : 'Delete "${profile.name}". Existing notes stay in place, so move them first if needed.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(strings.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(strings.isJapanese ? '削除' : 'Delete'),
-          ),
-        ],
-      ),
+    final unlockedVaultId = ref.read(unlockedPrivateProfileVaultIdProvider);
+    if (unlockedVaultId == null ||
+        !unlockedVaultId.startsWith(customPrivateVaultPrefix)) {
+      return;
+    }
+    final profileId = unlockedVaultId.substring(
+      customPrivateVaultPrefix.length,
     );
-    if (confirmed != true) {
+    final password = await _showSecretSetupDialog(
+      context,
+      title: strings.isJapanese
+          ? '現在のプロファイルのパスワードを変更'
+          : 'Change current profile password',
+      label: strings.isJapanese ? '新しいパスワード' : 'New password',
+      confirmLabel: strings.isJapanese ? '新しいパスワードを確認' : 'Confirm new password',
+      helperText: strings.isJapanese
+          ? 'このプロファイルの解除に使うパスワードを更新します。'
+          : 'Update the password used to unlock this profile.',
+    );
+    if (password == null) {
       return;
     }
     await ref
         .read(privateMemoProfilesControllerProvider.notifier)
-        .deleteProfile(profile.id);
+        .updateProfilePassword(id: profileId, password: password);
+    if (!context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          strings.isJapanese
+              ? 'プロファイルのパスワードを更新しました。'
+              : 'Profile password updated.',
+        ),
+      ),
+    );
   }
 
   @override
@@ -2097,6 +2134,9 @@ class SettingsScreen extends ConsumerWidget {
     );
     final privateProfiles = ref.watch(privateMemoProfilesControllerProvider);
     final adminMode = ref.watch(adminModeSessionControllerProvider);
+    final unlockedPrivateProfileVaultId = ref.watch(
+      unlockedPrivateProfileVaultIdProvider,
+    );
     final activePrivateProfileLabel = ref.watch(
       activePrivateProfileLabelProvider,
     );
@@ -2112,23 +2152,42 @@ class SettingsScreen extends ConsumerWidget {
     final syncConflictWarning = ref.watch(syncConflictWarningProvider);
     final inAppUpdateState = ref.watch(inAppUpdateControllerProvider);
     final packageInfo = ref.watch(packageInfoProvider);
+    const showLegacyAccessSettings = bool.fromEnvironment(
+      'HIMEMO_SHOW_LEGACY_ACCESS_SETTINGS',
+    );
+    const showLegacyPrivateVaultSettings = bool.fromEnvironment(
+      'HIMEMO_SHOW_LEGACY_PRIVATE_VAULT_SETTINGS',
+    );
     final flavorName =
         FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
     final displayName =
         FlavorConfig.instance.variables['displayName'] as String? ?? 'HiMemo';
-    final noteCount = ref.watch(notesControllerProvider).length;
+    final visibleStorageVaultIds = {
+      'everyday',
+      if (unlockedPrivateProfileVaultId != null) unlockedPrivateProfileVaultId,
+    };
+    final noteCount = ref
+        .watch(notesControllerProvider)
+        .where(
+          (note) =>
+              note.deletedAt == null &&
+              visibleStorageVaultIds.contains(note.vaultId),
+        )
+        .length;
     final currentModeLabel = activeIdentity == 'daily'
         ? (strings.isJapanese ? '通常メモモード' : 'Normal memo mode')
         : ref.watch(activeIdentityDataProvider).name;
     final lockSummary = !appLockEnabled
-        ? (strings.isJapanese ? '起動時の保護はオフです。' : 'Launch protection is off.')
+        ? (strings.isJapanese
+              ? '未設定です。オンにするとパスワードまたは生体認証を設定します。'
+              : 'Off. Turning this on asks for a password or device authentication.')
         : (appSessionUnlocked
               ? (strings.isJapanese
-                    ? '起動時の保護はオンです。このセッションでは解除されています。'
-                    : 'Launch protection is on. This session is unlocked.')
+                    ? '有効です。このセッションは解除中です。'
+                    : 'On. This session is unlocked.')
               : (strings.isJapanese
-                    ? '起動時の保護はオンです。現在はロック中です。'
-                    : 'Launch protection is on. This session is locked.'));
+                    ? '有効です。このセッションはロック中です。'
+                    : 'On. This session is locked.'));
     final syncSummary = syncProvider == SyncProvider.off
         ? (strings.isJapanese ? 'この端末のみ' : 'Device-only storage')
         : _syncAuthSummary(context, syncProvider, syncAuthState);
@@ -2241,6 +2300,19 @@ class SettingsScreen extends ConsumerWidget {
                         .lock(),
                     child: Text(strings.exitAdminModeLabel),
                   ),
+                if (unlockedPrivateProfileVaultId != null &&
+                    unlockedPrivateProfileVaultId.startsWith(
+                      customPrivateVaultPrefix,
+                    ))
+                  OutlinedButton(
+                    onPressed: () =>
+                        _showChangeCurrentProfilePasswordDialog(context, ref),
+                    child: Text(
+                      strings.isJapanese
+                          ? '現在のプロファイルのパスワードを変更'
+                          : 'Change current profile password',
+                    ),
+                  ),
               ],
             ),
             const SizedBox(height: 12),
@@ -2252,38 +2324,16 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               )
             else
-              Column(
-                children: [
-                  for (final profile in privateProfiles)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(profile.name),
-                      subtitle: Text(
-                        adminMode
-                            ? (strings.isJapanese
-                                  ? '保存先ID: ${profile.vaultId}'
-                                  : 'Vault id: ${profile.vaultId}')
-                            : (strings.isJapanese
-                                  ? 'パスワード一致時にだけ表示されます。'
-                                  : 'Visible only when its password is entered.'),
-                      ),
-                      trailing: adminMode
-                          ? IconButton(
-                              onPressed: () => _confirmDeletePrivateProfile(
-                                context,
-                                ref,
-                                profile,
-                              ),
-                              icon: const Icon(Icons.delete_outline_rounded),
-                            )
-                          : null,
-                    ),
-                ],
+              Text(
+                strings.privateProfilesHiddenSummary(privateProfiles.length),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
               ),
           ],
         ),
         const SizedBox(height: 16),
-        if (kDebugMode)
+        if (kDebugMode && showLegacyAccessSettings)
           _SettingsGroup(
             title: strings.isJapanese ? 'アクセスモード' : 'Access modes',
             summary: strings.isJapanese
@@ -2359,7 +2409,7 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ],
           ),
-        if (kDebugMode) const SizedBox(height: 16),
+        if (kDebugMode && showLegacyAccessSettings) const SizedBox(height: 16),
         _SettingsGroup(
           title: strings.isJapanese ? 'アプリ保護' : 'App security',
           summary: lockSummary,
@@ -2586,37 +2636,40 @@ class SettingsScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 8),
             ],
-            SwitchListTile.adaptive(
-              value: widgetQuickCaptureEnabled,
-              contentPadding: EdgeInsets.zero,
-              title: Text(strings.homeWidgetQuickCapture),
-              subtitle: Text(
-                !kIsWeb &&
+            if (showLegacyAccessSettings) ...[
+              SwitchListTile.adaptive(
+                value: widgetQuickCaptureEnabled,
+                contentPadding: EdgeInsets.zero,
+                title: Text(strings.homeWidgetQuickCapture),
+                subtitle: Text(
+                  !kIsWeb &&
+                          (defaultTargetPlatform == TargetPlatform.android ||
+                              defaultTargetPlatform == TargetPlatform.iOS)
+                      ? strings.homeWidgetQuickCaptureDesc
+                      : strings.homeWidgetQuickCaptureMobileOnly,
+                ),
+                onChanged:
+                    !kIsWeb &&
                         (defaultTargetPlatform == TargetPlatform.android ||
                             defaultTargetPlatform == TargetPlatform.iOS)
-                    ? strings.homeWidgetQuickCaptureDesc
-                    : strings.homeWidgetQuickCaptureMobileOnly,
+                    ? (value) => ref
+                          .read(
+                            widgetQuickCaptureSettingsControllerProvider
+                                .notifier,
+                          )
+                          .setEnabled(value)
+                    : null,
               ),
-              onChanged:
-                  !kIsWeb &&
-                      (defaultTargetPlatform == TargetPlatform.android ||
-                          defaultTargetPlatform == TargetPlatform.iOS)
-                  ? (value) => ref
-                        .read(
-                          widgetQuickCaptureSettingsControllerProvider.notifier,
-                        )
-                        .setEnabled(value)
-                  : null,
-            ),
-            Text(
-              strings.isJapanese
-                  ? 'クイックキャプチャは Daily Notes に平文テキストだけを書き込みます。既存ノートや private vault の内容は開きません。'
-                  : 'Quick widget capture only writes plain text into Daily Notes. It never opens existing notes or private vault content.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
-            ),
-            const SizedBox(height: 8),
+              Text(
+                strings.isJapanese
+                    ? 'クイックキャプチャは Notes に平文テキストだけを書き込みます。既存ノートやロック中のプロファイルは開きません。'
+                    : 'Quick widget capture only writes plain text into Notes. It never opens existing notes or locked profiles.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
             const SizedBox(height: 4),
             Text(
               strings.isJapanese
@@ -2668,24 +2721,25 @@ class SettingsScreen extends ConsumerWidget {
                   .read(appLockRelockDelayControllerProvider.notifier)
                   .setDelay(AppLockRelockDelay.minutes10),
             ),
-            SwitchListTile.adaptive(
-              key: privateVaultLockOnAppLockKey,
-              value: privateVaultLockOnAppLock,
-              contentPadding: EdgeInsets.zero,
-              title: Text(
-                strings.isJapanese
-                    ? 'アプリロック時に private vault もロック'
-                    : 'Lock private vault when app locks',
+            if (showLegacyPrivateVaultSettings)
+              SwitchListTile.adaptive(
+                key: privateVaultLockOnAppLockKey,
+                value: privateVaultLockOnAppLock,
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  strings.isJapanese
+                      ? 'アプリロック時にレガシー領域もロック'
+                      : 'Lock legacy private area when app locks',
+                ),
+                subtitle: Text(
+                  strings.isJapanese
+                      ? '通常は常にアプリロックと同時にロックします。'
+                      : 'Normally this locks whenever the app locks.',
+                ),
+                onChanged: (value) => ref
+                    .read(privateVaultLockOnAppLockControllerProvider.notifier)
+                    .setEnabled(value),
               ),
-              subtitle: Text(
-                strings.isJapanese
-                    ? 'アプリの再ロックを private vault のセッションにも適用します。'
-                    : 'Apply app re-lock to the private vault session too.',
-              ),
-              onChanged: (value) => ref
-                  .read(privateVaultLockOnAppLockControllerProvider.notifier)
-                  .setEnabled(value),
-            ),
             Align(
               alignment: Alignment.centerLeft,
               child: Wrap(
@@ -2723,16 +2777,12 @@ class SettingsScreen extends ConsumerWidget {
                                   appSessionUnlockControllerProvider.notifier,
                                 )
                                 .lock();
-                            if (ref.read(
-                              privateVaultLockOnAppLockControllerProvider,
-                            )) {
-                              ref
-                                  .read(
-                                    privateVaultSessionControllerProvider
-                                        .notifier,
-                                  )
-                                  .lock();
-                            }
+                            ref
+                                .read(
+                                  privateVaultSessionControllerProvider
+                                      .notifier,
+                                )
+                                .lock();
                             ref
                                 .read(
                                   unlockedPrivateProfileVaultIdProvider
@@ -2774,7 +2824,43 @@ class SettingsScreen extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 16),
-        if (kDebugMode)
+        _SettingsGroup(
+          title: strings.isJapanese ? '外部クイックメモ' : 'External quick memo',
+          summary: widgetQuickCaptureEnabled
+              ? (strings.isJapanese
+                    ? 'ロック中でもウィジェットから Notes に追記できます。'
+                    : 'Widget quick writes are allowed while the app is locked.')
+              : (strings.isJapanese
+                    ? 'ウィジェットからのクイック書き込みは無効です。'
+                    : 'Widget quick writes are off.'),
+          assetPath: 'assets/settings/storage.svg',
+          children: [
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                strings.isJapanese
+                    ? 'ロック中でもウィジェットから書き込む'
+                    : 'Allow widget writes while locked',
+              ),
+              subtitle: Text(
+                strings.isJapanese
+                    ? '既存のメモやロック中のプロファイルは表示せず、入力内容だけを保存します。'
+                    : 'Only the submitted text is saved. Existing notes and locked profiles stay hidden.',
+              ),
+              value: widgetQuickCaptureEnabled,
+              onChanged: (value) => ref
+                  .read(widgetQuickCaptureSettingsControllerProvider.notifier)
+                  .setEnabled(value),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(strings.isJapanese ? '書き込み先' : 'Write target'),
+              subtitle: const Text('Notes'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (kDebugMode && showLegacyPrivateVaultSettings)
           _SettingsGroup(
             title: strings.isJapanese ? 'Private vault' : 'Private vault',
             summary: privateVaultConfigured
@@ -2856,7 +2942,8 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ],
           ),
-        if (kDebugMode) const SizedBox(height: 16),
+        if (kDebugMode && showLegacyPrivateVaultSettings)
+          const SizedBox(height: 16),
         _SettingsGroup(
           title: strings.isJapanese ? 'バックアップと同期' : 'Backup and sync',
           summary: syncSummary,
@@ -4425,7 +4512,9 @@ class _PrivateVaultLockedNotice extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Private vault is locked. Unlock it from Settings to reveal hidden notes.',
+              context.strings.isJapanese
+                  ? 'ロック中のプロファイルは表示されません。設定から対象のプロファイルを解除してください。'
+                  : 'Locked profiles are hidden. Unlock the target profile from Settings to show its notes.',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ),
@@ -4470,13 +4559,16 @@ class _VaultSectionCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(vault.name),
-                  const SizedBox(height: 4),
-                  Text(
-                    vault.description,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: _mutedTextColor(context),
+                  if (vault.id != 'everyday' &&
+                      vault.description.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      vault.description,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: _mutedTextColor(context),
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -5050,7 +5142,7 @@ class _NoteDetailPane extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Text(
-                  'Created $createdLabel ﾂｷ Revision ${note.revision}',
+                  'Created $createdLabel · Revision ${note.revision}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: _mutedTextColor(context),
                   ),
@@ -5765,19 +5857,28 @@ class _NoteTagChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final label = '#$tag';
+    final chipLabel = Text(
+      label,
+      style: Theme.of(context).textTheme.labelSmall,
+    );
     if (onTap == null) {
       return Chip(
-        visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
+        visualDensity: VisualDensity.compact,
         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        label: Text(label),
+        labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        side: BorderSide(color: Theme.of(context).dividerColor),
+        label: chipLabel,
       );
     }
     return ActionChip(
-      label: Text(label),
+      label: chipLabel,
       onPressed: onTap,
-      avatar: const Icon(Icons.sell_outlined, size: 16),
-      visualDensity: compact ? VisualDensity.compact : VisualDensity.standard,
+      visualDensity: VisualDensity.compact,
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      side: BorderSide(color: Theme.of(context).dividerColor),
     );
   }
 }

@@ -19,8 +19,8 @@ class SeededHomeRepository implements HomeRepository {
   List<VaultBucket> get vaults => const [
         VaultBucket(
           id: 'everyday',
-          name: 'Daily Notes',
-          description: '普段使いのメモや日記を保存する標準の領域です。',
+          name: 'Notes',
+          description: '',
         ),
         VaultBucket(
           id: 'decoy',
@@ -29,8 +29,8 @@ class SeededHomeRepository implements HomeRepository {
         ),
         VaultBucket(
           id: 'private',
-          name: 'Quiet Archive',
-          description: '特別な解除キーでのみ開く個人用の保管領域です。',
+          name: 'Locked profile',
+          description: 'プロファイルを解除したときだけ表示されるメモです。',
         ),
       ];
 
@@ -38,12 +38,12 @@ class SeededHomeRepository implements HomeRepository {
   List<UnlockIdentity> get identities => const [
         UnlockIdentity(
           id: 'daily',
-          name: 'Daily View',
-          tagline: '普段使いのメモだけを開く標準モードです。',
+          name: 'Notes',
+          tagline: '標準のノート領域です。',
           lockLabel: 'Standard access',
           visibleVaultIds: ['everyday'],
           accentHex: 0xFF6B8798,
-          warning: '通常表示では private vault は見えません。',
+          warning: '通常表示ではロック中のプロファイルは見えません。',
         ),
         UnlockIdentity(
           id: 'cover',

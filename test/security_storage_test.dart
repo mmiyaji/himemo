@@ -1231,7 +1231,7 @@ class _MinimalHomeRepository implements HomeRepository {
 
   @override
   List<VaultBucket> get vaults => const <VaultBucket>[
-    VaultBucket(id: 'everyday', name: 'Daily Notes', description: 'Test vault'),
+    VaultBucket(id: 'everyday', name: 'Notes', description: 'Test vault'),
   ];
 }
 

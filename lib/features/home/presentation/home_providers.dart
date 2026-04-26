@@ -1939,6 +1939,26 @@ class PrivateMemoProfileStore {
     await _secureStore.delete('$verifierStoragePrefix$id');
   }
 
+  Future<void> updateProfilePassword({
+    required String id,
+    required String password,
+  }) async {
+    final profiles = await listProfiles();
+    if (!profiles.any((profile) => profile.id == id)) {
+      return;
+    }
+    final encryption = EncryptionService();
+    final salt = encryption.generateSalt();
+    final verifier = await encryption.deriveSecretVerifier(
+      secret: password,
+      salt: salt,
+    );
+    await _secureStore.write(
+      '$verifierStoragePrefix$id',
+      jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
+    );
+  }
+
   Future<bool> _verifyProfilePassword(String id, String password) async {
     final stored = await _secureStore.read('$verifierStoragePrefix$id');
     if (stored == null || stored.isEmpty) {
@@ -3382,6 +3402,16 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
     }
     await refresh();
   }
+
+  Future<void> updateProfilePassword({
+    required String id,
+    required String password,
+  }) async {
+    await ref
+        .read(privateMemoProfileStoreProvider)
+        .updateProfilePassword(id: id, password: password);
+    await refresh();
+  }
 }
 
 final accessiblePrivateVaultIdsProvider = Provider<List<String>>((ref) {
@@ -3567,7 +3597,17 @@ SyncAuthState selectedSyncAuthState(Ref ref) {
 
 @riverpod
 VaultBucket vaultById(Ref ref, String vaultId) {
-  return ref.watch(vaultsProvider).firstWhere((vault) => vault.id == vaultId);
+  for (final vault in ref.watch(visibleVaultsProvider)) {
+    if (vault.id == vaultId) {
+      return vault;
+    }
+  }
+  for (final vault in ref.watch(vaultsProvider)) {
+    if (vault.id == vaultId) {
+      return vault;
+    }
+  }
+  return VaultBucket(id: vaultId, name: 'Notes', description: 'Unlocked notes');
 }
 
 @riverpod
