@@ -1209,7 +1209,7 @@ class InsightsScreen extends ConsumerWidget {
           description: strings.isJapanese
               ? '最近6か月のノート件数'
               : 'Notes created over the last 6 months.',
-          child: _InsightBarChart(
+          child: _InsightLineChart(
             buckets: _buildMonthlyBuckets(context, notes),
             valueSuffix: strings.isJapanese ? '件' : ' notes',
           ),
@@ -1223,7 +1223,6 @@ class InsightsScreen extends ConsumerWidget {
           child: _InsightBarChart(
             buckets: _buildRecentDayBuckets(context, notes),
             valueSuffix: strings.isJapanese ? '件' : ' notes',
-            compactLabels: true,
           ),
         ),
         const SizedBox(height: 16),
@@ -1232,8 +1231,9 @@ class InsightsScreen extends ConsumerWidget {
           description: strings.isJapanese
               ? 'どの曜日に書いているか'
               : 'See which weekdays you write on most.',
-          child: _InsightBarChart(
+          child: _InsightHeatStrip(
             buckets: _buildWeekdayBuckets(context, notes),
+            columns: 7,
             valueSuffix: strings.isJapanese ? '件' : ' notes',
           ),
         ),
@@ -1243,7 +1243,7 @@ class InsightsScreen extends ConsumerWidget {
           description: strings.isJapanese
               ? '写真・動画・音声の使用数'
               : 'How often photos, videos, and audio are used.',
-          child: _InsightBarChart(
+          child: _InsightHorizontalBarChart(
             buckets: _buildAttachmentBuckets(context, notes),
             valueSuffix: strings.isJapanese ? '件' : ' items',
           ),
@@ -1254,10 +1254,9 @@ class InsightsScreen extends ConsumerWidget {
           description: strings.isJapanese
               ? '書きやすい時間帯を見ます。'
               : 'Find the hours when writing comes naturally.',
-          child: _InsightBarChart(
+          child: _InsightHeatStrip(
             buckets: _buildHourBuckets(notes),
             valueSuffix: strings.isJapanese ? '件' : ' notes',
-            compactLabels: true,
           ),
         ),
       ],
@@ -1334,7 +1333,9 @@ class _InsightKpiTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 220,
+      width: MediaQuery.sizeOf(context).width < 560
+          ? (MediaQuery.sizeOf(context).width - 64) / 2
+          : 220,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Column(
@@ -1351,10 +1352,14 @@ class _InsightKpiTile extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(
-                  value,
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+                Flexible(
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -1412,15 +1417,10 @@ class _InsightChartSection extends StatelessWidget {
 }
 
 class _InsightBarChart extends StatelessWidget {
-  const _InsightBarChart({
-    required this.buckets,
-    required this.valueSuffix,
-    this.compactLabels = false,
-  });
+  const _InsightBarChart({required this.buckets, required this.valueSuffix});
 
   final List<_InsightBucket> buckets;
   final String valueSuffix;
-  final bool compactLabels;
 
   @override
   Widget build(BuildContext context) {
@@ -1498,7 +1498,7 @@ class _InsightBarChart extends StatelessWidget {
                         const SizedBox(height: 8),
                         Text(
                           bucket.label,
-                          maxLines: compactLabels ? 1 : 2,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.labelMedium,
@@ -1511,6 +1511,299 @@ class _InsightBarChart extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _InsightLineChart extends StatelessWidget {
+  const _InsightLineChart({required this.buckets, required this.valueSuffix});
+
+  final List<_InsightBucket> buckets;
+  final String valueSuffix;
+
+  @override
+  Widget build(BuildContext context) {
+    if (buckets.isEmpty) {
+      return _NoInsightData();
+    }
+    final maxValue = buckets.fold<int>(
+      0,
+      (max, bucket) => math.max(max, bucket.value),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 172,
+          child: CustomPaint(
+            painter: _InsightLineChartPainter(
+              buckets: buckets,
+              maxValue: maxValue,
+              lineColor: Theme.of(context).colorScheme.primary,
+              fillColor: Theme.of(
+                context,
+              ).colorScheme.primary.withValues(alpha: 0.12),
+              gridColor: Theme.of(context).dividerColor,
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                buckets.first.label,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
+              ),
+            ),
+            Text(
+              '${buckets.last.value}$valueSuffix',
+              style: Theme.of(
+                context,
+              ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            Expanded(
+              child: Text(
+                buckets.last.label,
+                textAlign: TextAlign.end,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _InsightLineChartPainter extends CustomPainter {
+  const _InsightLineChartPainter({
+    required this.buckets,
+    required this.maxValue,
+    required this.lineColor,
+    required this.fillColor,
+    required this.gridColor,
+  });
+
+  final List<_InsightBucket> buckets;
+  final int maxValue;
+  final Color lineColor;
+  final Color fillColor;
+  final Color gridColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final gridPaint = Paint()
+      ..color = gridColor
+      ..strokeWidth = 1;
+    for (final factor in const [0.25, 0.5, 0.75, 1.0]) {
+      final y = size.height - size.height * factor;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+    if (buckets.isEmpty) {
+      return;
+    }
+    final denominator = math.max(1, maxValue);
+    final points = <Offset>[];
+    for (var i = 0; i < buckets.length; i++) {
+      final x = buckets.length == 1
+          ? size.width / 2
+          : size.width * i / (buckets.length - 1);
+      final y = size.height - size.height * buckets[i].value / denominator;
+      points.add(Offset(x, y));
+    }
+    final fillPath = Path()..moveTo(points.first.dx, size.height);
+    for (final point in points) {
+      fillPath.lineTo(point.dx, point.dy);
+    }
+    fillPath
+      ..lineTo(points.last.dx, size.height)
+      ..close();
+    canvas.drawPath(fillPath, Paint()..color = fillColor);
+
+    final linePath = Path()..moveTo(points.first.dx, points.first.dy);
+    for (final point in points.skip(1)) {
+      linePath.lineTo(point.dx, point.dy);
+    }
+    canvas.drawPath(
+      linePath,
+      Paint()
+        ..color = lineColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+    final pointPaint = Paint()..color = lineColor;
+    for (final point in points) {
+      canvas.drawCircle(point, 4, pointPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _InsightLineChartPainter oldDelegate) {
+    return oldDelegate.buckets != buckets ||
+        oldDelegate.maxValue != maxValue ||
+        oldDelegate.lineColor != lineColor ||
+        oldDelegate.fillColor != fillColor ||
+        oldDelegate.gridColor != gridColor;
+  }
+}
+
+class _InsightHorizontalBarChart extends StatelessWidget {
+  const _InsightHorizontalBarChart({
+    required this.buckets,
+    required this.valueSuffix,
+  });
+
+  final List<_InsightBucket> buckets;
+  final String valueSuffix;
+
+  @override
+  Widget build(BuildContext context) {
+    if (buckets.isEmpty) {
+      return _NoInsightData();
+    }
+    final maxValue = buckets.fold<int>(
+      0,
+      (max, bucket) => math.max(max, bucket.value),
+    );
+    final colorScheme = Theme.of(context).colorScheme;
+    return Column(
+      children: [
+        for (final bucket in buckets) ...[
+          Row(
+            children: [
+              SizedBox(
+                width: 72,
+                child: Text(
+                  bucket.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    minHeight: 12,
+                    value: maxValue == 0 ? 0 : bucket.value / maxValue,
+                    backgroundColor: colorScheme.surfaceContainerHighest,
+                    color: colorScheme.primary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 68,
+                child: Text(
+                  '${bucket.value}$valueSuffix',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: _mutedTextColor(context),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (bucket != buckets.last) const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+}
+
+class _InsightHeatStrip extends StatelessWidget {
+  const _InsightHeatStrip({
+    required this.buckets,
+    required this.valueSuffix,
+    this.columns = 8,
+  });
+
+  final List<_InsightBucket> buckets;
+  final String valueSuffix;
+  final int columns;
+
+  @override
+  Widget build(BuildContext context) {
+    if (buckets.isEmpty) {
+      return _NoInsightData();
+    }
+    final maxValue = buckets.fold<int>(
+      0,
+      (max, bucket) => math.max(max, bucket.value),
+    );
+    final colorScheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: buckets.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            mainAxisSpacing: 6,
+            crossAxisSpacing: 6,
+            childAspectRatio: 1.45,
+          ),
+          itemBuilder: (context, index) {
+            final bucket = buckets[index];
+            final intensity = maxValue == 0 ? 0.0 : bucket.value / maxValue;
+            return DecoratedBox(
+              decoration: BoxDecoration(
+                color: Color.lerp(
+                  colorScheme.surfaceContainerHighest,
+                  colorScheme.primary,
+                  intensity.clamp(0.0, 1.0),
+                ),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Theme.of(context).dividerColor),
+              ),
+              child: Center(
+                child: Text(
+                  bucket.label,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: intensity > 0.55
+                        ? colorScheme.onPrimary
+                        : colorScheme.onSurface,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 10),
+        Text(
+          context.strings.isJapanese
+              ? '濃い時間帯ほど記録が多いです。最大 $maxValue$valueSuffix。'
+              : 'Darker hours have more notes. Peak: $maxValue$valueSuffix.',
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+        ),
+      ],
+    );
+  }
+}
+
+class _NoInsightData extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      context.strings.isJapanese ? 'まだデータがありません。' : 'No data yet.',
+      style: Theme.of(
+        context,
+      ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
     );
   }
 }

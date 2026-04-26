@@ -113,6 +113,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/app-icon.png
     - assets/onboarding/
     - assets/settings/
 
