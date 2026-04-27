@@ -1242,13 +1242,12 @@ class InsightsScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _InsightChartSection(
-          title: strings.isJapanese ? '曜日ごとの傾向' : 'Weekday rhythm',
+          title: strings.isJapanese ? '曜日と時間帯の傾向' : 'Weekday and time rhythm',
           description: strings.isJapanese
-              ? 'どの曜日に書いているか'
-              : 'See which weekdays you write on most.',
-          child: _InsightHeatStrip(
-            buckets: _buildWeekdayBuckets(context, notes),
-            columns: 7,
+              ? '曜日別、3時間ごとの記録量をまとめて見ます。'
+              : 'Notes by weekday and 3-hour time block.',
+          child: _WeekdayHourHistogram(
+            buckets: _buildWeekdayHourBuckets(notes),
             valueSuffix: strings.isJapanese ? '件' : ' notes',
           ),
         ),
@@ -1261,17 +1260,6 @@ class InsightsScreen extends ConsumerWidget {
           child: _InsightHorizontalBarChart(
             buckets: _buildAttachmentBuckets(context, notes),
             valueSuffix: strings.isJapanese ? '件' : ' items',
-          ),
-        ),
-        const SizedBox(height: 16),
-        _InsightChartSection(
-          title: strings.isJapanese ? '記録しやすい時間帯' : 'Writing hours',
-          description: strings.isJapanese
-              ? '書きやすい時間帯を見ます。'
-              : 'Find the hours when writing comes naturally.',
-          child: _InsightHeatStrip(
-            buckets: _buildHourBuckets(notes),
-            valueSuffix: strings.isJapanese ? '件' : ' notes',
           ),
         ),
       ],
@@ -1736,16 +1724,14 @@ class _InsightHorizontalBarChart extends StatelessWidget {
   }
 }
 
-class _InsightHeatStrip extends StatelessWidget {
-  const _InsightHeatStrip({
+class _WeekdayHourHistogram extends StatelessWidget {
+  const _WeekdayHourHistogram({
     required this.buckets,
     required this.valueSuffix,
-    this.columns = 8,
   });
 
-  final List<_InsightBucket> buckets;
+  final List<_WeekdayHourBucket> buckets;
   final String valueSuffix;
-  final int columns;
 
   @override
   Widget build(BuildContext context) {
@@ -1756,57 +1742,158 @@ class _InsightHeatStrip extends StatelessWidget {
       0,
       (max, bucket) => math.max(max, bucket.value),
     );
+    final strings = context.strings;
+    final weekdays = _weekdayLabels(strings.isJapanese);
+    final timeLabels = [
+      for (var hour = 0; hour < 24; hour += 3)
+        '${hour.toString().padLeft(2, '0')}-${(hour + 2).toString().padLeft(2, '0')}',
+    ];
     final colorScheme = Theme.of(context).colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: buckets.length,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            mainAxisSpacing: 6,
-            crossAxisSpacing: 6,
-            childAspectRatio: 1.45,
-          ),
-          itemBuilder: (context, index) {
-            final bucket = buckets[index];
-            final intensity = maxValue == 0 ? 0.0 : bucket.value / maxValue;
-            return DecoratedBox(
-              decoration: BoxDecoration(
-                color: Color.lerp(
-                  colorScheme.surfaceContainerHighest,
-                  colorScheme.primary,
-                  intensity.clamp(0.0, 1.0),
-                ),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Theme.of(context).dividerColor),
-              ),
-              child: Center(
-                child: Text(
-                  bucket.label,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: intensity > 0.55
-                        ? colorScheme.onPrimary
-                        : colorScheme.onSurface,
-                    fontWeight: FontWeight.w700,
+    final bucketByKey = {
+      for (final bucket in buckets)
+        '${bucket.weekday}-${bucket.startHour}': bucket,
+    };
+
+    Color cellColor(int value) {
+      if (value == 0 || maxValue == 0) {
+        return colorScheme.surfaceContainerHighest.withValues(alpha: 0.55);
+      }
+      final intensity = value / maxValue;
+      return Color.lerp(
+        colorScheme.primary.withValues(alpha: 0.12),
+        colorScheme.primary,
+        intensity.clamp(0.0, 1.0),
+      )!;
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : 360.0;
+        const labelWidth = 34.0;
+        const gap = 4.0;
+        final cellSize = ((maxWidth - labelWidth - gap * 7) / 7).clamp(
+          18.0,
+          30.0,
+        );
+        final labelStyle = Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: _mutedTextColor(context),
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+        );
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const SizedBox(width: labelWidth),
+                for (final weekday in weekdays)
+                  SizedBox(
+                    width: cellSize + gap,
+                    child: Text(
+                      weekday,
+                      textAlign: TextAlign.center,
+                      style: labelStyle,
+                    ),
                   ),
-                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            for (var row = 0; row < timeLabels.length; row++) ...[
+              Row(
+                children: [
+                  SizedBox(
+                    width: labelWidth,
+                    child: Text(
+                      row.isEven ? timeLabels[row].substring(0, 2) : '',
+                      style: labelStyle?.copyWith(fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  for (var weekday = 1; weekday <= 7; weekday++)
+                    Padding(
+                      padding: const EdgeInsets.only(right: gap, bottom: gap),
+                      child: _WeekdayHourCell(
+                        size: cellSize,
+                        value: bucketByKey['$weekday-${row * 3}']?.value ?? 0,
+                        maxValue: maxValue,
+                        valueSuffix: valueSuffix,
+                        color: cellColor(
+                          bucketByKey['$weekday-${row * 3}']?.value ?? 0,
+                        ),
+                      ),
+                    ),
+                ],
               ),
-            );
-          },
+            ],
+            const SizedBox(height: 6),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  strings.isJapanese ? '少' : 'Less',
+                  style: labelStyle?.copyWith(fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(width: 6),
+                for (final alpha in const [0.0, 0.25, 0.5, 0.75, 1.0]) ...[
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Color.lerp(
+                        colorScheme.surfaceContainerHighest.withValues(
+                          alpha: 0.55,
+                        ),
+                        colorScheme.primary,
+                        alpha,
+                      ),
+                      borderRadius: BorderRadius.circular(3),
+                      border: Border.all(color: Theme.of(context).dividerColor),
+                    ),
+                    child: const SizedBox(width: 10, height: 10),
+                  ),
+                  const SizedBox(width: 3),
+                ],
+                const SizedBox(width: 3),
+                Text(
+                  strings.isJapanese ? '多' : 'More',
+                  style: labelStyle?.copyWith(fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _WeekdayHourCell extends StatelessWidget {
+  const _WeekdayHourCell({
+    required this.size,
+    required this.value,
+    required this.maxValue,
+    required this.valueSuffix,
+    required this.color,
+  });
+
+  final double size;
+  final int value;
+  final int maxValue;
+  final String valueSuffix;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: '$value$valueSuffix',
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: Theme.of(context).dividerColor),
         ),
-        const SizedBox(height: 10),
-        Text(
-          context.strings.isJapanese
-              ? '濃い時間帯ほど記録が多いです。最大 $maxValue$valueSuffix。'
-              : 'Darker hours have more notes. Peak: $maxValue$valueSuffix.',
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
-        ),
-      ],
+        child: SizedBox(width: size, height: size),
+      ),
     );
   }
 }
@@ -1827,6 +1914,18 @@ class _InsightBucket {
   const _InsightBucket({required this.label, required this.value});
 
   final String label;
+  final int value;
+}
+
+class _WeekdayHourBucket {
+  const _WeekdayHourBucket({
+    required this.weekday,
+    required this.startHour,
+    required this.value,
+  });
+
+  final int weekday;
+  final int startHour;
   final int value;
 }
 
@@ -1983,20 +2082,30 @@ List<_InsightBucket> _buildRecentDayBuckets(
   return buckets;
 }
 
-List<_InsightBucket> _buildWeekdayBuckets(
-  BuildContext context,
-  List<NoteEntry> notes,
-) {
-  final strings = context.strings;
-  const enLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const jaLabels = ['月', '火', '水', '木', '金', '土', '日'];
+List<_WeekdayHourBucket> _buildWeekdayHourBuckets(List<NoteEntry> notes) {
   return [
-    for (var i = 1; i <= 7; i++)
-      _InsightBucket(
-        label: strings.isJapanese ? jaLabels[i - 1] : enLabels[i - 1],
-        value: notes.where((note) => note.createdAt.weekday == i).length,
-      ),
+    for (var startHour = 0; startHour < 24; startHour += 3)
+      for (var weekday = 1; weekday <= 7; weekday++)
+        _WeekdayHourBucket(
+          weekday: weekday,
+          startHour: startHour,
+          value: notes
+              .where(
+                (note) =>
+                    note.createdAt.weekday == weekday &&
+                    note.createdAt.hour >= startHour &&
+                    note.createdAt.hour < startHour + 3,
+              )
+              .length,
+        ),
   ];
+}
+
+List<String> _weekdayLabels(bool isJapanese) {
+  if (isJapanese) {
+    return const ['月', '火', '水', '木', '金', '土', '日'];
+  }
+  return const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 }
 
 List<_InsightBucket> _buildAttachmentBuckets(
@@ -4656,7 +4765,7 @@ class _Sidebar extends StatelessWidget {
               padding: EdgeInsets.zero,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -4679,7 +4788,7 @@ class _Sidebar extends StatelessWidget {
                             style: Theme.of(context).textTheme.labelMedium,
                           ),
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 8),
                       ],
                       Text(
                         flavorName,
@@ -6874,8 +6983,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             ),
     ];
     final hasPrivateTargets = privateTargets.isNotEmpty;
-    final isPrivateSelection =
-        _selectedVaultId != null && _selectedVaultId != 'everyday';
     _selectedVaultId ??= widget.note?.vaultId ?? 'everyday';
     if (_selectedVaultId != 'everyday' &&
         !privateTargets.any((vault) => vault.id == _selectedVaultId)) {
@@ -6887,6 +6994,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         privateTargets.any((vault) => vault.id == widget.note!.vaultId)) {
       _selectedVaultId = widget.note!.vaultId;
     }
+    final isPrivateSelection = _selectedVaultId != 'everyday';
 
     return SafeArea(
       child: Padding(
@@ -8158,7 +8266,45 @@ Future<void> _shareAttachment(
     );
     return;
   }
-  await Share.shareXFiles([XFile(filePath)], text: attachment.label);
+
+  final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+  if (kIsWeb) {
+    final bytes = await attachmentStore.readAttachment(
+      filePath,
+      type: attachment.type,
+    );
+    if (bytes == null || bytes.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to decrypt this attachment.')),
+        );
+      }
+      return;
+    }
+    await Share.shareXFiles([
+      XFile.fromData(Uint8List.fromList(bytes), name: attachment.label),
+    ], text: attachment.label);
+    return;
+  }
+
+  final tempFilePath = await attachmentStore.materializeDecryptedFile(
+    filePath,
+    type: attachment.type,
+    preferredFileName: attachment.label,
+  );
+  if (tempFilePath == null || tempFilePath.isEmpty) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to decrypt this attachment.')),
+      );
+    }
+    return;
+  }
+  try {
+    await Share.shareXFiles([XFile(tempFilePath)], text: attachment.label);
+  } finally {
+    await attachmentStore.deleteMaterializedFile(tempFilePath);
+  }
 }
 
 class _EmbeddedAttachmentBlock extends ConsumerWidget {

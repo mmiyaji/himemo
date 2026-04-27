@@ -2922,18 +2922,23 @@ class LastNoteEditorSettingsController
 @Riverpod(keepAlive: true)
 class NotesController extends _$NotesController {
   bool _restored = false;
+  bool _restoreFailed = false;
+  Future<void>? _restoreTask;
 
   @override
   List<NoteEntry> build() {
     final seeded = ref.read(homeRepositoryProvider).seededNotes;
     if (!_restored) {
       _restored = true;
-      unawaited(_restore());
+      _restoreTask = _restore();
+      unawaited(_restoreTask);
     }
     return List<NoteEntry>.from(seeded);
   }
 
   Future<void> upsert(NoteEntry note) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
     await runFirebaseTrace(
       'notes_upsert',
       () async {
@@ -2960,6 +2965,8 @@ class NotesController extends _$NotesController {
   }
 
   Future<void> delete(String noteId) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
     await runFirebaseTrace('notes_delete', () async {
       final next = [...state];
       for (var i = 0; i < next.length; i++) {
@@ -2986,6 +2993,8 @@ class NotesController extends _$NotesController {
   }
 
   Future<void> seedIfEmpty() async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
     if (state.isNotEmpty) {
       return;
     }
@@ -2995,6 +3004,8 @@ class NotesController extends _$NotesController {
   }
 
   Future<void> replaceFromSync(List<NoteEntry> notes) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
     final incomingPaths = notes
         .expand((note) => note.attachments)
         .map((attachment) => attachment.filePath)
@@ -3015,6 +3026,8 @@ class NotesController extends _$NotesController {
   }
 
   Future<void> mergeFromSync(List<PreparedSyncNote> changes) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
     if (changes.isEmpty) {
       return;
     }
@@ -3073,6 +3086,8 @@ class NotesController extends _$NotesController {
   }
 
   Future<void> markCurrentStateSynced() async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
     var changed = false;
     final next = <NoteEntry>[];
     for (final note in state) {
@@ -3093,6 +3108,8 @@ class NotesController extends _$NotesController {
   }
 
   Future<void> createWidgetQuickCapture(String rawText) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
     final text = rawText.trim();
     if (text.isEmpty) {
       return;
@@ -3119,26 +3136,48 @@ class NotesController extends _$NotesController {
 
   Future<void> _restore() async {
     try {
+      final fallbackNotes = ref.read(homeRepositoryProvider).seededNotes;
       final restored = [
         ...await ref
             .read(encryptedNoteStoreProvider)
-            .load(fallbackNotes: ref.read(homeRepositoryProvider).seededNotes),
+            .load(fallbackNotes: fallbackNotes),
       ];
-      final merged = _mergeMissingSeedNotes(
-        restored,
-        ref.read(homeRepositoryProvider).seededNotes,
-      );
+      if (!ref.mounted) {
+        return;
+      }
+      final merged = _mergeMissingSeedNotes(restored, fallbackNotes);
       final changed = merged.length != restored.length;
       _sort(merged);
       state = merged;
+      _restoreFailed = false;
       if (changed) {
         await _persist();
       }
     } catch (error, stackTrace) {
+      if (!ref.mounted) {
+        return;
+      }
+      _restoreFailed = true;
+      state = const <NoteEntry>[];
       await recordNonFatalError(
         error,
         stackTrace,
         reason: 'notes_restore_failed',
+      );
+    }
+  }
+
+  Future<void> _waitForInitialRestore() async {
+    final task = _restoreTask;
+    if (task != null) {
+      await task;
+    }
+  }
+
+  void _ensureRestoreSucceeded() {
+    if (_restoreFailed) {
+      throw StateError(
+        'Stored notes could not be restored. Refusing to overwrite local data.',
       );
     }
   }
@@ -3159,6 +3198,9 @@ class NotesController extends _$NotesController {
   }
 
   Future<void> _persist() async {
+    if (_restoreFailed) {
+      return;
+    }
     try {
       await ref.read(encryptedNoteStoreProvider).save(state);
     } catch (error, stackTrace) {
@@ -3449,9 +3491,12 @@ final activePrivateProfileLabelProvider = Provider<String?>((ref) {
 });
 
 final privacyScreenActiveProvider = Provider<bool>((ref) {
+  final legacyPrivateUnlocked = ref.watch(
+    privateVaultSessionControllerProvider,
+  );
   final adminMode = ref.watch(adminModeSessionControllerProvider);
   final unlockedVaultId = ref.watch(unlockedPrivateProfileVaultIdProvider);
-  return adminMode || unlockedVaultId != null;
+  return legacyPrivateUnlocked || adminMode || unlockedVaultId != null;
 });
 
 @riverpod

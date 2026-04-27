@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math';
 
 import 'package:drift/native.dart';
@@ -36,6 +37,7 @@ void main() {
             encryptionService: encryptionService,
             masterKeyService: masterKeyService,
             database: database,
+            directoryProvider: () async => Directory.systemTemp,
           ),
         ),
       ],
@@ -60,11 +62,83 @@ void main() {
 
     expect(container.read(visibleVaultsProvider).length, 2);
     expect(
-      container.read(visibleVaultsProvider).any(
-            (vault) => vault.id == unlocked!.vaultId,
-          ),
+      container
+          .read(visibleVaultsProvider)
+          .any((vault) => vault.id == unlocked!.vaultId),
       isTrue,
     );
+  });
+
+  test('private profile notes remain visible immediately after save', () async {
+    SharedPreferences.setMockInitialValues({});
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(13));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    final addError = await container
+        .read(privateMemoProfilesControllerProvider.notifier)
+        .addProfile(name: 'Private journal', password: 'journal-pass-123');
+    expect(addError, isNull);
+
+    final unlocked = await container
+        .read(privateProfileUnlockControllerProvider.notifier)
+        .unlockWithPassword('journal-pass-123');
+    expect(unlocked, isNotNull);
+
+    await container
+        .read(notesControllerProvider.notifier)
+        .upsert(
+          NoteEntry(
+            id: 'private-after-save',
+            vaultId: unlocked!.vaultId,
+            title: 'Private saved note',
+            body: 'This should remain visible.',
+            createdAt: DateTime(2026, 4, 20, 12, 0),
+          ),
+        );
+
+    expect(
+      container.read(visibleNotesProvider).map((note) => note.id),
+      contains('private-after-save'),
+    );
+    expect(
+      container.read(notesForVaultProvider(unlocked.vaultId)).single.id,
+      'private-after-save',
+    );
+  });
+
+  test('privacy screen activates for legacy private vault session', () {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    expect(container.read(privacyScreenActiveProvider), isFalse);
+    container.read(privateVaultSessionControllerProvider.notifier).unlock();
+    expect(container.read(privacyScreenActiveProvider), isTrue);
+    container.read(privateVaultSessionControllerProvider.notifier).lock();
+    expect(container.read(privacyScreenActiveProvider), isFalse);
   });
 
   test('app lock policy providers expose secure defaults', () {
@@ -87,6 +161,7 @@ void main() {
             encryptionService: encryptionService,
             masterKeyService: masterKeyService,
             database: database,
+            directoryProvider: () async => Directory.systemTemp,
           ),
         ),
       ],
@@ -102,9 +177,7 @@ void main() {
   });
 
   testWidgets('app renders HiMemo shell', (tester) async {
-    SharedPreferences.setMockInitialValues({
-      'app.onboarding_completed': true,
-    });
+    SharedPreferences.setMockInitialValues({'app.onboarding_completed': true});
     final secureStore = MemorySecureKeyValueStore();
     final encryptionService = EncryptionService(random: Random(5));
     final masterKeyService = MasterKeyService(
@@ -126,6 +199,7 @@ void main() {
               encryptionService: encryptionService,
               masterKeyService: masterKeyService,
               database: database,
+              directoryProvider: () async => Directory.systemTemp,
             ),
           ),
         ],
@@ -181,6 +255,7 @@ void main() {
             encryptionService: encryptionService,
             masterKeyService: masterKeyService,
             database: database,
+            directoryProvider: () async => Directory.systemTemp,
           ),
         ),
       ],
@@ -188,26 +263,30 @@ void main() {
     addTearDown(container.dispose);
     addTearDown(database.close);
 
-    await container.read(notesControllerProvider.notifier).upsert(
-      NoteEntry(
-        id: 'tag-1',
-        vaultId: 'everyday',
-        title: 'Project alpha',
-        body: 'First body',
-        tags: const ['Work', 'Alpha'],
-        createdAt: DateTime(2026, 4, 20, 10, 0),
-      ),
-    );
-    await container.read(notesControllerProvider.notifier).upsert(
-      NoteEntry(
-        id: 'tag-2',
-        vaultId: 'everyday',
-        title: 'Personal errands',
-        body: 'Second body',
-        tags: const ['Home'],
-        createdAt: DateTime(2026, 4, 20, 11, 0),
-      ),
-    );
+    await container
+        .read(notesControllerProvider.notifier)
+        .upsert(
+          NoteEntry(
+            id: 'tag-1',
+            vaultId: 'everyday',
+            title: 'Project alpha',
+            body: 'First body',
+            tags: const ['Work', 'Alpha'],
+            createdAt: DateTime(2026, 4, 20, 10, 0),
+          ),
+        );
+    await container
+        .read(notesControllerProvider.notifier)
+        .upsert(
+          NoteEntry(
+            id: 'tag-2',
+            vaultId: 'everyday',
+            title: 'Personal errands',
+            body: 'Second body',
+            tags: const ['Home'],
+            createdAt: DateTime(2026, 4, 20, 11, 0),
+          ),
+        );
 
     container.read(searchFiltersControllerProvider.notifier).addTag('alpha');
 

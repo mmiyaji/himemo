@@ -81,6 +81,10 @@ test('tags can be added to a note and found from search', async ({ page }) => {
   await completeOnboarding(page);
 
   await page.getByRole('button', { name: 'Add note' }).click();
+  const discardDraft = page.getByRole('button', { name: /Discard|破棄/ });
+  if (await discardDraft.count()) {
+    await discardDraft.click();
+  }
   await page.getByRole('button', { name: 'Quick memo' }).click();
   await page.getByLabel('Memo').pressSequentially('Tagged note\nAlpha body');
 
@@ -109,12 +113,18 @@ test('private profile unlock and relock work from the app bar', async ({
   await page.getByLabel(/Confirm password|パスワードを確認/).fill('cover-pass-123');
   await page.getByRole('button', { name: /Add|追加/ }).click();
   await expect(page.locator('flutter-view')).toContainText(
-    /Private profile added\.|プロファイルを追加しました。|Profile 1/,
+    /Private profile added|プロファイルを追加しました。|Profile 1/,
   );
+  await page
+    .getByRole('button', {
+      name: /Viewing .*|Switch private access|.+ を表示中/,
+    })
+    .click();
+  await page.getByRole('button', { name: /Lock|閉じる/ }).click();
 
   await activateTabIndex(page, 0);
   await page.getByRole('button', { name: 'Add note' }).click();
-  await expect(page.getByRole('checkbox', { name: /Save to private profile|プライベートプロファイルに保存/ })).toHaveCount(0);
+  await expect(page.getByRole('switch', { name: /Save to private profile|プライベートプロファイルに保存/ })).toHaveCount(0);
   await page.getByRole('button', { name: /Cancel|キャンセル/ }).click();
 
   await page.getByRole('button', {
@@ -235,6 +245,26 @@ async function completeOnboarding(page) {
 }
 
 async function waitForApp(page) {
+  await page.evaluate(async () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    if (indexedDB.databases) {
+      const databases = await indexedDB.databases();
+      await Promise.all(
+        databases
+          .map((database) => database.name)
+          .filter(Boolean)
+          .map(
+            (name) =>
+              new Promise((resolve) => {
+                const request = indexedDB.deleteDatabase(name);
+                request.onsuccess = request.onerror = request.onblocked = resolve;
+              }),
+          ),
+      );
+    }
+  });
+  await page.reload();
   await expect
     .poll(
       async () =>

@@ -253,6 +253,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
 
   void _lockAppSessionOnly() {
     ref.read(appSessionUnlockControllerProvider.notifier).lock();
+    if (ref.read(privateVaultLockOnAppLockControllerProvider)) {
+      _lockPrivateSessions();
+    }
     _autoPrompted = false;
   }
 
@@ -261,11 +264,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     if (lockAppSession) {
       ref.read(appSessionUnlockControllerProvider.notifier).lock();
     }
-    if (lockAppSession) {
-      ref.read(privateVaultSessionControllerProvider.notifier).lock();
-    }
-    ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
-    ref.read(adminModeSessionControllerProvider.notifier).lock();
+    _lockPrivateSessions();
     if (wasPrivateActive) {
       ref.read(searchQueryProvider.notifier).setQuery('');
       ref.read(searchFiltersControllerProvider.notifier).reset();
@@ -275,8 +274,15 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     _autoPrompted = false;
   }
 
+  void _lockPrivateSessions() {
+    ref.read(privateVaultSessionControllerProvider.notifier).lock();
+    ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+    ref.read(adminModeSessionControllerProvider.notifier).lock();
+  }
+
   bool _isPrivateOrAdminActive() {
-    return ref.read(unlockedPrivateProfileVaultIdProvider) != null ||
+    return ref.read(privateVaultSessionControllerProvider) ||
+        ref.read(unlockedPrivateProfileVaultIdProvider) != null ||
         ref.read(adminModeSessionControllerProvider);
   }
 

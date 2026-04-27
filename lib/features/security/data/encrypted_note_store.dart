@@ -39,38 +39,34 @@ class EncryptedNoteStore {
   final String webStorageKey;
 
   Future<List<NoteEntry>> load({required List<NoteEntry> fallbackNotes}) async {
-    try {
+    if (!kIsWeb) {
+      final database = _database ?? EncryptedNoteDatabase();
+      final snapshots = await database.loadAll();
+      if (snapshots.isNotEmpty) {
+        return _decryptSnapshots(snapshots);
+      }
+    }
+
+    final encoded = await _readEncryptedPayload();
+    if (encoded != null && encoded.isNotEmpty) {
+      final migrated = await _decodeEntries(encoded);
       if (!kIsWeb) {
-        final database = _database ?? EncryptedNoteDatabase();
-        final snapshots = await database.loadAll();
-        if (snapshots.isNotEmpty) {
-          return _decryptSnapshots(snapshots);
-        }
+        await save(migrated);
+        await _deleteEncryptedPayload();
       }
-
-      final encoded = await _readEncryptedPayload();
-      if (encoded != null && encoded.isNotEmpty) {
-        final migrated = await _decodeEntries(encoded);
-        if (!kIsWeb) {
-          await save(migrated);
-          await _deleteEncryptedPayload();
-        }
-        return migrated;
-      }
-
-      final prefs = await _sharedPreferencesProvider();
-      final legacy = prefs.getString(legacyStorageKey);
-      if (legacy == null || legacy.isEmpty) {
-        return fallbackNotes;
-      }
-
-      final migrated = _decodePlaintextEntries(legacy);
-      await save(migrated);
-      await prefs.remove(legacyStorageKey);
       return migrated;
-    } catch (_) {
+    }
+
+    final prefs = await _sharedPreferencesProvider();
+    final legacy = prefs.getString(legacyStorageKey);
+    if (legacy == null || legacy.isEmpty) {
       return fallbackNotes;
     }
+
+    final migrated = _decodePlaintextEntries(legacy);
+    await save(migrated);
+    await prefs.remove(legacyStorageKey);
+    return migrated;
   }
 
   Future<void> save(List<NoteEntry> notes) async {

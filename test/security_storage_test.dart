@@ -193,6 +193,42 @@ void main() {
         expect(records.single.attachments, hasLength(1));
       },
     );
+
+    test(
+      'throws instead of falling back when encrypted notes are corrupt',
+      () async {
+        await database.replaceAll(
+          notes: [
+            EncryptedNoteRecord(
+              id: 'corrupt-note',
+              vaultId: 'everyday',
+              encryptedPayload: 'not-json',
+              createdAt: DateTime(2026, 4, 12, 12, 30),
+              isPinned: false,
+              revision: 1,
+              syncState: NoteSyncState.localOnly,
+            ),
+          ],
+          attachments: const [],
+          pendingChanges: const [],
+        );
+
+        expect(
+          () => noteStore.load(
+            fallbackNotes: [
+              NoteEntry(
+                id: 'fallback',
+                vaultId: 'everyday',
+                title: 'Fallback',
+                body: 'Should not be returned',
+                createdAt: DateTime(2026, 4, 12, 13, 0),
+              ),
+            ],
+          ),
+          throwsA(isA<FormatException>()),
+        );
+      },
+    );
   });
 
   group('PrivateVaultSecretStore', () {
