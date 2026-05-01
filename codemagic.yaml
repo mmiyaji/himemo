@@ -46,6 +46,7 @@ workflows:
         script: |
           flutter build ipa --release \
             -t lib/main_production.dart \
+            --build-number=$PROJECT_BUILD_NUMBER \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa
@@ -101,6 +102,7 @@ workflows:
         script: |
           flutter build ipa --release \
             -t lib/main_production.dart \
+            --build-number=$PROJECT_BUILD_NUMBER \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa
