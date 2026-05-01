@@ -7,8 +7,13 @@ module.exports = defineConfig({
     baseURL: 'http://127.0.0.1:4173',
     trace: 'on-first-retry',
     viewport: { width: 430, height: 932 },
+    serviceWorkers: 'block',
     launchOptions: {
-      args: ['--force-renderer-accessibility'],
+      args: [
+        '--force-renderer-accessibility',
+        '--use-fake-device-for-media-stream',
+        '--use-fake-ui-for-media-stream',
+      ],
     },
   },
   webServer: {

@@ -99,6 +99,46 @@ test('tags can be added to a note and found from search', async ({ page }) => {
   await expect(page.locator('flutter-view')).toContainText('Tagged note');
 });
 
+test('web audio recording can start and attach with microphone permission', async ({
+  context,
+  page,
+}) => {
+  await page.goto('/');
+  await context.grantPermissions(['microphone'], {
+    origin: new URL(page.url()).origin,
+  });
+  await waitForApp(page);
+  await completeOnboarding(page);
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(
+          async () =>
+            (await navigator.permissions.query({ name: 'microphone' })).state,
+        ),
+      { timeout: 10_000 },
+    )
+    .toBe('granted');
+
+  await page.getByRole('button', { name: 'Add note' }).click();
+  await page.getByRole('button', { name: 'Quick memo' }).click();
+  await page.getByRole('button', { name: 'Add media' }).click();
+  await page.getByRole('menuitem', { name: 'Record audio' }).click();
+
+  await expect(page.getByRole('alertdialog')).toContainText('Record audio memo');
+  await page.getByRole('button', { name: 'Start recording' }).click();
+  await expect(page.getByRole('button', { name: 'Stop and attach' })).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByRole('alertdialog')).toContainText('00:01', {
+    timeout: 10_000,
+  });
+  await page.getByRole('button', { name: 'Stop and attach' }).click();
+  await expect(page.getByRole('alertdialog')).toHaveCount(0, { timeout: 20_000 });
+  await expect(page.getByRole('button', { name: 'Share attachment' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove block' })).toBeVisible();
+});
+
 test('private profile unlock and relock work from the app bar', async ({
   page,
 }) => {
@@ -113,7 +153,7 @@ test('private profile unlock and relock work from the app bar', async ({
   await page.getByLabel(/Confirm password|パスワードを確認/).fill('cover-pass-123');
   await page.getByRole('button', { name: /Add|追加/ }).click();
   await expect(page.locator('flutter-view')).toContainText(
-    /Private profile added|プロファイルを追加しました。|Profile 1/,
+    /Viewing Cover profile|Cover profile を表示中/,
   );
   await page
     .getByRole('button', {
@@ -133,7 +173,7 @@ test('private profile unlock and relock work from the app bar', async ({
   await page.getByLabel(/Profile password|プロフィールパスワード/).fill('cover-pass-123');
   await page.getByRole('button', { name: /Unlock|開く/ }).click();
   await expect(page.locator('flutter-view')).toContainText(
-    /Private profile unlocked\.|プライベートプロファイルを開きました。/,
+    /Viewing Cover profile|Cover profile を表示中/,
   );
   const unlockedAccessButton = page.getByRole('button', {
     name: /Viewing .*|Switch private access|.+ を表示中/,

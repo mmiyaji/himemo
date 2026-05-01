@@ -10159,12 +10159,19 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
     });
     try {
       final strings = context.strings;
-      if (!kIsWeb && !await _recorder.hasPermission()) {
+      final hasPermission = await _recorder.hasPermission().timeout(
+        kIsWeb ? const Duration(seconds: 30) : const Duration(seconds: 10),
+        onTimeout: () =>
+            throw TimeoutException(strings.microphonePermissionRequestTimedOut),
+      );
+      if (!hasPermission) {
         if (!mounted) {
           return;
         }
         setState(() {
-          _errorMessage = strings.microphonePermissionNotGranted;
+          _errorMessage = kIsWeb
+              ? '${strings.microphonePermissionNotGranted} ${strings.microphonePermissionBrowserHelp}'
+              : strings.microphonePermissionNotGranted;
         });
         return;
       }
@@ -10188,10 +10195,9 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
         final stream = await _recorder
             .startStream(_recordConfig(AudioEncoder.pcm16bits))
             .timeout(
-              const Duration(seconds: 8),
-              onTimeout: () => throw TimeoutException(
-                strings.microphonePermissionBrowserHelp,
-              ),
+              const Duration(seconds: 15),
+              onTimeout: () =>
+                  throw TimeoutException(strings.microphoneStartTimedOut),
             );
         _webRecordingSubscription = stream.listen(_webRecordingPcmBytes.addAll);
       } else {
@@ -10224,9 +10230,7 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
       if (!mounted) {
         return;
       }
-      final diagnostic = kIsWeb
-          ? ' ${context.strings.microphonePermissionBrowserHelp}'
-          : '';
+      final diagnostic = _recordingStartDiagnostic(error, context.strings);
       setState(() {
         _errorMessage = context.strings.audioRecordingStartFailed(diagnostic);
       });
@@ -10237,6 +10241,22 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
         });
       }
     }
+  }
+
+  String _recordingStartDiagnostic(Object error, AppStrings strings) {
+    if (!kIsWeb) {
+      return '';
+    }
+    if (error is TimeoutException && error.message != null) {
+      return ' ${error.message}';
+    }
+    final message = error.toString().toLowerCase();
+    if (message.contains('notallowed') ||
+        message.contains('permission') ||
+        message.contains('denied')) {
+      return ' ${strings.microphonePermissionBrowserHelp}';
+    }
+    return '';
   }
 
   RecordConfig _recordConfig(AudioEncoder encoder) {

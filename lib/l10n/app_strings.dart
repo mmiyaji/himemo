@@ -305,6 +305,12 @@ class AppStrings {
   String get microphonePermissionBrowserHelp => isJapanese
       ? 'Chrome または Edge で開き、サイト設定からマイクを許可してください。'
       : 'Open this app in Chrome or Edge and allow microphone access from the site settings.';
+  String get microphonePermissionRequestTimedOut => isJapanese
+      ? 'マイク許可の確認がタイムアウトしました。ブラウザの許可ダイアログを確認してください。'
+      : 'Microphone permission check timed out. Check the browser permission prompt.';
+  String get microphoneStartTimedOut => isJapanese
+      ? 'マイクの開始がタイムアウトしました。別のアプリがマイクを使用していないか確認してください。'
+      : 'Microphone startup timed out. Check whether another app is using the microphone.';
   String audioRecordingStartFailed(String diagnostic) => isJapanese
       ? '録音を開始できませんでした。$diagnostic'
       : 'Could not start recording.$diagnostic';
