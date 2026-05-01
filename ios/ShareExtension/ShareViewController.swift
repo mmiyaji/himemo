@@ -113,10 +113,11 @@ final class ShareViewController: UIViewController {
             try FileManager.default.removeItem(at: destination)
           }
           try FileManager.default.copyItem(at: url, to: destination)
+          let mimeType = self.mimeTypeForSharedURL(url, fallback: type.mimeType)
           continuation.resume(returning: ([
             "path": destination.path,
             "name": name,
-            "mimeType": type.mimeType,
+            "mimeType": mimeType,
           ], nil))
         } catch {
           continuation.resume(returning: nil)
@@ -172,6 +173,47 @@ final class ShareViewController: UIViewController {
       )
     }
     return nil
+  }
+
+  private func mimeTypeForSharedURL(_ url: URL, fallback: String) -> String {
+    switch url.pathExtension.lowercased() {
+    case "jpg", "jpeg":
+      return "image/jpeg"
+    case "png":
+      return "image/png"
+    case "gif":
+      return "image/gif"
+    case "webp":
+      return "image/webp"
+    case "heic":
+      return "image/heic"
+    case "heif":
+      return "image/heif"
+    case "mp4":
+      return "video/mp4"
+    case "mov":
+      return "video/quicktime"
+    case "m4v":
+      return "video/x-m4v"
+    case "mp3":
+      return "audio/mpeg"
+    case "m4a":
+      return "audio/mp4"
+    case "wav":
+      return "audio/wav"
+    case "aac":
+      return "audio/aac"
+    case "caf":
+      return "audio/x-caf"
+    case "aif", "aiff":
+      return "audio/aiff"
+    case "flac":
+      return "audio/flac"
+    case "ogg":
+      return "audio/ogg"
+    default:
+      return fallback
+    }
   }
 }
 

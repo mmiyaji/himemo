@@ -148,10 +148,13 @@ class MainActivity : FlutterFragmentActivity() {
         val files = mutableListOf<Map<String, String>>()
         val rejected = mutableListOf<Map<String, String>>()
         uris.distinct().forEach { uri ->
-            val mimeType = contentResolver.getType(uri) ?: intent?.type.orEmpty()
             val displayName = displayNameForUri(uri).ifBlank {
                 uri.lastPathSegment.orEmpty().ifBlank { "shared-file" }
             }
+            val mimeType = resolveSharedMimeType(
+                contentResolver.getType(uri) ?: intent?.type.orEmpty(),
+                displayName,
+            )
             if (!isSupportedSharedMimeType(mimeType)) {
                 rejected.add(
                     rejectedSharedFile(
@@ -194,6 +197,32 @@ class MainActivity : FlutterFragmentActivity() {
         return normalized.startsWith("image/") ||
             normalized.startsWith("video/") ||
             normalized.startsWith("audio/")
+    }
+
+    private fun resolveSharedMimeType(mimeType: String, displayName: String): String {
+        if (mimeType.isNotBlank() && mimeType != "*/*" && isSupportedSharedMimeType(mimeType)) {
+            return mimeType
+        }
+        return when (displayName.substringAfterLast('.', "").lowercase()) {
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "heic" -> "image/heic"
+            "heif" -> "image/heif"
+            "mp4" -> "video/mp4"
+            "mov" -> "video/quicktime"
+            "m4v" -> "video/x-m4v"
+            "mp3" -> "audio/mpeg"
+            "m4a" -> "audio/mp4"
+            "wav" -> "audio/wav"
+            "aac" -> "audio/aac"
+            "caf" -> "audio/x-caf"
+            "aif", "aiff" -> "audio/aiff"
+            "flac" -> "audio/flac"
+            "ogg" -> "audio/ogg"
+            else -> mimeType
+        }
     }
 
     private fun copySharedUri(
