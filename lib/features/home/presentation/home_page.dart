@@ -53,8 +53,6 @@ class AppShell extends ConsumerWidget {
       activePrivateProfileLabelProvider,
     );
     final adminMode = ref.watch(adminModeSessionControllerProvider);
-    final flavor =
-        FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
 
     return Scaffold(
       appBar: AppBar(
@@ -93,7 +91,6 @@ class AppShell extends ConsumerWidget {
                   _Sidebar(
                     section: section,
                     activeIdentity: activeIdentity,
-                    flavorName: flavor,
                     onSectionSelected: (target) =>
                         _goToSection(context, ref, target),
                   ),
@@ -4916,13 +4913,11 @@ class _Sidebar extends StatelessWidget {
   const _Sidebar({
     required this.section,
     required this.activeIdentity,
-    required this.flavorName,
     required this.onSectionSelected,
   });
 
   final AppSection section;
   final UnlockIdentity activeIdentity;
-  final String flavorName;
   final ValueChanged<AppSection> onSectionSelected;
 
   @override
@@ -4963,12 +4958,6 @@ class _Sidebar extends StatelessWidget {
                         ),
                         const SizedBox(height: 8),
                       ],
-                      Text(
-                        flavorName,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: _mutedTextColor(context),
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -10050,9 +10039,10 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
         'Audio recording start: encoder=${format.encoder.name}, '
         'extension=${format.extension}, web=$kIsWeb',
       );
-      final timestamp = DateTime.now()
-          .toIso8601String()
-          .replaceAll(RegExp(r'[:.]'), '-');
+      final timestamp = DateTime.now().toIso8601String().replaceAll(
+        RegExp(r'[:.]'),
+        '-',
+      );
       final fileName = 'audio_note_$timestamp.${format.extension}';
       final outputPath = kIsWeb
           ? fileName
@@ -10122,7 +10112,9 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
       numChannels: 1,
       androidConfig: AndroidRecordConfig(
         service: AndroidService(
-          title: context.strings.isJapanese ? 'HiMemoで録音中' : 'HiMemo is recording',
+          title: context.strings.isJapanese
+              ? 'HiMemoで録音中'
+              : 'HiMemo is recording',
           content: context.strings.isJapanese
               ? '音声メモの録音を継続しています。'
               : 'Audio memo recording is continuing.',
@@ -10480,32 +10472,97 @@ class _AudioAttachmentViewerState
     return StreamBuilder<PlayerState>(
       stream: _player.playerStateStream,
       builder: (context, snapshot) {
-        final isPlaying = snapshot.data?.playing ?? false;
-        return Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              isPlaying ? Icons.graphic_eq_rounded : Icons.audiotrack_rounded,
-              size: 56,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: () async {
-                if (isPlaying) {
-                  await _player.pause();
-                } else {
-                  await _player.play();
-                }
+        final playerState = snapshot.data;
+        final isPlaying = playerState?.playing ?? false;
+        final isCompleted =
+            playerState?.processingState == ProcessingState.completed;
+        return StreamBuilder<Duration?>(
+          stream: _player.durationStream,
+          builder: (context, durationSnapshot) {
+            final duration =
+                durationSnapshot.data ?? _player.duration ?? Duration.zero;
+            return StreamBuilder<Duration>(
+              stream: _player.positionStream,
+              builder: (context, positionSnapshot) {
+                final position = positionSnapshot.data ?? Duration.zero;
+                final boundedPosition =
+                    position > duration && duration > Duration.zero
+                    ? duration
+                    : position;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        isPlaying
+                            ? Icons.graphic_eq_rounded
+                            : Icons.audiotrack_rounded,
+                        size: 56,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(height: 16),
+                      Slider(
+                        value: duration == Duration.zero
+                            ? 0
+                            : boundedPosition.inMilliseconds
+                                  .clamp(0, duration.inMilliseconds)
+                                  .toDouble(),
+                        max: duration == Duration.zero
+                            ? 1
+                            : duration.inMilliseconds.toDouble(),
+                        onChanged: duration == Duration.zero
+                            ? null
+                            : (value) {
+                                unawaited(
+                                  _player.seek(
+                                    Duration(milliseconds: value.round()),
+                                  ),
+                                );
+                              },
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(_formatAudioDuration(boundedPosition)),
+                          Text(_formatAudioDuration(duration)),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      FilledButton.icon(
+                        onPressed: () async {
+                          if (isPlaying) {
+                            await _player.pause();
+                          } else {
+                            if (isCompleted) {
+                              await _player.seek(Duration.zero);
+                            }
+                            await _player.play();
+                          }
+                        },
+                        icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+                        label: Text(isPlaying ? 'Pause audio' : 'Play audio'),
+                      ),
+                    ],
+                  ),
+                );
               },
-              icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
-              label: Text(isPlaying ? 'Pause audio' : 'Play audio'),
-            ),
-          ],
+            );
+          },
         );
       },
     );
   }
+}
+
+String _formatAudioDuration(Duration value) {
+  final hours = value.inHours;
+  final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
+  if (hours > 0) {
+    return '$hours:$minutes:$seconds';
+  }
+  return '$minutes:$seconds';
 }
 
 String _mimeTypeForAudioAttachment(NoteAttachment attachment) {
