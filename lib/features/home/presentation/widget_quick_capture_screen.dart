@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../l10n/app_strings.dart';
+import '../domain/note_entry.dart';
 import '../domain/vault_models.dart';
 import 'home_providers.dart';
 
@@ -35,6 +38,7 @@ class _WidgetQuickCaptureScreenState
     final everydayVault = ref.watch(vaultByIdProvider('everyday'));
     final colorScheme = Theme.of(context).colorScheme;
     final requestText = request?.initialText.trim() ?? '';
+    final requestFiles = request?.files ?? const <QuickCaptureFile>[];
 
     if (requestText.isNotEmpty && _controller.text != requestText) {
       _controller.value = TextEditingValue(
@@ -75,6 +79,7 @@ class _WidgetQuickCaptureScreenState
                           vault: everydayVault,
                           saving: _saving,
                           source: request?.source ?? QuickCaptureSource.widget,
+                          files: requestFiles,
                           onSubmit: _submit,
                         )
                       : Container(
@@ -131,7 +136,9 @@ class _WidgetQuickCaptureScreenState
 
   Future<void> _submit() async {
     final text = _controller.text.trim();
-    if (text.isEmpty || _saving) {
+    final request = ref.read(widgetQuickCaptureRequestControllerProvider);
+    final files = request?.files ?? const <QuickCaptureFile>[];
+    if ((text.isEmpty && files.isEmpty) || _saving) {
       return;
     }
     setState(() {
@@ -140,7 +147,10 @@ class _WidgetQuickCaptureScreenState
     try {
       await ref
           .read(notesControllerProvider.notifier)
-          .createWidgetQuickCapture(text);
+          .createSharedFileCapture(rawText: text, files: files);
+      await ref
+          .read(widgetQuickCaptureBridgeProvider)
+          .deleteImportedFiles(files);
       ref.read(widgetQuickCaptureRequestControllerProvider.notifier).clear();
       if (!mounted) {
         return;
@@ -163,6 +173,12 @@ class _WidgetQuickCaptureScreenState
   }
 
   void _close() {
+    final request = ref.read(widgetQuickCaptureRequestControllerProvider);
+    unawaited(
+      ref
+          .read(widgetQuickCaptureBridgeProvider)
+          .deleteImportedFiles(request?.files ?? const <QuickCaptureFile>[]),
+    );
     ref.read(widgetQuickCaptureRequestControllerProvider.notifier).clear();
     final navigator = Navigator.of(context);
     if (navigator.canPop()) {
@@ -184,6 +200,7 @@ class _CapturePanel extends StatelessWidget {
     required this.vault,
     required this.saving,
     required this.source,
+    required this.files,
     required this.onSubmit,
   });
 
@@ -191,6 +208,7 @@ class _CapturePanel extends StatelessWidget {
   final VaultBucket vault;
   final bool saving;
   final QuickCaptureSource source;
+  final List<QuickCaptureFile> files;
   final Future<void> Function() onSubmit;
 
   @override
@@ -224,20 +242,40 @@ class _CapturePanel extends StatelessWidget {
           Text(
             context.strings.isJapanese
                 ? source == QuickCaptureSource.share
-                      ? '共有メニューから受け取ったテキストを、そのまま Notes に送れます。既存ノートやロック中のプロファイルは開きません。'
-                      : 'テキストだけをすばやく記録します。この画面では既存ノートやロック中のプロファイルは表示しません。'
+                      ? '共有メニューから受け取ったテキストやファイルを、そのまま Notes に送れます。既存ノートやロック中のプロファイルは開きません。'
+                      : 'すばやくメモを記録します。この画面では既存ノートやロック中のプロファイルは表示しません。'
                 : source == QuickCaptureSource.share
-                ? 'Shared text can be sent straight to Notes. This route never reveals existing notes or locked profiles.'
-                : 'Text only. This route never reveals existing notes or locked profiles.',
+                ? 'Shared text and files can be sent straight to Notes. This route never reveals existing notes or locked profiles.'
+                : 'Capture a quick memo. This route never reveals existing notes or locked profiles.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
             ),
           ),
           const SizedBox(height: 16),
+          if (files.isNotEmpty) ...[
+            Text(
+              context.strings.isJapanese ? '共有ファイル' : 'Shared files',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 8),
+            for (final file in files)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(_iconForQuickCaptureFile(file)),
+                title: Text(
+                  file.name.isEmpty ? file.path.split('/').last : file.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(file.mimeType),
+                dense: true,
+              ),
+            const SizedBox(height: 8),
+          ],
           TextField(
             key: const Key('widget-quick-capture-input'),
             controller: controller,
-            autofocus: true,
+            autofocus: files.isEmpty,
             minLines: 6,
             maxLines: 12,
             textInputAction: TextInputAction.newline,
@@ -281,4 +319,13 @@ class _CapturePanel extends StatelessWidget {
       ),
     );
   }
+}
+
+IconData _iconForQuickCaptureFile(QuickCaptureFile file) {
+  return switch (file.attachmentType) {
+    AttachmentType.photo => Icons.photo_outlined,
+    AttachmentType.video => Icons.videocam_outlined,
+    AttachmentType.audio => Icons.graphic_eq_rounded,
+    null => Icons.insert_drive_file_outlined,
+  };
 }

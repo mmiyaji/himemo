@@ -119,11 +119,11 @@ class AppStrings {
   String get homeWidgetQuickCapture =>
       isJapanese ? '外部クイックメモ' : 'Allow external quick capture';
   String get homeWidgetQuickCaptureDesc => isJapanese
-      ? 'ホームウィジェットや共有メニューから、通常のアプリロックを開かずにテキストだけの簡易メモ画面を開けます。'
-      : 'Let the home widget or Android share sheet open a text-only quick memo surface without unlocking the full app.';
+      ? 'ホームウィジェットや共有メニューから、通常のアプリロックを開かずに簡易メモ画面を開けます。'
+      : 'Let the home widget or Android share sheet open a quick memo surface without unlocking the full app.';
   String get homeWidgetQuickCaptureMobileOnly => isJapanese
-      ? 'モバイルのみ。オンにすると、ホームウィジェットや共有メニューから通常のアプリロックを開かずにテキストだけの簡易メモ画面を開けます。'
-      : 'Mobile-only. When enabled, the home widget or Android share sheet can open a text-only quick memo surface outside the normal app lock.';
+      ? 'モバイルのみ。オンにすると、ホームウィジェットや共有メニューから通常のアプリロックを開かずに簡易メモ画面を開けます。'
+      : 'Mobile-only. When enabled, the home widget or Android share sheet can open a quick memo surface outside the normal app lock.';
 
   String get unlockHiMemo => isJapanese ? 'HiMemo を解除' : 'Unlock HiMemo';
   String get unlockWithPin => isJapanese ? 'PIN で解除' : 'Unlock with PIN';
@@ -324,8 +324,8 @@ class AppStrings {
   String get quickWidgetCaptureOff =>
       isJapanese ? '外部クイックメモはオフです' : 'External quick capture is off';
   String get enableQuickWidgetInSettings => isJapanese
-      ? '設定で外部クイックメモをオンにすると、ホームウィジェットや共有メニューからフルアプリを開かずにテキストだけのメモを送れます。'
-      : 'Enable external quick capture in Settings if you want the home widget or Android share sheet to send text-only memos without unlocking the full app.';
+      ? '設定で外部クイックメモをオンにすると、ホームウィジェットや共有メニューからフルアプリを開かずにメモを送れます。'
+      : 'Enable external quick capture in Settings if you want the home widget or Android share sheet to send memos without unlocking the full app.';
   String get completeOnboardingBeforeWidget => isJapanese
       ? 'ホームウィジェットから使う前に、初期設定を完了してください。'
       : 'Complete onboarding before using quick capture from the home widget.';

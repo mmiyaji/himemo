@@ -172,16 +172,52 @@ class LastNoteEditorSettings {
 
 enum QuickCaptureSource { widget, share }
 
+class QuickCaptureFile {
+  const QuickCaptureFile({
+    required this.path,
+    required this.name,
+    required this.mimeType,
+  });
+
+  final String path;
+  final String name;
+  final String mimeType;
+
+  AttachmentType? get attachmentType {
+    final normalized = mimeType.toLowerCase();
+    if (normalized.startsWith('image/')) {
+      return AttachmentType.photo;
+    }
+    if (normalized.startsWith('video/')) {
+      return AttachmentType.video;
+    }
+    if (normalized.startsWith('audio/')) {
+      return AttachmentType.audio;
+    }
+    return null;
+  }
+
+  static QuickCaptureFile fromJson(Map<String, dynamic> json) {
+    return QuickCaptureFile(
+      path: '${json['path'] ?? ''}',
+      name: '${json['name'] ?? ''}',
+      mimeType: '${json['mimeType'] ?? ''}',
+    );
+  }
+}
+
 class QuickCaptureRequest {
   const QuickCaptureRequest({
     required this.nonce,
     required this.source,
     this.initialText = '',
+    this.files = const <QuickCaptureFile>[],
   });
 
   final int nonce;
   final QuickCaptureSource source;
   final String initialText;
+  final List<QuickCaptureFile> files;
 }
 
 class WidgetQuickCaptureBridge {
@@ -238,16 +274,42 @@ class WidgetQuickCaptureBridge {
     } catch (_) {}
   }
 
+  Future<void> deleteImportedFiles(List<QuickCaptureFile> files) async {
+    if (files.isEmpty ||
+        kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.android &&
+            defaultTargetPlatform != TargetPlatform.iOS)) {
+      return;
+    }
+    try {
+      await _channel.invokeMethod<void>(
+        'deleteSharedImportFiles',
+        <String, Object?>{
+          'paths': [for (final file in files) file.path],
+        },
+      );
+    } catch (_) {}
+  }
+
   QuickCaptureRequest _requestFromArguments(Map<String, dynamic> arguments) {
     final sourceValue = '${arguments['source'] ?? 'widget'}';
     final source = sourceValue == 'share'
         ? QuickCaptureSource.share
         : QuickCaptureSource.widget;
     final initialText = '${arguments['text'] ?? ''}'.trim();
+    final files = (arguments['files'] as List<dynamic>? ?? const <dynamic>[])
+        .whereType<Map>()
+        .map(
+          (entry) =>
+              QuickCaptureFile.fromJson(Map<String, dynamic>.from(entry)),
+        )
+        .where((file) => file.path.isNotEmpty && file.attachmentType != null)
+        .toList(growable: false);
     return QuickCaptureRequest(
       nonce: DateTime.now().microsecondsSinceEpoch,
       source: source,
       initialText: initialText,
+      files: files,
     );
   }
 }
@@ -3160,8 +3222,27 @@ class NotesController extends _$NotesController {
   Future<void> createWidgetQuickCapture(String rawText) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
+    await _createExternalCapture(rawText: rawText);
+  }
+
+  Future<void> createSharedFileCapture({
+    required String rawText,
+    required List<QuickCaptureFile> files,
+  }) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    await _createExternalCapture(rawText: rawText, files: files);
+  }
+
+  Future<void> _createExternalCapture({
+    required String rawText,
+    List<QuickCaptureFile> files = const <QuickCaptureFile>[],
+  }) async {
     final text = rawText.trim();
-    if (text.isEmpty) {
+    final validFiles = files
+        .where((file) => file.path.isNotEmpty && file.attachmentType != null)
+        .toList(growable: false);
+    if (text.isEmpty && validFiles.isEmpty) {
       return;
     }
     await logFirebaseBreadcrumb('widget quick capture saved');
@@ -3170,7 +3251,35 @@ class NotesController extends _$NotesController {
         .map((line) => line.trim())
         .where((line) => line.isNotEmpty)
         .toList(growable: false);
-    final title = lines.isEmpty ? 'Quick memo' : lines.first;
+    final title = lines.isEmpty
+        ? (validFiles.length == 1
+              ? validFiles.single.name
+              : 'Shared attachments')
+        : lines.first;
+    final attachments = <NoteAttachment>[];
+    final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+    for (final file in validFiles) {
+      final attachmentType = file.attachmentType;
+      if (attachmentType == null) {
+        continue;
+      }
+      final sourceFile = XFile(
+        file.path,
+        name: file.name.isEmpty ? path.basename(file.path) : file.name,
+        mimeType: file.mimeType.isEmpty ? null : file.mimeType,
+      );
+      final storedPath = await attachmentStore.storeAttachment(
+        sourceFile,
+        type: attachmentType,
+      );
+      attachments.add(
+        NoteAttachment(
+          type: attachmentType,
+          label: sourceFile.name,
+          filePath: storedPath,
+        ),
+      );
+    }
     await upsert(
       NoteEntry(
         id: now.microsecondsSinceEpoch.toString(),
@@ -3179,6 +3288,20 @@ class NotesController extends _$NotesController {
         body: text,
         createdAt: now,
         updatedAt: now,
+        attachments: attachments,
+        blocks: [
+          if (text.isNotEmpty)
+            NoteBlock(type: NoteBlockType.paragraph, text: text),
+          for (final attachment in attachments)
+            NoteBlock(
+              type: switch (attachment.type) {
+                AttachmentType.photo => NoteBlockType.photo,
+                AttachmentType.video => NoteBlockType.video,
+                AttachmentType.audio => NoteBlockType.audio,
+              },
+              attachment: attachment,
+            ),
+        ],
         editorMode: NoteEditorMode.quick,
       ),
     );
