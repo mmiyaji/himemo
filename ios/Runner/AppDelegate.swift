@@ -8,6 +8,8 @@ import CloudKit
   private let cloudKitChannelName = "org.ruhenheim.himemo/cloudkit"
   private let privacyChannelName = "org.ruhenheim.himemo/privacy"
   private let quickCaptureUrl = "himemo://widget-capture"
+  private let appGroupIdentifier = "group.org.ruhenheim.himemo"
+  private let pendingQuickCaptureFileName = "pending_quick_capture.json"
   private let cloudKitContainerIdentifier = "iCloud.org.ruhenheim.himemo"
   private let cloudKitRecordType = "HiMemoSyncBundle"
   private let cloudKitAssetField = "bundleAsset"
@@ -51,7 +53,7 @@ import CloudKit
         }
         switch call.method {
         case "consumePendingQuickCapture":
-          let pending = self.pendingQuickCapturePayload
+          let pending = self.pendingQuickCapturePayload ?? self.readPendingQuickCapturePayload()
           self.pendingQuickCapturePayload = nil
           result(pending ?? false)
         case "deleteSharedImportFiles":
@@ -192,7 +194,7 @@ import CloudKit
     guard url.absoluteString == quickCaptureUrl else {
       return false
     }
-    openQuickCapture(payload: [
+    openQuickCapture(payload: readPendingQuickCapturePayload() ?? [
       "source": "widget",
       "text": "",
       "files": []
@@ -294,7 +296,37 @@ import CloudKit
   private func isSharedImportFile(_ url: URL) -> Bool {
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent("shared_imports", isDirectory: true)
-    return url.standardizedFileURL.path.hasPrefix(directory.standardizedFileURL.path)
+    if url.standardizedFileURL.path.hasPrefix(directory.standardizedFileURL.path) {
+      return true
+    }
+    guard let appGroupDirectory = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: appGroupIdentifier
+    )?.appendingPathComponent("shared_imports", isDirectory: true) else {
+      return false
+    }
+    return url.standardizedFileURL.path.hasPrefix(appGroupDirectory.standardizedFileURL.path)
+  }
+
+  private func readPendingQuickCapturePayload() -> [String: Any]? {
+    guard let container = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: appGroupIdentifier
+    ) else {
+      return nil
+    }
+    let url = container.appendingPathComponent(pendingQuickCaptureFileName)
+    guard FileManager.default.fileExists(atPath: url.path) else {
+      return nil
+    }
+    defer {
+      try? FileManager.default.removeItem(at: url)
+    }
+    guard
+      let data = try? Data(contentsOf: url),
+      let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else {
+      return nil
+    }
+    return payload
   }
 
   private func handleCloudKitMethod(call: FlutterMethodCall, result: @escaping FlutterResult) {
