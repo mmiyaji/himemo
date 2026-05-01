@@ -206,18 +206,40 @@ class QuickCaptureFile {
   }
 }
 
+class QuickCaptureRejectedFile {
+  const QuickCaptureRejectedFile({
+    required this.name,
+    required this.mimeType,
+    required this.reason,
+  });
+
+  final String name;
+  final String mimeType;
+  final String reason;
+
+  static QuickCaptureRejectedFile fromJson(Map<String, dynamic> json) {
+    return QuickCaptureRejectedFile(
+      name: '${json['name'] ?? ''}',
+      mimeType: '${json['mimeType'] ?? ''}',
+      reason: '${json['reason'] ?? ''}',
+    );
+  }
+}
+
 class QuickCaptureRequest {
   const QuickCaptureRequest({
     required this.nonce,
     required this.source,
     this.initialText = '',
     this.files = const <QuickCaptureFile>[],
+    this.rejectedFiles = const <QuickCaptureRejectedFile>[],
   });
 
   final int nonce;
   final QuickCaptureSource source;
   final String initialText;
   final List<QuickCaptureFile> files;
+  final List<QuickCaptureRejectedFile> rejectedFiles;
 }
 
 class WidgetQuickCaptureBridge {
@@ -305,11 +327,22 @@ class WidgetQuickCaptureBridge {
         )
         .where((file) => file.path.isNotEmpty && file.attachmentType != null)
         .toList(growable: false);
+    final rejectedFiles =
+        (arguments['rejectedFiles'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<Map>()
+            .map(
+              (entry) => QuickCaptureRejectedFile.fromJson(
+                Map<String, dynamic>.from(entry),
+              ),
+            )
+            .where((file) => file.name.isNotEmpty || file.reason.isNotEmpty)
+            .toList(growable: false);
     return QuickCaptureRequest(
       nonce: DateTime.now().microsecondsSinceEpoch,
       source: source,
       initialText: initialText,
       files: files,
+      rejectedFiles: rejectedFiles,
     );
   }
 }

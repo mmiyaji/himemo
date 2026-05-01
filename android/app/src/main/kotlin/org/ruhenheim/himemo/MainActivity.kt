@@ -20,6 +20,9 @@ class MainActivity : FlutterFragmentActivity() {
         const val ACTION_QUICK_CAPTURE = "org.ruhenheim.himemo.action.QUICK_CAPTURE"
         private const val ACTION_SEND = Intent.ACTION_SEND
         private const val ACTION_SEND_MULTIPLE = Intent.ACTION_SEND_MULTIPLE
+        private const val MAX_IMAGE_BYTES = 25L * 1024L * 1024L
+        private const val MAX_AUDIO_BYTES = 50L * 1024L * 1024L
+        private const val MAX_VIDEO_BYTES = 200L * 1024L * 1024L
         private const val WIDGET_CHANNEL = "org.ruhenheim.himemo/widget"
         private const val INTEGRITY_CHANNEL = "org.ruhenheim.himemo/integrity"
         private const val PRIVACY_CHANNEL = "org.ruhenheim.himemo/privacy"
@@ -113,16 +116,20 @@ class MainActivity : FlutterFragmentActivity() {
             .filter { it.isNotBlank() }
             .joinToString(separator = "\n\n")
             .trim()
+        val sharedFiles = sharedFilePayloadFromIntent(intent)
         return mapOf(
             "source" to if (isShare) "share" else "widget",
             "text" to combined,
-            "files" to sharedFilesFromIntent(intent),
+            "files" to sharedFiles.first,
+            "rejectedFiles" to sharedFiles.second,
         )
     }
 
-    private fun sharedFilesFromIntent(intent: Intent?): List<Map<String, String>> {
+    private fun sharedFilePayloadFromIntent(
+        intent: Intent?,
+    ): Pair<List<Map<String, String>>, List<Map<String, String>>> {
         if (!isShareIntent(intent)) {
-            return emptyList()
+            return Pair(emptyList(), emptyList())
         }
         val uris = mutableListOf<Uri>()
         val stream = intent?.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
@@ -138,13 +145,48 @@ class MainActivity : FlutterFragmentActivity() {
                 }
             }
         }
-        return uris.distinct().mapNotNull { uri ->
+        val files = mutableListOf<Map<String, String>>()
+        val rejected = mutableListOf<Map<String, String>>()
+        uris.distinct().forEach { uri ->
             val mimeType = contentResolver.getType(uri) ?: intent?.type.orEmpty()
-            if (!isSupportedSharedMimeType(mimeType)) {
-                return@mapNotNull null
+            val displayName = displayNameForUri(uri).ifBlank {
+                uri.lastPathSegment.orEmpty().ifBlank { "shared-file" }
             }
-            copySharedUri(uri, mimeType)
+            if (!isSupportedSharedMimeType(mimeType)) {
+                rejected.add(
+                    rejectedSharedFile(
+                        displayName,
+                        mimeType,
+                        "This file type is not supported.",
+                    ),
+                )
+                return@forEach
+            }
+            val copied = try {
+                copySharedUri(uri, mimeType, displayName)
+            } catch (_: SharedFileTooLargeException) {
+                rejected.add(
+                    rejectedSharedFile(
+                        displayName,
+                        mimeType,
+                        "This file is too large.",
+                    ),
+                )
+                return@forEach
+            }
+            if (copied == null) {
+                rejected.add(
+                    rejectedSharedFile(
+                        displayName,
+                        mimeType,
+                        "This file could not be read.",
+                    ),
+                )
+            } else {
+                files.add(copied)
+            }
         }
+        return Pair(files, rejected)
     }
 
     private fun isSupportedSharedMimeType(mimeType: String): Boolean {
@@ -154,10 +196,12 @@ class MainActivity : FlutterFragmentActivity() {
             normalized.startsWith("audio/")
     }
 
-    private fun copySharedUri(uri: Uri, mimeType: String): Map<String, String>? {
-        val displayName = displayNameForUri(uri).ifBlank {
-            "shared-${UUID.randomUUID()}"
-        }
+    private fun copySharedUri(
+        uri: Uri,
+        mimeType: String,
+        displayName: String,
+    ): Map<String, String>? {
+        val maxBytes = maxBytesForMimeType(mimeType)
         val safeName = displayName.replace(Regex("[^A-Za-z0-9._-]"), "_")
         val directory = File(cacheDir, "shared_imports")
         directory.mkdirs()
@@ -165,7 +209,19 @@ class MainActivity : FlutterFragmentActivity() {
         return try {
             contentResolver.openInputStream(uri)?.use { input ->
                 destination.outputStream().use { output ->
-                    input.copyTo(output)
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var totalBytes = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read == -1) {
+                            break
+                        }
+                        totalBytes += read
+                        if (totalBytes > maxBytes) {
+                            throw SharedFileTooLargeException()
+                        }
+                        output.write(buffer, 0, read)
+                    }
                 }
             } ?: return null
             mapOf(
@@ -173,11 +229,38 @@ class MainActivity : FlutterFragmentActivity() {
                 "name" to displayName,
                 "mimeType" to mimeType,
             )
+        } catch (error: SharedFileTooLargeException) {
+            runCatching { destination.delete() }
+            throw error
         } catch (_: Throwable) {
             runCatching { destination.delete() }
             null
         }
     }
+
+    private fun maxBytesForMimeType(mimeType: String): Long {
+        val normalized = mimeType.lowercase()
+        return when {
+            normalized.startsWith("image/") -> MAX_IMAGE_BYTES
+            normalized.startsWith("video/") -> MAX_VIDEO_BYTES
+            normalized.startsWith("audio/") -> MAX_AUDIO_BYTES
+            else -> 0L
+        }
+    }
+
+    private fun rejectedSharedFile(
+        name: String,
+        mimeType: String,
+        reason: String,
+    ): Map<String, String> {
+        return mapOf(
+            "name" to name,
+            "mimeType" to mimeType,
+            "reason" to reason,
+        )
+    }
+
+    private class SharedFileTooLargeException : Exception()
 
     private fun displayNameForUri(uri: Uri): String {
         var cursor: Cursor? = null

@@ -39,6 +39,8 @@ class _WidgetQuickCaptureScreenState
     final colorScheme = Theme.of(context).colorScheme;
     final requestText = request?.initialText.trim() ?? '';
     final requestFiles = request?.files ?? const <QuickCaptureFile>[];
+    final rejectedFiles =
+        request?.rejectedFiles ?? const <QuickCaptureRejectedFile>[];
 
     if (requestText.isNotEmpty && _controller.text != requestText) {
       _controller.value = TextEditingValue(
@@ -80,6 +82,7 @@ class _WidgetQuickCaptureScreenState
                           saving: _saving,
                           source: request?.source ?? QuickCaptureSource.widget,
                           files: requestFiles,
+                          rejectedFiles: rejectedFiles,
                           onSubmit: _submit,
                         )
                       : Container(
@@ -163,6 +166,20 @@ class _WidgetQuickCaptureScreenState
       );
       await Future<void>.delayed(const Duration(milliseconds: 250));
       _close();
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(
+            context.strings.isJapanese
+                ? '共有メモを保存できませんでした。'
+                : 'Could not save the shared memo.',
+          ),
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -201,6 +218,7 @@ class _CapturePanel extends StatelessWidget {
     required this.saving,
     required this.source,
     required this.files,
+    required this.rejectedFiles,
     required this.onSubmit,
   });
 
@@ -209,6 +227,7 @@ class _CapturePanel extends StatelessWidget {
   final bool saving;
   final QuickCaptureSource source;
   final List<QuickCaptureFile> files;
+  final List<QuickCaptureRejectedFile> rejectedFiles;
   final Future<void> Function() onSubmit;
 
   @override
@@ -268,6 +287,33 @@ class _CapturePanel extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 subtitle: Text(file.mimeType),
+                dense: true,
+              ),
+            const SizedBox(height: 8),
+          ],
+          if (rejectedFiles.isNotEmpty) ...[
+            Text(
+              context.strings.isJapanese
+                  ? '取り込めなかったファイル'
+                  : 'Files not imported',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 8),
+            for (final file in rejectedFiles)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.error_outline_rounded),
+                title: Text(
+                  file.name.isEmpty ? 'Shared file' : file.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  [
+                    if (file.mimeType.isNotEmpty) file.mimeType,
+                    if (file.reason.isNotEmpty) file.reason,
+                  ].join(' - '),
+                ),
                 dense: true,
               ),
             const SizedBox(height: 8),
