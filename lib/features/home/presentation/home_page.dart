@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:in_app_update/in_app_update.dart';
 import 'package:just_audio/just_audio.dart';
@@ -4932,36 +4933,30 @@ class _Sidebar extends StatelessWidget {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (activeIdentity.id != 'daily') ...[
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            strings.isJapanese
-                                ? '${activeIdentity.name} 利用中'
-                                : '${activeIdentity.name} active',
-                            style: Theme.of(context).textTheme.labelMedium,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-                    ],
+                if (activeIdentity.id != 'daily') ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        strings.isJapanese
+                            ? '${activeIdentity.name} 利用中'
+                            : '${activeIdentity.name} active',
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
+                    ),
                   ),
-                ),
-                Divider(height: 1, color: Theme.of(context).dividerColor),
+                  Divider(height: 1, color: Theme.of(context).dividerColor),
+                ],
                 const SizedBox(height: 8),
                 _SidebarItem(
                   icon: Icons.notes_outlined,
@@ -7261,6 +7256,13 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                   label: strings.pickAudio,
                                 ),
                               ),
+                              PopupMenuItem(
+                                value: MediaImportAction.addLocation,
+                                child: _MediaMenuEntry(
+                                  icon: Icons.my_location_outlined,
+                                  label: strings.addCurrentLocation,
+                                ),
+                              ),
                             ],
                           ),
                         ],
@@ -7605,6 +7607,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   Future<void> _handleAttachmentAction(MediaImportAction action) async {
+    if (action == MediaImportAction.addLocation) {
+      await _handleLocationAction();
+      return;
+    }
     final MediaImportResult result;
     if (action == MediaImportAction.recordAudio) {
       // ignore: use_build_context_synchronously
@@ -7690,6 +7696,140 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       }
     });
     _cancelAttachmentDelete(attachment);
+    _scheduleDraftPersist();
+  }
+
+  Future<void> _handleLocationAction() async {
+    final strings = context.strings;
+    try {
+      final locationServiceEnabled =
+          kIsWeb || await Geolocator.isLocationServiceEnabled();
+      if (!locationServiceEnabled) {
+        if (!mounted) {
+          return;
+        }
+        _showEditorSnackBar(
+          content: Text(
+            strings.isJapanese
+                ? '位置情報サービスがオフです。端末設定で有効にしてください。'
+                : 'Location services are off. Enable them in device settings.',
+          ),
+        );
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (!mounted) {
+          return;
+        }
+        _showEditorSnackBar(
+          content: Text(
+            strings.isJapanese
+                ? '現在地を追加するには位置情報の許可が必要です。'
+                : 'Location permission is required to add current location.',
+          ),
+        );
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 12),
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+      _insertLocationText(_formatLocationMemo(position, strings.isJapanese));
+      _showEditorSnackBar(
+        content: Text(
+          strings.isJapanese
+              ? '現在地をメモに追加しました。'
+              : 'Current location added to the note.',
+        ),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      _showEditorSnackBar(
+        content: Text(
+          strings.isJapanese
+              ? '現在地を取得できませんでした。'
+              : 'Could not get current location.',
+        ),
+      );
+    }
+  }
+
+  void _insertLocationText(String locationText) {
+    setState(() {
+      if (_editorMode == NoteEditorMode.quick) {
+        final text = _contentController.text;
+        final selection = _contentController.selection;
+        final insertionOffset = selection.isValid
+            ? selection.baseOffset.clamp(0, text.length)
+            : text.length;
+        final prefix = insertionOffset > 0 && !text.endsWith('\n')
+            ? '\n\n'
+            : '';
+        final suffix = insertionOffset < text.length ? '\n\n' : '';
+        final nextText = text.replaceRange(
+          insertionOffset,
+          insertionOffset,
+          '$prefix$locationText$suffix',
+        );
+        final nextOffset =
+            insertionOffset + prefix.length + locationText.length;
+        _contentController.text = nextText;
+        _contentController.selection = TextSelection.collapsed(
+          offset: nextOffset,
+        );
+        return;
+      }
+
+      final insertionIndex = _resolveRichInsertionIndex();
+      final nextBlocks = [..._richBlocks];
+      late final _RichBlockDraft paragraphToFocus;
+      var focusOffset = 0;
+
+      if (insertionIndex < nextBlocks.length &&
+          nextBlocks[insertionIndex].type == NoteBlockType.paragraph) {
+        final current = nextBlocks[insertionIndex];
+        final controller = current.controller!;
+        final text = controller.text;
+        final selection = controller.selection;
+        final cursorOffset = selection.isValid
+            ? selection.baseOffset.clamp(0, text.length)
+            : text.length;
+        final insertedText = text.isEmpty
+            ? locationText
+            : text.replaceRange(
+                cursorOffset,
+                cursorOffset,
+                '${cursorOffset > 0 ? '\n\n' : ''}$locationText',
+              );
+        controller.text = insertedText;
+        focusOffset = insertedText.length;
+        paragraphToFocus = current;
+      } else {
+        final paragraph = _RichBlockDraft.paragraph(locationText);
+        _attachRichBlockListener(paragraph);
+        nextBlocks.insert(insertionIndex, paragraph);
+        paragraphToFocus = paragraph;
+        focusOffset = locationText.length;
+      }
+
+      _richBlocks = nextBlocks;
+      _activeRichParagraphIndex = _richBlocks.indexOf(paragraphToFocus);
+      _requestParagraphFocus(paragraphToFocus, focusOffset);
+    });
     _scheduleDraftPersist();
   }
 
@@ -8012,6 +8152,27 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   final title = lines.first.trim();
   final body = lines.skip(1).join('\n').trim();
   return (title: title, body: body);
+}
+
+String _formatLocationMemo(Position position, bool isJapanese) {
+  final latitude = position.latitude.toStringAsFixed(6);
+  final longitude = position.longitude.toStringAsFixed(6);
+  final accuracy = position.accuracy.isFinite
+      ? '${position.accuracy.round()}m'
+      : '-';
+  final mapUrl = 'https://maps.google.com/?q=$latitude,$longitude';
+  if (isJapanese) {
+    return '現在地\n'
+        '緯度: $latitude\n'
+        '経度: $longitude\n'
+        '精度: 約$accuracy\n'
+        '$mapUrl';
+  }
+  return 'Current location\n'
+      'Latitude: $latitude\n'
+      'Longitude: $longitude\n'
+      'Accuracy: about $accuracy\n'
+      '$mapUrl';
 }
 
 class _RichMemoEditor extends StatelessWidget {
@@ -10498,10 +10659,10 @@ class _AudioAttachmentViewerState
                         isPlaying
                             ? Icons.graphic_eq_rounded
                             : Icons.audiotrack_rounded,
-                        size: 56,
+                        size: 40,
                         color: Theme.of(context).colorScheme.primary,
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 8),
                       Slider(
                         value: duration == Duration.zero
                             ? 0
@@ -10528,8 +10689,12 @@ class _AudioAttachmentViewerState
                           Text(_formatAudioDuration(duration)),
                         ],
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 8),
                       FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                        ),
                         onPressed: () async {
                           if (isPlaying) {
                             await _player.pause();

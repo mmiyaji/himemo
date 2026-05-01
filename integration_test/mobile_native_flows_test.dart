@@ -32,7 +32,9 @@ void main() {
         deviceAuthGatewayProvider.overrideWithValue(fakeDeviceAuthGateway),
         syncAuthGatewayProvider.overrideWithValue(fakeSyncAuthGateway),
         mediaImportServiceProvider.overrideWithValue(fakeMediaImportService),
-        playIntegrityVerifierProvider.overrideWithValue(fakePlayIntegrityVerifier),
+        playIntegrityVerifierProvider.overrideWithValue(
+          fakePlayIntegrityVerifier,
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -147,13 +149,15 @@ void main() {
 
     expect(find.text('Simulator attachment note'), findsWidgets);
 
-    container.read(widgetQuickCaptureRequestControllerProvider.notifier).open(
-      const QuickCaptureRequest(
-        nonce: 2,
-        source: QuickCaptureSource.share,
-        initialText: 'Shared simulator note',
-      ),
-    );
+    container
+        .read(widgetQuickCaptureRequestControllerProvider.notifier)
+        .open(
+          const QuickCaptureRequest(
+            nonce: 2,
+            source: QuickCaptureSource.share,
+            initialText: 'Shared simulator note',
+          ),
+        );
     await tester.pump(const Duration(milliseconds: 800));
     debugPrint('E2E step: external quick capture opened');
 
@@ -191,11 +195,7 @@ Future<void> _scrollIntoViewIfNeeded(WidgetTester tester, Finder finder) async {
     throw StateError('No Scrollable found for $finder');
   }
 
-  await tester.scrollUntilVisible(
-    finder,
-    160,
-    scrollable: scrollables.first,
-  );
+  await tester.scrollUntilVisible(finder, 160, scrollable: scrollables.first);
 }
 
 Future<void> _tapNavigation(
@@ -288,6 +288,9 @@ class FakeMediaImportService implements MediaImportService {
           label: 'simulator-audio.m4a',
         ),
       ),
+      MediaImportAction.addLocation => const MediaImportResult.failure(
+        'Location insertion is handled by the note editor.',
+      ),
     };
   }
 }
@@ -305,9 +308,6 @@ class FakePlayIntegrityVerifier extends PlayIntegrityVerifier {
     Map<String, Object?> payload = const <String, Object?>{},
   }) async {
     operations.add(operation);
-    return const PlayIntegrityVerificationResult(
-      allowed: true,
-      message: 'ok',
-    );
+    return const PlayIntegrityVerificationResult(allowed: true, message: 'ok');
   }
 }

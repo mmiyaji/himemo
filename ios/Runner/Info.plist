@@ -68,6 +68,8 @@
 		<string>Allow access to the photo library to attach media to notes.</string>
 		<key>NSMicrophoneUsageDescription</key>
 		<string>Use the microphone to record videos and audio notes for note attachments.</string>
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>Use your current location only when you choose to add it to a note.</string>
 		<key>UIBackgroundModes</key>
 		<array>
 			<string>audio</string>

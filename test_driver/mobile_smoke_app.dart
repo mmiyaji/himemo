@@ -140,6 +140,9 @@ class _FakeMediaImportService implements MediaImportService {
           label: 'simulator-audio.m4a',
         ),
       ),
+      MediaImportAction.addLocation => const MediaImportResult.failure(
+        'Location insertion is handled by the note editor.',
+      ),
     };
   }
 }

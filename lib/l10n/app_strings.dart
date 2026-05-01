@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 class AppStrings {
@@ -6,10 +6,7 @@ class AppStrings {
 
   final Locale locale;
 
-  static const supportedLocales = <Locale>[
-    Locale('en'),
-    Locale('ja'),
-  ];
+  static const supportedLocales = <Locale>[Locale('en'), Locale('ja')];
 
   static const delegate = _AppStringsDelegate();
 
@@ -69,9 +66,8 @@ class AppStrings {
   String get lightDesc => isJapanese
       ? '白基調のメモらしい見た目を保ちます。'
       : 'Keep the white memo-style interface.';
-  String get systemDesc => isJapanese
-      ? '端末の表示設定に合わせます。'
-      : 'Follow the device setting.';
+  String get systemDesc =>
+      isJapanese ? '端末の表示設定に合わせます。' : 'Follow the device setting.';
   String get darkDesc => isJapanese
       ? '高コントラストなダークテーマを明示的に使います。'
       : 'Use the higher-contrast dark theme explicitly.';
@@ -88,13 +84,13 @@ class AppStrings {
   String get updateSupportedOnAndroidOnly => isJapanese
       ? 'アプリ内更新は Android の Google Play 配布で利用できます。'
       : 'In-app updates are available on Android builds distributed through Google Play.';
-  String get updateStatusUpToDate => isJapanese
-      ? '現在のビルドは最新です。'
-      : 'The installed build is up to date.';
+  String get updateStatusUpToDate =>
+      isJapanese ? '現在のビルドは最新です。' : 'The installed build is up to date.';
   String get updateStatusAvailable => isJapanese
       ? 'Google Play に新しい更新があります。'
       : 'A newer build is available on Google Play.';
-  String get updateStatusChecking => isJapanese ? '更新を確認しています...' : 'Checking for updates...';
+  String get updateStatusChecking =>
+      isJapanese ? '更新を確認しています...' : 'Checking for updates...';
   String get updateStatusUnsupported => isJapanese
       ? 'この実行環境ではアプリ内更新を利用できません。'
       : 'In-app updates are not available in this runtime.';
@@ -106,10 +102,11 @@ class AppStrings {
       : 'A flexible update is downloaded. Complete it to restart and apply the update.';
   String updateVersionLabel(int? versionCode) => isJapanese
       ? (versionCode == null ? '配信中の更新' : '配信中の更新: $versionCode')
-      : (versionCode == null ? 'Available update' : 'Available update: $versionCode');
-  String updatePriorityLabel(int? priority) => isJapanese
-      ? '優先度: ${priority ?? 0}'
-      : 'Priority: ${priority ?? 0}';
+      : (versionCode == null
+            ? 'Available update'
+            : 'Available update: $versionCode');
+  String updatePriorityLabel(int? priority) =>
+      isJapanese ? '優先度: ${priority ?? 0}' : 'Priority: ${priority ?? 0}';
   String get ossLicenses => isJapanese ? 'OSS ライセンス' : 'OSS licenses';
   String get ossLicensesDesc => isJapanese
       ? '利用しているオープンソースソフトウェアのライセンスを表示します。'
@@ -119,9 +116,8 @@ class AppStrings {
   String readingVersion() =>
       isJapanese ? 'バージョンを読み込み中...' : 'Reading app version...';
 
-  String get homeWidgetQuickCapture => isJapanese
-      ? '外部クイックメモ'
-      : 'Allow external quick capture';
+  String get homeWidgetQuickCapture =>
+      isJapanese ? '外部クイックメモ' : 'Allow external quick capture';
   String get homeWidgetQuickCaptureDesc => isJapanese
       ? 'ホームウィジェットや共有メニューから、通常のアプリロックを開かずにテキストだけの簡易メモ画面を開けます。'
       : 'Let the home widget or Android share sheet open a text-only quick memo surface without unlocking the full app.';
@@ -149,44 +145,36 @@ class AppStrings {
   String get onboardingIntro => isJapanese
       ? 'メモを書き始める前に、短い初期設定だけ済ませます。'
       : 'A short setup pass before the memo vault opens.';
-  String get onboardingCaptureTitle =>
-      isJapanese ? 'すばやく記録' : 'Capture fast';
+  String get onboardingCaptureTitle => isJapanese ? 'すばやく記録' : 'Capture fast';
   String get onboardingCaptureBody => isJapanese
       ? '1行目がそのままタイトルになるので、思いついた内容をそのまま軽く書き始められます。'
       : 'The first line becomes the memo title, so quick notes stay lightweight from the first tap.';
-  String get onboardingCaptureImageLabel => isJapanese
-      ? 'クイックメモ入力のプレビュー'
-      : 'Quick memo capture preview';
-  String get onboardingPrivateTitle => isJapanese
-      ? 'プライベート領域を分ける'
-      : 'Separate private access';
+  String get onboardingCaptureImageLabel =>
+      isJapanese ? 'クイックメモ入力のプレビュー' : 'Quick memo capture preview';
+  String get onboardingPrivateTitle =>
+      isJapanese ? 'プライベート領域を分ける' : 'Separate private access';
   String get onboardingPrivateBody => isJapanese
       ? 'アプリの起動ロックとは別に、複数のプロファイルを個別のパスワードで管理できます。必要なプロファイルだけをその場で開けます。'
       : 'App unlock stays separate from profile access. You can manage multiple profiles with different passwords and open only the one you need.';
-  String get onboardingPrivateImageLabel => isJapanese
-      ? 'プライベートプロファイル解錠のプレビュー'
-      : 'Private vault unlock preview';
+  String get onboardingPrivateImageLabel =>
+      isJapanese ? 'プライベートプロファイル解錠のプレビュー' : 'Private vault unlock preview';
   String get onboardingSyncTitle =>
       isJapanese ? '同期はあとから設定' : 'Prepare sync later';
   String get onboardingSyncBody => isJapanese
       ? 'iCloud や Google Drive は、あとから同期先として選べます。最初は自前サーバーなしで始められます。'
       : 'Choose iCloud or Google Drive as the future sync target without turning your own server into a dependency.';
-  String get onboardingSyncImageLabel => isJapanese
-      ? 'クラウド同期先のプレビュー'
-      : 'Cloud sync target preview';
+  String get onboardingSyncImageLabel =>
+      isJapanese ? 'クラウド同期先のプレビュー' : 'Cloud sync target preview';
   String get onboardingFinishTitle =>
       isJapanese ? '最初に基本だけ設定' : 'Finish the basics';
   String get onboardingFinishBody => isJapanese
       ? 'まずはアプリ起動ロックだけ設定します。プライベートプロファイルやクラウド同期は、あとから設定で追加できます。'
       : 'Set the app unlock first. Private profiles and cloud sync can be added later from Settings.';
-  String get onboardingFinishImageLabel => isJapanese
-      ? '初期アクセス設定のプレビュー'
-      : 'Initial access setup preview';
-  String get onboardingAddImageFallback => isJapanese
-      ? 'オンボーディング画像を追加'
-      : 'Add an onboarding image';
-  String get onboardingAppUnlockTitle =>
-      isJapanese ? 'アプリ起動ロック' : 'App unlock';
+  String get onboardingFinishImageLabel =>
+      isJapanese ? '初期アクセス設定のプレビュー' : 'Initial access setup preview';
+  String get onboardingAddImageFallback =>
+      isJapanese ? 'オンボーディング画像を追加' : 'Add an onboarding image';
+  String get onboardingAppUnlockTitle => isJapanese ? 'アプリ起動ロック' : 'App unlock';
   String get onboardingPinConfiguredBrowser => isJapanese
       ? 'このブラウザでは解除用 PIN が設定されています。'
       : 'Configured for this browser.';
@@ -196,14 +184,12 @@ class AppStrings {
   String get onboardingDeviceAuthLater => isJapanese
       ? 'iPhone や Android では、端末の生体認証や端末 PIN を起動ロックとして使います。'
       : 'Device authentication can be enabled later in Settings.';
-  String get onboardingChangePin =>
-      isJapanese ? 'PIN を変更' : 'Change PIN';
+  String get onboardingChangePin => isJapanese ? 'PIN を変更' : 'Change PIN';
   String get onboardingSetPin => isJapanese ? 'PIN を設定' : 'Set PIN';
   String get onboardingLaterInSettings =>
       isJapanese ? 'あとで設定' : 'Later in Settings';
-  String get onboardingPinSaved => isJapanese
-      ? 'アプリ解除 PIN を保存しました。'
-      : 'App unlock PIN saved.';
+  String get onboardingPinSaved =>
+      isJapanese ? 'アプリ解除 PIN を保存しました。' : 'App unlock PIN saved.';
   String get onboardingPrivateProfilesTitle =>
       isJapanese ? 'プライベートプロファイル' : 'Private profiles';
   String onboardingPrivateProfilesConfigured(int count) => isJapanese
@@ -214,8 +200,7 @@ class AppStrings {
       : 'Use the key icon to open only the profile that matches the entered password. This works well for keeping different spaces under separate locks.';
   String get onboardingAddInSettings =>
       isJapanese ? '設定で追加' : 'Add in Settings';
-  String get onboardingCloudSyncTitle =>
-      isJapanese ? 'クラウド同期' : 'Cloud sync';
+  String get onboardingCloudSyncTitle => isJapanese ? 'クラウド同期' : 'Cloud sync';
   String get onboardingCloudSyncBody => isJapanese
       ? 'iCloud や Google Drive への同期は、あとから設定で有効化できます。最初はオフラインのまま始められます。'
       : 'Enable iCloud or Google Drive later in Settings. You can start as an offline-first memo app.';
@@ -239,27 +224,24 @@ class AppStrings {
       isJapanese ? '管理者モード中' : 'Admin mode active';
   String get enterAdminModeLabel =>
       isJapanese ? '管理者モードへ移行' : 'Enter admin mode';
-  String get exitAdminModeLabel =>
-      isJapanese ? '管理者モードを終了' : 'Exit admin mode';
+  String get exitAdminModeLabel => isJapanese ? '管理者モードを終了' : 'Exit admin mode';
   String get noPrivateProfilesMessage =>
       isJapanese ? 'まだプライベートプロファイルはありません。' : 'No private profiles yet.';
   String privateProfilesHiddenSummary(int count) => isJapanese
       ? '$count 件のプライベートプロファイルが登録されています。名前と保存先IDは非表示です。'
       : '$count private profiles are configured. Names and vault IDs are hidden.';
-  String get setAlternateProfilePassword => isJapanese
-      ? '別プロファイル用パスワードを設定'
-      : 'Set alternate profile password';
-  String get changeAlternateProfilePassword => isJapanese
-      ? '別プロファイル用パスワードを変更'
-      : 'Change alternate profile password';
-  String get resetAlternateProfilePassword => isJapanese
-      ? '別プロファイル用パスワードをリセット'
-      : 'Reset alternate profile password';
+  String get setAlternateProfilePassword =>
+      isJapanese ? '別プロファイル用パスワードを設定' : 'Set alternate profile password';
+  String get changeAlternateProfilePassword =>
+      isJapanese ? '別プロファイル用パスワードを変更' : 'Change alternate profile password';
+  String get resetAlternateProfilePassword =>
+      isJapanese ? '別プロファイル用パスワードをリセット' : 'Reset alternate profile password';
 
   String get skip => isJapanese ? 'スキップ' : 'Skip';
   String get next => isJapanese ? '次へ' : 'Next';
   String get finishSetup => isJapanese ? 'セットアップ完了' : 'Finish setup';
-  String get setAppUnlockPin => isJapanese ? 'アプリ解除 PIN を設定' : 'Set app unlock PIN';
+  String get setAppUnlockPin =>
+      isJapanese ? 'アプリ解除 PIN を設定' : 'Set app unlock PIN';
   String get pin => 'PIN';
   String get cancel => isJapanese ? 'キャンセル' : 'Cancel';
   String get save => isJapanese ? '保存' : 'Save';
@@ -279,17 +261,16 @@ class AppStrings {
   String get newNote => isJapanese ? '新しいノート' : 'New note';
   String get editNote => isJapanese ? 'ノートを編集' : 'Edit note';
   String get memoLabel => isJapanese ? 'メモ' : 'Memo';
-  String get memoFirstLineHint => isJapanese
-      ? '1行目をタイトルとして使います'
-      : 'Use the first line as the title';
+  String get memoFirstLineHint =>
+      isJapanese ? '1行目をタイトルとして使います' : 'Use the first line as the title';
   String get vault => isJapanese ? '分類' : 'Vault';
   String get pinThisNote => isJapanese ? 'このノートを固定' : 'Pin this note';
-  String get pinThisNoteDesc => isJapanese
-      ? '固定したノートは一覧の上に表示されます。'
-      : 'Pinned notes stay near the top.';
+  String get pinThisNoteDesc =>
+      isJapanese ? '固定したノートは一覧の上に表示されます。' : 'Pinned notes stay near the top.';
   String get createNote => isJapanese ? 'ノートを作成' : 'Create note';
   String get saveChanges => isJapanese ? '変更を保存' : 'Save changes';
-  String get startWritingHere => isJapanese ? 'ここから書き始めます' : 'Start writing here';
+  String get startWritingHere =>
+      isJapanese ? 'ここから書き始めます' : 'Start writing here';
   String get attachments => isJapanese ? '添付' : 'Attachments';
   String get addMedia => isJapanese ? 'メディアを追加' : 'Add media';
   String get pickPhoto => isJapanese ? '写真を選ぶ' : 'Pick photo';
@@ -298,13 +279,16 @@ class AppStrings {
   String get recordVideo => isJapanese ? '動画を撮る' : 'Record video';
   String get recordAudio => isJapanese ? '音声を録音' : 'Record audio';
   String get pickAudio => isJapanese ? '音声を選ぶ' : 'Pick audio';
+  String get addCurrentLocation =>
+      isJapanese ? '現在地を追加' : 'Add current location';
   String get attachFromBrowser => isJapanese
       ? 'このブラウザから写真・動画・音声を添付できます。'
       : 'Attach photos, videos, or audio files from this browser.';
   String get attachFromDevice => isJapanese
       ? 'カメラや端末内の写真・動画・音声を添付できます。'
       : 'Attach photos, videos, or audio files from camera or device storage.';
-  String get dateTimeUpdated => isJapanese ? '日時を更新しました' : 'Date and time updated';
+  String get dateTimeUpdated =>
+      isJapanese ? '日時を更新しました' : 'Date and time updated';
   String get undo => isJapanese ? '元に戻す' : 'Undo';
   String get draftRestored => isJapanese ? '下書きを復元しました' : 'Draft restored';
   String get discardDraft => isJapanese ? '破棄' : 'Discard';
@@ -333,14 +317,12 @@ class AppStrings {
   String get sendMemo => isJapanese ? 'メモを送信' : 'Send memo';
   String get sending => isJapanese ? '送信中...' : 'Sending...';
   String get sendQuickMemo => isJapanese ? 'クイックメモを送信' : 'Send a quick memo';
-  String get quickMemoSaved => isJapanese
-      ? 'クイックメモを Notes に保存しました。'
-      : 'Quick memo saved to Notes.';
+  String get quickMemoSaved =>
+      isJapanese ? 'クイックメモを Notes に保存しました。' : 'Quick memo saved to Notes.';
   String get finishSetupFirst =>
       isJapanese ? '先に初期設定を完了してください' : 'Finish setup first';
-  String get quickWidgetCaptureOff => isJapanese
-      ? '外部クイックメモはオフです'
-      : 'External quick capture is off';
+  String get quickWidgetCaptureOff =>
+      isJapanese ? '外部クイックメモはオフです' : 'External quick capture is off';
   String get enableQuickWidgetInSettings => isJapanese
       ? '設定で外部クイックメモをオンにすると、ホームウィジェットや共有メニューからフルアプリを開かずにテキストだけのメモを送れます。'
       : 'Enable external quick capture in Settings if you want the home widget or Android share sheet to send text-only memos without unlocking the full app.';

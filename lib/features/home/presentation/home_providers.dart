@@ -320,6 +320,7 @@ enum MediaImportAction {
   pickVideo,
   recordAudio,
   pickAudio,
+  addLocation,
 }
 
 class MediaImportResult {
@@ -959,6 +960,10 @@ class DefaultMediaImportService implements MediaImportService {
         );
       case MediaImportAction.pickAudio:
         return _pickAudio();
+      case MediaImportAction.addLocation:
+        return const MediaImportResult.failure(
+          'Location insertion is handled by the note editor.',
+        );
     }
   }
 
