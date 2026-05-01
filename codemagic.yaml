@@ -19,6 +19,7 @@ workflows:
         provisioning_profiles:
           - HiMemo App Store Profile
           - HiMemo Widget App Store Profile
+          - HiMemo Share Extension App Store Profile
     cache:
       cache_paths:
         - $FLUTTER_ROOT/.pub-cache
@@ -80,6 +81,7 @@ workflows:
         provisioning_profiles:
           - HiMemo Ad Hoc
           - HiMemo Widget Ad Hoc
+          - HiMemo Share Extension Ad Hoc
     cache:
       cache_paths:
         - $FLUTTER_ROOT/.pub-cache
