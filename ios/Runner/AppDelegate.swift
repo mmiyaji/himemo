@@ -19,7 +19,7 @@ import CloudKit
   private var widgetChannel: FlutterMethodChannel?
   private var cloudKitChannel: FlutterMethodChannel?
   private var privacyChannel: FlutterMethodChannel?
-  private var pendingQuickCaptureRequest = false
+  private var pendingQuickCapturePayload: [String: Any]?
   private var privacyProtectionEnabled = false
   private var privacyOverlayView: UIVisualEffectView?
 
@@ -49,13 +49,24 @@ import CloudKit
           result(false)
           return
         }
-        if call.method == "consumePendingQuickCapture" {
-          let pending = self.pendingQuickCaptureRequest
-          self.pendingQuickCaptureRequest = false
-          result(pending)
-          return
+        switch call.method {
+        case "consumePendingQuickCapture":
+          let pending = self.pendingQuickCapturePayload
+          self.pendingQuickCapturePayload = nil
+          result(pending ?? false)
+        case "deleteSharedImportFiles":
+          let args = call.arguments as? [String: Any]
+          let paths = args?["paths"] as? [String] ?? []
+          for path in paths {
+            let url = URL(fileURLWithPath: path)
+            if self.isSharedImportFile(url) {
+              try? FileManager.default.removeItem(at: url)
+            }
+          }
+          result(nil)
+        default:
+          result(FlutterMethodNotImplemented)
         }
-        result(FlutterMethodNotImplemented)
       }
 
       cloudKitChannel?.setMethodCallHandler { [weak self] call, result in
@@ -166,15 +177,124 @@ import CloudKit
   }
 
   private func handleQuickCaptureURL(_ url: URL) -> Bool {
+    if url.isFileURL {
+      guard let file = copySharedFile(url) else {
+        return false
+      }
+      openQuickCapture(payload: [
+        "source": "share",
+        "text": "",
+        "files": [file]
+      ])
+      return true
+    }
+
     guard url.absoluteString == quickCaptureUrl else {
       return false
     }
-    if widgetChannel != nil {
-      widgetChannel?.invokeMethod("openQuickCapture", arguments: nil)
-    } else {
-      pendingQuickCaptureRequest = true
-    }
+    openQuickCapture(payload: [
+      "source": "widget",
+      "text": "",
+      "files": []
+    ])
     return true
+  }
+
+  private func openQuickCapture(payload: [String: Any]) {
+    if widgetChannel != nil {
+      widgetChannel?.invokeMethod("openQuickCapture", arguments: payload)
+    } else {
+      pendingQuickCapturePayload = payload
+    }
+  }
+
+  private func copySharedFile(_ sourceURL: URL) -> [String: String]? {
+    let startedAccess = sourceURL.startAccessingSecurityScopedResource()
+    defer {
+      if startedAccess {
+        sourceURL.stopAccessingSecurityScopedResource()
+      }
+    }
+
+    let mimeType = mimeTypeForSharedFile(sourceURL)
+    guard isSupportedSharedMimeType(mimeType) else {
+      return nil
+    }
+
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("shared_imports", isDirectory: true)
+    do {
+      try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+      )
+      let destination = directory.appendingPathComponent(
+        "\(UUID().uuidString)-\(sourceURL.lastPathComponent)"
+      )
+      if FileManager.default.fileExists(atPath: destination.path) {
+        try FileManager.default.removeItem(at: destination)
+      }
+      try FileManager.default.copyItem(at: sourceURL, to: destination)
+      return [
+        "path": destination.path,
+        "name": sourceURL.lastPathComponent,
+        "mimeType": mimeType
+      ]
+    } catch {
+      return nil
+    }
+  }
+
+  private func mimeTypeForSharedFile(_ url: URL) -> String {
+    switch url.pathExtension.lowercased() {
+    case "jpg", "jpeg":
+      return "image/jpeg"
+    case "png":
+      return "image/png"
+    case "gif":
+      return "image/gif"
+    case "heic":
+      return "image/heic"
+    case "heif":
+      return "image/heif"
+    case "mp4":
+      return "video/mp4"
+    case "mov":
+      return "video/quicktime"
+    case "m4v":
+      return "video/x-m4v"
+    case "mp3":
+      return "audio/mpeg"
+    case "m4a":
+      return "audio/mp4"
+    case "wav":
+      return "audio/wav"
+    case "aac":
+      return "audio/aac"
+    case "caf":
+      return "audio/x-caf"
+    case "aif", "aiff":
+      return "audio/aiff"
+    case "flac":
+      return "audio/flac"
+    case "ogg":
+      return "audio/ogg"
+    default:
+      return "application/octet-stream"
+    }
+  }
+
+  private func isSupportedSharedMimeType(_ mimeType: String) -> Bool {
+    let normalized = mimeType.lowercased()
+    return normalized.hasPrefix("image/") ||
+      normalized.hasPrefix("video/") ||
+      normalized.hasPrefix("audio/")
+  }
+
+  private func isSharedImportFile(_ url: URL) -> Bool {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("shared_imports", isDirectory: true)
+    return url.standardizedFileURL.path.hasPrefix(directory.standardizedFileURL.path)
   }
 
   private func handleCloudKitMethod(call: FlutterMethodCall, result: @escaping FlutterResult) {
