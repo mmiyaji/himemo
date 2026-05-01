@@ -6,6 +6,7 @@ import CloudKit
 @objc class AppDelegate: FlutterAppDelegate {
   private let widgetChannelName = "org.ruhenheim.himemo/widget"
   private let cloudKitChannelName = "org.ruhenheim.himemo/cloudkit"
+  private let privacyChannelName = "org.ruhenheim.himemo/privacy"
   private let quickCaptureUrl = "himemo://widget-capture"
   private let cloudKitContainerIdentifier = "iCloud.org.ruhenheim.himemo"
   private let cloudKitRecordType = "HiMemoSyncBundle"
@@ -17,7 +18,10 @@ import CloudKit
 
   private var widgetChannel: FlutterMethodChannel?
   private var cloudKitChannel: FlutterMethodChannel?
+  private var privacyChannel: FlutterMethodChannel?
   private var pendingQuickCaptureRequest = false
+  private var privacyProtectionEnabled = false
+  private var privacyOverlayView: UIVisualEffectView?
 
   override func application(
     _ application: UIApplication,
@@ -33,6 +37,10 @@ import CloudKit
       )
       cloudKitChannel = FlutterMethodChannel(
         name: cloudKitChannelName,
+        binaryMessenger: controller.binaryMessenger
+      )
+      privacyChannel = FlutterMethodChannel(
+        name: privacyChannelName,
         binaryMessenger: controller.binaryMessenger
       )
 
@@ -57,6 +65,14 @@ import CloudKit
         }
         self.handleCloudKitMethod(call: call, result: result)
       }
+
+      privacyChannel?.setMethodCallHandler { [weak self] call, result in
+        guard let self else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        self.handlePrivacyMethod(call: call, result: result)
+      }
     }
 
     if let url = launchOptions?[.url] as? URL {
@@ -76,12 +92,77 @@ import CloudKit
     return super.application(app, open: url, options: options)
   }
 
+  override func applicationWillResignActive(_ application: UIApplication) {
+    super.applicationWillResignActive(application)
+    if privacyProtectionEnabled {
+      setPrivacyOverlayVisible(true)
+    }
+  }
+
+  override func applicationDidEnterBackground(_ application: UIApplication) {
+    super.applicationDidEnterBackground(application)
+    if privacyProtectionEnabled {
+      setPrivacyOverlayVisible(true)
+    }
+  }
+
+  override func applicationDidBecomeActive(_ application: UIApplication) {
+    super.applicationDidBecomeActive(application)
+    setPrivacyOverlayVisible(false)
+  }
+
   private var cloudKitContainer: CKContainer {
     CKContainer(identifier: cloudKitContainerIdentifier)
   }
 
   private var privateDatabase: CKDatabase {
     cloudKitContainer.privateCloudDatabase
+  }
+
+  private func handlePrivacyMethod(call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "setProtected":
+      let enabled = (call.arguments as? [String: Any])?["enabled"] as? Bool ?? false
+      DispatchQueue.main.async {
+        self.setPrivacyProtectionEnabled(enabled)
+        result(nil)
+      }
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private func setPrivacyProtectionEnabled(_ enabled: Bool) {
+    privacyProtectionEnabled = enabled
+    if !enabled {
+      setPrivacyOverlayVisible(false)
+    }
+  }
+
+  private func setPrivacyOverlayVisible(_ visible: Bool) {
+    guard let window else {
+      return
+    }
+    if visible {
+      if privacyOverlayView == nil {
+        let effect = UIBlurEffect(style: .systemThinMaterial)
+        let overlay = UIVisualEffectView(effect: effect)
+        overlay.frame = window.bounds
+        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        overlay.isUserInteractionEnabled = false
+        overlay.backgroundColor = UIColor.black.withAlphaComponent(0.18)
+        privacyOverlayView = overlay
+      }
+      guard let privacyOverlayView else {
+        return
+      }
+      if privacyOverlayView.superview == nil {
+        window.addSubview(privacyOverlayView)
+      }
+      window.bringSubviewToFront(privacyOverlayView)
+    } else {
+      privacyOverlayView?.removeFromSuperview()
+    }
   }
 
   private func handleQuickCaptureURL(_ url: URL) -> Bool {

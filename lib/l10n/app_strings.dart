@@ -223,17 +223,17 @@ class AppStrings {
   String get privateProfilesSettingsTitle =>
       isJapanese ? 'プライベートプロファイル' : 'Private profiles';
   String get privateProfilesSettingsAdminSummary => isJapanese
-      ? '管理者モードでは、登録されているすべてのプロファイルを確認できます。'
-      : 'Admin mode lets you review every configured profile.';
-  String privateProfilesSettingsActiveSummary(String profileName) => isJapanese
-      ? '現在は「$profileName」を表示しています。'
-      : 'Currently viewing "$profileName".';
+      ? '管理者モードでも、プロファイル名や保存先IDは設定画面に表示しません。'
+      : 'Profile names and vault IDs stay hidden in Settings, even in admin mode.';
+  String privateProfilesSettingsActiveSummary(String _) => isJapanese
+      ? '現在は認証済みのプライベートプロファイルを表示しています。'
+      : 'A verified private profile is currently open.';
   String get privateProfilesSettingsDefaultSummary => isJapanese
-      ? '通常は Daily Notes だけを表示し、必要なときだけ別のプロファイルを開きます。'
-      : 'Daily Notes stays visible by default. Open another profile only when you need it.';
+      ? '通常は Notes だけを表示し、必要なときだけ別のプロファイルを開きます。'
+      : 'Notes stays visible by default. Open another profile only when you need it.';
   String get privateProfilesSettingsBody => isJapanese
-      ? '右上の鍵アイコンからパスワードを入力すると、一致するプロファイルだけを開けます。プロファイルごとに別のロックを設定できます。'
-      : 'Enter a password from the key icon in the top bar to open only the matching profile. Each profile can have its own lock.';
+      ? '右上の鍵アイコンからパスワードを入力すると、一致するプロファイルだけを開けます。設定画面では登録済みプロファイルの名前や保存先IDを列挙しません。'
+      : 'Enter a password from the key icon in the top bar to open only the matching profile. Settings does not list configured profile names or vault IDs.';
   String get addPrivateProfile => isJapanese ? 'プロファイルを追加' : 'Add profile';
   String get adminModeActiveLabel =>
       isJapanese ? '管理者モード中' : 'Admin mode active';
@@ -243,6 +243,9 @@ class AppStrings {
       isJapanese ? '管理者モードを終了' : 'Exit admin mode';
   String get noPrivateProfilesMessage =>
       isJapanese ? 'まだプライベートプロファイルはありません。' : 'No private profiles yet.';
+  String privateProfilesHiddenSummary(int count) => isJapanese
+      ? '$count 件のプライベートプロファイルが登録されています。名前と保存先IDは非表示です。'
+      : '$count private profiles are configured. Names and vault IDs are hidden.';
   String get setAlternateProfilePassword => isJapanese
       ? '別プロファイル用パスワードを設定'
       : 'Set alternate profile password';
@@ -293,6 +296,7 @@ class AppStrings {
   String get takePhoto => isJapanese ? '写真を撮る' : 'Take photo';
   String get pickVideo => isJapanese ? '動画を選ぶ' : 'Pick video';
   String get recordVideo => isJapanese ? '動画を撮る' : 'Record video';
+  String get recordAudio => isJapanese ? '音声を録音' : 'Record audio';
   String get pickAudio => isJapanese ? '音声を選ぶ' : 'Pick audio';
   String get attachFromBrowser => isJapanese
       ? 'このブラウザから写真・動画・音声を添付できます。'
@@ -330,8 +334,8 @@ class AppStrings {
   String get sending => isJapanese ? '送信中...' : 'Sending...';
   String get sendQuickMemo => isJapanese ? 'クイックメモを送信' : 'Send a quick memo';
   String get quickMemoSaved => isJapanese
-      ? 'クイックメモを Daily Notes に保存しました。'
-      : 'Quick memo saved to Daily Notes.';
+      ? 'クイックメモを Notes に保存しました。'
+      : 'Quick memo saved to Notes.';
   String get finishSetupFirst =>
       isJapanese ? '先に初期設定を完了してください' : 'Finish setup first';
   String get quickWidgetCaptureOff => isJapanese

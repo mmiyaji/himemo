@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../l10n/app_strings.dart';
 import '../domain/vault_models.dart';
@@ -63,7 +64,10 @@ class _WidgetQuickCaptureScreenState
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
                     maxWidth: 640,
-                    minHeight: (constraints.maxHeight - 40).clamp(0, double.infinity),
+                    minHeight: (constraints.maxHeight - 40).clamp(
+                      0,
+                      double.infinity,
+                    ),
                   ),
                   child: enabled && onboardingReady
                       ? _CapturePanel(
@@ -90,15 +94,23 @@ class _WidgetQuickCaptureScreenState
                                 onboardingReady
                                     ? context.strings.quickWidgetCaptureOff
                                     : context.strings.finishSetupFirst,
-                                style: Theme.of(context).textTheme.headlineSmall,
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.headlineSmall,
                               ),
                               const SizedBox(height: 12),
                               Text(
                                 onboardingReady
-                                    ? context.strings.enableQuickWidgetInSettings
-                                    : context.strings.completeOnboardingBeforeWidget,
+                                    ? context
+                                          .strings
+                                          .enableQuickWidgetInSettings
+                                    : context
+                                          .strings
+                                          .completeOnboardingBeforeWidget,
                                 style: Theme.of(context).textTheme.bodyLarge
-                                    ?.copyWith(color: colorScheme.onSurfaceVariant),
+                                    ?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
                               ),
                               const SizedBox(height: 20),
                               FilledButton.tonal(
@@ -125,22 +137,43 @@ class _WidgetQuickCaptureScreenState
     setState(() {
       _saving = true;
     });
-    await ref
-        .read(notesControllerProvider.notifier)
-        .createWidgetQuickCapture(text);
-    ref.read(widgetQuickCaptureRequestControllerProvider.notifier).clear();
-    if (!mounted) {
-      return;
+    try {
+      await ref
+          .read(notesControllerProvider.notifier)
+          .createWidgetQuickCapture(text);
+      ref.read(widgetQuickCaptureRequestControllerProvider.notifier).clear();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(context.strings.quickMemoSaved),
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      _close();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(context.strings.quickMemoSaved)),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 250));
-    _close();
   }
 
   void _close() {
     ref.read(widgetQuickCaptureRequestControllerProvider.notifier).clear();
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+    final router = GoRouter.maybeOf(context);
+    if (router != null) {
+      router.go('/notes');
+      return;
+    }
     SystemNavigator.pop();
   }
 }
@@ -191,11 +224,11 @@ class _CapturePanel extends StatelessWidget {
           Text(
             context.strings.isJapanese
                 ? source == QuickCaptureSource.share
-                      ? '共有メニューから受け取ったテキストを、そのまま Daily Notes に送れます。既存ノートや private vault の内容は開きません。'
-                      : 'テキストだけをすばやく記録します。この画面では既存ノートや private vault の内容は表示しません。'
+                      ? '共有メニューから受け取ったテキストを、そのまま Notes に送れます。既存ノートやロック中のプロファイルは開きません。'
+                      : 'テキストだけをすばやく記録します。この画面では既存ノートやロック中のプロファイルは表示しません。'
                 : source == QuickCaptureSource.share
-                ? 'Shared text can be sent straight to Daily Notes. This route never reveals existing notes or private vault content.'
-                : 'Text only. This route never reveals existing notes or private vault content.',
+                ? 'Shared text can be sent straight to Notes. This route never reveals existing notes or locked profiles.'
+                : 'Text only. This route never reveals existing notes or locked profiles.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
             ),
@@ -211,11 +244,11 @@ class _CapturePanel extends StatelessWidget {
             decoration: InputDecoration(
               hintText: context.strings.isJapanese
                   ? source == QuickCaptureSource.share
-                        ? '共有されたテキストを整えて、そのまま Daily Notes に保存できます。'
-                        : 'メモを書いて、そのまま Daily Notes に送ります。'
+                        ? '共有されたテキストを整えて、そのまま Notes に保存できます。'
+                        : 'メモを書いて、そのまま Notes に送ります。'
                   : source == QuickCaptureSource.share
-                  ? 'Tidy the shared text and save it to Daily Notes.'
-                  : 'Write a memo and send it to Daily Notes.',
+                  ? 'Tidy the shared text and save it to Notes.'
+                  : 'Write a memo and send it to Notes.',
               border: const OutlineInputBorder(),
               alignLabelWithHint: true,
             ),

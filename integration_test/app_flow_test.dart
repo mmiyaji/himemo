@@ -185,6 +185,61 @@ void main() {
     expect(find.text('記録'), findsWidgets);
     expect(find.text('表示'), findsWidgets);
   });
+  testWidgets('tagging a note enables tag-based filtering', (tester) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'settings.locale': 'english',
+    });
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const HiMemoApp(flavor: AppFlavor.development),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(AppShell.addNoteKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Quick memo'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('note-content-input')),
+      'Tag flow sample\nBody for tags',
+    );
+    await tester.pumpAndSettle();
+
+    await _scrollIntoViewIfNeeded(tester, find.byKey(const Key('note-tag-input')));
+    await tester.enterText(find.byKey(const Key('note-tag-input')), 'alpha');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('save-note-button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.bySemanticsLabel('Filters'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('search-tag-input')), 'alpha');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    expect(find.text('#alpha'), findsWidgets);
+    expect(
+      container.read(visibleNotesProvider).any(
+        (note) => note.title == 'Tag flow sample',
+      ),
+      isTrue,
+    );
+  });
 }
 
 Future<void> _scrollIntoViewIfNeeded(WidgetTester tester, Finder finder) async {

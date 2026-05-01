@@ -50,6 +50,8 @@ class SecureSyncBundleStore {
     final key = await _syncBundleKeyService.obtainOrCreate();
     final payload = await _encryptionService.encryptJson(
       payload: {
+        'bundleVersion': 2,
+        'mode': 'changes',
         'deviceId': snapshot.deviceId,
         'exportedAt': snapshot.exportedAt.toIso8601String(),
         'summary': {
@@ -60,10 +62,7 @@ class SecureSyncBundleStore {
         },
         'notes': [
           for (final entry in snapshot.notes)
-            {
-              'action': entry.action.name,
-              'note': entry.note.toJson(),
-            },
+            {'action': entry.action.name, 'note': entry.note.toJson()},
         ],
         'attachments': [
           for (final attachment in snapshot.attachments)
@@ -129,11 +128,7 @@ class SecureSyncBundleStore {
 
     final directory = await _directoryProvider();
     final file = File(
-      path.join(
-        directory.path,
-        'sync_exports',
-        fileNameOverride ?? fileName,
-      ),
+      path.join(directory.path, 'sync_exports', fileNameOverride ?? fileName),
     );
     await file.create(recursive: true);
     await file.writeAsString(encodedPayload, flush: true);

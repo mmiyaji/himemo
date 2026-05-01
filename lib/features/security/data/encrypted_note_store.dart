@@ -38,48 +38,40 @@ class EncryptedNoteStore {
   final String legacyStorageKey;
   final String webStorageKey;
 
-  Future<List<NoteEntry>> load({
-    required List<NoteEntry> fallbackNotes,
-  }) async {
-    try {
+  Future<List<NoteEntry>> load({required List<NoteEntry> fallbackNotes}) async {
+    if (!kIsWeb) {
+      final database = _database ?? EncryptedNoteDatabase();
+      final snapshots = await database.loadAll();
+      if (snapshots.isNotEmpty) {
+        return _decryptSnapshots(snapshots);
+      }
+    }
+
+    final encoded = await _readEncryptedPayload();
+    if (encoded != null && encoded.isNotEmpty) {
+      final migrated = await _decodeEntries(encoded);
       if (!kIsWeb) {
-        final database = _database ?? EncryptedNoteDatabase();
-        final snapshots = await database.loadAll();
-        if (snapshots.isNotEmpty) {
-          return _decryptSnapshots(snapshots);
-        }
+        await save(migrated);
+        await _deleteEncryptedPayload();
       }
-
-      final encoded = await _readEncryptedPayload();
-      if (encoded != null && encoded.isNotEmpty) {
-        final migrated = await _decodeEntries(encoded);
-        if (!kIsWeb) {
-          await save(migrated);
-          await _deleteEncryptedPayload();
-        }
-        return migrated;
-      }
-
-      final prefs = await _sharedPreferencesProvider();
-      final legacy = prefs.getString(legacyStorageKey);
-      if (legacy == null || legacy.isEmpty) {
-        return fallbackNotes;
-      }
-
-      final migrated = _decodePlaintextEntries(legacy);
-      await save(migrated);
-      await prefs.remove(legacyStorageKey);
       return migrated;
-    } catch (_) {
+    }
+
+    final prefs = await _sharedPreferencesProvider();
+    final legacy = prefs.getString(legacyStorageKey);
+    if (legacy == null || legacy.isEmpty) {
       return fallbackNotes;
     }
+
+    final migrated = _decodePlaintextEntries(legacy);
+    await save(migrated);
+    await prefs.remove(legacyStorageKey);
+    return migrated;
   }
 
   Future<void> save(List<NoteEntry> notes) async {
     if (kIsWeb) {
-      final payload = {
-        'notes': notes.map((entry) => entry.toJson()).toList(),
-      };
+      final payload = {'notes': notes.map((entry) => entry.toJson()).toList()};
       final key = await _masterKeyService.obtainOrCreate();
       final encoded = await _encryptionService.encryptJson(
         payload: payload,
@@ -115,8 +107,8 @@ class EncryptedNoteStore {
           ),
         );
       }
-      if (note.syncState != NoteSyncState.synced &&
-          note.syncState != NoteSyncState.localOnly) {
+      if (note.syncState == NoteSyncState.pendingUpload ||
+          note.syncState == NoteSyncState.pendingDelete) {
         pendingChanges.add(
           PendingNoteChangeRecord(
             noteId: note.id,
@@ -174,10 +166,11 @@ class EncryptedNoteStore {
         snapshot.attachments,
         secretKey: key,
       );
-      final legacyAttachments = (payload['attachments'] as List<dynamic>? ?? const <dynamic>[])
-          .map((entry) => Map<String, dynamic>.from(entry as Map))
-          .map(NoteAttachment.fromJson)
-          .toList(growable: false);
+      final legacyAttachments =
+          (payload['attachments'] as List<dynamic>? ?? const <dynamic>[])
+              .map((entry) => Map<String, dynamic>.from(entry as Map))
+              .map(NoteAttachment.fromJson)
+              .toList(growable: false);
       final mergedAttachments = attachmentList.isNotEmpty
           ? attachmentList
           : legacyAttachments;

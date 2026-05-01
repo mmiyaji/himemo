@@ -35,46 +35,58 @@ struct QuickCaptureWidget: Widget {
 
 private struct QuickCaptureWidgetView: View {
     let entry: QuickCaptureEntry
+    private let backgroundColor = Color(red: 0.973, green: 0.984, blue: 0.992)
+    private let textColor = Color(red: 0.09, green: 0.10, blue: 0.12)
+    private let mutedTextColor = Color(red: 0.36, green: 0.42, blue: 0.48)
+    private let accentColor = Color(red: 0.06, green: 0.33, blue: 0.64)
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(red: 0.973, green: 0.984, blue: 0.992))
-
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: "square.and.pencil")
-                        .foregroundStyle(Color(red: 0.06, green: 0.33, blue: 0.64))
-                    Text("Quick Memo")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                }
-
-                Text("Send a text-only note to Daily Notes without opening the full app.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.leading)
-
-                Spacer(minLength: 0)
-
-                Link(destination: URL(string: "himemo://widget-capture")!) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.up.forward.app")
-                        Text("Open capture")
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color(red: 0.06, green: 0.33, blue: 0.64))
-                    )
-                }
-                .buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "square.and.pencil")
+                    .foregroundStyle(accentColor)
+                Text("Quick Memo")
+                    .font(.headline)
+                    .foregroundStyle(textColor)
             }
-            .padding(16)
+
+            Text("Send a text-only note to Notes without opening the full app.")
+                .font(.caption)
+                .foregroundStyle(mutedTextColor)
+                .multilineTextAlignment(.leading)
+
+            Spacer(minLength: 0)
+
+            Link(destination: URL(string: "himemo://widget-capture")!) {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.up.forward.app")
+                    Text("Open capture")
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(accentColor)
+                )
+            }
+            .buttonStyle(.plain)
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .widgetContainerBackground(backgroundColor)
         .widgetURL(URL(string: "himemo://widget-capture"))
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func widgetContainerBackground(_ color: Color) -> some View {
+        if #available(iOSApplicationExtension 17.0, *) {
+            self.containerBackground(color, for: .widget)
+        } else {
+            self.background(color)
+        }
     }
 }

@@ -6,8 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:no_screenshot/overlay_mode.dart';
-import 'package:no_screenshot/secure_widget.dart';
+import 'package:flutter/services.dart';
 import 'package:pinput/pinput.dart';
 
 import '../features/home/presentation/home_providers.dart';
@@ -26,7 +25,6 @@ class HiMemoApp extends ConsumerWidget {
     final colorTheme = ref.watch(appColorThemeControllerProvider);
     final localeSetting = ref.watch(appLocaleControllerProvider);
     final launchSurface = ref.watch(appLaunchControllerProvider);
-    final privacyScreenActive = ref.watch(privacyScreenActiveProvider);
     final router = ref.watch(appRouterProvider);
     final currentLocation = router.routeInformationProvider.value.uri.path;
     final locale = switch (localeSetting) {
@@ -45,42 +43,39 @@ class HiMemoApp extends ConsumerWidget {
     });
 
     return FlavorBanner(
-      child: SecureWidget(
-        mode: privacyScreenActive ? OverlayMode.secure : OverlayMode.none,
-        child: MaterialApp.router(
-          title: flavor.displayName,
-          debugShowCheckedModeBanner: false,
-          routerConfig: router,
-          locale: locale,
-          supportedLocales: AppStrings.supportedLocales,
-          localeListResolutionCallback: (locales, supportedLocales) {
-            for (final deviceLocale in locales ?? const <Locale>[]) {
-              for (final supportedLocale in supportedLocales) {
-                if (supportedLocale.languageCode == deviceLocale.languageCode) {
-                  return supportedLocale;
-                }
+      child: MaterialApp.router(
+        title: flavor.displayName,
+        debugShowCheckedModeBanner: false,
+        routerConfig: router,
+        locale: locale,
+        supportedLocales: AppStrings.supportedLocales,
+        localeListResolutionCallback: (locales, supportedLocales) {
+          for (final deviceLocale in locales ?? const <Locale>[]) {
+            for (final supportedLocale in supportedLocales) {
+              if (supportedLocale.languageCode == deviceLocale.languageCode) {
+                return supportedLocale;
               }
             }
-            return const Locale('en');
-          },
-          localizationsDelegates: const [
-            AppStrings.delegate,
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          themeMode: themeMode,
-          theme: _buildTheme(Brightness.light, colorTheme),
-          darkTheme: _buildTheme(Brightness.dark, colorTheme),
-          builder: (context, child) {
-            return _LaunchSurfaceGate(
-              flavor: flavor,
-              launchSurface: launchSurface,
-              currentLocation: currentLocation,
-              child: child,
-            );
-          },
-        ),
+          }
+          return const Locale('en');
+        },
+        localizationsDelegates: const [
+          AppStrings.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        themeMode: themeMode,
+        theme: _buildTheme(Brightness.light, colorTheme),
+        darkTheme: _buildTheme(Brightness.dark, colorTheme),
+        builder: (context, child) {
+          return _LaunchSurfaceGate(
+            flavor: flavor,
+            launchSurface: launchSurface,
+            currentLocation: currentLocation,
+            child: child,
+          );
+        },
       ),
     );
   }
@@ -155,7 +150,9 @@ class _AppLockGate extends ConsumerStatefulWidget {
 class _AppLockGateState extends ConsumerState<_AppLockGate>
     with WidgetsBindingObserver {
   static const _privateSessionTimeout = Duration(minutes: 5);
+  static const _privacyChannel = MethodChannel('org.ruhenheim.himemo/privacy');
 
+  bool _privacyScreenEnabled = false;
   bool _autoPrompted = false;
   bool _updateChecked = false;
   DateTime? _backgroundedAt;
@@ -175,6 +172,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _privateSessionTimer?.cancel();
+    unawaited(_setPrivacyScreenEnabled(false));
     super.dispose();
   }
 
@@ -189,14 +187,10 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
       _backgroundedAt = DateTime.now();
-      if (_isPrivateOrAdminActive()) {
-        _lockProtectedSessions(lockAppSession: false);
-        return;
-      }
       if (ref.read(appLockSettingsControllerProvider) &&
           ref.read(appLockRelockDelayControllerProvider) ==
               AppLockRelockDelay.immediate) {
-        _lockAllProtectedSessions();
+        _lockAppSessionOnly();
       }
     }
   }
@@ -210,7 +204,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     }
 
     if (_shouldRelockAfterBackground()) {
-      _lockAllProtectedSessions();
+      _lockAppSessionOnly();
     }
 
     if (ref.read(appSessionUnlockControllerProvider)) {
@@ -257,8 +251,12 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     };
   }
 
-  void _lockAllProtectedSessions() {
-    _lockProtectedSessions(lockAppSession: true);
+  void _lockAppSessionOnly() {
+    ref.read(appSessionUnlockControllerProvider.notifier).lock();
+    if (ref.read(privateVaultLockOnAppLockControllerProvider)) {
+      _lockPrivateSessions();
+    }
+    _autoPrompted = false;
   }
 
   void _lockProtectedSessions({required bool lockAppSession}) {
@@ -266,12 +264,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     if (lockAppSession) {
       ref.read(appSessionUnlockControllerProvider.notifier).lock();
     }
-    if (lockAppSession &&
-        ref.read(privateVaultLockOnAppLockControllerProvider)) {
-      ref.read(privateVaultSessionControllerProvider.notifier).lock();
-    }
-    ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
-    ref.read(adminModeSessionControllerProvider.notifier).lock();
+    _lockPrivateSessions();
     if (wasPrivateActive) {
       ref.read(searchQueryProvider.notifier).setQuery('');
       ref.read(searchFiltersControllerProvider.notifier).reset();
@@ -281,9 +274,34 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     _autoPrompted = false;
   }
 
+  void _lockPrivateSessions() {
+    ref.read(privateVaultSessionControllerProvider.notifier).lock();
+    ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+    ref.read(adminModeSessionControllerProvider.notifier).lock();
+  }
+
   bool _isPrivateOrAdminActive() {
-    return ref.read(unlockedPrivateProfileVaultIdProvider) != null ||
+    return ref.read(privateVaultSessionControllerProvider) ||
+        ref.read(unlockedPrivateProfileVaultIdProvider) != null ||
         ref.read(adminModeSessionControllerProvider);
+  }
+
+  Future<void> _setPrivacyScreenEnabled(bool enabled) async {
+    if (_privacyScreenEnabled == enabled) {
+      return;
+    }
+    if (kIsWeb ||
+        !(defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.android)) {
+      _privacyScreenEnabled = enabled;
+      return;
+    }
+    try {
+      await _privacyChannel.invokeMethod<void>('setProtected', {
+        'enabled': enabled,
+      });
+      _privacyScreenEnabled = enabled;
+    } catch (_) {}
   }
 
   void _refreshPrivateSessionTimer() {
@@ -322,11 +340,19 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     final strings = context.strings;
     final enabled = ref.watch(appLockSettingsControllerProvider);
     final unlocked = ref.watch(appSessionUnlockControllerProvider);
+    final privacyScreenActive = ref.watch(privacyScreenActiveProvider);
     final authState = ref.watch(deviceAuthControllerProvider);
     final pinState = ref.watch(appPinLockControllerProvider);
     final bypassForQuickCapture = widget.currentLocation.startsWith(
       '/widget-capture',
     );
+
+    ref.listen<bool>(privacyScreenActiveProvider, (previous, next) {
+      unawaited(_setPrivacyScreenEnabled(next));
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_setPrivacyScreenEnabled(privacyScreenActive));
+    });
 
     if (!enabled || unlocked || bypassForQuickCapture) {
       _refreshPrivateSessionTimer();
@@ -591,7 +617,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       title: strings.onboardingCaptureTitle,
       body: strings.onboardingCaptureBody,
       icon: Icons.bolt_rounded,
-      imagePath: 'assets/onboarding/capture.png',
+      imagePath: 'assets/onboarding/capture-illustration.png',
       imageSemanticLabel: strings.onboardingCaptureImageLabel,
       isSetupPage: false,
     ),
@@ -599,7 +625,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       title: strings.onboardingPrivateTitle,
       body: strings.onboardingPrivateBody,
       icon: Icons.lock_person_rounded,
-      imagePath: 'assets/onboarding/private.png',
+      imagePath: 'assets/onboarding/private-illustration.png',
       imageSemanticLabel: strings.onboardingPrivateImageLabel,
       isSetupPage: false,
     ),
@@ -607,7 +633,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       title: strings.onboardingSyncTitle,
       body: strings.onboardingSyncBody,
       icon: Icons.cloud_sync_rounded,
-      imagePath: 'assets/onboarding/sync.png',
+      imagePath: 'assets/onboarding/sync-illustration.png',
       imageSemanticLabel: strings.onboardingSyncImageLabel,
       isSetupPage: false,
     ),
@@ -806,7 +832,9 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                               curve: Curves.easeOut,
                             );
                           },
-                          child: Text(isLastPage ? strings.finishSetup : strings.next),
+                          child: Text(
+                            isLastPage ? strings.finishSetup : strings.next,
+                          ),
                         ),
                       ],
                     ),

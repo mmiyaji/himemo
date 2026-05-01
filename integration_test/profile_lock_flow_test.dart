@@ -59,13 +59,44 @@ void main() {
           .read(privateProfileUnlockControllerProvider.notifier)
           .unlockWithPassword('cover-pass-123');
       await tester.pumpAndSettle();
-      final unlockedVaultId = container.read(unlockedPrivateProfileVaultIdProvider);
+      final unlockedVaultId = container.read(
+        unlockedPrivateProfileVaultIdProvider,
+      );
       expect(unlocked, isNotNull);
       expect(unlockedVaultId, startsWith(customPrivateVaultPrefix));
       expect(
         container.read(accessiblePrivateVaultIdsProvider),
         contains(unlockedVaultId),
       );
+
+      await tester.tap(find.byKey(AppShell.addNoteKey));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Quick memo'));
+      await tester.pumpAndSettle();
+      final privateToggle = find.byKey(const Key('note-save-private-toggle'));
+      await _scrollIntoViewIfNeeded(tester, privateToggle);
+      await tester.tap(privateToggle);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('note-content-input')),
+        'Private profile E2E note\nSaved on an unlocked profile',
+      );
+      final saveButton = find.byKey(const Key('save-note-button'));
+      await _scrollIntoViewIfNeeded(tester, saveButton);
+      await tester.tap(saveButton);
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(visibleNotesProvider).map((note) => note.title),
+        contains('Private profile E2E note'),
+      );
+      await tester.scrollUntilVisible(
+        find.text('Private profile E2E note'),
+        180,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Private profile E2E note'), findsOneWidget);
 
       await _tapNavigation(tester, AppShell.settingsNavKey, 'Settings');
       await tester.pumpAndSettle();
@@ -111,11 +142,7 @@ Future<void> _scrollIntoViewIfNeeded(WidgetTester tester, Finder finder) async {
     throw StateError('No Scrollable found for $finder');
   }
 
-  await tester.scrollUntilVisible(
-    finder,
-    160,
-    scrollable: scrollables.first,
-  );
+  await tester.scrollUntilVisible(finder, 160, scrollable: scrollables.first);
   await tester.pumpAndSettle();
 }
 
@@ -135,7 +162,7 @@ Future<void> _tapNavigation(
 
 class _FakeDeviceAuthGateway implements DeviceAuthGateway {
   _FakeDeviceAuthGateway({required List<bool> authenticateResults})
-      : _authenticateResults = List<bool>.from(authenticateResults);
+    : _authenticateResults = List<bool>.from(authenticateResults);
 
   final List<bool> _authenticateResults;
   int authenticateCallCount = 0;

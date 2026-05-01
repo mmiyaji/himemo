@@ -12,7 +12,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:in_app_update/in_app_update.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:pinput/pinput.dart';
+import 'package:record/record.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
@@ -21,6 +24,7 @@ import '../../security/data/encrypted_attachment_store.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/sync_bundle_preview.dart';
 import '../domain/note_entry.dart';
+import '../domain/note_tags.dart';
 import '../domain/vault_models.dart';
 import 'home_providers.dart';
 
@@ -45,31 +49,35 @@ class AppShell extends ConsumerWidget {
     final useRail = width >= 840;
     final section = _sectionForLocation(GoRouterState.of(context).uri.path);
     final activeIdentity = ref.watch(activeIdentityDataProvider);
-    final activePrivateProfileLabel = ref.watch(activePrivateProfileLabelProvider);
+    final activePrivateProfileLabel = ref.watch(
+      activePrivateProfileLabelProvider,
+    );
     final adminMode = ref.watch(adminModeSessionControllerProvider);
     final flavor =
         FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_titleForSection(context, section)),
+        title: const _AppBrandTitle(),
         actions: [
           IconButton(
             key: privateProfileAccessKey,
             tooltip: adminMode
                 ? (context.strings.isJapanese ? '管理者モード中' : 'Admin mode active')
                 : (activePrivateProfileLabel != null
-                    ? (context.strings.isJapanese
-                          ? '$activePrivateProfileLabel を表示中'
-                          : 'Viewing $activePrivateProfileLabel')
-                    : (context.strings.isJapanese
-                          ? 'プライベートプロファイルを開く'
-                          : 'Unlock private profile')),
+                      ? (context.strings.isJapanese
+                            ? '$activePrivateProfileLabel を表示中'
+                            : 'Viewing $activePrivateProfileLabel')
+                      : (context.strings.isJapanese
+                            ? 'プライベートプロファイルを開く'
+                            : 'Unlock private profile')),
             onPressed: () => _showProfileAccessDialog(context, ref),
             icon: Icon(
-              adminMode || activePrivateProfileLabel != null
-                  ? Icons.key_rounded
-                  : Icons.key_outlined,
+              adminMode
+                  ? Icons.admin_panel_settings_rounded
+                  : activePrivateProfileLabel != null
+                  ? Icons.lock_open_rounded
+                  : Icons.lock_rounded,
             ),
           ),
         ],
@@ -144,9 +152,15 @@ class AppShell extends ConsumerWidget {
   }
 
   void _goToSection(BuildContext context, WidgetRef ref, AppSection section) {
-    final currentSection = _sectionForLocation(GoRouterState.of(context).uri.path);
+    final currentSection = _sectionForLocation(
+      GoRouterState.of(context).uri.path,
+    );
     if (currentSection == AppSection.notes && section != AppSection.notes) {
       ref.read(selectedNoteIdProvider.notifier).select(null);
+      final rootNavigator = Navigator.of(context, rootNavigator: true);
+      if (rootNavigator.canPop()) {
+        rootNavigator.pop();
+      }
     }
     switch (section) {
       case AppSection.notes:
@@ -157,20 +171,6 @@ class AppShell extends ConsumerWidget {
         context.go('/insights');
       case AppSection.settings:
         context.go('/settings');
-    }
-  }
-
-  String _titleForSection(BuildContext context, AppSection section) {
-    final strings = context.strings;
-    switch (section) {
-      case AppSection.notes:
-        return strings.appTitle;
-      case AppSection.calendar:
-        return strings.calendar;
-      case AppSection.insights:
-        return strings.insights;
-      case AppSection.settings:
-        return strings.settings;
     }
   }
 
@@ -188,90 +188,47 @@ class AppShell extends ConsumerWidget {
   }
 }
 
-Future<void> _showProfileAccessDialog(BuildContext context, WidgetRef ref) async {
+class _AppBrandTitle extends StatelessWidget {
+  const _AppBrandTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: Image.asset(
+            'assets/app-icon.png',
+            width: 28,
+            height: 28,
+            fit: BoxFit.cover,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          'HiMemo',
+          style: Theme.of(
+            context,
+          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+        ),
+      ],
+    );
+  }
+}
+
+Future<void> _showProfileAccessDialog(
+  BuildContext context,
+  WidgetRef ref,
+) async {
   final strings = context.strings;
-  final controller = TextEditingController();
-  final formKey = GlobalKey<FormState>();
   final activeLabel = ref.read(activePrivateProfileLabelProvider);
   final adminMode = ref.read(adminModeSessionControllerProvider);
   final result = await showDialog<String>(
     context: context,
-    builder: (dialogContext) {
-      return AlertDialog(
-        title: Text(
-          adminMode || activeLabel != null
-              ? (strings.isJapanese ? 'プライベート表示を切り替え' : 'Switch private access')
-              : (strings.isJapanese ? 'プライベートプロファイルを開く' : 'Unlock private profile'),
-        ),
-        content: Form(
-          key: formKey,
-          child: SingleChildScrollView(
-            child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (adminMode || activeLabel != null) ...[
-                Text(
-                  adminMode
-                      ? (strings.isJapanese ? '現在は管理者モードです。' : 'Admin mode is currently active.')
-                      : (strings.isJapanese
-                            ? '現在は $activeLabel を表示しています。'
-                            : 'Currently viewing $activeLabel.'),
-                ),
-                const SizedBox(height: 12),
-              ],
-              TextFormField(
-                key: const Key('private-profile-unlock-password-input'),
-                controller: controller,
-                obscureText: true,
-                autofocus: true,
-                decoration: InputDecoration(
-                  labelText: strings.isJapanese ? 'プロファイルパスワード' : 'Profile password',
-                  border: const OutlineInputBorder(),
-                ),
-                validator: (value) => (value == null || value.isEmpty)
-                    ? (strings.isJapanese ? 'パスワードを入力してください。' : 'Enter a password.')
-                    : null,
-                onFieldSubmitted: (_) {
-                  if (formKey.currentState?.validate() ?? false) {
-                    Navigator.of(dialogContext).pop(controller.text);
-                  }
-                },
-              ),
-            ],
-            ),
-          ),
-        ),
-        actions: [
-          if (adminMode || activeLabel != null)
-            TextButton(
-              onPressed: () {
-                ref.read(adminModeSessionControllerProvider.notifier).lock();
-                ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
-                Navigator.of(dialogContext).pop();
-              },
-              child: Text(strings.isJapanese ? '閉じる' : 'Lock'),
-            ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(strings.cancel),
-          ),
-          FilledButton(
-            key: const Key('private-profile-unlock-submit'),
-            onPressed: () {
-              if (formKey.currentState?.validate() ?? false) {
-                Navigator.of(dialogContext).pop(controller.text);
-              }
-            },
-            child: Text(strings.isJapanese ? '開く' : 'Unlock'),
-          ),
-        ],
-      );
-    },
+    builder: (_) =>
+        _ProfileAccessDialog(adminMode: adminMode, activeLabel: activeLabel),
   );
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    controller.dispose();
-  });
   if (result == null || result.isEmpty || !context.mounted) {
     return;
   }
@@ -285,6 +242,7 @@ Future<void> _showProfileAccessDialog(BuildContext context, WidgetRef ref) async
   messenger.hideCurrentSnackBar();
   messenger.showSnackBar(
     SnackBar(
+      showCloseIcon: true,
       content: Text(
         unlocked == null
             ? (strings.isJapanese
@@ -296,6 +254,113 @@ Future<void> _showProfileAccessDialog(BuildContext context, WidgetRef ref) async
       ),
     ),
   );
+}
+
+class _ProfileAccessDialog extends ConsumerStatefulWidget {
+  const _ProfileAccessDialog({
+    required this.adminMode,
+    required this.activeLabel,
+  });
+
+  final bool adminMode;
+  final String? activeLabel;
+
+  @override
+  ConsumerState<_ProfileAccessDialog> createState() =>
+      _ProfileAccessDialogState();
+}
+
+class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
+  final _controller = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_formKey.currentState?.validate() ?? false) {
+      Navigator.of(context).pop(_controller.text);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final hasActiveAccess = widget.adminMode || widget.activeLabel != null;
+    return AlertDialog(
+      title: Text(
+        hasActiveAccess
+            ? (strings.isJapanese ? 'プライベート表示を切り替え' : 'Switch private access')
+            : (strings.isJapanese
+                  ? 'プライベートプロファイルを開く'
+                  : 'Unlock private profile'),
+      ),
+      content: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (hasActiveAccess) ...[
+                Text(
+                  widget.adminMode
+                      ? (strings.isJapanese
+                            ? '現在は管理者モードです。'
+                            : 'Admin mode is currently active.')
+                      : (strings.isJapanese
+                            ? '現在は ${widget.activeLabel} を表示しています。'
+                            : 'Currently viewing ${widget.activeLabel}.'),
+                ),
+                const SizedBox(height: 12),
+              ],
+              TextFormField(
+                key: const Key('private-profile-unlock-password-input'),
+                controller: _controller,
+                obscureText: true,
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: strings.isJapanese
+                      ? 'プロファイルパスワード'
+                      : 'Profile password',
+                  border: const OutlineInputBorder(),
+                ),
+                validator: (value) => (value == null || value.isEmpty)
+                    ? (strings.isJapanese
+                          ? 'パスワードを入力してください。'
+                          : 'Enter a password.')
+                    : null,
+                onFieldSubmitted: (_) => _submit(),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        if (hasActiveAccess)
+          TextButton(
+            onPressed: () {
+              ref.read(adminModeSessionControllerProvider.notifier).lock();
+              ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+              Navigator.of(context).pop();
+            },
+            child: Text(strings.isJapanese ? '閉じる' : 'Lock'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(strings.cancel),
+        ),
+        FilledButton(
+          key: const Key('private-profile-unlock-submit'),
+          onPressed: _submit,
+          child: Text(strings.isJapanese ? '開く' : 'Unlock'),
+        ),
+      ],
+    );
+  }
 }
 
 class NotesScreen extends ConsumerStatefulWidget {
@@ -470,6 +535,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                     onEdit: (note) =>
                         showNoteEditorSheet(context, ref, note: note),
                     onDelete: (note) => _deleteNote(context, note),
+                    onTagTap: (tag) => _applyTagFilter(context, tag),
                   ),
           ),
         ),
@@ -485,12 +551,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final initialIndex = visibleNotes.indexWhere(
       (entry) => entry.id == note.id,
     );
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (context) {
-        return SafeArea(
+    final controller = Scaffold.of(context).showBottomSheet((context) {
+      return SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.86,
+        child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
             child: _NoteDetailPager(
@@ -507,11 +571,16 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 Navigator.of(context).pop();
                 await _deleteNote(context, selectedNote);
               },
+              onTagTap: (tag) {
+                Navigator.of(context).pop();
+                _applyTagFilter(context, tag);
+              },
             ),
           ),
-        );
-      },
-    );
+        ),
+      );
+    }, showDragHandle: true);
+    await controller.closed;
   }
 
   Future<void> _deleteNote(BuildContext context, NoteEntry note) async {
@@ -546,6 +615,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
+          showCloseIcon: true,
           content: Text('"${note.title}" deleted'),
           action: SnackBarAction(
             label: 'Undo',
@@ -565,6 +635,22 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         ),
       );
     }
+  }
+
+  void _applyTagFilter(BuildContext context, String tag) {
+    ref.read(searchFiltersControllerProvider.notifier).setTags([tag]);
+    ref.read(searchQueryProvider.notifier).setQuery('');
+    ref.read(selectedNoteIdProvider.notifier).select(null);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(
+          context.strings.isJapanese
+              ? '#$tag のタグで絞り込みました'
+              : 'Filtered notes by #$tag',
+        ),
+      ),
+    );
   }
 }
 
@@ -886,9 +972,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                               context: hostContext,
                               builder: (context) => AlertDialog(
                                 title: Text(
-                                  strings.isJapanese
-                                      ? 'ノートを削除'
-                                      : 'Delete note',
+                                  strings.isJapanese ? 'ノートを削除' : 'Delete note',
                                 ),
                                 content: Text(
                                   strings.isJapanese
@@ -984,10 +1068,7 @@ class _MarkedCalendar extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
             ),
-            TextButton(
-              onPressed: onTodaySelected,
-              child: Text(strings.today),
-            ),
+            TextButton(onPressed: onTodaySelected, child: Text(strings.today)),
             IconButton(
               onPressed: onNextMonth,
               icon: const Icon(Icons.chevron_right_rounded),
@@ -1148,7 +1229,7 @@ class InsightsScreen extends ConsumerWidget {
           description: strings.isJapanese
               ? '最近6か月のノート件数'
               : 'Notes created over the last 6 months.',
-          child: _InsightBarChart(
+          child: _InsightLineChart(
             buckets: _buildMonthlyBuckets(context, notes),
             valueSuffix: strings.isJapanese ? '件' : ' notes',
           ),
@@ -1162,17 +1243,16 @@ class InsightsScreen extends ConsumerWidget {
           child: _InsightBarChart(
             buckets: _buildRecentDayBuckets(context, notes),
             valueSuffix: strings.isJapanese ? '件' : ' notes',
-            compactLabels: true,
           ),
         ),
         const SizedBox(height: 16),
         _InsightChartSection(
-          title: strings.isJapanese ? '曜日ごとの傾向' : 'Weekday rhythm',
+          title: strings.isJapanese ? '曜日と時間帯の傾向' : 'Weekday and time rhythm',
           description: strings.isJapanese
-              ? 'どの曜日に書いているか'
-              : 'See which weekdays you write on most.',
-          child: _InsightBarChart(
-            buckets: _buildWeekdayBuckets(context, notes),
+              ? '曜日別、3時間ごとの記録量をまとめて見ます。'
+              : 'Notes by weekday and 3-hour time block.',
+          child: _WeekdayHourHistogram(
+            buckets: _buildWeekdayHourBuckets(notes),
             valueSuffix: strings.isJapanese ? '件' : ' notes',
           ),
         ),
@@ -1182,21 +1262,9 @@ class InsightsScreen extends ConsumerWidget {
           description: strings.isJapanese
               ? '写真・動画・音声の使用数'
               : 'How often photos, videos, and audio are used.',
-          child: _InsightBarChart(
+          child: _InsightHorizontalBarChart(
             buckets: _buildAttachmentBuckets(context, notes),
             valueSuffix: strings.isJapanese ? '件' : ' items',
-          ),
-        ),
-        const SizedBox(height: 16),
-        _InsightChartSection(
-          title: strings.isJapanese ? '記録しやすい時間帯' : 'Writing hours',
-          description: strings.isJapanese
-              ? '書きやすい時間帯を見ます。'
-              : 'Find the hours when writing comes naturally.',
-          child: _InsightBarChart(
-            buckets: _buildHourBuckets(notes),
-            valueSuffix: strings.isJapanese ? '件' : ' notes',
-            compactLabels: true,
           ),
         ),
       ],
@@ -1273,7 +1341,9 @@ class _InsightKpiTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 220,
+      width: MediaQuery.sizeOf(context).width < 560
+          ? (MediaQuery.sizeOf(context).width - 64) / 2
+          : 220,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Column(
@@ -1290,10 +1360,14 @@ class _InsightKpiTile extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(
-                  value,
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+                Flexible(
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -1351,15 +1425,10 @@ class _InsightChartSection extends StatelessWidget {
 }
 
 class _InsightBarChart extends StatelessWidget {
-  const _InsightBarChart({
-    required this.buckets,
-    required this.valueSuffix,
-    this.compactLabels = false,
-  });
+  const _InsightBarChart({required this.buckets, required this.valueSuffix});
 
   final List<_InsightBucket> buckets;
   final String valueSuffix;
-  final bool compactLabels;
 
   @override
   Widget build(BuildContext context) {
@@ -1437,7 +1506,7 @@ class _InsightBarChart extends StatelessWidget {
                         const SizedBox(height: 8),
                         Text(
                           bucket.label,
-                          maxLines: compactLabels ? 1 : 2,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.labelMedium,
@@ -1454,10 +1523,414 @@ class _InsightBarChart extends StatelessWidget {
   }
 }
 
+class _InsightLineChart extends StatelessWidget {
+  const _InsightLineChart({required this.buckets, required this.valueSuffix});
+
+  final List<_InsightBucket> buckets;
+  final String valueSuffix;
+
+  @override
+  Widget build(BuildContext context) {
+    if (buckets.isEmpty) {
+      return _NoInsightData();
+    }
+    final maxValue = buckets.fold<int>(
+      0,
+      (max, bucket) => math.max(max, bucket.value),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 172,
+          child: CustomPaint(
+            painter: _InsightLineChartPainter(
+              buckets: buckets,
+              maxValue: maxValue,
+              lineColor: Theme.of(context).colorScheme.primary,
+              fillColor: Theme.of(
+                context,
+              ).colorScheme.primary.withValues(alpha: 0.12),
+              gridColor: Theme.of(context).dividerColor,
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                buckets.first.label,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
+              ),
+            ),
+            Text(
+              '${buckets.last.value}$valueSuffix',
+              style: Theme.of(
+                context,
+              ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            Expanded(
+              child: Text(
+                buckets.last.label,
+                textAlign: TextAlign.end,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _InsightLineChartPainter extends CustomPainter {
+  const _InsightLineChartPainter({
+    required this.buckets,
+    required this.maxValue,
+    required this.lineColor,
+    required this.fillColor,
+    required this.gridColor,
+  });
+
+  final List<_InsightBucket> buckets;
+  final int maxValue;
+  final Color lineColor;
+  final Color fillColor;
+  final Color gridColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final gridPaint = Paint()
+      ..color = gridColor
+      ..strokeWidth = 1;
+    for (final factor in const [0.25, 0.5, 0.75, 1.0]) {
+      final y = size.height - size.height * factor;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+    if (buckets.isEmpty) {
+      return;
+    }
+    final denominator = math.max(1, maxValue);
+    final points = <Offset>[];
+    for (var i = 0; i < buckets.length; i++) {
+      final x = buckets.length == 1
+          ? size.width / 2
+          : size.width * i / (buckets.length - 1);
+      final y = size.height - size.height * buckets[i].value / denominator;
+      points.add(Offset(x, y));
+    }
+    final fillPath = Path()..moveTo(points.first.dx, size.height);
+    for (final point in points) {
+      fillPath.lineTo(point.dx, point.dy);
+    }
+    fillPath
+      ..lineTo(points.last.dx, size.height)
+      ..close();
+    canvas.drawPath(fillPath, Paint()..color = fillColor);
+
+    final linePath = Path()..moveTo(points.first.dx, points.first.dy);
+    for (final point in points.skip(1)) {
+      linePath.lineTo(point.dx, point.dy);
+    }
+    canvas.drawPath(
+      linePath,
+      Paint()
+        ..color = lineColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
+    final pointPaint = Paint()..color = lineColor;
+    for (final point in points) {
+      canvas.drawCircle(point, 4, pointPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _InsightLineChartPainter oldDelegate) {
+    return oldDelegate.buckets != buckets ||
+        oldDelegate.maxValue != maxValue ||
+        oldDelegate.lineColor != lineColor ||
+        oldDelegate.fillColor != fillColor ||
+        oldDelegate.gridColor != gridColor;
+  }
+}
+
+class _InsightHorizontalBarChart extends StatelessWidget {
+  const _InsightHorizontalBarChart({
+    required this.buckets,
+    required this.valueSuffix,
+  });
+
+  final List<_InsightBucket> buckets;
+  final String valueSuffix;
+
+  @override
+  Widget build(BuildContext context) {
+    if (buckets.isEmpty) {
+      return _NoInsightData();
+    }
+    final maxValue = buckets.fold<int>(
+      0,
+      (max, bucket) => math.max(max, bucket.value),
+    );
+    final colorScheme = Theme.of(context).colorScheme;
+    return Column(
+      children: [
+        for (final bucket in buckets) ...[
+          Row(
+            children: [
+              SizedBox(
+                width: 72,
+                child: Text(
+                  bucket.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    minHeight: 12,
+                    value: maxValue == 0 ? 0 : bucket.value / maxValue,
+                    backgroundColor: colorScheme.surfaceContainerHighest,
+                    color: colorScheme.primary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 68,
+                child: Text(
+                  '${bucket.value}$valueSuffix',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: _mutedTextColor(context),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (bucket != buckets.last) const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+}
+
+class _WeekdayHourHistogram extends StatelessWidget {
+  const _WeekdayHourHistogram({
+    required this.buckets,
+    required this.valueSuffix,
+  });
+
+  final List<_WeekdayHourBucket> buckets;
+  final String valueSuffix;
+
+  @override
+  Widget build(BuildContext context) {
+    if (buckets.isEmpty) {
+      return _NoInsightData();
+    }
+    final maxValue = buckets.fold<int>(
+      0,
+      (max, bucket) => math.max(max, bucket.value),
+    );
+    final strings = context.strings;
+    final weekdays = _weekdayLabels(strings.isJapanese);
+    final timeLabels = [
+      for (var hour = 0; hour < 24; hour += 3)
+        '${hour.toString().padLeft(2, '0')}-${(hour + 2).toString().padLeft(2, '0')}',
+    ];
+    final colorScheme = Theme.of(context).colorScheme;
+    final bucketByKey = {
+      for (final bucket in buckets)
+        '${bucket.weekday}-${bucket.startHour}': bucket,
+    };
+
+    Color cellColor(int value) {
+      if (value == 0 || maxValue == 0) {
+        return colorScheme.surfaceContainerHighest.withValues(alpha: 0.55);
+      }
+      final intensity = value / maxValue;
+      return Color.lerp(
+        colorScheme.primary.withValues(alpha: 0.12),
+        colorScheme.primary,
+        intensity.clamp(0.0, 1.0),
+      )!;
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : 360.0;
+        const labelWidth = 34.0;
+        const gap = 4.0;
+        final cellSize = ((maxWidth - labelWidth - gap * 7) / 7).clamp(
+          18.0,
+          30.0,
+        );
+        final labelStyle = Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: _mutedTextColor(context),
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+        );
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const SizedBox(width: labelWidth),
+                for (final weekday in weekdays)
+                  SizedBox(
+                    width: cellSize + gap,
+                    child: Text(
+                      weekday,
+                      textAlign: TextAlign.center,
+                      style: labelStyle,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            for (var row = 0; row < timeLabels.length; row++) ...[
+              Row(
+                children: [
+                  SizedBox(
+                    width: labelWidth,
+                    child: Text(
+                      row.isEven ? timeLabels[row].substring(0, 2) : '',
+                      style: labelStyle?.copyWith(fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  for (var weekday = 1; weekday <= 7; weekday++)
+                    Padding(
+                      padding: const EdgeInsets.only(right: gap, bottom: gap),
+                      child: _WeekdayHourCell(
+                        size: cellSize,
+                        value: bucketByKey['$weekday-${row * 3}']?.value ?? 0,
+                        maxValue: maxValue,
+                        valueSuffix: valueSuffix,
+                        color: cellColor(
+                          bucketByKey['$weekday-${row * 3}']?.value ?? 0,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 6),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  strings.isJapanese ? '少' : 'Less',
+                  style: labelStyle?.copyWith(fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(width: 6),
+                for (final alpha in const [0.0, 0.25, 0.5, 0.75, 1.0]) ...[
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Color.lerp(
+                        colorScheme.surfaceContainerHighest.withValues(
+                          alpha: 0.55,
+                        ),
+                        colorScheme.primary,
+                        alpha,
+                      ),
+                      borderRadius: BorderRadius.circular(3),
+                      border: Border.all(color: Theme.of(context).dividerColor),
+                    ),
+                    child: const SizedBox(width: 10, height: 10),
+                  ),
+                  const SizedBox(width: 3),
+                ],
+                const SizedBox(width: 3),
+                Text(
+                  strings.isJapanese ? '多' : 'More',
+                  style: labelStyle?.copyWith(fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _WeekdayHourCell extends StatelessWidget {
+  const _WeekdayHourCell({
+    required this.size,
+    required this.value,
+    required this.maxValue,
+    required this.valueSuffix,
+    required this.color,
+  });
+
+  final double size;
+  final int value;
+  final int maxValue;
+  final String valueSuffix;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: '$value$valueSuffix',
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: Theme.of(context).dividerColor),
+        ),
+        child: SizedBox(width: size, height: size),
+      ),
+    );
+  }
+}
+
+class _NoInsightData extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      context.strings.isJapanese ? 'まだデータがありません。' : 'No data yet.',
+      style: Theme.of(
+        context,
+      ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
+    );
+  }
+}
+
 class _InsightBucket {
   const _InsightBucket({required this.label, required this.value});
 
   final String label;
+  final int value;
+}
+
+class _WeekdayHourBucket {
+  const _WeekdayHourBucket({
+    required this.weekday,
+    required this.startHour,
+    required this.value,
+  });
+
+  final int weekday;
+  final int startHour;
   final int value;
 }
 
@@ -1614,20 +2087,30 @@ List<_InsightBucket> _buildRecentDayBuckets(
   return buckets;
 }
 
-List<_InsightBucket> _buildWeekdayBuckets(
-  BuildContext context,
-  List<NoteEntry> notes,
-) {
-  final strings = context.strings;
-  const enLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const jaLabels = ['月', '火', '水', '木', '金', '土', '日'];
+List<_WeekdayHourBucket> _buildWeekdayHourBuckets(List<NoteEntry> notes) {
   return [
-    for (var i = 1; i <= 7; i++)
-      _InsightBucket(
-        label: strings.isJapanese ? jaLabels[i - 1] : enLabels[i - 1],
-        value: notes.where((note) => note.createdAt.weekday == i).length,
-      ),
+    for (var startHour = 0; startHour < 24; startHour += 3)
+      for (var weekday = 1; weekday <= 7; weekday++)
+        _WeekdayHourBucket(
+          weekday: weekday,
+          startHour: startHour,
+          value: notes
+              .where(
+                (note) =>
+                    note.createdAt.weekday == weekday &&
+                    note.createdAt.hour >= startHour &&
+                    note.createdAt.hour < startHour + 3,
+              )
+              .length,
+        ),
   ];
+}
+
+List<String> _weekdayLabels(bool isJapanese) {
+  if (isJapanese) {
+    return const ['月', '火', '水', '木', '金', '土', '日'];
+  }
+  return const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 }
 
 List<_InsightBucket> _buildAttachmentBuckets(
@@ -1696,6 +2179,7 @@ class SettingsScreen extends ConsumerWidget {
   static const systemThemeKey = Key('theme-system-option');
   static const darkThemeKey = Key('theme-dark-option');
   static const localeSystemKey = Key('locale-system-option');
+  static const deleteDemoNotesKey = Key('delete-demo-notes-button');
   static const localeJapaneseKey = Key('locale-japanese-option');
   static const localeEnglishKey = Key('locale-english-option');
   static const blueColorThemeKey = Key('color-theme-blue-option');
@@ -1715,12 +2199,20 @@ class SettingsScreen extends ConsumerWidget {
   static const privateVaultLockKey = Key('private-vault-lock-key');
   static const privateVaultResetKey = Key('private-vault-reset-key');
   static const privateProfileAddKey = Key('private-profile-add-key');
-  static const privateProfileAdminModeKey = Key('private-profile-admin-mode-key');
+  static const privateProfileAdminModeKey = Key(
+    'private-profile-admin-mode-key',
+  );
   static const privateProfileNameInputKey = Key('private-profile-name-input');
-  static const privateProfilePasswordInputKey = Key('private-profile-password-input');
-  static const privateProfileConfirmInputKey = Key('private-profile-confirm-input');
+  static const privateProfilePasswordInputKey = Key(
+    'private-profile-password-input',
+  );
+  static const privateProfileConfirmInputKey = Key(
+    'private-profile-confirm-input',
+  );
   static const privateProfileSubmitKey = Key('private-profile-submit');
-  static const privateProfileExitAdminModeKey = Key('private-profile-exit-admin-mode');
+  static const privateProfileExitAdminModeKey = Key(
+    'private-profile-exit-admin-mode',
+  );
 
   Future<void> _switchIdentity(WidgetRef ref, String identityId) async {
     await ref.read(activeIdentityProvider.notifier).switchTo(identityId);
@@ -1737,8 +2229,12 @@ class SettingsScreen extends ConsumerWidget {
     final secret = await _showSecretSetupDialog(
       context,
       title: strings.setAlternateProfilePassword,
-      label: strings.isJapanese ? '別プロファイル用パスワード' : 'Alternate profile password',
-      confirmLabel: strings.isJapanese ? '別プロファイル用パスワードを確認' : 'Confirm alternate profile password',
+      label: strings.isJapanese
+          ? '別プロファイル用パスワード'
+          : 'Alternate profile password',
+      confirmLabel: strings.isJapanese
+          ? '別プロファイル用パスワードを確認'
+          : 'Confirm alternate profile password',
       helperText: strings.isJapanese
           ? '通常の表示とは別のプロファイルへ切り替えるためのパスワードです。'
           : 'Use this password to switch to a different everyday profile.',
@@ -1750,10 +2246,9 @@ class SettingsScreen extends ConsumerWidget {
         .read(coverModeSecretControllerProvider.notifier)
         .configure(secret);
     if (context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
+          showCloseIcon: true,
           content: Text(
             strings.isJapanese
                 ? '別プロファイル用パスワードを保存しました。'
@@ -1819,7 +2314,10 @@ class SettingsScreen extends ConsumerWidget {
         .verify(secret)) {
       await _switchIdentity(ref, 'private');
       messenger.showSnackBar(
-        const SnackBar(content: Text('Private mode is now active.')),
+        const SnackBar(
+          showCloseIcon: true,
+          content: Text('Private mode is now active.'),
+        ),
       );
       return;
     }
@@ -1828,12 +2326,18 @@ class SettingsScreen extends ConsumerWidget {
         .verify(secret)) {
       await _switchIdentity(ref, 'cover');
       messenger.showSnackBar(
-        const SnackBar(content: Text('Cover mode is now active.')),
+        const SnackBar(
+          showCloseIcon: true,
+          content: Text('Cover mode is now active.'),
+        ),
       );
       return;
     }
     messenger.showSnackBar(
-      const SnackBar(content: Text('That access key did not match any mode.')),
+      const SnackBar(
+        showCloseIcon: true,
+        content: Text('That access key did not match any mode.'),
+      ),
     );
   }
 
@@ -1856,50 +2360,54 @@ class SettingsScreen extends ConsumerWidget {
           key: formKey,
           child: SingleChildScrollView(
             child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                key: privateProfileNameInputKey,
-                controller: nameController,
-                decoration: InputDecoration(
-                  labelText: strings.isJapanese ? '表示名' : 'Profile name',
-                  border: const OutlineInputBorder(),
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  key: privateProfileNameInputKey,
+                  controller: nameController,
+                  decoration: InputDecoration(
+                    labelText: strings.isJapanese ? '表示名' : 'Profile name',
+                    border: const OutlineInputBorder(),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                key: privateProfilePasswordInputKey,
-                controller: passwordController,
-                obscureText: true,
-                decoration: InputDecoration(
-                  labelText: strings.isJapanese ? 'プロファイルパスワード' : 'Profile password',
-                  border: const OutlineInputBorder(),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: privateProfilePasswordInputKey,
+                  controller: passwordController,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: strings.isJapanese
+                        ? 'プロファイルパスワード'
+                        : 'Profile password',
+                    border: const OutlineInputBorder(),
+                  ),
+                  validator: (value) => (value == null || value.isEmpty)
+                      ? (strings.isJapanese
+                            ? 'パスワードを入力してください。'
+                            : 'Enter a password.')
+                      : null,
                 ),
-                validator: (value) => (value == null || value.isEmpty)
-                    ? (strings.isJapanese ? 'パスワードを入力してください。' : 'Enter a password.')
-                    : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                key: privateProfileConfirmInputKey,
-                controller: confirmController,
-                obscureText: true,
-                decoration: InputDecoration(
-                  labelText: strings.isJapanese
-                      ? 'パスワードを再入力'
-                      : 'Confirm password',
-                  border: const OutlineInputBorder(),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: privateProfileConfirmInputKey,
+                  controller: confirmController,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: strings.isJapanese
+                        ? 'パスワードを再入力'
+                        : 'Confirm password',
+                    border: const OutlineInputBorder(),
+                  ),
+                  validator: (value) {
+                    if (value != passwordController.text) {
+                      return strings.isJapanese
+                          ? 'パスワードが一致しません。'
+                          : 'Passwords do not match.';
+                    }
+                    return null;
+                  },
                 ),
-                validator: (value) {
-                  if (value != passwordController.text) {
-                    return strings.isJapanese
-                        ? 'パスワードが一致しません。'
-                        : 'Passwords do not match.';
-                  }
-                  return null;
-                },
-              ),
-            ],
+              ],
             ),
           ),
         ),
@@ -1928,12 +2436,16 @@ class SettingsScreen extends ConsumerWidget {
       });
       return;
     }
+    final profileName = nameController.text;
+    final profilePassword = passwordController.text;
     final error = await ref
         .read(privateMemoProfilesControllerProvider.notifier)
-        .addProfile(
-          name: nameController.text,
-          password: passwordController.text,
-        );
+        .addProfile(name: profileName, password: profilePassword);
+    if (error == null) {
+      await ref
+          .read(privateProfileUnlockControllerProvider.notifier)
+          .unlockWithPassword(profilePassword);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       nameController.dispose();
       passwordController.dispose();
@@ -1944,11 +2456,12 @@ class SettingsScreen extends ConsumerWidget {
     }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
+        showCloseIcon: true,
         content: Text(
           error ??
               (strings.isJapanese
-                  ? 'プライベートプロファイルを追加しました。'
-                  : 'Private profile added.'),
+                  ? 'プライベートプロファイルを追加して開きました。'
+                  : 'Private profile added and opened.'),
         ),
       ),
     );
@@ -1959,6 +2472,7 @@ class SettingsScreen extends ConsumerWidget {
     if (kIsWeb) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
+          showCloseIcon: true,
           content: Text(
             strings.isJapanese
                 ? '管理者モードはこの環境では利用できません。'
@@ -1970,9 +2484,7 @@ class SettingsScreen extends ConsumerWidget {
     }
     final authenticated = await ref
         .read(deviceAuthControllerProvider.notifier)
-        .authenticate(
-          reason: 'Enter admin mode to manage private profiles',
-        );
+        .authenticate(reason: 'Enter admin mode to manage private profiles');
     if (!authenticated || !context.mounted) {
       return;
     }
@@ -1980,52 +2492,59 @@ class SettingsScreen extends ConsumerWidget {
     ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
+        showCloseIcon: true,
         content: Text(
           strings.isJapanese
-              ? '管理者モードで全プロファイルを表示します。'
-              : 'Admin mode unlocked. All profiles are now visible.',
+              ? '管理者モードに入りました。プロファイル名と保存先IDは引き続き非表示です。'
+              : 'Admin mode unlocked. Profile names and vault IDs remain hidden.',
         ),
       ),
     );
   }
 
-  Future<void> _confirmDeletePrivateProfile(
+  Future<void> _showChangeCurrentProfilePasswordDialog(
     BuildContext context,
     WidgetRef ref,
-    PrivateMemoProfile profile,
   ) async {
     final strings = context.strings;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(
-          strings.isJapanese
-              ? 'プライベートプロファイルを削除'
-              : 'Delete private profile',
-        ),
-        content: Text(
-          strings.isJapanese
-              ? '「${profile.name}」を削除します。既存ノートの保存先はそのまま残るため、必要なら後で移行してください。'
-              : 'Delete "${profile.name}". Existing notes stay in place, so move them first if needed.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(strings.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(strings.isJapanese ? '削除' : 'Delete'),
-          ),
-        ],
-      ),
+    final unlockedVaultId = ref.read(unlockedPrivateProfileVaultIdProvider);
+    if (unlockedVaultId == null ||
+        !unlockedVaultId.startsWith(customPrivateVaultPrefix)) {
+      return;
+    }
+    final profileId = unlockedVaultId.substring(
+      customPrivateVaultPrefix.length,
     );
-    if (confirmed != true) {
+    final password = await _showSecretSetupDialog(
+      context,
+      title: strings.isJapanese
+          ? '現在のプロファイルのパスワードを変更'
+          : 'Change current profile password',
+      label: strings.isJapanese ? '新しいパスワード' : 'New password',
+      confirmLabel: strings.isJapanese ? '新しいパスワードを確認' : 'Confirm new password',
+      helperText: strings.isJapanese
+          ? 'このプロファイルの解除に使うパスワードを更新します。'
+          : 'Update the password used to unlock this profile.',
+    );
+    if (password == null) {
       return;
     }
     await ref
         .read(privateMemoProfilesControllerProvider.notifier)
-        .deleteProfile(profile.id);
+        .updateProfilePassword(id: profileId, password: password);
+    if (!context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(
+          strings.isJapanese
+              ? 'プロファイルのパスワードを更新しました。'
+              : 'Profile password updated.',
+        ),
+      ),
+    );
   }
 
   @override
@@ -2052,7 +2571,12 @@ class SettingsScreen extends ConsumerWidget {
     );
     final privateProfiles = ref.watch(privateMemoProfilesControllerProvider);
     final adminMode = ref.watch(adminModeSessionControllerProvider);
-    final activePrivateProfileLabel = ref.watch(activePrivateProfileLabelProvider);
+    final unlockedPrivateProfileVaultId = ref.watch(
+      unlockedPrivateProfileVaultIdProvider,
+    );
+    final activePrivateProfileLabel = ref.watch(
+      activePrivateProfileLabelProvider,
+    );
     final privateVaultLockOnAppLock = ref.watch(
       privateVaultLockOnAppLockControllerProvider,
     );
@@ -2065,25 +2589,49 @@ class SettingsScreen extends ConsumerWidget {
     final syncConflictWarning = ref.watch(syncConflictWarningProvider);
     final inAppUpdateState = ref.watch(inAppUpdateControllerProvider);
     final packageInfo = ref.watch(packageInfoProvider);
+    const showLegacyAccessSettings = bool.fromEnvironment(
+      'HIMEMO_SHOW_LEGACY_ACCESS_SETTINGS',
+    );
+    const showLegacyPrivateVaultSettings = bool.fromEnvironment(
+      'HIMEMO_SHOW_LEGACY_PRIVATE_VAULT_SETTINGS',
+    );
     final flavorName =
         FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
     final displayName =
         FlavorConfig.instance.variables['displayName'] as String? ?? 'HiMemo';
-    final noteCount = ref.watch(notesControllerProvider).length;
+    final visibleStorageVaultIds = {
+      'everyday',
+      if (unlockedPrivateProfileVaultId != null) unlockedPrivateProfileVaultId,
+    };
+    final currentNotes = ref.watch(notesControllerProvider);
+    final noteCount = currentNotes
+        .where(
+          (note) =>
+              note.deletedAt == null &&
+              visibleStorageVaultIds.contains(note.vaultId),
+        )
+        .length;
+    final demoNoteCount = currentNotes
+        .where(
+          (note) =>
+              note.deletedAt == null &&
+              (note.deviceId == 'seeded-device' || note.id.startsWith('seed-')),
+        )
+        .length;
     final currentModeLabel = activeIdentity == 'daily'
         ? (strings.isJapanese ? '通常メモモード' : 'Normal memo mode')
         : ref.watch(activeIdentityDataProvider).name;
     final lockSummary = !appLockEnabled
         ? (strings.isJapanese
-              ? '起動時の保護はオフです。'
-              : 'Launch protection is off.')
+              ? '未設定です。オンにするとパスワードまたは生体認証を設定します。'
+              : 'Off. Turning this on asks for a password or device authentication.')
         : (appSessionUnlocked
               ? (strings.isJapanese
-                    ? '起動時の保護はオンです。このセッションでは解除されています。'
-                    : 'Launch protection is on. This session is unlocked.')
+                    ? '有効です。このセッションは解除中です。'
+                    : 'On. This session is unlocked.')
               : (strings.isJapanese
-                    ? '起動時の保護はオンです。現在はロック中です。'
-                    : 'Launch protection is on. This session is locked.'));
+                    ? '有効です。このセッションはロック中です。'
+                    : 'On. This session is locked.'));
     final syncSummary = syncProvider == SyncProvider.off
         ? (strings.isJapanese ? 'この端末のみ' : 'Device-only storage')
         : _syncAuthSummary(context, syncProvider, syncAuthState);
@@ -2102,8 +2650,10 @@ class SettingsScreen extends ConsumerWidget {
             ? strings.updateStatusStarted
             : strings.updateStatusUpToDate,
       InAppUpdateStage.unsupported => strings.updateSupportedOnAndroidOnly,
-      InAppUpdateStage.error => inAppUpdateState.message ?? strings.updateStatusUnsupported,
-      _ => inAppUpdateState.status?.updateAvailable == true
+      InAppUpdateStage.error =>
+        inAppUpdateState.message ?? strings.updateStatusUnsupported,
+      _ =>
+        inAppUpdateState.status?.updateAvailable == true
             ? strings.updateStatusAvailable
             : strings.updateSupportedOnAndroidOnly,
     };
@@ -2152,7 +2702,9 @@ class SettingsScreen extends ConsumerWidget {
           summary: adminMode
               ? strings.privateProfilesSettingsAdminSummary
               : (activePrivateProfileLabel != null
-                    ? strings.privateProfilesSettingsActiveSummary(activePrivateProfileLabel)
+                    ? strings.privateProfilesSettingsActiveSummary(
+                        activePrivateProfileLabel,
+                      )
                     : strings.privateProfilesSettingsDefaultSummary),
           assetPath: 'assets/settings/security.svg',
           initiallyExpanded: true,
@@ -2175,7 +2727,9 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 FilledButton.tonal(
                   key: privateProfileAdminModeKey,
-                  onPressed: adminMode ? null : () => _enterAdminMode(context, ref),
+                  onPressed: adminMode
+                      ? null
+                      : () => _enterAdminMode(context, ref),
                   child: Text(
                     adminMode
                         ? strings.adminModeActiveLabel
@@ -2190,124 +2744,116 @@ class SettingsScreen extends ConsumerWidget {
                         .lock(),
                     child: Text(strings.exitAdminModeLabel),
                   ),
+                if (unlockedPrivateProfileVaultId != null &&
+                    unlockedPrivateProfileVaultId.startsWith(
+                      customPrivateVaultPrefix,
+                    ))
+                  OutlinedButton(
+                    onPressed: () =>
+                        _showChangeCurrentProfilePasswordDialog(context, ref),
+                    child: Text(
+                      strings.isJapanese
+                          ? '現在のプロファイルのパスワードを変更'
+                          : 'Change current profile password',
+                    ),
+                  ),
               ],
             ),
             const SizedBox(height: 12),
             if (privateProfiles.isEmpty)
               Text(
                 strings.noPrivateProfilesMessage,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
               )
             else
-              Column(
-                children: [
-                  for (final profile in privateProfiles)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(profile.name),
-                      subtitle: Text(
-                        adminMode
-                            ? (strings.isJapanese
-                                  ? '保存先ID: ${profile.vaultId}'
-                                  : 'Vault id: ${profile.vaultId}')
-                            : (strings.isJapanese
-                                  ? 'パスワード一致時にだけ表示されます。'
-                                  : 'Visible only when its password is entered.'),
-                      ),
-                      trailing: adminMode
-                          ? IconButton(
-                              onPressed: () =>
-                                  _confirmDeletePrivateProfile(context, ref, profile),
-                              icon: const Icon(Icons.delete_outline_rounded),
-                            )
-                          : null,
-                    ),
-                ],
+              Text(
+                strings.privateProfilesHiddenSummary(privateProfiles.length),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
               ),
           ],
         ),
         const SizedBox(height: 16),
-        if (kDebugMode)
+        if (kDebugMode && showLegacyAccessSettings)
           _SettingsGroup(
-          title: strings.isJapanese ? 'アクセスモード' : 'Access modes',
-          summary:
-              strings.isJapanese
-                  ? '$currentModeLabel。別の表示が必要なときだけ特別キーを使います。'
-                  : '$currentModeLabel. Special keys are used only when another view is needed.',
-          assetPath: 'assets/settings/access.svg',
-          initiallyExpanded: true,
-          children: [
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(strings.isJapanese ? '現在のモード' : 'Current mode'),
-              subtitle: Text(
-                activeIdentity == 'daily'
-                    ? (strings.isJapanese ? '通常メモモード' : 'Normal memo mode')
-                    : ref.watch(activeIdentityDataProvider).name,
+            title: strings.isJapanese ? 'アクセスモード' : 'Access modes',
+            summary: strings.isJapanese
+                ? '$currentModeLabel。別の表示が必要なときだけ特別キーを使います。'
+                : '$currentModeLabel. Special keys are used only when another view is needed.',
+            assetPath: 'assets/settings/access.svg',
+            initiallyExpanded: true,
+            children: [
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(strings.isJapanese ? '現在のモード' : 'Current mode'),
+                subtitle: Text(
+                  activeIdentity == 'daily'
+                      ? (strings.isJapanese ? '通常メモモード' : 'Normal memo mode')
+                      : ref.watch(activeIdentityDataProvider).name,
+                ),
               ),
-            ),
-            Text(
-              strings.isJapanese
-                  ? '通常はそのまま通常メモモードで使います。別の表示が必要なときだけ特別なアクセスキーを入力します。'
-                  : 'The app stays in normal memo mode by default. Enter a special access key only when you need another view.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
-            ),
-            const SizedBox(height: 12),
-            if (syncProvider != SyncProvider.iCloud)
+              Text(
+                strings.isJapanese
+                    ? '通常はそのまま通常メモモードで使います。別の表示が必要なときだけ特別なアクセスキーを入力します。'
+                    : 'The app stays in normal memo mode by default. Enter a special access key only when you need another view.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (syncProvider != SyncProvider.iCloud)
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.tonal(
+                      onPressed: () =>
+                          _showSpecialAccessKeyDialog(context, ref),
+                      child: Text(
+                        strings.isJapanese
+                            ? '特別なアクセスキーを入力'
+                            : 'Enter special access key',
+                      ),
+                    ),
+                    OutlinedButton(
+                      onPressed: activeIdentity == 'daily'
+                          ? null
+                          : () => _switchIdentity(ref, 'daily'),
+                      child: Text(
+                        strings.isJapanese
+                            ? '通常モードに戻す'
+                            : 'Return to normal mode',
+                      ),
+                    ),
+                  ],
+                ),
+              const SizedBox(height: 12),
               Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.tonal(
-                  onPressed: () => _showSpecialAccessKeyDialog(context, ref),
-                  child: Text(
-                    strings.isJapanese
-                        ? '特別なアクセスキーを入力'
-                        : 'Enter special access key',
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.tonal(
+                    onPressed: () => _showSetCoverKeyDialog(context, ref),
+                    child: Text(
+                      coverModeConfigured
+                          ? strings.changeAlternateProfilePassword
+                          : strings.setAlternateProfilePassword,
+                    ),
                   ),
-                ),
-                OutlinedButton(
-                  onPressed: activeIdentity == 'daily'
-                      ? null
-                      : () => _switchIdentity(ref, 'daily'),
-                  child: Text(
-                    strings.isJapanese
-                        ? '通常モードに戻す'
-                        : 'Return to normal mode',
+                  OutlinedButton(
+                    onPressed: coverModeConfigured
+                        ? () => _confirmResetCoverKey(context, ref)
+                        : null,
+                    child: Text(strings.resetAlternateProfilePassword),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.tonal(
-                  onPressed: () => _showSetCoverKeyDialog(context, ref),
-                  child: Text(
-                    coverModeConfigured
-                        ? strings.changeAlternateProfilePassword
-                        : strings.setAlternateProfilePassword,
-                  ),
-                ),
-                OutlinedButton(
-                  onPressed: coverModeConfigured
-                      ? () => _confirmResetCoverKey(context, ref)
-                      : null,
-                  child: Text(
-                    strings.resetAlternateProfilePassword,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        if (kDebugMode) const SizedBox(height: 16),
+                ],
+              ),
+            ],
+          ),
+        if (kDebugMode && showLegacyAccessSettings) const SizedBox(height: 16),
         _SettingsGroup(
           title: strings.isJapanese ? 'アプリ保護' : 'App security',
           summary: lockSummary,
@@ -2355,7 +2901,9 @@ class SettingsScreen extends ConsumerWidget {
                   if (!pinLockState.isConfigured) {
                     final configured = await _showPinSetupDialog(
                       context,
-                      title: strings.isJapanese ? '解除用 PIN を設定' : 'Set unlock PIN',
+                      title: strings.isJapanese
+                          ? '解除用 PIN を設定'
+                          : 'Set unlock PIN',
                       confirmLabel: strings.isJapanese ? 'PIN を保存' : 'Save PIN',
                     );
                     if (configured == null) {
@@ -2372,9 +2920,10 @@ class SettingsScreen extends ConsumerWidget {
                         reason: 'Enable device authentication for HiMemo',
                       );
                   if (!authenticated) {
-                      if (context.mounted) {
+                    if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
+                          showCloseIcon: true,
                           content: Text(
                             strings.isJapanese
                                 ? '端末認証が完了しなかったため、アプリ保護はオンになりませんでした。'
@@ -2431,8 +2980,12 @@ class SettingsScreen extends ConsumerWidget {
                         final pin = await _showPinSetupDialog(
                           context,
                           title: pinLockState.isConfigured
-                              ? (strings.isJapanese ? '解除用 PIN を変更' : 'Change unlock PIN')
-                              : (strings.isJapanese ? '解除用 PIN を設定' : 'Set unlock PIN'),
+                              ? (strings.isJapanese
+                                    ? '解除用 PIN を変更'
+                                    : 'Change unlock PIN')
+                              : (strings.isJapanese
+                                    ? '解除用 PIN を設定'
+                                    : 'Set unlock PIN'),
                           confirmLabel: pinLockState.isConfigured
                               ? (strings.isJapanese ? 'PIN を更新' : 'Update PIN')
                               : (strings.isJapanese ? 'PIN を保存' : 'Save PIN'),
@@ -2446,10 +2999,15 @@ class SettingsScreen extends ConsumerWidget {
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
+                              showCloseIcon: true,
                               content: Text(
                                 pinLockState.isConfigured
-                                    ? (strings.isJapanese ? '解除用 PIN を更新しました。' : 'Unlock PIN updated.')
-                                    : (strings.isJapanese ? '解除用 PIN を設定しました。' : 'Unlock PIN configured.'),
+                                    ? (strings.isJapanese
+                                          ? '解除用 PIN を更新しました。'
+                                          : 'Unlock PIN updated.')
+                                    : (strings.isJapanese
+                                          ? '解除用 PIN を設定しました。'
+                                          : 'Unlock PIN configured.'),
                               ),
                             ),
                           );
@@ -2524,37 +3082,40 @@ class SettingsScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 8),
             ],
-            SwitchListTile.adaptive(
-              value: widgetQuickCaptureEnabled,
-              contentPadding: EdgeInsets.zero,
-              title: Text(strings.homeWidgetQuickCapture),
-              subtitle: Text(
-                !kIsWeb &&
+            if (showLegacyAccessSettings) ...[
+              SwitchListTile.adaptive(
+                value: widgetQuickCaptureEnabled,
+                contentPadding: EdgeInsets.zero,
+                title: Text(strings.homeWidgetQuickCapture),
+                subtitle: Text(
+                  !kIsWeb &&
+                          (defaultTargetPlatform == TargetPlatform.android ||
+                              defaultTargetPlatform == TargetPlatform.iOS)
+                      ? strings.homeWidgetQuickCaptureDesc
+                      : strings.homeWidgetQuickCaptureMobileOnly,
+                ),
+                onChanged:
+                    !kIsWeb &&
                         (defaultTargetPlatform == TargetPlatform.android ||
                             defaultTargetPlatform == TargetPlatform.iOS)
-                    ? strings.homeWidgetQuickCaptureDesc
-                    : strings.homeWidgetQuickCaptureMobileOnly,
+                    ? (value) => ref
+                          .read(
+                            widgetQuickCaptureSettingsControllerProvider
+                                .notifier,
+                          )
+                          .setEnabled(value)
+                    : null,
               ),
-              onChanged:
-                  !kIsWeb &&
-                      (defaultTargetPlatform == TargetPlatform.android ||
-                          defaultTargetPlatform == TargetPlatform.iOS)
-                  ? (value) => ref
-                        .read(
-                          widgetQuickCaptureSettingsControllerProvider.notifier,
-                        )
-                        .setEnabled(value)
-                  : null,
-            ),
-            Text(
-              strings.isJapanese
-                  ? 'クイックキャプチャは Daily Notes に平文テキストだけを書き込みます。既存ノートや private vault の内容は開きません。'
-                  : 'Quick widget capture only writes plain text into Daily Notes. It never opens existing notes or private vault content.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
-            ),
-            const SizedBox(height: 8),
+              Text(
+                strings.isJapanese
+                    ? 'クイックキャプチャは Notes に平文テキストだけを書き込みます。既存ノートやロック中のプロファイルは開きません。'
+                    : 'Quick widget capture only writes plain text into Notes. It never opens existing notes or locked profiles.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
             const SizedBox(height: 4),
             Text(
               strings.isJapanese
@@ -2606,24 +3167,25 @@ class SettingsScreen extends ConsumerWidget {
                   .read(appLockRelockDelayControllerProvider.notifier)
                   .setDelay(AppLockRelockDelay.minutes10),
             ),
-            SwitchListTile.adaptive(
-              key: privateVaultLockOnAppLockKey,
-              value: privateVaultLockOnAppLock,
-              contentPadding: EdgeInsets.zero,
-              title: Text(
-                strings.isJapanese
-                    ? 'アプリロック時に private vault もロック'
-                    : 'Lock private vault when app locks',
+            if (showLegacyPrivateVaultSettings)
+              SwitchListTile.adaptive(
+                key: privateVaultLockOnAppLockKey,
+                value: privateVaultLockOnAppLock,
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  strings.isJapanese
+                      ? 'アプリロック時にレガシー領域もロック'
+                      : 'Lock legacy private area when app locks',
+                ),
+                subtitle: Text(
+                  strings.isJapanese
+                      ? '通常は常にアプリロックと同時にロックします。'
+                      : 'Normally this locks whenever the app locks.',
+                ),
+                onChanged: (value) => ref
+                    .read(privateVaultLockOnAppLockControllerProvider.notifier)
+                    .setEnabled(value),
               ),
-              subtitle: Text(
-                strings.isJapanese
-                    ? 'アプリの再ロックを private vault のセッションにも適用します。'
-                    : 'Apply app re-lock to the private vault session too.',
-              ),
-              onChanged: (value) => ref
-                  .read(privateVaultLockOnAppLockControllerProvider.notifier)
-                  .setEnabled(value),
-            ),
             Align(
               alignment: Alignment.centerLeft,
               child: Wrap(
@@ -2649,47 +3211,39 @@ class SettingsScreen extends ConsumerWidget {
                                 : 'PIN unlock on lock screen',
                           )
                         : Text(
-                            strings.isJapanese
-                                ? '今すぐ認証'
-                                : 'Authenticate now',
+                            strings.isJapanese ? '今すぐ認証' : 'Authenticate now',
                           ),
                   ),
                   OutlinedButton(
                     key: appLockLockNowKey,
                     onPressed: appLockEnabled
                         ? () {
-                              ref
-                                  .read(
-                                    appSessionUnlockControllerProvider.notifier,
-                                  )
-                                  .lock();
-                              if (ref.read(
-                                privateVaultLockOnAppLockControllerProvider,
-                              )) {
-                                ref
-                                    .read(
-                                      privateVaultSessionControllerProvider
-                                          .notifier,
-                                    )
-                                    .lock();
-                              }
-                              ref
-                                  .read(
-                                    unlockedPrivateProfileVaultIdProvider
-                                        .notifier,
-                                  )
-                                  .lock();
-                              ref
-                                  .read(
-                                    adminModeSessionControllerProvider.notifier,
-                                  )
-                                  .lock();
-                            }
+                            ref
+                                .read(
+                                  appSessionUnlockControllerProvider.notifier,
+                                )
+                                .lock();
+                            ref
+                                .read(
+                                  privateVaultSessionControllerProvider
+                                      .notifier,
+                                )
+                                .lock();
+                            ref
+                                .read(
+                                  unlockedPrivateProfileVaultIdProvider
+                                      .notifier,
+                                )
+                                .lock();
+                            ref
+                                .read(
+                                  adminModeSessionControllerProvider.notifier,
+                                )
+                                .lock();
+                          }
                         : null,
                     child: Text(
-                      strings.isJapanese
-                          ? '今すぐセッションをロック'
-                          : 'Lock session now',
+                      strings.isJapanese ? '今すぐセッションをロック' : 'Lock session now',
                     ),
                   ),
                   OutlinedButton(
@@ -2716,91 +3270,126 @@ class SettingsScreen extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 16),
-        if (kDebugMode)
-          _SettingsGroup(
-          title: strings.isJapanese ? 'Private vault' : 'Private vault',
-          summary: privateVaultConfigured
-              ? (privateVaultUnlocked
-                    ? (strings.isJapanese
-                          ? '設定済みで現在は解除中です。'
-                          : 'Configured and currently unlocked.')
-                    : (strings.isJapanese
-                          ? '設定済みでロック中です。'
-                          : 'Configured and locked.'))
+        _SettingsGroup(
+          title: strings.isJapanese ? '外部クイックメモ' : 'External quick memo',
+          summary: widgetQuickCaptureEnabled
+              ? (strings.isJapanese
+                    ? 'ロック中でもウィジェットから Notes に追記できます。'
+                    : 'Widget quick writes are allowed while the app is locked.')
               : (strings.isJapanese
-                    ? 'まだ private vault のキーが設定されていません。'
-                    : 'No private vault key has been set yet.'),
-          assetPath: 'assets/settings/security.svg',
+                    ? 'ウィジェットからのクイック書き込みは無効です。'
+                    : 'Widget quick writes are off.'),
+          assetPath: 'assets/settings/storage.svg',
           children: [
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                strings.isJapanese
+                    ? 'ロック中でもウィジェットから書き込む'
+                    : 'Allow widget writes while locked',
+              ),
+              subtitle: Text(
+                strings.isJapanese
+                    ? '既存のメモやロック中のプロファイルは表示せず、入力内容だけを保存します。'
+                    : 'Only the submitted text is saved. Existing notes and locked profiles stay hidden.',
+              ),
+              value: widgetQuickCaptureEnabled,
+              onChanged: (value) => ref
+                  .read(widgetQuickCaptureSettingsControllerProvider.notifier)
+                  .setEnabled(value),
+            ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(strings.isJapanese ? '状態' : 'Status'),
-              subtitle: Text(
-                privateVaultConfigured
-                    ? (privateVaultUnlocked
-                          ? (strings.isJapanese
-                                ? 'このセッションでは解除されています。'
-                                : 'Configured and unlocked for this session.')
-                          : (strings.isJapanese
-                                ? '設定済みでロック中です。別のキーが必要です。'
-                                : 'Configured and locked. A separate key is required.'))
-                    : (strings.isJapanese
-                          ? '未設定です。private vault 用の別キーを設定してください。'
-                          : 'Not configured yet. Set a separate key for the private vault.'),
-              ),
-            ),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (!privateVaultConfigured)
-                  FilledButton(
-                    key: privateVaultSetKey,
-                    onPressed: () => _showSetPrivateKeyDialog(context, ref),
-                    child: Text(
-                      strings.isJapanese
-                          ? 'プライベートキーを設定'
-                          : 'Set private key',
-                    ),
-                  ),
-                if (privateVaultConfigured && !privateVaultUnlocked)
-                  FilledButton(
-                    key: privateVaultUnlockKey,
-                    onPressed: () =>
-                        _showUnlockPrivateVaultDialog(context, ref),
-                    child: Text(
-                      strings.isJapanese
-                          ? 'Private vault を解除'
-                          : 'Unlock private vault',
-                    ),
-                  ),
-                if (privateVaultUnlocked)
-                  FilledButton.tonal(
-                    key: privateVaultLockKey,
-                    onPressed: () => ref
-                        .read(privateVaultSessionControllerProvider.notifier)
-                        .lock(),
-                    child: Text(
-                      strings.isJapanese
-                          ? 'Private vault をロック'
-                          : 'Lock private vault',
-                    ),
-                  ),
-                if (privateVaultConfigured)
-                  OutlinedButton(
-                    key: privateVaultResetKey,
-                    onPressed: () => _confirmResetPrivateKey(context, ref),
-                    child: Text(
-                      strings.isJapanese
-                          ? 'プライベートキーをリセット'
-                          : 'Reset private key',
-                    ),
-                  ),
-              ],
+              title: Text(strings.isJapanese ? '書き込み先' : 'Write target'),
+              subtitle: const Text('Notes'),
             ),
           ],
         ),
-        if (kDebugMode) const SizedBox(height: 16),
+        const SizedBox(height: 16),
+        if (kDebugMode && showLegacyPrivateVaultSettings)
+          _SettingsGroup(
+            title: strings.isJapanese ? 'Private vault' : 'Private vault',
+            summary: privateVaultConfigured
+                ? (privateVaultUnlocked
+                      ? (strings.isJapanese
+                            ? '設定済みで現在は解除中です。'
+                            : 'Configured and currently unlocked.')
+                      : (strings.isJapanese
+                            ? '設定済みでロック中です。'
+                            : 'Configured and locked.'))
+                : (strings.isJapanese
+                      ? 'まだ private vault のキーが設定されていません。'
+                      : 'No private vault key has been set yet.'),
+            assetPath: 'assets/settings/security.svg',
+            children: [
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(strings.isJapanese ? '状態' : 'Status'),
+                subtitle: Text(
+                  privateVaultConfigured
+                      ? (privateVaultUnlocked
+                            ? (strings.isJapanese
+                                  ? 'このセッションでは解除されています。'
+                                  : 'Configured and unlocked for this session.')
+                            : (strings.isJapanese
+                                  ? '設定済みでロック中です。別のキーが必要です。'
+                                  : 'Configured and locked. A separate key is required.'))
+                      : (strings.isJapanese
+                            ? '未設定です。private vault 用の別キーを設定してください。'
+                            : 'Not configured yet. Set a separate key for the private vault.'),
+                ),
+              ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (!privateVaultConfigured)
+                    FilledButton(
+                      key: privateVaultSetKey,
+                      onPressed: () => _showSetPrivateKeyDialog(context, ref),
+                      child: Text(
+                        strings.isJapanese ? 'プライベートキーを設定' : 'Set private key',
+                      ),
+                    ),
+                  if (privateVaultConfigured && !privateVaultUnlocked)
+                    FilledButton(
+                      key: privateVaultUnlockKey,
+                      onPressed: () =>
+                          _showUnlockPrivateVaultDialog(context, ref),
+                      child: Text(
+                        strings.isJapanese
+                            ? 'Private vault を解除'
+                            : 'Unlock private vault',
+                      ),
+                    ),
+                  if (privateVaultUnlocked)
+                    FilledButton.tonal(
+                      key: privateVaultLockKey,
+                      onPressed: () => ref
+                          .read(privateVaultSessionControllerProvider.notifier)
+                          .lock(),
+                      child: Text(
+                        strings.isJapanese
+                            ? 'Private vault をロック'
+                            : 'Lock private vault',
+                      ),
+                    ),
+                  if (privateVaultConfigured)
+                    OutlinedButton(
+                      key: privateVaultResetKey,
+                      onPressed: () => _confirmResetPrivateKey(context, ref),
+                      child: Text(
+                        strings.isJapanese
+                            ? 'プライベートキーをリセット'
+                            : 'Reset private key',
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        if (kDebugMode && showLegacyPrivateVaultSettings)
+          const SizedBox(height: 16),
         _SettingsGroup(
           title: strings.isJapanese ? 'バックアップと同期' : 'Backup and sync',
           summary: syncSummary,
@@ -2833,12 +3422,16 @@ class SettingsScreen extends ConsumerWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(strings.isJapanese ? '認証' : 'Authentication'),
-              subtitle: Text(_syncAuthSummary(context, syncProvider, syncAuthState)),
+              title: Text(_syncStatusTitle(context, syncProvider)),
+              subtitle: Text(
+                _syncAuthSummary(context, syncProvider, syncAuthState),
+              ),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(strings.isJapanese ? '保留中の同期キュー' : 'Pending sync queue'),
+              title: Text(
+                strings.isJapanese ? '保留中の同期キュー' : 'Pending sync queue',
+              ),
               subtitle: Text(
                 syncQueueSummary.when(
                   data: (summary) {
@@ -2909,6 +3502,7 @@ class SettingsScreen extends ConsumerWidget {
                       }
                       messenger.showSnackBar(
                         SnackBar(
+                          showCloseIcon: true,
                           content: Text(
                             strings.isJapanese
                                 ? 'クラウド復元キーをクリップボードにコピーしました。'
@@ -2920,10 +3514,14 @@ class SettingsScreen extends ConsumerWidget {
                       if (!context.mounted) {
                         return;
                       }
-                      messenger.showSnackBar(SnackBar(content: Text('$error')));
+                      messenger.showSnackBar(
+                        SnackBar(showCloseIcon: true, content: Text('$error')),
+                      );
                     }
                   },
-                  child: Text(strings.isJapanese ? 'クラウド復元キーをコピー' : 'Copy recovery key'),
+                  child: Text(
+                    strings.isJapanese ? 'クラウド復元キーをコピー' : 'Copy recovery key',
+                  ),
                 ),
                 OutlinedButton(
                   onPressed: () async {
@@ -2961,6 +3559,7 @@ class SettingsScreen extends ConsumerWidget {
                       }
                       messenger.showSnackBar(
                         SnackBar(
+                          showCloseIcon: true,
                           content: Text(
                             strings.isJapanese
                                 ? 'クラウド復元キーを読み込みました。フィンガープリント: $fingerprint'
@@ -2972,16 +3571,24 @@ class SettingsScreen extends ConsumerWidget {
                       if (!context.mounted) {
                         return;
                       }
-                      messenger.showSnackBar(SnackBar(content: Text('$error')));
+                      messenger.showSnackBar(
+                        SnackBar(showCloseIcon: true, content: Text('$error')),
+                      );
                     }
                   },
-                  child: Text(strings.isJapanese ? 'クラウド復元キーを読み込む' : 'Import recovery key'),
+                  child: Text(
+                    strings.isJapanese
+                        ? 'クラウド復元キーを読み込む'
+                        : 'Import recovery key',
+                  ),
                 ),
               ],
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(strings.isJapanese ? '直近の同期履歴' : 'Last sync activity'),
+              title: Text(
+                strings.isJapanese ? '直近の同期履歴' : 'Last sync activity',
+              ),
               subtitle: Text(
                 syncBundleState.when(
                   data: (value) {
@@ -3026,7 +3633,9 @@ class SettingsScreen extends ConsumerWidget {
             if (syncTransferState.localBundle != null)
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                title: Text(strings.isJapanese ? 'ローカルバンドルキャッシュ' : 'Local bundle cache'),
+                title: Text(
+                  strings.isJapanese ? 'ローカルバンドルキャッシュ' : 'Local bundle cache',
+                ),
                 subtitle: Text(
                   strings.isJapanese
                       ? '${syncTransferState.localBundle!.reference} に保存済み'
@@ -3048,8 +3657,8 @@ class SettingsScreen extends ConsumerWidget {
               tileKey: syncICloudKey,
               title: 'iCloud',
               subtitle: strings.isJapanese
-                  ? 'Apple 管理のアプリデータ同期先です。'
-                  : 'Apple-managed app data sync target.',
+                  ? 'この端末の iCloud を使う同期先です。HiMemo 用のログインは不要です。'
+                  : 'Use this device’s iCloud as the sync target. No HiMemo login is required.',
               selected: syncProvider == SyncProvider.iCloud,
               onTap: () => ref
                   .read(syncProviderControllerProvider.notifier)
@@ -3075,13 +3684,44 @@ class SettingsScreen extends ConsumerWidget {
                     key: syncConnectKey,
                     onPressed: syncAuthState.stage == SyncAuthStage.busy
                         ? null
-                        : () => ref
-                              .read(syncAuthControllerProvider.notifier)
-                              .connectSelected(),
+                        : () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            try {
+                              await ref
+                                  .read(syncAuthControllerProvider.notifier)
+                                  .connectSelected();
+                              if (!context.mounted) {
+                                return;
+                              }
+                              final message = ref
+                                  .read(
+                                    syncAuthControllerProvider,
+                                  )[syncProvider]
+                                  ?.message;
+                              if (message != null && message.isNotEmpty) {
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    showCloseIcon: true,
+                                    content: Text(message),
+                                  ),
+                                );
+                              }
+                            } catch (error) {
+                              if (!context.mounted) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text('$error'),
+                                ),
+                              );
+                            }
+                          },
                     child: Text(
                       syncAuthState.isAuthenticated
-                          ? (strings.isJapanese ? '再接続' : 'Reconnect')
-                          : (strings.isJapanese ? '接続' : 'Connect'),
+                          ? _syncReconnectLabel(context, syncProvider)
+                          : _syncConnectLabel(context, syncProvider),
                     ),
                   ),
                 if (syncProvider != SyncProvider.off &&
@@ -3091,42 +3731,18 @@ class SettingsScreen extends ConsumerWidget {
                     onPressed: () => ref
                         .read(syncAuthControllerProvider.notifier)
                         .disconnectSelected(),
-                    child: Text(strings.isJapanese ? '切断' : 'Disconnect'),
+                    child: Text(_syncDisconnectLabel(context, syncProvider)),
                   ),
                 OutlinedButton(
                   key: syncRefreshRemoteKey,
                   onPressed: syncTransferState.isBusy
                       ? null
                       : () async {
-                          await ref
-                              .read(syncTransferControllerProvider.notifier)
-                              .refreshRemoteStatus();
-                          if (!context.mounted) {
-                            return;
-                          }
-                          final message = ref
-                              .read(syncTransferControllerProvider)
-                              .message;
-                          if (message == null || message.isEmpty) {
-                            return;
-                          }
-                          ScaffoldMessenger.of(
-                            context,
-                          ).showSnackBar(SnackBar(content: Text(message)));
-                        },
-                  child: Text(strings.isJapanese ? 'リモートを更新' : 'Refresh remote'),
-                ),
-                if (syncProvider != SyncProvider.off &&
-                    syncAuthState.isAuthenticated)
-                  OutlinedButton(
-                    key: syncUploadBundleKey,
-                    onPressed:
-                        syncTransferState.isBusy || syncConflictWarning != null
-                        ? null
-                        : () async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          try {
                             await ref
                                 .read(syncTransferControllerProvider.notifier)
-                                .uploadCurrentBundle();
+                                .refreshRemoteStatus();
                             if (!context.mounted) {
                               return;
                             }
@@ -3136,14 +3752,70 @@ class SettingsScreen extends ConsumerWidget {
                             if (message == null || message.isEmpty) {
                               return;
                             }
-                            ScaffoldMessenger.of(
-                              context,
-                            ).showSnackBar(SnackBar(content: Text(message)));
+                            messenger.showSnackBar(
+                              SnackBar(
+                                showCloseIcon: true,
+                                content: Text(message),
+                              ),
+                            );
+                          } catch (error) {
+                            if (!context.mounted) {
+                              return;
+                            }
+                            messenger.showSnackBar(
+                              SnackBar(
+                                showCloseIcon: true,
+                                content: Text('$error'),
+                              ),
+                            );
+                          }
+                        },
+                  child: Text(
+                    strings.isJapanese ? 'リモートを更新' : 'Refresh remote',
+                  ),
+                ),
+                if (syncProvider != SyncProvider.off &&
+                    syncAuthState.isAuthenticated)
+                  OutlinedButton(
+                    key: syncUploadBundleKey,
+                    onPressed:
+                        syncTransferState.isBusy || syncConflictWarning != null
+                        ? null
+                        : () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            try {
+                              await ref
+                                  .read(syncTransferControllerProvider.notifier)
+                                  .uploadCurrentBundle();
+                              if (!context.mounted) {
+                                return;
+                              }
+                              final message = ref
+                                  .read(syncTransferControllerProvider)
+                                  .message;
+                              if (message == null || message.isEmpty) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text(message),
+                                ),
+                              );
+                            } catch (error) {
+                              if (!context.mounted) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text('$error'),
+                                ),
+                              );
+                            }
                           },
                     child: Text(
-                      strings.isJapanese
-                          ? 'バンドルをアップロード'
-                          : 'Upload bundle',
+                      strings.isJapanese ? 'バンドルをアップロード' : 'Upload bundle',
                     ),
                   ),
                 if (syncProvider != SyncProvider.off &&
@@ -3153,6 +3825,7 @@ class SettingsScreen extends ConsumerWidget {
                     onPressed: syncTransferState.isBusy
                         ? null
                         : () async {
+                            final messenger = ScaffoldMessenger.of(context);
                             final shouldForce =
                                 await showDialog<bool>(
                                   context: context,
@@ -3203,14 +3876,15 @@ class SettingsScreen extends ConsumerWidget {
                             if (message == null || message.isEmpty) {
                               return;
                             }
-                            ScaffoldMessenger.of(
-                              context,
-                            ).showSnackBar(SnackBar(content: Text(message)));
+                            messenger.showSnackBar(
+                              SnackBar(
+                                showCloseIcon: true,
+                                content: Text(message),
+                              ),
+                            );
                           },
                     child: Text(
-                      strings.isJapanese
-                          ? '強制アップロード'
-                          : 'Force upload',
+                      strings.isJapanese ? '強制アップロード' : 'Force upload',
                     ),
                   ),
                 if (syncProvider != SyncProvider.off &&
@@ -3230,6 +3904,7 @@ class SettingsScreen extends ConsumerWidget {
                               if (history.isEmpty) {
                                 messenger.showSnackBar(
                                   SnackBar(
+                                    showCloseIcon: true,
                                     content: Text(
                                       strings.isJapanese
                                           ? '利用できるリモートバンドル履歴がありません。'
@@ -3269,11 +3944,15 @@ class SettingsScreen extends ConsumerWidget {
                                   .message;
                               if (message != null && message.isNotEmpty) {
                                 messenger.showSnackBar(
-                                  SnackBar(content: Text(message)),
+                                  SnackBar(
+                                    showCloseIcon: true,
+                                    content: Text(message),
+                                  ),
                                 );
                               } else {
                                 messenger.showSnackBar(
                                   SnackBar(
+                                    showCloseIcon: true,
                                     content: Text(
                                       strings.isJapanese
                                           ? '選択したバンドルを適用候補として保持しました。'
@@ -3287,11 +3966,16 @@ class SettingsScreen extends ConsumerWidget {
                                 return;
                               }
                               messenger.showSnackBar(
-                                SnackBar(content: Text('$error')),
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text('$error'),
+                                ),
                               );
                             }
                           },
-                    child: Text(strings.isJapanese ? 'バンドル履歴' : 'Bundle history'),
+                    child: Text(
+                      strings.isJapanese ? 'バンドル履歴' : 'Bundle history',
+                    ),
                   ),
                 if (syncProvider != SyncProvider.off &&
                     syncAuthState.isAuthenticated)
@@ -3300,26 +3984,40 @@ class SettingsScreen extends ConsumerWidget {
                     onPressed: syncTransferState.isBusy
                         ? null
                         : () async {
-                            await ref
-                                .read(syncTransferControllerProvider.notifier)
-                                .downloadLatestBundle();
-                            if (!context.mounted) {
-                              return;
+                            final messenger = ScaffoldMessenger.of(context);
+                            try {
+                              await ref
+                                  .read(syncTransferControllerProvider.notifier)
+                                  .downloadLatestBundle();
+                              if (!context.mounted) {
+                                return;
+                              }
+                              final message = ref
+                                  .read(syncTransferControllerProvider)
+                                  .message;
+                              if (message == null || message.isEmpty) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text(message),
+                                ),
+                              );
+                            } catch (error) {
+                              if (!context.mounted) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text('$error'),
+                                ),
+                              );
                             }
-                            final message = ref
-                                .read(syncTransferControllerProvider)
-                                .message;
-                            if (message == null || message.isEmpty) {
-                              return;
-                            }
-                            ScaffoldMessenger.of(
-                              context,
-                            ).showSnackBar(SnackBar(content: Text(message)));
                           },
                     child: Text(
-                      strings.isJapanese
-                          ? 'バンドルをダウンロード'
-                          : 'Download bundle',
+                      strings.isJapanese ? 'バンドルをダウンロード' : 'Download bundle',
                     ),
                   ),
                 if (syncTransferState.localBundle != null)
@@ -3345,7 +4043,10 @@ class SettingsScreen extends ConsumerWidget {
                                 return;
                               }
                               messenger.showSnackBar(
-                                SnackBar(content: Text('$error')),
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text('$error'),
+                                ),
                               );
                             }
                           },
@@ -3384,7 +4085,10 @@ class SettingsScreen extends ConsumerWidget {
                                 return;
                               }
                               messenger.showSnackBar(
-                                SnackBar(content: Text('$error')),
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text('$error'),
+                                ),
                               );
                               return;
                             }
@@ -3400,9 +4104,12 @@ class SettingsScreen extends ConsumerWidget {
                             if (message == null || message.isEmpty) {
                               return;
                             }
-                            ScaffoldMessenger.of(
-                              context,
-                            ).showSnackBar(SnackBar(content: Text(message)));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                showCloseIcon: true,
+                                content: Text(message),
+                              ),
+                            );
                           },
                     child: Text(
                       strings.isJapanese ? 'バンドルを適用' : 'Apply bundle',
@@ -3428,13 +4135,13 @@ class SettingsScreen extends ConsumerWidget {
                           content: Text(
                             strings.isJapanese
                                 ? 'ノート: ${snapshot.notes.length}\n'
-                                  '添付: ${snapshot.attachments.length}\n'
-                                  'キュー: ${snapshot.summary.totalChanges}件保留中\n'
-                                  '端末 ID: ${snapshot.deviceId}'
+                                      '添付: ${snapshot.attachments.length}\n'
+                                      'キュー: ${snapshot.summary.totalChanges}件保留中\n'
+                                      '端末 ID: ${snapshot.deviceId}'
                                 : 'Notes: ${snapshot.notes.length}\n'
-                                  'Attachments: ${snapshot.attachments.length}\n'
-                                  'Queue: ${snapshot.summary.totalChanges} pending\n'
-                                  'Device ID: ${snapshot.deviceId}',
+                                      'Attachments: ${snapshot.attachments.length}\n'
+                                      'Queue: ${snapshot.summary.totalChanges} pending\n'
+                                      'Device ID: ${snapshot.deviceId}',
                           ),
                           actions: [
                             TextButton(
@@ -3447,9 +4154,7 @@ class SettingsScreen extends ConsumerWidget {
                     );
                   },
                   child: Text(
-                    strings.isJapanese
-                        ? 'スナップショットを確認'
-                        : 'Inspect snapshot',
+                    strings.isJapanese ? 'スナップショットを確認' : 'Inspect snapshot',
                   ),
                 ),
               ],
@@ -3471,19 +4176,106 @@ class SettingsScreen extends ConsumerWidget {
                     ? 'この端末に保存されたノート'
                     : 'Saved notes on this device',
               ),
-              subtitle: Text(strings.isJapanese ? '$noteCount 件' : '$noteCount entries'),
+              subtitle: Text(
+                strings.isJapanese ? '$noteCount 件' : '$noteCount entries',
+              ),
             ),
             Align(
               alignment: Alignment.centerLeft,
-              child: OutlinedButton(
-                onPressed: () {
-                  ref.read(notesControllerProvider.notifier).seedIfEmpty();
-                },
-                child: Text(
-                  strings.isJapanese
-                      ? '空の場合にサンプルノートを復元'
-                      : 'Restore sample notes if empty',
-                ),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton(
+                    onPressed: () async {
+                      await ref
+                          .read(notesControllerProvider.notifier)
+                          .seedIfEmpty();
+                      if (!context.mounted) {
+                        return;
+                      }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          showCloseIcon: true,
+                          content: Text(
+                            strings.isJapanese
+                                ? 'デモ用ノートを復元しました。'
+                                : 'Demo notes restored.',
+                          ),
+                        ),
+                      );
+                    },
+                    child: Text(
+                      strings.isJapanese
+                          ? 'デモ用ノートを空の場合に復元'
+                          : 'Restore sample notes if empty',
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    key: deleteDemoNotesKey,
+                    onPressed: demoNoteCount == 0
+                        ? null
+                        : () async {
+                            final confirmed = await showDialog<bool>(
+                              context: context,
+                              builder: (dialogContext) {
+                                return AlertDialog(
+                                  title: Text(
+                                    strings.isJapanese
+                                        ? 'デモ用ノートを削除しますか？'
+                                        : 'Delete demo notes?',
+                                  ),
+                                  content: Text(
+                                    strings.isJapanese
+                                        ? 'デモ用ノート $demoNoteCount 件をこの端末から削除します。自分で作成したノートは削除されません。'
+                                        : 'This deletes $demoNoteCount demo notes from this device. Notes you created are not deleted.',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.of(
+                                        dialogContext,
+                                      ).pop(false),
+                                      child: Text(
+                                        strings.isJapanese ? 'キャンセル' : 'Cancel',
+                                      ),
+                                    ),
+                                    FilledButton(
+                                      onPressed: () =>
+                                          Navigator.of(dialogContext).pop(true),
+                                      child: Text(
+                                        strings.isJapanese ? '削除' : 'Delete',
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            );
+                            if (confirmed != true) {
+                              return;
+                            }
+                            final deletedCount = await ref
+                                .read(notesControllerProvider.notifier)
+                                .deleteDemoNotes();
+                            if (!context.mounted) {
+                              return;
+                            }
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                showCloseIcon: true,
+                                content: Text(
+                                  strings.isJapanese
+                                      ? 'デモ用ノート $deletedCount 件を削除しました。'
+                                      : 'Deleted $deletedCount demo notes.',
+                                ),
+                              ),
+                            );
+                          },
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    label: Text(
+                      strings.isJapanese ? 'デモ用ノートを削除' : 'Delete demo notes',
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -3514,7 +4306,9 @@ class SettingsScreen extends ConsumerWidget {
             _ThemeOptionTile(
               tileKey: SettingsScreen.localeJapaneseKey,
               title: strings.languageJapanese,
-              subtitle: strings.isJapanese ? '表示を日本語に固定します。' : 'Use Japanese across the app.',
+              subtitle: strings.isJapanese
+                  ? '表示を日本語に固定します。'
+                  : 'Use Japanese across the app.',
               selected: localeSetting == AppLocaleSetting.japanese,
               onTap: () => ref
                   .read(appLocaleControllerProvider.notifier)
@@ -3523,7 +4317,9 @@ class SettingsScreen extends ConsumerWidget {
             _ThemeOptionTile(
               tileKey: SettingsScreen.localeEnglishKey,
               title: strings.languageEnglish,
-              subtitle: strings.isJapanese ? '表示を英語に固定します。' : 'Use English across the app.',
+              subtitle: strings.isJapanese
+                  ? '表示を英語に固定します。'
+                  : 'Use English across the app.',
               selected: localeSetting == AppLocaleSetting.english,
               onTap: () => ref
                   .read(appLocaleControllerProvider.notifier)
@@ -3632,7 +4428,8 @@ class SettingsScreen extends ConsumerWidget {
                     ? strings.appUpdatesDesc
                     : [
                         inAppUpdateSummary,
-                        if (inAppUpdateState.status?.availableVersionCode != null)
+                        if (inAppUpdateState.status?.availableVersionCode !=
+                            null)
                           strings.updateVersionLabel(
                             inAppUpdateState.status?.availableVersionCode,
                           ),
@@ -3664,9 +4461,12 @@ class SettingsScreen extends ConsumerWidget {
                               .read(inAppUpdateControllerProvider)
                               .message;
                           if (message != null && message.isNotEmpty) {
-                            ScaffoldMessenger.of(
-                              context,
-                            ).showSnackBar(SnackBar(content: Text(message)));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                showCloseIcon: true,
+                                content: Text(message),
+                              ),
+                            );
                           }
                         },
                   child: Text(strings.checkForUpdates),
@@ -3688,9 +4488,12 @@ class SettingsScreen extends ConsumerWidget {
                                 .read(inAppUpdateControllerProvider)
                                 .message;
                             if (message != null && message.isNotEmpty) {
-                              ScaffoldMessenger.of(
-                                context,
-                              ).showSnackBar(SnackBar(content: Text(message)));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text(message),
+                                ),
+                              );
                             }
                           },
                     child: Text(strings.startUpdate),
@@ -3711,9 +4514,12 @@ class SettingsScreen extends ConsumerWidget {
                                 .read(inAppUpdateControllerProvider)
                                 .message;
                             if (message != null && message.isNotEmpty) {
-                              ScaffoldMessenger.of(
-                                context,
-                              ).showSnackBar(SnackBar(content: Text(message)));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text(message),
+                                ),
+                              );
                             }
                           },
                     child: Text(strings.completeUpdateInstall),
@@ -3764,67 +4570,56 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
+  String _syncStatusTitle(BuildContext context, SyncProvider provider) {
+    final strings = context.strings;
+    if (provider == SyncProvider.iCloud) {
+      return strings.isJapanese ? 'iCloud の利用状態' : 'iCloud availability';
+    }
+    return strings.isJapanese ? '認証' : 'Authentication';
+  }
+
+  String _syncConnectLabel(BuildContext context, SyncProvider provider) {
+    final strings = context.strings;
+    if (provider == SyncProvider.iCloud) {
+      return strings.isJapanese ? 'iCloud を確認' : 'Check iCloud';
+    }
+    return strings.isJapanese ? '接続' : 'Connect';
+  }
+
+  String _syncReconnectLabel(BuildContext context, SyncProvider provider) {
+    final strings = context.strings;
+    if (provider == SyncProvider.iCloud) {
+      return strings.isJapanese ? 'iCloud を再確認' : 'Check again';
+    }
+    return strings.isJapanese ? '再接続' : 'Reconnect';
+  }
+
+  String _syncDisconnectLabel(BuildContext context, SyncProvider provider) {
+    final strings = context.strings;
+    if (provider == SyncProvider.iCloud) {
+      return strings.isJapanese ? 'iCloud 同期を解除' : 'Stop using iCloud';
+    }
+    return strings.isJapanese ? '切断' : 'Disconnect';
+  }
+
   String _syncSubtitle(BuildContext context, SyncProvider provider) {
     final strings = context.strings;
-    if (provider == SyncProvider.off) {
-      return strings.isJapanese ? '同期はオフです。' : 'Sync is disabled.';
-    }
-    if (provider == SyncProvider.iCloud) {
-      return strings.isJapanese
-          ? 'iCloud を選択中です。この端末の iCloud と CloudKit の利用状態を確認して同期します。'
-          : 'iCloud selected. The app checks this device’s iCloud and CloudKit availability before syncing.';
-    }
-    if (provider == SyncProvider.googleDrive) {
-      return strings.isJapanese
-          ? 'Google Drive を選択中です。次に Google アカウントで接続します。'
-          : 'Google Drive selected. Account wiring comes next.';
-    }
-    if (provider == SyncProvider.off) {
-      return strings.isJapanese ? '同期はオフです。' : 'Sync is disabled.';
-    }
-    if (provider == SyncProvider.iCloud) {
-      return strings.isJapanese
-          ? 'iCloud を選択中です。この端末の iCloud 状態を確認して同期します。'
-          : 'iCloud selected. The app checks this device’s iCloud availability before syncing.';
-    }
-    if (provider == SyncProvider.googleDrive) {
-      return strings.isJapanese
-          ? 'Google Drive を選択中です。次に Google アカウントで接続します。'
-          : 'Google Drive selected. Account wiring comes next.';
-    }
     switch (provider) {
       case SyncProvider.off:
         return strings.isJapanese ? '同期はオフです。' : 'Sync is disabled.';
       case SyncProvider.iCloud:
         return strings.isJapanese
-            ? 'iCloud を選択中です。次に Apple ID で接続します。'
-            : 'iCloud selected. Account wiring comes next.';
+            ? 'iCloud を選択中です。この端末で iCloud が使えるか確認してから同期します。HiMemo 用のログインは不要です。'
+            : 'iCloud selected. The app checks this device’s iCloud availability before syncing. No HiMemo login is required.';
       case SyncProvider.googleDrive:
         return strings.isJapanese
-            ? 'Google Drive を選択中です。次に Google アカウントで接続します。'
-            : 'Google Drive selected. Account wiring comes next.';
+            ? 'Google Drive を選択中です。Drive のアプリ専用領域へのアクセスを許可して同期します。'
+            : 'Google Drive selected. Authorize access to Drive app data before syncing.';
     }
   }
 
   String syncSubtitleLegacy(BuildContext context, SyncProvider provider) {
-    if (provider == SyncProvider.off ||
-        provider == SyncProvider.iCloud ||
-        provider == SyncProvider.googleDrive) {
-      return _syncSubtitle(context, provider);
-    }
-    final strings = context.strings;
-    switch (provider) {
-      case SyncProvider.off:
-        return strings.isJapanese ? '同期はオフです。' : 'Sync is disabled.';
-      case SyncProvider.iCloud:
-        return strings.isJapanese
-            ? 'iCloud を選択中です。次にアカウント接続を行います。'
-            : 'iCloud selected. Account wiring comes next.';
-      case SyncProvider.googleDrive:
-        return strings.isJapanese
-            ? 'Google Drive を選択中です。次にアカウント接続を行います。'
-            : 'Google Drive selected. Account wiring comes next.';
-    }
+    return _syncSubtitle(context, provider);
   }
 
   String _syncAuthSummary(
@@ -3833,6 +4628,28 @@ class SettingsScreen extends ConsumerWidget {
     SyncAuthState authState,
   ) {
     final strings = context.strings;
+    if (provider == SyncProvider.iCloud) {
+      switch (authState.stage) {
+        case SyncAuthStage.idle:
+          return strings.isJapanese
+              ? 'まだこの端末の iCloud 利用状態を確認していません。'
+              : 'This device’s iCloud availability has not been checked yet.';
+        case SyncAuthStage.busy:
+          return strings.isJapanese
+              ? 'この端末の iCloud 利用状態を確認しています...'
+              : 'Checking this device’s iCloud availability...';
+        case SyncAuthStage.authenticated:
+          return strings.isJapanese
+              ? 'この端末の iCloud を HiMemo の同期先として利用できます。'
+              : 'This device can use iCloud as the HiMemo sync target.';
+        case SyncAuthStage.unsupported:
+        case SyncAuthStage.error:
+          return authState.message ??
+              (strings.isJapanese
+                  ? 'この端末では iCloud 同期を利用できません。'
+                  : 'iCloud sync is not available on this device.');
+      }
+    }
     if (provider == SyncProvider.off) {
       return strings.isJapanese
           ? 'クラウド同期は接続されていません。'
@@ -4125,13 +4942,7 @@ class _Sidebar extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'HiMemo',
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w700),
-                      ),
                       if (activeIdentity.id != 'daily') ...[
-                        const SizedBox(height: 12),
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
@@ -4150,8 +4961,8 @@ class _Sidebar extends StatelessWidget {
                             style: Theme.of(context).textTheme.labelMedium,
                           ),
                         ),
+                        const SizedBox(height: 8),
                       ],
-                      const SizedBox(height: 8),
                       Text(
                         flavorName,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -4285,7 +5096,9 @@ class _PrivateVaultLockedNotice extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Private vault is locked. Unlock it from Settings to reveal hidden notes.',
+              context.strings.isJapanese
+                  ? 'ロック中のプロファイルは表示されません。設定から対象のプロファイルを解除してください。'
+                  : 'Locked profiles are hidden. Unlock the target profile from Settings to show its notes.',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ),
@@ -4330,13 +5143,16 @@ class _VaultSectionCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(vault.name),
-                  const SizedBox(height: 4),
-                  Text(
-                    vault.description,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: _mutedTextColor(context),
+                  if (vault.id != 'everyday' &&
+                      vault.description.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      vault.description,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: _mutedTextColor(context),
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -4448,6 +5264,7 @@ class _NoteListTile extends StatelessWidget {
     final isEdited = note.updatedAt != null && note.updatedAt != note.createdAt;
     final bodyText = note.body.trim();
     final compactPreview = _normalizeCompactPreview(note.body);
+    final tags = note.normalizedTags;
     final hasDistinctBody =
         bodyText.isNotEmpty &&
         bodyText.replaceAll('\n', ' ').trim() != note.title.trim();
@@ -4552,6 +5369,19 @@ class _NoteListTile extends StatelessWidget {
                     color: _strongMutedTextColor(context),
                   ),
                 ),
+              if (tags.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final tag in tags.take(4))
+                      _NoteTagChip(tag: tag, compact: true),
+                    if (tags.length > 4)
+                      _NoteTagChip(tag: '+${tags.length - 4}', compact: true),
+                  ],
+                ),
+              ],
               if (showAttachmentPreviews && note.attachments.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Row(
@@ -4692,6 +5522,7 @@ class _NoteDetailPager extends ConsumerStatefulWidget {
     required this.onPageChanged,
     required this.onEdit,
     required this.onDelete,
+    this.onTagTap,
     this.controller,
   });
 
@@ -4701,6 +5532,7 @@ class _NoteDetailPager extends ConsumerStatefulWidget {
   final ValueChanged<int> onPageChanged;
   final ValueChanged<NoteEntry> onEdit;
   final ValueChanged<NoteEntry> onDelete;
+  final ValueChanged<String>? onTagTap;
 
   @override
   ConsumerState<_NoteDetailPager> createState() => _NoteDetailPagerState();
@@ -4801,6 +5633,7 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
                   vaultName: ref.watch(vaultByIdProvider(note.vaultId)).name,
                   onEdit: () => widget.onEdit(note),
                   onDelete: () => widget.onDelete(note),
+                  onTagTap: widget.onTagTap,
                 ),
               );
             },
@@ -4817,12 +5650,14 @@ class _NoteDetailPane extends StatelessWidget {
     required this.vaultName,
     this.onEdit,
     this.onDelete,
+    this.onTagTap,
   });
 
   final NoteEntry note;
   final String vaultName;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
+  final ValueChanged<String>? onTagTap;
 
   @override
   Widget build(BuildContext context) {
@@ -4832,6 +5667,7 @@ class _NoteDetailPane extends StatelessWidget {
     final updatedLabel =
         '${changedAt.year}/${changedAt.month}/${changedAt.day} ${changedAt.hour.toString().padLeft(2, '0')}:${changedAt.minute.toString().padLeft(2, '0')}';
     final isEdited = note.updatedAt != null && note.updatedAt != note.createdAt;
+    final tags = note.normalizedTags;
 
     return Container(
       decoration: _sectionDecoration(context),
@@ -4872,11 +5708,25 @@ class _NoteDetailPane extends StatelessWidget {
                 context,
               ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
             ),
+            if (tags.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final tag in tags)
+                    _NoteTagChip(
+                      tag: tag,
+                      onTap: onTagTap == null ? null : () => onTagTap!(tag),
+                    ),
+                ],
+              ),
+            ],
             if (isEdited)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Text(
-                  'Created $createdLabel ﾂｷ Revision ${note.revision}',
+                  'Created $createdLabel · Revision ${note.revision}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: _mutedTextColor(context),
                   ),
@@ -5034,8 +5884,9 @@ class _SettingsOverviewCard extends StatelessWidget {
                       children: [
                         Text(
                           item.label,
-                          style: Theme.of(context).textTheme.labelMedium
-                              ?.copyWith(color: muted),
+                          style: Theme.of(
+                            context,
+                          ).textTheme.labelMedium?.copyWith(color: muted),
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -5085,7 +5936,10 @@ class _SettingsGroup extends StatelessWidget {
           child: ExpansionTile(
             maintainState: true,
             initiallyExpanded: initiallyExpanded,
-            tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            tilePadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 10,
+            ),
             childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
             leading: _SettingsSectionIcon(assetPath: assetPath),
             title: Text(title, style: theme.textTheme.titleMedium),
@@ -5208,6 +6062,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     final query = ref.watch(searchQueryProvider);
     final filters = ref.watch(searchFiltersControllerProvider);
     final visibleVaults = ref.watch(visibleVaultsProvider);
+    final tagSuggestions = ref.watch(visibleTagSuggestionsProvider);
     final hasAdvancedFilters = !filters.isDefault;
     final listDensity = ref.watch(notesListDensityControllerProvider);
     final privateModeActive = ref.watch(privacyScreenActiveProvider);
@@ -5216,7 +6071,8 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     final activeFilterCount =
         (filters.pinnedOnly ? 1 : 0) +
         (filters.withMediaOnly ? 1 : 0) +
-        (filters.vaultId != null ? 1 : 0);
+        (filters.vaultId != null ? 1 : 0) +
+        filters.tags.length;
 
     return Container(
       decoration: _sectionDecoration(context),
@@ -5258,126 +6114,148 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                   CheckedPopupMenuItem(
                     value: NotesListDensity.compact,
                     checked: listDensity == NotesListDensity.compact,
-                    child: Text(strings.isJapanese ? 'コンパクト表示' : 'Compact list'),
+                    child: Text(
+                      strings.isJapanese ? 'コンパクト表示' : 'Compact list',
+                    ),
                   ),
                 ],
-                child: Tooltip(
-                  message: strings.isJapanese ? '表示形式' : 'List layout',
-                  child: Container(
-                    height: 48,
-                    width: 48,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Theme.of(context).dividerColor),
-                      borderRadius: BorderRadius.circular(12),
+                child: Semantics(
+                  button: true,
+                  label: strings.isJapanese ? '表示形式' : 'List layout',
+                  child: Tooltip(
+                    message: strings.isJapanese ? '表示形式' : 'List layout',
+                    child: Container(
+                      height: 48,
+                      width: 48,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: Theme.of(context).dividerColor,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.view_agenda_outlined, size: 20),
                     ),
-                    child: const Icon(Icons.view_agenda_outlined, size: 20),
                   ),
                 ),
               ),
               const SizedBox(width: 8),
-              InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () {
-                  setState(() {
-                    _showAdvanced = !_showAdvanced;
-                  });
-                },
-                child: Container(
-                  height: 48,
-                  width: compactToolbarButtons ? 48 : null,
-                  constraints: BoxConstraints(
-                    minWidth: compactToolbarButtons ? 48 : 84,
-                  ),
-                  alignment: Alignment.center,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: compactToolbarButtons ? 0 : 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _showAdvanced || hasAdvancedFilters
-                        ? Theme.of(context).colorScheme.primaryContainer
-                        : null,
-                    border: Border.all(color: Theme.of(context).dividerColor),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: compactToolbarButtons
-                      ? Stack(
-                          alignment: Alignment.center,
-                          clipBehavior: Clip.none,
-                          children: [
-                            const Icon(Icons.tune_rounded, size: 20),
-                            if (activeFilterCount > 0)
-                              Positioned(
-                                top: 6,
-                                right: 6,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 5,
-                                    vertical: 1,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Theme.of(context).colorScheme.primary,
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    '$activeFilterCount',
-                                    style: Theme.of(context).textTheme.labelSmall
-                                        ?.copyWith(
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.onPrimary,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        )
-                      : Stack(
-                          alignment: Alignment.center,
-                          clipBehavior: Clip.none,
-                          children: [
-                            Align(
-                              alignment: Alignment.center,
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.tune_rounded, size: 20),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    strings.isJapanese ? '詳細' : 'Filters',
-                                    style: Theme.of(context).textTheme.labelLarge,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (activeFilterCount > 0)
-                              Positioned(
-                                top: 6,
-                                right: 8,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 5,
-                                    vertical: 1,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Theme.of(context).colorScheme.primary,
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    '$activeFilterCount',
-                                    style: Theme.of(context).textTheme.labelSmall
-                                        ?.copyWith(
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.onPrimary,
-                                          fontWeight: FontWeight.w700,
-                                        ),
+              Semantics(
+                button: true,
+                label: strings.isJapanese ? '詳細' : 'Filters',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    setState(() {
+                      _showAdvanced = !_showAdvanced;
+                    });
+                  },
+                  child: Container(
+                    height: 48,
+                    width: compactToolbarButtons ? 48 : null,
+                    constraints: BoxConstraints(
+                      minWidth: compactToolbarButtons ? 48 : 84,
+                    ),
+                    alignment: Alignment.center,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: compactToolbarButtons ? 0 : 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _showAdvanced || hasAdvancedFilters
+                          ? Theme.of(context).colorScheme.primaryContainer
+                          : null,
+                      border: Border.all(color: Theme.of(context).dividerColor),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: compactToolbarButtons
+                        ? Stack(
+                            alignment: Alignment.center,
+                            clipBehavior: Clip.none,
+                            children: [
+                              const Icon(Icons.tune_rounded, size: 20),
+                              if (activeFilterCount > 0)
+                                Positioned(
+                                  top: 6,
+                                  right: 6,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 5,
+                                      vertical: 1,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.primary,
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Text(
+                                      '$activeFilterCount',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelSmall
+                                          ?.copyWith(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onPrimary,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                    ),
                                   ),
                                 ),
+                            ],
+                          )
+                        : Stack(
+                            alignment: Alignment.center,
+                            clipBehavior: Clip.none,
+                            children: [
+                              Align(
+                                alignment: Alignment.center,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.tune_rounded, size: 20),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      strings.isJapanese ? '詳細' : 'Filters',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.labelLarge,
+                                    ),
+                                  ],
+                                ),
                               ),
-                          ],
-                        ),
+                              if (activeFilterCount > 0)
+                                Positioned(
+                                  top: 6,
+                                  right: 8,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 5,
+                                      vertical: 1,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.primary,
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Text(
+                                      '$activeFilterCount',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelSmall
+                                          ?.copyWith(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onPrimary,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                  ),
                 ),
               ),
             ],
@@ -5388,9 +6266,25 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
               strings.isJapanese
                   ? 'プライベート表示を閉じると検索語は消去されます。'
                   : 'Search terms are cleared when private mode closes.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: _mutedTextColor(context),
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+            ),
+          ],
+          if (!_showAdvanced && filters.tags.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final tag in filters.tags)
+                  InputChip(
+                    label: Text('#$tag'),
+                    onDeleted: () => ref
+                        .read(searchFiltersControllerProvider.notifier)
+                        .removeTag(tag),
+                  ),
+              ],
             ),
           ],
           if (_showAdvanced) ...[
@@ -5464,6 +6358,35 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                         .read(searchFiltersControllerProvider.notifier)
                         .setVault,
                   ),
+                  const SizedBox(height: 12),
+                  _TagAutocompleteField(
+                    key: const Key('search-tag-input'),
+                    suggestions: tagSuggestions,
+                    label: strings.isJapanese ? 'タグで絞り込み' : 'Filter by tag',
+                    hintText: strings.isJapanese
+                        ? 'タグを追加して絞り込み'
+                        : 'Add tags to narrow the list',
+                    existingTags: filters.tags,
+                    onTagSelected: ref
+                        .read(searchFiltersControllerProvider.notifier)
+                        .addTag,
+                  ),
+                  if (filters.tags.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final tag in filters.tags)
+                          InputChip(
+                            label: Text('#$tag'),
+                            onDeleted: () => ref
+                                .read(searchFiltersControllerProvider.notifier)
+                                .removeTag(tag),
+                          ),
+                      ],
+                    ),
+                  ],
                   if (hasAdvancedFilters) ...[
                     const SizedBox(height: 8),
                     Align(
@@ -5505,6 +6428,163 @@ class _InfoChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Chip(avatar: Icon(icon, size: 16), label: Text(text));
+  }
+}
+
+class _NoteTagChip extends StatelessWidget {
+  const _NoteTagChip({required this.tag, this.onTap, this.compact = false});
+
+  final String tag;
+  final VoidCallback? onTap;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = '#$tag';
+    final chipLabel = Text(
+      label,
+      style: Theme.of(context).textTheme.labelSmall,
+    );
+    if (onTap == null) {
+      return Chip(
+        visualDensity: VisualDensity.compact,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        side: BorderSide(color: Theme.of(context).dividerColor),
+        label: chipLabel,
+      );
+    }
+    return ActionChip(
+      label: chipLabel,
+      onPressed: onTap,
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      side: BorderSide(color: Theme.of(context).dividerColor),
+    );
+  }
+}
+
+class _TagAutocompleteField extends StatefulWidget {
+  const _TagAutocompleteField({
+    super.key,
+    required this.suggestions,
+    required this.label,
+    required this.hintText,
+    required this.existingTags,
+    required this.onTagSelected,
+  });
+
+  final List<String> suggestions;
+  final String label;
+  final String hintText;
+  final List<String> existingTags;
+  final ValueChanged<String> onTagSelected;
+
+  @override
+  State<_TagAutocompleteField> createState() => _TagAutocompleteFieldState();
+}
+
+class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
+  late final TextEditingController _controller;
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+    _focusNode = FocusNode();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _submitTag(String raw) {
+    final normalized = normalizeNoteTag(raw);
+    if (normalized.isEmpty) {
+      return;
+    }
+    final existingKeys = widget.existingTags.map(canonicalizeNoteTag).toSet();
+    if (existingKeys.contains(canonicalizeNoteTag(normalized))) {
+      _controller.clear();
+      return;
+    }
+    widget.onTagSelected(normalized);
+    _controller.clear();
+    _focusNode.requestFocus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final existingKeys = widget.existingTags.map(canonicalizeNoteTag).toSet();
+    final filteredSuggestions = widget.suggestions
+        .where((tag) => !existingKeys.contains(canonicalizeNoteTag(tag)))
+        .toList(growable: false);
+    return RawAutocomplete<String>(
+      textEditingController: _controller,
+      focusNode: _focusNode,
+      optionsBuilder: (value) {
+        final input = canonicalizeNoteTag(value.text);
+        if (input.isEmpty) {
+          return filteredSuggestions.take(8);
+        }
+        return filteredSuggestions
+            .where((tag) => canonicalizeNoteTag(tag).contains(input))
+            .take(8);
+      },
+      displayStringForOption: (option) => option,
+      onSelected: _submitTag,
+      fieldViewBuilder:
+          (context, textEditingController, focusNode, onSubmitted) {
+            return TextFormField(
+              controller: textEditingController,
+              focusNode: focusNode,
+              decoration: InputDecoration(
+                labelText: widget.label,
+                hintText: widget.hintText,
+                border: const OutlineInputBorder(),
+                isDense: true,
+                prefixIcon: const Icon(Icons.sell_outlined),
+              ),
+              onFieldSubmitted: _submitTag,
+            );
+          },
+      optionsViewBuilder: (context, onSelected, options) {
+        final matches = options.toList(growable: false);
+        if (matches.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        return Align(
+          alignment: Alignment.topLeft,
+          child: Material(
+            elevation: 4,
+            borderRadius: BorderRadius.circular(12),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 320, maxHeight: 240),
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                shrinkWrap: true,
+                children: [
+                  for (final option in matches)
+                    ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.sell_outlined, size: 18),
+                      title: Text(option),
+                      onTap: () => onSelected(option),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -5720,6 +6800,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late bool _isPinned;
   late NoteEditorMode _editorMode;
   late List<NoteAttachment> _attachments;
+  late List<String> _tags;
   late List<_RichBlockDraft> _richBlocks;
   late final Set<String> _initialAttachmentPaths;
   final Set<String> _pendingAttachmentDeletes = <String>{};
@@ -5747,6 +6828,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             ? NoteEditorMode.rich
             : lastSettings.mode);
     _attachments = [...?widget.note?.attachments];
+    _tags = [...?widget.note?.tags];
     _richBlocks = _buildInitialRichBlocks();
     for (final block in _richBlocks) {
       _attachRichBlockListener(block);
@@ -5772,32 +6854,29 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (!_saved && widget.note == null && _selectedVaultId != null) {
       unawaited(
         _draftStore.save(
-              NoteEditorDraftSnapshot(
-                createdAt: _createdAt,
-                isPinned: _isPinned,
-                editorMode: _editorMode,
-                vaultId: _selectedVaultId!,
-                quickContent: _contentController.text,
-                quickAttachments: _attachments,
-                richBlocks: _richBlocksToNoteBlocks(),
-              ),
-            ),
+          NoteEditorDraftSnapshot(
+            createdAt: _createdAt,
+            isPinned: _isPinned,
+            editorMode: _editorMode,
+            vaultId: _selectedVaultId!,
+            tags: _tags,
+            quickContent: _contentController.text,
+            quickAttachments: _attachments,
+            richBlocks: _richBlocksToNoteBlocks(),
+          ),
+        ),
       );
     }
     if (!_saved) {
       for (final filePath in _pendingAttachmentDeletes) {
-        unawaited(
-          _attachmentStore.deleteAttachment(filePath),
-        );
+        unawaited(_attachmentStore.deleteAttachment(filePath));
       }
       for (final attachment in _allCurrentAttachments) {
         final filePath = attachment.filePath;
         if (filePath == null || _initialAttachmentPaths.contains(filePath)) {
           continue;
         }
-        unawaited(
-          _attachmentStore.deleteAttachment(filePath),
-        );
+        unawaited(_attachmentStore.deleteAttachment(filePath));
       }
     }
     _contentController.removeListener(_handleTextChanged);
@@ -5891,6 +6970,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       _isPinned = draft.isPinned;
       _editorMode = draft.editorMode;
       _selectedVaultId = draft.vaultId;
+      _tags = [...draft.tags];
       _contentController.text = draft.quickContent;
       _attachments = [...draft.quickAttachments];
       for (final block in _richBlocks) {
@@ -5934,6 +7014,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     }
     _draftSaveTimer?.cancel();
     _draftSaveTimer = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted || _editorDisposed) {
+        return;
+      }
       final vaultId = _selectedVaultId;
       if (vaultId == null) {
         return;
@@ -5946,6 +7029,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
               isPinned: _isPinned,
               editorMode: _editorMode,
               vaultId: vaultId,
+              tags: _tags,
               quickContent: _contentController.text,
               quickAttachments: _attachments,
               richBlocks: _richBlocksToNoteBlocks(),
@@ -6049,7 +7133,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final privateProfiles = ref.watch(privateMemoProfilesControllerProvider);
-    final accessiblePrivateVaultIds = ref.watch(accessiblePrivateVaultIdsProvider);
+    final accessiblePrivateVaultIds = ref.watch(
+      accessiblePrivateVaultIdsProvider,
+    );
     final adminMode = ref.watch(adminModeSessionControllerProvider);
     final privateTargets = <VaultBucket>[
       for (final vaultId in accessiblePrivateVaultIds)
@@ -6070,7 +7156,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             ),
     ];
     final hasPrivateTargets = privateTargets.isNotEmpty;
-    final isPrivateSelection = _selectedVaultId != null && _selectedVaultId != 'everyday';
     _selectedVaultId ??= widget.note?.vaultId ?? 'everyday';
     if (_selectedVaultId != 'everyday' &&
         !privateTargets.any((vault) => vault.id == _selectedVaultId)) {
@@ -6082,6 +7167,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         privateTargets.any((vault) => vault.id == widget.note!.vaultId)) {
       _selectedVaultId = widget.note!.vaultId;
     }
+    final isPrivateSelection = _selectedVaultId != 'everyday';
 
     return SafeArea(
       child: Padding(
@@ -6137,30 +7223,54 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                           PopupMenuButton<MediaImportAction>(
                             key: const Key('note-media-menu'),
                             tooltip: strings.addMedia,
-                            icon: const Icon(Icons.add_photo_alternate_outlined),
+                            icon: const Icon(
+                              Icons.add_photo_alternate_outlined,
+                            ),
                             onSelected: _handleAttachmentAction,
                             itemBuilder: (context) => [
                               if (!kIsWeb)
                                 PopupMenuItem(
                                   value: MediaImportAction.takePhoto,
-                                  child: Text(strings.takePhoto),
+                                  child: _MediaMenuEntry(
+                                    icon: Icons.photo_camera_outlined,
+                                    label: strings.takePhoto,
+                                  ),
                                 ),
                               PopupMenuItem(
                                 value: MediaImportAction.pickPhoto,
-                                child: Text(strings.pickPhoto),
+                                child: _MediaMenuEntry(
+                                  icon: Icons.photo_library_outlined,
+                                  label: strings.pickPhoto,
+                                ),
                               ),
                               if (!kIsWeb)
                                 PopupMenuItem(
                                   value: MediaImportAction.recordVideo,
-                                  child: Text(strings.recordVideo),
+                                  child: _MediaMenuEntry(
+                                    icon: Icons.videocam_outlined,
+                                    label: strings.recordVideo,
+                                  ),
                                 ),
                               PopupMenuItem(
                                 value: MediaImportAction.pickVideo,
-                                child: Text(strings.pickVideo),
+                                child: _MediaMenuEntry(
+                                  icon: Icons.video_library_outlined,
+                                  label: strings.pickVideo,
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: MediaImportAction.recordAudio,
+                                child: _MediaMenuEntry(
+                                  icon: Icons.mic_none_rounded,
+                                  label: strings.recordAudio,
+                                ),
                               ),
                               PopupMenuItem(
                                 value: MediaImportAction.pickAudio,
-                                child: Text(strings.pickAudio),
+                                child: _MediaMenuEntry(
+                                  icon: Icons.graphic_eq_rounded,
+                                  label: strings.pickAudio,
+                                ),
                               ),
                             ],
                           ),
@@ -6269,6 +7379,61 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       onMove: _moveQuickAttachment,
                     ),
                   const SizedBox(height: 12),
+                  Container(
+                    decoration: _sectionDecoration(context),
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          strings.isJapanese ? 'タグ' : 'Tags',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 8),
+                        _TagAutocompleteField(
+                          key: const Key('note-tag-input'),
+                          suggestions: ref.watch(visibleTagSuggestionsProvider),
+                          label: strings.isJapanese ? 'タグを追加' : 'Add a tag',
+                          hintText: strings.isJapanese
+                              ? '自由なタグを追加できます'
+                              : 'Type a tag and press enter',
+                          existingTags: _tags,
+                          onTagSelected: (tag) {
+                            setState(() {
+                              _tags = dedupeNoteTags([..._tags, tag]);
+                            });
+                            _scheduleDraftPersist();
+                          },
+                        ),
+                        if (_tags.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final tag in _tags)
+                                InputChip(
+                                  label: Text('#$tag'),
+                                  onDeleted: () {
+                                    setState(() {
+                                      _tags = _tags
+                                          .where(
+                                            (entry) =>
+                                                canonicalizeNoteTag(entry) !=
+                                                canonicalizeNoteTag(tag),
+                                          )
+                                          .toList(growable: false);
+                                    });
+                                    _scheduleDraftPersist();
+                                  },
+                                ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   if (hasPrivateTargets)
                     SwitchListTile.adaptive(
                       key: const Key('note-save-private-toggle'),
@@ -6299,7 +7464,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                         _scheduleDraftPersist();
                       },
                     ),
-                  if (isPrivateSelection && adminMode && privateTargets.length > 1)
+                  if (isPrivateSelection &&
+                      adminMode &&
+                      privateTargets.length > 1)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: DropdownButtonFormField<String>(
@@ -6357,17 +7524,13 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   bool get _canSave {
     final hasText = _editorMode == NoteEditorMode.quick
         ? _splitMemoContent(_contentController.text).title.isNotEmpty ||
-            _splitMemoContent(_contentController.text).body.isNotEmpty
+              _splitMemoContent(_contentController.text).body.isNotEmpty
         : _deriveRichTitle().isNotEmpty || _deriveRichBody().isNotEmpty;
     final hasAttachments = _allCurrentAttachments.isNotEmpty;
     return (hasText || hasAttachments) && _selectedVaultId != null;
   }
 
-  void _showEditorSnackBar({
-    required Widget content,
-    SnackBarAction? action,
-  }) {
-    final strings = context.strings;
+  void _showEditorSnackBar({required Widget content, SnackBarAction? action}) {
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
     final mediaQuery = MediaQuery.of(context);
@@ -6377,26 +7540,16 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         ? null
         : math.min(420.0, availableWidth);
     final useFloating =
-        mediaQuery.size.width >= 520 && mediaQuery.size.height - bottomInset >= 720;
+        mediaQuery.size.width >= 520 &&
+        mediaQuery.size.height - bottomInset >= 720;
     messenger.showSnackBar(
       SnackBar(
-        content: Row(
-          children: [
-            Expanded(child: content),
-            const SizedBox(width: 8),
-            IconButton(
-              onPressed: messenger.hideCurrentSnackBar,
-              icon: const Icon(Icons.close_rounded),
-              tooltip: strings.dismiss,
-              visualDensity: VisualDensity.compact,
-              iconSize: 18,
-              padding: const EdgeInsets.all(4),
-              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-            ),
-          ],
-        ),
+        showCloseIcon: true,
+        content: content,
         action: action,
-        behavior: useFloating ? SnackBarBehavior.floating : SnackBarBehavior.fixed,
+        behavior: useFloating
+            ? SnackBarBehavior.floating
+            : SnackBarBehavior.fixed,
         width: useFloating ? snackBarWidth : null,
         margin: useFloating
             ? EdgeInsets.fromLTRB(16, 0, 16, bottomInset + 16)
@@ -6448,24 +7601,29 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _showEditorSnackBar(
       content: Text(context.strings.dateTimeUpdated),
       action: SnackBarAction(
-          label: context.strings.undo,
-          onPressed: () {
-            if (!mounted) {
-              return;
-            }
-            setState(() {
-              _createdAt = previous;
-            });
-            _scheduleDraftPersist();
-          },
-        ),
+        label: context.strings.undo,
+        onPressed: () {
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _createdAt = previous;
+          });
+          _scheduleDraftPersist();
+        },
+      ),
     );
   }
 
   Future<void> _handleAttachmentAction(MediaImportAction action) async {
-    final result = await ref
-        .read(mediaImportServiceProvider)
-        .importAttachment(action);
+    final MediaImportResult result;
+    if (action == MediaImportAction.recordAudio) {
+      // ignore: use_build_context_synchronously
+      result = await _showAudioRecordingDialog(context, ref);
+    } else {
+      final mediaImportService = ref.read(mediaImportServiceProvider);
+      result = await mediaImportService.importAttachment(action);
+    }
     if (!mounted) {
       return;
     }
@@ -6570,6 +7728,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                 .whereType<NoteAttachment>()
                 .toList(growable: false),
       blocks: blocks,
+      tags: dedupeNoteTags(_tags),
       isPinned: _isPinned,
       revision: widget.note?.revision ?? 1,
       deviceId: widget.note?.deviceId,
@@ -6653,18 +7812,18 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _showEditorSnackBar(
       content: Text(context.strings.attachmentRemoved(removed.label)),
       action: SnackBarAction(
-          label: context.strings.undo,
-          onPressed: () {
-            if (!mounted) {
-              return;
-            }
-            setState(() {
-              _attachments.insert(index.clamp(0, _attachments.length), removed);
-            });
-            _cancelAttachmentDelete(removed);
-            _scheduleDraftPersist();
-          },
-        ),
+        label: context.strings.undo,
+        onPressed: () {
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _attachments.insert(index.clamp(0, _attachments.length), removed);
+          });
+          _cancelAttachmentDelete(removed);
+          _scheduleDraftPersist();
+        },
+      ),
     );
   }
 
@@ -6802,21 +7961,21 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       _showEditorSnackBar(
         content: Text(context.strings.attachmentRemoved(attachment.label)),
         action: SnackBarAction(
-            label: context.strings.undo,
-            onPressed: () {
-              if (!mounted) {
-                return;
-              }
-              setState(() {
-                _richBlocks.insert(
-                  restoreIndex,
-                  _RichBlockDraft.attachment(attachment),
-                );
-              });
-              _cancelAttachmentDelete(attachment);
-              _scheduleDraftPersist();
-            },
-          ),
+          label: context.strings.undo,
+          onPressed: () {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _richBlocks.insert(
+                restoreIndex,
+                _RichBlockDraft.attachment(attachment),
+              );
+            });
+            _cancelAttachmentDelete(attachment);
+            _scheduleDraftPersist();
+          },
+        ),
       );
     }
     _queueAttachmentDelete(attachment);
@@ -7018,6 +8177,29 @@ class _RichBlockEditorTile extends StatelessWidget {
   }
 }
 
+class _MediaMenuEntry extends StatelessWidget {
+  const _MediaMenuEntry({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          icon,
+          size: 20,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+        const SizedBox(width: 12),
+        Flexible(child: Text(label)),
+      ],
+    );
+  }
+}
+
 class _CompactMediaActionRail extends StatelessWidget {
   const _CompactMediaActionRail({
     required this.canMovePrevious,
@@ -7118,9 +8300,7 @@ class _QuickAttachmentSection extends StatelessWidget {
           const SizedBox(height: 8),
           if (attachments.isEmpty)
             Text(
-              kIsWeb
-                  ? strings.attachFromBrowser
-                  : strings.attachFromDevice,
+              kIsWeb ? strings.attachFromBrowser : strings.attachFromDevice,
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
@@ -7253,11 +8433,58 @@ Future<void> _shareAttachment(
   final filePath = attachment.filePath;
   if (filePath == null || filePath.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('This attachment cannot be shared yet.')),
+      const SnackBar(
+        showCloseIcon: true,
+        content: Text('This attachment cannot be shared yet.'),
+      ),
     );
     return;
   }
-  await Share.shareXFiles([XFile(filePath)], text: attachment.label);
+
+  final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+  if (kIsWeb) {
+    final bytes = await attachmentStore.readAttachment(
+      filePath,
+      type: attachment.type,
+    );
+    if (bytes == null || bytes.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            showCloseIcon: true,
+            content: Text('Unable to decrypt this attachment.'),
+          ),
+        );
+      }
+      return;
+    }
+    await Share.shareXFiles([
+      XFile.fromData(Uint8List.fromList(bytes), name: attachment.label),
+    ], text: attachment.label);
+    return;
+  }
+
+  final tempFilePath = await attachmentStore.materializeDecryptedFile(
+    filePath,
+    type: attachment.type,
+    preferredFileName: attachment.label,
+  );
+  if (tempFilePath == null || tempFilePath.isEmpty) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          showCloseIcon: true,
+          content: Text('Unable to decrypt this attachment.'),
+        ),
+      );
+    }
+    return;
+  }
+  try {
+    await Share.shareXFiles([XFile(tempFilePath)], text: attachment.label);
+  } finally {
+    await attachmentStore.deleteMaterializedFile(tempFilePath);
+  }
 }
 
 class _EmbeddedAttachmentBlock extends ConsumerWidget {
@@ -7501,9 +8728,7 @@ String _remoteBundleSummary(
   SyncProvider provider,
   SyncTransferState transferState,
 ) {
-  final strings = AppStrings(
-    WidgetsBinding.instance.platformDispatcher.locale,
-  );
+  final strings = AppStrings(WidgetsBinding.instance.platformDispatcher.locale);
   if (provider == SyncProvider.off) {
     return strings.isJapanese
         ? 'リモートバンドル保存先はまだ設定されていません。'
@@ -7578,11 +8803,31 @@ Future<bool?> _showBundlePreviewDialog(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(strings.isJapanese ? 'バンドル内ノート: ${preview.noteCount}' : 'Notes in bundle: ${preview.noteCount}'),
-                Text(strings.isJapanese ? 'バンドル内添付: ${preview.attachmentCount}' : 'Attachments in bundle: ${preview.attachmentCount}'),
-                Text(strings.isJapanese ? '追加: ${preview.addedCount}' : 'Adds: ${preview.addedCount}'),
-                Text(strings.isJapanese ? '更新: ${preview.updatedCount}' : 'Updates: ${preview.updatedCount}'),
-                Text(strings.isJapanese ? 'この端末で削除されるもの: ${preview.removedCount}' : 'Removals on this device: ${preview.removedCount}'),
+                Text(
+                  strings.isJapanese
+                      ? 'バンドル内ノート: ${preview.noteCount}'
+                      : 'Notes in bundle: ${preview.noteCount}',
+                ),
+                Text(
+                  strings.isJapanese
+                      ? 'バンドル内添付: ${preview.attachmentCount}'
+                      : 'Attachments in bundle: ${preview.attachmentCount}',
+                ),
+                Text(
+                  strings.isJapanese
+                      ? '追加: ${preview.addedCount}'
+                      : 'Adds: ${preview.addedCount}',
+                ),
+                Text(
+                  strings.isJapanese
+                      ? '更新: ${preview.updatedCount}'
+                      : 'Updates: ${preview.updatedCount}',
+                ),
+                Text(
+                  strings.isJapanese
+                      ? 'この端末で削除されるもの: ${preview.removedCount}'
+                      : 'Removals on this device: ${preview.removedCount}',
+                ),
                 if (preview.privateVaultNoteCount > 0)
                   Text(
                     strings.isJapanese
@@ -7590,12 +8835,24 @@ Future<bool?> _showBundlePreviewDialog(
                         : 'Private vault notes affected: ${preview.privateVaultNoteCount}',
                   ),
                 if (preview.deviceId != null && preview.deviceId!.isNotEmpty)
-                  Text(strings.isJapanese ? 'リモート端末: ${preview.deviceId}' : 'Remote device: ${preview.deviceId}'),
+                  Text(
+                    strings.isJapanese
+                        ? 'リモート端末: ${preview.deviceId}'
+                        : 'Remote device: ${preview.deviceId}',
+                  ),
                 if (preview.exportedAt != null)
-                  Text(strings.isJapanese ? '書き出し日時: ${_formatDateTime(preview.exportedAt!)}' : 'Exported at: ${_formatDateTime(preview.exportedAt!)}'),
+                  Text(
+                    strings.isJapanese
+                        ? '書き出し日時: ${_formatDateTime(preview.exportedAt!)}'
+                        : 'Exported at: ${_formatDateTime(preview.exportedAt!)}',
+                  ),
                 if (preview.sampleTitles.isNotEmpty) ...[
                   const SizedBox(height: 12),
-                  Text(strings.isJapanese ? 'サンプル: ${preview.sampleTitles.join(', ')}' : 'Bundle sample: ${preview.sampleTitles.join(', ')}'),
+                  Text(
+                    strings.isJapanese
+                        ? 'サンプル: ${preview.sampleTitles.join(', ')}'
+                        : 'Bundle sample: ${preview.sampleTitles.join(', ')}',
+                  ),
                 ],
                 _PreviewTitlesSection(
                   title: strings.isJapanese ? '追加されるノート' : 'Added notes',
@@ -7606,7 +8863,9 @@ Future<bool?> _showBundlePreviewDialog(
                   titles: preview.updatedTitles,
                 ),
                 _PreviewTitlesSection(
-                  title: strings.isJapanese ? '適用後にこの端末で消えるノート' : 'Removed locally after apply',
+                  title: strings.isJapanese
+                      ? '適用後にこの端末で消えるノート'
+                      : 'Removed locally after apply',
                   titles: preview.removedTitles,
                 ),
               ],
@@ -7680,10 +8939,9 @@ Future<RemoteSyncBundleStatus?> _showBundleHistoryDialog(
               final modifiedAt = entry.modifiedAt == null
                   ? (strings.isJapanese ? '時刻不明' : 'Unknown time')
                   : _formatDateTime(entry.modifiedAt!);
-              final counts =
-                  strings.isJapanese
-                      ? '${entry.noteCount ?? '?'}件のノート / ${entry.attachmentCount ?? '?'}件の添付'
-                      : '${entry.noteCount ?? '?'} notes, ${entry.attachmentCount ?? '?'} attachments';
+              final counts = strings.isJapanese
+                  ? '${entry.noteCount ?? '?'}件のノート / ${entry.attachmentCount ?? '?'}件の添付'
+                  : '${entry.noteCount ?? '?'} notes, ${entry.attachmentCount ?? '?'} attachments';
               final device = entry.deviceId == null || entry.deviceId!.isEmpty
                   ? (strings.isJapanese ? '端末不明' : 'Unknown device')
                   : entry.deviceId!;
@@ -7718,7 +8976,9 @@ Future<String?> _showSyncKeyImportDialog(BuildContext context) {
     context: context,
     builder: (context) {
       return AlertDialog(
-        title: Text(strings.isJapanese ? 'クラウド復元キーを読み込む' : 'Import recovery key'),
+        title: Text(
+          strings.isJapanese ? 'クラウド復元キーを読み込む' : 'Import recovery key',
+        ),
         content: TextField(
           controller: controller,
           minLines: 2,
@@ -8200,26 +9460,11 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final filePath = _attachment.filePath;
-    if (filePath == null || filePath.isEmpty) {
-      return const Scaffold(
-        backgroundColor: Colors.transparent,
-        body: Center(
-          child: Text(
-            'No image is stored for this attachment.',
-            style: TextStyle(color: Colors.white),
-          ),
-        ),
-      );
-    }
-
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SafeArea(
         child: FutureBuilder<List<int>?>(
-          future: ref
-              .watch(encryptedAttachmentStoreProvider)
-              .readAttachment(filePath, type: _attachment.type),
+          future: _readPhotoAttachmentBytes(ref, _attachment),
           builder: (context, snapshot) {
             final bytes = snapshot.data;
             if (snapshot.connectionState == ConnectionState.waiting) {
@@ -8573,6 +9818,23 @@ Future<ui.Size> _decodeImageSize(List<int> bytes) async {
   return ui.Size(image.width.toDouble(), image.height.toDouble());
 }
 
+Future<List<int>?> _readPhotoAttachmentBytes(
+  WidgetRef ref,
+  NoteAttachment attachment,
+) {
+  final filePath = attachment.filePath;
+  if (filePath != null && filePath.isNotEmpty) {
+    return ref
+        .watch(encryptedAttachmentStoreProvider)
+        .readAttachment(filePath, type: attachment.type);
+  }
+  final previewBytesBase64 = attachment.previewBytesBase64;
+  if (previewBytesBase64 == null || previewBytesBase64.isEmpty) {
+    return Future<List<int>?>.value(null);
+  }
+  return Future<List<int>?>.value(base64Decode(previewBytesBase64));
+}
+
 class _PhotoAttachmentViewer extends ConsumerWidget {
   const _PhotoAttachmentViewer({required this.attachment});
 
@@ -8580,16 +9842,8 @@ class _PhotoAttachmentViewer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final filePath = attachment.filePath;
-    if (filePath == null || filePath.isEmpty) {
-      return const Center(
-        child: Text('No image is stored for this attachment.'),
-      );
-    }
     return FutureBuilder<List<int>?>(
-      future: ref
-          .watch(encryptedAttachmentStoreProvider)
-          .readAttachment(filePath, type: attachment.type),
+      future: _readPhotoAttachmentBytes(ref, attachment),
       builder: (context, snapshot) {
         final bytes = snapshot.data;
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -8714,6 +9968,412 @@ class _VideoAttachmentViewerState
   }
 }
 
+Future<MediaImportResult> _showAudioRecordingDialog(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  final result = await showDialog<MediaImportResult>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => _AudioRecordingDialog(
+      attachmentStore: ref.read(encryptedAttachmentStoreProvider),
+    ),
+  );
+  return result ?? const MediaImportResult.cancelled();
+}
+
+class _RecordingFormat {
+  const _RecordingFormat({
+    required this.encoder,
+    required this.extension,
+    required this.mimeType,
+  });
+
+  final AudioEncoder encoder;
+  final String extension;
+  final String mimeType;
+}
+
+class _AudioRecordingDialog extends StatefulWidget {
+  const _AudioRecordingDialog({required this.attachmentStore});
+
+  final EncryptedAttachmentStore attachmentStore;
+
+  @override
+  State<_AudioRecordingDialog> createState() => _AudioRecordingDialogState();
+}
+
+class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
+  final AudioRecorder _recorder = AudioRecorder();
+  Timer? _timer;
+  Duration _elapsed = Duration.zero;
+  bool _isRecording = false;
+  bool _isBusy = false;
+  String? _errorMessage;
+  String? _fileName;
+  _RecordingFormat? _format;
+  StreamSubscription<Uint8List>? _webRecordingSubscription;
+  final List<int> _webRecordingPcmBytes = <int>[];
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    unawaited(_webRecordingSubscription?.cancel());
+    if (_isRecording) {
+      unawaited(_recorder.cancel());
+    }
+    unawaited(_recorder.dispose());
+    super.dispose();
+  }
+
+  Future<void> _start() async {
+    setState(() {
+      _isBusy = true;
+      _errorMessage = null;
+    });
+    try {
+      final strings = context.strings;
+      if (!kIsWeb && !await _recorder.hasPermission()) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _errorMessage = strings.isJapanese
+              ? 'マイクの使用が許可されていません。'
+              : 'Microphone permission was not granted.';
+        });
+        return;
+      }
+
+      final format = await _resolveRecordingFormat();
+      debugPrint(
+        'Audio recording start: encoder=${format.encoder.name}, '
+        'extension=${format.extension}, web=$kIsWeb',
+      );
+      final timestamp = DateTime.now()
+          .toIso8601String()
+          .replaceAll(RegExp(r'[:.]'), '-');
+      final fileName = 'audio_note_$timestamp.${format.extension}';
+      final outputPath = kIsWeb
+          ? fileName
+          : path.join((await getTemporaryDirectory()).path, fileName);
+
+      if (kIsWeb) {
+        _webRecordingPcmBytes.clear();
+        final stream = await _recorder
+            .startStream(_recordConfig(AudioEncoder.pcm16bits))
+            .timeout(
+              const Duration(seconds: 8),
+              onTimeout: () => throw TimeoutException(
+                'Microphone permission prompt did not open. '
+                'Open this app in Chrome or Edge and allow microphone access '
+                'from the site settings.',
+              ),
+            );
+        _webRecordingSubscription = stream.listen(_webRecordingPcmBytes.addAll);
+      } else {
+        await _recorder.start(_recordConfig(format.encoder), path: outputPath);
+      }
+      _timer?.cancel();
+      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) {
+          setState(() {
+            _elapsed += const Duration(seconds: 1);
+          });
+        }
+      });
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _format = format;
+        _fileName = fileName;
+        _elapsed = Duration.zero;
+        _isRecording = true;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('Audio recording failed: $error\n$stackTrace');
+      if (kIsWeb) {
+        unawaited(_webRecordingSubscription?.cancel());
+        _webRecordingSubscription = null;
+        unawaited(_recorder.cancel());
+      }
+      if (!mounted) {
+        return;
+      }
+      final diagnostic = kIsWeb ? ' [$error]' : '';
+      setState(() {
+        _errorMessage = context.strings.isJapanese
+            ? '録音を開始できませんでした。$diagnostic'
+            : 'Could not start recording.$diagnostic';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBusy = false;
+        });
+      }
+    }
+  }
+
+  RecordConfig _recordConfig(AudioEncoder encoder) {
+    return RecordConfig(
+      encoder: encoder,
+      numChannels: 1,
+      androidConfig: AndroidRecordConfig(
+        service: AndroidService(
+          title: context.strings.isJapanese ? 'HiMemoで録音中' : 'HiMemo is recording',
+          content: context.strings.isJapanese
+              ? '音声メモの録音を継続しています。'
+              : 'Audio memo recording is continuing.',
+        ),
+      ),
+      audioInterruption: AudioInterruptionMode.none,
+    );
+  }
+
+  Future<void> _stopAndAttach() async {
+    setState(() {
+      _isBusy = true;
+      _errorMessage = null;
+    });
+    try {
+      _timer?.cancel();
+      await _webRecordingSubscription?.cancel();
+      _webRecordingSubscription = null;
+      final recordedPath = await _recorder.stop();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isRecording = false;
+      });
+      final fileName = _fileName;
+      final format = _format;
+      if (fileName == null || format == null) {
+        setState(() {
+          _errorMessage = context.strings.isJapanese
+              ? '録音データを保存できませんでした。'
+              : 'Could not save the recording.';
+        });
+        return;
+      }
+      if (!kIsWeb && recordedPath == null) {
+        setState(() {
+          _errorMessage = context.strings.isJapanese
+              ? '録音データを保存できませんでした。'
+              : 'Could not save the recording.';
+        });
+        return;
+      }
+      if (kIsWeb && _webRecordingPcmBytes.isEmpty) {
+        setState(() {
+          _errorMessage = context.strings.isJapanese
+              ? '録音データが空でした。'
+              : 'The recording was empty.';
+        });
+        return;
+      }
+      final file = kIsWeb
+          ? XFile.fromData(
+              Uint8List.fromList(
+                _wavBytesFromPcm16(
+                  _webRecordingPcmBytes,
+                  sampleRate: 44100,
+                  numChannels: 1,
+                ),
+              ),
+              name: fileName,
+              mimeType: format.mimeType,
+            )
+          : XFile(recordedPath!, name: fileName, mimeType: format.mimeType);
+      final filePath = await widget.attachmentStore.storeAttachment(
+        file,
+        type: AttachmentType.audio,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (filePath == null) {
+        setState(() {
+          _errorMessage = context.strings.isJapanese
+              ? '録音を添付できませんでした。'
+              : 'Could not attach the recording.';
+        });
+        return;
+      }
+      Navigator.of(context).pop(
+        MediaImportResult.success(
+          NoteAttachment(
+            type: AttachmentType.audio,
+            label: fileName,
+            filePath: filePath,
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _errorMessage = context.strings.isJapanese
+            ? '録音を保存できませんでした。'
+            : 'Could not save the recording.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBusy = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _cancel() async {
+    _timer?.cancel();
+    if (_isRecording) {
+      await _recorder.cancel();
+    }
+    if (mounted) {
+      Navigator.of(context).pop(const MediaImportResult.cancelled());
+    }
+  }
+
+  Future<_RecordingFormat> _resolveRecordingFormat() async {
+    if (kIsWeb) {
+      return const _RecordingFormat(
+        encoder: AudioEncoder.wav,
+        extension: 'wav',
+        mimeType: 'audio/wav',
+      );
+    }
+    if (kIsWeb && await _recorder.isEncoderSupported(AudioEncoder.opus)) {
+      return const _RecordingFormat(
+        encoder: AudioEncoder.opus,
+        extension: 'webm',
+        mimeType: 'audio/webm',
+      );
+    }
+    if (kIsWeb && await _recorder.isEncoderSupported(AudioEncoder.aacLc)) {
+      return const _RecordingFormat(
+        encoder: AudioEncoder.aacLc,
+        extension: 'm4a',
+        mimeType: 'audio/mp4',
+      );
+    }
+    if (await _recorder.isEncoderSupported(AudioEncoder.wav)) {
+      return const _RecordingFormat(
+        encoder: AudioEncoder.wav,
+        extension: 'wav',
+        mimeType: 'audio/wav',
+      );
+    }
+    return const _RecordingFormat(
+      encoder: AudioEncoder.aacLc,
+      extension: 'm4a',
+      mimeType: 'audio/mp4',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final isJapanese = strings.isJapanese;
+    return AlertDialog(
+      title: Text(isJapanese ? '音声メモを録音' : 'Record audio memo'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _isRecording
+                  ? Icons.fiber_manual_record_rounded
+                  : Icons.mic_none_rounded,
+              size: 56,
+              color: _isRecording
+                  ? Theme.of(context).colorScheme.error
+                  : Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              _formatRecordingDuration(_elapsed),
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isBusy ? null : _cancel,
+          child: Text(isJapanese ? 'キャンセル' : 'Cancel'),
+        ),
+        if (_isRecording)
+          FilledButton.icon(
+            onPressed: _isBusy ? null : _stopAndAttach,
+            icon: const Icon(Icons.stop_rounded),
+            label: Text(isJapanese ? '停止して添付' : 'Stop and attach'),
+          )
+        else
+          FilledButton.icon(
+            onPressed: _isBusy ? null : _start,
+            icon: const Icon(Icons.mic_rounded),
+            label: Text(isJapanese ? '録音開始' : 'Start recording'),
+          ),
+      ],
+    );
+  }
+}
+
+List<int> _wavBytesFromPcm16(
+  List<int> pcmBytes, {
+  required int sampleRate,
+  required int numChannels,
+}) {
+  final byteRate = sampleRate * numChannels * 2;
+  final blockAlign = numChannels * 2;
+  final dataLength = pcmBytes.length;
+  final totalLength = 44 + dataLength;
+  final bytes = Uint8List(totalLength);
+  final data = ByteData.view(bytes.buffer);
+
+  void writeAscii(int offset, String value) {
+    for (var i = 0; i < value.length; i += 1) {
+      bytes[offset + i] = value.codeUnitAt(i);
+    }
+  }
+
+  writeAscii(0, 'RIFF');
+  data.setUint32(4, 36 + dataLength, Endian.little);
+  writeAscii(8, 'WAVE');
+  writeAscii(12, 'fmt ');
+  data.setUint32(16, 16, Endian.little);
+  data.setUint16(20, 1, Endian.little);
+  data.setUint16(22, numChannels, Endian.little);
+  data.setUint32(24, sampleRate, Endian.little);
+  data.setUint32(28, byteRate, Endian.little);
+  data.setUint16(32, blockAlign, Endian.little);
+  data.setUint16(34, 16, Endian.little);
+  writeAscii(36, 'data');
+  data.setUint32(40, dataLength, Endian.little);
+  bytes.setRange(44, totalLength, pcmBytes);
+  return bytes;
+}
+
+String _formatRecordingDuration(Duration value) {
+  final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
+  return '$minutes:$seconds';
+}
+
 class _AudioAttachmentViewer extends ConsumerStatefulWidget {
   const _AudioAttachmentViewer({required this.attachment});
 
@@ -8729,6 +10389,7 @@ class _AudioAttachmentViewerState
   final AudioPlayer _player = AudioPlayer();
   String? _tempFilePath;
   bool _ready = false;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -8752,30 +10413,66 @@ class _AudioAttachmentViewerState
 
   Future<void> _load() async {
     final filePath = widget.attachment.filePath;
-    if (filePath == null || filePath.isEmpty || kIsWeb) {
+    if (filePath == null || filePath.isEmpty) {
       return;
     }
-    final tempFilePath = await ref
-        .read(encryptedAttachmentStoreProvider)
-        .materializeDecryptedFile(
+    try {
+      final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+      if (kIsWeb) {
+        final bytes = await attachmentStore.readAttachment(
           filePath,
           type: widget.attachment.type,
-          preferredFileName: widget.attachment.label,
         );
-    if (!mounted || tempFilePath == null) {
-      return;
+        if (!mounted || bytes == null || bytes.isEmpty) {
+          return;
+        }
+        await _player.setAudioSource(
+          AudioSource.uri(
+            Uri.dataFromBytes(
+              Uint8List.fromList(bytes),
+              mimeType: _mimeTypeForAudioAttachment(widget.attachment),
+            ),
+          ),
+        );
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _ready = true;
+        });
+        return;
+      }
+
+      final tempFilePath = await attachmentStore.materializeDecryptedFile(
+        filePath,
+        type: widget.attachment.type,
+        preferredFileName: widget.attachment.label,
+      );
+      if (!mounted || tempFilePath == null) {
+        return;
+      }
+      await _player.setFilePath(tempFilePath);
+      setState(() {
+        _tempFilePath = tempFilePath;
+        _ready = true;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _errorMessage = context.strings.isJapanese
+            ? '音声を再生できませんでした。'
+            : 'Could not play this audio.';
+      });
     }
-    await _player.setFilePath(tempFilePath);
-    setState(() {
-      _tempFilePath = tempFilePath;
-      _ready = true;
-    });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (kIsWeb) {
-      return const Center(child: Text('Audio playback is not enabled on web.'));
+    final errorMessage = _errorMessage;
+    if (errorMessage != null) {
+      return Center(child: Text(errorMessage));
     }
     if (!_ready) {
       return const Center(child: CircularProgressIndicator());
@@ -8809,6 +10506,23 @@ class _AudioAttachmentViewerState
       },
     );
   }
+}
+
+String _mimeTypeForAudioAttachment(NoteAttachment attachment) {
+  final label = attachment.label.toLowerCase();
+  if (label.endsWith('.wav')) {
+    return 'audio/wav';
+  }
+  if (label.endsWith('.m4a') || label.endsWith('.mp4')) {
+    return 'audio/mp4';
+  }
+  if (label.endsWith('.webm')) {
+    return 'audio/webm';
+  }
+  if (label.endsWith('.ogg') || label.endsWith('.opus')) {
+    return 'audio/ogg';
+  }
+  return 'audio/mpeg';
 }
 
 BoxDecoration _sectionDecoration(BuildContext context) {

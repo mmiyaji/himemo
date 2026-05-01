@@ -281,6 +281,7 @@ class FakeMediaImportService implements MediaImportService {
           label: 'simulator-video.mp4',
         ),
       ),
+      MediaImportAction.recordAudio ||
       MediaImportAction.pickAudio => const MediaImportResult.success(
         NoteAttachment(
           type: AttachmentType.audio,
