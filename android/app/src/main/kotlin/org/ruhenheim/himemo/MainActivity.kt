@@ -160,7 +160,7 @@ class MainActivity : FlutterFragmentActivity() {
                     rejectedSharedFile(
                         displayName,
                         mimeType,
-                        "This file type is not supported.",
+                        "unsupported_type",
                     ),
                 )
                 return@forEach
@@ -172,7 +172,7 @@ class MainActivity : FlutterFragmentActivity() {
                     rejectedSharedFile(
                         displayName,
                         mimeType,
-                        "This file is too large.",
+                        "too_large",
                     ),
                 )
                 return@forEach
@@ -182,7 +182,7 @@ class MainActivity : FlutterFragmentActivity() {
                     rejectedSharedFile(
                         displayName,
                         mimeType,
-                        "This file could not be read.",
+                        "unreadable",
                     ),
                 )
             } else {

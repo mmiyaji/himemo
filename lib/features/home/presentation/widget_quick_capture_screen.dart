@@ -173,11 +173,7 @@ class _WidgetQuickCaptureScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           showCloseIcon: true,
-          content: Text(
-            context.strings.isJapanese
-                ? '共有メモを保存できませんでした。'
-                : 'Could not save the shared memo.',
-          ),
+          content: Text(context.strings.sharedMemoSaveFailed),
         ),
       );
     } finally {
@@ -233,6 +229,7 @@ class _CapturePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isShare = source == QuickCaptureSource.share;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -259,13 +256,7 @@ class _CapturePanel extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            context.strings.isJapanese
-                ? source == QuickCaptureSource.share
-                      ? '共有メニューから受け取ったテキストやファイルを、そのまま Notes に送れます。既存ノートやロック中のプロファイルは開きません。'
-                      : 'すばやくメモを記録します。この画面では既存ノートやロック中のプロファイルは表示しません。'
-                : source == QuickCaptureSource.share
-                ? 'Shared text and files can be sent straight to Notes. This route never reveals existing notes or locked profiles.'
-                : 'Capture a quick memo. This route never reveals existing notes or locked profiles.',
+            context.strings.quickCaptureDescription(isShare: isShare),
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: colorScheme.onSurfaceVariant,
             ),
@@ -273,7 +264,7 @@ class _CapturePanel extends StatelessWidget {
           const SizedBox(height: 16),
           if (files.isNotEmpty) ...[
             Text(
-              context.strings.isJapanese ? '共有ファイル' : 'Shared files',
+              context.strings.sharedFiles,
               style: Theme.of(context).textTheme.titleSmall,
             ),
             const SizedBox(height: 8),
@@ -293,9 +284,7 @@ class _CapturePanel extends StatelessWidget {
           ],
           if (rejectedFiles.isNotEmpty) ...[
             Text(
-              context.strings.isJapanese
-                  ? '取り込めなかったファイル'
-                  : 'Files not imported',
+              context.strings.filesNotImported,
               style: Theme.of(context).textTheme.titleSmall,
             ),
             const SizedBox(height: 8),
@@ -304,14 +293,19 @@ class _CapturePanel extends StatelessWidget {
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.error_outline_rounded),
                 title: Text(
-                  file.name.isEmpty ? 'Shared file' : file.name,
+                  file.name.isEmpty
+                      ? context.strings.sharedFileFallback
+                      : file.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 subtitle: Text(
                   [
                     if (file.mimeType.isNotEmpty) file.mimeType,
-                    if (file.reason.isNotEmpty) file.reason,
+                    if (file.reason.isNotEmpty)
+                      context.strings.sharedFileImportFailureReason(
+                        file.reason,
+                      ),
                   ].join(' - '),
                 ),
                 dense: true,
@@ -326,13 +320,7 @@ class _CapturePanel extends StatelessWidget {
             maxLines: 12,
             textInputAction: TextInputAction.newline,
             decoration: InputDecoration(
-              hintText: context.strings.isJapanese
-                  ? source == QuickCaptureSource.share
-                        ? '共有されたテキストを整えて、そのまま Notes に保存できます。'
-                        : 'メモを書いて、そのまま Notes に送ります。'
-                  : source == QuickCaptureSource.share
-                  ? 'Tidy the shared text and save it to Notes.'
-                  : 'Write a memo and send it to Notes.',
+              hintText: context.strings.quickCaptureHint(isShare: isShare),
               border: const OutlineInputBorder(),
               alignLabelWithHint: true,
             ),

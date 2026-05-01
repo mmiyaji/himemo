@@ -281,6 +281,16 @@ class AppStrings {
   String get pickAudio => isJapanese ? '音声を選ぶ' : 'Pick audio';
   String get addCurrentLocation =>
       isJapanese ? '現在地を追加' : 'Add current location';
+  String get locationServicesOff => isJapanese
+      ? '位置情報サービスがオフです。端末設定で有効にしてください。'
+      : 'Location services are off. Enable them in device settings.';
+  String get locationPermissionRequired => isJapanese
+      ? '現在地を追加するには位置情報の許可が必要です。'
+      : 'Location permission is required to add current location.';
+  String get currentLocationAdded =>
+      isJapanese ? '現在地をメモに追加しました。' : 'Current location added to the note.';
+  String get currentLocationUnavailable =>
+      isJapanese ? '現在地を取得できませんでした。' : 'Could not get current location.';
   String get attachFromBrowser => isJapanese
       ? 'このブラウザから写真・動画・音声を添付できます。'
       : 'Attach photos, videos, or audio files from this browser.';
@@ -289,6 +299,32 @@ class AppStrings {
       : 'Attach photos, videos, or audio files from camera or device storage.';
   String get dateTimeUpdated =>
       isJapanese ? '日時を更新しました' : 'Date and time updated';
+  String get microphonePermissionNotGranted => isJapanese
+      ? 'マイクの使用が許可されていません。'
+      : 'Microphone permission was not granted.';
+  String get microphonePermissionBrowserHelp => isJapanese
+      ? 'Chrome または Edge で開き、サイト設定からマイクを許可してください。'
+      : 'Open this app in Chrome or Edge and allow microphone access from the site settings.';
+  String audioRecordingStartFailed(String diagnostic) => isJapanese
+      ? '録音を開始できませんでした。$diagnostic'
+      : 'Could not start recording.$diagnostic';
+  String get audioRecordingNotificationTitle =>
+      isJapanese ? 'HiMemoで録音中' : 'HiMemo is recording';
+  String get audioRecordingNotificationContent =>
+      isJapanese ? '音声メモの録音を継続しています。' : 'Audio memo recording is continuing.';
+  String get audioRecordingSaveFailed =>
+      isJapanese ? '録音データを保存できませんでした。' : 'Could not save the recording.';
+  String get audioRecordingEmpty =>
+      isJapanese ? '録音データが空でした。' : 'The recording was empty.';
+  String get audioRecordingAttachFailed =>
+      isJapanese ? '録音を添付できませんでした。' : 'Could not attach the recording.';
+  String get audioRecordingStoreFailed =>
+      isJapanese ? '録音を保存できませんでした。' : 'Could not save the recording.';
+  String get audioMemoRecordingTitle =>
+      isJapanese ? '音声メモを録音' : 'Record audio memo';
+  String get stopAndAttachRecording =>
+      isJapanese ? '停止して添付' : 'Stop and attach';
+  String get startRecording => isJapanese ? '録音開始' : 'Start recording';
   String get undo => isJapanese ? '元に戻す' : 'Undo';
   String get draftRestored => isJapanese ? '下書きを復元しました' : 'Draft restored';
   String get discardDraft => isJapanese ? '破棄' : 'Discard';
@@ -319,6 +355,43 @@ class AppStrings {
   String get sendQuickMemo => isJapanese ? 'クイックメモを送信' : 'Send a quick memo';
   String get quickMemoSaved =>
       isJapanese ? 'クイックメモを Notes に保存しました。' : 'Quick memo saved to Notes.';
+  String get sharedMemoSaveFailed =>
+      isJapanese ? '共有メモを保存できませんでした。' : 'Could not save the shared memo.';
+  String quickCaptureDescription({required bool isShare}) => isJapanese
+      ? (isShare
+            ? '共有メニューから受け取ったテキストやファイルを、そのまま Notes に送れます。既存ノートやロック中のプロファイルは開きません。'
+            : 'すばやくメモを記録します。この画面では既存ノートやロック中のプロファイルは表示しません。')
+      : (isShare
+            ? 'Shared text and files can be sent straight to Notes. This route never reveals existing notes or locked profiles.'
+            : 'Capture a quick memo. This route never reveals existing notes or locked profiles.');
+  String get sharedFiles => isJapanese ? '共有ファイル' : 'Shared files';
+  String get filesNotImported =>
+      isJapanese ? '取り込めなかったファイル' : 'Files not imported';
+  String get sharedFileFallback => isJapanese ? '共有ファイル' : 'Shared file';
+  String quickCaptureHint({required bool isShare}) => isJapanese
+      ? (isShare
+            ? '共有されたテキストを整えて、そのまま Notes に保存できます。'
+            : 'メモを書いて、そのまま Notes に送ります。')
+      : (isShare
+            ? 'Tidy the shared text and save it to Notes.'
+            : 'Write a memo and send it to Notes.');
+  String sharedFileImportFailureReason(String reason) {
+    switch (reason) {
+      case 'unsupported_type':
+        return isJapanese
+            ? 'このファイル形式はサポートしていません。'
+            : 'This file type is not supported.';
+      case 'too_large':
+        return isJapanese ? 'このファイルは大きすぎます。' : 'This file is too large.';
+      case 'unreadable':
+        return isJapanese
+            ? 'このファイルを読み込めませんでした。'
+            : 'This file could not be read.';
+      default:
+        return reason;
+    }
+  }
+
   String get finishSetupFirst =>
       isJapanese ? '先に初期設定を完了してください' : 'Finish setup first';
   String get quickWidgetCaptureOff =>

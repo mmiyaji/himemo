@@ -7708,13 +7708,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         if (!mounted) {
           return;
         }
-        _showEditorSnackBar(
-          content: Text(
-            strings.isJapanese
-                ? '位置情報サービスがオフです。端末設定で有効にしてください。'
-                : 'Location services are off. Enable them in device settings.',
-          ),
-        );
+        _showEditorSnackBar(content: Text(strings.locationServicesOff));
         return;
       }
 
@@ -7727,13 +7721,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         if (!mounted) {
           return;
         }
-        _showEditorSnackBar(
-          content: Text(
-            strings.isJapanese
-                ? '現在地を追加するには位置情報の許可が必要です。'
-                : 'Location permission is required to add current location.',
-          ),
-        );
+        _showEditorSnackBar(content: Text(strings.locationPermissionRequired));
         return;
       }
 
@@ -7747,24 +7735,12 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         return;
       }
       _insertLocationText(_formatLocationMemo(position, strings.isJapanese));
-      _showEditorSnackBar(
-        content: Text(
-          strings.isJapanese
-              ? '現在地をメモに追加しました。'
-              : 'Current location added to the note.',
-        ),
-      );
+      _showEditorSnackBar(content: Text(strings.currentLocationAdded));
     } catch (_) {
       if (!mounted) {
         return;
       }
-      _showEditorSnackBar(
-        content: Text(
-          strings.isJapanese
-              ? '現在地を取得できませんでした。'
-              : 'Could not get current location.',
-        ),
-      );
+      _showEditorSnackBar(content: Text(strings.currentLocationUnavailable));
     }
   }
 
@@ -10188,9 +10164,7 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
           return;
         }
         setState(() {
-          _errorMessage = strings.isJapanese
-              ? 'マイクの使用が許可されていません。'
-              : 'Microphone permission was not granted.';
+          _errorMessage = strings.microphonePermissionNotGranted;
         });
         return;
       }
@@ -10216,9 +10190,7 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
             .timeout(
               const Duration(seconds: 8),
               onTimeout: () => throw TimeoutException(
-                'Microphone permission prompt did not open. '
-                'Open this app in Chrome or Edge and allow microphone access '
-                'from the site settings.',
+                strings.microphonePermissionBrowserHelp,
               ),
             );
         _webRecordingSubscription = stream.listen(_webRecordingPcmBytes.addAll);
@@ -10252,11 +10224,11 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
       if (!mounted) {
         return;
       }
-      final diagnostic = kIsWeb ? ' [$error]' : '';
+      final diagnostic = kIsWeb
+          ? ' ${context.strings.microphonePermissionBrowserHelp}'
+          : '';
       setState(() {
-        _errorMessage = context.strings.isJapanese
-            ? '録音を開始できませんでした。$diagnostic'
-            : 'Could not start recording.$diagnostic';
+        _errorMessage = context.strings.audioRecordingStartFailed(diagnostic);
       });
     } finally {
       if (mounted) {
@@ -10273,12 +10245,8 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
       numChannels: 1,
       androidConfig: AndroidRecordConfig(
         service: AndroidService(
-          title: context.strings.isJapanese
-              ? 'HiMemoで録音中'
-              : 'HiMemo is recording',
-          content: context.strings.isJapanese
-              ? '音声メモの録音を継続しています。'
-              : 'Audio memo recording is continuing.',
+          title: context.strings.audioRecordingNotificationTitle,
+          content: context.strings.audioRecordingNotificationContent,
         ),
       ),
       audioInterruption: AudioInterruptionMode.none,
@@ -10305,25 +10273,19 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
       final format = _format;
       if (fileName == null || format == null) {
         setState(() {
-          _errorMessage = context.strings.isJapanese
-              ? '録音データを保存できませんでした。'
-              : 'Could not save the recording.';
+          _errorMessage = context.strings.audioRecordingSaveFailed;
         });
         return;
       }
       if (!kIsWeb && recordedPath == null) {
         setState(() {
-          _errorMessage = context.strings.isJapanese
-              ? '録音データを保存できませんでした。'
-              : 'Could not save the recording.';
+          _errorMessage = context.strings.audioRecordingSaveFailed;
         });
         return;
       }
       if (kIsWeb && _webRecordingPcmBytes.isEmpty) {
         setState(() {
-          _errorMessage = context.strings.isJapanese
-              ? '録音データが空でした。'
-              : 'The recording was empty.';
+          _errorMessage = context.strings.audioRecordingEmpty;
         });
         return;
       }
@@ -10349,9 +10311,7 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
       }
       if (filePath == null) {
         setState(() {
-          _errorMessage = context.strings.isJapanese
-              ? '録音を添付できませんでした。'
-              : 'Could not attach the recording.';
+          _errorMessage = context.strings.audioRecordingAttachFailed;
         });
         return;
       }
@@ -10369,9 +10329,7 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
         return;
       }
       setState(() {
-        _errorMessage = context.strings.isJapanese
-            ? '録音を保存できませんでした。'
-            : 'Could not save the recording.';
+        _errorMessage = context.strings.audioRecordingStoreFailed;
       });
     } finally {
       if (mounted) {
@@ -10431,9 +10389,8 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final isJapanese = strings.isJapanese;
     return AlertDialog(
-      title: Text(isJapanese ? '音声メモを録音' : 'Record audio memo'),
+      title: Text(strings.audioMemoRecordingTitle),
       content: SizedBox(
         width: 360,
         child: Column(
@@ -10467,19 +10424,19 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
       actions: [
         TextButton(
           onPressed: _isBusy ? null : _cancel,
-          child: Text(isJapanese ? 'キャンセル' : 'Cancel'),
+          child: Text(strings.cancel),
         ),
         if (_isRecording)
           FilledButton.icon(
             onPressed: _isBusy ? null : _stopAndAttach,
             icon: const Icon(Icons.stop_rounded),
-            label: Text(isJapanese ? '停止して添付' : 'Stop and attach'),
+            label: Text(strings.stopAndAttachRecording),
           )
         else
           FilledButton.icon(
             onPressed: _isBusy ? null : _start,
             icon: const Icon(Icons.mic_rounded),
-            label: Text(isJapanese ? '録音開始' : 'Start recording'),
+            label: Text(strings.startRecording),
           ),
       ],
     );

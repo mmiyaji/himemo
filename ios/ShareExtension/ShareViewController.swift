@@ -49,7 +49,7 @@ final class ShareViewController: UIViewController {
           rejectedFiles.append([
             "name": provider.suggestedName ?? "Shared file",
             "mimeType": type.mimeType,
-            "reason": "This file could not be read."
+            "reason": "unreadable"
           ])
           continue
         }
@@ -59,7 +59,7 @@ final class ShareViewController: UIViewController {
           rejectedFiles.append([
             "name": copied.payload["name"] ?? "Shared file",
             "mimeType": copied.payload["mimeType"] ?? type.mimeType,
-            "reason": copied.rejectedReason ?? "This file could not be read."
+            "reason": copied.rejectedReason ?? "unreadable"
           ])
         }
       }
