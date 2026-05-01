@@ -296,6 +296,7 @@ class AppStrings {
   String get takePhoto => isJapanese ? '写真を撮る' : 'Take photo';
   String get pickVideo => isJapanese ? '動画を選ぶ' : 'Pick video';
   String get recordVideo => isJapanese ? '動画を撮る' : 'Record video';
+  String get recordAudio => isJapanese ? '音声を録音' : 'Record audio';
   String get pickAudio => isJapanese ? '音声を選ぶ' : 'Pick audio';
   String get attachFromBrowser => isJapanese
       ? 'このブラウザから写真・動画・音声を添付できます。'

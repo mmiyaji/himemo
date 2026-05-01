@@ -12,7 +12,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import 'package:in_app_update/in_app_update.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:pinput/pinput.dart';
+import 'package:record/record.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
@@ -239,6 +242,7 @@ Future<void> _showProfileAccessDialog(
   messenger.hideCurrentSnackBar();
   messenger.showSnackBar(
     SnackBar(
+      showCloseIcon: true,
       content: Text(
         unlocked == null
             ? (strings.isJapanese
@@ -547,12 +551,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final initialIndex = visibleNotes.indexWhere(
       (entry) => entry.id == note.id,
     );
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (context) {
-        return SafeArea(
+    final controller = Scaffold.of(context).showBottomSheet((context) {
+      return SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.86,
+        child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
             child: _NoteDetailPager(
@@ -575,9 +577,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               },
             ),
           ),
-        );
-      },
-    );
+        ),
+      );
+    }, showDragHandle: true);
+    await controller.closed;
   }
 
   Future<void> _deleteNote(BuildContext context, NoteEntry note) async {
@@ -612,6 +615,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
+          showCloseIcon: true,
           content: Text('"${note.title}" deleted'),
           action: SnackBarAction(
             label: 'Undo',
@@ -639,6 +643,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     ref.read(selectedNoteIdProvider.notifier).select(null);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
+        showCloseIcon: true,
         content: Text(
           context.strings.isJapanese
               ? '#$tag のタグで絞り込みました'
@@ -2174,6 +2179,7 @@ class SettingsScreen extends ConsumerWidget {
   static const systemThemeKey = Key('theme-system-option');
   static const darkThemeKey = Key('theme-dark-option');
   static const localeSystemKey = Key('locale-system-option');
+  static const deleteDemoNotesKey = Key('delete-demo-notes-button');
   static const localeJapaneseKey = Key('locale-japanese-option');
   static const localeEnglishKey = Key('locale-english-option');
   static const blueColorThemeKey = Key('color-theme-blue-option');
@@ -2242,6 +2248,7 @@ class SettingsScreen extends ConsumerWidget {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
+          showCloseIcon: true,
           content: Text(
             strings.isJapanese
                 ? '別プロファイル用パスワードを保存しました。'
@@ -2307,7 +2314,10 @@ class SettingsScreen extends ConsumerWidget {
         .verify(secret)) {
       await _switchIdentity(ref, 'private');
       messenger.showSnackBar(
-        const SnackBar(content: Text('Private mode is now active.')),
+        const SnackBar(
+          showCloseIcon: true,
+          content: Text('Private mode is now active.'),
+        ),
       );
       return;
     }
@@ -2316,12 +2326,18 @@ class SettingsScreen extends ConsumerWidget {
         .verify(secret)) {
       await _switchIdentity(ref, 'cover');
       messenger.showSnackBar(
-        const SnackBar(content: Text('Cover mode is now active.')),
+        const SnackBar(
+          showCloseIcon: true,
+          content: Text('Cover mode is now active.'),
+        ),
       );
       return;
     }
     messenger.showSnackBar(
-      const SnackBar(content: Text('That access key did not match any mode.')),
+      const SnackBar(
+        showCloseIcon: true,
+        content: Text('That access key did not match any mode.'),
+      ),
     );
   }
 
@@ -2440,6 +2456,7 @@ class SettingsScreen extends ConsumerWidget {
     }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
+        showCloseIcon: true,
         content: Text(
           error ??
               (strings.isJapanese
@@ -2455,6 +2472,7 @@ class SettingsScreen extends ConsumerWidget {
     if (kIsWeb) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
+          showCloseIcon: true,
           content: Text(
             strings.isJapanese
                 ? '管理者モードはこの環境では利用できません。'
@@ -2474,6 +2492,7 @@ class SettingsScreen extends ConsumerWidget {
     ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
+        showCloseIcon: true,
         content: Text(
           strings.isJapanese
               ? '管理者モードに入りました。プロファイル名と保存先IDは引き続き非表示です。'
@@ -2518,6 +2537,7 @@ class SettingsScreen extends ConsumerWidget {
     }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
+        showCloseIcon: true,
         content: Text(
           strings.isJapanese
               ? 'プロファイルのパスワードを更新しました。'
@@ -2583,12 +2603,19 @@ class SettingsScreen extends ConsumerWidget {
       'everyday',
       if (unlockedPrivateProfileVaultId != null) unlockedPrivateProfileVaultId,
     };
-    final noteCount = ref
-        .watch(notesControllerProvider)
+    final currentNotes = ref.watch(notesControllerProvider);
+    final noteCount = currentNotes
         .where(
           (note) =>
               note.deletedAt == null &&
               visibleStorageVaultIds.contains(note.vaultId),
+        )
+        .length;
+    final demoNoteCount = currentNotes
+        .where(
+          (note) =>
+              note.deletedAt == null &&
+              (note.deviceId == 'seeded-device' || note.id.startsWith('seed-')),
         )
         .length;
     final currentModeLabel = activeIdentity == 'daily'
@@ -2896,6 +2923,7 @@ class SettingsScreen extends ConsumerWidget {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
+                          showCloseIcon: true,
                           content: Text(
                             strings.isJapanese
                                 ? '端末認証が完了しなかったため、アプリ保護はオンになりませんでした。'
@@ -2971,6 +2999,7 @@ class SettingsScreen extends ConsumerWidget {
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
+                              showCloseIcon: true,
                               content: Text(
                                 pinLockState.isConfigured
                                     ? (strings.isJapanese
@@ -3473,6 +3502,7 @@ class SettingsScreen extends ConsumerWidget {
                       }
                       messenger.showSnackBar(
                         SnackBar(
+                          showCloseIcon: true,
                           content: Text(
                             strings.isJapanese
                                 ? 'クラウド復元キーをクリップボードにコピーしました。'
@@ -3484,7 +3514,9 @@ class SettingsScreen extends ConsumerWidget {
                       if (!context.mounted) {
                         return;
                       }
-                      messenger.showSnackBar(SnackBar(content: Text('$error')));
+                      messenger.showSnackBar(
+                        SnackBar(showCloseIcon: true, content: Text('$error')),
+                      );
                     }
                   },
                   child: Text(
@@ -3527,6 +3559,7 @@ class SettingsScreen extends ConsumerWidget {
                       }
                       messenger.showSnackBar(
                         SnackBar(
+                          showCloseIcon: true,
                           content: Text(
                             strings.isJapanese
                                 ? 'クラウド復元キーを読み込みました。フィンガープリント: $fingerprint'
@@ -3538,7 +3571,9 @@ class SettingsScreen extends ConsumerWidget {
                       if (!context.mounted) {
                         return;
                       }
-                      messenger.showSnackBar(SnackBar(content: Text('$error')));
+                      messenger.showSnackBar(
+                        SnackBar(showCloseIcon: true, content: Text('$error')),
+                      );
                     }
                   },
                   child: Text(
@@ -3665,7 +3700,10 @@ class SettingsScreen extends ConsumerWidget {
                                   ?.message;
                               if (message != null && message.isNotEmpty) {
                                 messenger.showSnackBar(
-                                  SnackBar(content: Text(message)),
+                                  SnackBar(
+                                    showCloseIcon: true,
+                                    content: Text(message),
+                                  ),
                                 );
                               }
                             } catch (error) {
@@ -3673,7 +3711,10 @@ class SettingsScreen extends ConsumerWidget {
                                 return;
                               }
                               messenger.showSnackBar(
-                                SnackBar(content: Text('$error')),
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text('$error'),
+                                ),
                               );
                             }
                           },
@@ -3712,14 +3753,20 @@ class SettingsScreen extends ConsumerWidget {
                               return;
                             }
                             messenger.showSnackBar(
-                              SnackBar(content: Text(message)),
+                              SnackBar(
+                                showCloseIcon: true,
+                                content: Text(message),
+                              ),
                             );
                           } catch (error) {
                             if (!context.mounted) {
                               return;
                             }
                             messenger.showSnackBar(
-                              SnackBar(content: Text('$error')),
+                              SnackBar(
+                                showCloseIcon: true,
+                                content: Text('$error'),
+                              ),
                             );
                           }
                         },
@@ -3750,14 +3797,20 @@ class SettingsScreen extends ConsumerWidget {
                                 return;
                               }
                               messenger.showSnackBar(
-                                SnackBar(content: Text(message)),
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text(message),
+                                ),
                               );
                             } catch (error) {
                               if (!context.mounted) {
                                 return;
                               }
                               messenger.showSnackBar(
-                                SnackBar(content: Text('$error')),
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text('$error'),
+                                ),
                               );
                             }
                           },
@@ -3824,7 +3877,10 @@ class SettingsScreen extends ConsumerWidget {
                               return;
                             }
                             messenger.showSnackBar(
-                              SnackBar(content: Text(message)),
+                              SnackBar(
+                                showCloseIcon: true,
+                                content: Text(message),
+                              ),
                             );
                           },
                     child: Text(
@@ -3848,6 +3904,7 @@ class SettingsScreen extends ConsumerWidget {
                               if (history.isEmpty) {
                                 messenger.showSnackBar(
                                   SnackBar(
+                                    showCloseIcon: true,
                                     content: Text(
                                       strings.isJapanese
                                           ? '利用できるリモートバンドル履歴がありません。'
@@ -3887,11 +3944,15 @@ class SettingsScreen extends ConsumerWidget {
                                   .message;
                               if (message != null && message.isNotEmpty) {
                                 messenger.showSnackBar(
-                                  SnackBar(content: Text(message)),
+                                  SnackBar(
+                                    showCloseIcon: true,
+                                    content: Text(message),
+                                  ),
                                 );
                               } else {
                                 messenger.showSnackBar(
                                   SnackBar(
+                                    showCloseIcon: true,
                                     content: Text(
                                       strings.isJapanese
                                           ? '選択したバンドルを適用候補として保持しました。'
@@ -3905,7 +3966,10 @@ class SettingsScreen extends ConsumerWidget {
                                 return;
                               }
                               messenger.showSnackBar(
-                                SnackBar(content: Text('$error')),
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text('$error'),
+                                ),
                               );
                             }
                           },
@@ -3935,14 +3999,20 @@ class SettingsScreen extends ConsumerWidget {
                                 return;
                               }
                               messenger.showSnackBar(
-                                SnackBar(content: Text(message)),
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text(message),
+                                ),
                               );
                             } catch (error) {
                               if (!context.mounted) {
                                 return;
                               }
                               messenger.showSnackBar(
-                                SnackBar(content: Text('$error')),
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text('$error'),
+                                ),
                               );
                             }
                           },
@@ -3973,7 +4043,10 @@ class SettingsScreen extends ConsumerWidget {
                                 return;
                               }
                               messenger.showSnackBar(
-                                SnackBar(content: Text('$error')),
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text('$error'),
+                                ),
                               );
                             }
                           },
@@ -4012,7 +4085,10 @@ class SettingsScreen extends ConsumerWidget {
                                 return;
                               }
                               messenger.showSnackBar(
-                                SnackBar(content: Text('$error')),
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text('$error'),
+                                ),
                               );
                               return;
                             }
@@ -4028,9 +4104,12 @@ class SettingsScreen extends ConsumerWidget {
                             if (message == null || message.isEmpty) {
                               return;
                             }
-                            ScaffoldMessenger.of(
-                              context,
-                            ).showSnackBar(SnackBar(content: Text(message)));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                showCloseIcon: true,
+                                content: Text(message),
+                              ),
+                            );
                           },
                     child: Text(
                       strings.isJapanese ? 'バンドルを適用' : 'Apply bundle',
@@ -4103,15 +4182,100 @@ class SettingsScreen extends ConsumerWidget {
             ),
             Align(
               alignment: Alignment.centerLeft,
-              child: OutlinedButton(
-                onPressed: () {
-                  ref.read(notesControllerProvider.notifier).seedIfEmpty();
-                },
-                child: Text(
-                  strings.isJapanese
-                      ? '空の場合にサンプルノートを復元'
-                      : 'Restore sample notes if empty',
-                ),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton(
+                    onPressed: () async {
+                      await ref
+                          .read(notesControllerProvider.notifier)
+                          .seedIfEmpty();
+                      if (!context.mounted) {
+                        return;
+                      }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          showCloseIcon: true,
+                          content: Text(
+                            strings.isJapanese
+                                ? 'デモ用ノートを復元しました。'
+                                : 'Demo notes restored.',
+                          ),
+                        ),
+                      );
+                    },
+                    child: Text(
+                      strings.isJapanese
+                          ? 'デモ用ノートを空の場合に復元'
+                          : 'Restore sample notes if empty',
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    key: deleteDemoNotesKey,
+                    onPressed: demoNoteCount == 0
+                        ? null
+                        : () async {
+                            final confirmed = await showDialog<bool>(
+                              context: context,
+                              builder: (dialogContext) {
+                                return AlertDialog(
+                                  title: Text(
+                                    strings.isJapanese
+                                        ? 'デモ用ノートを削除しますか？'
+                                        : 'Delete demo notes?',
+                                  ),
+                                  content: Text(
+                                    strings.isJapanese
+                                        ? 'デモ用ノート $demoNoteCount 件をこの端末から削除します。自分で作成したノートは削除されません。'
+                                        : 'This deletes $demoNoteCount demo notes from this device. Notes you created are not deleted.',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.of(
+                                        dialogContext,
+                                      ).pop(false),
+                                      child: Text(
+                                        strings.isJapanese ? 'キャンセル' : 'Cancel',
+                                      ),
+                                    ),
+                                    FilledButton(
+                                      onPressed: () =>
+                                          Navigator.of(dialogContext).pop(true),
+                                      child: Text(
+                                        strings.isJapanese ? '削除' : 'Delete',
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            );
+                            if (confirmed != true) {
+                              return;
+                            }
+                            final deletedCount = await ref
+                                .read(notesControllerProvider.notifier)
+                                .deleteDemoNotes();
+                            if (!context.mounted) {
+                              return;
+                            }
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                showCloseIcon: true,
+                                content: Text(
+                                  strings.isJapanese
+                                      ? 'デモ用ノート $deletedCount 件を削除しました。'
+                                      : 'Deleted $deletedCount demo notes.',
+                                ),
+                              ),
+                            );
+                          },
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    label: Text(
+                      strings.isJapanese ? 'デモ用ノートを削除' : 'Delete demo notes',
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -4297,9 +4461,12 @@ class SettingsScreen extends ConsumerWidget {
                               .read(inAppUpdateControllerProvider)
                               .message;
                           if (message != null && message.isNotEmpty) {
-                            ScaffoldMessenger.of(
-                              context,
-                            ).showSnackBar(SnackBar(content: Text(message)));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                showCloseIcon: true,
+                                content: Text(message),
+                              ),
+                            );
                           }
                         },
                   child: Text(strings.checkForUpdates),
@@ -4321,9 +4488,12 @@ class SettingsScreen extends ConsumerWidget {
                                 .read(inAppUpdateControllerProvider)
                                 .message;
                             if (message != null && message.isNotEmpty) {
-                              ScaffoldMessenger.of(
-                                context,
-                              ).showSnackBar(SnackBar(content: Text(message)));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text(message),
+                                ),
+                              );
                             }
                           },
                     child: Text(strings.startUpdate),
@@ -4344,9 +4514,12 @@ class SettingsScreen extends ConsumerWidget {
                                 .read(inAppUpdateControllerProvider)
                                 .message;
                             if (message != null && message.isNotEmpty) {
-                              ScaffoldMessenger.of(
-                                context,
-                              ).showSnackBar(SnackBar(content: Text(message)));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text(message),
+                                ),
+                              );
                             }
                           },
                     child: Text(strings.completeUpdateInstall),
@@ -7086,6 +7259,13 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                 ),
                               ),
                               PopupMenuItem(
+                                value: MediaImportAction.recordAudio,
+                                child: _MediaMenuEntry(
+                                  icon: Icons.mic_none_rounded,
+                                  label: strings.recordAudio,
+                                ),
+                              ),
+                              PopupMenuItem(
                                 value: MediaImportAction.pickAudio,
                                 child: _MediaMenuEntry(
                                   icon: Icons.graphic_eq_rounded,
@@ -7351,7 +7531,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   void _showEditorSnackBar({required Widget content, SnackBarAction? action}) {
-    final strings = context.strings;
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
     final mediaQuery = MediaQuery.of(context);
@@ -7365,21 +7544,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         mediaQuery.size.height - bottomInset >= 720;
     messenger.showSnackBar(
       SnackBar(
-        content: Row(
-          children: [
-            Expanded(child: content),
-            const SizedBox(width: 8),
-            IconButton(
-              onPressed: messenger.hideCurrentSnackBar,
-              icon: const Icon(Icons.close_rounded),
-              tooltip: strings.dismiss,
-              visualDensity: VisualDensity.compact,
-              iconSize: 18,
-              padding: const EdgeInsets.all(4),
-              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-            ),
-          ],
-        ),
+        showCloseIcon: true,
+        content: content,
         action: action,
         behavior: useFloating
             ? SnackBarBehavior.floating
@@ -7450,9 +7616,14 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   Future<void> _handleAttachmentAction(MediaImportAction action) async {
-    final result = await ref
-        .read(mediaImportServiceProvider)
-        .importAttachment(action);
+    final MediaImportResult result;
+    if (action == MediaImportAction.recordAudio) {
+      // ignore: use_build_context_synchronously
+      result = await _showAudioRecordingDialog(context, ref);
+    } else {
+      final mediaImportService = ref.read(mediaImportServiceProvider);
+      result = await mediaImportService.importAttachment(action);
+    }
     if (!mounted) {
       return;
     }
@@ -8262,7 +8433,10 @@ Future<void> _shareAttachment(
   final filePath = attachment.filePath;
   if (filePath == null || filePath.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('This attachment cannot be shared yet.')),
+      const SnackBar(
+        showCloseIcon: true,
+        content: Text('This attachment cannot be shared yet.'),
+      ),
     );
     return;
   }
@@ -8276,7 +8450,10 @@ Future<void> _shareAttachment(
     if (bytes == null || bytes.isEmpty) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Unable to decrypt this attachment.')),
+          const SnackBar(
+            showCloseIcon: true,
+            content: Text('Unable to decrypt this attachment.'),
+          ),
         );
       }
       return;
@@ -8295,7 +8472,10 @@ Future<void> _shareAttachment(
   if (tempFilePath == null || tempFilePath.isEmpty) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Unable to decrypt this attachment.')),
+        const SnackBar(
+          showCloseIcon: true,
+          content: Text('Unable to decrypt this attachment.'),
+        ),
       );
     }
     return;
@@ -9280,26 +9460,11 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final filePath = _attachment.filePath;
-    if (filePath == null || filePath.isEmpty) {
-      return const Scaffold(
-        backgroundColor: Colors.transparent,
-        body: Center(
-          child: Text(
-            'No image is stored for this attachment.',
-            style: TextStyle(color: Colors.white),
-          ),
-        ),
-      );
-    }
-
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SafeArea(
         child: FutureBuilder<List<int>?>(
-          future: ref
-              .watch(encryptedAttachmentStoreProvider)
-              .readAttachment(filePath, type: _attachment.type),
+          future: _readPhotoAttachmentBytes(ref, _attachment),
           builder: (context, snapshot) {
             final bytes = snapshot.data;
             if (snapshot.connectionState == ConnectionState.waiting) {
@@ -9653,6 +9818,23 @@ Future<ui.Size> _decodeImageSize(List<int> bytes) async {
   return ui.Size(image.width.toDouble(), image.height.toDouble());
 }
 
+Future<List<int>?> _readPhotoAttachmentBytes(
+  WidgetRef ref,
+  NoteAttachment attachment,
+) {
+  final filePath = attachment.filePath;
+  if (filePath != null && filePath.isNotEmpty) {
+    return ref
+        .watch(encryptedAttachmentStoreProvider)
+        .readAttachment(filePath, type: attachment.type);
+  }
+  final previewBytesBase64 = attachment.previewBytesBase64;
+  if (previewBytesBase64 == null || previewBytesBase64.isEmpty) {
+    return Future<List<int>?>.value(null);
+  }
+  return Future<List<int>?>.value(base64Decode(previewBytesBase64));
+}
+
 class _PhotoAttachmentViewer extends ConsumerWidget {
   const _PhotoAttachmentViewer({required this.attachment});
 
@@ -9660,16 +9842,8 @@ class _PhotoAttachmentViewer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final filePath = attachment.filePath;
-    if (filePath == null || filePath.isEmpty) {
-      return const Center(
-        child: Text('No image is stored for this attachment.'),
-      );
-    }
     return FutureBuilder<List<int>?>(
-      future: ref
-          .watch(encryptedAttachmentStoreProvider)
-          .readAttachment(filePath, type: attachment.type),
+      future: _readPhotoAttachmentBytes(ref, attachment),
       builder: (context, snapshot) {
         final bytes = snapshot.data;
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -9794,6 +9968,412 @@ class _VideoAttachmentViewerState
   }
 }
 
+Future<MediaImportResult> _showAudioRecordingDialog(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  final result = await showDialog<MediaImportResult>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => _AudioRecordingDialog(
+      attachmentStore: ref.read(encryptedAttachmentStoreProvider),
+    ),
+  );
+  return result ?? const MediaImportResult.cancelled();
+}
+
+class _RecordingFormat {
+  const _RecordingFormat({
+    required this.encoder,
+    required this.extension,
+    required this.mimeType,
+  });
+
+  final AudioEncoder encoder;
+  final String extension;
+  final String mimeType;
+}
+
+class _AudioRecordingDialog extends StatefulWidget {
+  const _AudioRecordingDialog({required this.attachmentStore});
+
+  final EncryptedAttachmentStore attachmentStore;
+
+  @override
+  State<_AudioRecordingDialog> createState() => _AudioRecordingDialogState();
+}
+
+class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
+  final AudioRecorder _recorder = AudioRecorder();
+  Timer? _timer;
+  Duration _elapsed = Duration.zero;
+  bool _isRecording = false;
+  bool _isBusy = false;
+  String? _errorMessage;
+  String? _fileName;
+  _RecordingFormat? _format;
+  StreamSubscription<Uint8List>? _webRecordingSubscription;
+  final List<int> _webRecordingPcmBytes = <int>[];
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    unawaited(_webRecordingSubscription?.cancel());
+    if (_isRecording) {
+      unawaited(_recorder.cancel());
+    }
+    unawaited(_recorder.dispose());
+    super.dispose();
+  }
+
+  Future<void> _start() async {
+    setState(() {
+      _isBusy = true;
+      _errorMessage = null;
+    });
+    try {
+      final strings = context.strings;
+      if (!kIsWeb && !await _recorder.hasPermission()) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _errorMessage = strings.isJapanese
+              ? 'マイクの使用が許可されていません。'
+              : 'Microphone permission was not granted.';
+        });
+        return;
+      }
+
+      final format = await _resolveRecordingFormat();
+      debugPrint(
+        'Audio recording start: encoder=${format.encoder.name}, '
+        'extension=${format.extension}, web=$kIsWeb',
+      );
+      final timestamp = DateTime.now()
+          .toIso8601String()
+          .replaceAll(RegExp(r'[:.]'), '-');
+      final fileName = 'audio_note_$timestamp.${format.extension}';
+      final outputPath = kIsWeb
+          ? fileName
+          : path.join((await getTemporaryDirectory()).path, fileName);
+
+      if (kIsWeb) {
+        _webRecordingPcmBytes.clear();
+        final stream = await _recorder
+            .startStream(_recordConfig(AudioEncoder.pcm16bits))
+            .timeout(
+              const Duration(seconds: 8),
+              onTimeout: () => throw TimeoutException(
+                'Microphone permission prompt did not open. '
+                'Open this app in Chrome or Edge and allow microphone access '
+                'from the site settings.',
+              ),
+            );
+        _webRecordingSubscription = stream.listen(_webRecordingPcmBytes.addAll);
+      } else {
+        await _recorder.start(_recordConfig(format.encoder), path: outputPath);
+      }
+      _timer?.cancel();
+      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) {
+          setState(() {
+            _elapsed += const Duration(seconds: 1);
+          });
+        }
+      });
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _format = format;
+        _fileName = fileName;
+        _elapsed = Duration.zero;
+        _isRecording = true;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('Audio recording failed: $error\n$stackTrace');
+      if (kIsWeb) {
+        unawaited(_webRecordingSubscription?.cancel());
+        _webRecordingSubscription = null;
+        unawaited(_recorder.cancel());
+      }
+      if (!mounted) {
+        return;
+      }
+      final diagnostic = kIsWeb ? ' [$error]' : '';
+      setState(() {
+        _errorMessage = context.strings.isJapanese
+            ? '録音を開始できませんでした。$diagnostic'
+            : 'Could not start recording.$diagnostic';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBusy = false;
+        });
+      }
+    }
+  }
+
+  RecordConfig _recordConfig(AudioEncoder encoder) {
+    return RecordConfig(
+      encoder: encoder,
+      numChannels: 1,
+      androidConfig: AndroidRecordConfig(
+        service: AndroidService(
+          title: context.strings.isJapanese ? 'HiMemoで録音中' : 'HiMemo is recording',
+          content: context.strings.isJapanese
+              ? '音声メモの録音を継続しています。'
+              : 'Audio memo recording is continuing.',
+        ),
+      ),
+      audioInterruption: AudioInterruptionMode.none,
+    );
+  }
+
+  Future<void> _stopAndAttach() async {
+    setState(() {
+      _isBusy = true;
+      _errorMessage = null;
+    });
+    try {
+      _timer?.cancel();
+      await _webRecordingSubscription?.cancel();
+      _webRecordingSubscription = null;
+      final recordedPath = await _recorder.stop();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isRecording = false;
+      });
+      final fileName = _fileName;
+      final format = _format;
+      if (fileName == null || format == null) {
+        setState(() {
+          _errorMessage = context.strings.isJapanese
+              ? '録音データを保存できませんでした。'
+              : 'Could not save the recording.';
+        });
+        return;
+      }
+      if (!kIsWeb && recordedPath == null) {
+        setState(() {
+          _errorMessage = context.strings.isJapanese
+              ? '録音データを保存できませんでした。'
+              : 'Could not save the recording.';
+        });
+        return;
+      }
+      if (kIsWeb && _webRecordingPcmBytes.isEmpty) {
+        setState(() {
+          _errorMessage = context.strings.isJapanese
+              ? '録音データが空でした。'
+              : 'The recording was empty.';
+        });
+        return;
+      }
+      final file = kIsWeb
+          ? XFile.fromData(
+              Uint8List.fromList(
+                _wavBytesFromPcm16(
+                  _webRecordingPcmBytes,
+                  sampleRate: 44100,
+                  numChannels: 1,
+                ),
+              ),
+              name: fileName,
+              mimeType: format.mimeType,
+            )
+          : XFile(recordedPath!, name: fileName, mimeType: format.mimeType);
+      final filePath = await widget.attachmentStore.storeAttachment(
+        file,
+        type: AttachmentType.audio,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (filePath == null) {
+        setState(() {
+          _errorMessage = context.strings.isJapanese
+              ? '録音を添付できませんでした。'
+              : 'Could not attach the recording.';
+        });
+        return;
+      }
+      Navigator.of(context).pop(
+        MediaImportResult.success(
+          NoteAttachment(
+            type: AttachmentType.audio,
+            label: fileName,
+            filePath: filePath,
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _errorMessage = context.strings.isJapanese
+            ? '録音を保存できませんでした。'
+            : 'Could not save the recording.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBusy = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _cancel() async {
+    _timer?.cancel();
+    if (_isRecording) {
+      await _recorder.cancel();
+    }
+    if (mounted) {
+      Navigator.of(context).pop(const MediaImportResult.cancelled());
+    }
+  }
+
+  Future<_RecordingFormat> _resolveRecordingFormat() async {
+    if (kIsWeb) {
+      return const _RecordingFormat(
+        encoder: AudioEncoder.wav,
+        extension: 'wav',
+        mimeType: 'audio/wav',
+      );
+    }
+    if (kIsWeb && await _recorder.isEncoderSupported(AudioEncoder.opus)) {
+      return const _RecordingFormat(
+        encoder: AudioEncoder.opus,
+        extension: 'webm',
+        mimeType: 'audio/webm',
+      );
+    }
+    if (kIsWeb && await _recorder.isEncoderSupported(AudioEncoder.aacLc)) {
+      return const _RecordingFormat(
+        encoder: AudioEncoder.aacLc,
+        extension: 'm4a',
+        mimeType: 'audio/mp4',
+      );
+    }
+    if (await _recorder.isEncoderSupported(AudioEncoder.wav)) {
+      return const _RecordingFormat(
+        encoder: AudioEncoder.wav,
+        extension: 'wav',
+        mimeType: 'audio/wav',
+      );
+    }
+    return const _RecordingFormat(
+      encoder: AudioEncoder.aacLc,
+      extension: 'm4a',
+      mimeType: 'audio/mp4',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final isJapanese = strings.isJapanese;
+    return AlertDialog(
+      title: Text(isJapanese ? '音声メモを録音' : 'Record audio memo'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _isRecording
+                  ? Icons.fiber_manual_record_rounded
+                  : Icons.mic_none_rounded,
+              size: 56,
+              color: _isRecording
+                  ? Theme.of(context).colorScheme.error
+                  : Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              _formatRecordingDuration(_elapsed),
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isBusy ? null : _cancel,
+          child: Text(isJapanese ? 'キャンセル' : 'Cancel'),
+        ),
+        if (_isRecording)
+          FilledButton.icon(
+            onPressed: _isBusy ? null : _stopAndAttach,
+            icon: const Icon(Icons.stop_rounded),
+            label: Text(isJapanese ? '停止して添付' : 'Stop and attach'),
+          )
+        else
+          FilledButton.icon(
+            onPressed: _isBusy ? null : _start,
+            icon: const Icon(Icons.mic_rounded),
+            label: Text(isJapanese ? '録音開始' : 'Start recording'),
+          ),
+      ],
+    );
+  }
+}
+
+List<int> _wavBytesFromPcm16(
+  List<int> pcmBytes, {
+  required int sampleRate,
+  required int numChannels,
+}) {
+  final byteRate = sampleRate * numChannels * 2;
+  final blockAlign = numChannels * 2;
+  final dataLength = pcmBytes.length;
+  final totalLength = 44 + dataLength;
+  final bytes = Uint8List(totalLength);
+  final data = ByteData.view(bytes.buffer);
+
+  void writeAscii(int offset, String value) {
+    for (var i = 0; i < value.length; i += 1) {
+      bytes[offset + i] = value.codeUnitAt(i);
+    }
+  }
+
+  writeAscii(0, 'RIFF');
+  data.setUint32(4, 36 + dataLength, Endian.little);
+  writeAscii(8, 'WAVE');
+  writeAscii(12, 'fmt ');
+  data.setUint32(16, 16, Endian.little);
+  data.setUint16(20, 1, Endian.little);
+  data.setUint16(22, numChannels, Endian.little);
+  data.setUint32(24, sampleRate, Endian.little);
+  data.setUint32(28, byteRate, Endian.little);
+  data.setUint16(32, blockAlign, Endian.little);
+  data.setUint16(34, 16, Endian.little);
+  writeAscii(36, 'data');
+  data.setUint32(40, dataLength, Endian.little);
+  bytes.setRange(44, totalLength, pcmBytes);
+  return bytes;
+}
+
+String _formatRecordingDuration(Duration value) {
+  final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
+  return '$minutes:$seconds';
+}
+
 class _AudioAttachmentViewer extends ConsumerStatefulWidget {
   const _AudioAttachmentViewer({required this.attachment});
 
@@ -9809,6 +10389,7 @@ class _AudioAttachmentViewerState
   final AudioPlayer _player = AudioPlayer();
   String? _tempFilePath;
   bool _ready = false;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -9832,30 +10413,66 @@ class _AudioAttachmentViewerState
 
   Future<void> _load() async {
     final filePath = widget.attachment.filePath;
-    if (filePath == null || filePath.isEmpty || kIsWeb) {
+    if (filePath == null || filePath.isEmpty) {
       return;
     }
-    final tempFilePath = await ref
-        .read(encryptedAttachmentStoreProvider)
-        .materializeDecryptedFile(
+    try {
+      final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+      if (kIsWeb) {
+        final bytes = await attachmentStore.readAttachment(
           filePath,
           type: widget.attachment.type,
-          preferredFileName: widget.attachment.label,
         );
-    if (!mounted || tempFilePath == null) {
-      return;
+        if (!mounted || bytes == null || bytes.isEmpty) {
+          return;
+        }
+        await _player.setAudioSource(
+          AudioSource.uri(
+            Uri.dataFromBytes(
+              Uint8List.fromList(bytes),
+              mimeType: _mimeTypeForAudioAttachment(widget.attachment),
+            ),
+          ),
+        );
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _ready = true;
+        });
+        return;
+      }
+
+      final tempFilePath = await attachmentStore.materializeDecryptedFile(
+        filePath,
+        type: widget.attachment.type,
+        preferredFileName: widget.attachment.label,
+      );
+      if (!mounted || tempFilePath == null) {
+        return;
+      }
+      await _player.setFilePath(tempFilePath);
+      setState(() {
+        _tempFilePath = tempFilePath;
+        _ready = true;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _errorMessage = context.strings.isJapanese
+            ? '音声を再生できませんでした。'
+            : 'Could not play this audio.';
+      });
     }
-    await _player.setFilePath(tempFilePath);
-    setState(() {
-      _tempFilePath = tempFilePath;
-      _ready = true;
-    });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (kIsWeb) {
-      return const Center(child: Text('Audio playback is not enabled on web.'));
+    final errorMessage = _errorMessage;
+    if (errorMessage != null) {
+      return Center(child: Text(errorMessage));
     }
     if (!_ready) {
       return const Center(child: CircularProgressIndicator());
@@ -9889,6 +10506,23 @@ class _AudioAttachmentViewerState
       },
     );
   }
+}
+
+String _mimeTypeForAudioAttachment(NoteAttachment attachment) {
+  final label = attachment.label.toLowerCase();
+  if (label.endsWith('.wav')) {
+    return 'audio/wav';
+  }
+  if (label.endsWith('.m4a') || label.endsWith('.mp4')) {
+    return 'audio/mp4';
+  }
+  if (label.endsWith('.webm')) {
+    return 'audio/webm';
+  }
+  if (label.endsWith('.ogg') || label.endsWith('.opus')) {
+    return 'audio/ogg';
+  }
+  return 'audio/mpeg';
 }
 
 BoxDecoration _sectionDecoration(BuildContext context) {

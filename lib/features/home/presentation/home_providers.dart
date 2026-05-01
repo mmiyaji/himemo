@@ -318,6 +318,7 @@ enum MediaImportAction {
   pickPhoto,
   recordVideo,
   pickVideo,
+  recordAudio,
   pickAudio,
 }
 
@@ -952,6 +953,10 @@ class DefaultMediaImportService implements MediaImportService {
         return _pickVideo(ImageSource.camera);
       case MediaImportAction.pickVideo:
         return _pickVideo(ImageSource.gallery);
+      case MediaImportAction.recordAudio:
+        return const MediaImportResult.failure(
+          'Audio recording is handled by the note editor.',
+        );
       case MediaImportAction.pickAudio:
         return _pickAudio();
     }
@@ -2921,6 +2926,8 @@ class LastNoteEditorSettingsController
 
 @Riverpod(keepAlive: true)
 class NotesController extends _$NotesController {
+  static const _deletedSeedNoteIdsKey = 'notes.deleted_seed_note_ids.v1';
+
   bool _restored = false;
   bool _restoreFailed = false;
   Future<void>? _restoreTask;
@@ -2998,9 +3005,47 @@ class NotesController extends _$NotesController {
     if (state.isNotEmpty) {
       return;
     }
+    await _rememberDeletedSeedNoteIds(const <String>{});
     state = List<NoteEntry>.from(ref.read(homeRepositoryProvider).seededNotes);
     _sort(state);
     await _persist();
+  }
+
+  Future<void> get restoreCompleted => _waitForInitialRestore();
+
+  Future<int> deleteDemoNotes() async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final seedIds = ref
+        .read(homeRepositoryProvider)
+        .seededNotes
+        .map((note) => note.id)
+        .toSet();
+    final idsToDelete = state
+        .where((note) => _isSeedNote(note) || seedIds.contains(note.id))
+        .map((note) => note.id)
+        .toSet();
+    if (idsToDelete.isEmpty) {
+      await _rememberDeletedSeedNoteIds(seedIds);
+      return 0;
+    }
+
+    final removedNotes = state
+        .where((note) => idsToDelete.contains(note.id))
+        .toList(growable: false);
+    state = state
+        .where((note) => !idsToDelete.contains(note.id))
+        .toList(growable: false);
+    final selectedNoteId = ref.read(selectedNoteIdProvider);
+    if (selectedNoteId != null && idsToDelete.contains(selectedNoteId)) {
+      ref.read(selectedNoteIdProvider.notifier).select(null);
+    }
+    await _deleteAttachments([
+      for (final note in removedNotes) ...note.attachments,
+    ]);
+    await _rememberDeletedSeedNoteIds({...seedIds, ...idsToDelete});
+    await _persist();
+    return idsToDelete.length;
   }
 
   Future<void> replaceFromSync(List<NoteEntry> notes) async {
@@ -3136,7 +3181,12 @@ class NotesController extends _$NotesController {
 
   Future<void> _restore() async {
     try {
-      final fallbackNotes = ref.read(homeRepositoryProvider).seededNotes;
+      final deletedSeedNoteIds = await _deletedSeedNoteIds();
+      final fallbackNotes = ref
+          .read(homeRepositoryProvider)
+          .seededNotes
+          .where((note) => !deletedSeedNoteIds.contains(note.id))
+          .toList(growable: false);
       final restored = [
         ...await ref
             .read(encryptedNoteStoreProvider)
@@ -3145,7 +3195,13 @@ class NotesController extends _$NotesController {
       if (!ref.mounted) {
         return;
       }
-      final merged = _mergeMissingSeedNotes(restored, fallbackNotes);
+      final restoredWithoutDeletedSeeds = restored
+          .where((note) => !deletedSeedNoteIds.contains(note.id))
+          .toList(growable: false);
+      final merged = _mergeMissingSeedNotes(
+        restoredWithoutDeletedSeeds,
+        fallbackNotes,
+      );
       final changed = merged.length != restored.length;
       _sort(merged);
       state = merged;
@@ -3165,6 +3221,21 @@ class NotesController extends _$NotesController {
         reason: 'notes_restore_failed',
       );
     }
+  }
+
+  Future<Set<String>> _deletedSeedNoteIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getStringList(_deletedSeedNoteIdsKey) ?? const <String>[])
+        .toSet();
+  }
+
+  Future<void> _rememberDeletedSeedNoteIds(Set<String> ids) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (ids.isEmpty) {
+      await prefs.remove(_deletedSeedNoteIdsKey);
+      return;
+    }
+    await prefs.setStringList(_deletedSeedNoteIdsKey, ids.toList()..sort());
   }
 
   Future<void> _waitForInitialRestore() async {
@@ -3196,6 +3267,9 @@ class NotesController extends _$NotesController {
     }
     return merged;
   }
+
+  bool _isSeedNote(NoteEntry note) =>
+      note.deviceId == 'seeded-device' || note.id.startsWith('seed-');
 
   Future<void> _persist() async {
     if (_restoreFailed) {

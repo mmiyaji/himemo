@@ -145,9 +145,12 @@ class _WidgetQuickCaptureScreenState
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(context.strings.quickMemoSaved)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(context.strings.quickMemoSaved),
+        ),
+      );
       await Future<void>.delayed(const Duration(milliseconds: 250));
       _close();
     } finally {
