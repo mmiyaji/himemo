@@ -10378,14 +10378,7 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
         mimeType: 'audio/wav',
       );
     }
-    if (kIsWeb && await _recorder.isEncoderSupported(AudioEncoder.opus)) {
-      return const _RecordingFormat(
-        encoder: AudioEncoder.opus,
-        extension: 'webm',
-        mimeType: 'audio/webm',
-      );
-    }
-    if (kIsWeb && await _recorder.isEncoderSupported(AudioEncoder.aacLc)) {
+    if (await _recorder.isEncoderSupported(AudioEncoder.aacLc)) {
       return const _RecordingFormat(
         encoder: AudioEncoder.aacLc,
         extension: 'm4a',
@@ -10544,6 +10537,11 @@ class _AudioAttachmentViewerState
   Future<void> _load() async {
     final filePath = widget.attachment.filePath;
     if (filePath == null || filePath.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = context.strings.audioPlaybackFailed;
+        });
+      }
       return;
     }
     try {
@@ -10553,7 +10551,13 @@ class _AudioAttachmentViewerState
           filePath,
           type: widget.attachment.type,
         );
-        if (!mounted || bytes == null || bytes.isEmpty) {
+        if (!mounted) {
+          return;
+        }
+        if (bytes == null || bytes.isEmpty) {
+          setState(() {
+            _errorMessage = context.strings.audioPlaybackFailed;
+          });
           return;
         }
         await _player.setAudioSource(
@@ -10578,22 +10582,29 @@ class _AudioAttachmentViewerState
         type: widget.attachment.type,
         preferredFileName: widget.attachment.label,
       );
-      if (!mounted || tempFilePath == null) {
+      if (!mounted) {
         return;
       }
-      await _player.setFilePath(tempFilePath);
+      if (tempFilePath == null) {
+        setState(() {
+          _errorMessage = context.strings.audioPlaybackFailed;
+        });
+        return;
+      }
+      await _player
+          .setFilePath(tempFilePath)
+          .timeout(const Duration(seconds: 15));
       setState(() {
         _tempFilePath = tempFilePath;
         _ready = true;
       });
-    } catch (_) {
+    } catch (error, stackTrace) {
+      debugPrint('Audio playback load failed: $error\n$stackTrace');
       if (!mounted) {
         return;
       }
       setState(() {
-        _errorMessage = context.strings.isJapanese
-            ? '音声を再生できませんでした。'
-            : 'Could not play this audio.';
+        _errorMessage = context.strings.audioPlaybackFailed;
       });
     }
   }

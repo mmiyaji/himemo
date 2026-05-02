@@ -326,6 +326,8 @@ class AppStrings {
       isJapanese ? '録音を添付できませんでした。' : 'Could not attach the recording.';
   String get audioRecordingStoreFailed =>
       isJapanese ? '録音を保存できませんでした。' : 'Could not save the recording.';
+  String get audioPlaybackFailed =>
+      isJapanese ? '音声を再生できませんでした。' : 'Could not play this audio.';
   String get audioMemoRecordingTitle =>
       isJapanese ? '音声メモを録音' : 'Record audio memo';
   String get stopAndAttachRecording =>
