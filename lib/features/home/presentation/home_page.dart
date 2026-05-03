@@ -1993,8 +1993,11 @@ _InsightsSummary _buildInsightsSummary(
       .length;
   final monthlyDelta = thisMonthCount - previousMonthCount;
   final message = bestDay == null || bestDay.value == 0
-      ? strings.insightsSummaryEmpty
-      : strings.insightsSummaryActive(thisMonthCount, bestDay.label);
+      ? strings.text('home.insights.summary.empty')
+      : strings.text('home.insights.summary.active', {
+          'thisMonthCount': thisMonthCount,
+          'bestDayLabel': bestDay.label,
+        });
   return _InsightsSummary(
     currentStreak: currentStreak,
     thisMonthCount: thisMonthCount,

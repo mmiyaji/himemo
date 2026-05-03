@@ -92,6 +92,10 @@ class AppStrings {
       'home.peak.time': 'peak time',
       'home.monthly.trend': 'Monthly trend',
       'home.vs.last.month': 'vs last month',
+      'home.insights.summary.empty':
+          'Your writing activity will appear here. Write for a few days to make trends visible.',
+      'home.insights.summary.active':
+          'This month has {thisMonthCount} notes. Your best day was {bestDayLabel}. Keeping a streak makes progress easier to see.',
       'home.no.data.yet': 'No data yet.',
       'home.less': 'Less',
       'home.more': 'More',
@@ -463,6 +467,9 @@ class AppStrings {
       'home.peak.time': 'ピーク',
       'home.monthly.trend': '前月比',
       'home.vs.last.month': '先月比',
+      'home.insights.summary.empty': '書いた量がここにたまります。まずは数日続けてみると変化が見えます。',
+      'home.insights.summary.active':
+          '今月は {thisMonthCount} 件、最も書いた日は {bestDayLabel} です。連続記録を保つと積み上がりが見えやすくなります。',
       'home.no.data.yet': 'まだデータがありません。',
       'home.less': '少',
       'home.more': '多',

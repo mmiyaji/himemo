@@ -3034,6 +3034,7 @@ class LastNoteEditorSettingsController
 @Riverpod(keepAlive: true)
 class NotesController extends _$NotesController {
   static const _deletedSeedNoteIdsKey = 'notes.deleted_seed_note_ids.v1';
+  static const _storeAssetsSeedDemoNotesKey = 'store_assets.seed_demo_notes.v1';
 
   bool _restored = false;
   bool _restoreFailed = false;
@@ -3380,9 +3381,18 @@ class NotesController extends _$NotesController {
       final restoredWithoutDeletedSeeds = restored
           .where((note) => !deletedSeedNoteIds.contains(note.id))
           .toList(growable: false);
-      final changed = restoredWithoutDeletedSeeds.length != restored.length;
-      _sort(restoredWithoutDeletedSeeds);
-      state = restoredWithoutDeletedSeeds;
+      var next = restoredWithoutDeletedSeeds;
+      var changed = restoredWithoutDeletedSeeds.length != restored.length;
+      if (next.isEmpty && await _shouldSeedDemoNotesForStoreAssets()) {
+        next = ref
+            .read(homeRepositoryProvider)
+            .seededNotes
+            .where((note) => note.vaultId == 'everyday')
+            .toList(growable: false);
+        changed = true;
+      }
+      _sort(next);
+      state = next;
       _restoreFailed = false;
       if (changed) {
         await _persist();
@@ -3405,6 +3415,11 @@ class NotesController extends _$NotesController {
     final prefs = await SharedPreferences.getInstance();
     return (prefs.getStringList(_deletedSeedNoteIdsKey) ?? const <String>[])
         .toSet();
+  }
+
+  Future<bool> _shouldSeedDemoNotesForStoreAssets() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_storeAssetsSeedDemoNotesKey) ?? false;
   }
 
   Future<void> _rememberDeletedSeedNoteIds(Set<String> ids) async {
