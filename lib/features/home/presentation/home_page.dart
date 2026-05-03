@@ -10480,13 +10480,14 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                               horizontalPadding,
                               verticalBottomPadding,
                             ),
-                            child: GestureDetector(
-                              onTap: () {},
-                              onDoubleTap: () => _toggleActualSize(maxScale),
-                              child: Center(
-                                child: SizedBox(
-                                  width: displayedWidth,
-                                  height: displayedHeight,
+                            child: Center(
+                              child: SizedBox(
+                                width: displayedWidth,
+                                height: displayedHeight,
+                                child: GestureDetector(
+                                  onTap: () {},
+                                  onDoubleTap: () =>
+                                      _toggleActualSize(maxScale),
                                   child: InteractiveViewer(
                                     transformationController:
                                         _transformationController,
