@@ -550,10 +550,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 ? const _EmptyNotesState()
                 : selectedIndex < 0
                 ? const _EmptyNoteSelectionState()
-                : _NoteDetailPager(
+                : _StaticNoteDetailView(
                     notes: visibleNotes,
                     selectedIndex: selectedIndex,
-                    onPageChanged: (index) => ref
+                    onSelected: (index) => ref
                         .read(selectedNoteIdProvider.notifier)
                         .select(visibleNotes[index].id),
                     onEdit: (note) =>
@@ -5596,6 +5596,81 @@ class _HighlightedText extends StatelessWidget {
       TextSpan(style: style, children: spans),
       maxLines: maxLines,
       overflow: overflow ?? TextOverflow.clip,
+    );
+  }
+}
+
+class _StaticNoteDetailView extends ConsumerWidget {
+  const _StaticNoteDetailView({
+    required this.notes,
+    required this.selectedIndex,
+    required this.onSelected,
+    required this.onEdit,
+    required this.onDelete,
+    this.onTagTap,
+  });
+
+  final List<NoteEntry> notes;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+  final ValueChanged<NoteEntry> onEdit;
+  final ValueChanged<NoteEntry> onDelete;
+  final ValueChanged<String>? onTagTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = context.strings;
+    final note = notes[selectedIndex];
+    final canMovePrevious = selectedIndex > 0;
+    final canMoveNext = selectedIndex < notes.length - 1;
+    _debugNotePerf(
+      'detail static build index=$selectedIndex ${_notePerfLabel(note)}',
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Row(
+            children: [
+              IconButton(
+                onPressed: canMovePrevious
+                    ? () => onSelected(selectedIndex - 1)
+                    : null,
+                icon: const Icon(Icons.chevron_left_rounded),
+                tooltip: strings.isJapanese ? '前のメモ' : 'Previous note',
+                visualDensity: VisualDensity.compact,
+              ),
+              IconButton(
+                onPressed: canMoveNext
+                    ? () => onSelected(selectedIndex + 1)
+                    : null,
+                icon: const Icon(Icons.chevron_right_rounded),
+                tooltip: strings.isJapanese ? '次のメモ' : 'Next note',
+                visualDensity: VisualDensity.compact,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${selectedIndex + 1} / ${notes.length}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _NoteDetailPane(
+            note: note,
+            isActive: true,
+            vaultName: ref.watch(vaultByIdProvider(note.vaultId)).name,
+            onEdit: () => onEdit(note),
+            onDelete: () => onDelete(note),
+            onTagTap: onTagTap,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -10869,7 +10944,7 @@ Future<List<int>?> _readPhotoAttachmentBytes(
   final filePath = attachment.filePath;
   if (filePath != null && filePath.isNotEmpty) {
     return ref
-        .watch(encryptedAttachmentStoreProvider)
+        .read(encryptedAttachmentStoreProvider)
         .readAttachment(filePath, type: attachment.type);
   }
   final previewBytesBase64 = attachment.previewBytesBase64;
@@ -10887,16 +10962,36 @@ String _attachmentCacheKey(NoteAttachment attachment) {
   return '${attachment.label}:${attachment.previewBytesBase64 ?? ''}';
 }
 
+const _photoAttachmentBytesCacheLimit = 24;
+final _photoAttachmentBytesCache = <String, Future<List<int>?>>{};
+
 Future<List<int>?> _readPhotoAttachmentBytesWithPerf(
   WidgetRef ref,
   NoteAttachment attachment, {
   required String source,
 }) {
   final filePath = attachment.filePath;
-  return _profileNotePerfFuture(
+  final cacheKey = _attachmentCacheKey(attachment);
+  final cached = _photoAttachmentBytesCache[cacheKey];
+  if (cached != null) {
+    _debugNotePerf(
+      '$source photo read cache-hit label="${attachment.label}" file=${filePath == null ? 'inline' : path.basename(filePath)}',
+    );
+    return cached;
+  }
+  if (_photoAttachmentBytesCache.length >= _photoAttachmentBytesCacheLimit) {
+    _photoAttachmentBytesCache.remove(_photoAttachmentBytesCache.keys.first);
+  }
+  final future = _profileNotePerfFuture(
     '$source photo read label="${attachment.label}" file=${filePath == null ? 'inline' : path.basename(filePath)}',
     () => _readPhotoAttachmentBytes(ref, attachment),
   );
+  _photoAttachmentBytesCache[cacheKey] = future;
+  future.catchError((Object _) {
+    _photoAttachmentBytesCache.remove(cacheKey);
+    return null;
+  });
+  return future;
 }
 
 class _PhotoAttachmentViewer extends ConsumerWidget {
