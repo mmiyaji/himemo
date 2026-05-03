@@ -17,9 +17,18 @@ import 'package:himemo/features/security/data/encrypted_note_store.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/master_key_service.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
+import 'package:himemo/l10n/app_strings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  test('app strings fall back to English for unsupported locales', () {
+    final strings = AppStrings(const Locale('fr'));
+
+    expect(strings.createDemoNotes, 'Create demo notes');
+    expect(strings.deleteDemoNotesBody(3), contains('3 demo notes'));
+    expect(strings.noteDayLabel(DateTime(2026, 5, 3)), 'May 3, 2026 (Sun)');
+  });
+
   test('providers expose private profiles only after unlock', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();

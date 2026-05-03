@@ -4193,20 +4193,14 @@ class SettingsScreen extends ConsumerWidget {
                           showCloseIcon: true,
                           content: Text(
                             createdCount == 0
-                                ? (strings.isJapanese
-                                      ? '作成できるデモ用ノートはありません。'
-                                      : 'No demo notes to create.')
-                                : (strings.isJapanese
-                                      ? 'デモ用ノート $createdCount 件を作成しました。'
-                                      : 'Created $createdCount demo notes.'),
+                                ? strings.noDemoNotesToCreate
+                                : strings.demoNotesCreated(createdCount),
                           ),
                         ),
                       );
                     },
                     icon: const Icon(Icons.add_rounded),
-                    label: Text(
-                      strings.isJapanese ? 'デモ用ノートを作成' : 'Create demo notes',
-                    ),
+                    label: Text(strings.createDemoNotes),
                   ),
                   OutlinedButton.icon(
                     key: deleteDemoNotesKey,
@@ -4217,15 +4211,9 @@ class SettingsScreen extends ConsumerWidget {
                               context: context,
                               builder: (dialogContext) {
                                 return AlertDialog(
-                                  title: Text(
-                                    strings.isJapanese
-                                        ? 'デモ用ノートを削除しますか？'
-                                        : 'Delete demo notes?',
-                                  ),
+                                  title: Text(strings.deleteDemoNotesTitle),
                                   content: Text(
-                                    strings.isJapanese
-                                        ? 'デモ用ノート $demoNoteCount 件をこの端末から削除します。自分で作成したノートは削除されません。'
-                                        : 'This deletes $demoNoteCount demo notes from this device. Notes you created are not deleted.',
+                                    strings.deleteDemoNotesBody(demoNoteCount),
                                   ),
                                   actions: [
                                     TextButton(
@@ -4239,9 +4227,7 @@ class SettingsScreen extends ConsumerWidget {
                                     FilledButton(
                                       onPressed: () =>
                                           Navigator.of(dialogContext).pop(true),
-                                      child: Text(
-                                        strings.isJapanese ? '削除' : 'Delete',
-                                      ),
+                                      child: Text(strings.delete),
                                     ),
                                   ],
                                 );
@@ -4260,17 +4246,13 @@ class SettingsScreen extends ConsumerWidget {
                               SnackBar(
                                 showCloseIcon: true,
                                 content: Text(
-                                  strings.isJapanese
-                                      ? 'デモ用ノート $deletedCount 件を削除しました。'
-                                      : 'Deleted $deletedCount demo notes.',
+                                  strings.demoNotesDeleted(deletedCount),
                                 ),
                               ),
                             );
                           },
                     icon: const Icon(Icons.delete_outline_rounded),
-                    label: Text(
-                      strings.isJapanese ? 'デモ用ノートを削除' : 'Delete demo notes',
-                    ),
+                    label: Text(strings.deleteDemoNotes),
                   ),
                 ],
               ),
@@ -5247,14 +5229,14 @@ class _NoteDayDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final label = _formatNoteDayLabel(date, isJapanese: strings.isJapanese);
+    final label = strings.noteDayLabel(date);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final target = DateTime(date.year, date.month, date.day);
     final dayDiff = today.difference(target).inDays;
     final suffix = switch (dayDiff) {
       0 => strings.today,
-      1 => strings.isJapanese ? '昨日' : 'Yesterday',
+      1 => strings.yesterday,
       _ => null,
     };
     final weekendColor = _noteDayWeekendColor(context, date);
@@ -5295,35 +5277,6 @@ class _NoteDayDivider extends StatelessWidget {
       ),
     );
   }
-}
-
-String _formatNoteDayLabel(DateTime date, {required bool isJapanese}) {
-  final weekday = _weekdayShortLabel(date.weekday, isJapanese: isJapanese);
-  if (isJapanese) {
-    return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}($weekday)';
-  }
-  final month = const [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-  ][date.month - 1];
-  return '$month ${date.day}, ${date.year} ($weekday)';
-}
-
-String _weekdayShortLabel(int weekday, {required bool isJapanese}) {
-  final labels = isJapanese
-      ? const ['月', '火', '水', '木', '金', '土', '日']
-      : const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  return labels[weekday - 1];
 }
 
 Color? _noteDayWeekendColor(BuildContext context, DateTime date) {
@@ -7316,14 +7269,12 @@ class _EmptyNotesState extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            strings.isJapanese ? '一致するノートはありません' : 'No matching notes',
+            strings.emptyNotesTitle,
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
           Text(
-            strings.isJapanese
-                ? '新しいメモを作成するか、現在の検索条件を解除すると保存済みのノートを表示できます。'
-                : 'Create a new memo or clear the current search filter to see saved entries.',
+            strings.emptyNotesBody,
             style: Theme.of(
               context,
             ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),

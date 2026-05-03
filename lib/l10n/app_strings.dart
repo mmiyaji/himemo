@@ -18,6 +18,75 @@ class AppStrings {
 
   bool get isJapanese => locale.languageCode == 'ja';
 
+  static const _localizedValues = <String, Map<String, String>>{
+    'en': {
+      'action.delete': 'Delete',
+      'date.yesterday': 'Yesterday',
+      'date.weekday.mon.short': 'Mon',
+      'date.weekday.tue.short': 'Tue',
+      'date.weekday.wed.short': 'Wed',
+      'date.weekday.thu.short': 'Thu',
+      'date.weekday.fri.short': 'Fri',
+      'date.weekday.sat.short': 'Sat',
+      'date.weekday.sun.short': 'Sun',
+      'date.month.1': 'January',
+      'date.month.2': 'February',
+      'date.month.3': 'March',
+      'date.month.4': 'April',
+      'date.month.5': 'May',
+      'date.month.6': 'June',
+      'date.month.7': 'July',
+      'date.month.8': 'August',
+      'date.month.9': 'September',
+      'date.month.10': 'October',
+      'date.month.11': 'November',
+      'date.month.12': 'December',
+      'notes.empty.title': 'No matching notes',
+      'notes.empty.body':
+          'Create a new memo or clear the current search filter to see saved entries.',
+      'settings.demo.create': 'Create demo notes',
+      'settings.demo.create.none': 'No demo notes to create.',
+      'settings.demo.create.done': 'Created {count} demo notes.',
+      'settings.demo.delete': 'Delete demo notes',
+      'settings.demo.delete.title': 'Delete demo notes?',
+      'settings.demo.delete.body':
+          'This deletes {count} demo notes from this device. Notes you created are not deleted.',
+      'settings.demo.delete.done': 'Deleted {count} demo notes.',
+    },
+    'ja': {
+      'action.delete': '削除',
+      'date.yesterday': '昨日',
+      'date.weekday.mon.short': '月',
+      'date.weekday.tue.short': '火',
+      'date.weekday.wed.short': '水',
+      'date.weekday.thu.short': '木',
+      'date.weekday.fri.short': '金',
+      'date.weekday.sat.short': '土',
+      'date.weekday.sun.short': '日',
+      'notes.empty.title': '一致するノートはありません',
+      'notes.empty.body': '新しいメモを作成するか、現在の検索条件を解除すると保存済みのノートを表示できます。',
+      'settings.demo.create': 'デモ用ノートを作成',
+      'settings.demo.create.none': '作成できるデモ用ノートはありません。',
+      'settings.demo.create.done': 'デモ用ノート {count} 件を作成しました。',
+      'settings.demo.delete': 'デモ用ノートを削除',
+      'settings.demo.delete.title': 'デモ用ノートを削除しますか？',
+      'settings.demo.delete.body':
+          'デモ用ノート {count} 件をこの端末から削除します。自分で作成したノートは削除されません。',
+      'settings.demo.delete.done': 'デモ用ノート {count} 件を削除しました。',
+    },
+  };
+
+  String text(String key, [Map<String, Object?> args = const {}]) {
+    final template =
+        _localizedValues[locale.languageCode]?[key] ??
+        _localizedValues['en']?[key] ??
+        key;
+    return args.entries.fold(
+      template,
+      (value, entry) => value.replaceAll('{${entry.key}}', '${entry.value}'),
+    );
+  }
+
   String get appTitle => 'HiMemo';
   String get notes => isJapanese ? 'ノート' : 'Notes';
   String get calendar => isJapanese ? 'カレンダー' : 'Calendar';
@@ -28,6 +97,39 @@ class AppStrings {
   String get expandSidebar => isJapanese ? 'サイドバーを開く' : 'Expand sidebar';
   String get search => isJapanese ? '検索' : 'Search';
   String get today => isJapanese ? '今日' : 'Today';
+  String get yesterday => text('date.yesterday');
+  String weekdayShort(int weekday) => text(
+    const [
+      'date.weekday.mon.short',
+      'date.weekday.tue.short',
+      'date.weekday.wed.short',
+      'date.weekday.thu.short',
+      'date.weekday.fri.short',
+      'date.weekday.sat.short',
+      'date.weekday.sun.short',
+    ][weekday - 1],
+  );
+  String monthName(int month) => text('date.month.$month');
+  String noteDayLabel(DateTime date) {
+    final weekday = weekdayShort(date.weekday);
+    if (isJapanese) {
+      return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}($weekday)';
+    }
+    return '${monthName(date.month)} ${date.day}, ${date.year} ($weekday)';
+  }
+
+  String get emptyNotesTitle => text('notes.empty.title');
+  String get emptyNotesBody => text('notes.empty.body');
+  String get createDemoNotes => text('settings.demo.create');
+  String demoNotesCreated(int count) =>
+      text('settings.demo.create.done', {'count': count});
+  String get noDemoNotesToCreate => text('settings.demo.create.none');
+  String get deleteDemoNotes => text('settings.demo.delete');
+  String get deleteDemoNotesTitle => text('settings.demo.delete.title');
+  String deleteDemoNotesBody(int count) =>
+      text('settings.demo.delete.body', {'count': count});
+  String demoNotesDeleted(int count) =>
+      text('settings.demo.delete.done', {'count': count});
   String get insightsSummaryEmpty => isJapanese
       ? '書いた量がここにたまります。まずは数日続けてみると変化が見えます。'
       : 'Your writing activity will appear here. Write for a few days to make trends visible.';
@@ -253,6 +355,7 @@ class AppStrings {
       isJapanese ? 'アプリ解除 PIN を設定' : 'Set app unlock PIN';
   String get pin => 'PIN';
   String get cancel => isJapanese ? 'キャンセル' : 'Cancel';
+  String get delete => text('action.delete');
   String get save => isJapanese ? '保存' : 'Save';
   String get useExactly4Digits =>
       isJapanese ? '4桁ちょうどで入力してください。' : 'Use exactly 4 digits.';
