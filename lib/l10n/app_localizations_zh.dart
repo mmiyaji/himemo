@@ -57,6 +57,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get languageKorean => '韩语';
 
   @override
+  String get languageSpanish => '西班牙语';
+
+  @override
+  String get languageGerman => '德语';
+
+  @override
   String get appearance => '外观';
 
   @override

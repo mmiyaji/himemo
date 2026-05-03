@@ -93,21 +93,55 @@ void main() {
     );
   });
 
+  test('app strings support Spanish and German locales', () {
+    final es = AppStrings(const Locale('es'));
+    final de = AppStrings(const Locale('de'));
+
+    expect(AppStrings.supportedLocales, contains(const Locale('es')));
+    expect(AppStrings.supportedLocales, contains(const Locale('de')));
+    expect(es.notes, 'Notas');
+    expect(es.settings, 'Ajustes');
+    expect(es.languageSystemOption, 'Seguir sistema (System)');
+    expect(es.languageSpanishOption, 'Español (Spanish)');
+    expect(es.emptyNotesTitle, 'No hay notas coincidentes');
+    expect(es.noteDayLabel(DateTime(2026, 5, 3)), 'mayo 3, 2026 (dom)');
+    expect(
+      es.text('home.remote.bundle.storage.is.not.configured.yet'),
+      'El almacenamiento del paquete remoto aún no está configurado.',
+    );
+    expect(de.notes, 'Notizen');
+    expect(de.settings, 'Einstellungen');
+    expect(de.languageSystemOption, 'System folgen (System)');
+    expect(de.languageGermanOption, 'Deutsch (German)');
+    expect(de.emptyNotesTitle, 'Keine passenden Notizen');
+    expect(de.noteDayLabel(DateTime(2026, 5, 3)), 'Mai 3, 2026 (So)');
+    expect(
+      de.text('home.remote.bundle.storage.is.not.configured.yet'),
+      'Der Remote-Bundle-Speicher ist noch nicht eingerichtet.',
+    );
+  });
+
   test('generated app localizations support configured locales', () async {
     expect(AppLocalizations.supportedLocales, contains(const Locale('en')));
     expect(AppLocalizations.supportedLocales, contains(const Locale('ja')));
     expect(AppLocalizations.supportedLocales, contains(const Locale('zh')));
     expect(AppLocalizations.supportedLocales, contains(const Locale('ko')));
+    expect(AppLocalizations.supportedLocales, contains(const Locale('es')));
+    expect(AppLocalizations.supportedLocales, contains(const Locale('de')));
 
     final en = await AppLocalizations.delegate.load(const Locale('en'));
     final ja = await AppLocalizations.delegate.load(const Locale('ja'));
     final zh = await AppLocalizations.delegate.load(const Locale('zh'));
     final ko = await AppLocalizations.delegate.load(const Locale('ko'));
+    final es = await AppLocalizations.delegate.load(const Locale('es'));
+    final de = await AppLocalizations.delegate.load(const Locale('de'));
 
     expect(en.noMatchingNotes, 'No matching notes');
     expect(ja.noMatchingNotes, '一致するノートはありません');
     expect(zh.notes, '笔记');
     expect(ko.saveToPrivateProfile, '비공개 프로필에 저장');
+    expect(es.notes, 'Notas');
+    expect(de.saveToPrivateProfile, 'In privatem Profil speichern');
   });
 
   test('iCloud sync is ignored on unsupported platforms', () async {

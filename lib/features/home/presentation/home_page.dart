@@ -2155,6 +2155,8 @@ class SettingsScreen extends ConsumerWidget {
   static const localeEnglishKey = Key('locale-english-option');
   static const localeChineseKey = Key('locale-chinese-option');
   static const localeKoreanKey = Key('locale-korean-option');
+  static const localeSpanishKey = Key('locale-spanish-option');
+  static const localeGermanKey = Key('locale-german-option');
   static const blueColorThemeKey = Key('color-theme-blue-option');
   static const greenColorThemeKey = Key('color-theme-green-option');
   static const orangeColorThemeKey = Key('color-theme-orange-option');
@@ -4091,6 +4093,16 @@ class SettingsScreen extends ConsumerWidget {
                   value: AppLocaleSetting.korean,
                   child: Text(strings.languageKoreanOption),
                 ),
+                DropdownMenuItem(
+                  key: SettingsScreen.localeSpanishKey,
+                  value: AppLocaleSetting.spanish,
+                  child: Text(strings.languageSpanishOption),
+                ),
+                DropdownMenuItem(
+                  key: SettingsScreen.localeGermanKey,
+                  value: AppLocaleSetting.german,
+                  child: Text(strings.languageGermanOption),
+                ),
               ],
               onChanged: (value) {
                 if (value == null || value == localeSetting) {
@@ -4648,6 +4660,8 @@ class SettingsScreen extends ConsumerWidget {
       AppLocaleSetting.english => strings.languageEnglishOption,
       AppLocaleSetting.chinese => strings.languageChineseOption,
       AppLocaleSetting.korean => strings.languageKoreanOption,
+      AppLocaleSetting.spanish => strings.languageSpanishOption,
+      AppLocaleSetting.german => strings.languageGermanOption,
     };
   }
 

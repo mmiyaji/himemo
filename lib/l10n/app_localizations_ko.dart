@@ -58,6 +58,12 @@ class AppLocalizationsKo extends AppLocalizations {
   String get languageKorean => '한국어';
 
   @override
+  String get languageSpanish => '스페인어';
+
+  @override
+  String get languageGerman => '독일어';
+
+  @override
   String get appearance => '표시';
 
   @override

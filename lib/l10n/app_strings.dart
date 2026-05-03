@@ -11,6 +11,8 @@ class AppStrings {
     Locale('ja'),
     Locale('zh'),
     Locale('ko'),
+    Locale('es'),
+    Locale('de'),
   ];
 
   static const delegate = _AppStringsDelegate();
@@ -24,17 +26,23 @@ class AppStrings {
   bool get isJapanese => locale.languageCode == 'ja';
   bool get isChinese => locale.languageCode == 'zh';
   bool get isKorean => locale.languageCode == 'ko';
+  bool get isSpanish => locale.languageCode == 'es';
+  bool get isGerman => locale.languageCode == 'de';
 
   String localized({
     required String en,
     required String ja,
     String? zh,
     String? ko,
+    String? es,
+    String? de,
   }) {
     return switch (locale.languageCode) {
       'ja' => ja,
       'zh' => zh ?? en,
       'ko' => ko ?? en,
+      'es' => es ?? en,
+      'de' => de ?? en,
       _ => en,
     };
   }
@@ -424,6 +432,102 @@ class AppStrings {
       'settings.demo.delete.body':
           'This deletes {count} demo notes from this device. Notes you created are not deleted.',
       'settings.demo.delete.done': 'Deleted {count} demo notes.',
+    },
+    'es': {
+      'action.delete': 'Eliminar',
+      'date.yesterday': 'Ayer',
+      'date.weekday.mon.short': 'lun',
+      'date.weekday.tue.short': 'mar',
+      'date.weekday.wed.short': 'mié',
+      'date.weekday.thu.short': 'jue',
+      'date.weekday.fri.short': 'vie',
+      'date.weekday.sat.short': 'sáb',
+      'date.weekday.sun.short': 'dom',
+      'date.month.1': 'enero',
+      'date.month.2': 'febrero',
+      'date.month.3': 'marzo',
+      'date.month.4': 'abril',
+      'date.month.5': 'mayo',
+      'date.month.6': 'junio',
+      'date.month.7': 'julio',
+      'date.month.8': 'agosto',
+      'date.month.9': 'septiembre',
+      'date.month.10': 'octubre',
+      'date.month.11': 'noviembre',
+      'date.month.12': 'diciembre',
+      'notes.empty.title': 'No hay notas coincidentes',
+      'notes.empty.body':
+          'Crea una nueva nota o borra el filtro de búsqueda actual para ver las entradas guardadas.',
+      'home.remote.bundle.storage.is.not.configured.yet':
+          'El almacenamiento del paquete remoto aún no está configurado.',
+      'home.remote.bundle.storage.is.not.configured.yet.2':
+          'El paquete remoto aún no está configurado.',
+      'home.no.remote.bundle.metadata.loaded.yet':
+          'Aún no se han cargado metadatos del paquete remoto.',
+      'home.use.a.4.digit.pin.for.this.browser':
+          'Usa un PIN de 4 dígitos para este navegador.',
+      'home.pin.must.be.exactly.4.digits':
+          'El PIN debe tener exactamente 4 dígitos.',
+      'home.pin.must.contain.digits.only': 'El PIN solo debe contener dígitos.',
+      'home.pin.confirmation.did.not.match':
+          'La confirmación del PIN no coincide.',
+      'settings.demo.create': 'Crear notas de demostración',
+      'settings.demo.create.none': 'No hay notas de demostración para crear.',
+      'settings.demo.create.done': 'Se crearon {count} notas de demostración.',
+      'settings.demo.delete': 'Eliminar notas de demostración',
+      'settings.demo.delete.title': '¿Eliminar notas de demostración?',
+      'settings.demo.delete.body':
+          'Esto elimina {count} notas de demostración de este dispositivo. Las notas que creaste no se eliminan.',
+      'settings.demo.delete.done':
+          'Se eliminaron {count} notas de demostración.',
+    },
+    'de': {
+      'action.delete': 'Löschen',
+      'date.yesterday': 'Gestern',
+      'date.weekday.mon.short': 'Mo',
+      'date.weekday.tue.short': 'Di',
+      'date.weekday.wed.short': 'Mi',
+      'date.weekday.thu.short': 'Do',
+      'date.weekday.fri.short': 'Fr',
+      'date.weekday.sat.short': 'Sa',
+      'date.weekday.sun.short': 'So',
+      'date.month.1': 'Januar',
+      'date.month.2': 'Februar',
+      'date.month.3': 'März',
+      'date.month.4': 'April',
+      'date.month.5': 'Mai',
+      'date.month.6': 'Juni',
+      'date.month.7': 'Juli',
+      'date.month.8': 'August',
+      'date.month.9': 'September',
+      'date.month.10': 'Oktober',
+      'date.month.11': 'November',
+      'date.month.12': 'Dezember',
+      'notes.empty.title': 'Keine passenden Notizen',
+      'notes.empty.body':
+          'Erstelle eine neue Notiz oder lösche den aktuellen Suchfilter, um gespeicherte Einträge zu sehen.',
+      'home.remote.bundle.storage.is.not.configured.yet':
+          'Der Remote-Bundle-Speicher ist noch nicht eingerichtet.',
+      'home.remote.bundle.storage.is.not.configured.yet.2':
+          'Das Remote-Bundle ist noch nicht eingerichtet.',
+      'home.no.remote.bundle.metadata.loaded.yet':
+          'Es wurden noch keine Remote-Bundle-Metadaten geladen.',
+      'home.use.a.4.digit.pin.for.this.browser':
+          'Verwende eine 4-stellige PIN für diesen Browser.',
+      'home.pin.must.be.exactly.4.digits':
+          'Die PIN muss genau 4 Ziffern haben.',
+      'home.pin.must.contain.digits.only':
+          'Die PIN darf nur Ziffern enthalten.',
+      'home.pin.confirmation.did.not.match':
+          'Die PIN-Bestätigung stimmt nicht überein.',
+      'settings.demo.create': 'Demo-Notizen erstellen',
+      'settings.demo.create.none': 'Keine Demo-Notizen zum Erstellen.',
+      'settings.demo.create.done': '{count} Demo-Notizen erstellt.',
+      'settings.demo.delete': 'Demo-Notizen löschen',
+      'settings.demo.delete.title': 'Demo-Notizen löschen?',
+      'settings.demo.delete.body':
+          'Dies löscht {count} Demo-Notizen von diesem Gerät. Von dir erstellte Notizen werden nicht gelöscht.',
+      'settings.demo.delete.done': '{count} Demo-Notizen gelöscht.',
     },
     'ja': {
       'action.delete': '削除',
@@ -1491,15 +1595,46 @@ class AppStrings {
   }
 
   String get appTitle => 'HiMemo';
-  String get notes => localized(en: 'Notes', ja: 'ノート', zh: '笔记', ko: '노트');
-  String get calendar =>
-      localized(en: 'Calendar', ja: 'カレンダー', zh: '日历', ko: '캘린더');
-  String get insights =>
-      localized(en: 'Insights', ja: '記録', zh: '统计', ko: '기록');
-  String get settings =>
-      localized(en: 'Settings', ja: '設定', zh: '设置', ko: '설정');
-  String get addNote =>
-      localized(en: 'Add note', ja: 'ノートを追加', zh: '添加笔记', ko: '노트 추가');
+  String get notes => localized(
+    en: 'Notes',
+    ja: 'ノート',
+    zh: '笔记',
+    ko: '노트',
+    es: 'Notas',
+    de: 'Notizen',
+  );
+  String get calendar => localized(
+    en: 'Calendar',
+    ja: 'カレンダー',
+    zh: '日历',
+    ko: '캘린더',
+    es: 'Calendario',
+    de: 'Kalender',
+  );
+  String get insights => localized(
+    en: 'Insights',
+    ja: '記録',
+    zh: '统计',
+    ko: '기록',
+    es: 'Estadísticas',
+    de: 'Auswertung',
+  );
+  String get settings => localized(
+    en: 'Settings',
+    ja: '設定',
+    zh: '设置',
+    ko: '설정',
+    es: 'Ajustes',
+    de: 'Einstellungen',
+  );
+  String get addNote => localized(
+    en: 'Add note',
+    ja: 'ノートを追加',
+    zh: '添加笔记',
+    ko: '노트 추가',
+    es: 'Añadir nota',
+    de: 'Notiz hinzufügen',
+  );
   String get collapseSidebar => localized(
     en: 'Collapse sidebar',
     ja: 'サイドバーを折りたたむ',
@@ -1512,8 +1647,22 @@ class AppStrings {
     zh: '展开侧边栏',
     ko: '사이드바 펼치기',
   );
-  String get search => localized(en: 'Search', ja: '検索', zh: '搜索', ko: '검색');
-  String get today => localized(en: 'Today', ja: '今日', zh: '今天', ko: '오늘');
+  String get search => localized(
+    en: 'Search',
+    ja: '検索',
+    zh: '搜索',
+    ko: '검색',
+    es: 'Buscar',
+    de: 'Suchen',
+  );
+  String get today => localized(
+    en: 'Today',
+    ja: '今日',
+    zh: '今天',
+    ko: '오늘',
+    es: 'Hoy',
+    de: 'Heute',
+  );
   String get yesterday => text('date.yesterday');
   String weekdayShort(int weekday) => text(
     const [
@@ -1835,54 +1984,134 @@ class AppStrings {
       ? '今月は $thisMonthCount 件、最も書いた日は $bestDayLabel です。連続記録を保つと積み上がりが見えやすくなります。'
       : 'This month has $thisMonthCount notes. Your best day was $bestDayLabel. Keeping a streak makes progress easier to see.';
 
-  String get appearance =>
-      localized(en: 'Appearance', ja: '表示', zh: '外观', ko: '표시');
-  String get language =>
-      localized(en: 'Language', ja: '言語', zh: '语言', ko: '언어');
+  String get appearance => localized(
+    en: 'Appearance',
+    ja: '表示',
+    zh: '外观',
+    ko: '표시',
+    es: 'Apariencia',
+    de: 'Darstellung',
+  );
+  String get language => localized(
+    en: 'Language',
+    ja: '言語',
+    zh: '语言',
+    ko: '언어',
+    es: 'Idioma',
+    de: 'Sprache',
+  );
   String get languageSystem => localized(
     en: 'Follow system',
     ja: 'システムに合わせる',
     zh: '跟随系统',
     ko: '시스템 따르기',
+    es: 'Seguir sistema',
+    de: 'System folgen',
   );
   String get languageSystemOption => localized(
     en: 'Follow system',
     ja: 'システムに合わせる (System)',
     zh: '跟随系统 (System)',
     ko: '시스템 따르기 (System)',
+    es: 'Seguir sistema (System)',
+    de: 'System folgen (System)',
   );
-  String get languageJapanese =>
-      localized(en: 'Japanese', ja: '日本語', zh: '日语', ko: '일본어');
+  String get languageJapanese => localized(
+    en: 'Japanese',
+    ja: '日本語',
+    zh: '日语',
+    ko: '일본어',
+    es: 'Japonés',
+    de: 'Japanisch',
+  );
   String get languageJapaneseOption => localized(
     en: 'Japanese',
     ja: '日本語 (Japanese)',
     zh: '日语 (Japanese)',
     ko: '일본어 (Japanese)',
+    es: 'Japonés (Japanese)',
+    de: 'Japanisch (Japanese)',
   );
-  String get languageEnglish =>
-      localized(en: 'English', ja: '英語', zh: '英语', ko: '영어');
+  String get languageEnglish => localized(
+    en: 'English',
+    ja: '英語',
+    zh: '英语',
+    ko: '영어',
+    es: 'Inglés',
+    de: 'Englisch',
+  );
   String get languageEnglishOption => 'English';
-  String get languageChinese =>
-      localized(en: 'Chinese', ja: '中国語', zh: '中文', ko: '중국어');
+  String get languageChinese => localized(
+    en: 'Chinese',
+    ja: '中国語',
+    zh: '中文',
+    ko: '중국어',
+    es: 'Chino',
+    de: 'Chinesisch',
+  );
   String get languageChineseOption => localized(
     en: 'Chinese',
     ja: '中国語 (Chinese)',
     zh: '中文 (Chinese)',
     ko: '중국어 (Chinese)',
+    es: 'Chino (Chinese)',
+    de: 'Chinesisch (Chinese)',
   );
-  String get languageKorean =>
-      localized(en: 'Korean', ja: '韓国語', zh: '韩语', ko: '한국어');
+  String get languageKorean => localized(
+    en: 'Korean',
+    ja: '韓国語',
+    zh: '韩语',
+    ko: '한국어',
+    es: 'Coreano',
+    de: 'Koreanisch',
+  );
   String get languageKoreanOption => localized(
     en: 'Korean',
     ja: '韓国語 (Korean)',
     zh: '韩语 (Korean)',
     ko: '한국어 (Korean)',
+    es: 'Coreano (Korean)',
+    de: 'Koreanisch (Korean)',
+  );
+  String get languageSpanish => localized(
+    en: 'Spanish',
+    ja: 'スペイン語',
+    zh: '西班牙语',
+    ko: '스페인어',
+    es: 'Español',
+    de: 'Spanisch',
+  );
+  String get languageSpanishOption => localized(
+    en: 'Spanish',
+    ja: 'スペイン語 (Spanish)',
+    zh: '西班牙语 (Spanish)',
+    ko: '스페인어 (Spanish)',
+    es: 'Español (Spanish)',
+    de: 'Spanisch (Spanish)',
+  );
+  String get languageGerman => localized(
+    en: 'German',
+    ja: 'ドイツ語',
+    zh: '德语',
+    ko: '독일어',
+    es: 'Alemán',
+    de: 'Deutsch',
+  );
+  String get languageGermanOption => localized(
+    en: 'German',
+    ja: 'ドイツ語 (German)',
+    zh: '德语 (German)',
+    ko: '독일어 (German)',
+    es: 'Alemán (German)',
+    de: 'Deutsch (German)',
   );
   String get languageSystemDesc => localized(
     en: 'Follow the device language. Fall back to English when unsupported.',
     ja: '端末の言語設定に合わせます。未対応の言語では英語を使います。',
     zh: '跟随设备语言。未支持的语言将回退到英语。',
     ko: '기기 언어 설정을 따릅니다. 지원하지 않는 언어는 영어로 표시됩니다.',
+    es: 'Usa el idioma del dispositivo. Si no es compatible, se usa inglés.',
+    de: 'Folgt der Gerätesprache. Nicht unterstützte Sprachen fallen auf Englisch zurück.',
   );
   String get themeLight =>
       localized(en: 'Light', ja: 'ライト', zh: '浅色', ko: '라이트');
@@ -2600,7 +2829,7 @@ class _AppStringsDelegate extends LocalizationsDelegate<AppStrings> {
 
   @override
   bool isSupported(Locale locale) =>
-      ['en', 'ja', 'zh', 'ko'].contains(locale.languageCode);
+      ['en', 'ja', 'zh', 'ko', 'es', 'de'].contains(locale.languageCode);
 
   @override
   Future<AppStrings> load(Locale locale) =>
