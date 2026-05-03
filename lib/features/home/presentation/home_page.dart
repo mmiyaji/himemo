@@ -64,12 +64,15 @@ class _AppShellState extends ConsumerState<AppShell> {
       activePrivateProfileLabelProvider,
     );
     final adminMode = ref.watch(adminModeSessionControllerProvider);
+    final privateProfileActive =
+        !adminMode && activePrivateProfileLabel != null;
+    final privateProfileActiveColor = Theme.of(context).colorScheme.primary;
 
     return Scaffold(
       appBar: AppBar(
         title: const _AppBrandTitle(),
         actions: [
-          if (!adminMode && activePrivateProfileLabel != null)
+          if (privateProfileActive)
             ConstrainedBox(
               constraints: BoxConstraints(
                 maxWidth: math.min(180, width * 0.34),
@@ -79,7 +82,8 @@ class _AppShellState extends ConsumerState<AppShell> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  color: privateProfileActiveColor,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
@@ -101,6 +105,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                   : activePrivateProfileLabel != null
                   ? Icons.lock_open_rounded
                   : Icons.lock_rounded,
+              color: privateProfileActive ? privateProfileActiveColor : null,
             ),
           ),
         ],
