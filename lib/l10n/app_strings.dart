@@ -939,6 +939,179 @@ class AppStrings {
       'home.use.english.across.the.app': '在整个应用中使用英语。',
       'home.use.chinese.across.the.app': '在整个应用中使用中文。',
       'home.use.korean.across.the.app': '在整个应用中使用韩语。',
+      'home.no.private.profile.matched.that.password': '没有匹配该密码的私密档案。',
+      'home.private.profile.unlocked': '私密档案已解锁。',
+      'home.admin.mode.is.currently.active': '当前为管理员模式。',
+      'home.profile.password': '档案密码',
+      'home.enter.a.password': '请输入密码。',
+      'home.review.notes.grouped.by.day.and.keep.diary.entries.ancho':
+          '按日期回顾笔记，并将日记条目固定到日期。',
+      'home.previous.day.with.notes': '上一个有笔记的日期',
+      'home.next.day.with.notes': '下一个有笔记的日期',
+      'home.no.notes.on.this.day.yet': '这一天还没有笔记。',
+      'home.previous.day.with.notes.2': '上一个有笔记的日期',
+      'home.next.day.with.notes.2': '下一个有笔记的日期',
+      'home.notes.created.over.the.last.6.months': '过去 6 个月创建的笔记。',
+      'home.daily.note.count.over.the.last.14.days': '过去 14 天的每日笔记数。',
+      'home.notes.by.weekday.and.3.hour.time.block': '按星期和 3 小时时段统计笔记。',
+      'home.how.often.photos.videos.and.audio.are.used': '照片、视频和音频的使用频率。',
+      'home.alternate.profile.password': '备用档案密码',
+      'home.confirm.alternate.profile.password': '确认备用档案密码',
+      'home.use.this.password.to.switch.to.a.different.everyday.prof':
+          '使用此密码切换到另一个日常档案。',
+      'home.alternate.profile.password.saved': '备用档案密码已保存。',
+      'home.this.removes.the.configured.password.for.the.alternate.p':
+          '这将移除为备用档案设置的密码。',
+      'home.profile.password.2': '档案密码',
+      'home.enter.a.password.2': '请输入密码。',
+      'home.confirm.password': '确认密码',
+      'home.passwords.do.not.match': '密码不一致。',
+      'home.private.profile.added.and.opened': '已添加并打开私密档案。',
+      'home.admin.mode.is.not.available.in.this.environment': '此环境不支持管理员模式。',
+      'home.admin.mode.unlocked.profile.names.and.vault.ids.remain.h':
+          '管理员模式已解锁。档案名称和保险库 ID 仍会隐藏。',
+      'home.change.current.profile.password': '更改当前档案密码',
+      'home.change.current.profile.password.2': '更改当前档案密码',
+      'home.update.the.password.used.to.unlock.this.profile': '更新用于解锁此档案的密码。',
+      'home.profile.password.updated': '档案密码已更新。',
+      'home.off.turning.this.on.asks.for.a.password.or.device.authen':
+          '关闭。开启后会要求输入密码或进行设备认证。',
+      'home.on.this.session.is.unlocked': '开启。此会话已解锁。',
+      'home.on.this.session.is.locked': '开启。此会话已锁定。',
+      'home.manage.access.sync.and.display.policy': '管理访问、同步和显示策略。',
+      'home.the.app.stays.in.normal.memo.mode.by.default.enter.a.spe':
+          '应用默认保持普通备忘录模式。仅在需要其他视图时输入特殊访问密钥。',
+      'home.enter.special.access.key': '输入特殊访问密钥',
+      'home.return.to.normal.mode': '返回普通模式',
+      'home.require.pin.on.launch': '启动时要求 PIN',
+      'home.require.device.auth.on.launch': '启动时要求设备认证',
+      'home.set.unlock.pin': '设置解锁 PIN',
+      'home.set.unlock.pin.2': '设置解锁 PIN',
+      'home.device.authentication.was.not.completed.so.launch.protec':
+          '设备认证未完成，因此启动保护保持关闭。',
+      'home.when.icloud.sync.is.selected.this.key.is.shared.automati':
+          '选择 iCloud 同步时，此密钥会在登录同一 iCloud 账户的 Apple 设备间自动共享，无需手动传输。',
+      'home.this.session.is.currently.unlocked': '此会话当前已解锁。',
+      'home.this.browser.stays.locked.until.the.correct.pin.is.enter':
+          '在输入正确 PIN 前，此浏览器会保持锁定。',
+      'home.this.session.stays.locked.until.device.authentication.su':
+          '在设备认证成功前，此会话会保持锁定。',
+      'home.change.unlock.pin': '更改解锁 PIN',
+      'home.unlock.pin.updated': '解锁 PIN 已更新。',
+      'home.unlock.pin.configured': '解锁 PIN 已配置。',
+      'home.remove.unlock.pin': '移除解锁 PIN',
+      'home.remove.the.web.unlock.pin.for.this.browser.and.turn.off':
+          '要移除此浏览器的 Web 解锁 PIN 并关闭启动 PIN 保护吗？',
+      'home.web.pin.is.a.browser.level.access.gate.it.does.not.repla':
+          'Web PIN 是浏览器级访问门禁，不能替代设备级安全存储或生物认证。',
+      'home.quick.widget.capture.only.writes.plain.text.into.notes.i':
+          '快捷组件捕获只会将纯文本写入 Notes，不会显示现有笔记。',
+      'home.re.lock.after.app.leaves.the.foreground': '应用离开前台后重新锁定',
+      'home.lock.the.app.as.soon.as.it.moves.to.the.background': '应用进入后台后立即锁定。',
+      'home.allow.quick.app.switching.without.immediate.re.auth':
+          '允许快速切换应用而无需立即重新认证。',
+      'home.useful.when.capturing.photos.or.audio.between.notes':
+          '适合在笔记之间拍照或录音时使用。',
+      'home.keep.the.app.open.during.longer.editing.sessions':
+          '在较长编辑会话中保持应用打开。',
+      'home.lock.legacy.private.area.when.app.locks': '应用锁定时也锁定旧私密区域',
+      'home.normally.this.locks.whenever.the.app.locks': '通常会随应用锁定而锁定。',
+      'home.pin.unlock.on.lock.screen': '锁屏上的 PIN 解锁',
+      'home.web.pin.active': 'Web PIN 已启用',
+      'home.refresh.availability': '刷新可用性',
+      'home.allow.widget.writes.while.locked': '锁定时允许组件写入',
+      'home.only.the.submitted.text.is.saved.existing.notes.and.lock':
+          '只保存提交的文本。现有笔记和已锁定档案保持隐藏。',
+      'home.widget.quick.writes.are.allowed.while.the.app.is.locked':
+          '应用锁定时允许组件快速写入。',
+      'home.widget.quick.writes.are.off': '组件快速写入已关闭。',
+      'home.configured.and.currently.unlocked': '已配置，当前已解锁',
+      'home.configured.and.locked': '已配置并锁定',
+      'home.no.private.vault.key.has.been.set.yet': '尚未设置私密保险库密钥。',
+      'home.configured.and.unlocked.for.this.session': '已配置，并在此会话中解锁。',
+      'home.configured.and.locked.a.separate.key.is.required': '已配置并锁定。需要单独密钥。',
+      'home.not.configured.yet.set.a.separate.key.for.the.private.va':
+          '尚未配置。请为私密保险库设置单独密钥。',
+      'home.unlock.private.vault': '解锁私密保险库',
+      'home.lock.private.vault': '锁定私密保险库',
+      'home.no.pending.device.changes': '没有待处理的设备更改。',
+      'home.checking.pending.changes': '正在检查待处理更改',
+      'home.unable.to.inspect.the.local.sync.queue': '无法检查本地同步队列。',
+      'home.no.cloud.account.is.connected': '尚未连接云端账户。',
+      'home.no.cloud.account.is.connected.2': '尚未连接云端账户。',
+      'home.no.account.connected.yet': '尚未连接账户。',
+      'home.no.account.connected.yet.2': '尚未连接账户。',
+      'home.waiting.for.authentication.to.complete': '正在等待认证完成。',
+      'home.waiting.for.authentication.to.complete.2': '正在等待认证完成。',
+      'home.authentication.is.not.available': '认证不可用。',
+      'home.authentication.is.not.available.2': '认证不可用。',
+      'home.cloud.recovery.key.fingerprint': '云端恢复密钥指纹',
+      'home.preparing.cloud.recovery.key': '正在准备云端恢复密钥',
+      'home.unable.to.read.the.cloud.recovery.key.fingerprint': '无法读取云端恢复密钥指纹。',
+      'home.cloud.recovery.key.copied.to.clipboard': '云端恢复密钥已复制到剪贴板。',
+      'home.no.sync.activity.has.been.recorded.on.this.device.yet':
+          '此设备尚未记录同步活动。',
+      'home.reading.sync.activity': '正在读取同步活动',
+      'home.unable.to.read.local.sync.activity': '无法读取本地同步活动。',
+      'home.keep.data.on.this.device.only': '只在此设备上保存数据。',
+      'home.use.this.device.s.icloud.as.the.sync.target.no.himemo.lo':
+          '使用此设备的 iCloud 作为同步目标。不需要 HiMemo 登录。',
+      'home.google.drive.app.data.sync.target': 'Google Drive 应用数据同步目标。',
+      'home.icloud.selected.the.app.checks.this.device.s.icloud.avai':
+          '已选择 iCloud。应用会检查此设备的 iCloud 可用性。',
+      'home.this.device.s.icloud.availability.has.not.been.checked.y':
+          '尚未检查此设备的 iCloud 可用性。',
+      'home.checking.this.device.s.icloud.availability': '正在检查此设备的 iCloud 可用性。',
+      'home.this.device.can.use.icloud.as.the.himemo.sync.target':
+          '此设备可以将 iCloud 用作 HiMemo 同步目标。',
+      'home.icloud.sync.is.not.available.on.this.device': '此设备无法使用 iCloud 同步。',
+      'home.google.drive.selected.authorize.access.to.drive.app.data':
+          '已选择 Google Drive。请授权访问 Drive 应用数据。',
+      'home.a.newer.remote.bundle.was.found.while.this.device.still':
+          '发现了更新的远程包，但此设备仍有本地更改。',
+      'home.force.upload.2': '强制上传',
+      'home.no.remote.bundle.history.is.available': '没有可用的远程包历史。',
+      'home.keep.for.apply': '保留以应用',
+      'home.selected.bundle.is.ready.for.apply': '所选包已准备好应用。',
+      'home.prepared.sync.snapshot': '已准备同步快照',
+      'home.saved.notes.on.this.device': '此设备上保存的笔记',
+      'home.search.notes.diary.entries.and.attachment.labels': '搜索笔记、日记条目和附件标签',
+      'home.search.terms.are.cleared.when.private.mode.closes':
+          '私密模式关闭时会清除搜索词。',
+      'home.add.tags.to.narrow.the.list': '添加标签以缩小列表范围',
+      'home.all.visible.vaults': '所有可见分类',
+      'home.pick.a.note.from.the.list.to.preview.it.here': '从列表中选择笔记在此预览。',
+      'home.swipe.left.or.right.to.move.between.notes': '左右滑动可在笔记之间移动。',
+      'home.choose.which.private.profile.to.save.into.while.in.admin':
+          '在管理员模式下选择要保存到的私密档案。',
+      'home.save.into.the.currently.unlocked.private.profile': '保存到当前已解锁的私密档案。',
+      'home.save.to.private.profile': '保存到私密档案',
+      'home.type.a.tag.and.press.enter': '输入标签并按 Enter',
+      'home.locked.profiles.are.hidden.unlock.the.target.profile.fro':
+          '已锁定的档案会被隐藏。请从设置中解锁目标档案以显示其笔记。',
+      'home.remote.bundle.storage.is.not.configured.yet': '远程包存储尚未配置。',
+      'home.no.icloud.bundle.metadata.loaded.yet': '尚未加载 iCloud 包元数据。',
+      'home.remote.bundle.transport.is.not.available.yet': '远程包传输尚不可用。',
+      'home.remote.bundle.storage.is.not.configured.yet.2': '远程包尚未配置。',
+      'home.no.icloud.bundle.metadata.loaded.yet.2': '尚未加载 iCloud 包元数据。',
+      'home.remote.bundle.transport.is.only.wired.for.google.drive.r':
+          '远程包传输目前仅支持 Google Drive。',
+      'home.no.remote.bundle.metadata.loaded.yet': '尚未加载远程包元数据。',
+      'home.removed.locally.after.apply': '应用后会从此设备移除的笔记',
+      'home.paste.himemo.sync.key.v1': '粘贴 himemo-sync-key-v1:...',
+      'home.use.a.4.digit.pin.for.this.browser': '为此浏览器设置 4 位 PIN。',
+      'home.reset.private.key': '重置私密密钥',
+      'home.pin.must.be.exactly.4.digits': 'PIN 必须正好为 4 位。',
+      'home.pin.must.contain.digits.only': 'PIN 只能包含数字。',
+      'home.pin.confirmation.did.not.match': '确认 PIN 不匹配。',
+      'home.bundle.review': '包审核',
+      'home.added.notes': '新增笔记',
+      'home.updated.notes': '更新笔记',
+      'home.remote.bundle.history': '远程包历史',
+      'home.unknown.time': '未知时间',
+      'home.unknown.time.2': '未知时间',
+      'home.size.unknown': '大小未知',
+      'home.unknown.device': '未知设备',
     },
     'ko': {
       'action.delete': '삭제',
@@ -1102,6 +1275,200 @@ class AppStrings {
       'home.use.english.across.the.app': '앱 전체에서 영어를 사용합니다.',
       'home.use.chinese.across.the.app': '앱 전체에서 중국어를 사용합니다.',
       'home.use.korean.across.the.app': '앱 전체에서 한국어를 사용합니다.',
+      'home.no.private.profile.matched.that.password':
+          '해당 비밀번호와 일치하는 비공개 프로필이 없습니다.',
+      'home.private.profile.unlocked': '비공개 프로필이 잠금 해제되었습니다.',
+      'home.admin.mode.is.currently.active': '현재 관리자 모드입니다.',
+      'home.profile.password': '프로필 비밀번호',
+      'home.enter.a.password': '비밀번호를 입력하세요.',
+      'home.review.notes.grouped.by.day.and.keep.diary.entries.ancho':
+          '날짜별로 노트를 돌아보고 일기 항목을 날짜에 고정해 봅니다.',
+      'home.previous.day.with.notes': '노트가 있는 이전 날짜',
+      'home.next.day.with.notes': '노트가 있는 다음 날짜',
+      'home.no.notes.on.this.day.yet': '이 날짜에는 아직 노트가 없습니다.',
+      'home.previous.day.with.notes.2': '노트가 있는 이전 날짜',
+      'home.next.day.with.notes.2': '노트가 있는 다음 날짜',
+      'home.notes.created.over.the.last.6.months': '최근 6개월 동안 만든 노트입니다.',
+      'home.daily.note.count.over.the.last.14.days': '최근 14일의 일별 노트 수입니다.',
+      'home.notes.by.weekday.and.3.hour.time.block': '요일과 3시간 단위별 노트입니다.',
+      'home.how.often.photos.videos.and.audio.are.used':
+          '사진, 동영상, 오디오 사용 빈도입니다.',
+      'home.alternate.profile.password': '대체 프로필 비밀번호',
+      'home.confirm.alternate.profile.password': '대체 프로필 비밀번호 확인',
+      'home.use.this.password.to.switch.to.a.different.everyday.prof':
+          '이 비밀번호로 다른 일상 프로필로 전환합니다.',
+      'home.alternate.profile.password.saved': '대체 프로필 비밀번호를 저장했습니다.',
+      'home.this.removes.the.configured.password.for.the.alternate.p':
+          '대체 프로필에 설정된 비밀번호를 제거합니다.',
+      'home.profile.password.2': '프로필 비밀번호',
+      'home.enter.a.password.2': '비밀번호를 입력하세요.',
+      'home.confirm.password': '비밀번호 확인',
+      'home.passwords.do.not.match': '비밀번호가 일치하지 않습니다.',
+      'home.private.profile.added.and.opened': '비공개 프로필을 추가하고 열었습니다.',
+      'home.admin.mode.is.not.available.in.this.environment':
+          '이 환경에서는 관리자 모드를 사용할 수 없습니다.',
+      'home.admin.mode.unlocked.profile.names.and.vault.ids.remain.h':
+          '관리자 모드가 해제되었습니다. 프로필 이름과 보관함 ID는 계속 숨겨집니다.',
+      'home.change.current.profile.password': '현재 프로필 비밀번호 변경',
+      'home.change.current.profile.password.2': '현재 프로필 비밀번호 변경',
+      'home.update.the.password.used.to.unlock.this.profile':
+          '이 프로필을 잠금 해제하는 비밀번호를 업데이트합니다.',
+      'home.profile.password.updated': '프로필 비밀번호를 업데이트했습니다.',
+      'home.off.turning.this.on.asks.for.a.password.or.device.authen':
+          '꺼짐. 켜면 비밀번호 또는 기기 인증을 요청합니다.',
+      'home.on.this.session.is.unlocked': '켜짐. 이 세션은 잠금 해제되었습니다.',
+      'home.on.this.session.is.locked': '켜짐. 이 세션은 잠겨 있습니다.',
+      'home.manage.access.sync.and.display.policy': '접근, 동기화, 표시 정책을 관리합니다.',
+      'home.the.app.stays.in.normal.memo.mode.by.default.enter.a.spe':
+          '앱은 기본적으로 일반 메모 모드로 유지됩니다. 다른 보기가 필요할 때만 특수 접근 키를 입력하세요.',
+      'home.enter.special.access.key': '특수 접근 키 입력',
+      'home.return.to.normal.mode': '일반 모드로 돌아가기',
+      'home.require.pin.on.launch': '실행 시 PIN 요구',
+      'home.require.device.auth.on.launch': '실행 시 기기 인증 요구',
+      'home.set.unlock.pin': '잠금 해제 PIN 설정',
+      'home.set.unlock.pin.2': '잠금 해제 PIN 설정',
+      'home.device.authentication.was.not.completed.so.launch.protec':
+          '기기 인증이 완료되지 않아 실행 보호가 꺼진 상태로 유지되었습니다.',
+      'home.when.icloud.sync.is.selected.this.key.is.shared.automati':
+          'iCloud 동기화를 선택하면 같은 iCloud 계정의 Apple 기기 간에 이 키가 자동 공유됩니다. 수동 전송은 필요 없습니다.',
+      'home.this.session.is.currently.unlocked': '이 세션은 현재 잠금 해제되어 있습니다.',
+      'home.this.browser.stays.locked.until.the.correct.pin.is.enter':
+          '올바른 PIN을 입력할 때까지 이 브라우저는 잠겨 있습니다.',
+      'home.this.session.stays.locked.until.device.authentication.su':
+          '기기 인증이 성공할 때까지 이 세션은 잠겨 있습니다.',
+      'home.change.unlock.pin': '잠금 해제 PIN 변경',
+      'home.unlock.pin.updated': '잠금 해제 PIN을 업데이트했습니다.',
+      'home.unlock.pin.configured': '잠금 해제 PIN이 설정되었습니다.',
+      'home.remove.unlock.pin': '잠금 해제 PIN 제거',
+      'home.remove.the.web.unlock.pin.for.this.browser.and.turn.off':
+          '이 브라우저의 Web 잠금 해제 PIN을 제거하고 실행 PIN 보호를 끌까요?',
+      'home.web.pin.is.a.browser.level.access.gate.it.does.not.repla':
+          'Web PIN은 브라우저 수준의 접근 장치이며 기기 기반 보안 저장소나 생체 인증을 대체하지 않습니다.',
+      'home.quick.widget.capture.only.writes.plain.text.into.notes.i':
+          '빠른 위젯 캡처는 일반 텍스트만 Notes에 저장하며 기존 노트는 표시하지 않습니다.',
+      'home.re.lock.after.app.leaves.the.foreground': '앱이 전면을 벗어난 후 다시 잠금',
+      'home.lock.the.app.as.soon.as.it.moves.to.the.background':
+          '앱이 백그라운드로 이동하면 즉시 잠급니다.',
+      'home.allow.quick.app.switching.without.immediate.re.auth':
+          '즉시 재인증 없이 빠른 앱 전환을 허용합니다.',
+      'home.useful.when.capturing.photos.or.audio.between.notes':
+          '노트 사이에서 사진이나 오디오를 캡처할 때 유용합니다.',
+      'home.keep.the.app.open.during.longer.editing.sessions':
+          '긴 편집 세션 동안 앱을 열어 둡니다.',
+      'home.lock.legacy.private.area.when.app.locks': '앱이 잠길 때 기존 비공개 영역도 잠금',
+      'home.normally.this.locks.whenever.the.app.locks':
+          '일반적으로 앱이 잠길 때 함께 잠깁니다.',
+      'home.pin.unlock.on.lock.screen': '잠금 화면의 PIN 해제',
+      'home.web.pin.active': 'Web PIN 활성화',
+      'home.refresh.availability': '사용 가능 여부 새로고침',
+      'home.allow.widget.writes.while.locked': '잠금 중 위젯 쓰기 허용',
+      'home.only.the.submitted.text.is.saved.existing.notes.and.lock':
+          '제출한 텍스트만 저장됩니다. 기존 노트와 잠긴 프로필은 숨겨진 상태로 유지됩니다.',
+      'home.widget.quick.writes.are.allowed.while.the.app.is.locked':
+          '앱이 잠겨 있어도 위젯 빠른 쓰기가 허용됩니다.',
+      'home.widget.quick.writes.are.off': '위젯 빠른 쓰기가 꺼져 있습니다.',
+      'home.configured.and.currently.unlocked': '설정됨, 현재 잠금 해제됨',
+      'home.configured.and.locked': '설정됨, 잠김',
+      'home.no.private.vault.key.has.been.set.yet': '아직 비공개 보관함 키가 설정되지 않았습니다.',
+      'home.configured.and.unlocked.for.this.session':
+          '설정되었고 이 세션에서 잠금 해제되었습니다.',
+      'home.configured.and.locked.a.separate.key.is.required':
+          '설정되었고 잠겨 있습니다. 별도 키가 필요합니다.',
+      'home.not.configured.yet.set.a.separate.key.for.the.private.va':
+          '아직 설정되지 않았습니다. 비공개 보관함용 별도 키를 설정하세요.',
+      'home.unlock.private.vault': '비공개 보관함 잠금 해제',
+      'home.lock.private.vault': '비공개 보관함 잠금',
+      'home.no.pending.device.changes': '대기 중인 기기 변경 사항이 없습니다.',
+      'home.checking.pending.changes': '대기 중인 변경 사항 확인 중',
+      'home.unable.to.inspect.the.local.sync.queue': '로컬 동기화 큐를 확인할 수 없습니다.',
+      'home.no.cloud.account.is.connected': '연결된 클라우드 계정이 없습니다.',
+      'home.no.cloud.account.is.connected.2': '연결된 클라우드 계정이 없습니다.',
+      'home.no.account.connected.yet': '아직 연결된 계정이 없습니다.',
+      'home.no.account.connected.yet.2': '아직 연결된 계정이 없습니다.',
+      'home.waiting.for.authentication.to.complete': '인증 완료를 기다리는 중입니다.',
+      'home.waiting.for.authentication.to.complete.2': '인증 완료를 기다리는 중입니다.',
+      'home.authentication.is.not.available': '인증을 사용할 수 없습니다.',
+      'home.authentication.is.not.available.2': '인증을 사용할 수 없습니다.',
+      'home.cloud.recovery.key.fingerprint': '클라우드 복구 키 지문',
+      'home.preparing.cloud.recovery.key': '클라우드 복구 키 준비 중',
+      'home.unable.to.read.the.cloud.recovery.key.fingerprint':
+          '클라우드 복구 키 지문을 읽을 수 없습니다.',
+      'home.cloud.recovery.key.copied.to.clipboard': '클라우드 복구 키를 클립보드에 복사했습니다.',
+      'home.no.sync.activity.has.been.recorded.on.this.device.yet':
+          '이 기기에 기록된 동기화 활동이 아직 없습니다.',
+      'home.reading.sync.activity': '동기화 활동 읽는 중',
+      'home.unable.to.read.local.sync.activity': '로컬 동기화 활동을 읽을 수 없습니다.',
+      'home.keep.data.on.this.device.only': '이 기기에만 데이터를 보관합니다.',
+      'home.use.this.device.s.icloud.as.the.sync.target.no.himemo.lo':
+          '이 기기의 iCloud를 동기화 대상으로 사용합니다. HiMemo 로그인은 필요 없습니다.',
+      'home.google.drive.app.data.sync.target': 'Google Drive 앱 데이터 동기화 대상입니다.',
+      'home.icloud.selected.the.app.checks.this.device.s.icloud.avai':
+          'iCloud가 선택되었습니다. 앱이 이 기기의 iCloud 사용 가능 여부를 확인합니다.',
+      'home.this.device.s.icloud.availability.has.not.been.checked.y':
+          '이 기기의 iCloud 사용 가능 여부를 아직 확인하지 않았습니다.',
+      'home.checking.this.device.s.icloud.availability':
+          '이 기기의 iCloud 사용 가능 여부 확인 중',
+      'home.this.device.can.use.icloud.as.the.himemo.sync.target':
+          '이 기기는 iCloud를 HiMemo 동기화 대상으로 사용할 수 있습니다.',
+      'home.icloud.sync.is.not.available.on.this.device':
+          '이 기기에서는 iCloud 동기화를 사용할 수 없습니다.',
+      'home.google.drive.selected.authorize.access.to.drive.app.data':
+          'Google Drive가 선택되었습니다. Drive 앱 데이터 접근 권한을 승인하세요.',
+      'home.a.newer.remote.bundle.was.found.while.this.device.still':
+          '더 새로운 원격 번들을 찾았지만 이 기기에는 아직 로컬 변경 사항이 있습니다.',
+      'home.force.upload.2': '강제 업로드',
+      'home.no.remote.bundle.history.is.available': '사용 가능한 원격 번들 기록이 없습니다.',
+      'home.keep.for.apply': '적용을 위해 보관',
+      'home.selected.bundle.is.ready.for.apply': '선택한 번들을 적용할 준비가 되었습니다.',
+      'home.prepared.sync.snapshot': '동기화 스냅샷 준비됨',
+      'home.saved.notes.on.this.device': '이 기기에 저장된 노트',
+      'home.search.notes.diary.entries.and.attachment.labels':
+          '노트, 일기 항목, 첨부 파일 이름 검색',
+      'home.search.terms.are.cleared.when.private.mode.closes':
+          '비공개 모드가 닫히면 검색어가 지워집니다.',
+      'home.add.tags.to.narrow.the.list': '태그를 추가해 목록을 좁히세요',
+      'home.all.visible.vaults': '보이는 모든 분류',
+      'home.pick.a.note.from.the.list.to.preview.it.here':
+          '목록에서 노트를 선택하면 여기에서 미리 볼 수 있습니다.',
+      'home.swipe.left.or.right.to.move.between.notes':
+          '좌우로 스와이프하여 노트 사이를 이동합니다.',
+      'home.choose.which.private.profile.to.save.into.while.in.admin':
+          '관리자 모드에서 저장할 비공개 프로필을 선택하세요.',
+      'home.save.into.the.currently.unlocked.private.profile':
+          '현재 잠금 해제된 비공개 프로필에 저장합니다.',
+      'home.save.to.private.profile': '비공개 프로필에 저장',
+      'home.type.a.tag.and.press.enter': '태그를 입력하고 Enter를 누르세요',
+      'home.locked.profiles.are.hidden.unlock.the.target.profile.fro':
+          '잠긴 프로필은 숨겨집니다. 노트를 보려면 설정에서 대상 프로필을 잠금 해제하세요.',
+      'home.remote.bundle.storage.is.not.configured.yet':
+          '원격 번들 저장소가 아직 설정되지 않았습니다.',
+      'home.no.icloud.bundle.metadata.loaded.yet':
+          'iCloud 번들 메타데이터를 아직 불러오지 않았습니다.',
+      'home.remote.bundle.transport.is.not.available.yet':
+          '원격 번들 전송은 아직 사용할 수 없습니다.',
+      'home.remote.bundle.storage.is.not.configured.yet.2':
+          '원격 번들이 아직 설정되지 않았습니다.',
+      'home.no.icloud.bundle.metadata.loaded.yet.2':
+          'iCloud 번들 메타데이터를 아직 불러오지 않았습니다.',
+      'home.remote.bundle.transport.is.only.wired.for.google.drive.r':
+          '원격 번들 전송은 현재 Google Drive만 지원합니다.',
+      'home.no.remote.bundle.metadata.loaded.yet':
+          '원격 번들 메타데이터를 아직 불러오지 않았습니다.',
+      'home.removed.locally.after.apply': '적용 후 이 기기에서 제거될 노트',
+      'home.paste.himemo.sync.key.v1': 'himemo-sync-key-v1:... 붙여넣기',
+      'home.use.a.4.digit.pin.for.this.browser': '이 브라우저에서 사용할 4자리 PIN을 설정합니다.',
+      'home.reset.private.key': '비공개 키 재설정',
+      'home.pin.must.be.exactly.4.digits': 'PIN은 정확히 4자리여야 합니다.',
+      'home.pin.must.contain.digits.only': 'PIN은 숫자만 포함해야 합니다.',
+      'home.pin.confirmation.did.not.match': '확인 PIN이 일치하지 않습니다.',
+      'home.bundle.review': '번들 검토',
+      'home.added.notes': '추가된 노트',
+      'home.updated.notes': '업데이트된 노트',
+      'home.remote.bundle.history': '원격 번들 기록',
+      'home.unknown.time': '알 수 없는 시간',
+      'home.unknown.time.2': '알 수 없는 시간',
+      'home.size.unknown': '크기 알 수 없음',
+      'home.unknown.device': '알 수 없는 기기',
     },
   };
 
@@ -1235,6 +1602,12 @@ class AppStrings {
       : 'Created $createdLabel · Revision $revision';
   String get unlockedPrivateNotes =>
       isJapanese ? '解除済みのプライベートノート' : 'Unlocked private notes';
+  String get unlockedNotes => localized(
+    en: 'Unlocked notes',
+    ja: '解除済みのノート',
+    zh: '已解锁的笔记',
+    ko: '잠금 해제된 노트',
+  );
   String get photoPlaceholder =>
       isJapanese ? '写真のプレースホルダー' : 'Photo placeholder';
   String get tapToViewPhoto => isJapanese ? 'タップして写真を表示' : 'Tap to view photo';
@@ -1426,48 +1799,92 @@ class AppStrings {
   String get themeDark => localized(en: 'Dark', ja: 'ダーク', zh: '深色', ko: '다크');
   String get accentColor =>
       localized(en: 'Accent color', ja: 'アクセントカラー', zh: '强调色', ko: '강조 색상');
-  String get colorBlue => isJapanese ? 'ブルー' : 'Blue';
-  String get colorGreen => isJapanese ? 'グリーン' : 'Green';
-  String get colorOrange => isJapanese ? 'オレンジ' : 'Orange';
-  String get colorSlate => isJapanese ? 'スレート' : 'Slate';
-  String get colorTeal => isJapanese ? 'ティール' : 'Teal';
-  String get colorRose => isJapanese ? 'ローズ' : 'Rose';
-  String get colorBlueDesc => isJapanese
-      ? '落ち着いた青を基調にした標準テーマです。'
-      : 'Primary blue with calm support colors.';
-  String get colorGreenDesc => isJapanese
-      ? '視覚的な緊張を抑えた柔らかいグリーンです。'
-      : 'Muted green palette for lower visual tension.';
-  String get colorOrangeDesc => isJapanese
-      ? '暖かいアクセントで操作や記録を目立たせます。'
-      : 'Warm orange palette for highlighted actions and notes.';
-  String get colorSlateDesc => isJapanese
-      ? '中立的で静かな印象のスレート配色です。'
-      : 'Neutral slate palette for a quieter interface.';
-  String get colorTealDesc => isJapanese
-      ? '軽やかな印象を出すティール配色です。'
-      : 'Fresh teal palette with a light feel.';
-  String get colorRoseDesc => isJapanese
-      ? '日記らしい柔らかな雰囲気のローズ配色です。'
-      : 'Soft rose palette for a more diary-like tone.';
-  String get lightDesc => isJapanese
-      ? '白基調のメモらしい見た目を保ちます。'
-      : 'Keep the white memo-style interface.';
-  String get systemDesc =>
-      isJapanese ? '端末の表示設定に合わせます。' : 'Follow the device setting.';
-  String get darkDesc => isJapanese
-      ? '高コントラストなダークテーマを明示的に使います。'
-      : 'Use the higher-contrast dark theme explicitly.';
+  String get colorBlue => localized(en: 'Blue', ja: 'ブルー', zh: '蓝色', ko: '블루');
+  String get colorGreen =>
+      localized(en: 'Green', ja: 'グリーン', zh: '绿色', ko: '그린');
+  String get colorOrange =>
+      localized(en: 'Orange', ja: 'オレンジ', zh: '橙色', ko: '오렌지');
+  String get colorSlate =>
+      localized(en: 'Slate', ja: 'スレート', zh: '灰蓝', ko: '슬레이트');
+  String get colorTeal => localized(en: 'Teal', ja: 'ティール', zh: '蓝绿', ko: '틸');
+  String get colorRose => localized(en: 'Rose', ja: 'ローズ', zh: '玫瑰', ko: '로즈');
+  String get colorBlueDesc => localized(
+    en: 'Primary blue with calm support colors.',
+    ja: '落ち着いた青を基調にした標準テーマです。',
+    zh: '以沉稳蓝色为主的标准主题。',
+    ko: '차분한 파란색을 중심으로 한 기본 테마입니다.',
+  );
+  String get colorGreenDesc => localized(
+    en: 'Muted green palette for lower visual tension.',
+    ja: '視覚的な緊張を抑えた柔らかいグリーンです。',
+    zh: '柔和的绿色配色，降低视觉压力。',
+    ko: '시각적 부담을 줄인 부드러운 녹색 팔레트입니다.',
+  );
+  String get colorOrangeDesc => localized(
+    en: 'Warm orange palette for highlighted actions and notes.',
+    ja: '暖かいアクセントで操作や記録を目立たせます。',
+    zh: '温暖的橙色强调操作和记录。',
+    ko: '따뜻한 주황색으로 작업과 기록을 돋보이게 합니다.',
+  );
+  String get colorSlateDesc => localized(
+    en: 'Neutral slate palette for a quieter interface.',
+    ja: '中立的で静かな印象のスレート配色です。',
+    zh: '中性安静的灰蓝配色。',
+    ko: '중립적이고 차분한 슬레이트 배색입니다.',
+  );
+  String get colorTealDesc => localized(
+    en: 'Fresh teal palette with a light feel.',
+    ja: '軽やかな印象を出すティール配色です。',
+    zh: '轻快清新的蓝绿色配色。',
+    ko: '가벼운 느낌의 산뜻한 틸 배색입니다.',
+  );
+  String get colorRoseDesc => localized(
+    en: 'Soft rose palette for a more diary-like tone.',
+    ja: '日記らしい柔らかな雰囲気のローズ配色です。',
+    zh: '柔和的玫瑰色，更有日记氛围。',
+    ko: '일기장 같은 부드러운 로즈 배색입니다.',
+  );
+  String get lightDesc => localized(
+    en: 'Keep the white memo-style interface.',
+    ja: '白基調のメモらしい見た目を保ちます。',
+    zh: '保持白色为主的备忘录外观。',
+    ko: '흰색 중심의 메모다운 화면을 유지합니다.',
+  );
+  String get systemDesc => localized(
+    en: 'Follow the device setting.',
+    ja: '端末の表示設定に合わせます。',
+    zh: '跟随设备显示设置。',
+    ko: '기기의 표시 설정을 따릅니다.',
+  );
+  String get darkDesc => localized(
+    en: 'Use the higher-contrast dark theme explicitly.',
+    ja: '高コントラストなダークテーマを明示的に使います。',
+    zh: '明确使用高对比度深色主题。',
+    ko: '대비가 높은 다크 테마를 명시적으로 사용합니다.',
+  );
 
-  String get about => isJapanese ? 'アプリ情報' : 'About';
-  String get appVersion => isJapanese ? 'アプリバージョン' : 'App version';
-  String get appUpdates => isJapanese ? 'アプリ更新' : 'App updates';
-  String get appUpdatesDesc => isJapanese
-      ? 'Google Play のアプリ内更新を確認し、必要な更新を開始します。'
-      : 'Check Google Play in-app updates and start the recommended update flow.';
-  String get checkForUpdates => isJapanese ? '更新を確認' : 'Check for updates';
-  String get startUpdate => isJapanese ? '更新を開始' : 'Start update';
-  String get completeUpdateInstall => isJapanese ? '更新を完了' : 'Complete update';
+  String get about =>
+      localized(en: 'About', ja: 'アプリ情報', zh: '应用信息', ko: '앱 정보');
+  String get appVersion =>
+      localized(en: 'App version', ja: 'アプリバージョン', zh: '应用版本', ko: '앱 버전');
+  String get appUpdates =>
+      localized(en: 'App updates', ja: 'アプリ更新', zh: '应用更新', ko: '앱 업데이트');
+  String get appUpdatesDesc => localized(
+    en: 'Check Google Play in-app updates and start the recommended update flow.',
+    ja: 'Google Play のアプリ内更新を確認し、必要な更新を開始します。',
+    zh: '检查 Google Play 应用内更新，并启动推荐的更新流程。',
+    ko: 'Google Play 인앱 업데이트를 확인하고 권장 업데이트 흐름을 시작합니다.',
+  );
+  String get checkForUpdates => localized(
+    en: 'Check for updates',
+    ja: '更新を確認',
+    zh: '检查更新',
+    ko: '업데이트 확인',
+  );
+  String get startUpdate =>
+      localized(en: 'Start update', ja: '更新を開始', zh: '开始更新', ko: '업데이트 시작');
+  String get completeUpdateInstall =>
+      localized(en: 'Complete update', ja: '更新を完了', zh: '完成更新', ko: '업데이트 완료');
   String get updateSupportedOnAndroidOnly => isJapanese
       ? 'アプリ内更新は Android の Google Play 配布で利用できます。'
       : 'In-app updates are available on Android builds distributed through Google Play.';
@@ -1494,10 +1911,18 @@ class AppStrings {
             : 'Available update: $versionCode');
   String updatePriorityLabel(int? priority) =>
       isJapanese ? '優先度: ${priority ?? 0}' : 'Priority: ${priority ?? 0}';
-  String get ossLicenses => isJapanese ? 'OSS ライセンス' : 'OSS licenses';
-  String get ossLicensesDesc => isJapanese
-      ? '利用しているオープンソースソフトウェアのライセンスを表示します。'
-      : 'View bundled open-source software licenses.';
+  String get ossLicenses => localized(
+    en: 'OSS licenses',
+    ja: 'OSS ライセンス',
+    zh: 'OSS 许可证',
+    ko: 'OSS 라이선스',
+  );
+  String get ossLicensesDesc => localized(
+    en: 'View bundled open-source software licenses.',
+    ja: '利用しているオープンソースソフトウェアのライセンスを表示します。',
+    zh: '查看捆绑的开源软件许可证。',
+    ko: '포함된 오픈 소스 소프트웨어 라이선스를 봅니다.',
+  );
   String currentFlavor(String name) =>
       isJapanese ? '現在の flavor: $name' : 'Current flavor: $name';
   String readingVersion() =>
@@ -1663,68 +2088,157 @@ class AppStrings {
       isJapanese ? 'プライベートキーが正しくありません。' : 'Private key is not correct.';
   String get useAtLeast4Chars =>
       isJapanese ? '4文字以上で入力してください。' : 'Use at least 4 characters.';
-  String get quickMemo => isJapanese ? 'クイックメモ' : 'Quick memo';
-  String get richMemo => isJapanese ? 'リッチメモ' : 'Rich memo';
-  String get newNote => isJapanese ? '新しいノート' : 'New note';
-  String get editNote => isJapanese ? 'ノートを編集' : 'Edit note';
-  String get memoLabel => isJapanese ? 'メモ' : 'Memo';
-  String get memoFirstLineHint =>
-      isJapanese ? '1行目をタイトルとして使います' : 'Use the first line as the title';
-  String get vault => isJapanese ? '分類' : 'Vault';
-  String get pinThisNote => isJapanese ? 'このノートを固定' : 'Pin this note';
-  String get pinThisNoteDesc =>
-      isJapanese ? '固定したノートは一覧の上に表示されます。' : 'Pinned notes stay near the top.';
-  String get createNote => isJapanese ? 'ノートを作成' : 'Create note';
-  String get saveChanges => isJapanese ? '変更を保存' : 'Save changes';
-  String get startWritingHere =>
-      isJapanese ? 'ここから書き始めます' : 'Start writing here';
-  String get attachments => isJapanese ? '添付' : 'Attachments';
-  String get addMedia => isJapanese ? 'メディアを追加' : 'Add media';
-  String get pickPhoto => isJapanese ? '写真を選ぶ' : 'Pick photo';
-  String get takePhoto => isJapanese ? '写真を撮る' : 'Take photo';
-  String get pickVideo => isJapanese ? '動画を選ぶ' : 'Pick video';
-  String get recordVideo => isJapanese ? '動画を撮る' : 'Record video';
-  String get recordAudio => isJapanese ? '音声を録音' : 'Record audio';
-  String get pickAudio => isJapanese ? '音声を選ぶ' : 'Pick audio';
-  String get addCurrentLocation =>
-      isJapanese ? '現在地を追加' : 'Add current location';
-  String get currentLocationLabel => isJapanese ? '現在地' : 'Current location';
-  String get estimatedAddressLabel => isJapanese ? '推定住所' : 'Estimated address';
-  String get latitudeLabel => isJapanese ? '緯度' : 'Latitude';
-  String get longitudeLabel => isJapanese ? '経度' : 'Longitude';
-  String get locationAccuracyLabel => isJapanese ? '精度' : 'Accuracy';
-  String get openMap => isJapanese ? '地図を開く' : 'Open map';
-  String get copyMapLink => isJapanese ? '地図リンクをコピー' : 'Copy map link';
-  String get mapLinkCopied =>
-      isJapanese ? '地図リンクをコピーしました。' : 'Map link copied.';
-  String get mapOpenFailed =>
-      isJapanese ? '地図を開けませんでした。' : 'Could not open the map.';
-  String get linkOpenFailed =>
-      isJapanese ? 'リンクを開けませんでした。' : 'Could not open the link.';
-  String get openExternalLinkTitle =>
-      isJapanese ? '外部リンクを開きますか？' : 'Open external link?';
-  String get openExternalLinkMessage => isJapanese
-      ? 'このリンクはHiMemoの外部で開かれます。URLを確認してから続行してください。'
-      : 'This link will open outside HiMemo. Check the URL before continuing.';
-  String get openLink => isJapanese ? '開く' : 'Open';
-  String get locationServicesOff => isJapanese
-      ? '位置情報サービスがオフです。端末設定で有効にしてください。'
-      : 'Location services are off. Enable them in device settings.';
-  String get locationPermissionRequired => isJapanese
-      ? '現在地を追加するには位置情報の許可が必要です。'
-      : 'Location permission is required to add current location.';
-  String get currentLocationAdded =>
-      isJapanese ? '現在地をメモに追加しました。' : 'Current location added to the note.';
-  String get currentLocationUnavailable =>
-      isJapanese ? '現在地を取得できませんでした。' : 'Could not get current location.';
-  String get attachFromBrowser => isJapanese
-      ? 'このブラウザから写真・動画・音声を添付できます。'
-      : 'Attach photos, videos, or audio files from this browser.';
-  String get attachFromDevice => isJapanese
-      ? 'カメラや端末内の写真・動画・音声を添付できます。'
-      : 'Attach photos, videos, or audio files from camera or device storage.';
-  String get dateTimeUpdated =>
-      isJapanese ? '日時を更新しました' : 'Date and time updated';
+  String get quickMemo =>
+      localized(en: 'Quick memo', ja: 'クイックメモ', zh: '快速备忘录', ko: '빠른 메모');
+  String get richMemo =>
+      localized(en: 'Rich memo', ja: 'リッチメモ', zh: '富文本备忘录', ko: '리치 메모');
+  String get newNote =>
+      localized(en: 'New note', ja: '新しいノート', zh: '新笔记', ko: '새 노트');
+  String get editNote =>
+      localized(en: 'Edit note', ja: 'ノートを編集', zh: '编辑笔记', ko: '노트 편집');
+  String get memoLabel => localized(en: 'Memo', ja: 'メモ', zh: '备忘录', ko: '메모');
+  String get memoFirstLineHint => localized(
+    en: 'Use the first line as the title',
+    ja: '1行目をタイトルとして使います',
+    zh: '第一行会作为标题',
+    ko: '첫 줄을 제목으로 사용합니다',
+  );
+  String get vault => localized(en: 'Vault', ja: '分類', zh: '分类', ko: '분류');
+  String get pinThisNote => localized(
+    en: 'Pin this note',
+    ja: 'このノートを固定',
+    zh: '固定此笔记',
+    ko: '이 노트 고정',
+  );
+  String get pinThisNoteDesc => localized(
+    en: 'Pinned notes stay near the top.',
+    ja: '固定したノートは一覧の上に表示されます。',
+    zh: '固定的笔记会显示在列表上方。',
+    ko: '고정한 노트는 목록 위쪽에 표시됩니다.',
+  );
+  String get createNote =>
+      localized(en: 'Create note', ja: 'ノートを作成', zh: '创建笔记', ko: '노트 만들기');
+  String get saveChanges =>
+      localized(en: 'Save changes', ja: '変更を保存', zh: '保存更改', ko: '변경 사항 저장');
+  String get startWritingHere => localized(
+    en: 'Start writing here',
+    ja: 'ここから書き始めます',
+    zh: '从这里开始书写',
+    ko: '여기에서 쓰기 시작합니다',
+  );
+  String get attachments =>
+      localized(en: 'Attachments', ja: '添付', zh: '附件', ko: '첨부');
+  String get addMedia =>
+      localized(en: 'Add media', ja: 'メディアを追加', zh: '添加媒体', ko: '미디어 추가');
+  String get pickPhoto =>
+      localized(en: 'Pick photo', ja: '写真を選ぶ', zh: '选择照片', ko: '사진 선택');
+  String get takePhoto =>
+      localized(en: 'Take photo', ja: '写真を撮る', zh: '拍照', ko: '사진 촬영');
+  String get pickVideo =>
+      localized(en: 'Pick video', ja: '動画を選ぶ', zh: '选择视频', ko: '동영상 선택');
+  String get recordVideo =>
+      localized(en: 'Record video', ja: '動画を撮る', zh: '录制视频', ko: '동영상 녹화');
+  String get recordAudio =>
+      localized(en: 'Record audio', ja: '音声を録音', zh: '录音', ko: '오디오 녹음');
+  String get pickAudio =>
+      localized(en: 'Pick audio', ja: '音声を選ぶ', zh: '选择音频', ko: '오디오 선택');
+  String get addCurrentLocation => localized(
+    en: 'Add current location',
+    ja: '現在地を追加',
+    zh: '添加当前位置',
+    ko: '현재 위치 추가',
+  );
+  String get currentLocationLabel =>
+      localized(en: 'Current location', ja: '現在地', zh: '当前位置', ko: '현재 위치');
+  String get estimatedAddressLabel =>
+      localized(en: 'Estimated address', ja: '推定住所', zh: '推测地址', ko: '추정 주소');
+  String get latitudeLabel =>
+      localized(en: 'Latitude', ja: '緯度', zh: '纬度', ko: '위도');
+  String get longitudeLabel =>
+      localized(en: 'Longitude', ja: '経度', zh: '经度', ko: '경도');
+  String get locationAccuracyLabel =>
+      localized(en: 'Accuracy', ja: '精度', zh: '精度', ko: '정확도');
+  String get openMap =>
+      localized(en: 'Open map', ja: '地図を開く', zh: '打开地图', ko: '지도 열기');
+  String get copyMapLink => localized(
+    en: 'Copy map link',
+    ja: '地図リンクをコピー',
+    zh: '复制地图链接',
+    ko: '지도 링크 복사',
+  );
+  String get mapLinkCopied => localized(
+    en: 'Map link copied.',
+    ja: '地図リンクをコピーしました。',
+    zh: '已复制地图链接。',
+    ko: '지도 링크를 복사했습니다.',
+  );
+  String get mapOpenFailed => localized(
+    en: 'Could not open the map.',
+    ja: '地図を開けませんでした。',
+    zh: '无法打开地图。',
+    ko: '지도를 열 수 없습니다.',
+  );
+  String get linkOpenFailed => localized(
+    en: 'Could not open the link.',
+    ja: 'リンクを開けませんでした。',
+    zh: '无法打开链接。',
+    ko: '링크를 열 수 없습니다.',
+  );
+  String get openExternalLinkTitle => localized(
+    en: 'Open external link?',
+    ja: '外部リンクを開きますか？',
+    zh: '要打开外部链接吗？',
+    ko: '외부 링크를 열까요?',
+  );
+  String get openExternalLinkMessage => localized(
+    en: 'This link will open outside HiMemo. Check the URL before continuing.',
+    ja: 'このリンクはHiMemoの外部で開かれます。URLを確認してから続行してください。',
+    zh: '此链接将在 HiMemo 外部打开。继续前请确认 URL。',
+    ko: '이 링크는 HiMemo 외부에서 열립니다. 계속하기 전에 URL을 확인하세요.',
+  );
+  String get openLink => localized(en: 'Open', ja: '開く', zh: '打开', ko: '열기');
+  String get locationServicesOff => localized(
+    en: 'Location services are off. Enable them in device settings.',
+    ja: '位置情報サービスがオフです。端末設定で有効にしてください。',
+    zh: '定位服务已关闭。请在设备设置中启用。',
+    ko: '위치 서비스가 꺼져 있습니다. 기기 설정에서 켜세요.',
+  );
+  String get locationPermissionRequired => localized(
+    en: 'Location permission is required to add current location.',
+    ja: '現在地を追加するには位置情報の許可が必要です。',
+    zh: '添加当前位置需要位置权限。',
+    ko: '현재 위치를 추가하려면 위치 권한이 필요합니다.',
+  );
+  String get currentLocationAdded => localized(
+    en: 'Current location added to the note.',
+    ja: '現在地をメモに追加しました。',
+    zh: '已将当前位置添加到笔记。',
+    ko: '현재 위치를 노트에 추가했습니다.',
+  );
+  String get currentLocationUnavailable => localized(
+    en: 'Could not get current location.',
+    ja: '現在地を取得できませんでした。',
+    zh: '无法获取当前位置。',
+    ko: '현재 위치를 가져올 수 없습니다.',
+  );
+  String get attachFromBrowser => localized(
+    en: 'Attach photos, videos, or audio files from this browser.',
+    ja: 'このブラウザから写真・動画・音声を添付できます。',
+    zh: '可从此浏览器添加照片、视频或音频文件。',
+    ko: '이 브라우저에서 사진, 동영상 또는 오디오 파일을 첨부할 수 있습니다.',
+  );
+  String get attachFromDevice => localized(
+    en: 'Attach photos, videos, or audio files from camera or device storage.',
+    ja: 'カメラや端末内の写真・動画・音声を添付できます。',
+    zh: '可从相机或设备存储添加照片、视频或音频文件。',
+    ko: '카메라나 기기 저장소에서 사진, 동영상 또는 오디오 파일을 첨부할 수 있습니다.',
+  );
+  String get dateTimeUpdated => localized(
+    en: 'Date and time updated',
+    ja: '日時を更新しました',
+    zh: '已更新时间',
+    ko: '날짜와 시간을 업데이트했습니다',
+  );
   String get microphonePermissionNotGranted => isJapanese
       ? 'マイクの使用が許可されていません。'
       : 'Microphone permission was not granted.';

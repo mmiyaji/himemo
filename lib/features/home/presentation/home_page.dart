@@ -416,7 +416,8 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final visibleNotes = ref.watch(visibleNotesProvider);
     final visibleVaults = ref.watch(visibleVaultsProvider);
     final vaultNameById = {
-      for (final vault in visibleVaults) vault.id: vault.name,
+      for (final vault in visibleVaults)
+        vault.id: _vaultDisplayName(context, vault),
     };
     final listDensity = ref.watch(notesListDensityControllerProvider);
     final query = ref.watch(searchQueryProvider).trim();
@@ -4932,6 +4933,7 @@ class _VaultSectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final vaultLabel = _vaultDisplayName(context, vault);
     if (notes.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -4947,12 +4949,12 @@ class _VaultSectionCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(vault.name),
+                  Text(vaultLabel),
                   if (vault.id != 'everyday' &&
-                      vault.description.isNotEmpty) ...[
+                      _vaultDisplayDescription(context, vault).isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
-                      vault.description,
+                      _vaultDisplayDescription(context, vault),
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: _mutedTextColor(context),
                       ),
@@ -4968,7 +4970,7 @@ class _VaultSectionCard extends StatelessWidget {
                 _NoteDayDivider(date: notes[i].createdAt),
               _NoteListTile(
                 note: notes[i],
-                vaultName: vault.name,
+                vaultName: vaultLabel,
                 showVaultName: false,
                 density: density,
                 query: query,
@@ -4983,6 +4985,33 @@ class _VaultSectionCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _vaultDisplayName(BuildContext context, VaultBucket vault) {
+  if (vault.id == 'everyday') {
+    return context.strings.notes;
+  }
+  if (vault.id == legacyPrivateVaultId &&
+      (vault.name == 'Private profile' ||
+          vault.name == '__private_profile__')) {
+    return context.strings.text('home.private.profile');
+  }
+  if (vault.name == 'Notes' || vault.name == '__notes__') {
+    return context.strings.notes;
+  }
+  return vault.name;
+}
+
+String _vaultDisplayDescription(BuildContext context, VaultBucket vault) {
+  if (vault.description == 'Unlocked private notes' ||
+      vault.description == '__unlocked_private_notes__') {
+    return context.strings.unlockedPrivateNotes;
+  }
+  if (vault.description == 'Unlocked notes' ||
+      vault.description == '__unlocked_notes__') {
+    return context.strings.unlockedNotes;
+  }
+  return vault.description;
 }
 
 bool _isSameNoteDay(NoteEntry left, NoteEntry right) {
@@ -5626,7 +5655,10 @@ class _StaticNoteDetailView extends ConsumerWidget {
           child: _NoteDetailPane(
             note: note,
             isActive: true,
-            vaultName: ref.watch(vaultByIdProvider(note.vaultId)).name,
+            vaultName: _vaultDisplayName(
+              context,
+              ref.watch(vaultByIdProvider(note.vaultId)),
+            ),
             onEdit: () => onEdit(note),
             onDelete: () => onDelete(note),
             onTagTap: onTagTap,
@@ -5782,7 +5814,10 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
                 child: _NoteDetailPane(
                   note: note,
                   isActive: index == widget.selectedIndex,
-                  vaultName: ref.watch(vaultByIdProvider(note.vaultId)).name,
+                  vaultName: _vaultDisplayName(
+                    context,
+                    ref.watch(vaultByIdProvider(note.vaultId)),
+                  ),
                   onEdit: () => widget.onEdit(note),
                   onDelete: () => widget.onDelete(note),
                   onTagTap: widget.onTagTap,
@@ -6668,7 +6703,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                       for (final vault in visibleVaults)
                         DropdownMenuItem<String?>(
                           value: vault.id,
-                          child: Text(vault.name),
+                          child: Text(_vaultDisplayName(context, vault)),
                         ),
                     ],
                     onChanged: ref
@@ -7846,7 +7881,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                           for (final vault in privateTargets)
                             DropdownMenuItem(
                               value: vault.id,
-                              child: Text(vault.name),
+                              child: Text(_vaultDisplayName(context, vault)),
                             ),
                         ],
                         onChanged: (value) {

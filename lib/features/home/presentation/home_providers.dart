@@ -3758,7 +3758,7 @@ List<VaultBucket> visibleVaults(Ref ref) {
         const VaultBucket(
           id: legacyPrivateVaultId,
           name: 'Private profile',
-          description: 'Unlocked private notes',
+          description: '__unlocked_private_notes__',
         ),
       );
       continue;
@@ -3772,7 +3772,7 @@ List<VaultBucket> visibleVaults(Ref ref) {
       VaultBucket(
         id: profile.vaultId,
         name: profile.name,
-        description: 'Unlocked private notes',
+        description: '__unlocked_private_notes__',
       ),
     );
   }
@@ -3880,7 +3880,11 @@ VaultBucket vaultById(Ref ref, String vaultId) {
       return vault;
     }
   }
-  return VaultBucket(id: vaultId, name: 'Notes', description: 'Unlocked notes');
+  return VaultBucket(
+    id: vaultId,
+    name: '__notes__',
+    description: '__unlocked_notes__',
+  );
 }
 
 @riverpod

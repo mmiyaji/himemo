@@ -45,9 +45,17 @@ void main() {
     expect(AppStrings.supportedLocales, contains(const Locale('ko')));
     expect(zh.notes, '笔记');
     expect(zh.emptyNotesTitle, '没有匹配的笔记');
+    expect(zh.quickMemo, '快速备忘录');
+    expect(zh.addMedia, '添加媒体');
+    expect(zh.appUpdates, '应用更新');
+    expect(zh.text('home.save.to.private.profile'), '保存到私密档案');
     expect(zh.noteDayLabel(DateTime(2026, 5, 3)), '2026/05/03(周日)');
     expect(ko.notes, '노트');
     expect(ko.emptyNotesTitle, '일치하는 노트가 없습니다');
+    expect(ko.quickMemo, '빠른 메모');
+    expect(ko.addMedia, '미디어 추가');
+    expect(ko.appUpdates, '앱 업데이트');
+    expect(ko.text('home.save.to.private.profile'), '비공개 프로필에 저장');
     expect(ko.noteDayLabel(DateTime(2026, 5, 3)), '2026/05/03(일)');
   });
 
