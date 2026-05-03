@@ -24,6 +24,8 @@ class AppStrings {
   String get insights => isJapanese ? '記録' : 'Insights';
   String get settings => isJapanese ? '設定' : 'Settings';
   String get addNote => isJapanese ? 'ノートを追加' : 'Add note';
+  String get collapseSidebar => isJapanese ? 'サイドバーを折りたたむ' : 'Collapse sidebar';
+  String get expandSidebar => isJapanese ? 'サイドバーを開く' : 'Expand sidebar';
   String get search => isJapanese ? '検索' : 'Search';
   String get today => isJapanese ? '今日' : 'Today';
 

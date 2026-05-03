@@ -34,7 +34,7 @@ import 'home_providers.dart';
 
 enum AppSection { notes, calendar, insights, settings }
 
-class AppShell extends ConsumerWidget {
+class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key, required this.child});
 
   static const notesNavKey = Key('nav-notes');
@@ -47,7 +47,14 @@ class AppShell extends ConsumerWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends ConsumerState<AppShell> {
+  bool _sidebarCollapsed = false;
+
+  @override
+  Widget build(BuildContext context) {
     final strings = context.strings;
     final width = MediaQuery.sizeOf(context).width;
     final useRail = width >= 840;
@@ -63,7 +70,7 @@ class AppShell extends ConsumerWidget {
         title: const _AppBrandTitle(),
         actions: [
           IconButton(
-            key: privateProfileAccessKey,
+            key: AppShell.privateProfileAccessKey,
             tooltip: adminMode
                 ? (context.strings.isJapanese ? '管理者モード中' : 'Admin mode active')
                 : (activePrivateProfileLabel != null
@@ -95,6 +102,12 @@ class AppShell extends ConsumerWidget {
                   _Sidebar(
                     section: section,
                     activeIdentity: activeIdentity,
+                    collapsed: _sidebarCollapsed,
+                    onToggleCollapsed: () {
+                      setState(() {
+                        _sidebarCollapsed = !_sidebarCollapsed;
+                      });
+                    },
                     onSectionSelected: (target) =>
                         _goToSection(context, ref, target),
                   ),
@@ -102,10 +115,10 @@ class AppShell extends ConsumerWidget {
                     width: 1,
                     color: Theme.of(context).dividerColor,
                   ),
-                  Expanded(child: child),
+                  Expanded(child: widget.child),
                 ],
               )
-            : child,
+            : widget.child,
       ),
       bottomNavigationBar: useRail
           ? null
@@ -116,25 +129,25 @@ class AppShell extends ConsumerWidget {
               },
               destinations: [
                 NavigationDestination(
-                  key: notesNavKey,
+                  key: AppShell.notesNavKey,
                   icon: const Icon(Icons.notes_outlined),
                   selectedIcon: const Icon(Icons.notes_rounded),
                   label: strings.notes,
                 ),
                 NavigationDestination(
-                  key: calendarNavKey,
+                  key: AppShell.calendarNavKey,
                   icon: const Icon(Icons.calendar_month_outlined),
                   selectedIcon: const Icon(Icons.calendar_month_rounded),
                   label: strings.calendar,
                 ),
                 NavigationDestination(
-                  key: insightsNavKey,
+                  key: AppShell.insightsNavKey,
                   icon: const Icon(Icons.insert_chart_outlined_rounded),
                   selectedIcon: const Icon(Icons.insert_chart_rounded),
                   label: strings.insights,
                 ),
                 NavigationDestination(
-                  key: settingsNavKey,
+                  key: AppShell.settingsNavKey,
                   icon: const Icon(Icons.settings_outlined),
                   selectedIcon: const Icon(Icons.settings_rounded),
                   label: strings.settings,
@@ -144,7 +157,7 @@ class AppShell extends ConsumerWidget {
       floatingActionButton:
           section == AppSection.notes || section == AppSection.calendar
           ? FloatingActionButton.small(
-              key: addNoteKey,
+              key: AppShell.addNoteKey,
               onPressed: () => showNoteEditorSheet(context, ref),
               tooltip: context.strings.addNote,
               child: const Icon(Icons.add),
@@ -4940,18 +4953,24 @@ class _Sidebar extends StatelessWidget {
   const _Sidebar({
     required this.section,
     required this.activeIdentity,
+    required this.collapsed,
+    required this.onToggleCollapsed,
     required this.onSectionSelected,
   });
 
   final AppSection section;
   final UnlockIdentity activeIdentity;
+  final bool collapsed;
+  final VoidCallback onToggleCollapsed;
   final ValueChanged<AppSection> onSectionSelected;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    return SizedBox(
-      width: 256,
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      width: collapsed ? 72 : 256,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -4960,27 +4979,48 @@ class _Sidebar extends StatelessWidget {
               padding: EdgeInsets.zero,
               children: [
                 if (activeIdentity.id != 'daily') ...[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        strings.isJapanese
+                  if (collapsed)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
+                      child: Tooltip(
+                        message: strings.isJapanese
                             ? '${activeIdentity.name} 利用中'
                             : '${activeIdentity.name} active',
-                        style: Theme.of(context).textTheme.labelMedium,
+                        child: CircleAvatar(
+                          radius: 18,
+                          backgroundColor: Theme.of(
+                            context,
+                          ).colorScheme.surfaceContainerHighest,
+                          child: Text(
+                            activeIdentity.name.characters.first,
+                            style: Theme.of(context).textTheme.labelMedium,
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          strings.isJapanese
+                              ? '${activeIdentity.name} 利用中'
+                              : '${activeIdentity.name} active',
+                          style: Theme.of(context).textTheme.labelMedium,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
-                  ),
                   Divider(height: 1, color: Theme.of(context).dividerColor),
                 ],
                 const SizedBox(height: 8),
@@ -4988,6 +5028,7 @@ class _Sidebar extends StatelessWidget {
                   icon: Icons.notes_outlined,
                   selectedIcon: Icons.notes_rounded,
                   label: strings.notes,
+                  showLabel: !collapsed,
                   selected: section == AppSection.notes,
                   onTap: () => onSectionSelected(AppSection.notes),
                 ),
@@ -4995,6 +5036,7 @@ class _Sidebar extends StatelessWidget {
                   icon: Icons.calendar_month_outlined,
                   selectedIcon: Icons.calendar_month_rounded,
                   label: strings.calendar,
+                  showLabel: !collapsed,
                   selected: section == AppSection.calendar,
                   onTap: () => onSectionSelected(AppSection.calendar),
                 ),
@@ -5002,6 +5044,7 @@ class _Sidebar extends StatelessWidget {
                   icon: Icons.insert_chart_outlined_rounded,
                   selectedIcon: Icons.insert_chart_rounded,
                   label: strings.insights,
+                  showLabel: !collapsed,
                   selected: section == AppSection.insights,
                   onTap: () => onSectionSelected(AppSection.insights),
                 ),
@@ -5009,10 +5052,29 @@ class _Sidebar extends StatelessWidget {
                   icon: Icons.settings_outlined,
                   selectedIcon: Icons.settings_rounded,
                   label: strings.settings,
+                  showLabel: !collapsed,
                   selected: section == AppSection.settings,
                   onTap: () => onSectionSelected(AppSection.settings),
                 ),
               ],
+            ),
+          ),
+          Divider(height: 1, color: Theme.of(context).dividerColor),
+          Padding(
+            padding: const EdgeInsets.all(10),
+            child: Align(
+              alignment: collapsed ? Alignment.center : Alignment.centerRight,
+              child: IconButton(
+                onPressed: onToggleCollapsed,
+                icon: Icon(
+                  collapsed
+                      ? Icons.keyboard_double_arrow_right_rounded
+                      : Icons.keyboard_double_arrow_left_rounded,
+                ),
+                tooltip: collapsed
+                    ? strings.expandSidebar
+                    : strings.collapseSidebar,
+              ),
             ),
           ),
         ],
@@ -5026,6 +5088,7 @@ class _SidebarItem extends StatelessWidget {
     required this.icon,
     required this.selectedIcon,
     required this.label,
+    required this.showLabel,
     required this.selected,
     required this.onTap,
   });
@@ -5033,11 +5096,36 @@ class _SidebarItem extends StatelessWidget {
   final IconData icon;
   final IconData selectedIcon;
   final String label;
+  final bool showLabel;
   final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    if (!showLabel) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        child: Tooltip(
+          message: label,
+          child: IconButton(
+            key: Key('sidebar-${label.toLowerCase()}'),
+            onPressed: onTap,
+            icon: Icon(selected ? selectedIcon : icon),
+            isSelected: selected,
+            style: IconButton.styleFrom(
+              backgroundColor: selected ? _selectedSurfaceColor(context) : null,
+              foregroundColor: selected
+                  ? Theme.of(context).colorScheme.primary
+                  : null,
+              minimumSize: const Size(52, 44),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       child: ListTile(
