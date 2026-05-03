@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:in_app_update/in_app_update.dart';
@@ -18,6 +19,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pinput/pinput.dart';
 import 'package:record/record.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../l10n/app_strings.dart';
@@ -7741,7 +7743,17 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       if (!mounted) {
         return;
       }
-      _insertLocationText(_formatLocationMemo(position, strings.isJapanese));
+      final address = await _resolveLocationAddress(position);
+      if (!mounted) {
+        return;
+      }
+      _insertLocationText(
+        _formatLocationMemo(
+          position,
+          strings.isJapanese,
+          estimatedAddress: address,
+        ),
+      );
       _showEditorSnackBar(content: Text(strings.currentLocationAdded));
     } catch (_) {
       if (!mounted) {
@@ -8158,21 +8170,84 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   return (title: title, body: body);
 }
 
-String _formatLocationMemo(Position position, bool isJapanese) {
+Future<String?> _resolveLocationAddress(Position position) async {
+  if (kIsWeb) {
+    return null;
+  }
+  try {
+    final placemarks = await placemarkFromCoordinates(
+      position.latitude,
+      position.longitude,
+    ).timeout(const Duration(seconds: 5));
+    if (placemarks.isEmpty) {
+      return null;
+    }
+    return _formatPlacemarkAddress(placemarks.first);
+  } catch (_) {
+    return null;
+  }
+}
+
+String? _formatPlacemarkAddress(Placemark placemark) {
+  final streetParts = [placemark.street, placemark.subLocality]
+      .whereType<String>()
+      .map((part) => part.trim())
+      .where((part) {
+        return part.isNotEmpty;
+      })
+      .toList(growable: false);
+
+  final parts =
+      [
+            if (streetParts.isNotEmpty) streetParts.join(' '),
+            placemark.locality,
+            placemark.administrativeArea,
+            placemark.postalCode,
+            placemark.country,
+          ]
+          .whereType<String>()
+          .map((part) => part.trim())
+          .where((part) {
+            return part.isNotEmpty;
+          })
+          .toList(growable: false);
+
+  final deduped = <String>[];
+  for (final part in parts) {
+    if (!deduped.contains(part)) {
+      deduped.add(part);
+    }
+  }
+  return deduped.isEmpty ? null : deduped.join(', ');
+}
+
+String _formatLocationMemo(
+  Position position,
+  bool isJapanese, {
+  String? estimatedAddress,
+}) {
   final latitude = position.latitude.toStringAsFixed(6);
   final longitude = position.longitude.toStringAsFixed(6);
   final accuracy = position.accuracy.isFinite
       ? '${position.accuracy.round()}m'
       : '-';
   final mapUrl = 'https://maps.google.com/?q=$latitude,$longitude';
+  final address = estimatedAddress?.trim();
+  final addressLine = address == null || address.isEmpty
+      ? ''
+      : isJapanese
+      ? '推定住所: $address\n'
+      : 'Estimated address: $address\n';
   if (isJapanese) {
     return '現在地\n'
+        '$addressLine'
         '緯度: $latitude\n'
         '経度: $longitude\n'
         '精度: 約$accuracy\n'
         '$mapUrl';
   }
   return 'Current location\n'
+      '$addressLine'
       'Latitude: $latitude\n'
       'Longitude: $longitude\n'
       'Accuracy: about $accuracy\n'
@@ -8185,12 +8260,14 @@ class _LocationMemoData {
     required this.longitude,
     required this.accuracy,
     required this.mapUrl,
+    this.address,
   });
 
   final String latitude;
   final String longitude;
   final String accuracy;
   final String mapUrl;
+  final String? address;
 }
 
 _LocationMemoData? _tryParseLocationMemo(String text) {
@@ -8236,12 +8313,39 @@ _LocationMemoData? _tryParseLocationMemo(String text) {
   accuracy = accuracy
       .replaceFirst(RegExp(r'^約\s*'), '')
       .replaceFirst(RegExp(r'^about\s+', caseSensitive: false), '');
+  final address = valueAfterColon('推定住所').isNotEmpty
+      ? valueAfterColon('推定住所')
+      : valueAfterColon('Estimated address');
 
   return _LocationMemoData(
     latitude: latitude.isEmpty ? urlMatch.group(1)! : latitude,
     longitude: longitude.isEmpty ? urlMatch.group(2)! : longitude,
     accuracy: accuracy.isEmpty ? '-' : accuracy,
     mapUrl: urlMatch.group(0)!,
+    address: address.isEmpty ? null : address,
+  );
+}
+
+Future<void> _openLocationMap(
+  BuildContext context,
+  _LocationMemoData location,
+) async {
+  final uri = Uri.tryParse(location.mapUrl);
+  if (uri != null) {
+    try {
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (opened) {
+        return;
+      }
+    } catch (_) {
+      // Fall through to the visible failure message below.
+    }
+  }
+  if (!context.mounted) {
+    return;
+  }
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(showCloseIcon: true, content: Text(context.strings.mapOpenFailed)),
   );
 }
 
@@ -8334,6 +8438,37 @@ class _LocationMemoCard extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
+                if (location.address case final address?) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.place_outlined, size: 18, color: muted),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              strings.estimatedAddressLabel,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: muted,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              address,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: scheme.onSurface,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 12,
@@ -8354,29 +8489,45 @@ class _LocationMemoCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 10),
-                TextButton.icon(
-                  onPressed: () async {
-                    await Clipboard.setData(
-                      ClipboardData(text: location.mapUrl),
-                    );
-                    if (!context.mounted) {
-                      return;
-                    }
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        showCloseIcon: true,
-                        content: Text(strings.mapLinkCopied),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () => _openLocationMap(context, location),
+                      icon: const Icon(Icons.map_outlined, size: 18),
+                      label: Text(strings.openMap),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
                       ),
-                    );
-                  },
-                  icon: const Icon(Icons.link_rounded, size: 18),
-                  label: Text(strings.copyMapLink),
-                  style: TextButton.styleFrom(
-                    foregroundColor: muted,
-                    padding: EdgeInsets.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: VisualDensity.compact,
-                  ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () async {
+                        await Clipboard.setData(
+                          ClipboardData(text: location.mapUrl),
+                        );
+                        if (!context.mounted) {
+                          return;
+                        }
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            showCloseIcon: true,
+                            content: Text(strings.mapLinkCopied),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.link_rounded, size: 18),
+                      label: Text(strings.copyMapLink),
+                      style: TextButton.styleFrom(
+                        foregroundColor: muted,
+                        padding: EdgeInsets.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
