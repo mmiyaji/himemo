@@ -10478,21 +10478,23 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                             child: GestureDetector(
                               onTap: () {},
                               onDoubleTap: () => _toggleActualSize(maxScale),
-                              child: InteractiveViewer(
-                                transformationController:
-                                    _transformationController,
-                                minScale: minScale,
-                                maxScale: math.max(maxScale, minScale),
-                                panEnabled: true,
-                                boundaryMargin: EdgeInsets.all(
-                                  math.max(
-                                    constraints.maxWidth,
-                                    constraints.maxHeight,
-                                  ),
-                                ),
-                                clipBehavior: Clip.none,
-                                child: SizedBox.expand(
-                                  child: Center(
+                              child: Center(
+                                child: SizedBox(
+                                  width: displayedWidth,
+                                  height: displayedHeight,
+                                  child: InteractiveViewer(
+                                    transformationController:
+                                        _transformationController,
+                                    minScale: minScale,
+                                    maxScale: math.max(maxScale, minScale),
+                                    panEnabled: true,
+                                    boundaryMargin: EdgeInsets.all(
+                                      math.max(
+                                        constraints.maxWidth,
+                                        constraints.maxHeight,
+                                      ),
+                                    ),
+                                    clipBehavior: Clip.none,
                                     child: SizedBox(
                                       width: displayedWidth,
                                       height: displayedHeight,
