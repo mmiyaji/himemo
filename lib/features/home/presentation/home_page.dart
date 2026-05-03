@@ -1999,6 +1999,7 @@ _InsightsSummary _buildInsightsSummary(
   BuildContext context,
   List<NoteEntry> notes,
 ) {
+  final strings = context.strings;
   final now = DateTime.now();
   final thisMonthCount = notes
       .where(
@@ -2057,8 +2058,8 @@ _InsightsSummary _buildInsightsSummary(
       .length;
   final monthlyDelta = thisMonthCount - previousMonthCount;
   final message = bestDay == null || bestDay.value == 0
-      ? '書いた量がここにたまります。まずは数日続けてみると変化が見えます。'
-      : '今月は $thisMonthCount 件、最も書いた日は ${bestDay.label} です。連続記録を保つと積み上がりが見えやすくなります。';
+      ? strings.insightsSummaryEmpty
+      : strings.insightsSummaryActive(thisMonthCount, bestDay.label);
   return _InsightsSummary(
     currentStreak: currentStreak,
     thisMonthCount: thisMonthCount,

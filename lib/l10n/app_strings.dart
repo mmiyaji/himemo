@@ -28,6 +28,13 @@ class AppStrings {
   String get expandSidebar => isJapanese ? 'サイドバーを開く' : 'Expand sidebar';
   String get search => isJapanese ? '検索' : 'Search';
   String get today => isJapanese ? '今日' : 'Today';
+  String get insightsSummaryEmpty => isJapanese
+      ? '書いた量がここにたまります。まずは数日続けてみると変化が見えます。'
+      : 'Your writing activity will appear here. Write for a few days to make trends visible.';
+  String insightsSummaryActive(int thisMonthCount, String bestDayLabel) =>
+      isJapanese
+      ? '今月は $thisMonthCount 件、最も書いた日は $bestDayLabel です。連続記録を保つと積み上がりが見えやすくなります。'
+      : 'This month has $thisMonthCount notes. Your best day was $bestDayLabel. Keeping a streak makes progress easier to see.';
 
   String get appearance => isJapanese ? '表示' : 'Appearance';
   String get language => isJapanese ? '言語' : 'Language';
