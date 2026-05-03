@@ -110,6 +110,25 @@ void main() {
     expect(ko.saveToPrivateProfile, '비공개 프로필에 저장');
   });
 
+  test('iCloud sync is ignored on unsupported platforms', () async {
+    SharedPreferences.setMockInitialValues({
+      'settings.sync_provider': 'iCloud',
+    });
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    expect(isICloudSyncSupported, isFalse);
+    expect(container.read(syncProviderControllerProvider), SyncProvider.off);
+
+    await Future<void>.delayed(Duration.zero);
+    expect(container.read(syncProviderControllerProvider), SyncProvider.off);
+
+    await container
+        .read(syncProviderControllerProvider.notifier)
+        .setProvider(SyncProvider.iCloud);
+    expect(container.read(syncProviderControllerProvider), SyncProvider.off);
+  });
+
   test('providers expose private profiles only after unlock', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();

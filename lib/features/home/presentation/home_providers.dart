@@ -54,6 +54,9 @@ enum NotesListDensity { standard, compact }
 
 enum SyncProvider { off, iCloud, googleDrive }
 
+bool get isICloudSyncSupported =>
+    !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
 enum AppLaunchSurface { onboarding, ready }
 
 enum AppLockRelockDelay { immediate, seconds30, minutes2, minutes10 }
@@ -2731,6 +2734,9 @@ class SyncProviderController extends Notifier<SyncProvider> {
   }
 
   Future<void> setProvider(SyncProvider provider) async {
+    if (provider == SyncProvider.iCloud && !isICloudSyncSupported) {
+      provider = SyncProvider.off;
+    }
     state = provider;
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -2745,10 +2751,13 @@ class SyncProviderController extends Notifier<SyncProvider> {
       if (stored == null) {
         return;
       }
-      state = SyncProvider.values.firstWhere(
+      final restored = SyncProvider.values.firstWhere(
         (provider) => provider.name == stored,
         orElse: () => SyncProvider.off,
       );
+      state = restored == SyncProvider.iCloud && !isICloudSyncSupported
+          ? SyncProvider.off
+          : restored;
     } catch (_) {}
   }
 }

@@ -3462,17 +3462,18 @@ class SettingsScreen extends ConsumerWidget {
                   .read(syncProviderControllerProvider.notifier)
                   .setProvider(SyncProvider.off),
             ),
-            _ThemeOptionTile(
-              tileKey: syncICloudKey,
-              title: 'iCloud',
-              subtitle: strings.text(
-                'home.use.this.device.s.icloud.as.the.sync.target.no.himemo.lo',
+            if (isICloudSyncSupported)
+              _ThemeOptionTile(
+                tileKey: syncICloudKey,
+                title: 'iCloud',
+                subtitle: strings.text(
+                  'home.use.this.device.s.icloud.as.the.sync.target.no.himemo.lo',
+                ),
+                selected: syncProvider == SyncProvider.iCloud,
+                onTap: () => ref
+                    .read(syncProviderControllerProvider.notifier)
+                    .setProvider(SyncProvider.iCloud),
               ),
-              selected: syncProvider == SyncProvider.iCloud,
-              onTap: () => ref
-                  .read(syncProviderControllerProvider.notifier)
-                  .setProvider(SyncProvider.iCloud),
-            ),
             _ThemeOptionTile(
               tileKey: syncGoogleDriveKey,
               title: 'Google Drive',
