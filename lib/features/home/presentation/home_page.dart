@@ -2144,6 +2144,7 @@ class SettingsScreen extends ConsumerWidget {
   static const lightThemeKey = Key('theme-light-option');
   static const systemThemeKey = Key('theme-system-option');
   static const darkThemeKey = Key('theme-dark-option');
+  static const localeDropdownKey = Key('locale-dropdown');
   static const localeSystemKey = Key('locale-system-option');
   static const createDemoNotesKey = Key('create-demo-notes-button');
   static const deleteDemoNotesKey = Key('delete-demo-notes-button');
@@ -4051,50 +4052,48 @@ class SettingsScreen extends ConsumerWidget {
                 style: Theme.of(context).textTheme.labelLarge,
               ),
             ),
-            _ThemeOptionTile(
-              tileKey: SettingsScreen.localeSystemKey,
-              title: strings.languageSystem,
-              subtitle: strings.languageSystemDesc,
-              selected: localeSetting == AppLocaleSetting.system,
-              onTap: () => ref
-                  .read(appLocaleControllerProvider.notifier)
-                  .setLocale(AppLocaleSetting.system),
-            ),
-            _ThemeOptionTile(
-              tileKey: SettingsScreen.localeJapaneseKey,
-              title: strings.languageJapanese,
-              subtitle: strings.text('home.use.japanese.across.the.app'),
-              selected: localeSetting == AppLocaleSetting.japanese,
-              onTap: () => ref
-                  .read(appLocaleControllerProvider.notifier)
-                  .setLocale(AppLocaleSetting.japanese),
-            ),
-            _ThemeOptionTile(
-              tileKey: SettingsScreen.localeEnglishKey,
-              title: strings.languageEnglish,
-              subtitle: strings.text('home.use.english.across.the.app'),
-              selected: localeSetting == AppLocaleSetting.english,
-              onTap: () => ref
-                  .read(appLocaleControllerProvider.notifier)
-                  .setLocale(AppLocaleSetting.english),
-            ),
-            _ThemeOptionTile(
-              tileKey: SettingsScreen.localeChineseKey,
-              title: strings.languageChinese,
-              subtitle: strings.text('home.use.chinese.across.the.app'),
-              selected: localeSetting == AppLocaleSetting.chinese,
-              onTap: () => ref
-                  .read(appLocaleControllerProvider.notifier)
-                  .setLocale(AppLocaleSetting.chinese),
-            ),
-            _ThemeOptionTile(
-              tileKey: SettingsScreen.localeKoreanKey,
-              title: strings.languageKorean,
-              subtitle: strings.text('home.use.korean.across.the.app'),
-              selected: localeSetting == AppLocaleSetting.korean,
-              onTap: () => ref
-                  .read(appLocaleControllerProvider.notifier)
-                  .setLocale(AppLocaleSetting.korean),
+            DropdownButtonFormField<AppLocaleSetting>(
+              key: SettingsScreen.localeDropdownKey,
+              initialValue: localeSetting,
+              isExpanded: true,
+              decoration: InputDecoration(
+                border: const OutlineInputBorder(),
+                helperText: strings.languageSystemDesc,
+                prefixIcon: const Icon(Icons.translate_rounded),
+              ),
+              items: [
+                DropdownMenuItem(
+                  key: SettingsScreen.localeSystemKey,
+                  value: AppLocaleSetting.system,
+                  child: Text(strings.languageSystemOption),
+                ),
+                DropdownMenuItem(
+                  key: SettingsScreen.localeJapaneseKey,
+                  value: AppLocaleSetting.japanese,
+                  child: Text(strings.languageJapaneseOption),
+                ),
+                DropdownMenuItem(
+                  key: SettingsScreen.localeEnglishKey,
+                  value: AppLocaleSetting.english,
+                  child: Text(strings.languageEnglishOption),
+                ),
+                DropdownMenuItem(
+                  key: SettingsScreen.localeChineseKey,
+                  value: AppLocaleSetting.chinese,
+                  child: Text(strings.languageChineseOption),
+                ),
+                DropdownMenuItem(
+                  key: SettingsScreen.localeKoreanKey,
+                  value: AppLocaleSetting.korean,
+                  child: Text(strings.languageKoreanOption),
+                ),
+              ],
+              onChanged: (value) {
+                if (value == null || value == localeSetting) {
+                  return;
+                }
+                ref.read(appLocaleControllerProvider.notifier).setLocale(value);
+              },
             ),
             const Divider(height: 24),
             _ThemeOptionTile(
@@ -4640,11 +4639,11 @@ class SettingsScreen extends ConsumerWidget {
   String _localeSettingLabel(BuildContext context, AppLocaleSetting setting) {
     final strings = context.strings;
     return switch (setting) {
-      AppLocaleSetting.system => strings.languageSystem,
-      AppLocaleSetting.japanese => strings.languageJapanese,
-      AppLocaleSetting.english => strings.languageEnglish,
-      AppLocaleSetting.chinese => strings.languageChinese,
-      AppLocaleSetting.korean => strings.languageKorean,
+      AppLocaleSetting.system => strings.languageSystemOption,
+      AppLocaleSetting.japanese => strings.languageJapaneseOption,
+      AppLocaleSetting.english => strings.languageEnglishOption,
+      AppLocaleSetting.chinese => strings.languageChineseOption,
+      AppLocaleSetting.korean => strings.languageKoreanOption,
     };
   }
 

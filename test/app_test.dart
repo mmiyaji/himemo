@@ -28,6 +28,7 @@ void main() {
     expect(strings.createDemoNotes, 'Create demo notes');
     expect(strings.deleteDemoNotesBody(3), contains('3 demo notes'));
     expect(strings.noteDayLabel(DateTime(2026, 5, 3)), 'May 3, 2026 (Sun)');
+    expect(strings.languageSystemOption, 'Follow system');
   });
 
   test('app strings localize home UI labels to Japanese', () {
@@ -36,6 +37,8 @@ void main() {
     expect(strings.emptyNotesTitle, '一致するノートはありません');
     expect(strings.previousImage, '前の画像');
     expect(strings.videoPreviewUnavailableWeb, 'Web では動画プレビューを利用できません。');
+    expect(strings.languageSystemOption, 'システムに合わせる (System)');
+    expect(strings.languageJapaneseOption, '日本語 (Japanese)');
   });
 
   test('app strings support Chinese and Korean locales', () {
@@ -45,6 +48,8 @@ void main() {
     expect(AppStrings.supportedLocales, contains(const Locale('zh')));
     expect(AppStrings.supportedLocales, contains(const Locale('ko')));
     expect(zh.notes, '笔记');
+    expect(zh.languageSystemOption, '跟随系统 (System)');
+    expect(zh.languageChineseOption, '中文 (Chinese)');
     expect(zh.emptyNotesTitle, '没有匹配的笔记');
     expect(zh.quickMemo, '快速备忘录');
     expect(zh.addMedia, '添加媒体');
@@ -65,6 +70,8 @@ void main() {
       '最新包：2026/05/03 22:00，12 KB，笔记 3 条，附件 2 个。',
     );
     expect(ko.notes, '노트');
+    expect(ko.languageSystemOption, '시스템 따르기 (System)');
+    expect(ko.languageKoreanOption, '한국어 (Korean)');
     expect(ko.emptyNotesTitle, '일치하는 노트가 없습니다');
     expect(ko.quickMemo, '빠른 메모');
     expect(ko.addMedia, '미디어 추가');

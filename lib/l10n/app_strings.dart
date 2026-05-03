@@ -1838,14 +1838,39 @@ class AppStrings {
     zh: '跟随系统',
     ko: '시스템 따르기',
   );
+  String get languageSystemOption => localized(
+    en: 'Follow system',
+    ja: 'システムに合わせる (System)',
+    zh: '跟随系统 (System)',
+    ko: '시스템 따르기 (System)',
+  );
   String get languageJapanese =>
       localized(en: 'Japanese', ja: '日本語', zh: '日语', ko: '일본어');
+  String get languageJapaneseOption => localized(
+    en: 'Japanese',
+    ja: '日本語 (Japanese)',
+    zh: '日语 (Japanese)',
+    ko: '일본어 (Japanese)',
+  );
   String get languageEnglish =>
       localized(en: 'English', ja: '英語', zh: '英语', ko: '영어');
+  String get languageEnglishOption => 'English';
   String get languageChinese =>
       localized(en: 'Chinese', ja: '中国語', zh: '中文', ko: '중국어');
+  String get languageChineseOption => localized(
+    en: 'Chinese',
+    ja: '中国語 (Chinese)',
+    zh: '中文 (Chinese)',
+    ko: '중국어 (Chinese)',
+  );
   String get languageKorean =>
       localized(en: 'Korean', ja: '韓国語', zh: '韩语', ko: '한국어');
+  String get languageKoreanOption => localized(
+    en: 'Korean',
+    ja: '韓国語 (Korean)',
+    zh: '韩语 (Korean)',
+    ko: '한국어 (Korean)',
+  );
   String get languageSystemDesc => localized(
     en: 'Follow the device language. Fall back to English when unsupported.',
     ja: '端末の言語設定に合わせます。未対応の言語では英語を使います。',

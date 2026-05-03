@@ -100,13 +100,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('Review notes grouped by day'), findsOneWidget);
 
-    container.read(widgetQuickCaptureRequestControllerProvider.notifier).open(
-      const QuickCaptureRequest(
-        nonce: 1,
-        source: QuickCaptureSource.share,
-        initialText: 'Shared note from integration test',
-      ),
-    );
+    container
+        .read(widgetQuickCaptureRequestControllerProvider.notifier)
+        .open(
+          const QuickCaptureRequest(
+            nonce: 1,
+            source: QuickCaptureSource.share,
+            initialText: 'Shared note from integration test',
+          ),
+        );
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('widget-quick-capture-input')), findsOneWidget);
@@ -140,17 +142,19 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1200));
     await tester.pumpAndSettle();
 
-    await container.read(notesControllerProvider.notifier).upsert(
-      NoteEntry(
-        id: 'compact-test-note',
-        vaultId: 'everyday',
-        title: 'Compact sample',
-        body: 'Line one\n\nLine   two',
-        createdAt: DateTime(2026, 4, 15, 8, 30),
-        updatedAt: DateTime(2026, 4, 15, 8, 31),
-        editorMode: NoteEditorMode.quick,
-      ),
-    );
+    await container
+        .read(notesControllerProvider.notifier)
+        .upsert(
+          NoteEntry(
+            id: 'compact-test-note',
+            vaultId: 'everyday',
+            title: 'Compact sample',
+            body: 'Line one\n\nLine   two',
+            createdAt: DateTime(2026, 4, 15, 8, 30),
+            updatedAt: DateTime(2026, 4, 15, 8, 31),
+            editorMode: NoteEditorMode.quick,
+          ),
+        );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.view_agenda_outlined).first);
@@ -172,8 +176,10 @@ void main() {
 
     await _scrollIntoViewIfNeeded(
       tester,
-      find.byKey(SettingsScreen.localeJapaneseKey),
+      find.byKey(SettingsScreen.localeDropdownKey),
     );
+    await tester.tap(find.byKey(SettingsScreen.localeDropdownKey));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(SettingsScreen.localeJapaneseKey));
     await tester.pumpAndSettle();
 
@@ -218,7 +224,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await _scrollIntoViewIfNeeded(tester, find.byKey(const Key('note-tag-input')));
+    await _scrollIntoViewIfNeeded(
+      tester,
+      find.byKey(const Key('note-tag-input')),
+    );
     await tester.enterText(find.byKey(const Key('note-tag-input')), 'alpha');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
@@ -234,9 +243,9 @@ void main() {
 
     expect(find.text('#alpha'), findsWidgets);
     expect(
-      container.read(visibleNotesProvider).any(
-        (note) => note.title == 'Tag flow sample',
-      ),
+      container
+          .read(visibleNotesProvider)
+          .any((note) => note.title == 'Tag flow sample'),
       isTrue,
     );
   });
@@ -254,11 +263,7 @@ Future<void> _scrollIntoViewIfNeeded(WidgetTester tester, Finder finder) async {
     throw StateError('No Scrollable found for $finder');
   }
 
-  await tester.scrollUntilVisible(
-    finder,
-    160,
-    scrollable: scrollables.first,
-  );
+  await tester.scrollUntilVisible(finder, 160, scrollable: scrollables.first);
   await tester.pumpAndSettle();
 }
 
