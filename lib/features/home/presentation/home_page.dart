@@ -3294,7 +3294,7 @@ class SettingsScreen extends ConsumerWidget {
               contentPadding: EdgeInsets.zero,
               title: Text(strings.text('home.remote.bundle')),
               subtitle: Text(
-                _remoteBundleSummary(syncProvider, syncTransferState),
+                _remoteBundleSummary(strings, syncProvider, syncTransferState),
               ),
             ),
             ListTile(
@@ -9841,10 +9841,10 @@ String _formatDateTime(DateTime value) {
 }
 
 String _remoteBundleSummary(
+  AppStrings strings,
   SyncProvider provider,
   SyncTransferState transferState,
 ) {
-  final strings = AppStrings(WidgetsBinding.instance.platformDispatcher.locale);
   if (provider == SyncProvider.off) {
     return strings.text('home.remote.bundle.storage.is.not.configured.yet');
   }
