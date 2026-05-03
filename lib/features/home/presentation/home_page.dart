@@ -2186,6 +2186,7 @@ class SettingsScreen extends ConsumerWidget {
   static const systemThemeKey = Key('theme-system-option');
   static const darkThemeKey = Key('theme-dark-option');
   static const localeSystemKey = Key('locale-system-option');
+  static const createDemoNotesKey = Key('create-demo-notes-button');
   static const deleteDemoNotesKey = Key('delete-demo-notes-button');
   static const localeJapaneseKey = Key('locale-japanese-option');
   static const localeEnglishKey = Key('locale-english-option');
@@ -2603,6 +2604,7 @@ class SettingsScreen extends ConsumerWidget {
     );
     final flavorName =
         FlavorConfig.instance.variables['flavor'] as String? ?? 'development';
+    final showFlavorInfo = flavorName != 'production';
     final displayName =
         FlavorConfig.instance.variables['displayName'] as String? ?? 'HiMemo';
     final visibleStorageVaultIds = {
@@ -4177,11 +4179,12 @@ class SettingsScreen extends ConsumerWidget {
                 spacing: 12,
                 runSpacing: 8,
                 children: [
-                  OutlinedButton(
+                  OutlinedButton.icon(
+                    key: createDemoNotesKey,
                     onPressed: () async {
-                      await ref
+                      final createdCount = await ref
                           .read(notesControllerProvider.notifier)
-                          .seedIfEmpty();
+                          .createDemoNotes();
                       if (!context.mounted) {
                         return;
                       }
@@ -4189,17 +4192,20 @@ class SettingsScreen extends ConsumerWidget {
                         SnackBar(
                           showCloseIcon: true,
                           content: Text(
-                            strings.isJapanese
-                                ? 'デモ用ノートを復元しました。'
-                                : 'Demo notes restored.',
+                            createdCount == 0
+                                ? (strings.isJapanese
+                                      ? '作成できるデモ用ノートはありません。'
+                                      : 'No demo notes to create.')
+                                : (strings.isJapanese
+                                      ? 'デモ用ノート $createdCount 件を作成しました。'
+                                      : 'Created $createdCount demo notes.'),
                           ),
                         ),
                       );
                     },
-                    child: Text(
-                      strings.isJapanese
-                          ? 'デモ用ノートを空の場合に復元'
-                          : 'Restore sample notes if empty',
+                    icon: const Icon(Icons.add_rounded),
+                    label: Text(
+                      strings.isJapanese ? 'デモ用ノートを作成' : 'Create demo notes',
                     ),
                   ),
                   OutlinedButton.icon(
@@ -4408,14 +4414,17 @@ class SettingsScreen extends ConsumerWidget {
         const SizedBox(height: 16),
         _SettingsGroup(
           title: strings.about,
-          summary: '$aboutVersion / $displayName',
+          summary: showFlavorInfo
+              ? '$aboutVersion / $displayName'
+              : aboutVersion,
           assetPath: 'assets/settings/about.svg',
           children: [
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(displayName),
-              subtitle: Text(strings.currentFlavor(flavorName)),
-            ),
+            if (showFlavorInfo)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(displayName),
+                subtitle: Text(strings.currentFlavor(flavorName)),
+              ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(strings.appVersion),
@@ -5237,17 +5246,19 @@ class _NoteDayDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label =
-        '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
+    final strings = context.strings;
+    final label = _formatNoteDayLabel(date, isJapanese: strings.isJapanese);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final target = DateTime(date.year, date.month, date.day);
     final dayDiff = today.difference(target).inDays;
     final suffix = switch (dayDiff) {
-      0 => 'Today',
-      1 => 'Yesterday',
+      0 => strings.today,
+      1 => strings.isJapanese ? '昨日' : 'Yesterday',
       _ => null,
     };
+    final weekendColor = _noteDayWeekendColor(context, date);
+    final effectiveColor = weekendColor ?? _mutedTextColor(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
       child: Row(
@@ -5259,14 +5270,20 @@ class _NoteDayDivider extends StatelessWidget {
             margin: const EdgeInsets.symmetric(horizontal: 10),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
+              color:
+                  weekendColor?.withValues(alpha: 0.08) ??
+                  Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: Theme.of(context).dividerColor),
+              border: Border.all(
+                color:
+                    weekendColor?.withValues(alpha: 0.45) ??
+                    Theme.of(context).dividerColor,
+              ),
             ),
             child: Text(
               suffix == null ? label : '$label  $suffix',
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: _mutedTextColor(context),
+                color: effectiveColor,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -5278,6 +5295,50 @@ class _NoteDayDivider extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatNoteDayLabel(DateTime date, {required bool isJapanese}) {
+  final weekday = _weekdayShortLabel(date.weekday, isJapanese: isJapanese);
+  if (isJapanese) {
+    return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}($weekday)';
+  }
+  final month = const [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ][date.month - 1];
+  return '$month ${date.day}, ${date.year} ($weekday)';
+}
+
+String _weekdayShortLabel(int weekday, {required bool isJapanese}) {
+  final labels = isJapanese
+      ? const ['月', '火', '水', '木', '金', '土', '日']
+      : const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  return labels[weekday - 1];
+}
+
+Color? _noteDayWeekendColor(BuildContext context, DateTime date) {
+  final brightness = Theme.of(context).brightness;
+  if (date.weekday == DateTime.saturday) {
+    return brightness == Brightness.dark
+        ? const Color(0xFF7DB7FF)
+        : const Color(0xFF0B63CE);
+  }
+  if (date.weekday == DateTime.sunday) {
+    return brightness == Brightness.dark
+        ? const Color(0xFFFF8A8A)
+        : const Color(0xFFC62828);
+  }
+  return null;
 }
 
 class _NoteListTile extends StatelessWidget {
@@ -7247,6 +7308,7 @@ class _EmptyNotesState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = context.strings;
     return Container(
       decoration: _sectionDecoration(context),
       padding: const EdgeInsets.all(24),
@@ -7254,12 +7316,14 @@ class _EmptyNotesState extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'No matching notes',
+            strings.isJapanese ? '一致するノートはありません' : 'No matching notes',
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
           Text(
-            'Create a new memo or clear the current search filter to see saved entries.',
+            strings.isJapanese
+                ? '新しいメモを作成するか、現在の検索条件を解除すると保存済みのノートを表示できます。'
+                : 'Create a new memo or clear the current search filter to see saved entries.',
             style: Theme.of(
               context,
             ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),

@@ -159,79 +159,88 @@ void main() {
     );
   });
 
-  test('deleted demo notes are not restored automatically', () async {
-    SharedPreferences.setMockInitialValues({});
-    final secureStore = MemorySecureKeyValueStore();
-    final encryptionService = EncryptionService(random: Random(14));
-    final masterKeyService = MasterKeyService(
-      secureStore: secureStore,
-      keyFactory: encryptionService.generateKeyBytes,
-    );
-    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
-    final container = ProviderContainer(
-      overrides: [
-        secureKeyValueStoreProvider.overrideWithValue(secureStore),
-        encryptionServiceProvider.overrideWithValue(encryptionService),
-        masterKeyServiceProvider.overrideWithValue(masterKeyService),
-        encryptedNoteDatabaseProvider.overrideWithValue(database),
-        encryptedNoteStoreProvider.overrideWithValue(
-          EncryptedNoteStore(
-            encryptionService: encryptionService,
-            masterKeyService: masterKeyService,
-            database: database,
-            directoryProvider: () async => Directory.systemTemp,
+  test(
+    'demo notes are only created on request and are not restored automatically after deletion',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(14));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(database),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: database,
+              directoryProvider: () async => Directory.systemTemp,
+            ),
           ),
-        ),
-      ],
-    );
-    addTearDown(container.dispose);
-    addTearDown(database.close);
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(database.close);
 
-    await container.read(notesControllerProvider.notifier).restoreCompleted;
-    final initialSeedCount = container
-        .read(notesControllerProvider)
-        .where((note) => note.id.startsWith('seed-'))
-        .length;
-    expect(initialSeedCount, greaterThan(0));
+      await container.read(notesControllerProvider.notifier).restoreCompleted;
+      expect(container.read(notesControllerProvider), isEmpty);
 
-    final deletedCount = await container
-        .read(notesControllerProvider.notifier)
-        .deleteDemoNotes();
-    expect(deletedCount, initialSeedCount);
-    expect(
-      container
+      final createdCount = await container
+          .read(notesControllerProvider.notifier)
+          .createDemoNotes();
+      final initialSeedCount = container
           .read(notesControllerProvider)
-          .where((note) => note.id.startsWith('seed-')),
-      isEmpty,
-    );
+          .where((note) => note.id.startsWith('seed-'))
+          .length;
+      expect(initialSeedCount, greaterThan(0));
+      expect(createdCount, initialSeedCount);
 
-    final secondContainer = ProviderContainer(
-      overrides: [
-        secureKeyValueStoreProvider.overrideWithValue(secureStore),
-        encryptionServiceProvider.overrideWithValue(encryptionService),
-        masterKeyServiceProvider.overrideWithValue(masterKeyService),
-        encryptedNoteDatabaseProvider.overrideWithValue(database),
-        encryptedNoteStoreProvider.overrideWithValue(
-          EncryptedNoteStore(
-            encryptionService: encryptionService,
-            masterKeyService: masterKeyService,
-            database: database,
-            directoryProvider: () async => Directory.systemTemp,
+      final deletedCount = await container
+          .read(notesControllerProvider.notifier)
+          .deleteDemoNotes();
+      expect(deletedCount, initialSeedCount);
+      expect(
+        container
+            .read(notesControllerProvider)
+            .where((note) => note.id.startsWith('seed-')),
+        isEmpty,
+      );
+
+      final secondContainer = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(database),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: database,
+              directoryProvider: () async => Directory.systemTemp,
+            ),
           ),
-        ),
-      ],
-    );
-    addTearDown(secondContainer.dispose);
-    await secondContainer
-        .read(notesControllerProvider.notifier)
-        .restoreCompleted;
-    expect(
-      secondContainer
-          .read(notesControllerProvider)
-          .where((note) => note.id.startsWith('seed-')),
-      isEmpty,
-    );
-  });
+        ],
+      );
+      addTearDown(secondContainer.dispose);
+      await secondContainer
+          .read(notesControllerProvider.notifier)
+          .restoreCompleted;
+      expect(
+        secondContainer
+            .read(notesControllerProvider)
+            .where((note) => note.id.startsWith('seed-')),
+        isEmpty,
+      );
+    },
+  );
 
   test('privacy screen activates for legacy private vault session', () {
     SharedPreferences.setMockInitialValues({});
@@ -365,7 +374,9 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 1200));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 200));
+    await container.read(notesControllerProvider.notifier).createDemoNotes();
+    await tester.pump(const Duration(milliseconds: 500));
 
     await tester.tap(
       find.byKey(const Key('note-tile-seed-2026-04-12-groceries')),

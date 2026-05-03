@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' as ui;
 
 import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
@@ -2118,7 +2119,16 @@ final privateVaultSecretStoreProvider = Provider<PrivateVaultSecretStore>((
 });
 
 @Riverpod(keepAlive: true)
-HomeRepository homeRepository(Ref ref) => SeededHomeRepository();
+HomeRepository homeRepository(Ref ref) {
+  final appLocale = ref.watch(appLocaleControllerProvider);
+  final deviceLanguage = ui.PlatformDispatcher.instance.locale.languageCode;
+  final useEnglishSeedData = switch (appLocale) {
+    AppLocaleSetting.english => true,
+    AppLocaleSetting.japanese => false,
+    AppLocaleSetting.system => deviceLanguage != 'ja',
+  };
+  return SeededHomeRepository(useEnglishSeedData: useEnglishSeedData);
+}
 
 final appSessionUnlockControllerProvider =
     NotifierProvider<AppSessionUnlockController, bool>(
@@ -3034,13 +3044,12 @@ class NotesController extends _$NotesController {
 
   @override
   List<NoteEntry> build() {
-    final seeded = ref.read(homeRepositoryProvider).seededNotes;
     if (!_restored) {
       _restored = true;
       _restoreTask = _restore();
       unawaited(_restoreTask);
     }
-    return List<NoteEntry>.from(seeded);
+    return const <NoteEntry>[];
   }
 
   Future<void> upsert(NoteEntry note) async {
@@ -3109,6 +3118,26 @@ class NotesController extends _$NotesController {
     state = List<NoteEntry>.from(ref.read(homeRepositoryProvider).seededNotes);
     _sort(state);
     await _persist();
+  }
+
+  Future<int> createDemoNotes() async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final existingIds = state.map((note) => note.id).toSet();
+    final notesToAdd = ref
+        .read(homeRepositoryProvider)
+        .seededNotes
+        .where((note) => note.vaultId == 'everyday')
+        .where((note) => !existingIds.contains(note.id))
+        .toList(growable: false);
+    await _rememberDeletedSeedNoteIds(const <String>{});
+    if (notesToAdd.isEmpty) {
+      return 0;
+    }
+    state = [...state, ...notesToAdd];
+    _sort(state);
+    await _persist();
+    return notesToAdd.length;
   }
 
   Future<void> get restoreCompleted => _waitForInitialRestore();
@@ -3343,15 +3372,10 @@ class NotesController extends _$NotesController {
   Future<void> _restore() async {
     try {
       final deletedSeedNoteIds = await _deletedSeedNoteIds();
-      final fallbackNotes = ref
-          .read(homeRepositoryProvider)
-          .seededNotes
-          .where((note) => !deletedSeedNoteIds.contains(note.id))
-          .toList(growable: false);
       final restored = [
         ...await ref
             .read(encryptedNoteStoreProvider)
-            .load(fallbackNotes: fallbackNotes),
+            .load(fallbackNotes: const <NoteEntry>[]),
       ];
       if (!ref.mounted) {
         return;
@@ -3359,13 +3383,9 @@ class NotesController extends _$NotesController {
       final restoredWithoutDeletedSeeds = restored
           .where((note) => !deletedSeedNoteIds.contains(note.id))
           .toList(growable: false);
-      final merged = _mergeMissingSeedNotes(
-        restoredWithoutDeletedSeeds,
-        fallbackNotes,
-      );
-      final changed = merged.length != restored.length;
-      _sort(merged);
-      state = merged;
+      final changed = restoredWithoutDeletedSeeds.length != restored.length;
+      _sort(restoredWithoutDeletedSeeds);
+      state = restoredWithoutDeletedSeeds;
       _restoreFailed = false;
       if (changed) {
         await _persist();
@@ -3412,21 +3432,6 @@ class NotesController extends _$NotesController {
         'Stored notes could not be restored. Refusing to overwrite local data.',
       );
     }
-  }
-
-  List<NoteEntry> _mergeMissingSeedNotes(
-    List<NoteEntry> current,
-    List<NoteEntry> seeded,
-  ) {
-    final existingIds = current.map((note) => note.id).toSet();
-    final merged = [...current];
-    for (final note in seeded) {
-      if (existingIds.contains(note.id)) {
-        continue;
-      }
-      merged.add(note);
-    }
-    return merged;
   }
 
   bool _isSeedNote(NoteEntry note) =>
