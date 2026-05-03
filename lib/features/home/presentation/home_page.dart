@@ -5623,6 +5623,7 @@ class _NoteDetailPager extends ConsumerStatefulWidget {
 
 class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
   late final PageController _pageController;
+  int? _programmaticPageTarget;
 
   @override
   void initState() {
@@ -5645,7 +5646,13 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
         _debugNotePerf(
           'detail pager jumpToPage ${widget.selectedIndex} current=$currentPage',
         );
+        _programmaticPageTarget = widget.selectedIndex;
         _pageController.jumpToPage(widget.selectedIndex);
+        Timer(const Duration(milliseconds: 250), () {
+          if (mounted && _programmaticPageTarget == widget.selectedIndex) {
+            _programmaticPageTarget = null;
+          }
+        });
       }
     }
   }
@@ -5715,7 +5722,19 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
           child: PageView.builder(
             controller: _pageController,
             itemCount: widget.notes.length,
-            onPageChanged: widget.onPageChanged,
+            onPageChanged: (index) {
+              final programmaticTarget = _programmaticPageTarget;
+              if (programmaticTarget != null) {
+                if (index == programmaticTarget) {
+                  _programmaticPageTarget = null;
+                }
+                _debugNotePerf(
+                  'detail pager ignored programmatic onPageChanged index=$index target=$programmaticTarget',
+                );
+                return;
+              }
+              widget.onPageChanged(index);
+            },
             itemBuilder: (context, index) {
               final note = widget.notes[index];
               _debugNotePerf(
