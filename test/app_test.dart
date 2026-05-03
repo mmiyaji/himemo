@@ -17,9 +17,152 @@ import 'package:himemo/features/security/data/encrypted_note_store.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/master_key_service.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
+import 'package:himemo/l10n/app_localizations.dart';
+import 'package:himemo/l10n/app_strings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  test('app strings fall back to English for unsupported locales', () {
+    final strings = AppStrings(const Locale('fr'));
+
+    expect(strings.createDemoNotes, 'Create demo notes');
+    expect(strings.deleteDemoNotesBody(3), contains('3 demo notes'));
+    expect(strings.noteDayLabel(DateTime(2026, 5, 3)), 'May 3, 2026 (Sun)');
+    expect(strings.languageSystemOption, 'Follow system');
+  });
+
+  test('app strings localize home UI labels to Japanese', () {
+    final strings = AppStrings(const Locale('ja'));
+
+    expect(strings.emptyNotesTitle, '一致するノートはありません');
+    expect(strings.previousImage, '前の画像');
+    expect(strings.videoPreviewUnavailableWeb, 'Web では動画プレビューを利用できません。');
+    expect(strings.languageSystemOption, 'システムに合わせる (System)');
+    expect(strings.languageJapaneseOption, '日本語 (Japanese)');
+  });
+
+  test('app strings support Chinese and Korean locales', () {
+    final zh = AppStrings(const Locale('zh'));
+    final ko = AppStrings(const Locale('ko'));
+
+    expect(AppStrings.supportedLocales, contains(const Locale('zh')));
+    expect(AppStrings.supportedLocales, contains(const Locale('ko')));
+    expect(zh.notes, '笔记');
+    expect(zh.languageSystemOption, '跟随系统 (System)');
+    expect(zh.languageChineseOption, '中文 (Chinese)');
+    expect(zh.emptyNotesTitle, '没有匹配的笔记');
+    expect(zh.quickMemo, '快速备忘录');
+    expect(zh.addMedia, '添加媒体');
+    expect(zh.appUpdates, '应用更新');
+    expect(zh.text('home.save.to.private.profile'), '保存到私密档案');
+    expect(zh.noteDayLabel(DateTime(2026, 5, 3)), '2026/05/03(周日)');
+    expect(
+      zh.webPinProtectionSummary(zh.pinLockSummary(isConfigured: false)),
+      '使用 4 位 PIN 保护此浏览器会话。此浏览器尚未设置解锁 PIN。',
+    );
+    expect(
+      zh.remoteBundleSummary(
+        modifiedAt: '2026/05/03 22:00',
+        sizeLabel: '12 KB',
+        noteCount: '3',
+        attachmentCount: '2',
+      ),
+      '最新包：2026/05/03 22:00，12 KB，笔记 3 条，附件 2 个。',
+    );
+    expect(ko.notes, '노트');
+    expect(ko.languageSystemOption, '시스템 따르기 (System)');
+    expect(ko.languageKoreanOption, '한국어 (Korean)');
+    expect(ko.emptyNotesTitle, '일치하는 노트가 없습니다');
+    expect(ko.quickMemo, '빠른 메모');
+    expect(ko.addMedia, '미디어 추가');
+    expect(ko.appUpdates, '앱 업데이트');
+    expect(ko.text('home.save.to.private.profile'), '비공개 프로필에 저장');
+    expect(ko.noteDayLabel(DateTime(2026, 5, 3)), '2026/05/03(일)');
+    expect(
+      ko.webPinProtectionSummary(ko.pinLockSummary(isConfigured: true)),
+      '이 브라우저 세션을 4자리 PIN으로 보호합니다. 이 브라우저 세션에는 웹 전용 잠금 해제 PIN이 설정되어 있습니다.',
+    );
+    expect(
+      ko.remoteBundleSummary(
+        modifiedAt: '2026/05/03 22:00',
+        sizeLabel: '12 KB',
+        noteCount: '3',
+        attachmentCount: '2',
+      ),
+      '최신 번들: 2026/05/03 22:00, 12 KB, 노트 3개, 첨부 2개.',
+    );
+  });
+
+  test('app strings support Spanish and German locales', () {
+    final es = AppStrings(const Locale('es'));
+    final de = AppStrings(const Locale('de'));
+
+    expect(AppStrings.supportedLocales, contains(const Locale('es')));
+    expect(AppStrings.supportedLocales, contains(const Locale('de')));
+    expect(es.notes, 'Notas');
+    expect(es.settings, 'Ajustes');
+    expect(es.languageSystemOption, 'Seguir sistema (System)');
+    expect(es.languageSpanishOption, 'Español (Spanish)');
+    expect(es.emptyNotesTitle, 'No hay notas coincidentes');
+    expect(es.noteDayLabel(DateTime(2026, 5, 3)), 'mayo 3, 2026 (dom)');
+    expect(
+      es.text('home.remote.bundle.storage.is.not.configured.yet'),
+      'El almacenamiento del paquete remoto aún no está configurado.',
+    );
+    expect(de.notes, 'Notizen');
+    expect(de.settings, 'Einstellungen');
+    expect(de.languageSystemOption, 'System folgen (System)');
+    expect(de.languageGermanOption, 'Deutsch (German)');
+    expect(de.emptyNotesTitle, 'Keine passenden Notizen');
+    expect(de.noteDayLabel(DateTime(2026, 5, 3)), 'Mai 3, 2026 (So)');
+    expect(
+      de.text('home.remote.bundle.storage.is.not.configured.yet'),
+      'Der Remote-Bundle-Speicher ist noch nicht eingerichtet.',
+    );
+  });
+
+  test('generated app localizations support configured locales', () async {
+    expect(AppLocalizations.supportedLocales, contains(const Locale('en')));
+    expect(AppLocalizations.supportedLocales, contains(const Locale('ja')));
+    expect(AppLocalizations.supportedLocales, contains(const Locale('zh')));
+    expect(AppLocalizations.supportedLocales, contains(const Locale('ko')));
+    expect(AppLocalizations.supportedLocales, contains(const Locale('es')));
+    expect(AppLocalizations.supportedLocales, contains(const Locale('de')));
+
+    final en = await AppLocalizations.delegate.load(const Locale('en'));
+    final ja = await AppLocalizations.delegate.load(const Locale('ja'));
+    final zh = await AppLocalizations.delegate.load(const Locale('zh'));
+    final ko = await AppLocalizations.delegate.load(const Locale('ko'));
+    final es = await AppLocalizations.delegate.load(const Locale('es'));
+    final de = await AppLocalizations.delegate.load(const Locale('de'));
+
+    expect(en.noMatchingNotes, 'No matching notes');
+    expect(ja.noMatchingNotes, '一致するノートはありません');
+    expect(zh.notes, '笔记');
+    expect(ko.saveToPrivateProfile, '비공개 프로필에 저장');
+    expect(es.notes, 'Notas');
+    expect(de.saveToPrivateProfile, 'In privatem Profil speichern');
+  });
+
+  test('iCloud sync is ignored on unsupported platforms', () async {
+    SharedPreferences.setMockInitialValues({
+      'settings.sync_provider': 'iCloud',
+    });
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    expect(isICloudSyncSupported, isFalse);
+    expect(container.read(syncProviderControllerProvider), SyncProvider.off);
+
+    await Future<void>.delayed(Duration.zero);
+    expect(container.read(syncProviderControllerProvider), SyncProvider.off);
+
+    await container
+        .read(syncProviderControllerProvider.notifier)
+        .setProvider(SyncProvider.iCloud);
+    expect(container.read(syncProviderControllerProvider), SyncProvider.off);
+  });
+
   test('providers expose private profiles only after unlock', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();

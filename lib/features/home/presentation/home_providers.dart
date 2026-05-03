@@ -48,11 +48,22 @@ part 'home_providers.g.dart';
 
 enum AppColorTheme { blue, green, orange, slate, teal, rose }
 
-enum AppLocaleSetting { system, japanese, english }
+enum AppLocaleSetting {
+  system,
+  japanese,
+  english,
+  chinese,
+  korean,
+  spanish,
+  german,
+}
 
 enum NotesListDensity { standard, compact }
 
 enum SyncProvider { off, iCloud, googleDrive }
+
+bool get isICloudSyncSupported =>
+    !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
 enum AppLaunchSurface { onboarding, ready }
 
@@ -485,20 +496,6 @@ class AppPinLockState {
       return 'A web-only unlock PIN is configured for this browser session.';
     }
     return lastError ?? 'No unlock PIN is configured for this browser yet.';
-  }
-
-  String localizedSummary({required bool isJapanese}) {
-    if (isConfigured) {
-      return isJapanese
-          ? 'このブラウザでは解除用 PIN が設定されています。'
-          : 'A web-only unlock PIN is configured for this browser session.';
-    }
-    if (lastError != null && lastError!.isNotEmpty) {
-      return lastError!;
-    }
-    return isJapanese
-        ? 'このブラウザでは解除用 PIN はまだ設定されていません。'
-        : 'No unlock PIN is configured for this browser yet.';
   }
 
   AppPinLockState copyWith({
@@ -2125,6 +2122,10 @@ HomeRepository homeRepository(Ref ref) {
   final useEnglishSeedData = switch (appLocale) {
     AppLocaleSetting.english => true,
     AppLocaleSetting.japanese => false,
+    AppLocaleSetting.chinese => true,
+    AppLocaleSetting.korean => true,
+    AppLocaleSetting.spanish => true,
+    AppLocaleSetting.german => true,
     AppLocaleSetting.system => deviceLanguage != 'ja',
   };
   return SeededHomeRepository(useEnglishSeedData: useEnglishSeedData);
@@ -2743,6 +2744,9 @@ class SyncProviderController extends Notifier<SyncProvider> {
   }
 
   Future<void> setProvider(SyncProvider provider) async {
+    if (provider == SyncProvider.iCloud && !isICloudSyncSupported) {
+      provider = SyncProvider.off;
+    }
     state = provider;
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -2757,10 +2761,13 @@ class SyncProviderController extends Notifier<SyncProvider> {
       if (stored == null) {
         return;
       }
-      state = SyncProvider.values.firstWhere(
+      final restored = SyncProvider.values.firstWhere(
         (provider) => provider.name == stored,
         orElse: () => SyncProvider.off,
       );
+      state = restored == SyncProvider.iCloud && !isICloudSyncSupported
+          ? SyncProvider.off
+          : restored;
     } catch (_) {}
   }
 }
@@ -3037,6 +3044,7 @@ class LastNoteEditorSettingsController
 @Riverpod(keepAlive: true)
 class NotesController extends _$NotesController {
   static const _deletedSeedNoteIdsKey = 'notes.deleted_seed_note_ids.v1';
+  static const _storeAssetsSeedDemoNotesKey = 'store_assets.seed_demo_notes.v1';
 
   bool _restored = false;
   bool _restoreFailed = false;
@@ -3383,9 +3391,18 @@ class NotesController extends _$NotesController {
       final restoredWithoutDeletedSeeds = restored
           .where((note) => !deletedSeedNoteIds.contains(note.id))
           .toList(growable: false);
-      final changed = restoredWithoutDeletedSeeds.length != restored.length;
-      _sort(restoredWithoutDeletedSeeds);
-      state = restoredWithoutDeletedSeeds;
+      var next = restoredWithoutDeletedSeeds;
+      var changed = restoredWithoutDeletedSeeds.length != restored.length;
+      if (next.isEmpty && await _shouldSeedDemoNotesForStoreAssets()) {
+        next = ref
+            .read(homeRepositoryProvider)
+            .seededNotes
+            .where((note) => note.vaultId == 'everyday')
+            .toList(growable: false);
+        changed = true;
+      }
+      _sort(next);
+      state = next;
       _restoreFailed = false;
       if (changed) {
         await _persist();
@@ -3408,6 +3425,11 @@ class NotesController extends _$NotesController {
     final prefs = await SharedPreferences.getInstance();
     return (prefs.getStringList(_deletedSeedNoteIdsKey) ?? const <String>[])
         .toSet();
+  }
+
+  Future<bool> _shouldSeedDemoNotesForStoreAssets() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_storeAssetsSeedDemoNotesKey) ?? false;
   }
 
   Future<void> _rememberDeletedSeedNoteIds(Set<String> ids) async {
@@ -3770,7 +3792,7 @@ List<VaultBucket> visibleVaults(Ref ref) {
         const VaultBucket(
           id: legacyPrivateVaultId,
           name: 'Private profile',
-          description: 'Unlocked private notes',
+          description: '__unlocked_private_notes__',
         ),
       );
       continue;
@@ -3784,7 +3806,7 @@ List<VaultBucket> visibleVaults(Ref ref) {
       VaultBucket(
         id: profile.vaultId,
         name: profile.name,
-        description: 'Unlocked private notes',
+        description: '__unlocked_private_notes__',
       ),
     );
   }
@@ -3892,7 +3914,11 @@ VaultBucket vaultById(Ref ref, String vaultId) {
       return vault;
     }
   }
-  return VaultBucket(id: vaultId, name: 'Notes', description: 'Unlocked notes');
+  return VaultBucket(
+    id: vaultId,
+    name: '__notes__',
+    description: '__unlocked_notes__',
+  );
 }
 
 @riverpod

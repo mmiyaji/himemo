@@ -17,10 +17,17 @@ abstract class HomeRepository {
 }
 
 class SeededHomeRepository implements HomeRepository {
-  SeededHomeRepository({DateTime? seedBaseDate})
-    : _seedBaseDate = seedBaseDate ?? DateTime.now();
+  SeededHomeRepository({
+    DateTime? seedBaseDate,
+    bool useEnglishSeedData = false,
+  }) : _seedBaseDate = seedBaseDate ?? DateTime.now(),
+       _useEnglishSeedData = useEnglishSeedData;
 
   final DateTime _seedBaseDate;
+  final bool _useEnglishSeedData;
+
+  String _seedText({required String ja, required String en}) =>
+      _useEnglishSeedData ? en : ja;
 
   @override
   List<VaultBucket> get vaults => const [
@@ -85,13 +92,21 @@ class SeededHomeRepository implements HomeRepository {
       NoteEntry(
         id: 'seed-2026-04-12-groceries',
         vaultId: 'everyday',
-        title: '牛乳、卵、果物。帰りにドラッグストアにも寄る。',
-        body: '牛乳、卵、果物。帰りにドラッグストアにも寄る。',
+        title: _seedText(
+          ja: '牛乳、卵、果物。帰りにドラッグストアにも寄る。',
+          en: 'Milk, eggs, and fruit. Stop by the drugstore on the way home.',
+        ),
+        body: _seedText(
+          ja: '牛乳、卵、果物。帰りにドラッグストアにも寄る。',
+          en: 'Milk, eggs, and fruit. Stop by the drugstore on the way home.',
+        ),
         createdAt: seededAt(0, 23, 7),
         updatedAt: seededAt(0, 23, 7),
         deviceId: 'seeded-device',
         contentHash: 'seed-2026-04-12-groceries',
-        tags: const ['買い物', '日常'],
+        tags: _useEnglishSeedData
+            ? const ['shopping', 'daily']
+            : const ['買い物', '日常'],
         isPinned: true,
         syncState: NoteSyncState.synced,
         editorMode: NoteEditorMode.rich,
@@ -102,12 +117,16 @@ class SeededHomeRepository implements HomeRepository {
             previewBytesBase64: _seedPhotoWarm,
           ),
         ],
-        blocks: const [
+        blocks: [
           NoteBlock(
             type: NoteBlockType.paragraph,
-            text: '牛乳、卵、果物。帰りにドラッグストアにも寄る。',
+            text: _seedText(
+              ja: '牛乳、卵、果物。帰りにドラッグストアにも寄る。',
+              en:
+                  'Milk, eggs, and fruit. Stop by the drugstore on the way home.',
+            ),
           ),
-          NoteBlock(
+          const NoteBlock(
             type: NoteBlockType.photo,
             attachment: NoteAttachment(
               type: AttachmentType.photo,
@@ -120,8 +139,12 @@ class SeededHomeRepository implements HomeRepository {
       NoteEntry(
         id: 'seed-2026-04-12-idea',
         vaultId: 'everyday',
-        title: 'どうですか',
-        body: '資料の見せ方を先に整理すると、共有会が短く終わりそう。',
+        title: _seedText(ja: 'どうですか', en: 'Presentation idea'),
+        body: _seedText(
+          ja: '資料の見せ方を先に整理すると、共有会が短く終わりそう。',
+          en:
+              'If we organize the document flow first, the sharing meeting should be shorter.',
+        ),
         createdAt: seededAt(0, 22, 2),
         updatedAt: seededAt(0, 22, 2),
         deviceId: 'seeded-device',
@@ -131,20 +154,26 @@ class SeededHomeRepository implements HomeRepository {
       NoteEntry(
         id: 'seed-2026-04-11-diary',
         vaultId: 'everyday',
-        title: '日記',
-        body: '今日は集中して書けた。夜は静かで、考え事がまとまった。',
+        title: _seedText(ja: '日記', en: 'Journal'),
+        body: _seedText(
+          ja: '今日は集中して書けた。夜は静かで、考え事がまとまった。',
+          en: 'I wrote with focus today. The quiet evening helped my thoughts settle.',
+        ),
         createdAt: seededAt(1, 21, 39),
         updatedAt: seededAt(1, 21, 39),
         deviceId: 'seeded-device',
         contentHash: 'seed-2026-04-11-diary',
-        tags: const ['日記'],
+        tags: _useEnglishSeedData ? const ['journal'] : const ['日記'],
         syncState: NoteSyncState.synced,
       ),
       NoteEntry(
         id: 'seed-2026-04-11-walk',
         vaultId: 'everyday',
-        title: '川沿いを歩いた',
-        body: '風が強かったけれど、夕方の色がきれいだった。',
+        title: _seedText(ja: '川沿いを歩いた', en: 'Walk by the river'),
+        body: _seedText(
+          ja: '風が強かったけれど、夕方の色がきれいだった。',
+          en: 'The wind was strong, but the evening colors were clear.',
+        ),
         createdAt: seededAt(1, 18, 15),
         updatedAt: seededAt(1, 18, 15),
         deviceId: 'seeded-device',
@@ -158,12 +187,15 @@ class SeededHomeRepository implements HomeRepository {
             previewBytesBase64: _seedPhotoCool,
           ),
         ],
-        blocks: const [
+        blocks: [
           NoteBlock(
             type: NoteBlockType.paragraph,
-            text: '風が強かったけれど、夕方の色がきれいだった。',
+            text: _seedText(
+              ja: '風が強かったけれど、夕方の色がきれいだった。',
+              en: 'The wind was strong, but the evening colors were clear.',
+            ),
           ),
-          NoteBlock(
+          const NoteBlock(
             type: NoteBlockType.photo,
             attachment: NoteAttachment(
               type: AttachmentType.photo,
@@ -173,32 +205,41 @@ class SeededHomeRepository implements HomeRepository {
           ),
           NoteBlock(
             type: NoteBlockType.paragraph,
-            text: '橋の下でメモを取り直した。次は動画でも残したい。',
+            text: _seedText(
+              ja: '橋の下でメモを取り直した。次は動画でも残したい。',
+              en: 'I rewrote the note under the bridge. Next time I want to save a video too.',
+            ),
           ),
         ],
       ),
       NoteEntry(
         id: 'seed-2026-04-10-plan',
         vaultId: 'everyday',
-        title: '週末の予定',
-        body: '午前に掃除、午後に本屋、夜は家で映画。',
+        title: _seedText(ja: '週末の予定', en: 'Weekend plan'),
+        body: _seedText(
+          ja: '午前に掃除、午後に本屋、夜は家で映画。',
+          en: 'Clean in the morning, visit the bookstore in the afternoon, movie at home at night.',
+        ),
         createdAt: seededAt(2, 8, 20),
         updatedAt: seededAt(2, 8, 20),
         deviceId: 'seeded-device',
         contentHash: 'seed-2026-04-10-plan',
-        tags: const ['予定', '仕事'],
+        tags: _useEnglishSeedData ? const ['plan', 'work'] : const ['予定', '仕事'],
         syncState: NoteSyncState.synced,
       ),
       NoteEntry(
         id: 'seed-2026-04-09-trip',
         vaultId: 'decoy',
-        title: '大阪駅のメモ',
-        body: '案内板が見やすくなっていた。乗り換え動画も残しておく。',
+        title: _seedText(ja: '大阪駅のメモ', en: 'Station transfer note'),
+        body: _seedText(
+          ja: '案内板が見やすくなっていた。乗り換え動画も残しておく。',
+          en: 'The signs were easier to read. Save a transfer video for later.',
+        ),
         createdAt: seededAt(3, 19, 5),
         updatedAt: seededAt(3, 19, 5),
         deviceId: 'seeded-device',
         contentHash: 'seed-2026-04-09-trip',
-        tags: const ['旅行', '駅'],
+        tags: _useEnglishSeedData ? const ['travel', 'station'] : const ['旅行', '駅'],
         syncState: NoteSyncState.synced,
         editorMode: NoteEditorMode.rich,
         attachments: const [
@@ -212,12 +253,15 @@ class SeededHomeRepository implements HomeRepository {
             label: 'platform-walkthrough.mp4',
           ),
         ],
-        blocks: const [
+        blocks: [
           NoteBlock(
             type: NoteBlockType.paragraph,
-            text: '案内板が見やすくなっていた。乗り換え動画も残しておく。',
+            text: _seedText(
+              ja: '案内板が見やすくなっていた。乗り換え動画も残しておく。',
+              en: 'The signs were easier to read. Save a transfer video for later.',
+            ),
           ),
-          NoteBlock(
+          const NoteBlock(
             type: NoteBlockType.photo,
             attachment: NoteAttachment(
               type: AttachmentType.photo,
@@ -225,7 +269,7 @@ class SeededHomeRepository implements HomeRepository {
               previewBytesBase64: _seedPhotoStation,
             ),
           ),
-          NoteBlock(
+          const NoteBlock(
             type: NoteBlockType.video,
             attachment: NoteAttachment(
               type: AttachmentType.video,
@@ -237,24 +281,30 @@ class SeededHomeRepository implements HomeRepository {
       NoteEntry(
         id: 'seed-2026-04-08-cafe',
         vaultId: 'decoy',
-        title: 'カフェのBGM',
-        body: '落ち着いた音が流れていた。音量感をメモしておく。',
+        title: _seedText(ja: 'カフェのBGM', en: 'Cafe background music'),
+        body: _seedText(
+          ja: '落ち着いた音が流れていた。音量感をメモしておく。',
+          en: 'Calm music was playing. Note the volume and mood.',
+        ),
         createdAt: seededAt(4, 14, 10),
         updatedAt: seededAt(4, 14, 10),
         deviceId: 'seeded-device',
         contentHash: 'seed-2026-04-08-cafe',
-        tags: const ['音声', 'カフェ'],
+        tags: _useEnglishSeedData ? const ['audio', 'cafe'] : const ['音声', 'カフェ'],
         syncState: NoteSyncState.synced,
         editorMode: NoteEditorMode.rich,
         attachments: const [
           NoteAttachment(type: AttachmentType.audio, label: 'cafe-bgm.m4a'),
         ],
-        blocks: const [
+        blocks: [
           NoteBlock(
             type: NoteBlockType.paragraph,
-            text: '落ち着いた音が流れていた。音量感をメモしておく。',
+            text: _seedText(
+              ja: '落ち着いた音が流れていた。音量感をメモしておく。',
+              en: 'Calm music was playing. Note the volume and mood.',
+            ),
           ),
-          NoteBlock(
+          const NoteBlock(
             type: NoteBlockType.audio,
             attachment: NoteAttachment(
               type: AttachmentType.audio,
@@ -266,8 +316,11 @@ class SeededHomeRepository implements HomeRepository {
       NoteEntry(
         id: 'seed-2026-04-07-board',
         vaultId: 'everyday',
-        title: '会議メモ',
-        body: '開始は10分遅れ。共有資料の見出しを先に整える。',
+        title: _seedText(ja: '会議メモ', en: 'Meeting note'),
+        body: _seedText(
+          ja: '開始は10分遅れ。共有資料の見出しを先に整える。',
+          en: 'Started ten minutes late. Clean up the shared deck headings first.',
+        ),
         createdAt: seededAt(5, 9, 40),
         updatedAt: seededAt(5, 9, 40),
         deviceId: 'seeded-device',
@@ -277,21 +330,29 @@ class SeededHomeRepository implements HomeRepository {
       NoteEntry(
         id: 'seed-2026-04-06-private-draft',
         vaultId: 'private',
-        title: '静かな下書き',
-        body: 'ここは本当に見せたくない考えをまとめるためのメモ。',
+        title: _seedText(ja: '静かな下書き', en: 'Private draft'),
+        body: _seedText(
+          ja: 'ここは本当に見せたくない考えをまとめるためのメモ。',
+          en: 'A note for thoughts that should stay in the private profile.',
+        ),
         createdAt: seededAt(6, 23, 15),
         updatedAt: seededAt(6, 23, 15),
         deviceId: 'seeded-device',
         contentHash: 'seed-2026-04-06-private-draft',
-        tags: const ['個人', '下書き'],
+        tags: _useEnglishSeedData
+            ? const ['personal', 'draft']
+            : const ['個人', '下書き'],
         isPinned: true,
         syncState: NoteSyncState.synced,
       ),
       NoteEntry(
         id: 'seed-2026-04-05-private-photo',
         vaultId: 'private',
-        title: '机のレイアウト案',
-        body: '紙の配置だけ残して、本文はあとで追記する。',
+        title: _seedText(ja: '机のレイアウト案', en: 'Desk layout idea'),
+        body: _seedText(
+          ja: '紙の配置だけ残して、本文はあとで追記する。',
+          en: 'Save the paper layout first and add the details later.',
+        ),
         createdAt: seededAt(7, 22, 30),
         updatedAt: seededAt(7, 22, 30),
         deviceId: 'seeded-device',
@@ -305,12 +366,15 @@ class SeededHomeRepository implements HomeRepository {
             previewBytesBase64: _seedPhotoLeaf,
           ),
         ],
-        blocks: const [
+        blocks: [
           NoteBlock(
             type: NoteBlockType.paragraph,
-            text: '紙の配置だけ残して、本文はあとで追記する。',
+            text: _seedText(
+              ja: '紙の配置だけ残して、本文はあとで追記する。',
+              en: 'Save the paper layout first and add the details later.',
+            ),
           ),
-          NoteBlock(
+          const NoteBlock(
             type: NoteBlockType.photo,
             attachment: NoteAttachment(
               type: AttachmentType.photo,
@@ -323,8 +387,11 @@ class SeededHomeRepository implements HomeRepository {
       NoteEntry(
         id: 'seed-2026-04-03-private-audio',
         vaultId: 'private',
-        title: '音声メモ',
-        body: '歩きながら録った短いメモ。あとでテキスト化する。',
+        title: _seedText(ja: '音声メモ', en: 'Audio memo'),
+        body: _seedText(
+          ja: '歩きながら録った短いメモ。あとでテキスト化する。',
+          en: 'A short note recorded while walking. Transcribe it later.',
+        ),
         createdAt: seededAt(7, 7, 55),
         updatedAt: seededAt(7, 7, 55),
         deviceId: 'seeded-device',
@@ -334,12 +401,15 @@ class SeededHomeRepository implements HomeRepository {
         attachments: const [
           NoteAttachment(type: AttachmentType.audio, label: 'walking-note.m4a'),
         ],
-        blocks: const [
+        blocks: [
           NoteBlock(
             type: NoteBlockType.paragraph,
-            text: '歩きながら録った短いメモ。あとでテキスト化する。',
+            text: _seedText(
+              ja: '歩きながら録った短いメモ。あとでテキスト化する。',
+              en: 'A short note recorded while walking. Transcribe it later.',
+            ),
           ),
-          NoteBlock(
+          const NoteBlock(
             type: NoteBlockType.audio,
             attachment: NoteAttachment(
               type: AttachmentType.audio,

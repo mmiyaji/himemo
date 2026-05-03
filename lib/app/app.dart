@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:pinput/pinput.dart';
 
 import '../features/home/presentation/home_providers.dart';
+import '../l10n/app_localizations.dart';
 import '../l10n/app_strings.dart';
 import 'app_flavor.dart';
 import 'app_router.dart';
@@ -31,6 +32,10 @@ class HiMemoApp extends ConsumerWidget {
       AppLocaleSetting.system => null,
       AppLocaleSetting.japanese => const Locale('ja'),
       AppLocaleSetting.english => const Locale('en'),
+      AppLocaleSetting.chinese => const Locale('zh'),
+      AppLocaleSetting.korean => const Locale('ko'),
+      AppLocaleSetting.spanish => const Locale('es'),
+      AppLocaleSetting.german => const Locale('de'),
     };
 
     ref.watch(widgetQuickCaptureBridgeProvider);
@@ -48,7 +53,7 @@ class HiMemoApp extends ConsumerWidget {
         debugShowCheckedModeBanner: false,
         routerConfig: router,
         locale: locale,
-        supportedLocales: AppStrings.supportedLocales,
+        supportedLocales: AppLocalizations.supportedLocales,
         localeListResolutionCallback: (locales, supportedLocales) {
           for (final deviceLocale in locales ?? const <Locale>[]) {
             for (final supportedLocale in supportedLocales) {
@@ -60,6 +65,7 @@ class HiMemoApp extends ConsumerWidget {
           return const Locale('en');
         },
         localizationsDelegates: const [
+          AppLocalizations.delegate,
           AppStrings.delegate,
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
