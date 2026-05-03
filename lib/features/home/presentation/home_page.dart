@@ -5776,13 +5776,20 @@ List<Widget> _buildDetailBlocks(BuildContext context, NoteEntry note) {
       case NoteBlockType.paragraph:
         final text = block.text?.trim() ?? '';
         if (text.isNotEmpty) {
+          final location = _tryParseLocationMemo(text);
           widgets.add(
-            Text(
-              text,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface,
-              ),
-            ),
+            location == null
+                ? Text(
+                    text,
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  )
+                : _LocationMemoCard(
+                    location: location,
+                    strings: context.strings,
+                    width: double.infinity,
+                  ),
           );
         }
       case NoteBlockType.photo:
@@ -7784,22 +7791,43 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         final cursorOffset = selection.isValid
             ? selection.baseOffset.clamp(0, text.length)
             : text.length;
-        final insertedText = text.isEmpty
-            ? locationText
-            : text.replaceRange(
-                cursorOffset,
-                cursorOffset,
-                '${cursorOffset > 0 ? '\n\n' : ''}$locationText',
-              );
-        controller.text = insertedText;
-        focusOffset = insertedText.length;
-        paragraphToFocus = current;
+        if (text.trim().isEmpty) {
+          controller.text = locationText;
+          final trailingParagraph = _RichBlockDraft.paragraph();
+          _attachRichBlockListener(trailingParagraph);
+          nextBlocks.insert(insertionIndex + 1, trailingParagraph);
+          paragraphToFocus = trailingParagraph;
+        } else {
+          final beforeText = text.substring(0, cursorOffset);
+          final afterText = text.substring(cursorOffset);
+          current.dispose();
+          nextBlocks.removeAt(insertionIndex);
+
+          final replacement = <_RichBlockDraft>[];
+          if (beforeText.trim().isNotEmpty) {
+            final beforeParagraph = _RichBlockDraft.paragraph(beforeText);
+            _attachRichBlockListener(beforeParagraph);
+            replacement.add(beforeParagraph);
+          }
+
+          final locationParagraph = _RichBlockDraft.paragraph(locationText);
+          _attachRichBlockListener(locationParagraph);
+          replacement.add(locationParagraph);
+
+          final afterParagraph = _RichBlockDraft.paragraph(afterText);
+          _attachRichBlockListener(afterParagraph);
+          replacement.add(afterParagraph);
+
+          nextBlocks.insertAll(insertionIndex, replacement);
+          paragraphToFocus = afterParagraph;
+        }
       } else {
         final paragraph = _RichBlockDraft.paragraph(locationText);
         _attachRichBlockListener(paragraph);
-        nextBlocks.insert(insertionIndex, paragraph);
-        paragraphToFocus = paragraph;
-        focusOffset = locationText.length;
+        final trailingParagraph = _RichBlockDraft.paragraph();
+        _attachRichBlockListener(trailingParagraph);
+        nextBlocks.insertAll(insertionIndex, [paragraph, trailingParagraph]);
+        paragraphToFocus = trailingParagraph;
       }
 
       _richBlocks = nextBlocks;
@@ -8151,6 +8179,307 @@ String _formatLocationMemo(Position position, bool isJapanese) {
       '$mapUrl';
 }
 
+class _LocationMemoData {
+  const _LocationMemoData({
+    required this.latitude,
+    required this.longitude,
+    required this.accuracy,
+    required this.mapUrl,
+  });
+
+  final String latitude;
+  final String longitude;
+  final String accuracy;
+  final String mapUrl;
+}
+
+_LocationMemoData? _tryParseLocationMemo(String text) {
+  final normalized = text.replaceAll('\r\n', '\n').trim();
+  final lines = normalized
+      .split('\n')
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList(growable: false);
+  if (lines.length < 4) {
+    return null;
+  }
+  final heading = lines.first.toLowerCase();
+  if (heading != '現在地' && heading != 'current location') {
+    return null;
+  }
+
+  final urlMatch = RegExp(
+    r'https://maps\.google\.com/\?q=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)',
+  ).firstMatch(normalized);
+  if (urlMatch == null) {
+    return null;
+  }
+
+  String valueAfterColon(String label) {
+    final line = lines.firstWhere(
+      (candidate) => candidate.toLowerCase().startsWith(label.toLowerCase()),
+      orElse: () => '',
+    );
+    final colonIndex = line.indexOf(':');
+    return colonIndex < 0 ? '' : line.substring(colonIndex + 1).trim();
+  }
+
+  final latitude = valueAfterColon('緯度').isNotEmpty
+      ? valueAfterColon('緯度')
+      : valueAfterColon('Latitude');
+  final longitude = valueAfterColon('経度').isNotEmpty
+      ? valueAfterColon('経度')
+      : valueAfterColon('Longitude');
+  var accuracy = valueAfterColon('精度').isNotEmpty
+      ? valueAfterColon('精度')
+      : valueAfterColon('Accuracy');
+  accuracy = accuracy
+      .replaceFirst(RegExp(r'^約\s*'), '')
+      .replaceFirst(RegExp(r'^about\s+', caseSensitive: false), '');
+
+  return _LocationMemoData(
+    latitude: latitude.isEmpty ? urlMatch.group(1)! : latitude,
+    longitude: longitude.isEmpty ? urlMatch.group(2)! : longitude,
+    accuracy: accuracy.isEmpty ? '-' : accuracy,
+    mapUrl: urlMatch.group(0)!,
+  );
+}
+
+class _LocationMemoCard extends StatelessWidget {
+  const _LocationMemoCard({
+    required this.location,
+    required this.strings,
+    this.width,
+  });
+
+  final _LocationMemoData location;
+  final AppStrings strings;
+  final double? width;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final borderColor = theme.dividerColor.withValues(alpha: 0.8);
+    final muted = _mutedTextColor(context);
+
+    return Container(
+      width: width,
+      constraints: const BoxConstraints(maxWidth: 520),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: borderColor),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            height: 72,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Color.alphaBlend(
+                      scheme.primary.withValues(alpha: 0.10),
+                      scheme.surface,
+                    ),
+                  ),
+                ),
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: _LocationMapPatternPainter(
+                      lineColor: scheme.primary.withValues(alpha: 0.18),
+                      accentColor: scheme.tertiary.withValues(alpha: 0.20),
+                    ),
+                  ),
+                ),
+                Center(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: scheme.primary,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.16),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Icon(
+                        Icons.location_on_rounded,
+                        color: scheme.onPrimary,
+                        size: 26,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  strings.currentLocationLabel,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 6,
+                  children: [
+                    _LocationValue(
+                      label: strings.latitudeLabel,
+                      value: location.latitude,
+                    ),
+                    _LocationValue(
+                      label: strings.longitudeLabel,
+                      value: location.longitude,
+                    ),
+                    _LocationValue(
+                      label: strings.locationAccuracyLabel,
+                      value: location.accuracy,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                TextButton.icon(
+                  onPressed: () async {
+                    await Clipboard.setData(
+                      ClipboardData(text: location.mapUrl),
+                    );
+                    if (!context.mounted) {
+                      return;
+                    }
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        showCloseIcon: true,
+                        content: Text(strings.mapLinkCopied),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.link_rounded, size: 18),
+                  label: Text(strings.copyMapLink),
+                  style: TextButton.styleFrom(
+                    foregroundColor: muted,
+                    padding: EdgeInsets.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LocationValue extends StatelessWidget {
+  const _LocationValue({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return RichText(
+      text: TextSpan(
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: _mutedTextColor(context),
+        ),
+        children: [
+          TextSpan(text: '$label '),
+          TextSpan(
+            text: value,
+            style: TextStyle(
+              color: theme.colorScheme.onSurface,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LocationMapPatternPainter extends CustomPainter {
+  const _LocationMapPatternPainter({
+    required this.lineColor,
+    required this.accentColor,
+  });
+
+  final Color lineColor;
+  final Color accentColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final linePaint = Paint()
+      ..color = lineColor
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+    final accentPaint = Paint()
+      ..color = accentColor
+      ..strokeWidth = 10
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+
+    final route = Path()
+      ..moveTo(size.width * 0.08, size.height * 0.76)
+      ..cubicTo(
+        size.width * 0.26,
+        size.height * 0.24,
+        size.width * 0.42,
+        size.height * 0.92,
+        size.width * 0.62,
+        size.height * 0.42,
+      )
+      ..cubicTo(
+        size.width * 0.74,
+        size.height * 0.12,
+        size.width * 0.86,
+        size.height * 0.18,
+        size.width * 0.94,
+        size.height * 0.08,
+      );
+    canvas.drawPath(route, accentPaint);
+
+    for (final x in <double>[0.20, 0.48, 0.76]) {
+      canvas.drawLine(
+        Offset(size.width * x, 0),
+        Offset(size.width * (x - 0.16), size.height),
+        linePaint,
+      );
+    }
+    for (final y in <double>[0.28, 0.62]) {
+      canvas.drawLine(
+        Offset(0, size.height * y),
+        Offset(size.width, size.height * (y + 0.12)),
+        linePaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_LocationMapPatternPainter oldDelegate) {
+    return lineColor != oldDelegate.lineColor ||
+        accentColor != oldDelegate.accentColor;
+  }
+}
+
 class _RichMemoEditor extends StatelessWidget {
   const _RichMemoEditor({
     required this.blocks,
@@ -8217,6 +8546,44 @@ class _RichBlockEditorTile extends StatelessWidget {
   Widget build(BuildContext context) {
     if (block.type == NoteBlockType.paragraph) {
       final paragraphText = block.controller?.text ?? '';
+      final location = _tryParseLocationMemo(paragraphText);
+      if (location != null) {
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Flexible(
+              child: Stack(
+                children: [
+                  _LocationMemoCard(location: location, strings: strings),
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: IconButton.filledTonal(
+                      onPressed: onRemove,
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      tooltip: strings.removeBlock,
+                      visualDensity: VisualDensity.compact,
+                      iconSize: 18,
+                      padding: const EdgeInsets.all(6),
+                      constraints: const BoxConstraints.tightFor(
+                        width: 32,
+                        height: 32,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            _CompactMediaActionRail(
+              canMovePrevious: canMovePrevious,
+              canMoveNext: canMoveNext,
+              onMovePrevious: onMovePrevious,
+              onMoveNext: onMoveNext,
+            ),
+          ],
+        );
+      }
       final showPrompt = emphasizeInput && paragraphText.trim().isEmpty;
       return Container(
         padding: const EdgeInsets.only(bottom: 4),

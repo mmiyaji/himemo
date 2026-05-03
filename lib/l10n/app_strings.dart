@@ -281,6 +281,13 @@ class AppStrings {
   String get pickAudio => isJapanese ? '音声を選ぶ' : 'Pick audio';
   String get addCurrentLocation =>
       isJapanese ? '現在地を追加' : 'Add current location';
+  String get currentLocationLabel => isJapanese ? '現在地' : 'Current location';
+  String get latitudeLabel => isJapanese ? '緯度' : 'Latitude';
+  String get longitudeLabel => isJapanese ? '経度' : 'Longitude';
+  String get locationAccuracyLabel => isJapanese ? '精度' : 'Accuracy';
+  String get copyMapLink => isJapanese ? '地図リンクをコピー' : 'Copy map link';
+  String get mapLinkCopied =>
+      isJapanese ? '地図リンクをコピーしました。' : 'Map link copied.';
   String get locationServicesOff => isJapanese
       ? '位置情報サービスがオフです。端末設定で有効にしてください。'
       : 'Location services are off. Enable them in device settings.';
