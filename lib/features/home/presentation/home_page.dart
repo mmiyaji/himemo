@@ -10954,10 +10954,21 @@ Future<List<int>?> _readPhotoAttachmentBytes(
   return Future<List<int>?>.value(base64Decode(previewBytesBase64));
 }
 
+Future<List<int>?> _readPhotoAttachmentDetailBytes(
+  WidgetRef ref,
+  NoteAttachment attachment,
+) {
+  final previewBytesBase64 = attachment.previewBytesBase64;
+  if (previewBytesBase64 != null && previewBytesBase64.isNotEmpty) {
+    return Future<List<int>?>.value(base64Decode(previewBytesBase64));
+  }
+  return _readPhotoAttachmentBytes(ref, attachment);
+}
+
 String _attachmentCacheKey(NoteAttachment attachment) {
   final filePath = attachment.filePath;
   if (filePath != null && filePath.isNotEmpty) {
-    return filePath;
+    return '$filePath:${attachment.previewBytesBase64 ?? ''}';
   }
   return '${attachment.label}:${attachment.previewBytesBase64 ?? ''}';
 }
@@ -10984,7 +10995,7 @@ Future<List<int>?> _readPhotoAttachmentBytesWithPerf(
   }
   final future = _profileNotePerfFuture(
     '$source photo read label="${attachment.label}" file=${filePath == null ? 'inline' : path.basename(filePath)}',
-    () => _readPhotoAttachmentBytes(ref, attachment),
+    () => _readPhotoAttachmentDetailBytes(ref, attachment),
   );
   _photoAttachmentBytesCache[cacheKey] = future;
   future.catchError((Object _) {
