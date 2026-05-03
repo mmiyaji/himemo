@@ -39,6 +39,11 @@ migrate_working_dir/
 playwright-debug.png
 .restart-*.err
 .restart-*.out
+.serve*.err
+.serve*.out
+.web-audio-test.err
+.web-audio-test.out
+.codex/
 node_modules/
 playwright-report/
 test-results/
