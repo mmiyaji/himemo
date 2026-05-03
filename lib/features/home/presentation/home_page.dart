@@ -69,6 +69,20 @@ class _AppShellState extends ConsumerState<AppShell> {
       appBar: AppBar(
         title: const _AppBrandTitle(),
         actions: [
+          if (!adminMode && activePrivateProfileLabel != null)
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: math.min(180, width * 0.34),
+              ),
+              child: Text(
+                activePrivateProfileLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
           IconButton(
             key: AppShell.privateProfileAccessKey,
             tooltip: adminMode
@@ -7083,11 +7097,46 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         .map((attachment) => attachment.filePath)
         .whereType<String>()
         .toSet();
-    _selectedVaultId = widget.note?.vaultId ?? lastSettings.vaultId;
+    _selectedVaultId = widget.note?.vaultId ?? _initialNewNoteVaultId();
     _scheduleInitialEditorFocus();
     if (widget.note == null) {
       unawaited(_restoreDraftIfAny());
     }
+  }
+
+  String _initialNewNoteVaultId() {
+    final unlockedVaultId = ref.read(unlockedPrivateProfileVaultIdProvider);
+    if (unlockedVaultId != null) {
+      return unlockedVaultId;
+    }
+    return ref.read(lastNoteEditorSettingsControllerProvider).vaultId;
+  }
+
+  VaultBucket _privateTargetFor(
+    String vaultId,
+    List<PrivateMemoProfile> privateProfiles,
+  ) {
+    if (vaultId == legacyPrivateVaultId) {
+      return const VaultBucket(
+        id: legacyPrivateVaultId,
+        name: 'Private profile',
+        description: 'Unlocked private notes',
+      );
+    }
+    for (final profile in privateProfiles) {
+      if (profile.vaultId == vaultId) {
+        return VaultBucket(
+          id: profile.vaultId,
+          name: profile.name,
+          description: 'Unlocked private notes',
+        );
+      }
+    }
+    return VaultBucket(
+      id: vaultId,
+      name: context.strings.isJapanese ? 'プライベートプロファイル' : 'Private profile',
+      description: 'Unlocked private notes',
+    );
   }
 
   @override
@@ -7403,21 +7452,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     final adminMode = ref.watch(adminModeSessionControllerProvider);
     final privateTargets = <VaultBucket>[
       for (final vaultId in accessiblePrivateVaultIds)
-        if (vaultId == legacyPrivateVaultId)
-          const VaultBucket(
-            id: legacyPrivateVaultId,
-            name: 'Private profile',
-            description: 'Unlocked private notes',
-          )
-        else
-          for (final profile in privateProfiles.where(
-            (entry) => entry.vaultId == vaultId,
-          ))
-            VaultBucket(
-              id: profile.vaultId,
-              name: profile.name,
-              description: 'Unlocked private notes',
-            ),
+        _privateTargetFor(vaultId, privateProfiles),
     ];
     final hasPrivateTargets = privateTargets.isNotEmpty;
     _selectedVaultId ??= widget.note?.vaultId ?? 'everyday';
