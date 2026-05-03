@@ -11632,6 +11632,7 @@ class _AudioAttachmentViewerState
   String? _tempFilePath;
   bool _ready = false;
   String? _errorMessage;
+  Duration? _dragPosition;
 
   @override
   void initState() {
@@ -11757,6 +11758,10 @@ class _AudioAttachmentViewerState
                     position > duration && duration > Duration.zero
                     ? duration
                     : position;
+                final displayPosition =
+                    _dragPosition == null || duration == Duration.zero
+                    ? boundedPosition
+                    : _clampAudioPosition(_dragPosition!, duration);
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Column(
@@ -11773,7 +11778,7 @@ class _AudioAttachmentViewerState
                       Slider(
                         value: duration == Duration.zero
                             ? 0
-                            : boundedPosition.inMilliseconds
+                            : displayPosition.inMilliseconds
                                   .clamp(0, duration.inMilliseconds)
                                   .toDouble(),
                         max: duration == Duration.zero
@@ -11782,17 +11787,22 @@ class _AudioAttachmentViewerState
                         onChanged: duration == Duration.zero
                             ? null
                             : (value) {
-                                unawaited(
-                                  _player.seek(
-                                    Duration(milliseconds: value.round()),
-                                  ),
-                                );
+                                setState(() {
+                                  _dragPosition = Duration(
+                                    milliseconds: value.round(),
+                                  );
+                                });
+                              },
+                        onChangeEnd: duration == Duration.zero
+                            ? null
+                            : (value) {
+                                unawaited(_seekFromSlider(value, duration));
                               },
                       ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(_formatAudioDuration(boundedPosition)),
+                          Text(_formatAudioDuration(displayPosition)),
                           Text(_formatAudioDuration(duration)),
                         ],
                       ),
@@ -11829,6 +11839,43 @@ class _AudioAttachmentViewerState
       },
     );
   }
+
+  Future<void> _seekFromSlider(double value, Duration duration) async {
+    final target = _clampAudioPosition(
+      Duration(milliseconds: value.round()),
+      duration,
+    );
+    try {
+      await _player.seek(target);
+    } catch (error, stackTrace) {
+      debugPrint('Audio seek failed: $error\n$stackTrace');
+      if (mounted) {
+        setState(() {
+          _errorMessage = context.strings.audioPlaybackFailed;
+        });
+      }
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _dragPosition = null;
+    });
+  }
+}
+
+Duration _clampAudioPosition(Duration value, Duration duration) {
+  if (duration <= Duration.zero) {
+    return Duration.zero;
+  }
+  if (value < Duration.zero) {
+    return Duration.zero;
+  }
+  if (value > duration) {
+    return duration;
+  }
+  return value;
 }
 
 String _formatAudioDuration(Duration value) {
