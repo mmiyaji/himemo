@@ -48,7 +48,7 @@ part 'home_providers.g.dart';
 
 enum AppColorTheme { blue, green, orange, slate, teal, rose }
 
-enum AppLocaleSetting { system, japanese, english }
+enum AppLocaleSetting { system, japanese, english, chinese, korean }
 
 enum NotesListDensity { standard, compact }
 
@@ -2111,6 +2111,8 @@ HomeRepository homeRepository(Ref ref) {
   final useEnglishSeedData = switch (appLocale) {
     AppLocaleSetting.english => true,
     AppLocaleSetting.japanese => false,
+    AppLocaleSetting.chinese => true,
+    AppLocaleSetting.korean => true,
     AppLocaleSetting.system => deviceLanguage != 'ja',
   };
   return SeededHomeRepository(useEnglishSeedData: useEnglishSeedData);

@@ -6,7 +6,12 @@ class AppStrings {
 
   final Locale locale;
 
-  static const supportedLocales = <Locale>[Locale('en'), Locale('ja')];
+  static const supportedLocales = <Locale>[
+    Locale('en'),
+    Locale('ja'),
+    Locale('zh'),
+    Locale('ko'),
+  ];
 
   static const delegate = _AppStringsDelegate();
 
@@ -17,6 +22,22 @@ class AppStrings {
   }
 
   bool get isJapanese => locale.languageCode == 'ja';
+  bool get isChinese => locale.languageCode == 'zh';
+  bool get isKorean => locale.languageCode == 'ko';
+
+  String localized({
+    required String en,
+    required String ja,
+    String? zh,
+    String? ko,
+  }) {
+    return switch (locale.languageCode) {
+      'ja' => ja,
+      'zh' => zh ?? en,
+      'ko' => ko ?? en,
+      _ => en,
+    };
+  }
 
   static const _localizedValues = <String, Map<String, String>>{
     'en': {
@@ -757,6 +778,331 @@ class AppStrings {
           'デモ用ノート {count} 件をこの端末から削除します。自分で作成したノートは削除されません。',
       'settings.demo.delete.done': 'デモ用ノート {count} 件を削除しました。',
     },
+    'zh': {
+      'action.delete': '删除',
+      'date.yesterday': '昨天',
+      'date.weekday.mon.short': '周一',
+      'date.weekday.tue.short': '周二',
+      'date.weekday.wed.short': '周三',
+      'date.weekday.thu.short': '周四',
+      'date.weekday.fri.short': '周五',
+      'date.weekday.sat.short': '周六',
+      'date.weekday.sun.short': '周日',
+      'date.month.1': '1月',
+      'date.month.2': '2月',
+      'date.month.3': '3月',
+      'date.month.4': '4月',
+      'date.month.5': '5月',
+      'date.month.6': '6月',
+      'date.month.7': '7月',
+      'date.month.8': '8月',
+      'date.month.9': '9月',
+      'date.month.10': '10月',
+      'date.month.11': '11月',
+      'date.month.12': '12月',
+      'notes.empty.title': '没有匹配的笔记',
+      'notes.empty.body': '创建新备忘录，或清除当前搜索条件以查看已保存的条目。',
+      'home.admin.mode.active': '管理员模式已启用',
+      'home.switch.private.access': '切换私密访问',
+      'home.lock': '锁定',
+      'home.unlock': '解锁',
+      'home.delete.note': '删除笔记',
+      'home.delete': '删除',
+      'home.previous.month': '上个月',
+      'home.next.month': '下个月',
+      'home.writing.activity': '书写活动',
+      'home.monthly.notes': '每月笔记',
+      'home.notes': ' 条笔记',
+      'home.recent.days': '最近几天',
+      'home.weekday.and.time.rhythm': '星期与时间节奏',
+      'home.attachments': '附件',
+      'home.items': ' 项',
+      'home.current.streak': '当前连续记录',
+      'home.days': '天',
+      'home.this.month': '本月',
+      'home.notes.2': '条笔记',
+      'home.characters': '字符数',
+      'home.total': '总计',
+      'home.items.2': '项',
+      'home.best.day': '最佳日期',
+      'home.best.hour': '最佳时段',
+      'home.peak.time': '高峰时间',
+      'home.monthly.trend': '月度趋势',
+      'home.vs.last.month': '较上月',
+      'home.no.data.yet': '暂无数据。',
+      'home.less': '少',
+      'home.more': '多',
+      'home.photo': '照片',
+      'home.video': '视频',
+      'home.audio': '音频',
+      'home.reset': '重置',
+      'home.add.private.profile': '添加私密档案',
+      'home.profile.name': '档案名称',
+      'home.add': '添加',
+      'home.new.password': '新密码',
+      'home.confirm.new.password': '确认新密码',
+      'home.normal.memo.mode': '普通备忘录模式',
+      'home.device.only.storage': '仅设备存储',
+      'home.mode': '模式',
+      'home.enabled': '已启用',
+      'home.disabled': '已停用',
+      'home.off': '关闭',
+      'home.configured': '已配置',
+      'home.theme': '主题',
+      'home.access.modes': '访问模式',
+      'home.current.mode': '当前模式',
+      'home.app.security': '应用安全',
+      'home.save.pin': '保存 PIN',
+      'home.session.status': '会话状态',
+      'home.update.pin': '更新 PIN',
+      'home.change.pin': '更改 PIN',
+      'home.set.pin': '设置 PIN',
+      'home.remove': '移除',
+      'home.remove.pin': '移除 PIN',
+      'home.immediately': '立即',
+      'home.after.30.seconds': '30 秒后',
+      'home.after.2.minutes': '2 分钟后',
+      'home.after.10.minutes': '10 分钟后',
+      'home.authenticate.now': '立即认证',
+      'home.lock.session.now': '立即锁定会话',
+      'home.external.quick.memo': '外部快速备忘录',
+      'home.write.target': '写入目标',
+      'home.private.vault': '私密保险库',
+      'home.status': '状态',
+      'home.set.private.key': '设置私密密钥',
+      'home.backup.and.sync': '备份与同步',
+      'home.selected.target': '已选择目标',
+      'home.pending.sync.queue': '待同步队列',
+      'home.queue.ready': '队列就绪',
+      'home.remote.bundle': '远程包',
+      'home.copy.recovery.key': '复制恢复密钥',
+      'home.last.sync.activity': '最近同步活动',
+      'home.local.bundle.cache': '本地包缓存',
+      'home.refresh.remote': '刷新远程',
+      'home.upload.bundle': '上传包',
+      'home.force.upload': '强制上传',
+      'home.bundle.history': '包历史',
+      'home.download.bundle': '下载包',
+      'home.review.bundle': '查看包',
+      'home.apply.bundle': '应用包',
+      'home.inspect.snapshot': '检查快照',
+      'home.storage': '存储',
+      'home.cancel': '取消',
+      'home.icloud.availability': 'iCloud 可用性',
+      'home.authentication': '认证',
+      'home.check.icloud': '检查 iCloud',
+      'home.connect': '连接',
+      'home.check.again': '再次检查',
+      'home.reconnect': '重新连接',
+      'home.stop.using.icloud': '停止使用 iCloud',
+      'home.disconnect': '断开连接',
+      'home.sync.is.disabled': '同步已关闭。',
+      'home.previous.note': '上一条笔记',
+      'home.next.note': '下一条笔记',
+      'home.previous.image': '上一张图片',
+      'home.next.image': '下一张图片',
+      'home.restore.frame': '恢复框内显示',
+      'home.maximize': '最大化',
+      'home.zoom.out': '缩小',
+      'home.zoom.in': '放大',
+      'home.fit.to.screen': '适合屏幕',
+      'home.share': '分享',
+      'home.pause.audio': '暂停音频',
+      'home.play.audio': '播放音频',
+      'home.list.layout': '列表布局',
+      'home.standard.list': '标准列表',
+      'home.compact.list': '紧凑列表',
+      'home.filters': '筛选',
+      'home.pinned.only': '仅固定',
+      'home.with.media': '含媒体',
+      'home.vault': '分类',
+      'home.filter.by.tag': '按标签筛选',
+      'home.reset.filters': '重置筛选',
+      'home.select.a.note': '选择笔记',
+      'home.private.profile': '私密档案',
+      'home.tags': '标签',
+      'home.add.a.tag': '添加标签',
+      'home.tap.to.open.image': '点按打开图片',
+      'home.import.recovery.key': '导入恢复密钥',
+      'home.import': '导入',
+      'home.confirm.pin': '确认 PIN',
+      'home.unlock.private.profile': '解锁私密档案',
+      'home.unlock.private.profile.2': '解锁私密档案',
+      'settings.demo.create': '创建演示笔记',
+      'settings.demo.create.none': '没有可创建的演示笔记。',
+      'settings.demo.create.done': '已创建 {count} 条演示笔记。',
+      'settings.demo.delete': '删除演示笔记',
+      'settings.demo.delete.title': '要删除演示笔记吗？',
+      'settings.demo.delete.body': '将从此设备删除 {count} 条演示笔记。你创建的笔记不会被删除。',
+      'settings.demo.delete.done': '已删除 {count} 条演示笔记。',
+      'home.use.japanese.across.the.app': '在整个应用中使用日语。',
+      'home.use.english.across.the.app': '在整个应用中使用英语。',
+      'home.use.chinese.across.the.app': '在整个应用中使用中文。',
+      'home.use.korean.across.the.app': '在整个应用中使用韩语。',
+    },
+    'ko': {
+      'action.delete': '삭제',
+      'date.yesterday': '어제',
+      'date.weekday.mon.short': '월',
+      'date.weekday.tue.short': '화',
+      'date.weekday.wed.short': '수',
+      'date.weekday.thu.short': '목',
+      'date.weekday.fri.short': '금',
+      'date.weekday.sat.short': '토',
+      'date.weekday.sun.short': '일',
+      'date.month.1': '1월',
+      'date.month.2': '2월',
+      'date.month.3': '3월',
+      'date.month.4': '4월',
+      'date.month.5': '5월',
+      'date.month.6': '6월',
+      'date.month.7': '7월',
+      'date.month.8': '8월',
+      'date.month.9': '9월',
+      'date.month.10': '10월',
+      'date.month.11': '11월',
+      'date.month.12': '12월',
+      'notes.empty.title': '일치하는 노트가 없습니다',
+      'notes.empty.body': '새 메모를 만들거나 현재 검색 조건을 지우면 저장된 항목을 볼 수 있습니다.',
+      'home.admin.mode.active': '관리자 모드 활성화',
+      'home.switch.private.access': '비공개 접근 전환',
+      'home.lock': '잠금',
+      'home.unlock': '잠금 해제',
+      'home.delete.note': '노트 삭제',
+      'home.delete': '삭제',
+      'home.previous.month': '이전 달',
+      'home.next.month': '다음 달',
+      'home.writing.activity': '작성 활동',
+      'home.monthly.notes': '월별 노트',
+      'home.notes': '개 노트',
+      'home.recent.days': '최근 일수',
+      'home.weekday.and.time.rhythm': '요일 및 시간 리듬',
+      'home.attachments': '첨부',
+      'home.items': '개 항목',
+      'home.current.streak': '현재 연속 기록',
+      'home.days': '일',
+      'home.this.month': '이번 달',
+      'home.notes.2': '노트',
+      'home.characters': '문자 수',
+      'home.total': '합계',
+      'home.items.2': '항목',
+      'home.best.day': '가장 많이 쓴 날',
+      'home.best.hour': '가장 많이 쓴 시간',
+      'home.peak.time': '피크 시간',
+      'home.monthly.trend': '월간 추세',
+      'home.vs.last.month': '지난달 대비',
+      'home.no.data.yet': '아직 데이터가 없습니다.',
+      'home.less': '적음',
+      'home.more': '많음',
+      'home.photo': '사진',
+      'home.video': '동영상',
+      'home.audio': '오디오',
+      'home.reset': '재설정',
+      'home.add.private.profile': '비공개 프로필 추가',
+      'home.profile.name': '프로필 이름',
+      'home.add': '추가',
+      'home.new.password': '새 비밀번호',
+      'home.confirm.new.password': '새 비밀번호 확인',
+      'home.normal.memo.mode': '일반 메모 모드',
+      'home.device.only.storage': '기기 전용 저장소',
+      'home.mode': '모드',
+      'home.enabled': '사용',
+      'home.disabled': '사용 안 함',
+      'home.off': '꺼짐',
+      'home.configured': '설정됨',
+      'home.theme': '테마',
+      'home.access.modes': '접근 모드',
+      'home.current.mode': '현재 모드',
+      'home.app.security': '앱 보안',
+      'home.save.pin': 'PIN 저장',
+      'home.session.status': '세션 상태',
+      'home.update.pin': 'PIN 업데이트',
+      'home.change.pin': 'PIN 변경',
+      'home.set.pin': 'PIN 설정',
+      'home.remove': '제거',
+      'home.remove.pin': 'PIN 제거',
+      'home.immediately': '즉시',
+      'home.after.30.seconds': '30초 후',
+      'home.after.2.minutes': '2분 후',
+      'home.after.10.minutes': '10분 후',
+      'home.authenticate.now': '지금 인증',
+      'home.lock.session.now': '지금 세션 잠금',
+      'home.external.quick.memo': '외부 빠른 메모',
+      'home.write.target': '작성 대상',
+      'home.private.vault': '비공개 보관함',
+      'home.status': '상태',
+      'home.set.private.key': '비공개 키 설정',
+      'home.backup.and.sync': '백업 및 동기화',
+      'home.selected.target': '선택된 대상',
+      'home.pending.sync.queue': '대기 중인 동기화 큐',
+      'home.queue.ready': '큐 준비됨',
+      'home.remote.bundle': '원격 번들',
+      'home.copy.recovery.key': '복구 키 복사',
+      'home.last.sync.activity': '최근 동기화 활동',
+      'home.local.bundle.cache': '로컬 번들 캐시',
+      'home.refresh.remote': '원격 새로고침',
+      'home.upload.bundle': '번들 업로드',
+      'home.force.upload': '강제 업로드',
+      'home.bundle.history': '번들 기록',
+      'home.download.bundle': '번들 다운로드',
+      'home.review.bundle': '번들 검토',
+      'home.apply.bundle': '번들 적용',
+      'home.inspect.snapshot': '스냅샷 검사',
+      'home.storage': '저장소',
+      'home.cancel': '취소',
+      'home.icloud.availability': 'iCloud 사용 가능 여부',
+      'home.authentication': '인증',
+      'home.check.icloud': 'iCloud 확인',
+      'home.connect': '연결',
+      'home.check.again': '다시 확인',
+      'home.reconnect': '다시 연결',
+      'home.stop.using.icloud': 'iCloud 사용 중지',
+      'home.disconnect': '연결 해제',
+      'home.sync.is.disabled': '동기화가 꺼져 있습니다.',
+      'home.previous.note': '이전 노트',
+      'home.next.note': '다음 노트',
+      'home.previous.image': '이전 이미지',
+      'home.next.image': '다음 이미지',
+      'home.restore.frame': '프레임으로 되돌리기',
+      'home.maximize': '최대화',
+      'home.zoom.out': '축소',
+      'home.zoom.in': '확대',
+      'home.fit.to.screen': '화면에 맞춤',
+      'home.share': '공유',
+      'home.pause.audio': '오디오 일시정지',
+      'home.play.audio': '오디오 재생',
+      'home.list.layout': '목록 레이아웃',
+      'home.standard.list': '표준 목록',
+      'home.compact.list': '간결한 목록',
+      'home.filters': '필터',
+      'home.pinned.only': '고정만',
+      'home.with.media': '미디어 포함',
+      'home.vault': '분류',
+      'home.filter.by.tag': '태그로 필터',
+      'home.reset.filters': '필터 재설정',
+      'home.select.a.note': '노트 선택',
+      'home.private.profile': '비공개 프로필',
+      'home.tags': '태그',
+      'home.add.a.tag': '태그 추가',
+      'home.tap.to.open.image': '탭하여 이미지 열기',
+      'home.import.recovery.key': '복구 키 가져오기',
+      'home.import': '가져오기',
+      'home.confirm.pin': 'PIN 확인',
+      'home.unlock.private.profile': '비공개 프로필 잠금 해제',
+      'home.unlock.private.profile.2': '비공개 프로필 잠금 해제',
+      'settings.demo.create': '데모 노트 만들기',
+      'settings.demo.create.none': '만들 수 있는 데모 노트가 없습니다.',
+      'settings.demo.create.done': '데모 노트 {count}개를 만들었습니다.',
+      'settings.demo.delete': '데모 노트 삭제',
+      'settings.demo.delete.title': '데모 노트를 삭제할까요?',
+      'settings.demo.delete.body':
+          '이 기기에서 데모 노트 {count}개를 삭제합니다. 직접 만든 노트는 삭제되지 않습니다.',
+      'settings.demo.delete.done': '데모 노트 {count}개를 삭제했습니다.',
+      'home.use.japanese.across.the.app': '앱 전체에서 일본어를 사용합니다.',
+      'home.use.english.across.the.app': '앱 전체에서 영어를 사용합니다.',
+      'home.use.chinese.across.the.app': '앱 전체에서 중국어를 사용합니다.',
+      'home.use.korean.across.the.app': '앱 전체에서 한국어를 사용합니다.',
+    },
   };
 
   String text(String key, [Map<String, Object?> args = const {}]) {
@@ -771,15 +1117,29 @@ class AppStrings {
   }
 
   String get appTitle => 'HiMemo';
-  String get notes => isJapanese ? 'ノート' : 'Notes';
-  String get calendar => isJapanese ? 'カレンダー' : 'Calendar';
-  String get insights => isJapanese ? '記録' : 'Insights';
-  String get settings => isJapanese ? '設定' : 'Settings';
-  String get addNote => isJapanese ? 'ノートを追加' : 'Add note';
-  String get collapseSidebar => isJapanese ? 'サイドバーを折りたたむ' : 'Collapse sidebar';
-  String get expandSidebar => isJapanese ? 'サイドバーを開く' : 'Expand sidebar';
-  String get search => isJapanese ? '検索' : 'Search';
-  String get today => isJapanese ? '今日' : 'Today';
+  String get notes => localized(en: 'Notes', ja: 'ノート', zh: '笔记', ko: '노트');
+  String get calendar =>
+      localized(en: 'Calendar', ja: 'カレンダー', zh: '日历', ko: '캘린더');
+  String get insights =>
+      localized(en: 'Insights', ja: '記録', zh: '统计', ko: '기록');
+  String get settings =>
+      localized(en: 'Settings', ja: '設定', zh: '设置', ko: '설정');
+  String get addNote =>
+      localized(en: 'Add note', ja: 'ノートを追加', zh: '添加笔记', ko: '노트 추가');
+  String get collapseSidebar => localized(
+    en: 'Collapse sidebar',
+    ja: 'サイドバーを折りたたむ',
+    zh: '折叠侧边栏',
+    ko: '사이드바 접기',
+  );
+  String get expandSidebar => localized(
+    en: 'Expand sidebar',
+    ja: 'サイドバーを開く',
+    zh: '展开侧边栏',
+    ko: '사이드바 펼치기',
+  );
+  String get search => localized(en: 'Search', ja: '検索', zh: '搜索', ko: '검색');
+  String get today => localized(en: 'Today', ja: '今日', zh: '今天', ko: '오늘');
   String get yesterday => text('date.yesterday');
   String weekdayShort(int weekday) => text(
     const [
@@ -795,7 +1155,7 @@ class AppStrings {
   String monthName(int month) => text('date.month.$month');
   String noteDayLabel(DateTime date) {
     final weekday = weekdayShort(date.weekday);
-    if (isJapanese) {
+    if (isJapanese || isChinese || isKorean) {
       return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}($weekday)';
     }
     return '${monthName(date.month)} ${date.day}, ${date.year} ($weekday)';
@@ -1035,18 +1395,37 @@ class AppStrings {
       ? '今月は $thisMonthCount 件、最も書いた日は $bestDayLabel です。連続記録を保つと積み上がりが見えやすくなります。'
       : 'This month has $thisMonthCount notes. Your best day was $bestDayLabel. Keeping a streak makes progress easier to see.';
 
-  String get appearance => isJapanese ? '表示' : 'Appearance';
-  String get language => isJapanese ? '言語' : 'Language';
-  String get languageSystem => isJapanese ? 'システムに合わせる' : 'Follow system';
-  String get languageJapanese => isJapanese ? '日本語' : 'Japanese';
-  String get languageEnglish => isJapanese ? '英語' : 'English';
-  String get languageSystemDesc => isJapanese
-      ? '端末の言語設定に合わせます。未対応の言語では英語を使います。'
-      : 'Follow the device language. Fall back to English when unsupported.';
-  String get themeLight => isJapanese ? 'ライト' : 'Light';
-  String get themeSystem => isJapanese ? 'システム' : 'System';
-  String get themeDark => isJapanese ? 'ダーク' : 'Dark';
-  String get accentColor => isJapanese ? 'アクセントカラー' : 'Accent color';
+  String get appearance =>
+      localized(en: 'Appearance', ja: '表示', zh: '外观', ko: '표시');
+  String get language =>
+      localized(en: 'Language', ja: '言語', zh: '语言', ko: '언어');
+  String get languageSystem => localized(
+    en: 'Follow system',
+    ja: 'システムに合わせる',
+    zh: '跟随系统',
+    ko: '시스템 따르기',
+  );
+  String get languageJapanese =>
+      localized(en: 'Japanese', ja: '日本語', zh: '日语', ko: '일본어');
+  String get languageEnglish =>
+      localized(en: 'English', ja: '英語', zh: '英语', ko: '영어');
+  String get languageChinese =>
+      localized(en: 'Chinese', ja: '中国語', zh: '中文', ko: '중국어');
+  String get languageKorean =>
+      localized(en: 'Korean', ja: '韓国語', zh: '韩语', ko: '한국어');
+  String get languageSystemDesc => localized(
+    en: 'Follow the device language. Fall back to English when unsupported.',
+    ja: '端末の言語設定に合わせます。未対応の言語では英語を使います。',
+    zh: '跟随设备语言。未支持的语言将回退到英语。',
+    ko: '기기 언어 설정을 따릅니다. 지원하지 않는 언어는 영어로 표시됩니다.',
+  );
+  String get themeLight =>
+      localized(en: 'Light', ja: 'ライト', zh: '浅色', ko: '라이트');
+  String get themeSystem =>
+      localized(en: 'System', ja: 'システム', zh: '系统', ko: '시스템');
+  String get themeDark => localized(en: 'Dark', ja: 'ダーク', zh: '深色', ko: '다크');
+  String get accentColor =>
+      localized(en: 'Accent color', ja: 'アクセントカラー', zh: '强调色', ko: '강조 색상');
   String get colorBlue => isJapanese ? 'ブルー' : 'Blue';
   String get colorGreen => isJapanese ? 'グリーン' : 'Green';
   String get colorOrange => isJapanese ? 'オレンジ' : 'Orange';
@@ -1463,7 +1842,8 @@ class _AppStringsDelegate extends LocalizationsDelegate<AppStrings> {
   const _AppStringsDelegate();
 
   @override
-  bool isSupported(Locale locale) => ['en', 'ja'].contains(locale.languageCode);
+  bool isSupported(Locale locale) =>
+      ['en', 'ja', 'zh', 'ko'].contains(locale.languageCode);
 
   @override
   Future<AppStrings> load(Locale locale) =>

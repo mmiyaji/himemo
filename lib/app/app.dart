@@ -31,6 +31,8 @@ class HiMemoApp extends ConsumerWidget {
       AppLocaleSetting.system => null,
       AppLocaleSetting.japanese => const Locale('ja'),
       AppLocaleSetting.english => const Locale('en'),
+      AppLocaleSetting.chinese => const Locale('zh'),
+      AppLocaleSetting.korean => const Locale('ko'),
     };
 
     ref.watch(widgetQuickCaptureBridgeProvider);

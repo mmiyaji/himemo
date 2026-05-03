@@ -2148,6 +2148,8 @@ class SettingsScreen extends ConsumerWidget {
   static const deleteDemoNotesKey = Key('delete-demo-notes-button');
   static const localeJapaneseKey = Key('locale-japanese-option');
   static const localeEnglishKey = Key('locale-english-option');
+  static const localeChineseKey = Key('locale-chinese-option');
+  static const localeKoreanKey = Key('locale-korean-option');
   static const blueColorThemeKey = Key('color-theme-blue-option');
   static const greenColorThemeKey = Key('color-theme-green-option');
   static const orangeColorThemeKey = Key('color-theme-orange-option');
@@ -4075,6 +4077,24 @@ class SettingsScreen extends ConsumerWidget {
                   .read(appLocaleControllerProvider.notifier)
                   .setLocale(AppLocaleSetting.english),
             ),
+            _ThemeOptionTile(
+              tileKey: SettingsScreen.localeChineseKey,
+              title: strings.languageChinese,
+              subtitle: strings.text('home.use.chinese.across.the.app'),
+              selected: localeSetting == AppLocaleSetting.chinese,
+              onTap: () => ref
+                  .read(appLocaleControllerProvider.notifier)
+                  .setLocale(AppLocaleSetting.chinese),
+            ),
+            _ThemeOptionTile(
+              tileKey: SettingsScreen.localeKoreanKey,
+              title: strings.languageKorean,
+              subtitle: strings.text('home.use.korean.across.the.app'),
+              selected: localeSetting == AppLocaleSetting.korean,
+              onTap: () => ref
+                  .read(appLocaleControllerProvider.notifier)
+                  .setLocale(AppLocaleSetting.korean),
+            ),
             const Divider(height: 24),
             _ThemeOptionTile(
               tileKey: lightThemeKey,
@@ -4622,6 +4642,8 @@ class SettingsScreen extends ConsumerWidget {
       AppLocaleSetting.system => strings.languageSystem,
       AppLocaleSetting.japanese => strings.languageJapanese,
       AppLocaleSetting.english => strings.languageEnglish,
+      AppLocaleSetting.chinese => strings.languageChinese,
+      AppLocaleSetting.korean => strings.languageKorean,
     };
   }
 

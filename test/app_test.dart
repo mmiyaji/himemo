@@ -37,6 +37,20 @@ void main() {
     expect(strings.videoPreviewUnavailableWeb, 'Web では動画プレビューを利用できません。');
   });
 
+  test('app strings support Chinese and Korean locales', () {
+    final zh = AppStrings(const Locale('zh'));
+    final ko = AppStrings(const Locale('ko'));
+
+    expect(AppStrings.supportedLocales, contains(const Locale('zh')));
+    expect(AppStrings.supportedLocales, contains(const Locale('ko')));
+    expect(zh.notes, '笔记');
+    expect(zh.emptyNotesTitle, '没有匹配的笔记');
+    expect(zh.noteDayLabel(DateTime(2026, 5, 3)), '2026/05/03(周日)');
+    expect(ko.notes, '노트');
+    expect(ko.emptyNotesTitle, '일치하는 노트가 없습니다');
+    expect(ko.noteDayLabel(DateTime(2026, 5, 3)), '2026/05/03(일)');
+  });
+
   test('providers expose private profiles only after unlock', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();
