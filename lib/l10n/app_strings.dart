@@ -1885,25 +1885,48 @@ class AppStrings {
       localized(en: 'Start update', ja: '更新を開始', zh: '开始更新', ko: '업데이트 시작');
   String get completeUpdateInstall =>
       localized(en: 'Complete update', ja: '更新を完了', zh: '完成更新', ko: '업데이트 완료');
-  String get updateSupportedOnAndroidOnly => isJapanese
-      ? 'アプリ内更新は Android の Google Play 配布で利用できます。'
-      : 'In-app updates are available on Android builds distributed through Google Play.';
-  String get updateStatusUpToDate =>
-      isJapanese ? '現在のビルドは最新です。' : 'The installed build is up to date.';
-  String get updateStatusAvailable => isJapanese
-      ? 'Google Play に新しい更新があります。'
-      : 'A newer build is available on Google Play.';
-  String get updateStatusChecking =>
-      isJapanese ? '更新を確認しています...' : 'Checking for updates...';
-  String get updateStatusUnsupported => isJapanese
-      ? 'この実行環境ではアプリ内更新を利用できません。'
-      : 'In-app updates are not available in this runtime.';
-  String get updateStatusStarted => isJapanese
-      ? 'Google Play の更新フローを開始しました。'
-      : 'Started the Google Play update flow.';
-  String get updateFlexibleReady => isJapanese
-      ? '柔軟な更新がダウンロード済みです。完了を押すと再起動して更新します。'
-      : 'A flexible update is downloaded. Complete it to restart and apply the update.';
+  String get updateSupportedOnAndroidOnly => localized(
+    en: 'In-app updates are available on Android builds distributed through Google Play.',
+    ja: 'アプリ内更新は Android の Google Play 配布で利用できます。',
+    zh: '应用内更新可用于通过 Google Play 分发的 Android 版本。',
+    ko: '인앱 업데이트는 Google Play로 배포된 Android 빌드에서 사용할 수 있습니다.',
+  );
+  String get updateStatusUpToDate => localized(
+    en: 'The installed build is up to date.',
+    ja: '現在のビルドは最新です。',
+    zh: '当前安装的版本已是最新。',
+    ko: '설치된 빌드가 최신입니다.',
+  );
+  String get updateStatusAvailable => localized(
+    en: 'A newer build is available on Google Play.',
+    ja: 'Google Play に新しい更新があります。',
+    zh: 'Google Play 上有新版本可用。',
+    ko: 'Google Play에 새 빌드가 있습니다.',
+  );
+  String get updateStatusChecking => localized(
+    en: 'Checking for updates...',
+    ja: '更新を確認しています...',
+    zh: '正在检查更新...',
+    ko: '업데이트 확인 중...',
+  );
+  String get updateStatusUnsupported => localized(
+    en: 'In-app updates are not available in this runtime.',
+    ja: 'この実行環境ではアプリ内更新を利用できません。',
+    zh: '此运行环境不支持应用内更新。',
+    ko: '이 실행 환경에서는 인앱 업데이트를 사용할 수 없습니다.',
+  );
+  String get updateStatusStarted => localized(
+    en: 'Started the Google Play update flow.',
+    ja: 'Google Play の更新フローを開始しました。',
+    zh: '已开始 Google Play 更新流程。',
+    ko: 'Google Play 업데이트 흐름을 시작했습니다.',
+  );
+  String get updateFlexibleReady => localized(
+    en: 'A flexible update is downloaded. Complete it to restart and apply the update.',
+    ja: '柔軟な更新がダウンロード済みです。完了を押すと再起動して更新します。',
+    zh: '灵活更新已下载。完成后将重启并应用更新。',
+    ko: '유연한 업데이트가 다운로드되었습니다. 완료하면 재시작 후 업데이트가 적용됩니다.',
+  );
   String updateVersionLabel(int? versionCode) => isJapanese
       ? (versionCode == null ? '配信中の更新' : '配信中の更新: $versionCode')
       : (versionCode == null
@@ -1928,26 +1951,57 @@ class AppStrings {
   String readingVersion() =>
       isJapanese ? 'バージョンを読み込み中...' : 'Reading app version...';
 
-  String get homeWidgetQuickCapture =>
-      isJapanese ? '外部クイックメモ' : 'Allow external quick capture';
-  String get homeWidgetQuickCaptureDesc => isJapanese
-      ? 'ホームウィジェットや共有メニューから、通常のアプリロックを開かずに簡易メモ画面を開けます。'
-      : 'Let the home widget or Android share sheet open a quick memo surface without unlocking the full app.';
-  String get homeWidgetQuickCaptureMobileOnly => isJapanese
-      ? 'モバイルのみ。オンにすると、ホームウィジェットや共有メニューから通常のアプリロックを開かずに簡易メモ画面を開けます。'
-      : 'Mobile-only. When enabled, the home widget or Android share sheet can open a quick memo surface outside the normal app lock.';
+  String get homeWidgetQuickCapture => localized(
+    en: 'Allow external quick capture',
+    ja: '外部クイックメモ',
+    zh: '允许外部快速记录',
+    ko: '외부 빠른 캡처 허용',
+  );
+  String get homeWidgetQuickCaptureDesc => localized(
+    en: 'Let the home widget or Android share sheet open a quick memo surface without unlocking the full app.',
+    ja: 'ホームウィジェットや共有メニューから、通常のアプリロックを開かずに簡易メモ画面を開けます。',
+    zh: '允许主屏幕小组件或 Android 分享面板在不解锁完整应用的情况下打开快速备忘录界面。',
+    ko: '홈 위젯이나 Android 공유 시트에서 전체 앱 잠금 해제 없이 빠른 메모 화면을 열 수 있습니다.',
+  );
+  String get homeWidgetQuickCaptureMobileOnly => localized(
+    en: 'Mobile-only. When enabled, the home widget or Android share sheet can open a quick memo surface outside the normal app lock.',
+    ja: 'モバイルのみ。オンにすると、ホームウィジェットや共有メニューから通常のアプリロックを開かずに簡易メモ画面を開けます。',
+    zh: '仅限移动端。开启后，主屏幕小组件或 Android 分享面板可在普通应用锁之外打开快速备忘录界面。',
+    ko: '모바일 전용입니다. 켜면 홈 위젯이나 Android 공유 시트에서 일반 앱 잠금 밖의 빠른 메모 화면을 열 수 있습니다.',
+  );
 
-  String get unlockHiMemo => isJapanese ? 'HiMemo を解除' : 'Unlock HiMemo';
-  String get unlockWithPin => isJapanese ? 'PIN で解除' : 'Unlock with PIN';
-  String get authenticate => isJapanese ? '認証する' : 'Authenticate';
-  String get disableUnlockForNow =>
-      isJapanese ? '今はアプリロックを無効にする' : 'Disable app unlock for now';
-  String get browserPinGate => isJapanese
-      ? 'このブラウザのセッションは Web PIN で保護されています。'
-      : 'This browser session is protected with a web PIN.';
-  String get deviceAuthGate => isJapanese
-      ? '端末認証でこのセッションを再開します。'
-      : 'Resume this session with device authentication.';
+  String get unlockHiMemo => localized(
+    en: 'Unlock HiMemo',
+    ja: 'HiMemo を解除',
+    zh: '解锁 HiMemo',
+    ko: 'HiMemo 잠금 해제',
+  );
+  String get unlockWithPin => localized(
+    en: 'Unlock with PIN',
+    ja: 'PIN で解除',
+    zh: '使用 PIN 解锁',
+    ko: 'PIN으로 잠금 해제',
+  );
+  String get authenticate =>
+      localized(en: 'Authenticate', ja: '認証する', zh: '认证', ko: '인증');
+  String get disableUnlockForNow => localized(
+    en: 'Disable app unlock for now',
+    ja: '今はアプリロックを無効にする',
+    zh: '暂时关闭应用解锁',
+    ko: '지금은 앱 잠금 해제 끄기',
+  );
+  String get browserPinGate => localized(
+    en: 'This browser session is protected with a web PIN.',
+    ja: 'このブラウザのセッションは Web PIN で保護されています。',
+    zh: '此浏览器会话受 Web PIN 保护。',
+    ko: '이 브라우저 세션은 Web PIN으로 보호됩니다.',
+  );
+  String get deviceAuthGate => localized(
+    en: 'Resume this session with device authentication.',
+    ja: '端末認証でこのセッションを再開します。',
+    zh: '使用设备认证恢复此会话。',
+    ko: '기기 인증으로 이 세션을 다시 시작합니다.',
+  );
   String pinLockSummary({required bool isConfigured, String? lastError}) {
     if (isConfigured) {
       return isJapanese
@@ -2031,63 +2085,154 @@ class AppStrings {
       ? 'iCloud や Google Drive への同期は、あとから設定で有効化できます。最初はオフラインのまま始められます。'
       : 'Enable iCloud or Google Drive later in Settings. You can start as an offline-first memo app.';
 
-  String get privateProfilesSettingsTitle =>
-      isJapanese ? 'プライベートプロファイル' : 'Private profiles';
-  String get privateProfilesSettingsAdminSummary => isJapanese
-      ? '管理者モードでも、プロファイル名や保存先IDは設定画面に表示しません。'
-      : 'Profile names and vault IDs stay hidden in Settings, even in admin mode.';
-  String privateProfilesSettingsActiveSummary(String _) => isJapanese
-      ? '現在は認証済みのプライベートプロファイルを表示しています。'
-      : 'A verified private profile is currently open.';
-  String get privateProfilesSettingsDefaultSummary => isJapanese
-      ? '通常は Notes だけを表示し、必要なときだけ別のプロファイルを開きます。'
-      : 'Notes stays visible by default. Open another profile only when you need it.';
-  String get privateProfilesSettingsBody => isJapanese
-      ? '右上の鍵アイコンからパスワードを入力すると、一致するプロファイルだけを開けます。設定画面では登録済みプロファイルの名前や保存先IDを列挙しません。'
-      : 'Enter a password from the key icon in the top bar to open only the matching profile. Settings does not list configured profile names or vault IDs.';
-  String get addPrivateProfile => isJapanese ? 'プロファイルを追加' : 'Add profile';
-  String get adminModeActiveLabel =>
-      isJapanese ? '管理者モード中' : 'Admin mode active';
-  String get enterAdminModeLabel =>
-      isJapanese ? '管理者モードへ移行' : 'Enter admin mode';
-  String get exitAdminModeLabel => isJapanese ? '管理者モードを終了' : 'Exit admin mode';
-  String get noPrivateProfilesMessage =>
-      isJapanese ? 'まだプライベートプロファイルはありません。' : 'No private profiles yet.';
-  String privateProfilesHiddenSummary(int count) => isJapanese
-      ? '$count 件のプライベートプロファイルが登録されています。名前と保存先IDは非表示です。'
-      : '$count private profiles are configured. Names and vault IDs are hidden.';
-  String get setAlternateProfilePassword =>
-      isJapanese ? '別プロファイル用パスワードを設定' : 'Set alternate profile password';
-  String get changeAlternateProfilePassword =>
-      isJapanese ? '別プロファイル用パスワードを変更' : 'Change alternate profile password';
-  String get resetAlternateProfilePassword =>
-      isJapanese ? '別プロファイル用パスワードをリセット' : 'Reset alternate profile password';
+  String get privateProfilesSettingsTitle => localized(
+    en: 'Private profiles',
+    ja: 'プライベートプロファイル',
+    zh: '私密档案',
+    ko: '비공개 프로필',
+  );
+  String get privateProfilesSettingsAdminSummary => localized(
+    en: 'Profile names and vault IDs stay hidden in Settings, even in admin mode.',
+    ja: '管理者モードでも、プロファイル名や保存先IDは設定画面に表示しません。',
+    zh: '即使在管理员模式下，设置中也不会显示档案名称和保险库 ID。',
+    ko: '관리자 모드에서도 설정 화면에는 프로필 이름과 보관함 ID를 표시하지 않습니다.',
+  );
+  String privateProfilesSettingsActiveSummary(String _) => localized(
+    en: 'A verified private profile is currently open.',
+    ja: '現在は認証済みのプライベートプロファイルを表示しています。',
+    zh: '当前已打开经过验证的私密档案。',
+    ko: '현재 인증된 비공개 프로필이 열려 있습니다.',
+  );
+  String get privateProfilesSettingsDefaultSummary => localized(
+    en: 'Notes stays visible by default. Open another profile only when you need it.',
+    ja: '通常は Notes だけを表示し、必要なときだけ別のプロファイルを開きます。',
+    zh: '默认只显示 Notes。仅在需要时打开其他档案。',
+    ko: '기본적으로 Notes만 표시하고, 필요할 때만 다른 프로필을 엽니다.',
+  );
+  String get privateProfilesSettingsBody => localized(
+    en: 'Enter a password from the key icon in the top bar to open only the matching profile. Settings does not list configured profile names or vault IDs.',
+    ja: '右上の鍵アイコンからパスワードを入力すると、一致するプロファイルだけを開けます。設定画面では登録済みプロファイルの名前や保存先IDを列挙しません。',
+    zh: '从顶部栏的钥匙图标输入密码后，只会打开匹配的档案。设置中不会列出已配置档案的名称或保险库 ID。',
+    ko: '상단의 열쇠 아이콘에서 비밀번호를 입력하면 일치하는 프로필만 열립니다. 설정 화면에는 구성된 프로필 이름이나 보관함 ID를 나열하지 않습니다.',
+  );
+  String get addPrivateProfile =>
+      localized(en: 'Add profile', ja: 'プロファイルを追加', zh: '添加档案', ko: '프로필 추가');
+  String get adminModeActiveLabel => localized(
+    en: 'Admin mode active',
+    ja: '管理者モード中',
+    zh: '管理员模式已启用',
+    ko: '관리자 모드 활성화',
+  );
+  String get enterAdminModeLabel => localized(
+    en: 'Enter admin mode',
+    ja: '管理者モードへ移行',
+    zh: '进入管理员模式',
+    ko: '관리자 모드로 전환',
+  );
+  String get exitAdminModeLabel => localized(
+    en: 'Exit admin mode',
+    ja: '管理者モードを終了',
+    zh: '退出管理员模式',
+    ko: '관리자 모드 종료',
+  );
+  String get noPrivateProfilesMessage => localized(
+    en: 'No private profiles yet.',
+    ja: 'まだプライベートプロファイルはありません。',
+    zh: '还没有私密档案。',
+    ko: '아직 비공개 프로필이 없습니다.',
+  );
+  String privateProfilesHiddenSummary(int count) => localized(
+    en: '$count private profiles are configured. Names and vault IDs are hidden.',
+    ja: '$count 件のプライベートプロファイルが登録されています。名前と保存先IDは非表示です。',
+    zh: '已配置 $count 个私密档案。名称和保险库 ID 已隐藏。',
+    ko: '비공개 프로필 $count개가 설정되어 있습니다. 이름과 보관함 ID는 숨겨집니다.',
+  );
+  String get setAlternateProfilePassword => localized(
+    en: 'Set alternate profile password',
+    ja: '別プロファイル用パスワードを設定',
+    zh: '设置备用档案密码',
+    ko: '대체 프로필 비밀번호 설정',
+  );
+  String get changeAlternateProfilePassword => localized(
+    en: 'Change alternate profile password',
+    ja: '別プロファイル用パスワードを変更',
+    zh: '更改备用档案密码',
+    ko: '대체 프로필 비밀번호 변경',
+  );
+  String get resetAlternateProfilePassword => localized(
+    en: 'Reset alternate profile password',
+    ja: '別プロファイル用パスワードをリセット',
+    zh: '重置备用档案密码',
+    ko: '대체 프로필 비밀번호 재설정',
+  );
 
-  String get skip => isJapanese ? 'スキップ' : 'Skip';
-  String get next => isJapanese ? '次へ' : 'Next';
-  String get finishSetup => isJapanese ? 'セットアップ完了' : 'Finish setup';
-  String get setAppUnlockPin =>
-      isJapanese ? 'アプリ解除 PIN を設定' : 'Set app unlock PIN';
+  String get skip => localized(en: 'Skip', ja: 'スキップ', zh: '跳过', ko: '건너뛰기');
+  String get next => localized(en: 'Next', ja: '次へ', zh: '下一步', ko: '다음');
+  String get finishSetup =>
+      localized(en: 'Finish setup', ja: 'セットアップ完了', zh: '完成设置', ko: '설정 완료');
+  String get setAppUnlockPin => localized(
+    en: 'Set app unlock PIN',
+    ja: 'アプリ解除 PIN を設定',
+    zh: '设置应用解锁 PIN',
+    ko: '앱 잠금 해제 PIN 설정',
+  );
   String get pin => 'PIN';
-  String get cancel => isJapanese ? 'キャンセル' : 'Cancel';
+  String get cancel => localized(en: 'Cancel', ja: 'キャンセル', zh: '取消', ko: '취소');
   String get delete => text('action.delete');
-  String get save => isJapanese ? '保存' : 'Save';
-  String get useExactly4Digits =>
-      isJapanese ? '4桁ちょうどで入力してください。' : 'Use exactly 4 digits.';
-  String get digitsOnly => isJapanese ? '数字のみ入力できます。' : 'Digits only.';
-  String get coverKey => isJapanese ? 'カバーキー' : 'Cover key';
-  String get privateKey => isJapanese ? 'プライベートキー' : 'Private key';
-  String get setPrivateKey => isJapanese ? 'プライベートキーを設定' : 'Set private key';
-  String get unlockPrivateVault =>
-      isJapanese ? 'プライベート領域を解除' : 'Unlock private vault';
-  String get unlock => isJapanese ? '解除' : 'Unlock';
-  String confirmPrivateKey(String label) =>
-      isJapanese ? '$label を確認' : 'Confirm $label';
-  String get keysDoNotMatch => isJapanese ? 'キーが一致しません。' : 'Keys do not match.';
-  String get privateKeyIncorrect =>
-      isJapanese ? 'プライベートキーが正しくありません。' : 'Private key is not correct.';
-  String get useAtLeast4Chars =>
-      isJapanese ? '4文字以上で入力してください。' : 'Use at least 4 characters.';
+  String get save => localized(en: 'Save', ja: '保存', zh: '保存', ko: '저장');
+  String get useExactly4Digits => localized(
+    en: 'Use exactly 4 digits.',
+    ja: '4桁ちょうどで入力してください。',
+    zh: '请正好输入 4 位数字。',
+    ko: '정확히 4자리로 입력하세요.',
+  );
+  String get digitsOnly => localized(
+    en: 'Digits only.',
+    ja: '数字のみ入力できます。',
+    zh: '只能输入数字。',
+    ko: '숫자만 입력할 수 있습니다.',
+  );
+  String get coverKey =>
+      localized(en: 'Cover key', ja: 'カバーキー', zh: '掩护密钥', ko: '커버 키');
+  String get privateKey =>
+      localized(en: 'Private key', ja: 'プライベートキー', zh: '私密密钥', ko: '비공개 키');
+  String get setPrivateKey => localized(
+    en: 'Set private key',
+    ja: 'プライベートキーを設定',
+    zh: '设置私密密钥',
+    ko: '비공개 키 설정',
+  );
+  String get unlockPrivateVault => localized(
+    en: 'Unlock private vault',
+    ja: 'プライベート領域を解除',
+    zh: '解锁私密保险库',
+    ko: '비공개 보관함 잠금 해제',
+  );
+  String get unlock => localized(en: 'Unlock', ja: '解除', zh: '解锁', ko: '잠금 해제');
+  String confirmPrivateKey(String label) => localized(
+    en: 'Confirm $label',
+    ja: '$label を確認',
+    zh: '确认$label',
+    ko: '$label 확인',
+  );
+  String get keysDoNotMatch => localized(
+    en: 'Keys do not match.',
+    ja: 'キーが一致しません。',
+    zh: '密钥不一致。',
+    ko: '키가 일치하지 않습니다.',
+  );
+  String get privateKeyIncorrect => localized(
+    en: 'Private key is not correct.',
+    ja: 'プライベートキーが正しくありません。',
+    zh: '私密密钥不正确。',
+    ko: '비공개 키가 올바르지 않습니다.',
+  );
+  String get useAtLeast4Chars => localized(
+    en: 'Use at least 4 characters.',
+    ja: '4文字以上で入力してください。',
+    zh: '请至少输入 4 个字符。',
+    ko: '4자 이상 입력하세요.',
+  );
   String get quickMemo =>
       localized(en: 'Quick memo', ja: 'クイックメモ', zh: '快速备忘录', ko: '빠른 메모');
   String get richMemo =>
