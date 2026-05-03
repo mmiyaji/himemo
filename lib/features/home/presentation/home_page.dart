@@ -103,14 +103,12 @@ class _AppShellState extends ConsumerState<AppShell> {
           IconButton(
             key: AppShell.privateProfileAccessKey,
             tooltip: adminMode
-                ? (context.strings.isJapanese ? '管理者モード中' : 'Admin mode active')
+                ? (context.strings.text('home.admin.mode.active'))
                 : (activePrivateProfileLabel != null
-                      ? (context.strings.isJapanese
-                            ? '$activePrivateProfileLabel を表示中'
-                            : 'Viewing $activePrivateProfileLabel')
-                      : (context.strings.isJapanese
-                            ? 'プライベートプロファイルを開く'
-                            : 'Unlock private profile')),
+                      ? context.strings.viewingPrivateProfile(
+                          activePrivateProfileLabel,
+                        )
+                      : (context.strings.text('home.unlock.private.profile'))),
             onPressed: () => _showProfileAccessDialog(context, ref),
             icon: Icon(
               adminMode
@@ -292,12 +290,8 @@ Future<void> _showProfileAccessDialog(
       showCloseIcon: true,
       content: Text(
         unlocked == null
-            ? (strings.isJapanese
-                  ? '一致するプライベートプロファイルは見つかりませんでした。'
-                  : 'No private profile matched that password.')
-            : (strings.isJapanese
-                  ? 'プライベートプロファイルを開きました。'
-                  : 'Private profile unlocked.'),
+            ? (strings.text('home.no.private.profile.matched.that.password'))
+            : (strings.text('home.private.profile.unlocked')),
       ),
     ),
   );
@@ -340,10 +334,8 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
     return AlertDialog(
       title: Text(
         hasActiveAccess
-            ? (strings.isJapanese ? 'プライベート表示を切り替え' : 'Switch private access')
-            : (strings.isJapanese
-                  ? 'プライベートプロファイルを開く'
-                  : 'Unlock private profile'),
+            ? (strings.text('home.switch.private.access'))
+            : (strings.text('home.unlock.private.profile.2')),
       ),
       content: Form(
         key: _formKey,
@@ -355,12 +347,8 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
               if (hasActiveAccess) ...[
                 Text(
                   widget.adminMode
-                      ? (strings.isJapanese
-                            ? '現在は管理者モードです。'
-                            : 'Admin mode is currently active.')
-                      : (strings.isJapanese
-                            ? '現在は ${widget.activeLabel} を表示しています。'
-                            : 'Currently viewing ${widget.activeLabel}.'),
+                      ? (strings.text('home.admin.mode.is.currently.active'))
+                      : strings.currentPrivateProfile(widget.activeLabel),
                 ),
                 const SizedBox(height: 12),
               ],
@@ -370,15 +358,11 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
                 obscureText: true,
                 autofocus: true,
                 decoration: InputDecoration(
-                  labelText: strings.isJapanese
-                      ? 'プロファイルパスワード'
-                      : 'Profile password',
+                  labelText: strings.text('home.profile.password'),
                   border: const OutlineInputBorder(),
                 ),
                 validator: (value) => (value == null || value.isEmpty)
-                    ? (strings.isJapanese
-                          ? 'パスワードを入力してください。'
-                          : 'Enter a password.')
+                    ? (strings.text('home.enter.a.password'))
                     : null,
                 onFieldSubmitted: (_) => _submit(),
               ),
@@ -394,7 +378,7 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
               ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
               Navigator.of(context).pop();
             },
-            child: Text(strings.isJapanese ? '閉じる' : 'Lock'),
+            child: Text(strings.text('home.lock')),
           ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
@@ -403,7 +387,7 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
         FilledButton(
           key: const Key('private-profile-unlock-submit'),
           onPressed: _submit,
-          child: Text(strings.isJapanese ? '開く' : 'Unlock'),
+          child: Text(strings.text('home.unlock')),
         ),
       ],
     );
@@ -568,21 +552,22 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
   }
 
   Future<void> _deleteNote(BuildContext context, NoteEntry note) async {
+    final strings = context.strings;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Delete note'),
-          content: Text('Delete "${note.title}" permanently from this device?'),
+          title: Text(strings.deleteNote),
+          content: Text(strings.deleteNoteConfirmation(note.title)),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+              child: Text(strings.cancel),
             ),
             FilledButton(
               key: const Key('delete-note-button'),
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Delete'),
+              child: Text(strings.delete),
             ),
           ],
         );
@@ -600,9 +585,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           showCloseIcon: true,
-          content: Text('"${note.title}" deleted'),
+          content: Text(strings.noteDeleted(note.title)),
           action: SnackBarAction(
-            label: 'Undo',
+            label: strings.undo,
             onPressed: () {
               ref
                   .read(notesControllerProvider.notifier)
@@ -628,11 +613,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         showCloseIcon: true,
-        content: Text(
-          context.strings.isJapanese
-              ? '#$tag のタグで絞り込みました'
-              : 'Filtered notes by #$tag',
-        ),
+        content: Text(context.strings.filteredByTag(tag)),
       ),
     );
   }
@@ -676,9 +657,9 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       children: [
         _SectionIntro(
           title: strings.calendar,
-          description: strings.isJapanese
-              ? '日付ごとにノートを振り返り、日記を日付にひも付けて見返します。'
-              : 'Review notes grouped by day and keep diary entries anchored to dates.',
+          description: strings.text(
+            'home.review.notes.grouped.by.day.and.keep.diary.entries.ancho',
+          ),
         ),
         const SizedBox(height: 16),
         Container(
@@ -733,9 +714,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                         ? null
                         : () => _selectCalendarDay(previousDay),
                     icon: const Icon(Icons.chevron_left_rounded),
-                    tooltip: strings.isJapanese
-                        ? '前の記録がある日'
-                        : 'Previous day with notes',
+                    tooltip: strings.text('home.previous.day.with.notes'),
                     visualDensity: VisualDensity.compact,
                   ),
                   Expanded(
@@ -760,9 +739,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                         ? null
                         : () => _selectCalendarDay(nextDay),
                     icon: const Icon(Icons.chevron_right_rounded),
-                    tooltip: strings.isJapanese
-                        ? '次の記録がある日'
-                        : 'Next day with notes',
+                    tooltip: strings.text('home.next.day.with.notes'),
                     visualDensity: VisualDensity.compact,
                   ),
                 ],
@@ -770,9 +747,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               const SizedBox(height: 12),
               if (sameDayNotes.isEmpty)
                 Text(
-                  strings.isJapanese
-                      ? 'この日にはまだノートがありません。'
-                      : 'No notes on this day yet.',
+                  strings.text('home.no.notes.on.this.day.yet'),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: _mutedTextColor(context),
                   ),
@@ -926,9 +901,9 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                                     });
                                   },
                             icon: const Icon(Icons.chevron_left_rounded),
-                            tooltip: strings.isJapanese
-                                ? '前の記録がある日'
-                                : 'Previous day with notes',
+                            tooltip: strings.text(
+                              'home.previous.day.with.notes.2',
+                            ),
                             visualDensity: VisualDensity.compact,
                           ),
                           Expanded(
@@ -947,9 +922,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                                     });
                                   },
                             icon: const Icon(Icons.chevron_right_rounded),
-                            tooltip: strings.isJapanese
-                                ? '次の記録がある日'
-                                : 'Next day with notes',
+                            tooltip: strings.text('home.next.day.with.notes.2'),
                             visualDensity: VisualDensity.compact,
                           ),
                         ],
@@ -977,13 +950,11 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                             final confirmed = await showDialog<bool>(
                               context: hostContext,
                               builder: (context) => AlertDialog(
-                                title: Text(
-                                  strings.isJapanese ? 'ノートを削除' : 'Delete note',
-                                ),
+                                title: Text(strings.text('home.delete.note')),
                                 content: Text(
-                                  strings.isJapanese
-                                      ? '「${selectedNote.title}」をこの端末から完全に削除しますか？'
-                                      : 'Delete "${selectedNote.title}" permanently from this device?',
+                                  strings.deleteNoteConfirmation(
+                                    selectedNote.title,
+                                  ),
                                 ),
                                 actions: [
                                   TextButton(
@@ -994,9 +965,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                                   FilledButton(
                                     onPressed: () =>
                                         Navigator.of(context).pop(true),
-                                    child: Text(
-                                      strings.isJapanese ? '削除' : 'Delete',
-                                    ),
+                                    child: Text(strings.text('home.delete')),
                                   ),
                                 ],
                               ),
@@ -1043,9 +1012,7 @@ class _MarkedCalendar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final weekdays = strings.isJapanese
-        ? const ['月', '火', '水', '木', '金', '土', '日']
-        : const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final weekdays = strings.weekdayShortLabels;
     final firstDay = DateTime(visibleMonth.year, visibleMonth.month, 1);
     final daysInMonth = DateTime(
       visibleMonth.year,
@@ -1065,7 +1032,7 @@ class _MarkedCalendar extends StatelessWidget {
             IconButton(
               onPressed: onPreviousMonth,
               icon: const Icon(Icons.chevron_left_rounded),
-              tooltip: strings.isJapanese ? '前の月' : 'Previous month',
+              tooltip: strings.text('home.previous.month'),
             ),
             Expanded(
               child: Text(
@@ -1078,7 +1045,7 @@ class _MarkedCalendar extends StatelessWidget {
             IconButton(
               onPressed: onNextMonth,
               icon: const Icon(Icons.chevron_right_rounded),
-              tooltip: strings.isJapanese ? '次の月' : 'Next month',
+              tooltip: strings.text('home.next.month'),
             ),
           ],
         ),
@@ -1214,7 +1181,7 @@ class InsightsScreen extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                strings.isJapanese ? '記録のまとめ' : 'Writing activity',
+                strings.text('home.writing.activity'),
                 style: Theme.of(context).textTheme.headlineSmall,
               ),
               const SizedBox(height: 8),
@@ -1231,46 +1198,46 @@ class InsightsScreen extends ConsumerWidget {
         _InsightsSummaryGrid(summary: summary),
         const SizedBox(height: 16),
         _InsightChartSection(
-          title: strings.isJapanese ? '月ごとのノート数' : 'Monthly notes',
-          description: strings.isJapanese
-              ? '最近6か月のノート件数'
-              : 'Notes created over the last 6 months.',
+          title: strings.text('home.monthly.notes'),
+          description: strings.text(
+            'home.notes.created.over.the.last.6.months',
+          ),
           child: _InsightLineChart(
             buckets: _buildMonthlyBuckets(context, notes),
-            valueSuffix: strings.isJapanese ? '件' : ' notes',
+            valueSuffix: strings.text('home.notes'),
           ),
         ),
         const SizedBox(height: 16),
         _InsightChartSection(
-          title: strings.isJapanese ? '直近の日別推移' : 'Recent days',
-          description: strings.isJapanese
-              ? '直近14日の日別ノート件数'
-              : 'Daily note count over the last 14 days.',
+          title: strings.text('home.recent.days'),
+          description: strings.text(
+            'home.daily.note.count.over.the.last.14.days',
+          ),
           child: _InsightBarChart(
             buckets: _buildRecentDayBuckets(context, notes),
-            valueSuffix: strings.isJapanese ? '件' : ' notes',
+            valueSuffix: strings.text('home.notes'),
           ),
         ),
         const SizedBox(height: 16),
         _InsightChartSection(
-          title: strings.isJapanese ? '曜日と時間帯の傾向' : 'Weekday and time rhythm',
-          description: strings.isJapanese
-              ? '曜日別、3時間ごとの記録量をまとめて見ます。'
-              : 'Notes by weekday and 3-hour time block.',
+          title: strings.text('home.weekday.and.time.rhythm'),
+          description: strings.text(
+            'home.notes.by.weekday.and.3.hour.time.block',
+          ),
           child: _WeekdayHourHistogram(
             buckets: _buildWeekdayHourBuckets(notes),
-            valueSuffix: strings.isJapanese ? '件' : ' notes',
+            valueSuffix: strings.text('home.notes'),
           ),
         ),
         const SizedBox(height: 16),
         _InsightChartSection(
-          title: strings.isJapanese ? '添付メディア' : 'Attachments',
-          description: strings.isJapanese
-              ? '写真・動画・音声の使用数'
-              : 'How often photos, videos, and audio are used.',
+          title: strings.text('home.attachments'),
+          description: strings.text(
+            'home.how.often.photos.videos.and.audio.are.used',
+          ),
           child: _InsightHorizontalBarChart(
             buckets: _buildAttachmentBuckets(context, notes),
-            valueSuffix: strings.isJapanese ? '件' : ' items',
+            valueSuffix: strings.text('home.items'),
           ),
         ),
       ],
@@ -1291,41 +1258,39 @@ class _InsightsSummaryGrid extends StatelessWidget {
       child: Wrap(
         children: [
           _InsightKpiTile(
-            label: strings.isJapanese ? '連続記録' : 'Current streak',
+            label: strings.text('home.current.streak'),
             value: '${summary.currentStreak}',
-            helper: strings.isJapanese ? '日' : 'days',
+            helper: strings.text('home.days'),
           ),
           _InsightKpiTile(
-            label: strings.isJapanese ? '今月' : 'This month',
+            label: strings.text('home.this.month'),
             value: '${summary.thisMonthCount}',
-            helper: strings.isJapanese ? '件' : 'notes',
+            helper: strings.text('home.notes.2'),
           ),
           _InsightKpiTile(
-            label: strings.isJapanese ? '文字数' : 'Characters',
+            label: strings.text('home.characters'),
             value: '${summary.totalCharacters}',
-            helper: strings.isJapanese ? '累計' : 'total',
+            helper: strings.text('home.total'),
           ),
           _InsightKpiTile(
-            label: strings.isJapanese ? '添付数' : 'Attachments',
+            label: strings.text('home.attachments'),
             value: '${summary.totalAttachments}',
-            helper: strings.isJapanese ? '件' : 'items',
+            helper: strings.text('home.items.2'),
           ),
           _InsightKpiTile(
-            label: strings.isJapanese ? '最も書いた日' : 'Best day',
+            label: strings.text('home.best.day'),
             value: summary.bestDayLabel,
-            helper: strings.isJapanese
-                ? '${summary.bestDayValue}件'
-                : '${summary.bestDayValue} notes',
+            helper: strings.notesCount(summary.bestDayValue),
           ),
           _InsightKpiTile(
-            label: strings.isJapanese ? '記録しやすい時間' : 'Best hour',
+            label: strings.text('home.best.hour'),
             value: summary.bestHourLabel,
-            helper: strings.isJapanese ? 'ピーク' : 'peak time',
+            helper: strings.text('home.peak.time'),
           ),
           _InsightKpiTile(
-            label: strings.isJapanese ? '前月比' : 'Monthly trend',
+            label: strings.text('home.monthly.trend'),
             value: summary.monthlyDeltaLabel,
-            helper: strings.isJapanese ? '先月比' : 'vs last month',
+            helper: strings.text('home.vs.last.month'),
           ),
         ],
       ),
@@ -1445,7 +1410,7 @@ class _InsightBarChart extends StatelessWidget {
     );
     if (buckets.isEmpty) {
       return Text(
-        strings.isJapanese ? 'まだデータがありません。' : 'No data yet.',
+        strings.text('home.no.data.yet'),
         style: Theme.of(
           context,
         ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
@@ -1754,7 +1719,7 @@ class _WeekdayHourHistogram extends StatelessWidget {
       (max, bucket) => math.max(max, bucket.value),
     );
     final strings = context.strings;
-    final weekdays = _weekdayLabels(strings.isJapanese);
+    final weekdays = strings.weekdayShortLabels;
     final timeLabels = [
       for (var hour = 0; hour < 24; hour += 3)
         '${hour.toString().padLeft(2, '0')}-${(hour + 2).toString().padLeft(2, '0')}',
@@ -1843,7 +1808,7 @@ class _WeekdayHourHistogram extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  strings.isJapanese ? '少' : 'Less',
+                  strings.text('home.less'),
                   style: labelStyle?.copyWith(fontWeight: FontWeight.w500),
                 ),
                 const SizedBox(width: 6),
@@ -1866,7 +1831,7 @@ class _WeekdayHourHistogram extends StatelessWidget {
                 ],
                 const SizedBox(width: 3),
                 Text(
-                  strings.isJapanese ? '多' : 'More',
+                  strings.text('home.more'),
                   style: labelStyle?.copyWith(fontWeight: FontWeight.w500),
                 ),
               ],
@@ -1913,7 +1878,7 @@ class _NoInsightData extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Text(
-      context.strings.isJapanese ? 'まだデータがありません。' : 'No data yet.',
+      context.strings.text('home.no.data.yet'),
       style: Theme.of(
         context,
       ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
@@ -2065,7 +2030,7 @@ List<_InsightBucket> _buildMonthlyBuckets(
         .length;
     buckets.add(
       _InsightBucket(
-        label: strings.isJapanese ? '${month.month}月' : '${month.month}',
+        label: strings.monthBucketLabel(month.month),
         value: value,
       ),
     );
@@ -2113,13 +2078,6 @@ List<_WeekdayHourBucket> _buildWeekdayHourBuckets(List<NoteEntry> notes) {
   ];
 }
 
-List<String> _weekdayLabels(bool isJapanese) {
-  if (isJapanese) {
-    return const ['月', '火', '水', '木', '金', '土', '日'];
-  }
-  return const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-}
-
 List<_InsightBucket> _buildAttachmentBuckets(
   BuildContext context,
   List<NoteEntry> notes,
@@ -2133,15 +2091,15 @@ List<_InsightBucket> _buildAttachmentBuckets(
   );
   return [
     _InsightBucket(
-      label: strings.isJapanese ? '写真' : 'Photo',
+      label: strings.text('home.photo'),
       value: countFor(AttachmentType.photo),
     ),
     _InsightBucket(
-      label: strings.isJapanese ? '動画' : 'Video',
+      label: strings.text('home.video'),
       value: countFor(AttachmentType.video),
     ),
     _InsightBucket(
-      label: strings.isJapanese ? '音声' : 'Audio',
+      label: strings.text('home.audio'),
       value: countFor(AttachmentType.audio),
     ),
   ];
@@ -2237,15 +2195,11 @@ class SettingsScreen extends ConsumerWidget {
     final secret = await _showSecretSetupDialog(
       context,
       title: strings.setAlternateProfilePassword,
-      label: strings.isJapanese
-          ? '別プロファイル用パスワード'
-          : 'Alternate profile password',
-      confirmLabel: strings.isJapanese
-          ? '別プロファイル用パスワードを確認'
-          : 'Confirm alternate profile password',
-      helperText: strings.isJapanese
-          ? '通常の表示とは別のプロファイルへ切り替えるためのパスワードです。'
-          : 'Use this password to switch to a different everyday profile.',
+      label: strings.text('home.alternate.profile.password'),
+      confirmLabel: strings.text('home.confirm.alternate.profile.password'),
+      helperText: strings.text(
+        'home.use.this.password.to.switch.to.a.different.everyday.prof',
+      ),
     );
     if (secret == null) {
       return;
@@ -2257,11 +2211,7 @@ class SettingsScreen extends ConsumerWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           showCloseIcon: true,
-          content: Text(
-            strings.isJapanese
-                ? '別プロファイル用パスワードを保存しました。'
-                : 'Alternate profile password saved.',
-          ),
+          content: Text(strings.text('home.alternate.profile.password.saved')),
         ),
       );
     }
@@ -2277,9 +2227,9 @@ class SettingsScreen extends ConsumerWidget {
       builder: (context) => AlertDialog(
         title: Text(strings.resetAlternateProfilePassword),
         content: Text(
-          strings.isJapanese
-              ? '別プロファイル用に設定したパスワードを削除します。'
-              : 'This removes the configured password for the alternate profile.',
+          strings.text(
+            'home.this.removes.the.configured.password.for.the.alternate.p',
+          ),
         ),
         actions: [
           TextButton(
@@ -2288,7 +2238,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
           FilledButton.tonal(
             onPressed: () => Navigator.of(context).pop(true),
-            child: Text(strings.isJapanese ? 'リセット' : 'Reset'),
+            child: Text(strings.text('home.reset')),
           ),
         ],
       ),
@@ -2306,12 +2256,13 @@ class SettingsScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
   ) async {
+    final strings = context.strings;
     final secret = await _showSingleSecretPrompt(
       context,
-      title: 'Enter special access key',
-      label: 'Access key',
-      helperText: 'A valid key switches the app into another mode.',
-      actionLabel: 'Unlock mode',
+      title: strings.text('home.enter.special.access.key'),
+      label: strings.accessKey,
+      helperText: strings.specialAccessKeyHelp,
+      actionLabel: strings.unlockMode,
     );
     if (secret == null || !context.mounted) {
       return;
@@ -2322,10 +2273,7 @@ class SettingsScreen extends ConsumerWidget {
         .verify(secret)) {
       await _switchIdentity(ref, 'private');
       messenger.showSnackBar(
-        const SnackBar(
-          showCloseIcon: true,
-          content: Text('Private mode is now active.'),
-        ),
+        SnackBar(showCloseIcon: true, content: Text(strings.privateModeActive)),
       );
       return;
     }
@@ -2334,18 +2282,12 @@ class SettingsScreen extends ConsumerWidget {
         .verify(secret)) {
       await _switchIdentity(ref, 'cover');
       messenger.showSnackBar(
-        const SnackBar(
-          showCloseIcon: true,
-          content: Text('Cover mode is now active.'),
-        ),
+        SnackBar(showCloseIcon: true, content: Text(strings.coverModeActive)),
       );
       return;
     }
     messenger.showSnackBar(
-      const SnackBar(
-        showCloseIcon: true,
-        content: Text('That access key did not match any mode.'),
-      ),
+      SnackBar(showCloseIcon: true, content: Text(strings.accessKeyNoMatch)),
     );
   }
 
@@ -2361,9 +2303,7 @@ class SettingsScreen extends ConsumerWidget {
     final submitted = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(
-          strings.isJapanese ? 'プライベートプロファイルを追加' : 'Add private profile',
-        ),
+        title: Text(strings.text('home.add.private.profile')),
         content: Form(
           key: formKey,
           child: SingleChildScrollView(
@@ -2374,7 +2314,7 @@ class SettingsScreen extends ConsumerWidget {
                   key: privateProfileNameInputKey,
                   controller: nameController,
                   decoration: InputDecoration(
-                    labelText: strings.isJapanese ? '表示名' : 'Profile name',
+                    labelText: strings.text('home.profile.name'),
                     border: const OutlineInputBorder(),
                   ),
                 ),
@@ -2384,15 +2324,11 @@ class SettingsScreen extends ConsumerWidget {
                   controller: passwordController,
                   obscureText: true,
                   decoration: InputDecoration(
-                    labelText: strings.isJapanese
-                        ? 'プロファイルパスワード'
-                        : 'Profile password',
+                    labelText: strings.text('home.profile.password.2'),
                     border: const OutlineInputBorder(),
                   ),
                   validator: (value) => (value == null || value.isEmpty)
-                      ? (strings.isJapanese
-                            ? 'パスワードを入力してください。'
-                            : 'Enter a password.')
+                      ? (strings.text('home.enter.a.password.2'))
                       : null,
                 ),
                 const SizedBox(height: 12),
@@ -2401,16 +2337,12 @@ class SettingsScreen extends ConsumerWidget {
                   controller: confirmController,
                   obscureText: true,
                   decoration: InputDecoration(
-                    labelText: strings.isJapanese
-                        ? 'パスワードを再入力'
-                        : 'Confirm password',
+                    labelText: strings.text('home.confirm.password'),
                     border: const OutlineInputBorder(),
                   ),
                   validator: (value) {
                     if (value != passwordController.text) {
-                      return strings.isJapanese
-                          ? 'パスワードが一致しません。'
-                          : 'Passwords do not match.';
+                      return strings.text('home.passwords.do.not.match');
                     }
                     return null;
                   },
@@ -2431,7 +2363,7 @@ class SettingsScreen extends ConsumerWidget {
                 Navigator.of(dialogContext).pop(true);
               }
             },
-            child: Text(strings.isJapanese ? '追加' : 'Add'),
+            child: Text(strings.text('home.add')),
           ),
         ],
       ),
@@ -2466,10 +2398,7 @@ class SettingsScreen extends ConsumerWidget {
       SnackBar(
         showCloseIcon: true,
         content: Text(
-          error ??
-              (strings.isJapanese
-                  ? 'プライベートプロファイルを追加して開きました。'
-                  : 'Private profile added and opened.'),
+          error ?? (strings.text('home.private.profile.added.and.opened')),
         ),
       ),
     );
@@ -2482,9 +2411,9 @@ class SettingsScreen extends ConsumerWidget {
         SnackBar(
           showCloseIcon: true,
           content: Text(
-            strings.isJapanese
-                ? '管理者モードはこの環境では利用できません。'
-                : 'Admin mode is not available in this environment.',
+            strings.text(
+              'home.admin.mode.is.not.available.in.this.environment',
+            ),
           ),
         ),
       );
@@ -2502,9 +2431,9 @@ class SettingsScreen extends ConsumerWidget {
       SnackBar(
         showCloseIcon: true,
         content: Text(
-          strings.isJapanese
-              ? '管理者モードに入りました。プロファイル名と保存先IDは引き続き非表示です。'
-              : 'Admin mode unlocked. Profile names and vault IDs remain hidden.',
+          strings.text(
+            'home.admin.mode.unlocked.profile.names.and.vault.ids.remain.h',
+          ),
         ),
       ),
     );
@@ -2525,14 +2454,12 @@ class SettingsScreen extends ConsumerWidget {
     );
     final password = await _showSecretSetupDialog(
       context,
-      title: strings.isJapanese
-          ? '現在のプロファイルのパスワードを変更'
-          : 'Change current profile password',
-      label: strings.isJapanese ? '新しいパスワード' : 'New password',
-      confirmLabel: strings.isJapanese ? '新しいパスワードを確認' : 'Confirm new password',
-      helperText: strings.isJapanese
-          ? 'このプロファイルの解除に使うパスワードを更新します。'
-          : 'Update the password used to unlock this profile.',
+      title: strings.text('home.change.current.profile.password'),
+      label: strings.text('home.new.password'),
+      confirmLabel: strings.text('home.confirm.new.password'),
+      helperText: strings.text(
+        'home.update.the.password.used.to.unlock.this.profile',
+      ),
     );
     if (password == null) {
       return;
@@ -2546,11 +2473,7 @@ class SettingsScreen extends ConsumerWidget {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         showCloseIcon: true,
-        content: Text(
-          strings.isJapanese
-              ? 'プロファイルのパスワードを更新しました。'
-              : 'Profile password updated.',
-        ),
+        content: Text(strings.text('home.profile.password.updated')),
       ),
     );
   }
@@ -2627,21 +2550,17 @@ class SettingsScreen extends ConsumerWidget {
         )
         .length;
     final currentModeLabel = activeIdentity == 'daily'
-        ? (strings.isJapanese ? '通常メモモード' : 'Normal memo mode')
+        ? (strings.text('home.normal.memo.mode'))
         : ref.watch(activeIdentityDataProvider).name;
     final lockSummary = !appLockEnabled
-        ? (strings.isJapanese
-              ? '未設定です。オンにするとパスワードまたは生体認証を設定します。'
-              : 'Off. Turning this on asks for a password or device authentication.')
+        ? (strings.text(
+            'home.off.turning.this.on.asks.for.a.password.or.device.authen',
+          ))
         : (appSessionUnlocked
-              ? (strings.isJapanese
-                    ? '有効です。このセッションは解除中です。'
-                    : 'On. This session is unlocked.')
-              : (strings.isJapanese
-                    ? '有効です。このセッションはロック中です。'
-                    : 'On. This session is locked.'));
+              ? (strings.text('home.on.this.session.is.unlocked'))
+              : (strings.text('home.on.this.session.is.locked')));
     final syncSummary = syncProvider == SyncProvider.off
-        ? (strings.isJapanese ? 'この端末のみ' : 'Device-only storage')
+        ? (strings.text('home.device.only.storage'))
         : _syncAuthSummary(context, syncProvider, syncAuthState);
     final appearanceSummary =
         '${_localeSettingLabel(context, localeSetting)} / ${_themeModeLabel(context, themeMode)} / ${_colorThemeLabel(context, colorTheme)}';
@@ -2671,34 +2590,34 @@ class SettingsScreen extends ConsumerWidget {
       children: [
         _SectionIntro(
           title: strings.settings,
-          description: strings.isJapanese
-              ? 'アクセス、同期、表示ポリシーを管理します。'
-              : 'Manage access, sync, and display policy.',
+          description: strings.text(
+            'home.manage.access.sync.and.display.policy',
+          ),
         ),
         const SizedBox(height: 16),
         _SettingsOverviewCard(
           items: [
             _SettingsOverviewItem(
-              label: strings.isJapanese ? 'モード' : 'Mode',
+              label: strings.text('home.mode'),
               value: currentModeLabel,
               assetPath: 'assets/settings/access.svg',
             ),
             _SettingsOverviewItem(
-              label: strings.isJapanese ? 'ロック' : 'Unlock',
+              label: strings.text('home.unlock'),
               value: appLockEnabled
-                  ? (strings.isJapanese ? '有効' : 'Enabled')
-                  : (strings.isJapanese ? '無効' : 'Disabled'),
+                  ? (strings.text('home.enabled'))
+                  : (strings.text('home.disabled')),
               assetPath: 'assets/settings/security.svg',
             ),
             _SettingsOverviewItem(
-              label: 'Sync',
+              label: strings.syncLabel,
               value: syncProvider == SyncProvider.off
-                  ? (strings.isJapanese ? 'オフ' : 'Off')
-                  : (strings.isJapanese ? '設定済み' : 'Configured'),
+                  ? (strings.text('home.off'))
+                  : (strings.text('home.configured')),
               assetPath: 'assets/settings/sync.svg',
             ),
             _SettingsOverviewItem(
-              label: strings.isJapanese ? 'テーマ' : 'Theme',
+              label: strings.text('home.theme'),
               value: _themeModeLabel(context, themeMode),
               assetPath: 'assets/settings/appearance.svg',
             ),
@@ -2760,9 +2679,7 @@ class SettingsScreen extends ConsumerWidget {
                     onPressed: () =>
                         _showChangeCurrentProfilePasswordDialog(context, ref),
                     child: Text(
-                      strings.isJapanese
-                          ? '現在のプロファイルのパスワードを変更'
-                          : 'Change current profile password',
+                      strings.text('home.change.current.profile.password.2'),
                     ),
                   ),
               ],
@@ -2772,26 +2689,24 @@ class SettingsScreen extends ConsumerWidget {
         const SizedBox(height: 16),
         if (kDebugMode && showLegacyAccessSettings)
           _SettingsGroup(
-            title: strings.isJapanese ? 'アクセスモード' : 'Access modes',
-            summary: strings.isJapanese
-                ? '$currentModeLabel。別の表示が必要なときだけ特別キーを使います。'
-                : '$currentModeLabel. Special keys are used only when another view is needed.',
+            title: strings.text('home.access.modes'),
+            summary: strings.accessModeSummary(currentModeLabel),
             assetPath: 'assets/settings/access.svg',
             initiallyExpanded: true,
             children: [
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                title: Text(strings.isJapanese ? '現在のモード' : 'Current mode'),
+                title: Text(strings.text('home.current.mode')),
                 subtitle: Text(
                   activeIdentity == 'daily'
-                      ? (strings.isJapanese ? '通常メモモード' : 'Normal memo mode')
+                      ? (strings.text('home.normal.memo.mode'))
                       : ref.watch(activeIdentityDataProvider).name,
                 ),
               ),
               Text(
-                strings.isJapanese
-                    ? '通常はそのまま通常メモモードで使います。別の表示が必要なときだけ特別なアクセスキーを入力します。'
-                    : 'The app stays in normal memo mode by default. Enter a special access key only when you need another view.',
+                strings.text(
+                  'home.the.app.stays.in.normal.memo.mode.by.default.enter.a.spe',
+                ),
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: _mutedTextColor(context),
                 ),
@@ -2806,20 +2721,14 @@ class SettingsScreen extends ConsumerWidget {
                       onPressed: () =>
                           _showSpecialAccessKeyDialog(context, ref),
                       child: Text(
-                        strings.isJapanese
-                            ? '特別なアクセスキーを入力'
-                            : 'Enter special access key',
+                        strings.text('home.enter.special.access.key'),
                       ),
                     ),
                     OutlinedButton(
                       onPressed: activeIdentity == 'daily'
                           ? null
                           : () => _switchIdentity(ref, 'daily'),
-                      child: Text(
-                        strings.isJapanese
-                            ? '通常モードに戻す'
-                            : 'Return to normal mode',
-                      ),
+                      child: Text(strings.text('home.return.to.normal.mode')),
                     ),
                   ],
                 ),
@@ -2848,7 +2757,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
         if (kDebugMode && showLegacyAccessSettings) const SizedBox(height: 16),
         _SettingsGroup(
-          title: strings.isJapanese ? 'アプリ保護' : 'App security',
+          title: strings.text('home.app.security'),
           summary: lockSummary,
           assetPath: 'assets/settings/security.svg',
           initiallyExpanded: true,
@@ -2858,25 +2767,20 @@ class SettingsScreen extends ConsumerWidget {
               value: appLockEnabled,
               contentPadding: EdgeInsets.zero,
               title: kIsWeb
-                  ? Text(
-                      strings.isJapanese
-                          ? '起動時に PIN を要求'
-                          : 'Require PIN on launch',
-                    )
-                  : Text(
-                      strings.isJapanese
-                          ? '起動時に端末認証を要求'
-                          : 'Require device auth on launch',
-                    ),
+                  ? Text(strings.text('home.require.pin.on.launch'))
+                  : Text(strings.text('home.require.device.auth.on.launch')),
               subtitle: Text(
                 kIsWeb
-                    ? (strings.isJapanese
-                          ? 'このブラウザでは 4 桁の PIN でメモ画面を保護します。${pinLockState.localizedSummary(isJapanese: true)}'
-                          : 'Protect this browser session with a 4 digit PIN. ${pinLockState.localizedSummary(isJapanese: false)}')
+                    ? strings.webPinProtectionSummary(
+                        strings.pinLockSummary(
+                          isConfigured: pinLockState.isConfigured,
+                          lastError: pinLockState.lastError,
+                        ),
+                      )
                     : (deviceAuthState.isAvailable
-                          ? (strings.isJapanese
-                                ? 'この端末の生体認証や画面ロックで保護します。利用状況: ${deviceAuthState.summary}'
-                                : 'Protect the app with device authentication. Availability: ${deviceAuthState.summary}')
+                          ? strings.deviceAuthProtectionSummary(
+                              deviceAuthState.summary,
+                            )
                           : deviceAuthState.summary),
               ),
               onChanged: (value) async {
@@ -2894,10 +2798,8 @@ class SettingsScreen extends ConsumerWidget {
                   if (!pinLockState.isConfigured) {
                     final configured = await _showPinSetupDialog(
                       context,
-                      title: strings.isJapanese
-                          ? '解除用 PIN を設定'
-                          : 'Set unlock PIN',
-                      confirmLabel: strings.isJapanese ? 'PIN を保存' : 'Save PIN',
+                      title: strings.text('home.set.unlock.pin'),
+                      confirmLabel: strings.text('home.save.pin'),
                     );
                     if (configured == null) {
                       return;
@@ -2909,18 +2811,16 @@ class SettingsScreen extends ConsumerWidget {
                 } else {
                   final authenticated = await ref
                       .read(deviceAuthControllerProvider.notifier)
-                      .authenticate(
-                        reason: 'Enable device authentication for HiMemo',
-                      );
+                      .authenticate(reason: strings.enableDeviceAuthReason);
                   if (!authenticated) {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           showCloseIcon: true,
                           content: Text(
-                            strings.isJapanese
-                                ? '端末認証が完了しなかったため、アプリ保護はオンになりませんでした。'
-                                : 'Device authentication was not completed, so launch protection stayed off.',
+                            strings.text(
+                              'home.device.authentication.was.not.completed.so.launch.protec',
+                            ),
                           ),
                         ),
                       );
@@ -2938,27 +2838,25 @@ class SettingsScreen extends ConsumerWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 4, bottom: 8),
                 child: Text(
-                  strings.isJapanese
-                      ? 'iCloud を使う場合、この鍵は同じ iCloud アカウントの Apple デバイス間で自動共有されます。手動でコピーする必要はありません。'
-                      : 'When iCloud sync is selected, this key is shared automatically across Apple devices signed in with the same iCloud account. Manual transfer is not required.',
+                  strings.text(
+                    'home.when.icloud.sync.is.selected.this.key.is.shared.automati',
+                  ),
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(strings.isJapanese ? 'セッション状態' : 'Session status'),
+              title: Text(strings.text('home.session.status')),
               subtitle: Text(
                 appSessionUnlocked
-                    ? (strings.isJapanese
-                          ? 'このセッションではメモを開ける状態です。'
-                          : 'This session is currently unlocked.')
+                    ? (strings.text('home.this.session.is.currently.unlocked'))
                     : (kIsWeb
-                          ? (strings.isJapanese
-                                ? '正しい PIN を入力するまで、このブラウザではメモを開けません。'
-                                : 'This browser stays locked until the correct PIN is entered.')
-                          : (strings.isJapanese
-                                ? '端末認証が成功するまで、このセッションはロックされたままです。'
-                                : 'This session stays locked until device authentication succeeds.')),
+                          ? (strings.text(
+                              'home.this.browser.stays.locked.until.the.correct.pin.is.enter',
+                            ))
+                          : (strings.text(
+                              'home.this.session.stays.locked.until.device.authentication.su',
+                            ))),
               ),
             ),
             if (kIsWeb) ...[
@@ -2973,15 +2871,11 @@ class SettingsScreen extends ConsumerWidget {
                         final pin = await _showPinSetupDialog(
                           context,
                           title: pinLockState.isConfigured
-                              ? (strings.isJapanese
-                                    ? '解除用 PIN を変更'
-                                    : 'Change unlock PIN')
-                              : (strings.isJapanese
-                                    ? '解除用 PIN を設定'
-                                    : 'Set unlock PIN'),
+                              ? (strings.text('home.change.unlock.pin'))
+                              : (strings.text('home.set.unlock.pin.2')),
                           confirmLabel: pinLockState.isConfigured
-                              ? (strings.isJapanese ? 'PIN を更新' : 'Update PIN')
-                              : (strings.isJapanese ? 'PIN を保存' : 'Save PIN'),
+                              ? (strings.text('home.update.pin'))
+                              : (strings.text('home.save.pin')),
                         );
                         if (pin == null) {
                           return;
@@ -2995,12 +2889,10 @@ class SettingsScreen extends ConsumerWidget {
                               showCloseIcon: true,
                               content: Text(
                                 pinLockState.isConfigured
-                                    ? (strings.isJapanese
-                                          ? '解除用 PIN を更新しました。'
-                                          : 'Unlock PIN updated.')
-                                    : (strings.isJapanese
-                                          ? '解除用 PIN を設定しました。'
-                                          : 'Unlock PIN configured.'),
+                                    ? (strings.text('home.unlock.pin.updated'))
+                                    : (strings.text(
+                                        'home.unlock.pin.configured',
+                                      )),
                               ),
                             ),
                           );
@@ -3008,8 +2900,8 @@ class SettingsScreen extends ConsumerWidget {
                       },
                       child: Text(
                         pinLockState.isConfigured
-                            ? (strings.isJapanese ? 'PIN を変更' : 'Change PIN')
-                            : (strings.isJapanese ? 'PIN を設定' : 'Set PIN'),
+                            ? (strings.text('home.change.pin'))
+                            : (strings.text('home.set.pin')),
                       ),
                     ),
                     OutlinedButton(
@@ -3019,14 +2911,12 @@ class SettingsScreen extends ConsumerWidget {
                                 context: context,
                                 builder: (context) => AlertDialog(
                                   title: Text(
-                                    strings.isJapanese
-                                        ? '解除用 PIN を削除'
-                                        : 'Remove unlock PIN',
+                                    strings.text('home.remove.unlock.pin'),
                                   ),
                                   content: Text(
-                                    strings.isJapanese
-                                        ? 'このブラウザで使っている Web 用 PIN を削除し、起動時の PIN 保護もオフにしますか。'
-                                        : 'Remove the web unlock PIN for this browser and turn off launch PIN protection?',
+                                    strings.text(
+                                      'home.remove.the.web.unlock.pin.for.this.browser.and.turn.off',
+                                    ),
                                   ),
                                   actions: [
                                     TextButton(
@@ -3037,9 +2927,7 @@ class SettingsScreen extends ConsumerWidget {
                                     FilledButton(
                                       onPressed: () =>
                                           Navigator.of(context).pop(true),
-                                      child: Text(
-                                        strings.isJapanese ? '削除' : 'Remove',
-                                      ),
+                                      child: Text(strings.text('home.remove')),
                                     ),
                                   ],
                                 ),
@@ -3057,18 +2945,16 @@ class SettingsScreen extends ConsumerWidget {
                                   .setEnabled(false);
                             }
                           : null,
-                      child: Text(
-                        strings.isJapanese ? 'PIN を削除' : 'Remove PIN',
-                      ),
+                      child: Text(strings.text('home.remove.pin')),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 8),
               Text(
-                strings.isJapanese
-                    ? 'Web 用 PIN は、このブラウザでメモ画面を開きにくくするための保護です。端末の安全領域や生体認証の代わりにはなりません。'
-                    : 'Web PIN is a browser-level access gate. It does not replace device-backed secure storage or biometrics.',
+                strings.text(
+                  'home.web.pin.is.a.browser.level.access.gate.it.does.not.repla',
+                ),
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: _mutedTextColor(context),
                 ),
@@ -3100,9 +2986,9 @@ class SettingsScreen extends ConsumerWidget {
                     : null,
               ),
               Text(
-                strings.isJapanese
-                    ? 'クイックキャプチャは Notes に平文テキストだけを書き込みます。既存ノートやロック中のプロファイルは開きません。'
-                    : 'Quick widget capture only writes plain text into Notes. It never opens existing notes or locked profiles.',
+                strings.text(
+                  'home.quick.widget.capture.only.writes.plain.text.into.notes.i',
+                ),
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: _mutedTextColor(context),
                 ),
@@ -3110,18 +2996,14 @@ class SettingsScreen extends ConsumerWidget {
               const SizedBox(height: 8),
             ],
             const SizedBox(height: 4),
-            Text(
-              strings.isJapanese
-                  ? 'アプリが前面から外れた後に再ロック'
-                  : 'Re-lock after app leaves the foreground',
-            ),
+            Text(strings.text('home.re.lock.after.app.leaves.the.foreground')),
             const SizedBox(height: 8),
             _ThemeOptionTile(
               tileKey: appLockRelockImmediateKey,
-              title: strings.isJapanese ? 'すぐに' : 'Immediately',
-              subtitle: strings.isJapanese
-                  ? 'バックグラウンドに移動したらすぐロックします。'
-                  : 'Lock the app as soon as it moves to the background.',
+              title: strings.text('home.immediately'),
+              subtitle: strings.text(
+                'home.lock.the.app.as.soon.as.it.moves.to.the.background',
+              ),
               selected: appLockRelockDelay == AppLockRelockDelay.immediate,
               onTap: () => ref
                   .read(appLockRelockDelayControllerProvider.notifier)
@@ -3129,10 +3011,10 @@ class SettingsScreen extends ConsumerWidget {
             ),
             _ThemeOptionTile(
               tileKey: appLockRelock30SecondsKey,
-              title: strings.isJapanese ? '30秒後' : 'After 30 seconds',
-              subtitle: strings.isJapanese
-                  ? 'すぐ戻るときは再認証なしで切り替えられます。'
-                  : 'Allow quick app switching without immediate re-auth.',
+              title: strings.text('home.after.30.seconds'),
+              subtitle: strings.text(
+                'home.allow.quick.app.switching.without.immediate.re.auth',
+              ),
               selected: appLockRelockDelay == AppLockRelockDelay.seconds30,
               onTap: () => ref
                   .read(appLockRelockDelayControllerProvider.notifier)
@@ -3140,10 +3022,10 @@ class SettingsScreen extends ConsumerWidget {
             ),
             _ThemeOptionTile(
               tileKey: appLockRelock2MinutesKey,
-              title: strings.isJapanese ? '2分後' : 'After 2 minutes',
-              subtitle: strings.isJapanese
-                  ? 'ノート間で写真や音声を扱うときに向いています。'
-                  : 'Useful when capturing photos or audio between notes.',
+              title: strings.text('home.after.2.minutes'),
+              subtitle: strings.text(
+                'home.useful.when.capturing.photos.or.audio.between.notes',
+              ),
               selected: appLockRelockDelay == AppLockRelockDelay.minutes2,
               onTap: () => ref
                   .read(appLockRelockDelayControllerProvider.notifier)
@@ -3151,10 +3033,10 @@ class SettingsScreen extends ConsumerWidget {
             ),
             _ThemeOptionTile(
               tileKey: appLockRelock10MinutesKey,
-              title: strings.isJapanese ? '10分後' : 'After 10 minutes',
-              subtitle: strings.isJapanese
-                  ? '長めの編集中でも開いたままにできます。'
-                  : 'Keep the app open during longer editing sessions.',
+              title: strings.text('home.after.10.minutes'),
+              subtitle: strings.text(
+                'home.keep.the.app.open.during.longer.editing.sessions',
+              ),
               selected: appLockRelockDelay == AppLockRelockDelay.minutes10,
               onTap: () => ref
                   .read(appLockRelockDelayControllerProvider.notifier)
@@ -3166,14 +3048,12 @@ class SettingsScreen extends ConsumerWidget {
                 value: privateVaultLockOnAppLock,
                 contentPadding: EdgeInsets.zero,
                 title: Text(
-                  strings.isJapanese
-                      ? 'アプリロック時にレガシー領域もロック'
-                      : 'Lock legacy private area when app locks',
+                  strings.text('home.lock.legacy.private.area.when.app.locks'),
                 ),
                 subtitle: Text(
-                  strings.isJapanese
-                      ? '通常は常にアプリロックと同時にロックします。'
-                      : 'Normally this locks whenever the app locks.',
+                  strings.text(
+                    'home.normally.this.locks.whenever.the.app.locks',
+                  ),
                 ),
                 onChanged: (value) => ref
                     .read(privateVaultLockOnAppLockControllerProvider.notifier)
@@ -3193,19 +3073,12 @@ class SettingsScreen extends ConsumerWidget {
                         ? () => ref
                               .read(deviceAuthControllerProvider.notifier)
                               .authenticate(
-                                reason:
-                                    'Unlock HiMemo with device authentication',
+                                reason: strings.unlockWithDeviceAuthReason,
                               )
                         : null,
                     child: kIsWeb
-                        ? Text(
-                            strings.isJapanese
-                                ? 'ロック画面で PIN 解除'
-                                : 'PIN unlock on lock screen',
-                          )
-                        : Text(
-                            strings.isJapanese ? '今すぐ認証' : 'Authenticate now',
-                          ),
+                        ? Text(strings.text('home.pin.unlock.on.lock.screen'))
+                        : Text(strings.text('home.authenticate.now')),
                   ),
                   OutlinedButton(
                     key: appLockLockNowKey,
@@ -3235,9 +3108,7 @@ class SettingsScreen extends ConsumerWidget {
                                 .lock();
                           }
                         : null,
-                    child: Text(
-                      strings.isJapanese ? '今すぐセッションをロック' : 'Lock session now',
-                    ),
+                    child: Text(strings.text('home.lock.session.now')),
                   ),
                   OutlinedButton(
                     onPressed: kIsWeb
@@ -3246,16 +3117,8 @@ class SettingsScreen extends ConsumerWidget {
                               .read(deviceAuthControllerProvider.notifier)
                               .refresh(),
                     child: kIsWeb
-                        ? Text(
-                            strings.isJapanese
-                                ? 'Web PIN 利用中'
-                                : 'Web PIN active',
-                          )
-                        : Text(
-                            strings.isJapanese
-                                ? '利用可否を更新'
-                                : 'Refresh availability',
-                          ),
+                        ? Text(strings.text('home.web.pin.active'))
+                        : Text(strings.text('home.refresh.availability')),
                   ),
                 ],
               ),
@@ -3264,27 +3127,23 @@ class SettingsScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _SettingsGroup(
-          title: strings.isJapanese ? '外部クイックメモ' : 'External quick memo',
+          title: strings.text('home.external.quick.memo'),
           summary: widgetQuickCaptureEnabled
-              ? (strings.isJapanese
-                    ? 'ロック中でもウィジェットから Notes に追記できます。'
-                    : 'Widget quick writes are allowed while the app is locked.')
-              : (strings.isJapanese
-                    ? 'ウィジェットからのクイック書き込みは無効です。'
-                    : 'Widget quick writes are off.'),
+              ? (strings.text(
+                  'home.widget.quick.writes.are.allowed.while.the.app.is.locked',
+                ))
+              : (strings.text('home.widget.quick.writes.are.off')),
           assetPath: 'assets/settings/storage.svg',
           children: [
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               title: Text(
-                strings.isJapanese
-                    ? 'ロック中でもウィジェットから書き込む'
-                    : 'Allow widget writes while locked',
+                strings.text('home.allow.widget.writes.while.locked'),
               ),
               subtitle: Text(
-                strings.isJapanese
-                    ? '既存のメモやロック中のプロファイルは表示せず、入力内容だけを保存します。'
-                    : 'Only the submitted text is saved. Existing notes and locked profiles stay hidden.',
+                strings.text(
+                  'home.only.the.submitted.text.is.saved.existing.notes.and.lock',
+                ),
               ),
               value: widgetQuickCaptureEnabled,
               onChanged: (value) => ref
@@ -3293,43 +3152,37 @@ class SettingsScreen extends ConsumerWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(strings.isJapanese ? '書き込み先' : 'Write target'),
-              subtitle: const Text('Notes'),
+              title: Text(strings.text('home.write.target')),
+              subtitle: Text(strings.notes),
             ),
           ],
         ),
         const SizedBox(height: 16),
         if (kDebugMode && showLegacyPrivateVaultSettings)
           _SettingsGroup(
-            title: strings.isJapanese ? 'Private vault' : 'Private vault',
+            title: strings.text('home.private.vault'),
             summary: privateVaultConfigured
                 ? (privateVaultUnlocked
-                      ? (strings.isJapanese
-                            ? '設定済みで現在は解除中です。'
-                            : 'Configured and currently unlocked.')
-                      : (strings.isJapanese
-                            ? '設定済みでロック中です。'
-                            : 'Configured and locked.'))
-                : (strings.isJapanese
-                      ? 'まだ private vault のキーが設定されていません。'
-                      : 'No private vault key has been set yet.'),
+                      ? (strings.text('home.configured.and.currently.unlocked'))
+                      : (strings.text('home.configured.and.locked')))
+                : (strings.text('home.no.private.vault.key.has.been.set.yet')),
             assetPath: 'assets/settings/security.svg',
             children: [
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                title: Text(strings.isJapanese ? '状態' : 'Status'),
+                title: Text(strings.text('home.status')),
                 subtitle: Text(
                   privateVaultConfigured
                       ? (privateVaultUnlocked
-                            ? (strings.isJapanese
-                                  ? 'このセッションでは解除されています。'
-                                  : 'Configured and unlocked for this session.')
-                            : (strings.isJapanese
-                                  ? '設定済みでロック中です。別のキーが必要です。'
-                                  : 'Configured and locked. A separate key is required.'))
-                      : (strings.isJapanese
-                            ? '未設定です。private vault 用の別キーを設定してください。'
-                            : 'Not configured yet. Set a separate key for the private vault.'),
+                            ? (strings.text(
+                                'home.configured.and.unlocked.for.this.session',
+                              ))
+                            : (strings.text(
+                                'home.configured.and.locked.a.separate.key.is.required',
+                              )))
+                      : (strings.text(
+                          'home.not.configured.yet.set.a.separate.key.for.the.private.va',
+                        )),
                 ),
               ),
               Wrap(
@@ -3340,20 +3193,14 @@ class SettingsScreen extends ConsumerWidget {
                     FilledButton(
                       key: privateVaultSetKey,
                       onPressed: () => _showSetPrivateKeyDialog(context, ref),
-                      child: Text(
-                        strings.isJapanese ? 'プライベートキーを設定' : 'Set private key',
-                      ),
+                      child: Text(strings.text('home.set.private.key')),
                     ),
                   if (privateVaultConfigured && !privateVaultUnlocked)
                     FilledButton(
                       key: privateVaultUnlockKey,
                       onPressed: () =>
                           _showUnlockPrivateVaultDialog(context, ref),
-                      child: Text(
-                        strings.isJapanese
-                            ? 'Private vault を解除'
-                            : 'Unlock private vault',
-                      ),
+                      child: Text(strings.text('home.unlock.private.vault')),
                     ),
                   if (privateVaultUnlocked)
                     FilledButton.tonal(
@@ -3361,21 +3208,13 @@ class SettingsScreen extends ConsumerWidget {
                       onPressed: () => ref
                           .read(privateVaultSessionControllerProvider.notifier)
                           .lock(),
-                      child: Text(
-                        strings.isJapanese
-                            ? 'Private vault をロック'
-                            : 'Lock private vault',
-                      ),
+                      child: Text(strings.text('home.lock.private.vault')),
                     ),
                   if (privateVaultConfigured)
                     OutlinedButton(
                       key: privateVaultResetKey,
                       onPressed: () => _confirmResetPrivateKey(context, ref),
-                      child: Text(
-                        strings.isJapanese
-                            ? 'プライベートキーをリセット'
-                            : 'Reset private key',
-                      ),
+                      child: Text(strings.text('home.reset.private.key')),
                     ),
                 ],
               ),
@@ -3384,7 +3223,7 @@ class SettingsScreen extends ConsumerWidget {
         if (kDebugMode && showLegacyPrivateVaultSettings)
           const SizedBox(height: 16),
         _SettingsGroup(
-          title: strings.isJapanese ? 'バックアップと同期' : 'Backup and sync',
+          title: strings.text('home.backup.and.sync'),
           summary: syncSummary,
           assetPath: 'assets/settings/sync.svg',
           initiallyExpanded: true,
@@ -3410,7 +3249,7 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(strings.isJapanese ? '選択中の同期先' : 'Selected target'),
+              title: Text(strings.text('home.selected.target')),
               subtitle: Text(_syncSubtitle(context, syncProvider)),
             ),
             ListTile(
@@ -3422,59 +3261,49 @@ class SettingsScreen extends ConsumerWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(
-                strings.isJapanese ? '保留中の同期キュー' : 'Pending sync queue',
-              ),
+              title: Text(strings.text('home.pending.sync.queue')),
               subtitle: Text(
                 syncQueueSummary.when(
                   data: (summary) {
                     if (!summary.hasPendingChanges) {
-                      return strings.isJapanese
-                          ? 'この端末に保留中の変更はありません。'
-                          : 'No pending device changes.';
+                      return strings.text('home.no.pending.device.changes');
                     }
                     final timestamp = summary.lastQueuedAt;
                     final stampText = timestamp == null
-                        ? (strings.isJapanese ? 'キュー準備済み' : 'queue ready')
-                        : (strings.isJapanese
-                              ? '最終追加 ${_formatDateTime(timestamp)}'
-                              : 'last queued ${_formatDateTime(timestamp)}');
-                    return strings.isJapanese
-                        ? '${summary.totalChanges}件が保留中（更新 ${summary.upserts} / 削除 ${summary.deletes}）、$stampText'
-                        : '${summary.totalChanges} changes pending (${summary.upserts} upserts, ${summary.deletes} deletes), $stampText';
+                        ? (strings.text('home.queue.ready'))
+                        : strings.lastQueuedAt(_formatDateTime(timestamp));
+                    return strings.pendingSyncSummary(
+                      total: summary.totalChanges,
+                      upserts: summary.upserts,
+                      deletes: summary.deletes,
+                      stamp: stampText,
+                    );
                   },
-                  loading: () => strings.isJapanese
-                      ? '保留中の変更を確認中...'
-                      : 'Checking pending changes...',
-                  error: (_, _) => strings.isJapanese
-                      ? 'ローカル同期キューを確認できませんでした。'
-                      : 'Unable to inspect the local sync queue.',
+                  loading: () => strings.text('home.checking.pending.changes'),
+                  error: (_, _) => strings.text(
+                    'home.unable.to.inspect.the.local.sync.queue',
+                  ),
                 ),
               ),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(strings.isJapanese ? 'リモートバンドル' : 'Remote bundle'),
+              title: Text(strings.text('home.remote.bundle')),
               subtitle: Text(
                 _remoteBundleSummary(syncProvider, syncTransferState),
               ),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(
-                strings.isJapanese
-                    ? 'クラウド復元キーのフィンガープリント'
-                    : 'Cloud recovery key fingerprint',
-              ),
+              title: Text(strings.text('home.cloud.recovery.key.fingerprint')),
               subtitle: Text(
                 syncBundleFingerprint.when(
                   data: (value) => value,
-                  loading: () => strings.isJapanese
-                      ? 'クラウド復元キーを準備中...'
-                      : 'Preparing cloud recovery key...',
-                  error: (_, _) => strings.isJapanese
-                      ? 'クラウド復元キーのフィンガープリントを読めませんでした。'
-                      : 'Unable to read the cloud recovery key fingerprint.',
+                  loading: () =>
+                      strings.text('home.preparing.cloud.recovery.key'),
+                  error: (_, _) => strings.text(
+                    'home.unable.to.read.the.cloud.recovery.key.fingerprint',
+                  ),
                 ),
               ),
             ),
@@ -3497,9 +3326,9 @@ class SettingsScreen extends ConsumerWidget {
                         SnackBar(
                           showCloseIcon: true,
                           content: Text(
-                            strings.isJapanese
-                                ? 'クラウド復元キーをクリップボードにコピーしました。'
-                                : 'Cloud recovery key copied to clipboard.',
+                            strings.text(
+                              'home.cloud.recovery.key.copied.to.clipboard',
+                            ),
                           ),
                         ),
                       );
@@ -3512,9 +3341,7 @@ class SettingsScreen extends ConsumerWidget {
                       );
                     }
                   },
-                  child: Text(
-                    strings.isJapanese ? 'クラウド復元キーをコピー' : 'Copy recovery key',
-                  ),
+                  child: Text(strings.text('home.copy.recovery.key')),
                 ),
                 OutlinedButton(
                   onPressed: () async {
@@ -3554,9 +3381,7 @@ class SettingsScreen extends ConsumerWidget {
                         SnackBar(
                           showCloseIcon: true,
                           content: Text(
-                            strings.isJapanese
-                                ? 'クラウド復元キーを読み込みました。フィンガープリント: $fingerprint'
-                                : 'Cloud recovery key imported. Fingerprint: $fingerprint',
+                            strings.recoveryKeyImported(fingerprint),
                           ),
                         ),
                       );
@@ -3569,78 +3394,65 @@ class SettingsScreen extends ConsumerWidget {
                       );
                     }
                   },
-                  child: Text(
-                    strings.isJapanese
-                        ? 'クラウド復元キーを読み込む'
-                        : 'Import recovery key',
-                  ),
+                  child: Text(strings.text('home.import.recovery.key')),
                 ),
               ],
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(
-                strings.isJapanese ? '直近の同期履歴' : 'Last sync activity',
-              ),
+              title: Text(strings.text('home.last.sync.activity')),
               subtitle: Text(
                 syncBundleState.when(
                   data: (value) {
                     final entries = <String>[];
                     if (value.lastUploadedAt != null) {
                       entries.add(
-                        strings.isJapanese
-                            ? '最終アップロード ${_formatDateTime(value.lastUploadedAt!)}'
-                            : 'Last upload ${_formatDateTime(value.lastUploadedAt!)}',
+                        strings.lastUploadAt(
+                          _formatDateTime(value.lastUploadedAt!),
+                        ),
                       );
                     }
                     if (value.lastAppliedAt != null) {
                       entries.add(
-                        strings.isJapanese
-                            ? '最終適用 ${_formatDateTime(value.lastAppliedAt!)}'
-                            : 'Last apply ${_formatDateTime(value.lastAppliedAt!)}',
+                        strings.lastApplyAt(
+                          _formatDateTime(value.lastAppliedAt!),
+                        ),
                       );
                     }
                     if (value.lastRemoteModifiedAt != null) {
                       entries.add(
-                        strings.isJapanese
-                            ? 'リモート更新 ${_formatDateTime(value.lastRemoteModifiedAt!)}'
-                            : 'Remote bundle ${_formatDateTime(value.lastRemoteModifiedAt!)}',
+                        strings.remoteBundleAt(
+                          _formatDateTime(value.lastRemoteModifiedAt!),
+                        ),
                       );
                     }
                     if (entries.isEmpty) {
-                      return strings.isJapanese
-                          ? 'この端末ではまだ同期履歴がありません。'
-                          : 'No sync activity has been recorded on this device yet.';
+                      return strings.text(
+                        'home.no.sync.activity.has.been.recorded.on.this.device.yet',
+                      );
                     }
                     return entries.join('\n');
                   },
-                  loading: () => strings.isJapanese
-                      ? '同期履歴を読み込み中...'
-                      : 'Reading sync activity...',
-                  error: (_, _) => strings.isJapanese
-                      ? 'ローカル同期履歴を読めませんでした。'
-                      : 'Unable to read local sync activity.',
+                  loading: () => strings.text('home.reading.sync.activity'),
+                  error: (_, _) =>
+                      strings.text('home.unable.to.read.local.sync.activity'),
                 ),
               ),
             ),
             if (syncTransferState.localBundle != null)
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                title: Text(
-                  strings.isJapanese ? 'ローカルバンドルキャッシュ' : 'Local bundle cache',
-                ),
+                title: Text(strings.text('home.local.bundle.cache')),
                 subtitle: Text(
-                  strings.isJapanese
-                      ? '${syncTransferState.localBundle!.reference} に保存済み'
-                      : 'Stored at ${syncTransferState.localBundle!.reference}',
+                  strings.localBundleStoredAt(
+                    syncTransferState.localBundle!.reference,
+                  ),
                 ),
               ),
             _ThemeOptionTile(
               tileKey: syncOffKey,
-              title: strings.isJapanese ? 'オフ' : 'Off',
-              subtitle: strings.isJapanese
-                  ? 'データをこの端末のみに保存します。'
-                  : 'Keep data on this device only.',
+              title: strings.text('home.off'),
+              subtitle: strings.text('home.keep.data.on.this.device.only'),
               selected: syncProvider == SyncProvider.off,
               onTap: () => ref
                   .read(syncProviderControllerProvider.notifier)
@@ -3649,9 +3461,9 @@ class SettingsScreen extends ConsumerWidget {
             _ThemeOptionTile(
               tileKey: syncICloudKey,
               title: 'iCloud',
-              subtitle: strings.isJapanese
-                  ? 'この端末の iCloud を使う同期先です。HiMemo 用のログインは不要です。'
-                  : 'Use this device’s iCloud as the sync target. No HiMemo login is required.',
+              subtitle: strings.text(
+                'home.use.this.device.s.icloud.as.the.sync.target.no.himemo.lo',
+              ),
               selected: syncProvider == SyncProvider.iCloud,
               onTap: () => ref
                   .read(syncProviderControllerProvider.notifier)
@@ -3660,9 +3472,7 @@ class SettingsScreen extends ConsumerWidget {
             _ThemeOptionTile(
               tileKey: syncGoogleDriveKey,
               title: 'Google Drive',
-              subtitle: strings.isJapanese
-                  ? 'Google Drive の app-data 同期先です。'
-                  : 'Google Drive app-data sync target.',
+              subtitle: strings.text('home.google.drive.app.data.sync.target'),
               selected: syncProvider == SyncProvider.googleDrive,
               onTap: () => ref
                   .read(syncProviderControllerProvider.notifier)
@@ -3763,9 +3573,7 @@ class SettingsScreen extends ConsumerWidget {
                             );
                           }
                         },
-                  child: Text(
-                    strings.isJapanese ? 'リモートを更新' : 'Refresh remote',
-                  ),
+                  child: Text(strings.text('home.refresh.remote')),
                 ),
                 if (syncProvider != SyncProvider.off &&
                     syncAuthState.isAuthenticated)
@@ -3807,9 +3615,7 @@ class SettingsScreen extends ConsumerWidget {
                               );
                             }
                           },
-                    child: Text(
-                      strings.isJapanese ? 'バンドルをアップロード' : 'Upload bundle',
-                    ),
+                    child: Text(strings.text('home.upload.bundle')),
                   ),
                 if (syncProvider != SyncProvider.off &&
                     syncAuthState.isAuthenticated &&
@@ -3825,14 +3631,12 @@ class SettingsScreen extends ConsumerWidget {
                                   builder: (context) {
                                     return AlertDialog(
                                       title: Text(
-                                        strings.isJapanese
-                                            ? '強制アップロードしますか？'
-                                            : 'Force upload?',
+                                        strings.text('home.force.upload.2'),
                                       ),
                                       content: Text(
-                                        strings.isJapanese
-                                            ? 'この端末に保留中の変更がある状態で、より新しいリモートバンドルが見つかりました。強制アップロードすると、リモートのバックアップをこの端末の状態で上書きします。'
-                                            : 'A newer remote bundle was found while this device still has pending changes. Force upload will overwrite the remote backup with this device state.',
+                                        strings.text(
+                                          'home.a.newer.remote.bundle.was.found.while.this.device.still',
+                                        ),
                                       ),
                                       actions: [
                                         TextButton(
@@ -3844,9 +3648,7 @@ class SettingsScreen extends ConsumerWidget {
                                           onPressed: () =>
                                               Navigator.of(context).pop(true),
                                           child: Text(
-                                            strings.isJapanese
-                                                ? '強制アップロード'
-                                                : 'Force upload',
+                                            strings.text('home.force.upload'),
                                           ),
                                         ),
                                       ],
@@ -3876,9 +3678,7 @@ class SettingsScreen extends ConsumerWidget {
                               ),
                             );
                           },
-                    child: Text(
-                      strings.isJapanese ? '強制アップロード' : 'Force upload',
-                    ),
+                    child: Text(strings.text('home.force.upload')),
                   ),
                 if (syncProvider != SyncProvider.off &&
                     syncAuthState.isAuthenticated)
@@ -3899,9 +3699,9 @@ class SettingsScreen extends ConsumerWidget {
                                   SnackBar(
                                     showCloseIcon: true,
                                     content: Text(
-                                      strings.isJapanese
-                                          ? '利用できるリモートバンドル履歴がありません。'
-                                          : 'No remote bundle history is available.',
+                                      strings.text(
+                                        'home.no.remote.bundle.history.is.available',
+                                      ),
                                     ),
                                   ),
                                 );
@@ -3924,9 +3724,9 @@ class SettingsScreen extends ConsumerWidget {
                                   await _showBundlePreviewDialog(
                                     context,
                                     preview,
-                                    confirmLabel: strings.isJapanese
-                                        ? '適用候補として保持'
-                                        : 'Keep for apply',
+                                    confirmLabel: strings.text(
+                                      'home.keep.for.apply',
+                                    ),
                                   ) ??
                                   false;
                               if (!shouldKeep || !context.mounted) {
@@ -3947,9 +3747,9 @@ class SettingsScreen extends ConsumerWidget {
                                   SnackBar(
                                     showCloseIcon: true,
                                     content: Text(
-                                      strings.isJapanese
-                                          ? '選択したバンドルを適用候補として保持しました。'
-                                          : 'Selected bundle is ready for apply.',
+                                      strings.text(
+                                        'home.selected.bundle.is.ready.for.apply',
+                                      ),
                                     ),
                                   ),
                                 );
@@ -3966,9 +3766,7 @@ class SettingsScreen extends ConsumerWidget {
                               );
                             }
                           },
-                    child: Text(
-                      strings.isJapanese ? 'バンドル履歴' : 'Bundle history',
-                    ),
+                    child: Text(strings.text('home.bundle.history')),
                   ),
                 if (syncProvider != SyncProvider.off &&
                     syncAuthState.isAuthenticated)
@@ -4009,9 +3807,7 @@ class SettingsScreen extends ConsumerWidget {
                               );
                             }
                           },
-                    child: Text(
-                      strings.isJapanese ? 'バンドルをダウンロード' : 'Download bundle',
-                    ),
+                    child: Text(strings.text('home.download.bundle')),
                   ),
                 if (syncTransferState.localBundle != null)
                   OutlinedButton(
@@ -4043,9 +3839,7 @@ class SettingsScreen extends ConsumerWidget {
                               );
                             }
                           },
-                    child: Text(
-                      strings.isJapanese ? 'バンドルを確認' : 'Review bundle',
-                    ),
+                    child: Text(strings.text('home.review.bundle')),
                   ),
                 if (syncTransferState.localBundle != null)
                   OutlinedButton(
@@ -4065,9 +3859,9 @@ class SettingsScreen extends ConsumerWidget {
                                   await _showBundlePreviewDialog(
                                     context,
                                     preview,
-                                    confirmLabel: strings.isJapanese
-                                        ? 'バンドルを適用'
-                                        : 'Apply bundle',
+                                    confirmLabel: strings.text(
+                                      'home.apply.bundle',
+                                    ),
                                   ) ??
                                   false;
                               if (!shouldApply) {
@@ -4104,9 +3898,7 @@ class SettingsScreen extends ConsumerWidget {
                               ),
                             );
                           },
-                    child: Text(
-                      strings.isJapanese ? 'バンドルを適用' : 'Apply bundle',
-                    ),
+                    child: Text(strings.text('home.apply.bundle')),
                   ),
                 OutlinedButton(
                   onPressed: () async {
@@ -4121,20 +3913,15 @@ class SettingsScreen extends ConsumerWidget {
                       builder: (context) {
                         return AlertDialog(
                           title: Text(
-                            strings.isJapanese
-                                ? '同期スナップショットを準備しました'
-                                : 'Prepared sync snapshot',
+                            strings.text('home.prepared.sync.snapshot'),
                           ),
                           content: Text(
-                            strings.isJapanese
-                                ? 'ノート: ${snapshot.notes.length}\n'
-                                      '添付: ${snapshot.attachments.length}\n'
-                                      'キュー: ${snapshot.summary.totalChanges}件保留中\n'
-                                      '端末 ID: ${snapshot.deviceId}'
-                                : 'Notes: ${snapshot.notes.length}\n'
-                                      'Attachments: ${snapshot.attachments.length}\n'
-                                      'Queue: ${snapshot.summary.totalChanges} pending\n'
-                                      'Device ID: ${snapshot.deviceId}',
+                            strings.syncSnapshotSummary(
+                              notes: snapshot.notes.length,
+                              attachments: snapshot.attachments.length,
+                              pending: snapshot.summary.totalChanges,
+                              deviceId: snapshot.deviceId,
+                            ),
                           ),
                           actions: [
                             TextButton(
@@ -4146,9 +3933,7 @@ class SettingsScreen extends ConsumerWidget {
                       },
                     );
                   },
-                  child: Text(
-                    strings.isJapanese ? 'スナップショットを確認' : 'Inspect snapshot',
-                  ),
+                  child: Text(strings.text('home.inspect.snapshot')),
                 ),
               ],
             ),
@@ -4156,22 +3941,14 @@ class SettingsScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _SettingsGroup(
-          title: strings.isJapanese ? 'ストレージ' : 'Storage',
-          summary: strings.isJapanese
-              ? 'この端末に $noteCount 件のノートを保存しています。'
-              : '$noteCount notes saved on this device.',
+          title: strings.text('home.storage'),
+          summary: strings.noteCountSummary(noteCount),
           assetPath: 'assets/settings/storage.svg',
           children: [
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(
-                strings.isJapanese
-                    ? 'この端末に保存されたノート'
-                    : 'Saved notes on this device',
-              ),
-              subtitle: Text(
-                strings.isJapanese ? '$noteCount 件' : '$noteCount entries',
-              ),
+              title: Text(strings.text('home.saved.notes.on.this.device')),
+              subtitle: Text(strings.entriesCount(noteCount)),
             ),
             Align(
               alignment: Alignment.centerLeft,
@@ -4220,9 +3997,7 @@ class SettingsScreen extends ConsumerWidget {
                                       onPressed: () => Navigator.of(
                                         dialogContext,
                                       ).pop(false),
-                                      child: Text(
-                                        strings.isJapanese ? 'キャンセル' : 'Cancel',
-                                      ),
+                                      child: Text(strings.text('home.cancel')),
                                     ),
                                     FilledButton(
                                       onPressed: () =>
@@ -4285,9 +4060,7 @@ class SettingsScreen extends ConsumerWidget {
             _ThemeOptionTile(
               tileKey: SettingsScreen.localeJapaneseKey,
               title: strings.languageJapanese,
-              subtitle: strings.isJapanese
-                  ? '表示を日本語に固定します。'
-                  : 'Use Japanese across the app.',
+              subtitle: strings.text('home.use.japanese.across.the.app'),
               selected: localeSetting == AppLocaleSetting.japanese,
               onTap: () => ref
                   .read(appLocaleControllerProvider.notifier)
@@ -4296,9 +4069,7 @@ class SettingsScreen extends ConsumerWidget {
             _ThemeOptionTile(
               tileKey: SettingsScreen.localeEnglishKey,
               title: strings.languageEnglish,
-              subtitle: strings.isJapanese
-                  ? '表示を英語に固定します。'
-                  : 'Use English across the app.',
+              subtitle: strings.text('home.use.english.across.the.app'),
               selected: localeSetting == AppLocaleSetting.english,
               onTap: () => ref
                   .read(appLocaleControllerProvider.notifier)
@@ -4547,48 +4318,48 @@ class SettingsScreen extends ConsumerWidget {
   String _syncStatusTitle(BuildContext context, SyncProvider provider) {
     final strings = context.strings;
     if (provider == SyncProvider.iCloud) {
-      return strings.isJapanese ? 'iCloud の利用状態' : 'iCloud availability';
+      return strings.text('home.icloud.availability');
     }
-    return strings.isJapanese ? '認証' : 'Authentication';
+    return strings.text('home.authentication');
   }
 
   String _syncConnectLabel(BuildContext context, SyncProvider provider) {
     final strings = context.strings;
     if (provider == SyncProvider.iCloud) {
-      return strings.isJapanese ? 'iCloud を確認' : 'Check iCloud';
+      return strings.text('home.check.icloud');
     }
-    return strings.isJapanese ? '接続' : 'Connect';
+    return strings.text('home.connect');
   }
 
   String _syncReconnectLabel(BuildContext context, SyncProvider provider) {
     final strings = context.strings;
     if (provider == SyncProvider.iCloud) {
-      return strings.isJapanese ? 'iCloud を再確認' : 'Check again';
+      return strings.text('home.check.again');
     }
-    return strings.isJapanese ? '再接続' : 'Reconnect';
+    return strings.text('home.reconnect');
   }
 
   String _syncDisconnectLabel(BuildContext context, SyncProvider provider) {
     final strings = context.strings;
     if (provider == SyncProvider.iCloud) {
-      return strings.isJapanese ? 'iCloud 同期を解除' : 'Stop using iCloud';
+      return strings.text('home.stop.using.icloud');
     }
-    return strings.isJapanese ? '切断' : 'Disconnect';
+    return strings.text('home.disconnect');
   }
 
   String _syncSubtitle(BuildContext context, SyncProvider provider) {
     final strings = context.strings;
     switch (provider) {
       case SyncProvider.off:
-        return strings.isJapanese ? '同期はオフです。' : 'Sync is disabled.';
+        return strings.text('home.sync.is.disabled');
       case SyncProvider.iCloud:
-        return strings.isJapanese
-            ? 'iCloud を選択中です。この端末で iCloud が使えるか確認してから同期します。HiMemo 用のログインは不要です。'
-            : 'iCloud selected. The app checks this device’s iCloud availability before syncing. No HiMemo login is required.';
+        return strings.text(
+          'home.icloud.selected.the.app.checks.this.device.s.icloud.avai',
+        );
       case SyncProvider.googleDrive:
-        return strings.isJapanese
-            ? 'Google Drive を選択中です。Drive のアプリ専用領域へのアクセスを許可して同期します。'
-            : 'Google Drive selected. Authorize access to Drive app data before syncing.';
+        return strings.text(
+          'home.google.drive.selected.authorize.access.to.drive.app.data',
+        );
     }
   }
 
@@ -4605,55 +4376,45 @@ class SettingsScreen extends ConsumerWidget {
     if (provider == SyncProvider.iCloud) {
       switch (authState.stage) {
         case SyncAuthStage.idle:
-          return strings.isJapanese
-              ? 'まだこの端末の iCloud 利用状態を確認していません。'
-              : 'This device’s iCloud availability has not been checked yet.';
+          return strings.text(
+            'home.this.device.s.icloud.availability.has.not.been.checked.y',
+          );
         case SyncAuthStage.busy:
-          return strings.isJapanese
-              ? 'この端末の iCloud 利用状態を確認しています...'
-              : 'Checking this device’s iCloud availability...';
+          return strings.text(
+            'home.checking.this.device.s.icloud.availability',
+          );
         case SyncAuthStage.authenticated:
-          return strings.isJapanese
-              ? 'この端末の iCloud を HiMemo の同期先として利用できます。'
-              : 'This device can use iCloud as the HiMemo sync target.';
+          return strings.text(
+            'home.this.device.can.use.icloud.as.the.himemo.sync.target',
+          );
         case SyncAuthStage.unsupported:
         case SyncAuthStage.error:
           return authState.message ??
-              (strings.isJapanese
-                  ? 'この端末では iCloud 同期を利用できません。'
-                  : 'iCloud sync is not available on this device.');
+              (strings.text(
+                'home.icloud.sync.is.not.available.on.this.device',
+              ));
       }
     }
     if (provider == SyncProvider.off) {
-      return strings.isJapanese
-          ? 'クラウド同期は接続されていません。'
-          : 'No cloud account is connected.';
+      return strings.text('home.no.cloud.account.is.connected');
     }
 
     switch (authState.stage) {
       case SyncAuthStage.idle:
-        return strings.isJapanese
-            ? 'まだアカウントは接続されていません。'
-            : 'No account connected yet.';
+        return strings.text('home.no.account.connected.yet');
       case SyncAuthStage.busy:
-        return strings.isJapanese
-            ? '認証の完了を待っています...'
-            : 'Waiting for authentication to complete...';
+        return strings.text('home.waiting.for.authentication.to.complete');
       case SyncAuthStage.authenticated:
         final identity =
             authState.email ?? authState.displayName ?? authState.userId;
         final suffix = authState.message == null ? '' : ' ${authState.message}';
         return identity == null
-            ? (strings.isJapanese ? '接続済みです。$suffix' : 'Connected.$suffix')
-            : (strings.isJapanese
-                  ? '$identity で接続済みです。$suffix'
-                  : 'Connected as $identity.$suffix');
+            ? strings.syncConnected(suffix: suffix)
+            : strings.syncConnected(identity: identity, suffix: suffix);
       case SyncAuthStage.unsupported:
       case SyncAuthStage.error:
         return authState.message ??
-            (strings.isJapanese
-                ? '認証を利用できません。'
-                : 'Authentication is not available.');
+            (strings.text('home.authentication.is.not.available'));
     }
   }
 
@@ -4664,35 +4425,25 @@ class SettingsScreen extends ConsumerWidget {
   ) {
     final strings = context.strings;
     if (provider == SyncProvider.off) {
-      return strings.isJapanese
-          ? 'クラウドアカウントは接続されていません。'
-          : 'No cloud account is connected.';
+      return strings.text('home.no.cloud.account.is.connected.2');
     }
 
     switch (authState.stage) {
       case SyncAuthStage.idle:
-        return strings.isJapanese
-            ? 'まだアカウントが接続されていません。'
-            : 'No account connected yet.';
+        return strings.text('home.no.account.connected.yet.2');
       case SyncAuthStage.busy:
-        return strings.isJapanese
-            ? '認証完了を待っています...'
-            : 'Waiting for authentication to complete...';
+        return strings.text('home.waiting.for.authentication.to.complete.2');
       case SyncAuthStage.authenticated:
         final identity =
             authState.email ?? authState.displayName ?? authState.userId;
         final suffix = authState.message == null ? '' : ' ${authState.message}';
         return identity == null
-            ? (strings.isJapanese ? '接続済み。$suffix' : 'Connected.$suffix')
-            : (strings.isJapanese
-                  ? '$identity として接続済み。$suffix'
-                  : 'Connected as $identity.$suffix');
+            ? strings.syncConnectedLegacy(suffix: suffix)
+            : strings.syncConnectedLegacy(identity: identity, suffix: suffix);
       case SyncAuthStage.unsupported:
       case SyncAuthStage.error:
         return authState.message ??
-            (strings.isJapanese
-                ? '認証は利用できません。'
-                : 'Authentication is not available.');
+            (strings.text('home.authentication.is.not.available.2'));
     }
   }
 
@@ -4700,6 +4451,7 @@ class SettingsScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
   ) async {
+    final strings = context.strings;
     final secretController = TextEditingController();
     final confirmController = TextEditingController();
     String? errorText;
@@ -4710,16 +4462,16 @@ class SettingsScreen extends ConsumerWidget {
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
-              title: const Text('Set private key'),
+              title: Text(strings.setPrivateKey),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   TextField(
                     controller: secretController,
                     obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Private key',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: strings.privateKey,
+                      border: const OutlineInputBorder(),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -4727,7 +4479,7 @@ class SettingsScreen extends ConsumerWidget {
                     controller: confirmController,
                     obscureText: true,
                     decoration: InputDecoration(
-                      labelText: 'Confirm private key',
+                      labelText: strings.confirmPrivateKey(strings.privateKey),
                       border: const OutlineInputBorder(),
                       errorText: errorText,
                     ),
@@ -4737,7 +4489,7 @@ class SettingsScreen extends ConsumerWidget {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
+                  child: Text(strings.cancel),
                 ),
                 FilledButton(
                   onPressed: () async {
@@ -4745,13 +4497,13 @@ class SettingsScreen extends ConsumerWidget {
                     final confirm = confirmController.text.trim();
                     if (secret.length < 4) {
                       setState(() {
-                        errorText = 'Use at least 4 characters.';
+                        errorText = strings.useAtLeast4Chars;
                       });
                       return;
                     }
                     if (secret != confirm) {
                       setState(() {
-                        errorText = 'Keys do not match.';
+                        errorText = strings.keysDoNotMatch;
                       });
                       return;
                     }
@@ -4762,7 +4514,7 @@ class SettingsScreen extends ConsumerWidget {
                       Navigator.of(context).pop();
                     }
                   },
-                  child: const Text('Save'),
+                  child: Text(strings.save),
                 ),
               ],
             );
@@ -4776,6 +4528,7 @@ class SettingsScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
   ) async {
+    final strings = context.strings;
     final secretController = TextEditingController();
     String? errorText;
 
@@ -4785,12 +4538,12 @@ class SettingsScreen extends ConsumerWidget {
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
-              title: const Text('Unlock private vault'),
+              title: Text(strings.unlockPrivateVault),
               content: TextField(
                 controller: secretController,
                 obscureText: true,
                 decoration: InputDecoration(
-                  labelText: 'Private key',
+                  labelText: strings.privateKey,
                   border: const OutlineInputBorder(),
                   errorText: errorText,
                 ),
@@ -4798,7 +4551,7 @@ class SettingsScreen extends ConsumerWidget {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
+                  child: Text(strings.cancel),
                 ),
                 FilledButton(
                   onPressed: () async {
@@ -4807,7 +4560,7 @@ class SettingsScreen extends ConsumerWidget {
                         .verify(secretController.text.trim());
                     if (!matched) {
                       setState(() {
-                        errorText = 'Private key is not correct.';
+                        errorText = strings.privateKeyIncorrect;
                       });
                       return;
                     }
@@ -4815,7 +4568,7 @@ class SettingsScreen extends ConsumerWidget {
                       Navigator.of(context).pop();
                     }
                   },
-                  child: const Text('Unlock'),
+                  child: Text(strings.unlock),
                 ),
               ],
             );
@@ -4829,22 +4582,21 @@ class SettingsScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
   ) async {
+    final strings = context.strings;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Reset private key'),
-          content: const Text(
-            'This removes the configured private-vault key and locks the private vault immediately.',
-          ),
+          title: Text(strings.resetPrivateKey),
+          content: Text(strings.resetPrivateKeyBody),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+              child: Text(strings.cancel),
             ),
             FilledButton.tonal(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Reset'),
+              child: Text(strings.reset),
             ),
           ],
         );
@@ -4920,9 +4672,7 @@ class _Sidebar extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
                       child: Tooltip(
-                        message: strings.isJapanese
-                            ? '${activeIdentity.name} 利用中'
-                            : '${activeIdentity.name} active',
+                        message: strings.identityActive(activeIdentity.name),
                         child: CircleAvatar(
                           radius: 18,
                           backgroundColor: Theme.of(
@@ -4950,9 +4700,7 @@ class _Sidebar extends StatelessWidget {
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
-                          strings.isJapanese
-                              ? '${activeIdentity.name} 利用中'
-                              : '${activeIdentity.name} active',
+                          strings.identityActive(activeIdentity.name),
                           style: Theme.of(context).textTheme.labelMedium,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -5131,9 +4879,9 @@ class _PrivateVaultLockedNotice extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              context.strings.isJapanese
-                  ? 'ロック中のプロファイルは表示されません。設定から対象のプロファイルを解除してください。'
-                  : 'Locked profiles are hidden. Unlock the target profile from Settings to show its notes.',
+              context.strings.text(
+                'home.locked.profiles.are.hidden.unlock.the.target.profile.fro',
+              ),
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ),
@@ -5315,6 +5063,7 @@ class _NoteListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = context.strings;
     final isPrivateNote = isPrivateVaultId(note.vaultId);
     final changedAt = note.updatedAt ?? note.createdAt;
     final dateLabel =
@@ -5495,7 +5244,7 @@ class _NoteListTile extends StatelessWidget {
                     ),
                   const Spacer(),
                   Text(
-                    isEdited ? 'Edited $dateLabel' : dateLabel,
+                    isEdited ? strings.editedAt(dateLabel) : dateLabel,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: _mutedTextColor(context),
                     ),
@@ -5830,7 +5579,7 @@ class _StaticNoteDetailView extends ConsumerWidget {
                     ? () => onSelected(selectedIndex - 1)
                     : null,
                 icon: const Icon(Icons.chevron_left_rounded),
-                tooltip: strings.isJapanese ? '前のメモ' : 'Previous note',
+                tooltip: strings.text('home.previous.note'),
                 visualDensity: VisualDensity.compact,
               ),
               IconButton(
@@ -5838,7 +5587,7 @@ class _StaticNoteDetailView extends ConsumerWidget {
                     ? () => onSelected(selectedIndex + 1)
                     : null,
                 icon: const Icon(Icons.chevron_right_rounded),
-                tooltip: strings.isJapanese ? '次のメモ' : 'Next note',
+                tooltip: strings.text('home.next.note'),
                 visualDensity: VisualDensity.compact,
               ),
               const SizedBox(width: 8),
@@ -5949,7 +5698,7 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
                       )
                     : null,
                 icon: const Icon(Icons.chevron_left_rounded),
-                tooltip: strings.isJapanese ? '前のメモ' : 'Previous note',
+                tooltip: strings.text('home.previous.note'),
                 visualDensity: VisualDensity.compact,
               ),
               IconButton(
@@ -5960,7 +5709,7 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
                       )
                     : null,
                 icon: const Icon(Icons.chevron_right_rounded),
-                tooltip: strings.isJapanese ? '次のメモ' : 'Next note',
+                tooltip: strings.text('home.next.note'),
                 visualDensity: VisualDensity.compact,
               ),
               const SizedBox(width: 8),
@@ -5973,9 +5722,9 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  strings.isJapanese
-                      ? '左右にスワイプして前後のメモへ移動できます。'
-                      : 'Swipe left or right to move between notes.',
+                  strings.text(
+                    'home.swipe.left.or.right.to.move.between.notes',
+                  ),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: _mutedTextColor(context),
                   ),
@@ -6044,6 +5793,7 @@ class _NoteDetailPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = context.strings;
     final buildWatch = Stopwatch()..start();
     final createdLabel =
         '${note.createdAt.year}/${note.createdAt.month}/${note.createdAt.day} ${note.createdAt.hour.toString().padLeft(2, '0')}:${note.createdAt.minute.toString().padLeft(2, '0')}';
@@ -6080,12 +5830,12 @@ class _NoteDetailPane extends StatelessWidget {
                   key: const Key('edit-note-button'),
                   onPressed: onEdit,
                   icon: const Icon(Icons.edit_outlined),
-                  tooltip: 'Edit note',
+                  tooltip: strings.editNote,
                 ),
                 IconButton(
                   onPressed: onDelete,
                   icon: const Icon(Icons.delete_outline_rounded),
-                  tooltip: 'Delete note',
+                  tooltip: strings.deleteNote,
                 ),
               ],
             ),
@@ -6093,7 +5843,7 @@ class _NoteDetailPane extends StatelessWidget {
             Text(note.title, style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 8),
             Text(
-              isEdited ? 'Edited $updatedLabel' : createdLabel,
+              isEdited ? strings.editedAt(updatedLabel) : createdLabel,
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
@@ -6116,7 +5866,7 @@ class _NoteDetailPane extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Text(
-                  'Created $createdLabel · Revision ${note.revision}',
+                  strings.createdRevision(createdLabel, note.revision),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: _mutedTextColor(context),
                   ),
@@ -6644,9 +6394,9 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                   initialValue: query,
                   decoration: InputDecoration(
                     labelText: strings.search,
-                    hintText: strings.isJapanese
-                        ? 'ノート、日記、添付名を検索'
-                        : 'Search notes, diary entries, and attachment labels',
+                    hintText: strings.text(
+                      'home.search.notes.diary.entries.and.attachment.labels',
+                    ),
                     prefixIcon: const Icon(Icons.search_rounded),
                     border: const OutlineInputBorder(),
                     isDense: true,
@@ -6656,7 +6406,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
               ),
               const SizedBox(width: 8),
               PopupMenuButton<NotesListDensity>(
-                tooltip: strings.isJapanese ? '表示形式' : 'List layout',
+                tooltip: strings.text('home.list.layout'),
                 onSelected: ref
                     .read(notesListDensityControllerProvider.notifier)
                     .setDensity,
@@ -6664,21 +6414,19 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                   CheckedPopupMenuItem(
                     value: NotesListDensity.standard,
                     checked: listDensity == NotesListDensity.standard,
-                    child: Text(strings.isJapanese ? '標準表示' : 'Standard list'),
+                    child: Text(strings.text('home.standard.list')),
                   ),
                   CheckedPopupMenuItem(
                     value: NotesListDensity.compact,
                     checked: listDensity == NotesListDensity.compact,
-                    child: Text(
-                      strings.isJapanese ? 'コンパクト表示' : 'Compact list',
-                    ),
+                    child: Text(strings.text('home.compact.list')),
                   ),
                 ],
                 child: Semantics(
                   button: true,
-                  label: strings.isJapanese ? '表示形式' : 'List layout',
+                  label: strings.text('home.list.layout'),
                   child: Tooltip(
-                    message: strings.isJapanese ? '表示形式' : 'List layout',
+                    message: strings.text('home.list.layout'),
                     child: Container(
                       height: 48,
                       width: 48,
@@ -6697,7 +6445,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
               const SizedBox(width: 8),
               Semantics(
                 button: true,
-                label: strings.isJapanese ? '詳細' : 'Filters',
+                label: strings.text('home.filters'),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(12),
                   onTap: () {
@@ -6771,7 +6519,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                                     const Icon(Icons.tune_rounded, size: 20),
                                     const SizedBox(width: 6),
                                     Text(
-                                      strings.isJapanese ? '詳細' : 'Filters',
+                                      strings.text('home.filters'),
                                       style: Theme.of(
                                         context,
                                       ).textTheme.labelLarge,
@@ -6818,9 +6566,9 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
           if (privateModeActive) ...[
             const SizedBox(height: 8),
             Text(
-              strings.isJapanese
-                  ? 'プライベート表示を閉じると検索語は消去されます。'
-                  : 'Search terms are cleared when private mode closes.',
+              strings.text(
+                'home.search.terms.are.cleared.when.private.mode.closes',
+              ),
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
@@ -6855,7 +6603,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    strings.isJapanese ? '詳細条件' : 'Filters',
+                    strings.text('home.filters'),
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                   const SizedBox(height: 8),
@@ -6865,9 +6613,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                     controlAffinity: ListTileControlAffinity.leading,
                     dense: true,
                     visualDensity: VisualDensity.compact,
-                    title: Text(
-                      strings.isJapanese ? '固定したノートだけ' : 'Pinned only',
-                    ),
+                    title: Text(strings.text('home.pinned.only')),
                     onChanged: (value) => ref
                         .read(searchFiltersControllerProvider.notifier)
                         .setPinnedOnly(value ?? false),
@@ -6878,9 +6624,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                     controlAffinity: ListTileControlAffinity.leading,
                     dense: true,
                     visualDensity: VisualDensity.compact,
-                    title: Text(
-                      strings.isJapanese ? '添付があるノートだけ' : 'With media',
-                    ),
+                    title: Text(strings.text('home.with.media')),
                     onChanged: (value) => ref
                         .read(searchFiltersControllerProvider.notifier)
                         .setWithMediaOnly(value ?? false),
@@ -6890,18 +6634,14 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                     key: ValueKey(filters.vaultId ?? 'all-vaults'),
                     initialValue: filters.vaultId,
                     decoration: InputDecoration(
-                      labelText: strings.isJapanese ? '保存先' : 'Vault',
+                      labelText: strings.text('home.vault'),
                       border: const OutlineInputBorder(),
                       isDense: true,
                     ),
                     items: [
                       DropdownMenuItem<String?>(
                         value: null,
-                        child: Text(
-                          strings.isJapanese
-                              ? '表示中の保存先すべて'
-                              : 'All visible vaults',
-                        ),
+                        child: Text(strings.text('home.all.visible.vaults')),
                       ),
                       for (final vault in visibleVaults)
                         DropdownMenuItem<String?>(
@@ -6917,10 +6657,8 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                   _TagAutocompleteField(
                     key: const Key('search-tag-input'),
                     suggestions: tagSuggestions,
-                    label: strings.isJapanese ? 'タグで絞り込み' : 'Filter by tag',
-                    hintText: strings.isJapanese
-                        ? 'タグを追加して絞り込み'
-                        : 'Add tags to narrow the list',
+                    label: strings.text('home.filter.by.tag'),
+                    hintText: strings.text('home.add.tags.to.narrow.the.list'),
                     existingTags: filters.tags,
                     onTagSelected: ref
                         .read(searchFiltersControllerProvider.notifier)
@@ -6950,9 +6688,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                         onPressed: ref
                             .read(searchFiltersControllerProvider.notifier)
                             .reset,
-                        child: Text(
-                          strings.isJapanese ? '条件をリセット' : 'Reset filters',
-                        ),
+                        child: Text(strings.text('home.reset.filters')),
                       ),
                     ),
                   ],
@@ -7298,14 +7034,12 @@ class _EmptyNoteSelectionState extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            strings.isJapanese ? 'メモを選択してください' : 'Select a note',
+            strings.text('home.select.a.note'),
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
           Text(
-            strings.isJapanese
-                ? '一覧からメモを選ぶと、ここに内容が表示されます。'
-                : 'Pick a note from the list to preview it here.',
+            strings.text('home.pick.a.note.from.the.list.to.preview.it.here'),
             style: Theme.of(
               context,
             ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
@@ -7424,10 +7158,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     List<PrivateMemoProfile> privateProfiles,
   ) {
     if (vaultId == legacyPrivateVaultId) {
-      return const VaultBucket(
+      return VaultBucket(
         id: legacyPrivateVaultId,
-        name: 'Private profile',
-        description: 'Unlocked private notes',
+        name: context.strings.text('home.private.profile'),
+        description: context.strings.unlockedPrivateNotes,
       );
     }
     for (final profile in privateProfiles) {
@@ -7435,14 +7169,14 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         return VaultBucket(
           id: profile.vaultId,
           name: profile.name,
-          description: 'Unlocked private notes',
+          description: context.strings.unlockedPrivateNotes,
         );
       }
     }
     return VaultBucket(
       id: vaultId,
-      name: context.strings.isJapanese ? 'プライベートプロファイル' : 'Private profile',
-      description: 'Unlocked private notes',
+      name: context.strings.text('home.private.profile'),
+      description: context.strings.unlockedPrivateNotes,
     );
   }
 
@@ -8000,17 +7734,17 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          strings.isJapanese ? 'タグ' : 'Tags',
+                          strings.text('home.tags'),
                           style: Theme.of(context).textTheme.titleSmall,
                         ),
                         const SizedBox(height: 8),
                         _TagAutocompleteField(
                           key: const Key('note-tag-input'),
                           suggestions: ref.watch(visibleTagSuggestionsProvider),
-                          label: strings.isJapanese ? 'タグを追加' : 'Add a tag',
-                          hintText: strings.isJapanese
-                              ? '自由なタグを追加できます'
-                              : 'Type a tag and press enter',
+                          label: strings.text('home.add.a.tag'),
+                          hintText: strings.text(
+                            'home.type.a.tag.and.press.enter',
+                          ),
                           existingTags: _tags,
                           onTagSelected: (tag) {
                             setState(() {
@@ -8053,19 +7787,15 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       key: const Key('note-save-private-toggle'),
                       value: isPrivateSelection,
                       contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        strings.isJapanese
-                            ? 'プライベートプロファイルに保存'
-                            : 'Save to private profile',
-                      ),
+                      title: Text(strings.text('home.save.to.private.profile')),
                       subtitle: Text(
                         adminMode
-                            ? (strings.isJapanese
-                                  ? '管理者モードでは保存先のプロファイルを選べます。'
-                                  : 'Choose which private profile to save into while in admin mode.')
-                            : (strings.isJapanese
-                                  ? '現在開いているプライベートプロファイルに保存します。'
-                                  : 'Save into the currently unlocked private profile.'),
+                            ? (strings.text(
+                                'home.choose.which.private.profile.to.save.into.while.in.admin',
+                              ))
+                            : (strings.text(
+                                'home.save.into.the.currently.unlocked.private.profile',
+                              )),
                       ),
                       onChanged: (value) {
                         setState(() {
@@ -8087,9 +7817,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                         key: const Key('note-private-profile-select'),
                         initialValue: _selectedVaultId,
                         decoration: InputDecoration(
-                          labelText: strings.isJapanese
-                              ? '保存先プロファイル'
-                              : 'Private profile',
+                          labelText: strings.text('home.private.profile'),
                           border: const OutlineInputBorder(),
                         ),
                         items: [
@@ -8362,11 +8090,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         return;
       }
       _insertLocationText(
-        _formatLocationMemo(
-          position,
-          strings.isJapanese,
-          estimatedAddress: address,
-        ),
+        _formatLocationMemo(position, strings, estimatedAddress: address),
       );
       _showEditorSnackBar(content: Text(strings.currentLocationAdded));
     } catch (_) {
@@ -8837,7 +8561,7 @@ String? _formatPlacemarkAddress(Placemark placemark) {
 
 String _formatLocationMemo(
   Position position,
-  bool isJapanese, {
+  AppStrings strings, {
   String? estimatedAddress,
 }) {
   final latitude = position.latitude.toStringAsFixed(6);
@@ -8846,26 +8570,13 @@ String _formatLocationMemo(
       ? '${position.accuracy.round()}m'
       : '-';
   final mapUrl = 'https://maps.google.com/?q=$latitude,$longitude';
-  final address = estimatedAddress?.trim();
-  final addressLine = address == null || address.isEmpty
-      ? ''
-      : isJapanese
-      ? '推定住所: $address\n'
-      : 'Estimated address: $address\n';
-  if (isJapanese) {
-    return '現在地\n'
-        '$addressLine'
-        '緯度: $latitude\n'
-        '経度: $longitude\n'
-        '精度: 約$accuracy\n'
-        '$mapUrl';
-  }
-  return 'Current location\n'
-      '$addressLine'
-      'Latitude: $latitude\n'
-      'Longitude: $longitude\n'
-      'Accuracy: about $accuracy\n'
-      '$mapUrl';
+  return strings.locationMemo(
+    latitude: latitude,
+    longitude: longitude,
+    accuracy: accuracy,
+    mapUrl: mapUrl,
+    estimatedAddress: estimatedAddress,
+  );
 }
 
 class _LocationMemoData {
@@ -9661,7 +9372,7 @@ class _AttachmentListTile extends ConsumerWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        _attachmentDescription(attachment),
+                        _attachmentDescription(context, attachment),
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: _mutedTextColor(context),
                         ),
@@ -9672,7 +9383,7 @@ class _AttachmentListTile extends ConsumerWidget {
                 IconButton(
                   onPressed: () => _shareAttachment(context, ref, attachment),
                   icon: const Icon(Icons.share_outlined),
-                  tooltip: 'Share attachment',
+                  tooltip: context.strings.share,
                 ),
               ],
             ),
@@ -9688,12 +9399,13 @@ Future<void> _shareAttachment(
   WidgetRef ref,
   NoteAttachment attachment,
 ) async {
+  final strings = context.strings;
   final filePath = attachment.filePath;
   if (filePath == null || filePath.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+      SnackBar(
         showCloseIcon: true,
-        content: Text('This attachment cannot be shared yet.'),
+        content: Text(strings.unableToShareAttachment),
       ),
     );
     return;
@@ -9708,9 +9420,9 @@ Future<void> _shareAttachment(
     if (bytes == null || bytes.isEmpty) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             showCloseIcon: true,
-            content: Text('Unable to decrypt this attachment.'),
+            content: Text(strings.unableToDecryptAttachment),
           ),
         );
       }
@@ -9730,9 +9442,9 @@ Future<void> _shareAttachment(
   if (tempFilePath == null || tempFilePath.isEmpty) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           showCloseIcon: true,
-          content: Text('Unable to decrypt this attachment.'),
+          content: Text(strings.unableToDecryptAttachment),
         ),
       );
     }
@@ -9857,9 +9569,9 @@ class _EmbeddedPhotoAttachmentState
           );
         }
         if (bytes == null || bytes.isEmpty) {
-          return const SizedBox(
+          return SizedBox(
             height: 180,
-            child: Center(child: Text('Unable to load this image.')),
+            child: Center(child: Text(context.strings.unableToLoadImage)),
           );
         }
         return InkWell(
@@ -9924,7 +9636,7 @@ class _DeferredPhotoAttachmentPreview extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              strings.isJapanese ? 'タップして画像を表示' : 'Tap to open image',
+              strings.text('home.tap.to.open.image'),
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
@@ -10045,20 +9757,21 @@ class _AttachmentIconBox extends StatelessWidget {
   }
 }
 
-String _attachmentDescription(NoteAttachment attachment) {
+String _attachmentDescription(BuildContext context, NoteAttachment attachment) {
+  final strings = context.strings;
   switch (attachment.type) {
     case AttachmentType.photo:
       return attachment.filePath == null
-          ? 'Photo placeholder'
-          : 'Tap to view photo';
+          ? strings.photoPlaceholder
+          : strings.tapToViewPhoto;
     case AttachmentType.video:
       return attachment.filePath == null
-          ? 'Video placeholder'
-          : 'Tap to play video';
+          ? strings.videoPlaceholder
+          : strings.tapToPlayVideo;
     case AttachmentType.audio:
       return attachment.filePath == null
-          ? 'Audio placeholder'
-          : 'Tap to play audio';
+          ? strings.audioPlaceholder
+          : strings.tapToPlayAudio;
   }
 }
 
@@ -10077,59 +9790,48 @@ String _remoteBundleSummary(
 ) {
   final strings = AppStrings(WidgetsBinding.instance.platformDispatcher.locale);
   if (provider == SyncProvider.off) {
-    return strings.isJapanese
-        ? 'リモートバンドル保存先はまだ設定されていません。'
-        : 'Remote bundle storage is not configured yet.';
+    return strings.text('home.remote.bundle.storage.is.not.configured.yet');
   }
   if (provider == SyncProvider.iCloud && transferState.remoteStatus == null) {
     return transferState.message ??
-        (strings.isJapanese
-            ? 'iCloud 側のバンドル情報はまだ取得されていません。'
-            : 'No iCloud bundle metadata loaded yet.');
+        (strings.text('home.no.icloud.bundle.metadata.loaded.yet'));
   }
   if (provider != SyncProvider.googleDrive && provider != SyncProvider.iCloud) {
-    return strings.isJapanese
-        ? 'リモートバンドル転送はまだ利用できません。'
-        : 'Remote bundle transport is not available yet.';
+    return strings.text('home.remote.bundle.transport.is.not.available.yet');
   }
   if (provider == SyncProvider.off) {
-    return strings.isJapanese
-        ? 'リモートバンドルはまだ設定されていません。'
-        : 'Remote bundle storage is not configured yet.';
+    return strings.text('home.remote.bundle.storage.is.not.configured.yet.2');
   }
   if (provider == SyncProvider.iCloud && transferState.remoteStatus == null) {
     return transferState.message ??
-        (strings.isJapanese
-            ? 'iCloud 側のバンドル情報はまだ取得されていません。'
-            : 'No iCloud bundle metadata loaded yet.');
+        (strings.text('home.no.icloud.bundle.metadata.loaded.yet.2'));
   }
   if (provider != SyncProvider.googleDrive && provider != SyncProvider.iCloud) {
-    return strings.isJapanese
-        ? 'リモートバンドル転送は現在 Google Drive のみ対応しています。'
-        : 'Remote bundle transport is only wired for Google Drive right now.';
+    return strings.text(
+      'home.remote.bundle.transport.is.only.wired.for.google.drive.r',
+    );
   }
   final remote = transferState.remoteStatus;
   if (remote == null) {
     return transferState.message ??
-        (strings.isJapanese
-            ? 'まだリモートバンドルのメタデータは読み込まれていません。'
-            : 'No remote bundle metadata loaded yet.');
+        (strings.text('home.no.remote.bundle.metadata.loaded.yet'));
   }
   final modifiedAt = remote.modifiedAt == null
-      ? (strings.isJapanese ? '時刻不明' : 'unknown time')
+      ? (strings.text('home.unknown.time'))
       : _formatDateTime(remote.modifiedAt!);
   final sizeLabel = remote.sizeBytes == null
-      ? (strings.isJapanese ? 'サイズ不明' : 'size unknown')
-      : (strings.isJapanese
-            ? '${remote.sizeBytes} バイト'
-            : '${remote.sizeBytes} bytes');
+      ? (strings.text('home.size.unknown'))
+      : strings.byteCount(remote.sizeBytes!);
   final noteCount = remote.noteCount == null ? '?' : '${remote.noteCount}';
   final attachmentCount = remote.attachmentCount == null
       ? '?'
       : '${remote.attachmentCount}';
-  return strings.isJapanese
-      ? '最新バンドル: $modifiedAt、$sizeLabel、ノート $noteCount 件、添付 $attachmentCount 件。'
-      : 'Last bundle: $modifiedAt, $sizeLabel, $noteCount notes, $attachmentCount attachments.';
+  return strings.remoteBundleSummary(
+    modifiedAt: modifiedAt,
+    sizeLabel: sizeLabel,
+    noteCount: noteCount,
+    attachmentCount: attachmentCount,
+  );
 }
 
 Future<bool?> _showBundlePreviewDialog(
@@ -10142,7 +9844,7 @@ Future<bool?> _showBundlePreviewDialog(
     context: context,
     builder: (context) {
       return AlertDialog(
-        title: Text(strings.isJapanese ? 'バンドル確認' : 'Bundle review'),
+        title: Text(strings.text('home.bundle.review')),
         content: SizedBox(
           width: 560,
           child: SingleChildScrollView(
@@ -10150,69 +9852,39 @@ Future<bool?> _showBundlePreviewDialog(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  strings.isJapanese
-                      ? 'バンドル内ノート: ${preview.noteCount}'
-                      : 'Notes in bundle: ${preview.noteCount}',
-                ),
-                Text(
-                  strings.isJapanese
-                      ? 'バンドル内添付: ${preview.attachmentCount}'
-                      : 'Attachments in bundle: ${preview.attachmentCount}',
-                ),
-                Text(
-                  strings.isJapanese
-                      ? '追加: ${preview.addedCount}'
-                      : 'Adds: ${preview.addedCount}',
-                ),
-                Text(
-                  strings.isJapanese
-                      ? '更新: ${preview.updatedCount}'
-                      : 'Updates: ${preview.updatedCount}',
-                ),
-                Text(
-                  strings.isJapanese
-                      ? 'この端末で削除されるもの: ${preview.removedCount}'
-                      : 'Removals on this device: ${preview.removedCount}',
-                ),
+                Text(strings.bundleNotes(preview.noteCount)),
+                Text(strings.bundleAttachments(preview.attachmentCount)),
+                Text(strings.bundleAdds(preview.addedCount)),
+                Text(strings.bundleUpdates(preview.updatedCount)),
+                Text(strings.bundleRemovals(preview.removedCount)),
                 if (preview.privateVaultNoteCount > 0)
                   Text(
-                    strings.isJapanese
-                        ? 'Private vault に影響するノート: ${preview.privateVaultNoteCount}'
-                        : 'Private vault notes affected: ${preview.privateVaultNoteCount}',
+                    strings.bundlePrivateVaultAffected(
+                      preview.privateVaultNoteCount,
+                    ),
                   ),
                 if (preview.deviceId != null && preview.deviceId!.isNotEmpty)
-                  Text(
-                    strings.isJapanese
-                        ? 'リモート端末: ${preview.deviceId}'
-                        : 'Remote device: ${preview.deviceId}',
-                  ),
+                  Text(strings.bundleRemoteDevice(preview.deviceId!)),
                 if (preview.exportedAt != null)
                   Text(
-                    strings.isJapanese
-                        ? '書き出し日時: ${_formatDateTime(preview.exportedAt!)}'
-                        : 'Exported at: ${_formatDateTime(preview.exportedAt!)}',
+                    strings.bundleExportedAt(
+                      _formatDateTime(preview.exportedAt!),
+                    ),
                   ),
                 if (preview.sampleTitles.isNotEmpty) ...[
                   const SizedBox(height: 12),
-                  Text(
-                    strings.isJapanese
-                        ? 'サンプル: ${preview.sampleTitles.join(', ')}'
-                        : 'Bundle sample: ${preview.sampleTitles.join(', ')}',
-                  ),
+                  Text(strings.bundleSample(preview.sampleTitles.join(', '))),
                 ],
                 _PreviewTitlesSection(
-                  title: strings.isJapanese ? '追加されるノート' : 'Added notes',
+                  title: strings.text('home.added.notes'),
                   titles: preview.addedTitles,
                 ),
                 _PreviewTitlesSection(
-                  title: strings.isJapanese ? '更新されるノート' : 'Updated notes',
+                  title: strings.text('home.updated.notes'),
                   titles: preview.updatedTitles,
                 ),
                 _PreviewTitlesSection(
-                  title: strings.isJapanese
-                      ? '適用後にこの端末で消えるノート'
-                      : 'Removed locally after apply',
+                  title: strings.text('home.removed.locally.after.apply'),
                   titles: preview.removedTitles,
                 ),
               ],
@@ -10272,9 +9944,7 @@ Future<RemoteSyncBundleStatus?> _showBundleHistoryDialog(
     context: context,
     builder: (context) {
       return AlertDialog(
-        title: Text(
-          strings.isJapanese ? 'リモートバンドル履歴' : 'Remote bundle history',
-        ),
+        title: Text(strings.text('home.remote.bundle.history')),
         content: SizedBox(
           width: 520,
           child: ListView.separated(
@@ -10284,13 +9954,14 @@ Future<RemoteSyncBundleStatus?> _showBundleHistoryDialog(
             itemBuilder: (context, index) {
               final entry = history[index];
               final modifiedAt = entry.modifiedAt == null
-                  ? (strings.isJapanese ? '時刻不明' : 'Unknown time')
+                  ? (strings.text('home.unknown.time.2'))
                   : _formatDateTime(entry.modifiedAt!);
-              final counts = strings.isJapanese
-                  ? '${entry.noteCount ?? '?'}件のノート / ${entry.attachmentCount ?? '?'}件の添付'
-                  : '${entry.noteCount ?? '?'} notes, ${entry.attachmentCount ?? '?'} attachments';
+              final counts = strings.bundleHistoryCounts(
+                notes: entry.noteCount,
+                attachments: entry.attachmentCount,
+              );
               final device = entry.deviceId == null || entry.deviceId!.isEmpty
-                  ? (strings.isJapanese ? '端末不明' : 'Unknown device')
+                  ? (strings.text('home.unknown.device'))
                   : entry.deviceId!;
               return ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -10323,17 +9994,13 @@ Future<String?> _showSyncKeyImportDialog(BuildContext context) {
     context: context,
     builder: (context) {
       return AlertDialog(
-        title: Text(
-          strings.isJapanese ? 'クラウド復元キーを読み込む' : 'Import recovery key',
-        ),
+        title: Text(strings.text('home.import.recovery.key')),
         content: TextField(
           controller: controller,
           minLines: 2,
           maxLines: 4,
           decoration: InputDecoration(
-            hintText: strings.isJapanese
-                ? 'himemo-sync-key-v1:... を貼り付け'
-                : 'Paste himemo-sync-key-v1:...',
+            hintText: strings.text('home.paste.himemo.sync.key.v1'),
             border: const OutlineInputBorder(),
           ),
         ),
@@ -10344,7 +10011,7 @@ Future<String?> _showSyncKeyImportDialog(BuildContext context) {
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(controller.text),
-            child: Text(strings.isJapanese ? '読み込む' : 'Import'),
+            child: Text(strings.text('home.import')),
           ),
         ],
       );
@@ -10359,6 +10026,7 @@ Future<String?> _showSingleSecretPrompt(
   required String helperText,
   required String actionLabel,
 }) {
+  final strings = context.strings;
   final controller = TextEditingController();
   String? errorText;
   return showDialog<String>(
@@ -10394,14 +10062,14 @@ Future<String?> _showSingleSecretPrompt(
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Cancel'),
+                child: Text(strings.cancel),
               ),
               FilledButton(
                 onPressed: () {
                   final value = controller.text.trim();
                   if (value.length < 4) {
                     setState(() {
-                      errorText = 'Use at least 4 characters.';
+                      errorText = strings.useAtLeast4Chars;
                     });
                     return;
                   }
@@ -10424,6 +10092,7 @@ Future<String?> _showSecretSetupDialog(
   required String confirmLabel,
   required String helperText,
 }) {
+  final strings = context.strings;
   final secretController = TextEditingController();
   final confirmController = TextEditingController();
   String? errorText;
@@ -10470,7 +10139,7 @@ Future<String?> _showSecretSetupDialog(
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Cancel'),
+                child: Text(strings.cancel),
               ),
               FilledButton(
                 onPressed: () {
@@ -10478,19 +10147,19 @@ Future<String?> _showSecretSetupDialog(
                   final confirm = confirmController.text.trim();
                   if (secret.length < 4) {
                     setState(() {
-                      errorText = 'Use at least 4 characters.';
+                      errorText = strings.useAtLeast4Chars;
                     });
                     return;
                   }
                   if (secret != confirm) {
                     setState(() {
-                      errorText = 'Keys do not match.';
+                      errorText = strings.keysDoNotMatch;
                     });
                     return;
                   }
                   Navigator.of(context).pop(secret);
                 },
-                child: const Text('Save'),
+                child: Text(strings.save),
               ),
             ],
           );
@@ -10505,24 +10174,26 @@ Future<bool?> _showSyncKeyImportConfirmDialog(
   required String currentFingerprint,
   required String incomingFingerprint,
 }) {
+  final strings = context.strings;
   return showDialog<bool>(
     context: context,
     builder: (context) {
       return AlertDialog(
-        title: const Text('Replace recovery key'),
+        title: Text(strings.replaceRecoveryKey),
         content: Text(
-          'Current fingerprint: $currentFingerprint\n'
-          'Imported fingerprint: $incomingFingerprint\n\n'
-          'Replacing the recovery key can make existing remote bundles unreadable on this device until the original key is restored.',
+          strings.replaceRecoveryKeyBody(
+            currentFingerprint: currentFingerprint,
+            incomingFingerprint: incomingFingerprint,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: Text(strings.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Replace key'),
+            child: Text(strings.replaceKey),
           ),
         ],
       );
@@ -10563,7 +10234,7 @@ Future<void> _openAttachmentViewer(
     await showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,
-      barrierLabel: 'Close image viewer',
+      barrierLabel: context.strings.closeImageViewer,
       barrierColor: Colors.black.withValues(alpha: 0.88),
       pageBuilder: (context, _, __) => _PhotoLightboxDialog(
         attachments: attachments,
@@ -10624,9 +10295,7 @@ class _PinSetupDialogState extends State<_PinSetupDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              strings.isJapanese
-                  ? 'このブラウザで使う 4 桁の PIN を設定します。'
-                  : 'Use a 4 digit PIN for this browser.',
+              strings.text('home.use.a.4.digit.pin.for.this.browser'),
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 16),
@@ -10634,7 +10303,7 @@ class _PinSetupDialogState extends State<_PinSetupDialog> {
             const SizedBox(height: 12),
             _PinEntryField(
               controller: _confirmController,
-              label: strings.isJapanese ? 'PIN を確認' : 'Confirm PIN',
+              label: strings.text('home.confirm.pin'),
             ),
             if (_errorText != null) ...[
               const SizedBox(height: 12),
@@ -10664,25 +10333,19 @@ class _PinSetupDialogState extends State<_PinSetupDialog> {
     final confirm = _confirmController.text.trim();
     if (pin.length != 4) {
       setState(() {
-        _errorText = strings.isJapanese
-            ? 'PIN は 4 桁ちょうどで入力してください。'
-            : 'PIN must be exactly 4 digits.';
+        _errorText = strings.text('home.pin.must.be.exactly.4.digits');
       });
       return;
     }
     if (!RegExp(r'^\d+$').hasMatch(pin)) {
       setState(() {
-        _errorText = strings.isJapanese
-            ? 'PIN は数字だけで入力してください。'
-            : 'PIN must contain digits only.';
+        _errorText = strings.text('home.pin.must.contain.digits.only');
       });
       return;
     }
     if (pin != confirm) {
       setState(() {
-        _errorText = strings.isJapanese
-            ? '確認用 PIN が一致しません。'
-            : 'PIN confirmation did not match.';
+        _errorText = strings.text('home.pin.confirmation.did.not.match');
       });
       return;
     }
@@ -10747,7 +10410,7 @@ class _AttachmentViewerSheet extends ConsumerWidget {
         Text(attachment.label, style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
         Text(
-          _attachmentDescription(attachment),
+          _attachmentDescription(context, attachment),
           style: Theme.of(
             context,
           ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
@@ -10818,10 +10481,10 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
               return const Center(child: CircularProgressIndicator());
             }
             if (bytes == null || bytes.isEmpty) {
-              return const Center(
+              return Center(
                 child: Text(
-                  'Unable to decrypt this image.',
-                  style: TextStyle(color: Colors.white),
+                  context.strings.unableToDecryptImage,
+                  style: const TextStyle(color: Colors.white),
                 ),
               );
             }
@@ -10916,7 +10579,7 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                             child: Center(
                               child: _LightboxEdgeButton(
                                 icon: Icons.chevron_left_rounded,
-                                tooltip: 'Previous image',
+                                tooltip: context.strings.previousImage,
                                 onPressed: _showPreviousImage,
                               ),
                             ),
@@ -10929,7 +10592,7 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                             child: Center(
                               child: _LightboxEdgeButton(
                                 icon: Icons.chevron_right_rounded,
-                                tooltip: 'Next image',
+                                tooltip: context.strings.nextImage,
                                 onPressed: _showNextImage,
                               ),
                             ),
@@ -11065,6 +10728,7 @@ class _LightboxTopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final strings = context.strings;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
@@ -11076,7 +10740,7 @@ class _LightboxTopBar extends StatelessWidget {
           IconButton(
             onPressed: onClose,
             icon: const Icon(Icons.close_rounded, color: Colors.white),
-            tooltip: 'Close',
+            tooltip: strings.close,
           ),
           const SizedBox(width: 4),
           Expanded(
@@ -11093,22 +10757,22 @@ class _LightboxTopBar extends StatelessWidget {
           IconButton(
             onPressed: canMovePrevious ? onPrevious : null,
             icon: const Icon(Icons.chevron_left_rounded, color: Colors.white),
-            tooltip: 'Previous image',
+            tooltip: strings.previousImage,
           ),
           IconButton(
             onPressed: canMoveNext ? onNext : null,
             icon: const Icon(Icons.chevron_right_rounded, color: Colors.white),
-            tooltip: 'Next image',
+            tooltip: strings.nextImage,
           ),
           IconButton(
             onPressed: onZoomOut,
             icon: const Icon(Icons.remove_rounded, color: Colors.white),
-            tooltip: 'Zoom out',
+            tooltip: strings.zoomOut,
           ),
           IconButton(
             onPressed: onZoomIn,
             icon: const Icon(Icons.add_rounded, color: Colors.white),
-            tooltip: 'Zoom in',
+            tooltip: strings.zoomIn,
           ),
           IconButton(
             onPressed: onReset,
@@ -11116,7 +10780,7 @@ class _LightboxTopBar extends StatelessWidget {
               Icons.center_focus_strong_rounded,
               color: Colors.white,
             ),
-            tooltip: 'Fit to screen',
+            tooltip: strings.fitToScreen,
           ),
           IconButton(
             onPressed: onToggleEdgeToEdge,
@@ -11126,12 +10790,12 @@ class _LightboxTopBar extends StatelessWidget {
                   : Icons.fullscreen_rounded,
               color: Colors.white,
             ),
-            tooltip: edgeToEdge ? 'Restore frame' : 'Maximize',
+            tooltip: edgeToEdge ? strings.restoreFrame : strings.maximize,
           ),
           IconButton(
             onPressed: onShare,
             icon: const Icon(Icons.share_outlined, color: Colors.white),
-            tooltip: 'Share',
+            tooltip: strings.share,
           ),
         ],
       ),
@@ -11276,7 +10940,7 @@ class _PhotoAttachmentViewer extends ConsumerWidget {
           return const Center(child: CircularProgressIndicator());
         }
         if (bytes == null || bytes.isEmpty) {
-          return const Center(child: Text('Unable to decrypt this image.'));
+          return Center(child: Text(context.strings.unableToDecryptImage));
         }
         return InteractiveViewer(
           maxScale: 6,
@@ -11350,7 +11014,7 @@ class _VideoAttachmentViewerState
   @override
   Widget build(BuildContext context) {
     if (kIsWeb) {
-      return const Center(child: Text('Video preview is not enabled on web.'));
+      return Center(child: Text(context.strings.videoPreviewUnavailableWeb));
     }
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
@@ -11994,7 +11658,11 @@ class _AudioAttachmentViewerState
                           }
                         },
                         icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
-                        label: Text(isPlaying ? 'Pause audio' : 'Play audio'),
+                        label: Text(
+                          isPlaying
+                              ? context.strings.pauseAudio
+                              : context.strings.playAudio,
+                        ),
                       ),
                     ],
                   ),

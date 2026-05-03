@@ -29,6 +29,14 @@ void main() {
     expect(strings.noteDayLabel(DateTime(2026, 5, 3)), 'May 3, 2026 (Sun)');
   });
 
+  test('app strings localize home UI labels to Japanese', () {
+    final strings = AppStrings(const Locale('ja'));
+
+    expect(strings.emptyNotesTitle, '一致するノートはありません');
+    expect(strings.previousImage, '前の画像');
+    expect(strings.videoPreviewUnavailableWeb, 'Web では動画プレビューを利用できません。');
+  });
+
   test('providers expose private profiles only after unlock', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();
