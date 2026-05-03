@@ -6752,19 +6752,25 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
     }
     widget.onTagSelected(normalized);
     _controller.clear();
-    _focusNode.requestFocus();
+    _focusNode.unfocus();
   }
 
   @override
   Widget build(BuildContext context) {
-    final existingKeys = widget.existingTags.map(canonicalizeNoteTag).toSet();
-    final filteredSuggestions = widget.suggestions
-        .where((tag) => !existingKeys.contains(canonicalizeNoteTag(tag)))
-        .toList(growable: false);
     return RawAutocomplete<String>(
       textEditingController: _controller,
       focusNode: _focusNode,
       optionsBuilder: (value) {
+        final existingKeys = widget.existingTags
+            .map(canonicalizeNoteTag)
+            .toSet();
+        final seenKeys = <String>{};
+        final filteredSuggestions = <String>[
+          for (final tag in widget.suggestions)
+            if (!existingKeys.contains(canonicalizeNoteTag(tag)) &&
+                seenKeys.add(canonicalizeNoteTag(tag)))
+              tag,
+        ];
         final input = canonicalizeNoteTag(value.text);
         if (input.isEmpty) {
           return filteredSuggestions.take(8);
@@ -7555,6 +7561,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             const SizedBox(height: 16),
             Expanded(
               child: ListView(
+                padding: const EdgeInsets.only(bottom: 96),
                 children: [
                   SegmentedButton<NoteEditorMode>(
                     segments: [
