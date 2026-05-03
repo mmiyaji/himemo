@@ -25,6 +25,7 @@ import 'package:himemo/features/sync/data/sync_bundle_key_service.dart';
 import 'package:himemo/features/sync/data/sync_bundle_state_store.dart';
 import 'package:himemo/features/sync/data/sync_engine.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -336,6 +337,32 @@ void main() {
         type: AttachmentType.photo,
       );
       expect(restored, const [1, 2, 3, 4, 5, 6]);
+    });
+
+    test('reads attachments after app container path changes', () async {
+      final source = File(
+        '${tempDirectory.path}${Platform.pathSeparator}raw.jpg',
+      );
+      await source.writeAsBytes(const [7, 8, 9], flush: true);
+
+      final storedReference = await attachmentStore.storeAttachment(
+        XFile(source.path, name: 'raw.jpg'),
+        type: AttachmentType.photo,
+      );
+      expect(storedReference, isNotNull);
+
+      final staleContainerReference = path.join(
+        tempDirectory.path,
+        'previous-container',
+        'attachments',
+        path.basename(storedReference!),
+      );
+      final restored = await attachmentStore.readAttachment(
+        staleContainerReference,
+        type: AttachmentType.photo,
+      );
+
+      expect(restored, const [7, 8, 9]);
     });
   });
 

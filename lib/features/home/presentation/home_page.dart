@@ -10555,11 +10555,45 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
               return const Center(child: CircularProgressIndicator());
             }
             if (bytes == null || bytes.isEmpty) {
-              return Center(
-                child: Text(
-                  context.strings.unableToDecryptImage,
-                  style: const TextStyle(color: Colors.white),
-                ),
+              return Stack(
+                children: [
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => Navigator.of(context).pop(),
+                    ),
+                  ),
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        context.strings.unableToDecryptImage,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 16,
+                    left: 16,
+                    right: 16,
+                    child: _LightboxTopBar(
+                      attachment: _attachment,
+                      edgeToEdge: _edgeToEdge,
+                      canMovePrevious: _selectedIndex > 0,
+                      canMoveNext:
+                          _selectedIndex < widget.attachments.length - 1,
+                      onClose: () => Navigator.of(context).pop(),
+                      onZoomOut: null,
+                      onZoomIn: null,
+                      onReset: null,
+                      onPrevious: _showPreviousImage,
+                      onNext: _showNextImage,
+                      onToggleEdgeToEdge: null,
+                      onShare: null,
+                    ),
+                  ),
+                ],
               );
             }
 
@@ -10567,6 +10601,48 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
               future: _decodeImageSize(bytes),
               builder: (context, dimensionSnapshot) {
                 final imageSize = dimensionSnapshot.data;
+                if (dimensionSnapshot.hasError) {
+                  return Stack(
+                    children: [
+                      Positioned.fill(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => Navigator.of(context).pop(),
+                        ),
+                      ),
+                      Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(
+                            context.strings.unableToLoadImage,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 16,
+                        left: 16,
+                        right: 16,
+                        child: _LightboxTopBar(
+                          attachment: _attachment,
+                          edgeToEdge: _edgeToEdge,
+                          canMovePrevious: _selectedIndex > 0,
+                          canMoveNext:
+                              _selectedIndex < widget.attachments.length - 1,
+                          onClose: () => Navigator.of(context).pop(),
+                          onZoomOut: null,
+                          onZoomIn: null,
+                          onReset: null,
+                          onPrevious: _showPreviousImage,
+                          onNext: _showNextImage,
+                          onToggleEdgeToEdge: null,
+                          onShare: null,
+                        ),
+                      ),
+                    ],
+                  );
+                }
                 if (imageSize == null) {
                   return const Center(child: CircularProgressIndicator());
                 }
@@ -10792,13 +10868,13 @@ class _LightboxTopBar extends StatelessWidget {
   final bool canMovePrevious;
   final bool canMoveNext;
   final VoidCallback onClose;
-  final VoidCallback onZoomOut;
-  final VoidCallback onZoomIn;
-  final VoidCallback onReset;
+  final VoidCallback? onZoomOut;
+  final VoidCallback? onZoomIn;
+  final VoidCallback? onReset;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
-  final VoidCallback onToggleEdgeToEdge;
-  final VoidCallback onShare;
+  final VoidCallback? onToggleEdgeToEdge;
+  final VoidCallback? onShare;
 
   @override
   Widget build(BuildContext context) {
@@ -10838,39 +10914,44 @@ class _LightboxTopBar extends StatelessWidget {
             icon: const Icon(Icons.chevron_right_rounded, color: Colors.white),
             tooltip: strings.nextImage,
           ),
-          IconButton(
-            onPressed: onZoomOut,
-            icon: const Icon(Icons.remove_rounded, color: Colors.white),
-            tooltip: strings.zoomOut,
-          ),
-          IconButton(
-            onPressed: onZoomIn,
-            icon: const Icon(Icons.add_rounded, color: Colors.white),
-            tooltip: strings.zoomIn,
-          ),
-          IconButton(
-            onPressed: onReset,
-            icon: const Icon(
-              Icons.center_focus_strong_rounded,
-              color: Colors.white,
+          if (onZoomOut != null)
+            IconButton(
+              onPressed: onZoomOut,
+              icon: const Icon(Icons.remove_rounded, color: Colors.white),
+              tooltip: strings.zoomOut,
             ),
-            tooltip: strings.fitToScreen,
-          ),
-          IconButton(
-            onPressed: onToggleEdgeToEdge,
-            icon: Icon(
-              edgeToEdge
-                  ? Icons.fullscreen_exit_rounded
-                  : Icons.fullscreen_rounded,
-              color: Colors.white,
+          if (onZoomIn != null)
+            IconButton(
+              onPressed: onZoomIn,
+              icon: const Icon(Icons.add_rounded, color: Colors.white),
+              tooltip: strings.zoomIn,
             ),
-            tooltip: edgeToEdge ? strings.restoreFrame : strings.maximize,
-          ),
-          IconButton(
-            onPressed: onShare,
-            icon: const Icon(Icons.share_outlined, color: Colors.white),
-            tooltip: strings.share,
-          ),
+          if (onReset != null)
+            IconButton(
+              onPressed: onReset,
+              icon: const Icon(
+                Icons.center_focus_strong_rounded,
+                color: Colors.white,
+              ),
+              tooltip: strings.fitToScreen,
+            ),
+          if (onToggleEdgeToEdge != null)
+            IconButton(
+              onPressed: onToggleEdgeToEdge,
+              icon: Icon(
+                edgeToEdge
+                    ? Icons.fullscreen_exit_rounded
+                    : Icons.fullscreen_rounded,
+                color: Colors.white,
+              ),
+              tooltip: edgeToEdge ? strings.restoreFrame : strings.maximize,
+            ),
+          if (onShare != null)
+            IconButton(
+              onPressed: onShare,
+              icon: const Icon(Icons.share_outlined, color: Colors.white),
+              tooltip: strings.share,
+            ),
         ],
       ),
     );

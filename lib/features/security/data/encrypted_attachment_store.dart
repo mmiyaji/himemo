@@ -113,7 +113,9 @@ class EncryptedAttachmentStore {
         : path.extension(preferredFileName);
     final tempName =
         '${DateTime.now().microsecondsSinceEpoch}_${type.name}${extension.isEmpty ? '' : extension}';
-    final file = File(path.join(directory.path, 'attachments', 'tmp', tempName));
+    final file = File(
+      path.join(directory.path, 'attachments', 'tmp', tempName),
+    );
     await file.create(recursive: true);
     await file.writeAsBytes(bytes, flush: true);
     return file.path;
@@ -131,7 +133,7 @@ class EncryptedAttachmentStore {
       return;
     }
 
-    final file = File(storedReference);
+    final file = await _resolveStoredFile(storedReference);
     if (await file.exists()) {
       await file.delete();
     }
@@ -158,7 +160,7 @@ class EncryptedAttachmentStore {
       return null;
     }
 
-    final file = File(storedReference);
+    final file = await _resolveStoredFile(storedReference);
     if (!await file.exists()) {
       return null;
     }
@@ -167,6 +169,23 @@ class EncryptedAttachmentStore {
 
   Future<String?> readStoredPayload(String storedReference) {
     return _readPayload(storedReference);
+  }
+
+  Future<File> _resolveStoredFile(String storedReference) async {
+    final file = File(storedReference);
+    if (await file.exists()) {
+      return file;
+    }
+
+    // iOS can change the app container path across app updates. Older notes
+    // may keep an absolute path into the previous container, while the file was
+    // migrated by the OS into the new Application Support directory.
+    final fileName = path.basename(storedReference);
+    if (fileName.isEmpty || fileName == storedReference) {
+      return file;
+    }
+    final directory = await _directoryProvider();
+    return File(path.join(directory.path, 'attachments', fileName));
   }
 
   String _attachmentId(AttachmentType type, String name) {
