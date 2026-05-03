@@ -9811,6 +9811,25 @@ class _EmbeddedPhotoAttachmentState
     if (!widget.mediaActive) {
       return _InactivePhotoAttachmentPreview(label: widget.attachment.label);
     }
+    final previewBytesBase64 = widget.attachment.previewBytesBase64;
+    final hasPreview =
+        previewBytesBase64 != null && previewBytesBase64.isNotEmpty;
+    final filePath = widget.attachment.filePath;
+    if (!hasPreview && filePath != null && filePath.isNotEmpty) {
+      _debugNotePerf(
+        'detail photo deferred label="${widget.attachment.label}" file=${path.basename(filePath)}',
+      );
+      return _DeferredPhotoAttachmentPreview(
+        label: widget.attachment.label,
+        onTap: () => _openAttachmentViewer(
+          context,
+          ref,
+          widget.attachment,
+          photoAttachments: widget.photoAttachments,
+          initialPhotoIndex: widget.photoIndex,
+        ),
+      );
+    }
 
     return FutureBuilder<List<int>?>(
       future: _ensureImageBytesFuture(),
@@ -9853,6 +9872,51 @@ class _EmbeddedPhotoAttachmentState
           ),
         );
       },
+    );
+  }
+}
+
+class _DeferredPhotoAttachmentPreview extends StatelessWidget {
+  const _DeferredPhotoAttachmentPreview({
+    required this.label,
+    required this.onTap,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        height: 180,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Theme.of(context).dividerColor),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.image_outlined,
+              color: _mutedTextColor(context),
+              semanticLabel: label,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              strings.isJapanese ? 'タップして画像を表示' : 'Tap to open image',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
