@@ -487,20 +487,6 @@ class AppPinLockState {
     return lastError ?? 'No unlock PIN is configured for this browser yet.';
   }
 
-  String localizedSummary({required bool isJapanese}) {
-    if (isConfigured) {
-      return isJapanese
-          ? 'このブラウザでは解除用 PIN が設定されています。'
-          : 'A web-only unlock PIN is configured for this browser session.';
-    }
-    if (lastError != null && lastError!.isNotEmpty) {
-      return lastError!;
-    }
-    return isJapanese
-        ? 'このブラウザでは解除用 PIN はまだ設定されていません。'
-        : 'No unlock PIN is configured for this browser yet.';
-  }
-
   AppPinLockState copyWith({
     bool? isConfigured,
     String? lastError,
