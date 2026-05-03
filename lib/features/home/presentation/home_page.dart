@@ -418,20 +418,6 @@ class NotesScreen extends ConsumerStatefulWidget {
 }
 
 class _NotesScreenState extends ConsumerState<NotesScreen> {
-  late final PageController _detailPageController;
-
-  @override
-  void initState() {
-    super.initState();
-    _detailPageController = PageController();
-  }
-
-  @override
-  void dispose() {
-    _detailPageController.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.sizeOf(context);
@@ -457,19 +443,6 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final selectedIndex = effectiveSelectedNoteId == null
         ? -1
         : visibleNotes.indexWhere((note) => note.id == effectiveSelectedNoteId);
-
-    if (useSplitView && selectedIndex >= 0) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_detailPageController.hasClients) {
-          return;
-        }
-        final currentPage = _detailPageController.page?.round();
-        if (currentPage == selectedIndex) {
-          return;
-        }
-        _detailPageController.jumpToPage(selectedIndex);
-      });
-    }
 
     if (!useSplitView) {
       return ListView(
@@ -580,7 +553,6 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 : _NoteDetailPager(
                     notes: visibleNotes,
                     selectedIndex: selectedIndex,
-                    controller: _detailPageController,
                     onPageChanged: (index) => ref
                         .read(selectedNoteIdProvider.notifier)
                         .select(visibleNotes[index].id),
@@ -5636,12 +5608,10 @@ class _NoteDetailPager extends ConsumerStatefulWidget {
     required this.onEdit,
     required this.onDelete,
     this.onTagTap,
-    this.controller,
   });
 
   final List<NoteEntry> notes;
   final int selectedIndex;
-  final PageController? controller;
   final ValueChanged<int> onPageChanged;
   final ValueChanged<NoteEntry> onEdit;
   final ValueChanged<NoteEntry> onDelete;
@@ -5652,11 +5622,13 @@ class _NoteDetailPager extends ConsumerStatefulWidget {
 }
 
 class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
-  PageController? _ownedController;
+  late final PageController _pageController;
 
-  PageController get _pageController =>
-      widget.controller ??
-      (_ownedController ??= PageController(initialPage: widget.selectedIndex));
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController(initialPage: widget.selectedIndex);
+  }
 
   @override
   void didUpdateWidget(covariant _NoteDetailPager oldWidget) {
@@ -5666,22 +5638,21 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
         'detail pager selectedIndex ${oldWidget.selectedIndex}->${widget.selectedIndex}',
       );
     }
-    if (widget.controller == null &&
-        oldWidget.selectedIndex != widget.selectedIndex &&
-        _ownedController?.hasClients == true) {
-      final currentPage = _ownedController!.page?.round();
+    if (oldWidget.selectedIndex != widget.selectedIndex &&
+        _pageController.hasClients) {
+      final currentPage = _pageController.page?.round();
       if (currentPage != widget.selectedIndex) {
         _debugNotePerf(
           'detail pager jumpToPage ${widget.selectedIndex} current=$currentPage',
         );
-        _ownedController!.jumpToPage(widget.selectedIndex);
+        _pageController.jumpToPage(widget.selectedIndex);
       }
     }
   }
 
   @override
   void dispose() {
-    _ownedController?.dispose();
+    _pageController.dispose();
     super.dispose();
   }
 
