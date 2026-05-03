@@ -140,7 +140,8 @@ class AppShell extends ConsumerWidget {
                 ),
               ],
             ),
-      floatingActionButton: section == AppSection.notes
+      floatingActionButton:
+          section == AppSection.notes || section == AppSection.calendar
           ? FloatingActionButton.small(
               key: addNoteKey,
               onPressed: () => showNoteEditorSheet(context, ref),
@@ -760,6 +761,17 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ),
+                  IconButton.filledTonal(
+                    onPressed: () => showNoteEditorSheet(
+                      context,
+                      ref,
+                      initialCreatedAt: _selectedDateWithCurrentTime(),
+                    ),
+                    icon: const Icon(Icons.add_rounded),
+                    tooltip: strings.addNote,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  const SizedBox(width: 4),
                   IconButton(
                     onPressed: nextDay == null
                         ? null
@@ -810,6 +822,17 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     return left.year == right.year &&
         left.month == right.month &&
         left.day == right.day;
+  }
+
+  DateTime _selectedDateWithCurrentTime() {
+    final now = DateTime.now();
+    return DateTime(
+      _selectedDay.year,
+      _selectedDay.month,
+      _selectedDay.day,
+      now.hour,
+      now.minute,
+    );
   }
 
   List<DateTime> _sortedNoteDays(List<NoteEntry> notes) {
@@ -6019,6 +6042,7 @@ Future<void> showNoteEditorSheet(
   BuildContext context,
   WidgetRef ref, {
   NoteEntry? note,
+  DateTime? initialCreatedAt,
 }) async {
   await showModalBottomSheet<void>(
     context: context,
@@ -6030,7 +6054,10 @@ Future<void> showNoteEditorSheet(
         heightFactor: bottomInset > 0 ? 1 : 0.92,
         child: Padding(
           padding: EdgeInsets.only(bottom: bottomInset),
-          child: _NoteEditorSheet(note: note),
+          child: _NoteEditorSheet(
+            note: note,
+            initialCreatedAt: initialCreatedAt,
+          ),
         ),
       );
     },
@@ -6776,9 +6803,10 @@ class _RichBlockDraft {
 }
 
 class _NoteEditorSheet extends ConsumerStatefulWidget {
-  const _NoteEditorSheet({this.note});
+  const _NoteEditorSheet({this.note, this.initialCreatedAt});
 
   final NoteEntry? note;
+  final DateTime? initialCreatedAt;
 
   @override
   ConsumerState<_NoteEditorSheet> createState() => _NoteEditorSheetState();
@@ -6813,7 +6841,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _contentController = TextEditingController(text: _composeEditorContent());
     _quickContentFocusNode = FocusNode();
     _contentController.addListener(_handleTextChanged);
-    _createdAt = widget.note?.createdAt ?? DateTime.now();
+    _createdAt =
+        widget.note?.createdAt ?? widget.initialCreatedAt ?? DateTime.now();
     _isPinned = widget.note?.isPinned ?? false;
     _editorMode =
         widget.note?.editorMode ??
@@ -6844,7 +6873,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   void dispose() {
     _editorDisposed = true;
     _draftSaveTimer?.cancel();
-    if (!_saved && widget.note == null && _selectedVaultId != null) {
+    final shouldKeepDraft = !_saved && widget.note == null && _hasDraftContent;
+    if (shouldKeepDraft && _selectedVaultId != null) {
       unawaited(
         _draftStore.save(
           NoteEditorDraftSnapshot(
@@ -6859,17 +6889,21 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
           ),
         ),
       );
+    } else if (!_saved && widget.note == null) {
+      unawaited(_draftStore.clear());
     }
     if (!_saved) {
       for (final filePath in _pendingAttachmentDeletes) {
         unawaited(_attachmentStore.deleteAttachment(filePath));
       }
-      for (final attachment in _allCurrentAttachments) {
-        final filePath = attachment.filePath;
-        if (filePath == null || _initialAttachmentPaths.contains(filePath)) {
-          continue;
+      if (!shouldKeepDraft) {
+        for (final attachment in _allCurrentAttachments) {
+          final filePath = attachment.filePath;
+          if (filePath == null || _initialAttachmentPaths.contains(filePath)) {
+            continue;
+          }
+          unawaited(_attachmentStore.deleteAttachment(filePath));
         }
-        unawaited(_attachmentStore.deleteAttachment(filePath));
       }
     }
     _contentController.removeListener(_handleTextChanged);
@@ -7104,6 +7138,22 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       for (final block in _richBlocks)
         if (block.attachment != null) block.attachment!,
     ];
+  }
+
+  bool get _hasDraftContent {
+    if (_editorMode == NoteEditorMode.quick) {
+      final content = _splitMemoContent(_contentController.text);
+      return content.title.isNotEmpty ||
+          content.body.isNotEmpty ||
+          _attachments.isNotEmpty ||
+          _tags.isNotEmpty ||
+          _isPinned;
+    }
+    return _deriveRichTitle().isNotEmpty ||
+        _deriveRichBody().isNotEmpty ||
+        _allCurrentAttachments.isNotEmpty ||
+        _tags.isNotEmpty ||
+        _isPinned;
   }
 
   void _queueAttachmentDelete(NoteAttachment attachment) {
