@@ -294,6 +294,12 @@ class AppStrings {
       isJapanese ? '地図を開けませんでした。' : 'Could not open the map.';
   String get linkOpenFailed =>
       isJapanese ? 'リンクを開けませんでした。' : 'Could not open the link.';
+  String get openExternalLinkTitle =>
+      isJapanese ? '外部リンクを開きますか？' : 'Open external link?';
+  String get openExternalLinkMessage => isJapanese
+      ? 'このリンクはHiMemoの外部で開かれます。URLを確認してから続行してください。'
+      : 'This link will open outside HiMemo. Check the URL before continuing.';
+  String get openLink => isJapanese ? '開く' : 'Open';
   String get locationServicesOff => isJapanese
       ? '位置情報サービスがオフです。端末設定で有効にしてください。'
       : 'Location services are off. Enable them in device settings.';

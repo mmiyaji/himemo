@@ -5844,6 +5844,10 @@ Future<void> _openMemoLink(BuildContext context, String rawUrl) async {
   final normalized = rawUrl.startsWith(RegExp(r'https?://'))
       ? rawUrl
       : 'https://$rawUrl';
+  final shouldOpen = await _confirmExternalLinkOpen(context, normalized);
+  if (!shouldOpen || !context.mounted) {
+    return;
+  }
   final uri = Uri.tryParse(normalized);
   if (uri != null) {
     try {
@@ -5864,6 +5868,44 @@ Future<void> _openMemoLink(BuildContext context, String rawUrl) async {
       content: Text(context.strings.linkOpenFailed),
     ),
   );
+}
+
+Future<bool> _confirmExternalLinkOpen(BuildContext context, String url) async {
+  final strings = context.strings;
+  return await showDialog<bool>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: Text(strings.openExternalLinkTitle),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(strings.openExternalLinkMessage),
+                const SizedBox(height: 12),
+                SelectableText(
+                  url,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: _mutedTextColor(context),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: Text(strings.cancel),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.of(context).pop(true),
+                icon: const Icon(Icons.open_in_new_rounded),
+                label: Text(strings.openLink),
+              ),
+            ],
+          );
+        },
+      ) ??
+      false;
 }
 
 List<Widget> _buildDetailBlocks(BuildContext context, NoteEntry note) {
