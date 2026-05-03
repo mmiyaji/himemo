@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
@@ -5774,19 +5775,41 @@ class _SectionIntro extends StatelessWidget {
   }
 }
 
-class _LinkifiedMemoText extends StatelessWidget {
+class _LinkifiedMemoText extends StatefulWidget {
   const _LinkifiedMemoText({required this.text, this.style});
 
   final String text;
   final TextStyle? style;
 
+  @override
+  State<_LinkifiedMemoText> createState() => _LinkifiedMemoTextState();
+}
+
+class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
   static final _urlPattern = RegExp(r'((?:https?:\/\/|www\.)[^\s<>()]+)');
+  final List<TapGestureRecognizer> _recognizers = [];
+
+  @override
+  void dispose() {
+    _disposeRecognizers();
+    super.dispose();
+  }
+
+  void _disposeRecognizers() {
+    for (final recognizer in _recognizers) {
+      recognizer.dispose();
+    }
+    _recognizers.clear();
+  }
 
   @override
   Widget build(BuildContext context) {
+    _disposeRecognizers();
+    final text = widget.text;
+    final style = widget.style;
     final matches = _urlPattern.allMatches(text).toList(growable: false);
     if (matches.isEmpty) {
-      return Text(text, style: style);
+      return SelectableText(text, style: style);
     }
 
     final spans = <InlineSpan>[];
@@ -5805,16 +5828,11 @@ class _LinkifiedMemoText extends StatelessWidget {
       final rawMatch = match.group(0)!;
       final trimmed = _trimTrailingUrlPunctuation(rawMatch);
       final trailing = rawMatch.substring(trimmed.length);
+      final recognizer = TapGestureRecognizer()
+        ..onTap = () => _openMemoLink(context, trimmed);
+      _recognizers.add(recognizer);
       spans.add(
-        WidgetSpan(
-          alignment: PlaceholderAlignment.baseline,
-          baseline: TextBaseline.alphabetic,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => _openMemoLink(context, trimmed),
-            child: Text(trimmed, style: linkStyle),
-          ),
-        ),
+        TextSpan(text: trimmed, style: linkStyle, recognizer: recognizer),
       );
       if (trailing.isNotEmpty) {
         spans.add(TextSpan(text: trailing));
@@ -5826,9 +5844,7 @@ class _LinkifiedMemoText extends StatelessWidget {
       spans.add(TextSpan(text: text.substring(cursor)));
     }
 
-    return RichText(
-      text: TextSpan(style: style, children: spans),
-    );
+    return SelectableText.rich(TextSpan(style: style, children: spans));
   }
 }
 
