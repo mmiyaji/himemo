@@ -5754,6 +5754,7 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
                 padding: const EdgeInsets.only(right: 4),
                 child: _NoteDetailPane(
                   note: note,
+                  isActive: index == widget.selectedIndex,
                   vaultName: ref.watch(vaultByIdProvider(note.vaultId)).name,
                   onEdit: () => widget.onEdit(note),
                   onDelete: () => widget.onDelete(note),
@@ -5771,6 +5772,7 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
 class _NoteDetailPane extends StatelessWidget {
   const _NoteDetailPane({
     required this.note,
+    required this.isActive,
     required this.vaultName,
     this.onEdit,
     this.onDelete,
@@ -5778,6 +5780,7 @@ class _NoteDetailPane extends StatelessWidget {
   });
 
   final NoteEntry note;
+  final bool isActive;
   final String vaultName;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
@@ -5864,7 +5867,7 @@ class _NoteDetailPane extends StatelessWidget {
                 ),
               ),
             const SizedBox(height: 20),
-            ..._buildDetailBlocks(context, note),
+            ..._buildDetailBlocks(context, note, mediaActive: isActive),
           ],
         ),
       ),
@@ -6045,7 +6048,11 @@ Future<bool> _confirmExternalLinkOpen(BuildContext context, String url) async {
       false;
 }
 
-List<Widget> _buildDetailBlocks(BuildContext context, NoteEntry note) {
+List<Widget> _buildDetailBlocks(
+  BuildContext context,
+  NoteEntry note, {
+  required bool mediaActive,
+}) {
   final blocks = note.blocks.isNotEmpty
       ? note.blocks
       : _legacyBlocksFromNote(note);
@@ -6096,6 +6103,7 @@ List<Widget> _buildDetailBlocks(BuildContext context, NoteEntry note) {
           widgets.add(
             _EmbeddedAttachmentBlock(
               attachment: attachment,
+              mediaActive: mediaActive,
               photoAttachments: photoAttachments,
               photoIndex: attachment.type == AttachmentType.photo
                   ? photoAttachments.indexOf(attachment)
@@ -9483,11 +9491,13 @@ Future<void> _shareAttachment(
 class _EmbeddedAttachmentBlock extends ConsumerWidget {
   const _EmbeddedAttachmentBlock({
     required this.attachment,
+    required this.mediaActive,
     this.photoAttachments = const [],
     this.photoIndex,
   });
 
   final NoteAttachment attachment;
+  final bool mediaActive;
   final List<NoteAttachment> photoAttachments;
   final int? photoIndex;
 
@@ -9497,6 +9507,7 @@ class _EmbeddedAttachmentBlock extends ConsumerWidget {
       case AttachmentType.photo:
         return _EmbeddedPhotoAttachment(
           attachment: attachment,
+          mediaActive: mediaActive,
           photoAttachments: photoAttachments,
           photoIndex: photoIndex,
         );
@@ -9514,34 +9525,53 @@ class _EmbeddedAttachmentBlock extends ConsumerWidget {
   }
 }
 
-class _EmbeddedPhotoAttachment extends ConsumerWidget {
+class _EmbeddedPhotoAttachment extends ConsumerStatefulWidget {
   const _EmbeddedPhotoAttachment({
     required this.attachment,
+    required this.mediaActive,
     this.photoAttachments = const [],
     this.photoIndex,
   });
 
   final NoteAttachment attachment;
+  final bool mediaActive;
   final List<NoteAttachment> photoAttachments;
   final int? photoIndex;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final filePath = attachment.filePath;
-    final previewBytesBase64 = attachment.previewBytesBase64;
-    final imageBytesFuture = filePath != null && filePath.isNotEmpty
-        ? _readPhotoAttachmentBytesWithPerf(ref, attachment, source: 'detail')
-        : _profileNotePerfFuture(
-            'detail photo preview decode label="${attachment.label}"',
-            () => Future<List<int>?>.value(
-              previewBytesBase64 == null || previewBytesBase64.isEmpty
-                  ? null
-                  : base64Decode(previewBytesBase64),
-            ),
-          );
+  ConsumerState<_EmbeddedPhotoAttachment> createState() =>
+      _EmbeddedPhotoAttachmentState();
+}
+
+class _EmbeddedPhotoAttachmentState
+    extends ConsumerState<_EmbeddedPhotoAttachment> {
+  Future<List<int>?>? _imageBytesFuture;
+
+  @override
+  void didUpdateWidget(covariant _EmbeddedPhotoAttachment oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_attachmentCacheKey(oldWidget.attachment) !=
+        _attachmentCacheKey(widget.attachment)) {
+      _imageBytesFuture = null;
+    }
+  }
+
+  Future<List<int>?> _ensureImageBytesFuture() {
+    return _imageBytesFuture ??= _readPhotoAttachmentBytesWithPerf(
+      ref,
+      widget.attachment,
+      source: 'detail',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.mediaActive) {
+      return _InactivePhotoAttachmentPreview(label: widget.attachment.label);
+    }
 
     return FutureBuilder<List<int>?>(
-      future: imageBytesFuture,
+      future: _ensureImageBytesFuture(),
       builder: (context, snapshot) {
         final bytes = snapshot.data;
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -9556,56 +9586,55 @@ class _EmbeddedPhotoAttachment extends ConsumerWidget {
             child: Center(child: Text('Unable to load this image.')),
           );
         }
-        return FutureBuilder<ui.Size>(
-          future: _decodeImageSizeWithPerf(
-            bytes,
-            'detail photo size label="${attachment.label}"',
+        return InkWell(
+          onTap: () => _openAttachmentViewer(
+            context,
+            ref,
+            widget.attachment,
+            photoAttachments: widget.photoAttachments,
+            initialPhotoIndex: widget.photoIndex,
           ),
-          builder: (context, dimensionSnapshot) {
-            final imageSize = dimensionSnapshot.data;
-            if (imageSize == null) {
-              return const SizedBox(
-                height: 180,
-                child: Center(child: CircularProgressIndicator()),
-              );
-            }
-            return LayoutBuilder(
-              builder: (context, constraints) {
-                final maxWidth = constraints.maxWidth;
-                final displayWidth = math.min(maxWidth, imageSize.width);
-                final displayHeight =
-                    displayWidth * imageSize.height / imageSize.width;
-                return InkWell(
-                  onTap: () => _openAttachmentViewer(
-                    context,
-                    ref,
-                    attachment,
-                    photoAttachments: photoAttachments,
-                    initialPhotoIndex: photoIndex,
-                  ),
-                  borderRadius: BorderRadius.circular(8),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: SizedBox(
-                        width: displayWidth,
-                        height: displayHeight,
-                        child: Image.memory(
-                          Uint8List.fromList(bytes),
-                          width: displayWidth,
-                          height: displayHeight,
-                          fit: BoxFit.contain,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            );
-          },
+          borderRadius: BorderRadius.circular(8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 320),
+                child: Image.memory(
+                  Uint8List.fromList(bytes),
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                ),
+              ),
+            ),
+          ),
         );
       },
+    );
+  }
+}
+
+class _InactivePhotoAttachmentPreview extends StatelessWidget {
+  const _InactivePhotoAttachmentPreview({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 180,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      child: Icon(
+        Icons.image_outlined,
+        color: _mutedTextColor(context),
+        semanticLabel: label,
+      ),
     );
   }
 }
@@ -10843,13 +10872,6 @@ Future<T> _profileNotePerfFuture<T>(
   }
 }
 
-Future<ui.Size> _decodeImageSizeWithPerf(List<int> bytes, String label) {
-  return _profileNotePerfFuture(
-    '$label bytes=${bytes.length}',
-    () => _decodeImageSize(bytes),
-  );
-}
-
 Future<List<int>?> _readPhotoAttachmentBytes(
   WidgetRef ref,
   NoteAttachment attachment,
@@ -10865,6 +10887,14 @@ Future<List<int>?> _readPhotoAttachmentBytes(
     return Future<List<int>?>.value(null);
   }
   return Future<List<int>?>.value(base64Decode(previewBytesBase64));
+}
+
+String _attachmentCacheKey(NoteAttachment attachment) {
+  final filePath = attachment.filePath;
+  if (filePath != null && filePath.isNotEmpty) {
+    return filePath;
+  }
+  return '${attachment.label}:${attachment.previewBytesBase64 ?? ''}';
 }
 
 Future<List<int>?> _readPhotoAttachmentBytesWithPerf(
