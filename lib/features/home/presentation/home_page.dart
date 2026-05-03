@@ -10457,6 +10457,7 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                     final displayedWidth = imageSize.width * displayScale;
                     final displayedHeight = imageSize.height * displayScale;
                     final maxScale = displayScale < 1 ? 1 / displayScale : 1.0;
+                    final minScale = math.min(0.25, maxScale);
 
                     return Stack(
                       children: [
@@ -10474,20 +10475,24 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                               horizontalPadding,
                               verticalBottomPadding,
                             ),
-                            child: Center(
-                              child: GestureDetector(
-                                onTap: () {},
-                                onDoubleTap: () => _toggleActualSize(maxScale),
-                                child: SizedBox(
-                                  width: displayedWidth,
-                                  height: displayedHeight,
-                                  child: InteractiveViewer(
-                                    transformationController:
-                                        _transformationController,
-                                    minScale: 1,
-                                    maxScale: maxScale,
-                                    panEnabled: true,
-                                    clipBehavior: Clip.hardEdge,
+                            child: GestureDetector(
+                              onTap: () {},
+                              onDoubleTap: () => _toggleActualSize(maxScale),
+                              child: InteractiveViewer(
+                                transformationController:
+                                    _transformationController,
+                                minScale: minScale,
+                                maxScale: math.max(maxScale, minScale),
+                                panEnabled: true,
+                                boundaryMargin: EdgeInsets.all(
+                                  math.max(
+                                    constraints.maxWidth,
+                                    constraints.maxHeight,
+                                  ),
+                                ),
+                                clipBehavior: Clip.none,
+                                child: SizedBox.expand(
+                                  child: Center(
                                     child: SizedBox(
                                       width: displayedWidth,
                                       height: displayedHeight,
@@ -10586,7 +10591,7 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
   void _scaleBy(double factor, double maxScale) {
     final matrix = _transformationController.value.clone();
     final currentScale = matrix.getMaxScaleOnAxis();
-    final targetScale = (currentScale * factor).clamp(1.0, maxScale);
+    final targetScale = (currentScale * factor).clamp(0.25, maxScale);
     final ratio = targetScale / currentScale;
     matrix.scaleByDouble(ratio, ratio, ratio, 1);
     _transformationController.value = matrix;
