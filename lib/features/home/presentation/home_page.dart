@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
 import 'dart:ui' as ui;
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -5774,6 +5774,98 @@ class _SectionIntro extends StatelessWidget {
   }
 }
 
+class _LinkifiedMemoText extends StatelessWidget {
+  const _LinkifiedMemoText({required this.text, this.style});
+
+  final String text;
+  final TextStyle? style;
+
+  static final _urlPattern = RegExp(r'((?:https?:\/\/|www\.)[^\s<>()]+)');
+
+  @override
+  Widget build(BuildContext context) {
+    final matches = _urlPattern.allMatches(text).toList(growable: false);
+    if (matches.isEmpty) {
+      return Text(text, style: style);
+    }
+
+    final spans = <InlineSpan>[];
+    var cursor = 0;
+    final linkStyle = style?.copyWith(
+      color: Theme.of(context).colorScheme.primary,
+      decoration: TextDecoration.underline,
+      decorationColor: Theme.of(context).colorScheme.primary,
+    );
+
+    for (final match in matches) {
+      if (match.start > cursor) {
+        spans.add(TextSpan(text: text.substring(cursor, match.start)));
+      }
+
+      final rawMatch = match.group(0)!;
+      final trimmed = _trimTrailingUrlPunctuation(rawMatch);
+      final trailing = rawMatch.substring(trimmed.length);
+      spans.add(
+        WidgetSpan(
+          alignment: PlaceholderAlignment.baseline,
+          baseline: TextBaseline.alphabetic,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _openMemoLink(context, trimmed),
+            child: Text(trimmed, style: linkStyle),
+          ),
+        ),
+      );
+      if (trailing.isNotEmpty) {
+        spans.add(TextSpan(text: trailing));
+      }
+      cursor = match.end;
+    }
+
+    if (cursor < text.length) {
+      spans.add(TextSpan(text: text.substring(cursor)));
+    }
+
+    return RichText(
+      text: TextSpan(style: style, children: spans),
+    );
+  }
+}
+
+String _trimTrailingUrlPunctuation(String value) {
+  var end = value.length;
+  while (end > 0 && '.,;:!?、。)]）}'.contains(value[end - 1])) {
+    end -= 1;
+  }
+  return value.substring(0, end);
+}
+
+Future<void> _openMemoLink(BuildContext context, String rawUrl) async {
+  final normalized = rawUrl.startsWith(RegExp(r'https?://'))
+      ? rawUrl
+      : 'https://$rawUrl';
+  final uri = Uri.tryParse(normalized);
+  if (uri != null) {
+    try {
+      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (opened) {
+        return;
+      }
+    } catch (_) {
+      // Show a visible failure below.
+    }
+  }
+  if (!context.mounted) {
+    return;
+  }
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      showCloseIcon: true,
+      content: Text(context.strings.linkOpenFailed),
+    ),
+  );
+}
+
 List<Widget> _buildDetailBlocks(BuildContext context, NoteEntry note) {
   final blocks = note.blocks.isNotEmpty
       ? note.blocks
@@ -5785,8 +5877,8 @@ List<Widget> _buildDetailBlocks(BuildContext context, NoteEntry note) {
       .toList(growable: false);
   if (blocks.isEmpty) {
     return [
-      Text(
-        note.body,
+      _LinkifiedMemoText(
+        text: note.body,
         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
           color: Theme.of(context).colorScheme.onSurface,
         ),
@@ -5804,8 +5896,8 @@ List<Widget> _buildDetailBlocks(BuildContext context, NoteEntry note) {
           final location = _tryParseLocationMemo(text);
           widgets.add(
             location == null
-                ? Text(
-                    text,
+                ? _LinkifiedMemoText(
+                    text: text,
                     style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                       color: Theme.of(context).colorScheme.onSurface,
                     ),
