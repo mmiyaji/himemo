@@ -34,6 +34,19 @@ import 'home_providers.dart';
 
 enum AppSection { notes, calendar, insights, settings }
 
+void _debugNotePerf(String message) {
+  if (!kDebugMode) {
+    return;
+  }
+  debugPrint('[note-perf] ${DateTime.now().toIso8601String()} $message');
+}
+
+String _notePerfLabel(NoteEntry note) {
+  final title = note.title.trim();
+  final displayTitle = title.isEmpty ? '(untitled)' : title;
+  return 'id=${note.id} title="$displayTitle" attachments=${note.attachments.length} blocks=${note.blocks.length}';
+}
+
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key, required this.child});
 
@@ -533,9 +546,14 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                           query: query,
                           selected:
                               effectiveSelectedNoteId == visibleNotes[i].id,
-                          onTap: () => ref
-                              .read(selectedNoteIdProvider.notifier)
-                              .select(visibleNotes[i].id),
+                          onTap: () {
+                            _debugNotePerf(
+                              'select split-list ${_notePerfLabel(visibleNotes[i])}',
+                            );
+                            ref
+                                .read(selectedNoteIdProvider.notifier)
+                                .select(visibleNotes[i].id);
+                          },
                         ),
                         if (listDensity != NotesListDensity.compact &&
                             i != visibleNotes.length - 1)
@@ -582,6 +600,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     NoteEntry note,
     List<NoteEntry> visibleNotes,
   ) async {
+    _debugNotePerf('open mobile detail ${_notePerfLabel(note)}');
     final initialIndex = visibleNotes.indexWhere(
       (entry) => entry.id == note.id,
     );
@@ -5642,11 +5661,19 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
   @override
   void didUpdateWidget(covariant _NoteDetailPager oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedIndex != widget.selectedIndex) {
+      _debugNotePerf(
+        'detail pager selectedIndex ${oldWidget.selectedIndex}->${widget.selectedIndex}',
+      );
+    }
     if (widget.controller == null &&
         oldWidget.selectedIndex != widget.selectedIndex &&
         _ownedController?.hasClients == true) {
       final currentPage = _ownedController!.page?.round();
       if (currentPage != widget.selectedIndex) {
+        _debugNotePerf(
+          'detail pager jumpToPage ${widget.selectedIndex} current=$currentPage',
+        );
         _ownedController!.jumpToPage(widget.selectedIndex);
       }
     }
@@ -5720,6 +5747,9 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
             onPageChanged: widget.onPageChanged,
             itemBuilder: (context, index) {
               final note = widget.notes[index];
+              _debugNotePerf(
+                'detail page build index=$index ${_notePerfLabel(note)}',
+              );
               return Padding(
                 padding: const EdgeInsets.only(right: 4),
                 child: _NoteDetailPane(
@@ -5755,6 +5785,7 @@ class _NoteDetailPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final buildWatch = Stopwatch()..start();
     final createdLabel =
         '${note.createdAt.year}/${note.createdAt.month}/${note.createdAt.day} ${note.createdAt.hour.toString().padLeft(2, '0')}:${note.createdAt.minute.toString().padLeft(2, '0')}';
     final changedAt = note.updatedAt ?? note.createdAt;
@@ -5762,6 +5793,12 @@ class _NoteDetailPane extends StatelessWidget {
         '${changedAt.year}/${changedAt.month}/${changedAt.day} ${changedAt.hour.toString().padLeft(2, '0')}:${changedAt.minute.toString().padLeft(2, '0')}';
     final isEdited = note.updatedAt != null && note.updatedAt != note.createdAt;
     final tags = note.normalizedTags;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      buildWatch.stop();
+      _debugNotePerf(
+        'detail pane frame ${buildWatch.elapsedMicroseconds / 1000}ms ${_notePerfLabel(note)} tags=${tags.length}',
+      );
+    });
 
     return Container(
       decoration: _sectionDecoration(context),
@@ -9493,13 +9530,14 @@ class _EmbeddedPhotoAttachment extends ConsumerWidget {
     final filePath = attachment.filePath;
     final previewBytesBase64 = attachment.previewBytesBase64;
     final imageBytesFuture = filePath != null && filePath.isNotEmpty
-        ? ref
-              .watch(encryptedAttachmentStoreProvider)
-              .readAttachment(filePath, type: attachment.type)
-        : Future<List<int>?>.value(
-            previewBytesBase64 == null || previewBytesBase64.isEmpty
-                ? null
-                : base64Decode(previewBytesBase64),
+        ? _readPhotoAttachmentBytesWithPerf(ref, attachment, source: 'detail')
+        : _profileNotePerfFuture(
+            'detail photo preview decode label="${attachment.label}"',
+            () => Future<List<int>?>.value(
+              previewBytesBase64 == null || previewBytesBase64.isEmpty
+                  ? null
+                  : base64Decode(previewBytesBase64),
+            ),
           );
 
     return FutureBuilder<List<int>?>(
@@ -9519,7 +9557,10 @@ class _EmbeddedPhotoAttachment extends ConsumerWidget {
           );
         }
         return FutureBuilder<ui.Size>(
-          future: _decodeImageSize(bytes),
+          future: _decodeImageSizeWithPerf(
+            bytes,
+            'detail photo size label="${attachment.label}"',
+          ),
           builder: (context, dimensionSnapshot) {
             final imageSize = dimensionSnapshot.data;
             if (imageSize == null) {
@@ -10782,6 +10823,33 @@ Future<ui.Size> _decodeImageSize(List<int> bytes) async {
   return ui.Size(image.width.toDouble(), image.height.toDouble());
 }
 
+Future<T> _profileNotePerfFuture<T>(
+  String label,
+  Future<T> Function() task,
+) async {
+  if (!kDebugMode) {
+    return task();
+  }
+  final watch = Stopwatch()..start();
+  try {
+    final result = await task();
+    watch.stop();
+    _debugNotePerf('$label completed ${watch.elapsedMilliseconds}ms');
+    return result;
+  } catch (error) {
+    watch.stop();
+    _debugNotePerf('$label failed ${watch.elapsedMilliseconds}ms error=$error');
+    rethrow;
+  }
+}
+
+Future<ui.Size> _decodeImageSizeWithPerf(List<int> bytes, String label) {
+  return _profileNotePerfFuture(
+    '$label bytes=${bytes.length}',
+    () => _decodeImageSize(bytes),
+  );
+}
+
 Future<List<int>?> _readPhotoAttachmentBytes(
   WidgetRef ref,
   NoteAttachment attachment,
@@ -10797,6 +10865,18 @@ Future<List<int>?> _readPhotoAttachmentBytes(
     return Future<List<int>?>.value(null);
   }
   return Future<List<int>?>.value(base64Decode(previewBytesBase64));
+}
+
+Future<List<int>?> _readPhotoAttachmentBytesWithPerf(
+  WidgetRef ref,
+  NoteAttachment attachment, {
+  required String source,
+}) {
+  final filePath = attachment.filePath;
+  return _profileNotePerfFuture(
+    '$source photo read label="${attachment.label}" file=${filePath == null ? 'inline' : path.basename(filePath)}',
+    () => _readPhotoAttachmentBytes(ref, attachment),
+  );
 }
 
 class _PhotoAttachmentViewer extends ConsumerWidget {
