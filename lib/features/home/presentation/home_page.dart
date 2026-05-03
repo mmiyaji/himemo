@@ -2606,7 +2606,6 @@ class SettingsScreen extends ConsumerWidget {
     final privateVaultUnlocked = ref.watch(
       privateVaultSessionControllerProvider,
     );
-    final privateProfiles = ref.watch(privateMemoProfilesControllerProvider);
     final adminMode = ref.watch(adminModeSessionControllerProvider);
     final unlockedPrivateProfileVaultId = ref.watch(
       unlockedPrivateProfileVaultIdProvider,
@@ -2796,21 +2795,6 @@ class SettingsScreen extends ConsumerWidget {
                   ),
               ],
             ),
-            const SizedBox(height: 12),
-            if (privateProfiles.isEmpty)
-              Text(
-                strings.noPrivateProfilesMessage,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
-              )
-            else
-              Text(
-                strings.privateProfilesHiddenSummary(privateProfiles.length),
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
-              ),
           ],
         ),
         const SizedBox(height: 16),
@@ -4453,10 +4437,26 @@ class SettingsScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _SettingsGroup(
-          title: strings.appUpdates,
-          summary: inAppUpdateSummary,
+          title: strings.about,
+          summary: '$aboutVersion / $displayName',
           assetPath: 'assets/settings/about.svg',
           children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(displayName),
+              subtitle: Text(strings.currentFlavor(flavorName)),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(strings.appVersion),
+              subtitle: Text(
+                packageInfo.when(
+                  data: (info) => info.displayVersion,
+                  loading: strings.readingVersion,
+                  error: (_, _) => '1.0.0 (1)',
+                ),
+              ),
+            ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(strings.appUpdates),
@@ -4562,30 +4562,6 @@ class SettingsScreen extends ConsumerWidget {
                     child: Text(strings.completeUpdateInstall),
                   ),
               ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        _SettingsGroup(
-          title: strings.about,
-          summary: '$aboutVersion / $displayName',
-          assetPath: 'assets/settings/about.svg',
-          children: [
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(displayName),
-              subtitle: Text(strings.currentFlavor(flavorName)),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(strings.appVersion),
-              subtitle: Text(
-                packageInfo.when(
-                  data: (info) => info.displayVersion,
-                  loading: strings.readingVersion,
-                  error: (_, _) => '1.0.0 (1)',
-                ),
-              ),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
