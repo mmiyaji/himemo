@@ -431,6 +431,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     );
     final visibleNotes = ref.watch(visibleNotesProvider);
     final visibleVaults = ref.watch(visibleVaultsProvider);
+    final vaultNameById = {
+      for (final vault in visibleVaults) vault.id: vault.name,
+    };
     final listDensity = ref.watch(notesListDensityControllerProvider);
     final query = ref.watch(searchQueryProvider).trim();
     final selectedNoteId = ref.watch(selectedNoteIdProvider);
@@ -481,64 +484,20 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
       children: [
         Expanded(
           flex: 5,
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              if (activeIdentity.id != 'daily') ...[
-                _IdentityHeader(identity: activeIdentity),
-                const SizedBox(height: 12),
-              ],
-              if (activeIdentity.id == 'private' && !privateVaultUnlocked) ...[
-                const SizedBox(height: 12),
-                const _PrivateVaultLockedNotice(),
-              ],
-              const _NotesToolbar(),
-              const SizedBox(height: 16),
-              if (visibleNotes.isEmpty)
-                const _EmptyNotesState()
-              else
-                Container(
-                  decoration: _sectionDecoration(context),
-                  child: Column(
-                    children: [
-                      for (var i = 0; i < visibleNotes.length; i++) ...[
-                        if (listDensity != NotesListDensity.compact &&
-                            (i == 0 ||
-                                !_isSameNoteDay(
-                                  visibleNotes[i - 1],
-                                  visibleNotes[i],
-                                )))
-                          _NoteDayDivider(date: visibleNotes[i].createdAt),
-                        _NoteListTile(
-                          note: visibleNotes[i],
-                          vaultName: ref
-                              .watch(vaultByIdProvider(visibleNotes[i].vaultId))
-                              .name,
-                          showVaultName: visibleVaults.length > 1,
-                          density: listDensity,
-                          query: query,
-                          selected:
-                              effectiveSelectedNoteId == visibleNotes[i].id,
-                          onTap: () {
-                            _debugNotePerf(
-                              'select split-list ${_notePerfLabel(visibleNotes[i])}',
-                            );
-                            ref
-                                .read(selectedNoteIdProvider.notifier)
-                                .select(visibleNotes[i].id);
-                          },
-                        ),
-                        if (listDensity != NotesListDensity.compact &&
-                            i != visibleNotes.length - 1)
-                          Divider(
-                            height: 1,
-                            color: Theme.of(context).dividerColor,
-                          ),
-                      ],
-                    ],
-                  ),
-                ),
-            ],
+          child: _SplitNotesListPane(
+            activeIdentity: activeIdentity,
+            showPrivateVaultNotice:
+                activeIdentity.id == 'private' && !privateVaultUnlocked,
+            notes: visibleNotes,
+            selectedNoteId: effectiveSelectedNoteId,
+            vaultNameById: vaultNameById,
+            showVaultName: visibleVaults.length > 1,
+            density: listDensity,
+            query: query,
+            onNoteSelected: (note) {
+              _debugNotePerf('select split-list ${_notePerfLabel(note)}');
+              ref.read(selectedNoteIdProvider.notifier).select(note.id);
+            },
           ),
         ),
         VerticalDivider(width: 1, color: Theme.of(context).dividerColor),
@@ -5596,6 +5555,224 @@ class _HighlightedText extends StatelessWidget {
       TextSpan(style: style, children: spans),
       maxLines: maxLines,
       overflow: overflow ?? TextOverflow.clip,
+    );
+  }
+}
+
+class _SplitNotesListPane extends StatelessWidget {
+  const _SplitNotesListPane({
+    required this.activeIdentity,
+    required this.showPrivateVaultNotice,
+    required this.notes,
+    required this.selectedNoteId,
+    required this.vaultNameById,
+    required this.showVaultName,
+    required this.density,
+    required this.query,
+    required this.onNoteSelected,
+  });
+
+  final UnlockIdentity activeIdentity;
+  final bool showPrivateVaultNotice;
+  final List<NoteEntry> notes;
+  final String? selectedNoteId;
+  final Map<String, String> vaultNameById;
+  final bool showVaultName;
+  final NotesListDensity density;
+  final String query;
+  final ValueChanged<NoteEntry> onNoteSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = _buildSplitNoteRows(
+      activeIdentity: activeIdentity,
+      showPrivateVaultNotice: showPrivateVaultNotice,
+      notes: notes,
+      density: density,
+    );
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: rows.length,
+      itemBuilder: (context, index) {
+        final row = rows[index];
+        return switch (row) {
+          _SplitNoteIdentityRow() => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _IdentityHeader(identity: activeIdentity),
+          ),
+          _SplitNotePrivateNoticeRow() => const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: _PrivateVaultLockedNotice(),
+          ),
+          _SplitNoteToolbarRow() => const Padding(
+            padding: EdgeInsets.only(bottom: 16),
+            child: _NotesToolbar(),
+          ),
+          _SplitNoteEmptyRow() => const _EmptyNotesState(),
+          _SplitNoteDayRow(:final date) => _DecoratedSplitNoteRow(
+            position: row.position,
+            child: _NoteDayDivider(date: date),
+          ),
+          _SplitNoteTileRow(:final note) => _DecoratedSplitNoteRow(
+            position: row.position,
+            child: _NoteListTile(
+              note: note,
+              vaultName: vaultNameById[note.vaultId] ?? note.vaultId,
+              showVaultName: showVaultName,
+              density: density,
+              query: query,
+              selected: selectedNoteId == note.id,
+              onTap: () => onNoteSelected(note),
+            ),
+          ),
+          _SplitNoteDividerRow() => _DecoratedSplitNoteRow(
+            position: row.position,
+            child: Divider(height: 1, color: Theme.of(context).dividerColor),
+          ),
+        };
+      },
+    );
+  }
+}
+
+List<_SplitNoteRow> _buildSplitNoteRows({
+  required UnlockIdentity activeIdentity,
+  required bool showPrivateVaultNotice,
+  required List<NoteEntry> notes,
+  required NotesListDensity density,
+}) {
+  final rows = <_SplitNoteRow>[
+    if (activeIdentity.id != 'daily') const _SplitNoteIdentityRow(),
+    if (showPrivateVaultNotice) const _SplitNotePrivateNoticeRow(),
+    const _SplitNoteToolbarRow(),
+  ];
+  if (notes.isEmpty) {
+    rows.add(const _SplitNoteEmptyRow());
+    return rows;
+  }
+
+  final noteRows = <_SplitNoteRow>[];
+  for (var i = 0; i < notes.length; i++) {
+    if (density != NotesListDensity.compact &&
+        (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i]))) {
+      noteRows.add(_SplitNoteDayRow(notes[i].createdAt));
+    }
+    noteRows.add(_SplitNoteTileRow(notes[i]));
+    if (density != NotesListDensity.compact && i != notes.length - 1) {
+      noteRows.add(const _SplitNoteDividerRow());
+    }
+  }
+
+  for (var i = 0; i < noteRows.length; i++) {
+    rows.add(
+      noteRows[i].withPosition(
+        _SplitNoteRowPosition(first: i == 0, last: i == noteRows.length - 1),
+      ),
+    );
+  }
+  return rows;
+}
+
+class _SplitNoteRowPosition {
+  const _SplitNoteRowPosition({required this.first, required this.last});
+
+  final bool first;
+  final bool last;
+}
+
+sealed class _SplitNoteRow {
+  const _SplitNoteRow({this.position});
+
+  final _SplitNoteRowPosition? position;
+
+  _SplitNoteRow withPosition(_SplitNoteRowPosition position);
+}
+
+class _SplitNoteIdentityRow extends _SplitNoteRow {
+  const _SplitNoteIdentityRow();
+
+  @override
+  _SplitNoteRow withPosition(_SplitNoteRowPosition position) => this;
+}
+
+class _SplitNotePrivateNoticeRow extends _SplitNoteRow {
+  const _SplitNotePrivateNoticeRow();
+
+  @override
+  _SplitNoteRow withPosition(_SplitNoteRowPosition position) => this;
+}
+
+class _SplitNoteToolbarRow extends _SplitNoteRow {
+  const _SplitNoteToolbarRow();
+
+  @override
+  _SplitNoteRow withPosition(_SplitNoteRowPosition position) => this;
+}
+
+class _SplitNoteEmptyRow extends _SplitNoteRow {
+  const _SplitNoteEmptyRow();
+
+  @override
+  _SplitNoteRow withPosition(_SplitNoteRowPosition position) => this;
+}
+
+class _SplitNoteDayRow extends _SplitNoteRow {
+  const _SplitNoteDayRow(this.date, {super.position});
+
+  final DateTime date;
+
+  @override
+  _SplitNoteRow withPosition(_SplitNoteRowPosition position) =>
+      _SplitNoteDayRow(date, position: position);
+}
+
+class _SplitNoteTileRow extends _SplitNoteRow {
+  const _SplitNoteTileRow(this.note, {super.position});
+
+  final NoteEntry note;
+
+  @override
+  _SplitNoteRow withPosition(_SplitNoteRowPosition position) =>
+      _SplitNoteTileRow(note, position: position);
+}
+
+class _SplitNoteDividerRow extends _SplitNoteRow {
+  const _SplitNoteDividerRow({super.position});
+
+  @override
+  _SplitNoteRow withPosition(_SplitNoteRowPosition position) =>
+      _SplitNoteDividerRow(position: position);
+}
+
+class _DecoratedSplitNoteRow extends StatelessWidget {
+  const _DecoratedSplitNoteRow({required this.position, required this.child});
+
+  final _SplitNoteRowPosition? position;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final pos = position;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(pos?.first == true ? 6 : 0),
+          bottom: Radius.circular(pos?.last == true ? 6 : 0),
+        ),
+        border: Border(
+          left: BorderSide(color: Theme.of(context).dividerColor),
+          right: BorderSide(color: Theme.of(context).dividerColor),
+          top: pos?.first == true
+              ? BorderSide(color: Theme.of(context).dividerColor)
+              : BorderSide.none,
+          bottom: pos?.last == true
+              ? BorderSide(color: Theme.of(context).dividerColor)
+              : BorderSide.none,
+        ),
+      ),
+      child: child,
     );
   }
 }
