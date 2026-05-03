@@ -1619,13 +1619,19 @@ class AppStrings {
   String get tapToPlayAudio => isJapanese ? 'タップして音声を再生' : 'Tap to play audio';
   String get closeImageViewer =>
       isJapanese ? '画像ビューアを閉じる' : 'Close image viewer';
-  String get syncLabel => isJapanese ? '同期' : 'Sync';
-  String get enableDeviceAuthReason => isJapanese
-      ? 'HiMemo の端末認証を有効にします'
-      : 'Enable device authentication for HiMemo';
-  String get unlockWithDeviceAuthReason => isJapanese
-      ? '端末認証で HiMemo を解除します'
-      : 'Unlock HiMemo with device authentication';
+  String get syncLabel => localized(en: 'Sync', ja: '同期', zh: '同步', ko: '동기화');
+  String get enableDeviceAuthReason => localized(
+    en: 'Enable device authentication for HiMemo',
+    ja: 'HiMemo の端末認証を有効にします',
+    zh: '为 HiMemo 启用设备认证',
+    ko: 'HiMemo 기기 인증을 활성화합니다',
+  );
+  String get unlockWithDeviceAuthReason => localized(
+    en: 'Unlock HiMemo with device authentication',
+    ja: '端末認証で HiMemo を解除します',
+    zh: '使用设备认证解锁 HiMemo',
+    ko: '기기 인증으로 HiMemo를 잠금 해제합니다',
+  );
   String notesCount(int count, {bool spacedEnglish = true}) =>
       isJapanese ? '$count件' : '$count${spacedEnglish ? ' ' : ''}notes';
   String entriesCount(int count) => isJapanese ? '$count 件' : '$count entries';
@@ -1636,57 +1642,108 @@ class AppStrings {
   String accessModeSummary(String modeLabel) => isJapanese
       ? '$modeLabel。別の表示が必要なときだけ特別キーを使います。'
       : '$modeLabel. Special keys are used only when another view is needed.';
-  String webPinProtectionSummary(String pinSummary) => isJapanese
-      ? 'このブラウザでは 4 桁の PIN でメモ画面を保護します。$pinSummary'
-      : 'Protect this browser session with a 4 digit PIN. $pinSummary';
-  String deviceAuthProtectionSummary(String summary) => isJapanese
-      ? 'この端末の生体認証や画面ロックで保護します。利用状況: $summary'
-      : 'Protect the app with device authentication. Availability: $summary';
-  String lastQueuedAt(String timestamp) =>
-      isJapanese ? '最終追加 $timestamp' : 'last queued $timestamp';
+  String webPinProtectionSummary(String pinSummary) => localized(
+    en: 'Protect this browser session with a 4 digit PIN. $pinSummary',
+    ja: 'このブラウザでは 4 桁の PIN でメモ画面を保護します。$pinSummary',
+    zh: '使用 4 位 PIN 保护此浏览器会话。$pinSummary',
+    ko: '이 브라우저 세션을 4자리 PIN으로 보호합니다. $pinSummary',
+  );
+  String deviceAuthProtectionSummary(String summary) => localized(
+    en: 'Protect the app with device authentication. Availability: $summary',
+    ja: 'この端末の生体認証や画面ロックで保護します。利用状況: $summary',
+    zh: '使用设备认证保护应用。可用性：$summary',
+    ko: '기기 인증으로 앱을 보호합니다. 사용 가능 상태: $summary',
+  );
+  String lastQueuedAt(String timestamp) => localized(
+    en: 'last queued $timestamp',
+    ja: '最終追加 $timestamp',
+    zh: '最后加入队列 $timestamp',
+    ko: '마지막 대기열 추가 $timestamp',
+  );
   String pendingSyncSummary({
     required int total,
     required int upserts,
     required int deletes,
     required String stamp,
-  }) => isJapanese
-      ? '$total件が保留中（更新 $upserts / 削除 $deletes）、$stamp'
-      : '$total changes pending ($upserts upserts, $deletes deletes), $stamp';
-  String recoveryKeyImported(String fingerprint) => isJapanese
-      ? 'クラウド復元キーを読み込みました。フィンガープリント: $fingerprint'
-      : 'Cloud recovery key imported. Fingerprint: $fingerprint';
-  String lastUploadAt(String timestamp) =>
-      isJapanese ? '最終アップロード $timestamp' : 'Last upload $timestamp';
-  String lastApplyAt(String timestamp) =>
-      isJapanese ? '最終適用 $timestamp' : 'Last apply $timestamp';
-  String remoteBundleAt(String timestamp) =>
-      isJapanese ? 'リモート更新 $timestamp' : 'Remote bundle $timestamp';
-  String localBundleStoredAt(String reference) =>
-      isJapanese ? '$reference に保存済み' : 'Stored at $reference';
+  }) => localized(
+    en: '$total changes pending ($upserts upserts, $deletes deletes), $stamp',
+    ja: '$total件が保留中（更新 $upserts / 削除 $deletes）、$stamp',
+    zh: '$total 项更改待同步（更新 $upserts / 删除 $deletes），$stamp',
+    ko: '$total개 변경 대기 중(업데이트 $upserts / 삭제 $deletes), $stamp',
+  );
+  String recoveryKeyImported(String fingerprint) => localized(
+    en: 'Cloud recovery key imported. Fingerprint: $fingerprint',
+    ja: 'クラウド復元キーを読み込みました。フィンガープリント: $fingerprint',
+    zh: '已导入云恢复密钥。指纹：$fingerprint',
+    ko: '클라우드 복구 키를 가져왔습니다. 지문: $fingerprint',
+  );
+  String lastUploadAt(String timestamp) => localized(
+    en: 'Last upload $timestamp',
+    ja: '最終アップロード $timestamp',
+    zh: '最后上传 $timestamp',
+    ko: '마지막 업로드 $timestamp',
+  );
+  String lastApplyAt(String timestamp) => localized(
+    en: 'Last apply $timestamp',
+    ja: '最終適用 $timestamp',
+    zh: '最后应用 $timestamp',
+    ko: '마지막 적용 $timestamp',
+  );
+  String remoteBundleAt(String timestamp) => localized(
+    en: 'Remote bundle $timestamp',
+    ja: 'リモート更新 $timestamp',
+    zh: '远程包 $timestamp',
+    ko: '원격 번들 $timestamp',
+  );
+  String localBundleStoredAt(String reference) => localized(
+    en: 'Stored at $reference',
+    ja: '$reference に保存済み',
+    zh: '已存储在 $reference',
+    ko: '$reference에 저장됨',
+  );
   String syncSnapshotSummary({
     required int notes,
     required int attachments,
     required int pending,
     required String deviceId,
-  }) => isJapanese
-      ? 'ノート: $notes\n添付: $attachments\nキュー: $pending件保留中\n端末 ID: $deviceId'
-      : 'Notes: $notes\nAttachments: $attachments\nQueue: $pending pending\nDevice ID: $deviceId';
+  }) => localized(
+    en: 'Notes: $notes\nAttachments: $attachments\nQueue: $pending pending\nDevice ID: $deviceId',
+    ja: 'ノート: $notes\n添付: $attachments\nキュー: $pending件保留中\n端末 ID: $deviceId',
+    zh: '笔记：$notes\n附件：$attachments\n队列：$pending 项待处理\n设备 ID：$deviceId',
+    ko: '노트: $notes\n첨부: $attachments\n대기열: $pending개 대기 중\n기기 ID: $deviceId',
+  );
   String syncConnected({String? identity, String suffix = ''}) {
     if (identity == null) {
-      return isJapanese ? '接続済みです。$suffix' : 'Connected.$suffix';
+      return localized(
+        en: 'Connected.$suffix',
+        ja: '接続済みです。$suffix',
+        zh: '已连接。$suffix',
+        ko: '연결되었습니다. $suffix',
+      );
     }
-    return isJapanese
-        ? '$identity で接続済みです。$suffix'
-        : 'Connected as $identity.$suffix';
+    return localized(
+      en: 'Connected as $identity.$suffix',
+      ja: '$identity で接続済みです。$suffix',
+      zh: '已用 $identity 连接。$suffix',
+      ko: '$identity로 연결되었습니다. $suffix',
+    );
   }
 
   String syncConnectedLegacy({String? identity, String suffix = ''}) {
     if (identity == null) {
-      return isJapanese ? '接続済み。$suffix' : 'Connected.$suffix';
+      return localized(
+        en: 'Connected.$suffix',
+        ja: '接続済み。$suffix',
+        zh: '已连接。$suffix',
+        ko: '연결됨. $suffix',
+      );
     }
-    return isJapanese
-        ? '$identity で接続済み。$suffix'
-        : 'Connected as $identity.$suffix';
+    return localized(
+      en: 'Connected as $identity.$suffix',
+      ja: '$identity で接続済み。$suffix',
+      zh: '已用 $identity 连接。$suffix',
+      ko: '$identity로 연결됨. $suffix',
+    );
   }
 
   String identityActive(String name) =>
@@ -1697,9 +1754,12 @@ class AppStrings {
     required String sizeLabel,
     required String noteCount,
     required String attachmentCount,
-  }) => isJapanese
-      ? '最新バンドル: $modifiedAt、$sizeLabel、ノート $noteCount 件、添付 $attachmentCount 件。'
-      : 'Last bundle: $modifiedAt, $sizeLabel, $noteCount notes, $attachmentCount attachments.';
+  }) => localized(
+    en: 'Last bundle: $modifiedAt, $sizeLabel, $noteCount notes, $attachmentCount attachments.',
+    ja: '最新バンドル: $modifiedAt、$sizeLabel、ノート $noteCount 件、添付 $attachmentCount 件。',
+    zh: '最新包：$modifiedAt，$sizeLabel，笔记 $noteCount 条，附件 $attachmentCount 个。',
+    ko: '최신 번들: $modifiedAt, $sizeLabel, 노트 $noteCount개, 첨부 $attachmentCount개.',
+  );
   String bundleNotes(int count) =>
       isJapanese ? 'バンドル内ノート: $count' : 'Notes in bundle: $count';
   String bundleAttachments(int count) =>
@@ -2004,16 +2064,22 @@ class AppStrings {
   );
   String pinLockSummary({required bool isConfigured, String? lastError}) {
     if (isConfigured) {
-      return isJapanese
-          ? 'このブラウザでは解除用 PIN が設定されています。'
-          : 'A web-only unlock PIN is configured for this browser session.';
+      return localized(
+        en: 'A web-only unlock PIN is configured for this browser session.',
+        ja: 'このブラウザでは解除用 PIN が設定されています。',
+        zh: '此浏览器会话已设置仅限 Web 的解锁 PIN。',
+        ko: '이 브라우저 세션에는 웹 전용 잠금 해제 PIN이 설정되어 있습니다.',
+      );
     }
     if (lastError != null && lastError.isNotEmpty) {
       return lastError;
     }
-    return isJapanese
-        ? 'このブラウザでは解除用 PIN はまだ設定されていません。'
-        : 'No unlock PIN is configured for this browser yet.';
+    return localized(
+      en: 'No unlock PIN is configured for this browser yet.',
+      ja: 'このブラウザでは解除用 PIN はまだ設定されていません。',
+      zh: '此浏览器尚未设置解锁 PIN。',
+      ko: '이 브라우저에는 아직 잠금 해제 PIN이 설정되어 있지 않습니다.',
+    );
   }
 
   String get privateVaultLockedMessage => isJapanese

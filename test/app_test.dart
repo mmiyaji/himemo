@@ -51,6 +51,19 @@ void main() {
     expect(zh.appUpdates, '应用更新');
     expect(zh.text('home.save.to.private.profile'), '保存到私密档案');
     expect(zh.noteDayLabel(DateTime(2026, 5, 3)), '2026/05/03(周日)');
+    expect(
+      zh.webPinProtectionSummary(zh.pinLockSummary(isConfigured: false)),
+      '使用 4 位 PIN 保护此浏览器会话。此浏览器尚未设置解锁 PIN。',
+    );
+    expect(
+      zh.remoteBundleSummary(
+        modifiedAt: '2026/05/03 22:00',
+        sizeLabel: '12 KB',
+        noteCount: '3',
+        attachmentCount: '2',
+      ),
+      '最新包：2026/05/03 22:00，12 KB，笔记 3 条，附件 2 个。',
+    );
     expect(ko.notes, '노트');
     expect(ko.emptyNotesTitle, '일치하는 노트가 없습니다');
     expect(ko.quickMemo, '빠른 메모');
@@ -58,6 +71,19 @@ void main() {
     expect(ko.appUpdates, '앱 업데이트');
     expect(ko.text('home.save.to.private.profile'), '비공개 프로필에 저장');
     expect(ko.noteDayLabel(DateTime(2026, 5, 3)), '2026/05/03(일)');
+    expect(
+      ko.webPinProtectionSummary(ko.pinLockSummary(isConfigured: true)),
+      '이 브라우저 세션을 4자리 PIN으로 보호합니다. 이 브라우저 세션에는 웹 전용 잠금 해제 PIN이 설정되어 있습니다.',
+    );
+    expect(
+      ko.remoteBundleSummary(
+        modifiedAt: '2026/05/03 22:00',
+        sizeLabel: '12 KB',
+        noteCount: '3',
+        attachmentCount: '2',
+      ),
+      '최신 번들: 2026/05/03 22:00, 12 KB, 노트 3개, 첨부 2개.',
+    );
   });
 
   test('generated app localizations support configured locales', () async {
