@@ -2120,6 +2120,14 @@ class AppStrings {
   String get themeDark => localized(en: 'Dark', ja: 'ダーク', zh: '深色', ko: '다크');
   String get accentColor =>
       localized(en: 'Accent color', ja: 'アクセントカラー', zh: '强调色', ko: '강조 색상');
+  String get accentColorJapanesePaletteDesc => localized(
+    en: 'These accents are inspired by traditional Japanese colors.',
+    ja: '日本の伝統色をもとにしたアクセントカラーです。',
+    zh: '这些强调色以日本传统色为灵感。',
+    ko: '일본 전통색에서 영감을 받은 강조 색상입니다.',
+    es: 'Estos acentos se inspiran en colores tradicionales japoneses.',
+    de: 'Diese Akzentfarben sind von traditionellen japanischen Farben inspiriert.',
+  );
   String get extendedThemes => localized(
     en: 'Extended themes',
     ja: '拡張テーマ',
@@ -2135,6 +2143,54 @@ class AppStrings {
     ko: '확장 테마 숨기기',
     es: 'Ocultar temas ampliados',
     de: 'Erweiterte Themen ausblenden',
+  );
+  String get themeCategoryBlueGreen => localized(
+    en: 'Blue',
+    ja: '青系',
+    zh: '蓝色系',
+    ko: '파랑 계열',
+    es: 'Azules',
+    de: 'Blau',
+  );
+  String get themeCategoryPurple => localized(
+    en: 'Purple',
+    ja: '紫系',
+    zh: '紫色系',
+    ko: '보라 계열',
+    es: 'Púrpuras',
+    de: 'Violett',
+  );
+  String get themeCategoryRedPink => localized(
+    en: 'Red and pink',
+    ja: '赤・桃系',
+    zh: '红粉系',
+    ko: '빨강·분홍 계열',
+    es: 'Rojos y rosas',
+    de: 'Rot und Rosa',
+  );
+  String get themeCategoryGreenYellow => localized(
+    en: 'Green',
+    ja: '緑系',
+    zh: '绿色系',
+    ko: '초록 계열',
+    es: 'Verdes',
+    de: 'Grün',
+  );
+  String get themeCategoryEarth => localized(
+    en: 'Yellow and brown',
+    ja: '黄・茶系',
+    zh: '黄棕系',
+    ko: '노랑·갈색 계열',
+    es: 'Amarillos y marrones',
+    de: 'Gelb und Braun',
+  );
+  String get themeCategoryNeutral => localized(
+    en: 'White, black, and neutral',
+    ja: '白・黒・無彩色',
+    zh: '白、黑与中性色',
+    ko: '흰색, 검정, 무채색',
+    es: 'Blanco, negro y neutros',
+    de: 'Weiß, Schwarz und Neutral',
   );
   String get colorBlue => localized(
     en: '紺青 (Konjyo)',
@@ -2200,6 +2256,142 @@ class AppStrings {
     es: '藤 (Fuji)',
     de: '藤 (Fuji)',
   );
+  String get colorAi => localized(
+    en: '藍 (Ai)',
+    ja: '藍 (Ai)',
+    zh: '藍 (Ai)',
+    ko: '藍 (Ai)',
+    es: '藍 (Ai)',
+    de: '藍 (Ai)',
+  );
+  String get colorKurumi => localized(
+    en: '胡桃 (Kurumi)',
+    ja: '胡桃 (Kurumi)',
+    zh: '胡桃 (Kurumi)',
+    ko: '胡桃 (Kurumi)',
+    es: '胡桃 (Kurumi)',
+    de: '胡桃 (Kurumi)',
+  );
+  String get colorChigusa => localized(
+    en: '千草 (Chigusa)',
+    ja: '千草 (Chigusa)',
+    zh: '千草 (Chigusa)',
+    ko: '千草 (Chigusa)',
+    es: '千草 (Chigusa)',
+    de: '千草 (Chigusa)',
+  );
+  String get colorSumire => localized(
+    en: '菫 (Sumire)',
+    ja: '菫 (Sumire)',
+    zh: '菫 (Sumire)',
+    ko: '菫 (Sumire)',
+    es: '菫 (Sumire)',
+    de: '菫 (Sumire)',
+  );
+  String get colorSumi => localized(
+    en: '墨 (Sumi)',
+    ja: '墨 (Sumi)',
+    zh: '墨 (Sumi)',
+    ko: '墨 (Sumi)',
+    es: '墨 (Sumi)',
+    de: '墨 (Sumi)',
+  );
+  String get colorShironeri => localized(
+    en: '白練 (Shironeri)',
+    ja: '白練 (Shironeri)',
+    zh: '白練 (Shironeri)',
+    ko: '白練 (Shironeri)',
+    es: '白練 (Shironeri)',
+    de: '白練 (Shironeri)',
+  );
+  String get colorGofun => localized(
+    en: '胡粉 (Gofun)',
+    ja: '胡粉 (Gofun)',
+    zh: '胡粉 (Gofun)',
+    ko: '胡粉 (Gofun)',
+    es: '胡粉 (Gofun)',
+    de: '胡粉 (Gofun)',
+  );
+  String get colorEnji => localized(
+    en: '臙脂 (Enji)',
+    ja: '臙脂 (Enji)',
+    zh: '臙脂 (Enji)',
+    ko: '臙脂 (Enji)',
+    es: '臙脂 (Enji)',
+    de: '臙脂 (Enji)',
+  );
+  String get colorHanada => localized(
+    en: '縹 (Hanada)',
+    ja: '縹 (Hanada)',
+    zh: '縹 (Hanada)',
+    ko: '縹 (Hanada)',
+    es: '縹 (Hanada)',
+    de: '縹 (Hanada)',
+  );
+  String get colorSora => localized(
+    en: '空 (Sora)',
+    ja: '空 (Sora)',
+    zh: '空 (Sora)',
+    ko: '空 (Sora)',
+    es: '空 (Sora)',
+    de: '空 (Sora)',
+  );
+  String get colorRuri => localized(
+    en: '瑠璃 (Ruri)',
+    ja: '瑠璃 (Ruri)',
+    zh: '瑠璃 (Ruri)',
+    ko: '瑠璃 (Ruri)',
+    es: '瑠璃 (Ruri)',
+    de: '瑠璃 (Ruri)',
+  );
+  String get colorWakatake => localized(
+    en: '若竹 (Wakatake)',
+    ja: '若竹 (Wakatake)',
+    zh: '若竹 (Wakatake)',
+    ko: '若竹 (Wakatake)',
+    es: '若竹 (Wakatake)',
+    de: '若竹 (Wakatake)',
+  );
+  String get colorTokiwa => localized(
+    en: '常磐 (Tokiwa)',
+    ja: '常磐 (Tokiwa)',
+    zh: '常磐 (Tokiwa)',
+    ko: '常磐 (Tokiwa)',
+    es: '常磐 (Tokiwa)',
+    de: '常磐 (Tokiwa)',
+  );
+  String get colorNanohana => localized(
+    en: '菜の花 (Nanohana)',
+    ja: '菜の花 (Nanohana)',
+    zh: '菜の花 (Nanohana)',
+    ko: '菜の花 (Nanohana)',
+    es: '菜の花 (Nanohana)',
+    de: '菜の花 (Nanohana)',
+  );
+  String get colorHaizakura => localized(
+    en: '灰桜 (Haizakura)',
+    ja: '灰桜 (Haizakura)',
+    zh: '灰桜 (Haizakura)',
+    ko: '灰桜 (Haizakura)',
+    es: '灰桜 (Haizakura)',
+    de: '灰桜 (Haizakura)',
+  );
+  String get colorKikyo => localized(
+    en: '桔梗 (Kikyo)',
+    ja: '桔梗 (Kikyo)',
+    zh: '桔梗 (Kikyo)',
+    ko: '桔梗 (Kikyo)',
+    es: '桔梗 (Kikyo)',
+    de: '桔梗 (Kikyo)',
+  );
+  String get colorRikyucha => localized(
+    en: '利休茶 (Rikyucha)',
+    ja: '利休茶 (Rikyucha)',
+    zh: '利休茶 (Rikyucha)',
+    ko: '利休茶 (Rikyucha)',
+    es: '利休茶 (Rikyucha)',
+    de: '利休茶 (Rikyucha)',
+  );
   String get colorBlueDesc => localized(
     en: 'Deep traditional blue based on Konjyo.',
     ja: '深い伝統色の紺青を基調にした配色です。',
@@ -2263,6 +2455,142 @@ class AppStrings {
     ko: '등꽃을 떠올리게 하는 보라색 배색입니다.',
     es: 'Púrpura glicinia basado en Fuji.',
     de: 'Glyzinienviolett auf Basis von Fuji.',
+  );
+  String get colorAiDesc => localized(
+    en: 'Classic indigo blue for a calm interface.',
+    ja: '藍染を思わせる落ち着いた青の配色です。',
+    zh: '让人联想到蓝染的沉稳蓝色配色。',
+    ko: '쪽염을 떠올리게 하는 차분한 파란 배색입니다.',
+    es: 'Azul índigo clásico para una interfaz tranquila.',
+    de: 'Klassisches Indigoblau für eine ruhige Oberfläche.',
+  );
+  String get colorKurumiDesc => localized(
+    en: 'Walnut brown for a warm, grounded profile.',
+    ja: '胡桃のような温かい茶系の配色です。',
+    zh: '如胡桃般温暖的棕色配色。',
+    ko: '호두를 닮은 따뜻한 갈색 배색입니다.',
+    es: 'Marrón nogal para un perfil cálido.',
+    de: 'Walnussbraun für ein warmes Profil.',
+  );
+  String get colorChigusaDesc => localized(
+    en: 'Light blue-green based on Chigusa.',
+    ja: '軽やかな青緑の千草を基調にした配色です。',
+    zh: '以轻快蓝绿色千草为主的配色。',
+    ko: '가벼운 청록빛 치구사를 중심으로 한 배색입니다.',
+    es: 'Azul verdoso ligero basado en Chigusa.',
+    de: 'Helles Blaugrün auf Basis von Chigusa.',
+  );
+  String get colorSumireDesc => localized(
+    en: 'Deep violet based on Sumire.',
+    ja: '菫の花を思わせる深い紫の配色です。',
+    zh: '让人联想到菫花的深紫色配色。',
+    ko: '제비꽃을 떠올리게 하는 깊은 보라 배색입니다.',
+    es: 'Violeta profundo basado en Sumire.',
+    de: 'Tiefes Violett auf Basis von Sumire.',
+  );
+  String get colorSumiDesc => localized(
+    en: 'Ink black with restrained contrast.',
+    ja: '墨の黒を基調にした落ち着いた配色です。',
+    zh: '以墨黑为主的沉稳配色。',
+    ko: '먹색 검정을 중심으로 한 차분한 배색입니다.',
+    es: 'Negro tinta con contraste contenido.',
+    de: 'Tuscheschwarz mit zurückhaltendem Kontrast.',
+  );
+  String get colorShironeriDesc => localized(
+    en: 'Soft off-white based on Shironeri.',
+    ja: '白練を基調にした柔らかな白ベースです。',
+    zh: '以白练为主的柔和白色基调。',
+    ko: '시로네리를 중심으로 한 부드러운 흰색 기반입니다.',
+    es: 'Blanco suave basado en Shironeri.',
+    de: 'Sanftes Off-White auf Basis von Shironeri.',
+  );
+  String get colorGofunDesc => localized(
+    en: 'Warm mineral white based on Gofun.',
+    ja: '胡粉を思わせる温かい白ベースです。',
+    zh: '如胡粉般温暖的白色基调。',
+    ko: '고훈을 떠올리게 하는 따뜻한 흰색 기반입니다.',
+    es: 'Blanco mineral cálido basado en Gofun.',
+    de: 'Warmes Mineralweiß auf Basis von Gofun.',
+  );
+  String get colorEnjiDesc => localized(
+    en: 'Deep traditional crimson based on Enji.',
+    ja: '臙脂の深い赤を基調にした配色です。',
+    zh: '以深沉胭脂红为主的配色。',
+    ko: '깊은 연지색을 중심으로 한 배색입니다.',
+    es: 'Carmesí tradicional profundo basado en Enji.',
+    de: 'Tiefes traditionelles Karminrot auf Basis von Enji.',
+  );
+  String get colorHanadaDesc => localized(
+    en: 'Clear blue based on Hanada.',
+    ja: '澄んだ縹の青を基調にした配色です。',
+    zh: '以清澈缥色蓝为主的配色。',
+    ko: '맑은 하나다 파랑을 중심으로 한 배색입니다.',
+    es: 'Azul claro basado en Hanada.',
+    de: 'Klares Blau auf Basis von Hanada.',
+  );
+  String get colorSoraDesc => localized(
+    en: 'Bright sky blue based on Sora.',
+    ja: '明るい空色を基調にした配色です。',
+    zh: '以明亮天空蓝为主的配色。',
+    ko: '밝은 하늘색을 중심으로 한 배색입니다.',
+    es: 'Azul cielo claro basado en Sora.',
+    de: 'Helles Himmelblau auf Basis von Sora.',
+  );
+  String get colorRuriDesc => localized(
+    en: 'Lapis lazuli blue based on Ruri.',
+    ja: '瑠璃の深い青を基調にした配色です。',
+    zh: '以瑠璃般深蓝为主的配色。',
+    ko: '유리색의 깊은 파랑을 중심으로 한 배색입니다.',
+    es: 'Azul lapislázuli basado en Ruri.',
+    de: 'Lapislazuliblau auf Basis von Ruri.',
+  );
+  String get colorWakatakeDesc => localized(
+    en: 'Fresh bamboo green based on Wakatake.',
+    ja: '若竹を思わせる爽やかな緑の配色です。',
+    zh: '以若竹般清新的绿色为主的配色。',
+    ko: '어린 대나무를 떠올리게 하는 산뜻한 녹색 배색입니다.',
+    es: 'Verde bambú fresco basado en Wakatake.',
+    de: 'Frisches Bambusgrün auf Basis von Wakatake.',
+  );
+  String get colorTokiwaDesc => localized(
+    en: 'Evergreen tone based on Tokiwa.',
+    ja: '常緑を思わせる常磐の緑を基調にした配色です。',
+    zh: '以常绿般常磐绿为主的配色。',
+    ko: '상록을 떠올리게 하는 도키와 녹색 배색입니다.',
+    es: 'Verde perenne basado en Tokiwa.',
+    de: 'Immergrüner Ton auf Basis von Tokiwa.',
+  );
+  String get colorNanohanaDesc => localized(
+    en: 'Rapeseed flower yellow based on Nanohana.',
+    ja: '菜の花の明るい黄色を基調にした配色です。',
+    zh: '以油菜花般明亮黄色为主的配色。',
+    ko: '유채꽃의 밝은 노랑을 중심으로 한 배색입니다.',
+    es: 'Amarillo flor de colza basado en Nanohana.',
+    de: 'Rapsblütengelb auf Basis von Nanohana.',
+  );
+  String get colorHaizakuraDesc => localized(
+    en: 'Muted pale cherry tone based on Haizakura.',
+    ja: '灰桜のくすんだ淡色を基調にした配色です。',
+    zh: '以灰樱般柔和浅色为主的配色。',
+    ko: '하이자쿠라의 차분한 연색을 중심으로 한 배색입니다.',
+    es: 'Tono cerezo apagado basado en Haizakura.',
+    de: 'Gedämpfter heller Kirschton auf Basis von Haizakura.',
+  );
+  String get colorKikyoDesc => localized(
+    en: 'Bellflower purple based on Kikyo.',
+    ja: '桔梗の花を思わせる紫の配色です。',
+    zh: '以桔梗花般紫色为主的配色。',
+    ko: '도라지꽃을 떠올리게 하는 보라 배색입니다.',
+    es: 'Púrpura campanilla basado en Kikyo.',
+    de: 'Glockenblumenviolett auf Basis von Kikyo.',
+  );
+  String get colorRikyuchaDesc => localized(
+    en: 'Tea-toned green brown based on Rikyucha.',
+    ja: '利休茶の渋い緑茶系を基調にした配色です。',
+    zh: '以利休茶般沉稳茶绿色为主的配色。',
+    ko: '리큐차의 차분한 녹갈색을 중심으로 한 배색입니다.',
+    es: 'Verde marrón de té basado en Rikyucha.',
+    de: 'Teeartiges Grünbraun auf Basis von Rikyucha.',
   );
   String get lightDesc => localized(
     en: 'Keep the white memo-style interface.',
@@ -2536,10 +2864,10 @@ class AppStrings {
     ko: '기본적으로 Notes만 표시하고, 필요할 때만 다른 프로필을 엽니다.',
   );
   String get privateProfilesSettingsBody => localized(
-    en: 'Enter a password from the key icon in the top bar to open only the matching profile. Settings does not list configured profile names or vault IDs.',
-    ja: '右上の鍵アイコンからパスワードを入力すると、一致するプロファイルだけを開けます。設定画面では登録済みプロファイルの名前や保存先IDを列挙しません。',
-    zh: '从顶部栏的钥匙图标输入密码后，只会打开匹配的档案。设置中不会列出已配置档案的名称或保险库 ID。',
-    ko: '상단의 열쇠 아이콘에서 비밀번호를 입력하면 일치하는 프로필만 열립니다. 설정 화면에는 구성된 프로필 이름이나 보관함 ID를 나열하지 않습니다.',
+    en: 'Enter a password from the key icon in the top bar to open only the matching profile. Settings does not list configured profile names or vault IDs. When a profile is open, Appearance can set its accent color separately from normal mode.',
+    ja: '右上の鍵アイコンからパスワードを入力すると、一致するプロファイルだけを開けます。設定画面では登録済みプロファイルの名前や保存先IDを列挙しません。プロファイルを開いている間は、「表示」から通常モードとは別のアクセントカラーを設定できます。',
+    zh: '从顶部栏的钥匙图标输入密码后，只会打开匹配的档案。设置中不会列出已配置档案的名称或保险库 ID。打开档案时，可在“外观”中为该档案设置不同于普通模式的强调色。',
+    ko: '상단의 열쇠 아이콘에서 비밀번호를 입력하면 일치하는 프로필만 열립니다. 설정 화면에는 구성된 프로필 이름이나 보관함 ID를 나열하지 않습니다. 프로필이 열려 있을 때는 표시 설정에서 일반 모드와 다른 강조 색상을 따로 설정할 수 있습니다.',
   );
   String get addPrivateProfile =>
       localized(en: 'Add profile', ja: 'プロファイルを追加', zh: '添加档案', ko: '프로필 추가');

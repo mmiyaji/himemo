@@ -46,7 +46,33 @@ import '../../sync/data/sync_engine.dart';
 
 part 'home_providers.g.dart';
 
-enum AppColorTheme { blue, green, orange, slate, teal, rose, sakura, fuji }
+enum AppColorTheme {
+  blue,
+  green,
+  orange,
+  slate,
+  teal,
+  rose,
+  sakura,
+  fuji,
+  ai,
+  kurumi,
+  chigusa,
+  sumire,
+  sumi,
+  shironeri,
+  gofun,
+  enji,
+  hanada,
+  sora,
+  ruri,
+  wakatake,
+  tokiwa,
+  nanohana,
+  haizakura,
+  kikyo,
+  rikyucha,
+}
 
 enum AppLocaleSetting {
   system,

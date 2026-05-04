@@ -36,6 +36,9 @@ void main() {
     expect(strings.colorSakura, '桜 (Sakura)');
     expect(strings.colorFuji, '藤 (Fuji)');
     expect(strings.extendedThemes, 'Extended themes');
+    expect(strings.colorAi, '藍 (Ai)');
+    expect(strings.colorShironeri, '白練 (Shironeri)');
+    expect(strings.themeCategoryNeutral, 'White, black, and neutral');
   });
 
   test('app strings localize home UI labels to Japanese', () {
@@ -51,6 +54,9 @@ void main() {
     expect(strings.colorSakura, '桜 (Sakura)');
     expect(strings.colorFuji, '藤 (Fuji)');
     expect(strings.extendedThemes, '拡張テーマ');
+    expect(strings.colorAi, '藍 (Ai)');
+    expect(strings.colorShironeri, '白練 (Shironeri)');
+    expect(strings.themeCategoryNeutral, '白・黒・無彩色');
   });
 
   test('app strings support Chinese and Korean locales', () {
