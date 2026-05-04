@@ -968,10 +968,15 @@ abstract class SyncAuthGateway {
 }
 
 class DefaultSyncAuthGateway implements SyncAuthGateway {
+  DefaultSyncAuthGateway({
+    this.googleDriveAuthConfig = const GoogleDriveAuthConfig(),
+  });
+
   static const _googleScopes = <String>[
     'https://www.googleapis.com/auth/drive.appdata',
   ];
 
+  final GoogleDriveAuthConfig googleDriveAuthConfig;
   bool _googleInitialized = false;
 
   @override
@@ -997,12 +1002,23 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
     if (_googleInitialized || kIsWeb) {
       return;
     }
-    await GoogleSignIn.instance.initialize();
+    await GoogleSignIn.instance.initialize(
+      clientId: googleDriveAuthConfig.normalizedClientId,
+      serverClientId: googleDriveAuthConfig.normalizedServerClientId,
+    );
     _googleInitialized = true;
   }
 
   Future<SyncAuthState> _connectGoogle() async {
     try {
+      if (kIsWeb) {
+        return const SyncAuthState(
+          provider: SyncProvider.googleDrive,
+          stage: SyncAuthStage.unsupported,
+          message:
+              'Google Drive sync on web requires the Google Sign-In SDK button flow and is not enabled in this build.',
+        );
+      }
       await _ensureGoogleInitialized();
       GoogleSignInAccount? account;
       final lightweight = GoogleSignIn.instance
@@ -1044,6 +1060,24 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
         stage: SyncAuthStage.unsupported,
         message: 'Google sign-in plugin is not configured in this runtime.',
       );
+    } on PlatformException catch (error) {
+      return SyncAuthState(
+        provider: SyncProvider.googleDrive,
+        stage: SyncAuthStage.error,
+        message: _googleDrivePlatformExceptionMessage(error),
+      );
+    } on GoogleSignInException catch (error) {
+      return SyncAuthState(
+        provider: SyncProvider.googleDrive,
+        stage: SyncAuthStage.error,
+        message: _googleDriveSignInExceptionMessage(error),
+      );
+    } on GoogleDriveAuthConfigurationException catch (error) {
+      return SyncAuthState(
+        provider: SyncProvider.googleDrive,
+        stage: SyncAuthStage.error,
+        message: error.message,
+      );
     } catch (error) {
       return SyncAuthState(
         provider: SyncProvider.googleDrive,
@@ -1068,6 +1102,35 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
       displayName: 'iCloud',
       message: 'iCloud is selected as this device sync target.',
     );
+  }
+
+  String _googleDrivePlatformExceptionMessage(PlatformException error) {
+    final code = error.code;
+    final message = error.message ?? error.details?.toString() ?? '$error';
+    final needsClientId =
+        message.contains('serverClientId') ||
+        message.contains('clientID') ||
+        message.contains('client ID') ||
+        message.contains('configuration') ||
+        code.toLowerCase().contains('configuration');
+    if (needsClientId) {
+      return 'Google Drive sign-in is not configured for this build. Add a Web OAuth client to google-services.json or pass --dart-define=HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID=... on Android. On iOS, set GIDClientID/URL scheme or pass --dart-define=HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID=...';
+    }
+    return 'Google Drive sign-in failed: $message';
+  }
+
+  String _googleDriveSignInExceptionMessage(GoogleSignInException error) {
+    return switch (error.code) {
+      GoogleSignInExceptionCode.clientConfigurationError ||
+      GoogleSignInExceptionCode.providerConfigurationError =>
+        'Google Drive sign-in is not configured for this build. Add OAuth clients for this app package/bundle and pass the Google Sign-In client IDs to the build.',
+      GoogleSignInExceptionCode.canceled =>
+        'Google Drive sign-in was canceled.',
+      GoogleSignInExceptionCode.uiUnavailable =>
+        'Google Drive sign-in UI is unavailable. Start authorization from the Settings screen while the app is in the foreground.',
+      _ =>
+        'Google Drive sign-in failed: ${error.description ?? error.toString()}',
+    };
   }
 }
 
@@ -1331,8 +1394,14 @@ final deviceAuthGatewayProvider = Provider<DeviceAuthGateway>(
   (ref) => LocalDeviceAuthGateway(),
 );
 
+final googleDriveAuthConfigProvider = Provider<GoogleDriveAuthConfig>(
+  (ref) => const GoogleDriveAuthConfig(),
+);
+
 final syncAuthGatewayProvider = Provider<SyncAuthGateway>(
-  (ref) => DefaultSyncAuthGateway(),
+  (ref) => DefaultSyncAuthGateway(
+    googleDriveAuthConfig: ref.watch(googleDriveAuthConfigProvider),
+  ),
 );
 
 final mediaImportServiceProvider = Provider<MediaImportService>(
@@ -1473,7 +1542,9 @@ final packageInfoProvider = FutureProvider<AppPackageDetails>((ref) async {
 final googleDriveSyncTransportProvider = Provider<GoogleDriveSyncTransport>((
   ref,
 ) {
-  return GoogleApisGoogleDriveSyncTransport();
+  return GoogleApisGoogleDriveSyncTransport(
+    authConfig: ref.watch(googleDriveAuthConfigProvider),
+  );
 });
 
 final iCloudSyncTransportProvider = Provider<ICloudSyncTransport>((ref) {

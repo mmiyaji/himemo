@@ -19,6 +19,7 @@ import 'package:himemo/features/security/data/encrypted_note_store.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/master_key_service.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
+import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
 import 'package:himemo/l10n/app_localizations.dart';
 import 'package:himemo/l10n/app_strings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -281,6 +282,25 @@ void main() {
 
     expect(state.stage, SyncAuthStage.authenticated);
     expect(state.displayName, 'iCloud');
+  });
+
+  test('Google Drive auth config normalizes blank client IDs', () {
+    const empty = GoogleDriveAuthConfig(clientId: '  ', serverClientId: '');
+    const configured = GoogleDriveAuthConfig(
+      clientId: 'ios-client.apps.googleusercontent.com',
+      serverClientId: 'web-client.apps.googleusercontent.com',
+    );
+
+    expect(empty.normalizedClientId, isNull);
+    expect(empty.normalizedServerClientId, isNull);
+    expect(
+      configured.normalizedClientId,
+      'ios-client.apps.googleusercontent.com',
+    );
+    expect(
+      configured.normalizedServerClientId,
+      'web-client.apps.googleusercontent.com',
+    );
   });
 
   test('effective color theme follows unlocked private profile', () async {

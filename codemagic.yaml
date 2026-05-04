@@ -9,6 +9,8 @@ workflows:
       flutter: 3.41.6
       xcode: latest
       cocoapods: default
+      groups:
+        - google_drive_oauth
       vars:
         BUNDLE_ID: org.ruhenheim.himemo
         XCODE_WORKSPACE: ios/Runner.xcworkspace
@@ -43,10 +45,29 @@ workflows:
             --project "$CM_BUILD_DIR/ios/Runner.xcodeproj" \
             --verbose \
             --custom-export-options='{"method":"app-store"}'
+      - name: Configure Google Sign-In
+        script: |
+          PLIST="$CM_BUILD_DIR/ios/Runner/Info.plist"
+          if [ -n "${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID:-}" ]; then
+            /usr/libexec/PlistBuddy -c "Set :GIDClientID ${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID}" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :GIDClientID string ${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID}" "$PLIST"
+          fi
+          if [ -n "${HIMEMO_GOOGLE_REVERSED_CLIENT_ID:-}" ]; then
+            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1 dict" "$PLIST" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleTypeRole Editor" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleTypeRole string Editor" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLName google-sign-in" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLName string google-sign-in" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes array" "$PLIST" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes:0 string ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST"
+          fi
       - name: Build production IPA
         script: |
           flutter build ipa --release \
             -t lib/main_production.dart \
+            --dart-define=HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID:-}" \
+            --dart-define=HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID:-}" \
             --build-number=$PROJECT_BUILD_NUMBER \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
@@ -71,6 +92,8 @@ workflows:
       flutter: 3.41.6
       xcode: latest
       cocoapods: default
+      groups:
+        - google_drive_oauth
       vars:
         BUNDLE_ID: org.ruhenheim.himemo
         XCODE_WORKSPACE: ios/Runner.xcworkspace
@@ -100,10 +123,29 @@ workflows:
             --project "$CM_BUILD_DIR/ios/Runner.xcodeproj" \
             --verbose \
             --custom-export-options='{"method":"ad-hoc"}'
+      - name: Configure Google Sign-In
+        script: |
+          PLIST="$CM_BUILD_DIR/ios/Runner/Info.plist"
+          if [ -n "${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID:-}" ]; then
+            /usr/libexec/PlistBuddy -c "Set :GIDClientID ${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID}" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :GIDClientID string ${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID}" "$PLIST"
+          fi
+          if [ -n "${HIMEMO_GOOGLE_REVERSED_CLIENT_ID:-}" ]; then
+            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1 dict" "$PLIST" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleTypeRole Editor" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleTypeRole string Editor" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLName google-sign-in" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLName string google-sign-in" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes array" "$PLIST" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes:0 string ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST"
+          fi
       - name: Build internal IPA
         script: |
           flutter build ipa --release \
             -t lib/main_production.dart \
+            --dart-define=HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID:-}" \
+            --dart-define=HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID:-}" \
             --build-number=$PROJECT_BUILD_NUMBER \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:

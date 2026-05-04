@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
+import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 
@@ -52,11 +53,50 @@ abstract class GoogleDriveSyncTransport {
   Future<DownloadedRemoteSyncBundle?> downloadBundleByFileId(String fileId);
 }
 
+class GoogleDriveAuthConfig {
+  const GoogleDriveAuthConfig({
+    this.clientId = const String.fromEnvironment(
+      'HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID',
+    ),
+    this.serverClientId = const String.fromEnvironment(
+      'HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID',
+    ),
+  });
+
+  final String clientId;
+  final String serverClientId;
+
+  String? get normalizedClientId => _blankToNull(clientId);
+
+  String? get normalizedServerClientId => _blankToNull(serverClientId);
+
+  static String? _blankToNull(String value) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+}
+
+class GoogleDriveAuthConfigurationException implements Exception {
+  const GoogleDriveAuthConfigurationException(this.message, [this.details]);
+
+  final String message;
+  final Object? details;
+
+  @override
+  String toString() => details == null ? message : '$message ($details)';
+}
+
 class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
+  GoogleApisGoogleDriveSyncTransport({
+    this.authConfig = const GoogleDriveAuthConfig(),
+  });
+
   static const scope = 'https://www.googleapis.com/auth/drive.appdata';
   static const _bundleFileName = 'himemo_sync_bundle.enc';
   static const _bundleFilePrefix = 'himemo_sync_bundle_';
   static const _spaces = 'appDataFolder';
+
+  final GoogleDriveAuthConfig authConfig;
 
   @override
   Future<RemoteSyncBundleStatus?> fetchLatestBundleStatus() async {
@@ -69,7 +109,9 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   }
 
   @override
-  Future<List<RemoteSyncBundleStatus>> listBundleHistory({int limit = 10}) async {
+  Future<List<RemoteSyncBundleStatus>> listBundleHistory({
+    int limit = 10,
+  }) async {
     final api = await _openDriveApi(interactive: false);
     final files = await _findBundleHistory(api, limit: limit);
     return files.map(_toStatus).toList(growable: false);
@@ -115,15 +157,19 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   }
 
   @override
-  Future<DownloadedRemoteSyncBundle?> downloadBundleByFileId(String fileId) async {
+  Future<DownloadedRemoteSyncBundle?> downloadBundleByFileId(
+    String fileId,
+  ) async {
     final api = await _openDriveApi(interactive: true);
     if (fileId.isEmpty) {
       return null;
     }
-    final response = await api.files.get(
-      fileId,
-      $fields: 'id,name,modifiedTime,size,appProperties',
-    ) as drive.File;
+    final response =
+        await api.files.get(
+              fileId,
+              $fields: 'id,name,modifiedTime,size,appProperties',
+            )
+            as drive.File;
     if (response.id == null || response.id!.isEmpty) {
       return null;
     }
@@ -148,17 +194,102 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   }
 
   Future<drive.DriveApi> _openDriveApi({required bool interactive}) async {
-    await GoogleSignIn.instance.initialize();
-    final authorizationClient = GoogleSignIn.instance.authorizationClient;
-    final authorization = interactive
-        ? await authorizationClient.authorizeScopes([scope])
-        : await authorizationClient.authorizationForScopes([scope]);
-    if (authorization == null) {
-      throw StateError('Google Drive authorization is not available.');
-    }
+    try {
+      await GoogleSignIn.instance.initialize(
+        clientId: authConfig.normalizedClientId,
+        serverClientId: authConfig.normalizedServerClientId,
+      );
+      GoogleSignInAccount? account;
+      final lightweight = GoogleSignIn.instance
+          .attemptLightweightAuthentication();
+      if (lightweight != null) {
+        account = await lightweight;
+      }
+      if (account == null && interactive) {
+        if (!GoogleSignIn.instance.supportsAuthenticate()) {
+          throw const GoogleDriveAuthConfigurationException(
+            'Google Drive authorization is not supported in this runtime. Configure the Google Sign-In SDK UI for web or use a supported native build.',
+          );
+        }
+        account = await GoogleSignIn.instance.authenticate(
+          scopeHint: const [scope],
+        );
+      }
+      if (account == null) {
+        return _authorizationUnavailable();
+      }
 
-    final client = authorization.authClient(scopes: const [scope]);
-    return drive.DriveApi(client);
+      final authorizationClient = account.authorizationClient;
+      final authorization = interactive
+          ? await authorizationClient.authorizeScopes(const [scope])
+          : await authorizationClient.authorizationForScopes(const [scope]);
+      if (authorization == null) {
+        return _authorizationUnavailable();
+      }
+
+      final client = authorization.authClient(scopes: const [scope]);
+      return drive.DriveApi(client);
+    } on PlatformException catch (error) {
+      throw _mapPlatformException(error);
+    } on GoogleSignInException catch (error) {
+      throw _mapGoogleSignInException(error);
+    }
+  }
+
+  Never _authorizationUnavailable() {
+    throw const GoogleDriveAuthConfigurationException(
+      'Google Drive authorization is not available. Connect Google Drive from Settings and confirm that Google Sign-In client IDs are configured for this build.',
+    );
+  }
+
+  GoogleDriveAuthConfigurationException _mapPlatformException(
+    PlatformException error,
+  ) {
+    final code = error.code;
+    final message = error.message ?? error.details?.toString() ?? '$error';
+    final needsClientId =
+        message.contains('serverClientId') ||
+        message.contains('clientID') ||
+        message.contains('client ID') ||
+        message.contains('configuration') ||
+        code.toLowerCase().contains('configuration');
+    if (needsClientId) {
+      return GoogleDriveAuthConfigurationException(
+        'Google Drive sign-in is not configured for this build. Add a Web OAuth client to google-services.json or pass --dart-define=HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID=... on Android. On iOS, set GIDClientID/URL scheme or pass --dart-define=HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID=...',
+        error,
+      );
+    }
+    return GoogleDriveAuthConfigurationException(
+      'Google Drive sign-in failed before Drive access could be authorized.',
+      error,
+    );
+  }
+
+  GoogleDriveAuthConfigurationException _mapGoogleSignInException(
+    GoogleSignInException error,
+  ) {
+    return switch (error.code) {
+      GoogleSignInExceptionCode.clientConfigurationError ||
+      GoogleSignInExceptionCode
+          .providerConfigurationError => GoogleDriveAuthConfigurationException(
+        'Google Drive sign-in is not configured for this build. Add OAuth clients for this app package/bundle and pass the Google Sign-In client IDs to the build.',
+        error,
+      ),
+      GoogleSignInExceptionCode.canceled =>
+        GoogleDriveAuthConfigurationException(
+          'Google Drive sign-in was canceled.',
+          error,
+        ),
+      GoogleSignInExceptionCode.uiUnavailable =>
+        GoogleDriveAuthConfigurationException(
+          'Google Drive sign-in UI is unavailable. Start authorization from the Settings screen while the app is in the foreground.',
+          error,
+        ),
+      _ => GoogleDriveAuthConfigurationException(
+        'Google Drive sign-in failed before Drive access could be authorized.',
+        error,
+      ),
+    };
   }
 
   Future<drive.File?> _findLatestBundle(drive.DriveApi api) async {
@@ -175,8 +306,7 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   }) async {
     final response = await api.files.list(
       spaces: _spaces,
-      q:
-          "name = '$_bundleFileName' or name contains '$_bundleFilePrefix'",
+      q: "name = '$_bundleFileName' or name contains '$_bundleFilePrefix'",
       orderBy: 'modifiedTime desc',
       pageSize: limit,
       $fields: 'files(id,name,modifiedTime,size,appProperties)',
