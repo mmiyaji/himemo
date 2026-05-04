@@ -3590,6 +3590,22 @@ class AppStrings {
     es: 'Añadir multimedia',
     de: 'Medien hinzufügen',
   );
+  String get captureMedia => localized(
+    en: 'Capture or record',
+    ja: '撮影・録音',
+    zh: '拍摄或录音',
+    ko: '촬영 또는 녹음',
+    es: 'Capturar o grabar',
+    de: 'Aufnehmen',
+  );
+  String get importFiles => localized(
+    en: 'Import from files',
+    ja: 'ファイルから追加',
+    zh: '从文件导入',
+    ko: '파일에서 가져오기',
+    es: 'Importar archivos',
+    de: 'Aus Dateien importieren',
+  );
   String get pickPhoto => localized(
     en: 'Pick photo',
     ja: '写真を選ぶ',

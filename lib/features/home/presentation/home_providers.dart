@@ -3961,38 +3961,61 @@ List<NoteEntry> visibleNotes(Ref ref) {
       .toSet();
   final query = ref.watch(searchQueryProvider).trim().toLowerCase();
   final filters = ref.watch(searchFiltersControllerProvider);
-  final notes = ref
-      .watch(notesControllerProvider)
-      .where((note) => visibleIds.contains(note.vaultId))
-      .where((note) => note.deletedAt == null)
-      .where(
-        (note) => filters.vaultId == null || note.vaultId == filters.vaultId,
-      )
-      .where((note) => !filters.pinnedOnly || note.isPinned)
-      .where((note) => !filters.withMediaOnly || note.attachments.isNotEmpty)
-      .where((note) {
-        if (filters.tags.isEmpty) {
-          return true;
+  final filterVaultId = filters.vaultId;
+  final requiredTags = filters.tags
+      .map(canonicalizeNoteTag)
+      .where((tag) => tag.isNotEmpty)
+      .toSet();
+  final results = <NoteEntry>[];
+  for (final note in ref.watch(notesControllerProvider)) {
+    if (!visibleIds.contains(note.vaultId) || note.deletedAt != null) {
+      continue;
+    }
+    if (filterVaultId != null && note.vaultId != filterVaultId) {
+      continue;
+    }
+    if (filters.pinnedOnly && !note.isPinned) {
+      continue;
+    }
+    if (filters.withMediaOnly && note.attachments.isEmpty) {
+      continue;
+    }
+    if (requiredTags.isNotEmpty) {
+      var matchedTag = false;
+      for (final tag in note.tags) {
+        if (requiredTags.contains(canonicalizeNoteTag(tag))) {
+          matchedTag = true;
+          break;
         }
-        final noteTagKeys = note.tags.map(canonicalizeNoteTag).toSet();
-        return filters.tags.any(
-          (tag) => noteTagKeys.contains(canonicalizeNoteTag(tag)),
-        );
-      })
-      .where((note) {
-        if (query.isEmpty) {
-          return true;
-        }
-        final haystacks = [
-          note.title,
-          note.body,
-          ...note.tags,
-          ...note.attachments.map((attachment) => attachment.label),
-        ];
-        return haystacks.any((value) => value.toLowerCase().contains(query));
-      })
-      .toList(growable: false);
-  return notes;
+      }
+      if (!matchedTag) {
+        continue;
+      }
+    }
+    if (query.isNotEmpty && !_noteMatchesQuery(note, query)) {
+      continue;
+    }
+    results.add(note);
+  }
+  return List.unmodifiable(results);
+}
+
+bool _noteMatchesQuery(NoteEntry note, String query) {
+  if (note.title.toLowerCase().contains(query) ||
+      note.body.toLowerCase().contains(query)) {
+    return true;
+  }
+  for (final tag in note.tags) {
+    if (tag.toLowerCase().contains(query)) {
+      return true;
+    }
+  }
+  for (final attachment in note.attachments) {
+    if (attachment.label.toLowerCase().contains(query)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 @riverpod

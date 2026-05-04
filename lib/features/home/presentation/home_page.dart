@@ -5560,7 +5560,7 @@ class _HighlightedText extends StatelessWidget {
   }
 }
 
-class _SplitNotesListPane extends StatelessWidget {
+class _SplitNotesListPane extends StatefulWidget {
   const _SplitNotesListPane({
     required this.activeIdentity,
     required this.showPrivateVaultNotice,
@@ -5584,23 +5584,49 @@ class _SplitNotesListPane extends StatelessWidget {
   final ValueChanged<NoteEntry> onNoteSelected;
 
   @override
-  Widget build(BuildContext context) {
-    final rows = _buildSplitNoteRows(
-      activeIdentity: activeIdentity,
-      showPrivateVaultNotice: showPrivateVaultNotice,
-      notes: notes,
-      density: density,
-    );
+  State<_SplitNotesListPane> createState() => _SplitNotesListPaneState();
+}
 
+class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
+  late List<_SplitNoteRow> _rows;
+
+  @override
+  void initState() {
+    super.initState();
+    _rows = _buildRows();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SplitNotesListPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.notes, widget.notes) ||
+        oldWidget.density != widget.density ||
+        oldWidget.showPrivateVaultNotice != widget.showPrivateVaultNotice ||
+        oldWidget.activeIdentity.id != widget.activeIdentity.id) {
+      _rows = _buildRows();
+    }
+  }
+
+  List<_SplitNoteRow> _buildRows() {
+    return _buildSplitNoteRows(
+      activeIdentity: widget.activeIdentity,
+      showPrivateVaultNotice: widget.showPrivateVaultNotice,
+      notes: widget.notes,
+      density: widget.density,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: rows.length,
+      itemCount: _rows.length,
       itemBuilder: (context, index) {
-        final row = rows[index];
+        final row = _rows[index];
         return switch (row) {
           _SplitNoteIdentityRow() => Padding(
             padding: const EdgeInsets.only(bottom: 12),
-            child: _IdentityHeader(identity: activeIdentity),
+            child: _IdentityHeader(identity: widget.activeIdentity),
           ),
           _SplitNotePrivateNoticeRow() => const Padding(
             padding: EdgeInsets.only(bottom: 12),
@@ -5619,12 +5645,12 @@ class _SplitNotesListPane extends StatelessWidget {
             position: row.position,
             child: _NoteListTile(
               note: note,
-              vaultName: vaultNameById[note.vaultId] ?? note.vaultId,
-              showVaultName: showVaultName,
-              density: density,
-              query: query,
-              selected: selectedNoteId == note.id,
-              onTap: () => onNoteSelected(note),
+              vaultName: widget.vaultNameById[note.vaultId] ?? note.vaultId,
+              showVaultName: widget.showVaultName,
+              density: widget.density,
+              query: widget.query,
+              selected: widget.selectedNoteId == note.id,
+              onTap: () => widget.onNoteSelected(note),
             ),
           ),
           _SplitNoteDividerRow() => _DecoratedSplitNoteRow(
@@ -7707,6 +7733,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late List<String> _tags;
   late List<_RichBlockDraft> _richBlocks;
   late final Set<String> _initialAttachmentPaths;
+  late final ValueNotifier<bool> _canSubmitNotifier;
   final Set<String> _pendingAttachmentDeletes = <String>{};
   int? _activeRichParagraphIndex;
   String? _selectedVaultId;
@@ -7722,6 +7749,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _attachmentStore = ref.read(encryptedAttachmentStoreProvider);
     final lastSettings = ref.read(lastNoteEditorSettingsControllerProvider);
     _contentController = TextEditingController(text: _composeEditorContent());
+    _canSubmitNotifier = ValueNotifier<bool>(false);
     _quickContentFocusNode = FocusNode();
     _contentController.addListener(_handleTextChanged);
     _createdAt =
@@ -7741,6 +7769,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _activeRichParagraphIndex = _richBlocks.indexWhere(
       (block) => block.type == NoteBlockType.paragraph,
     );
+    _updateCanSubmit();
     _initialAttachmentPaths = _attachments
         .map((attachment) => attachment.filePath)
         .whereType<String>()
@@ -7827,6 +7856,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _contentController.removeListener(_handleTextChanged);
     _contentController.dispose();
     _quickContentFocusNode.dispose();
+    _canSubmitNotifier.dispose();
     for (final block in _richBlocks) {
       block.dispose();
     }
@@ -7835,8 +7865,16 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
 
   void _handleTextChanged() {
     _scheduleDraftPersist();
-    if (mounted) {
-      setState(() {});
+    _updateCanSubmit();
+  }
+
+  void _updateCanSubmit() {
+    if (_editorDisposed) {
+      return;
+    }
+    final next = _hasSubmitContent;
+    if (_canSubmitNotifier.value != next) {
+      _canSubmitNotifier.value = next;
     }
   }
 
@@ -7883,6 +7921,36 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       drafts.add(_RichBlockDraft.paragraph());
     }
     return drafts;
+  }
+
+  List<_RichBlockDraft> _buildRichBlocksFromQuickMemo() {
+    final content = _contentController.text.trim();
+    final drafts = <_RichBlockDraft>[];
+    if (content.isNotEmpty) {
+      drafts.add(_RichBlockDraft.paragraph(content));
+    }
+    for (final attachment in _attachments) {
+      drafts.add(_RichBlockDraft.attachment(attachment));
+    }
+    if (drafts.isEmpty || drafts.last.type != NoteBlockType.paragraph) {
+      drafts.add(_RichBlockDraft.paragraph());
+    }
+    return drafts;
+  }
+
+  void _replaceRichBlocks(List<_RichBlockDraft> nextBlocks) {
+    for (final block in _richBlocks) {
+      block.dispose();
+    }
+    _richBlocks = nextBlocks.isEmpty
+        ? [_RichBlockDraft.paragraph()]
+        : nextBlocks;
+    for (final block in _richBlocks) {
+      _attachRichBlockListener(block);
+    }
+    _activeRichParagraphIndex = _richBlocks.indexWhere(
+      (block) => block.type == NoteBlockType.paragraph,
+    );
   }
 
   void _attachRichBlockListener(_RichBlockDraft block) {
@@ -7954,6 +8022,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   void _scheduleDraftPersist() {
+    _updateCanSubmit();
     if (widget.note != null) {
       return;
     }
@@ -8056,6 +8125,57 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       for (final block in _richBlocks)
         if (block.attachment != null) block.attachment!,
     ];
+  }
+
+  String _deriveRichPlainText() {
+    return _richBlocks
+        .map((block) => block.controller?.text.trim())
+        .whereType<String>()
+        .where((text) => text.isNotEmpty)
+        .join('\n\n');
+  }
+
+  void _switchEditorMode(NoteEditorMode nextMode) {
+    if (nextMode == _editorMode) {
+      return;
+    }
+    _RichBlockDraft? paragraphToFocus;
+    setState(() {
+      final previousMode = _editorMode;
+      if (previousMode == NoteEditorMode.quick &&
+          nextMode == NoteEditorMode.rich) {
+        _replaceRichBlocks(_buildRichBlocksFromQuickMemo());
+        final paragraphIndex = _activeRichParagraphIndex;
+        if (paragraphIndex != null &&
+            paragraphIndex >= 0 &&
+            paragraphIndex < _richBlocks.length) {
+          paragraphToFocus = _richBlocks[paragraphIndex];
+        }
+      } else if (previousMode == NoteEditorMode.rich &&
+          nextMode == NoteEditorMode.quick) {
+        _contentController.text = _deriveRichPlainText();
+        _attachments = _allCurrentAttachments;
+      }
+      _editorMode = nextMode;
+    });
+    if (nextMode == NoteEditorMode.quick) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        _quickContentFocusNode.requestFocus();
+        final textLength = _contentController.text.length;
+        _contentController.selection = TextSelection.collapsed(
+          offset: textLength,
+        );
+      });
+    } else if (paragraphToFocus != null) {
+      _requestParagraphFocus(
+        paragraphToFocus!,
+        paragraphToFocus!.controller?.text.length ?? 0,
+      );
+    }
+    _scheduleDraftPersist();
   }
 
   bool get _hasDraftContent {
@@ -8168,11 +8288,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                             ),
                           ),
                           PopupMenuButton<MediaImportAction>(
-                            key: const Key('note-media-menu'),
-                            tooltip: strings.addMedia,
-                            icon: const Icon(
-                              Icons.add_photo_alternate_outlined,
-                            ),
+                            key: const Key('note-capture-media-menu'),
+                            tooltip: strings.captureMedia,
+                            icon: const Icon(Icons.add_a_photo_outlined),
                             onSelected: _handleAttachmentAction,
                             itemBuilder: (context) => [
                               if (!kIsWeb)
@@ -8183,13 +8301,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                     label: strings.takePhoto,
                                   ),
                                 ),
-                              PopupMenuItem(
-                                value: MediaImportAction.pickPhoto,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.photo_library_outlined,
-                                  label: strings.pickPhoto,
-                                ),
-                              ),
                               if (!kIsWeb)
                                 PopupMenuItem(
                                   value: MediaImportAction.recordVideo,
@@ -8199,13 +8310,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                   ),
                                 ),
                               PopupMenuItem(
-                                value: MediaImportAction.pickVideo,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.video_library_outlined,
-                                  label: strings.pickVideo,
-                                ),
-                              ),
-                              PopupMenuItem(
                                 value: MediaImportAction.recordAudio,
                                 child: _MediaMenuEntry(
                                   icon: Icons.mic_none_rounded,
@@ -8213,17 +8317,39 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                 ),
                               ),
                               PopupMenuItem(
-                                value: MediaImportAction.pickAudio,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.graphic_eq_rounded,
-                                  label: strings.pickAudio,
-                                ),
-                              ),
-                              PopupMenuItem(
                                 value: MediaImportAction.addLocation,
                                 child: _MediaMenuEntry(
                                   icon: Icons.my_location_outlined,
                                   label: strings.addCurrentLocation,
+                                ),
+                              ),
+                            ],
+                          ),
+                          PopupMenuButton<MediaImportAction>(
+                            key: const Key('note-import-file-menu'),
+                            tooltip: strings.importFiles,
+                            icon: const Icon(Icons.upload_file_outlined),
+                            onSelected: _handleAttachmentAction,
+                            itemBuilder: (context) => [
+                              PopupMenuItem(
+                                value: MediaImportAction.pickPhoto,
+                                child: _MediaMenuEntry(
+                                  icon: Icons.photo_library_outlined,
+                                  label: strings.pickPhoto,
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: MediaImportAction.pickVideo,
+                                child: _MediaMenuEntry(
+                                  icon: Icons.video_library_outlined,
+                                  label: strings.pickVideo,
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: MediaImportAction.pickAudio,
+                                child: _MediaMenuEntry(
+                                  icon: Icons.graphic_eq_rounded,
+                                  label: strings.pickAudio,
                                 ),
                               ),
                             ],
@@ -8260,34 +8386,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       ),
                     ],
                     selected: {_editorMode},
-                    onSelectionChanged: (selection) {
-                      _RichBlockDraft? paragraphToFocus;
-                      setState(() {
-                        _editorMode = selection.first;
-                        if (_editorMode == NoteEditorMode.rich &&
-                            _richBlocks.isEmpty) {
-                          final draft = _RichBlockDraft.paragraph();
-                          _attachRichBlockListener(draft);
-                          _richBlocks = [draft];
-                          _activeRichParagraphIndex = 0;
-                          paragraphToFocus = draft;
-                        }
-                      });
-                      if (_editorMode == NoteEditorMode.quick) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (!mounted) {
-                            return;
-                          }
-                          _quickContentFocusNode.requestFocus();
-                          final textLength = _contentController.text.length;
-                          _contentController.selection =
-                              TextSelection.collapsed(offset: textLength);
-                        });
-                      } else if (paragraphToFocus != null) {
-                        _requestParagraphFocus(paragraphToFocus!, 0);
-                      }
-                      _scheduleDraftPersist();
-                    },
+                    onSelectionChanged: (selection) =>
+                        _switchEditorMode(selection.first),
                   ),
                   const SizedBox(height: 12),
                   if (_editorMode == NoteEditorMode.quick) ...[
@@ -8453,14 +8553,21 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                   child: Text(strings.cancel),
                 ),
                 const Spacer(),
-                FilledButton(
-                  key: const Key('save-note-button'),
-                  onPressed: _canSave ? _save : null,
-                  child: Text(
-                    widget.note == null
-                        ? strings.createNote
-                        : strings.saveChanges,
-                  ),
+                ValueListenableBuilder<bool>(
+                  valueListenable: _canSubmitNotifier,
+                  builder: (context, canSubmit, _) {
+                    return FilledButton(
+                      key: const Key('save-note-button'),
+                      onPressed: canSubmit && _selectedVaultId != null
+                          ? _save
+                          : null,
+                      child: Text(
+                        widget.note == null
+                            ? strings.createNote
+                            : strings.saveChanges,
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -8470,13 +8577,19 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     );
   }
 
-  bool get _canSave {
+  bool get _hasSubmitContent {
     final hasText = _editorMode == NoteEditorMode.quick
-        ? _splitMemoContent(_contentController.text).title.isNotEmpty ||
-              _splitMemoContent(_contentController.text).body.isNotEmpty
+        ? (() {
+            final content = _splitMemoContent(_contentController.text);
+            return content.title.isNotEmpty || content.body.isNotEmpty;
+          })()
         : _deriveRichTitle().isNotEmpty || _deriveRichBody().isNotEmpty;
     final hasAttachments = _allCurrentAttachments.isNotEmpty;
-    return (hasText || hasAttachments) && _selectedVaultId != null;
+    return hasText || hasAttachments;
+  }
+
+  bool get _canSave {
+    return _hasSubmitContent && _selectedVaultId != null;
   }
 
   void _showEditorSnackBar({required Widget content, SnackBarAction? action}) {
@@ -9713,42 +9826,43 @@ class _RichBlockEditorTile extends StatelessWidget {
       );
     }
 
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Stack(
+    return Stack(
+      children: [
+        _AttachmentListTile(
+          attachment: block.attachment!,
+          showShareAction: false,
+          trailingActionWidth: 88,
+        ),
+        Positioned(
+          top: 12,
+          right: 12,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _AttachmentPreview(attachment: block.attachment!),
-              Positioned(
-                top: 6,
-                right: 6,
-                child: IconButton.filledTonal(
-                  onPressed: onRemove,
-                  icon: const Icon(Icons.delete_outline_rounded),
-                  tooltip: strings.removeBlock,
-                  visualDensity: VisualDensity.compact,
-                  iconSize: 18,
-                  padding: const EdgeInsets.all(6),
-                  constraints: const BoxConstraints.tightFor(
-                    width: 32,
-                    height: 32,
-                  ),
+              IconButton.filledTonal(
+                onPressed: onRemove,
+                icon: const Icon(Icons.delete_outline_rounded),
+                tooltip: strings.removeBlock,
+                visualDensity: VisualDensity.compact,
+                iconSize: 18,
+                padding: const EdgeInsets.all(6),
+                constraints: const BoxConstraints.tightFor(
+                  width: 32,
+                  height: 32,
                 ),
+              ),
+              const SizedBox(width: 6),
+              _CompactMediaActionRail(
+                canMovePrevious: canMovePrevious,
+                canMoveNext: canMoveNext,
+                onMovePrevious: onMovePrevious,
+                onMoveNext: onMoveNext,
               ),
             ],
           ),
-          const SizedBox(width: 6),
-          _CompactMediaActionRail(
-            canMovePrevious: canMovePrevious,
-            canMoveNext: canMoveNext,
-            onMovePrevious: onMovePrevious,
-            onMoveNext: onMoveNext,
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -10227,14 +10341,46 @@ class _InactivePhotoAttachmentPreview extends StatelessWidget {
   }
 }
 
-class _AttachmentPreview extends ConsumerWidget {
+class _AttachmentPreview extends ConsumerStatefulWidget {
   const _AttachmentPreview({required this.attachment, this.size = 72});
 
   final NoteAttachment attachment;
   final double size;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_AttachmentPreview> createState() => _AttachmentPreviewState();
+}
+
+class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
+  Future<List<int>?>? _bytesFuture;
+  String? _futureFilePath;
+
+  @override
+  void didUpdateWidget(covariant _AttachmentPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.attachment.filePath != widget.attachment.filePath ||
+        oldWidget.attachment.type != widget.attachment.type ||
+        oldWidget.attachment.previewBytesBase64 !=
+            widget.attachment.previewBytesBase64) {
+      _bytesFuture = null;
+      _futureFilePath = null;
+    }
+  }
+
+  Future<List<int>?> _attachmentBytesFuture(String filePath) {
+    if (_bytesFuture != null && _futureFilePath == filePath) {
+      return _bytesFuture!;
+    }
+    _futureFilePath = filePath;
+    return _bytesFuture = ref
+        .read(encryptedAttachmentStoreProvider)
+        .readAttachment(filePath, type: widget.attachment.type);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final attachment = widget.attachment;
+    final size = widget.size;
     if (attachment.type != AttachmentType.photo) {
       return _AttachmentIconBox(type: attachment.type, size: size);
     }
@@ -10253,9 +10399,7 @@ class _AttachmentPreview extends ConsumerWidget {
     }
 
     return FutureBuilder<List<int>?>(
-      future: ref
-          .watch(encryptedAttachmentStoreProvider)
-          .readAttachment(filePath, type: attachment.type),
+      future: _attachmentBytesFuture(filePath),
       builder: (context, snapshot) {
         final bytes = snapshot.data;
         if (bytes == null || bytes.isEmpty) {
