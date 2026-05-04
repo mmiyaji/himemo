@@ -48,7 +48,7 @@ final class HomeRepositoryProvider
   }
 }
 
-String _$homeRepositoryHash() => r'a443190873d652b92d1acbe931b3f6fbfc1bb26e';
+String _$homeRepositoryHash() => r'7210df92520e837404787af3d6401ba7bcfc2f9d';
 
 @ProviderFor(ThemeModeController)
 final themeModeControllerProvider = ThemeModeControllerProvider._();
@@ -519,7 +519,7 @@ final class NotesControllerProvider
   }
 }
 
-String _$notesControllerHash() => r'2e9657f85dd72eab0083bd9e7ac0d944fd80e4cf';
+String _$notesControllerHash() => r'5144075ebd97a697eb28962c2215377fb184ad45';
 
 abstract class _$NotesController extends $Notifier<List<NoteEntry>> {
   List<NoteEntry> build();
@@ -720,7 +720,7 @@ final class VisibleVaultsProvider
   }
 }
 
-String _$visibleVaultsHash() => r'58b29ca73aabb03ee52aea0d03f0279677f84b3d';
+String _$visibleVaultsHash() => r'dffeea854922d6a79def2f972b41fbc8532d4392';
 
 @ProviderFor(visibleNotes)
 final visibleNotesProvider = VisibleNotesProvider._();
@@ -762,7 +762,7 @@ final class VisibleNotesProvider
   }
 }
 
-String _$visibleNotesHash() => r'cddb87c507b5931fabf38064c1cb15c155152396';
+String _$visibleNotesHash() => r'70b176ccbad3e579117b9fb38db14ce414bf0413';
 
 @ProviderFor(visibleTagSuggestions)
 final visibleTagSuggestionsProvider = VisibleTagSuggestionsProvider._();
@@ -983,7 +983,7 @@ final class VaultByIdProvider
   }
 }
 
-String _$vaultByIdHash() => r'37f4ac8498a693dbf2bc3723b5a81d25ae5d3640';
+String _$vaultByIdHash() => r'63205554e94772f11e363f640d13ec78c525b3b2';
 
 final class VaultByIdFamily extends $Family
     with $FunctionalFamilyOverride<VaultBucket, String> {

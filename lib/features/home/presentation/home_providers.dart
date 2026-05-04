@@ -261,7 +261,7 @@ class QuickCaptureFile {
     if (normalized.startsWith('audio/')) {
       return AttachmentType.audio;
     }
-    return null;
+    return AttachmentType.file;
   }
 
   static QuickCaptureFile fromJson(Map<String, dynamic> json) {
@@ -482,6 +482,7 @@ enum MediaImportAction {
   pickVideo,
   recordAudio,
   pickAudio,
+  pickFile,
   addLocation,
 }
 
@@ -1084,6 +1085,8 @@ class DefaultMediaImportService implements MediaImportService {
         );
       case MediaImportAction.pickAudio:
         return _pickAudio();
+      case MediaImportAction.pickFile:
+        return _pickFile();
       case MediaImportAction.addLocation:
         return const MediaImportResult.failure(
           'Location insertion is handled by the note editor.',
@@ -1223,6 +1226,58 @@ class DefaultMediaImportService implements MediaImportService {
         type: AttachmentType.audio,
         sourceFile: sourceFile,
       ),
+    );
+  }
+
+  Future<MediaImportResult> _pickFile() async {
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        withData: kIsWeb,
+      );
+    } on MissingPluginException {
+      return const MediaImportResult.failure(
+        'File import is not configured in this runtime.',
+      );
+    } on PlatformException catch (error) {
+      return MediaImportResult.failure(
+        error.message ?? 'File import failed on this device.',
+      );
+    } catch (error) {
+      return MediaImportResult.failure(
+        'File import failed on this device. ($error)',
+      );
+    }
+    if (result == null || result.files.isEmpty) {
+      return const MediaImportResult.cancelled();
+    }
+
+    final file = result.files.single;
+    final bytes = file.bytes;
+    if (file.path == null && bytes == null) {
+      return const MediaImportResult.failure(
+        'The selected file could not be opened on this device.',
+      );
+    }
+    if (bytes != null && bytes.length > 100 * 1024 * 1024) {
+      return const MediaImportResult.failure(
+        'Files over 100 MB are not supported yet.',
+      );
+    }
+    final sourceFile = file.path == null
+        ? XFile.fromData(file.bytes!, name: file.name)
+        : XFile(file.path!, name: file.name);
+    final tooLarge = await _validateFileSize(
+      sourceFile,
+      maxBytes: 100 * 1024 * 1024,
+      tooLargeMessage: 'Files over 100 MB are not supported yet.',
+    );
+    if (tooLarge != null) {
+      return tooLarge;
+    }
+    return MediaImportResult.success(
+      await _buildAttachment(type: AttachmentType.file, sourceFile: sourceFile),
     );
   }
 
@@ -3504,6 +3559,7 @@ class NotesController extends _$NotesController {
                 AttachmentType.photo => NoteBlockType.photo,
                 AttachmentType.video => NoteBlockType.video,
                 AttachmentType.audio => NoteBlockType.audio,
+                AttachmentType.file => NoteBlockType.file,
               },
               attachment: attachment,
             ),
@@ -3961,38 +4017,61 @@ List<NoteEntry> visibleNotes(Ref ref) {
       .toSet();
   final query = ref.watch(searchQueryProvider).trim().toLowerCase();
   final filters = ref.watch(searchFiltersControllerProvider);
-  final notes = ref
-      .watch(notesControllerProvider)
-      .where((note) => visibleIds.contains(note.vaultId))
-      .where((note) => note.deletedAt == null)
-      .where(
-        (note) => filters.vaultId == null || note.vaultId == filters.vaultId,
-      )
-      .where((note) => !filters.pinnedOnly || note.isPinned)
-      .where((note) => !filters.withMediaOnly || note.attachments.isNotEmpty)
-      .where((note) {
-        if (filters.tags.isEmpty) {
-          return true;
+  final filterVaultId = filters.vaultId;
+  final requiredTags = filters.tags
+      .map(canonicalizeNoteTag)
+      .where((tag) => tag.isNotEmpty)
+      .toSet();
+  final results = <NoteEntry>[];
+  for (final note in ref.watch(notesControllerProvider)) {
+    if (!visibleIds.contains(note.vaultId) || note.deletedAt != null) {
+      continue;
+    }
+    if (filterVaultId != null && note.vaultId != filterVaultId) {
+      continue;
+    }
+    if (filters.pinnedOnly && !note.isPinned) {
+      continue;
+    }
+    if (filters.withMediaOnly && note.attachments.isEmpty) {
+      continue;
+    }
+    if (requiredTags.isNotEmpty) {
+      var matchedTag = false;
+      for (final tag in note.tags) {
+        if (requiredTags.contains(canonicalizeNoteTag(tag))) {
+          matchedTag = true;
+          break;
         }
-        final noteTagKeys = note.tags.map(canonicalizeNoteTag).toSet();
-        return filters.tags.any(
-          (tag) => noteTagKeys.contains(canonicalizeNoteTag(tag)),
-        );
-      })
-      .where((note) {
-        if (query.isEmpty) {
-          return true;
-        }
-        final haystacks = [
-          note.title,
-          note.body,
-          ...note.tags,
-          ...note.attachments.map((attachment) => attachment.label),
-        ];
-        return haystacks.any((value) => value.toLowerCase().contains(query));
-      })
-      .toList(growable: false);
-  return notes;
+      }
+      if (!matchedTag) {
+        continue;
+      }
+    }
+    if (query.isNotEmpty && !_noteMatchesQuery(note, query)) {
+      continue;
+    }
+    results.add(note);
+  }
+  return List.unmodifiable(results);
+}
+
+bool _noteMatchesQuery(NoteEntry note, String query) {
+  if (note.title.toLowerCase().contains(query) ||
+      note.body.toLowerCase().contains(query)) {
+    return true;
+  }
+  for (final tag in note.tags) {
+    if (tag.toLowerCase().contains(query)) {
+      return true;
+    }
+  }
+  for (final attachment in note.attachments) {
+    if (attachment.label.toLowerCase().contains(query)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 @riverpod

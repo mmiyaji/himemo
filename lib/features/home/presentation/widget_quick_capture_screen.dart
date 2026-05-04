@@ -360,6 +360,7 @@ IconData _iconForQuickCaptureFile(QuickCaptureFile file) {
     AttachmentType.photo => Icons.photo_outlined,
     AttachmentType.video => Icons.videocam_outlined,
     AttachmentType.audio => Icons.graphic_eq_rounded,
+    AttachmentType.file => Icons.insert_drive_file_outlined,
     null => Icons.insert_drive_file_outlined,
   };
 }

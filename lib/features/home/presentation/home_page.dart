@@ -378,7 +378,7 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
               ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
               Navigator.of(context).pop();
             },
-            child: Text(strings.text('home.lock')),
+            child: Text(strings.text('home.lock.private.access')),
           ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
@@ -5302,8 +5302,8 @@ class _NoteListTile extends StatelessWidget {
     };
 
     if (density == NotesListDensity.compact) {
-      return Material(
-        color: selected ? _selectedSurfaceColor(context) : Colors.transparent,
+      return _NoteListTileSelectionSurface(
+        selected: selected,
         child: InkWell(
           key: Key('note-tile-${note.id}'),
           onTap: onTap,
@@ -5348,8 +5348,8 @@ class _NoteListTile extends StatelessWidget {
       );
     }
 
-    return Material(
-      color: selected ? _selectedSurfaceColor(context) : Colors.transparent,
+    return _NoteListTileSelectionSurface(
+      selected: selected,
       child: InkWell(
         key: Key('note-tile-${note.id}'),
         onTap: onTap,
@@ -5480,6 +5480,30 @@ class _NoteListTile extends StatelessWidget {
   }
 }
 
+class _NoteListTileSelectionSurface extends StatelessWidget {
+  const _NoteListTileSelectionSurface({
+    required this.selected,
+    required this.child,
+  });
+
+  final bool selected;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!selected) {
+      return Material(color: Colors.transparent, child: child);
+    }
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 1),
+        child: Material(color: _selectedSurfaceColor(context), child: child),
+      ),
+    );
+  }
+}
+
 class _HighlightedText extends StatelessWidget {
   const _HighlightedText({
     required this.text,
@@ -5536,7 +5560,7 @@ class _HighlightedText extends StatelessWidget {
   }
 }
 
-class _SplitNotesListPane extends StatelessWidget {
+class _SplitNotesListPane extends StatefulWidget {
   const _SplitNotesListPane({
     required this.activeIdentity,
     required this.showPrivateVaultNotice,
@@ -5560,23 +5584,49 @@ class _SplitNotesListPane extends StatelessWidget {
   final ValueChanged<NoteEntry> onNoteSelected;
 
   @override
-  Widget build(BuildContext context) {
-    final rows = _buildSplitNoteRows(
-      activeIdentity: activeIdentity,
-      showPrivateVaultNotice: showPrivateVaultNotice,
-      notes: notes,
-      density: density,
-    );
+  State<_SplitNotesListPane> createState() => _SplitNotesListPaneState();
+}
 
+class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
+  late List<_SplitNoteRow> _rows;
+
+  @override
+  void initState() {
+    super.initState();
+    _rows = _buildRows();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SplitNotesListPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.notes, widget.notes) ||
+        oldWidget.density != widget.density ||
+        oldWidget.showPrivateVaultNotice != widget.showPrivateVaultNotice ||
+        oldWidget.activeIdentity.id != widget.activeIdentity.id) {
+      _rows = _buildRows();
+    }
+  }
+
+  List<_SplitNoteRow> _buildRows() {
+    return _buildSplitNoteRows(
+      activeIdentity: widget.activeIdentity,
+      showPrivateVaultNotice: widget.showPrivateVaultNotice,
+      notes: widget.notes,
+      density: widget.density,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: rows.length,
+      itemCount: _rows.length,
       itemBuilder: (context, index) {
-        final row = rows[index];
+        final row = _rows[index];
         return switch (row) {
           _SplitNoteIdentityRow() => Padding(
             padding: const EdgeInsets.only(bottom: 12),
-            child: _IdentityHeader(identity: activeIdentity),
+            child: _IdentityHeader(identity: widget.activeIdentity),
           ),
           _SplitNotePrivateNoticeRow() => const Padding(
             padding: EdgeInsets.only(bottom: 12),
@@ -5595,12 +5645,12 @@ class _SplitNotesListPane extends StatelessWidget {
             position: row.position,
             child: _NoteListTile(
               note: note,
-              vaultName: vaultNameById[note.vaultId] ?? note.vaultId,
-              showVaultName: showVaultName,
-              density: density,
-              query: query,
-              selected: selectedNoteId == note.id,
-              onTap: () => onNoteSelected(note),
+              vaultName: widget.vaultNameById[note.vaultId] ?? note.vaultId,
+              showVaultName: widget.showVaultName,
+              density: widget.density,
+              query: widget.query,
+              selected: widget.selectedNoteId == note.id,
+              onTap: () => widget.onNoteSelected(note),
             ),
           ),
           _SplitNoteDividerRow() => _DecoratedSplitNoteRow(
@@ -5731,23 +5781,28 @@ class _DecoratedSplitNoteRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pos = position;
-    return DecoratedBox(
+    final borderRadius = BorderRadius.vertical(
+      top: Radius.circular(pos?.first == true ? 6 : 0),
+      bottom: Radius.circular(pos?.last == true ? 6 : 0),
+    );
+    final border = Border(
+      left: BorderSide(color: Theme.of(context).dividerColor),
+      right: BorderSide(color: Theme.of(context).dividerColor),
+      top: pos?.first == true
+          ? BorderSide(color: Theme.of(context).dividerColor)
+          : BorderSide.none,
+      bottom: pos?.last == true
+          ? BorderSide(color: Theme.of(context).dividerColor)
+          : BorderSide.none,
+    );
+    return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(pos?.first == true ? 6 : 0),
-          bottom: Radius.circular(pos?.last == true ? 6 : 0),
-        ),
-        border: Border(
-          left: BorderSide(color: Theme.of(context).dividerColor),
-          right: BorderSide(color: Theme.of(context).dividerColor),
-          top: pos?.first == true
-              ? BorderSide(color: Theme.of(context).dividerColor)
-              : BorderSide.none,
-          bottom: pos?.last == true
-              ? BorderSide(color: Theme.of(context).dividerColor)
-              : BorderSide.none,
-        ),
+        borderRadius: borderRadius,
+      ),
+      foregroundDecoration: BoxDecoration(
+        borderRadius: borderRadius,
+        border: border,
       ),
       child: child,
     );
@@ -6324,6 +6379,7 @@ List<Widget> _buildDetailBlocks(
       case NoteBlockType.photo:
       case NoteBlockType.video:
       case NoteBlockType.audio:
+      case NoteBlockType.file:
         final attachment = block.attachment;
         if (attachment != null) {
           widgets.add(
@@ -6357,6 +6413,7 @@ List<NoteBlock> _legacyBlocksFromNote(NoteEntry note) {
           AttachmentType.photo => NoteBlockType.photo,
           AttachmentType.video => NoteBlockType.video,
           AttachmentType.audio => NoteBlockType.audio,
+          AttachmentType.file => NoteBlockType.file,
         },
         attachment: attachment,
       ),
@@ -7640,6 +7697,7 @@ class _RichBlockDraft {
         AttachmentType.photo => NoteBlockType.photo,
         AttachmentType.video => NoteBlockType.video,
         AttachmentType.audio => NoteBlockType.audio,
+        AttachmentType.file => NoteBlockType.file,
       },
       controller = null,
       focusNode = null,
@@ -7678,6 +7736,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late List<String> _tags;
   late List<_RichBlockDraft> _richBlocks;
   late final Set<String> _initialAttachmentPaths;
+  late final ValueNotifier<bool> _canSubmitNotifier;
   final Set<String> _pendingAttachmentDeletes = <String>{};
   int? _activeRichParagraphIndex;
   String? _selectedVaultId;
@@ -7693,6 +7752,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _attachmentStore = ref.read(encryptedAttachmentStoreProvider);
     final lastSettings = ref.read(lastNoteEditorSettingsControllerProvider);
     _contentController = TextEditingController(text: _composeEditorContent());
+    _canSubmitNotifier = ValueNotifier<bool>(false);
     _quickContentFocusNode = FocusNode();
     _contentController.addListener(_handleTextChanged);
     _createdAt =
@@ -7712,6 +7772,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _activeRichParagraphIndex = _richBlocks.indexWhere(
       (block) => block.type == NoteBlockType.paragraph,
     );
+    _updateCanSubmit();
     _initialAttachmentPaths = _attachments
         .map((attachment) => attachment.filePath)
         .whereType<String>()
@@ -7798,6 +7859,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _contentController.removeListener(_handleTextChanged);
     _contentController.dispose();
     _quickContentFocusNode.dispose();
+    _canSubmitNotifier.dispose();
     for (final block in _richBlocks) {
       block.dispose();
     }
@@ -7806,8 +7868,16 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
 
   void _handleTextChanged() {
     _scheduleDraftPersist();
-    if (mounted) {
-      setState(() {});
+    _updateCanSubmit();
+  }
+
+  void _updateCanSubmit() {
+    if (_editorDisposed) {
+      return;
+    }
+    final next = _hasSubmitContent;
+    if (_canSubmitNotifier.value != next) {
+      _canSubmitNotifier.value = next;
     }
   }
 
@@ -7845,6 +7915,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         case NoteBlockType.photo:
         case NoteBlockType.video:
         case NoteBlockType.audio:
+        case NoteBlockType.file:
           if (block.attachment != null) {
             drafts.add(_RichBlockDraft.attachment(block.attachment!));
           }
@@ -7854,6 +7925,36 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       drafts.add(_RichBlockDraft.paragraph());
     }
     return drafts;
+  }
+
+  List<_RichBlockDraft> _buildRichBlocksFromQuickMemo() {
+    final content = _contentController.text.trim();
+    final drafts = <_RichBlockDraft>[];
+    if (content.isNotEmpty) {
+      drafts.add(_RichBlockDraft.paragraph(content));
+    }
+    for (final attachment in _attachments) {
+      drafts.add(_RichBlockDraft.attachment(attachment));
+    }
+    if (drafts.isEmpty || drafts.last.type != NoteBlockType.paragraph) {
+      drafts.add(_RichBlockDraft.paragraph());
+    }
+    return drafts;
+  }
+
+  void _replaceRichBlocks(List<_RichBlockDraft> nextBlocks) {
+    for (final block in _richBlocks) {
+      block.dispose();
+    }
+    _richBlocks = nextBlocks.isEmpty
+        ? [_RichBlockDraft.paragraph()]
+        : nextBlocks;
+    for (final block in _richBlocks) {
+      _attachRichBlockListener(block);
+    }
+    _activeRichParagraphIndex = _richBlocks.indexWhere(
+      (block) => block.type == NoteBlockType.paragraph,
+    );
   }
 
   void _attachRichBlockListener(_RichBlockDraft block) {
@@ -7925,6 +8026,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   void _scheduleDraftPersist() {
+    _updateCanSubmit();
     if (widget.note != null) {
       return;
     }
@@ -8027,6 +8129,57 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       for (final block in _richBlocks)
         if (block.attachment != null) block.attachment!,
     ];
+  }
+
+  String _deriveRichPlainText() {
+    return _richBlocks
+        .map((block) => block.controller?.text.trim())
+        .whereType<String>()
+        .where((text) => text.isNotEmpty)
+        .join('\n\n');
+  }
+
+  void _switchEditorMode(NoteEditorMode nextMode) {
+    if (nextMode == _editorMode) {
+      return;
+    }
+    _RichBlockDraft? paragraphToFocus;
+    setState(() {
+      final previousMode = _editorMode;
+      if (previousMode == NoteEditorMode.quick &&
+          nextMode == NoteEditorMode.rich) {
+        _replaceRichBlocks(_buildRichBlocksFromQuickMemo());
+        final paragraphIndex = _activeRichParagraphIndex;
+        if (paragraphIndex != null &&
+            paragraphIndex >= 0 &&
+            paragraphIndex < _richBlocks.length) {
+          paragraphToFocus = _richBlocks[paragraphIndex];
+        }
+      } else if (previousMode == NoteEditorMode.rich &&
+          nextMode == NoteEditorMode.quick) {
+        _contentController.text = _deriveRichPlainText();
+        _attachments = _allCurrentAttachments;
+      }
+      _editorMode = nextMode;
+    });
+    if (nextMode == NoteEditorMode.quick) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        _quickContentFocusNode.requestFocus();
+        final textLength = _contentController.text.length;
+        _contentController.selection = TextSelection.collapsed(
+          offset: textLength,
+        );
+      });
+    } else if (paragraphToFocus != null) {
+      _requestParagraphFocus(
+        paragraphToFocus!,
+        paragraphToFocus!.controller?.text.length ?? 0,
+      );
+    }
+    _scheduleDraftPersist();
   }
 
   bool get _hasDraftContent {
@@ -8139,10 +8292,11 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                             ),
                           ),
                           PopupMenuButton<MediaImportAction>(
-                            key: const Key('note-media-menu'),
-                            tooltip: strings.addMedia,
-                            icon: const Icon(
-                              Icons.add_photo_alternate_outlined,
+                            key: const Key('note-capture-media-menu'),
+                            tooltip: strings.captureMedia,
+                            icon: Icon(
+                              Icons.photo_camera_outlined,
+                              color: _mutedTextColor(context),
                             ),
                             onSelected: _handleAttachmentAction,
                             itemBuilder: (context) => [
@@ -8154,13 +8308,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                     label: strings.takePhoto,
                                   ),
                                 ),
-                              PopupMenuItem(
-                                value: MediaImportAction.pickPhoto,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.photo_library_outlined,
-                                  label: strings.pickPhoto,
-                                ),
-                              ),
                               if (!kIsWeb)
                                 PopupMenuItem(
                                   value: MediaImportAction.recordVideo,
@@ -8170,17 +8317,42 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                   ),
                                 ),
                               PopupMenuItem(
-                                value: MediaImportAction.pickVideo,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.video_library_outlined,
-                                  label: strings.pickVideo,
-                                ),
-                              ),
-                              PopupMenuItem(
                                 value: MediaImportAction.recordAudio,
                                 child: _MediaMenuEntry(
                                   icon: Icons.mic_none_rounded,
                                   label: strings.recordAudio,
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: MediaImportAction.addLocation,
+                                child: _MediaMenuEntry(
+                                  icon: Icons.my_location_outlined,
+                                  label: strings.addCurrentLocation,
+                                ),
+                              ),
+                            ],
+                          ),
+                          PopupMenuButton<MediaImportAction>(
+                            key: const Key('note-import-file-menu'),
+                            tooltip: strings.importFiles,
+                            icon: Icon(
+                              Icons.folder_open_outlined,
+                              color: _mutedTextColor(context),
+                            ),
+                            onSelected: _handleAttachmentAction,
+                            itemBuilder: (context) => [
+                              PopupMenuItem(
+                                value: MediaImportAction.pickPhoto,
+                                child: _MediaMenuEntry(
+                                  icon: Icons.photo_library_outlined,
+                                  label: strings.pickPhoto,
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: MediaImportAction.pickVideo,
+                                child: _MediaMenuEntry(
+                                  icon: Icons.video_library_outlined,
+                                  label: strings.pickVideo,
                                 ),
                               ),
                               PopupMenuItem(
@@ -8191,10 +8363,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                 ),
                               ),
                               PopupMenuItem(
-                                value: MediaImportAction.addLocation,
+                                value: MediaImportAction.pickFile,
                                 child: _MediaMenuEntry(
-                                  icon: Icons.my_location_outlined,
-                                  label: strings.addCurrentLocation,
+                                  icon: Icons.insert_drive_file_outlined,
+                                  label: strings.pickFile,
                                 ),
                               ),
                             ],
@@ -8231,34 +8403,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       ),
                     ],
                     selected: {_editorMode},
-                    onSelectionChanged: (selection) {
-                      _RichBlockDraft? paragraphToFocus;
-                      setState(() {
-                        _editorMode = selection.first;
-                        if (_editorMode == NoteEditorMode.rich &&
-                            _richBlocks.isEmpty) {
-                          final draft = _RichBlockDraft.paragraph();
-                          _attachRichBlockListener(draft);
-                          _richBlocks = [draft];
-                          _activeRichParagraphIndex = 0;
-                          paragraphToFocus = draft;
-                        }
-                      });
-                      if (_editorMode == NoteEditorMode.quick) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (!mounted) {
-                            return;
-                          }
-                          _quickContentFocusNode.requestFocus();
-                          final textLength = _contentController.text.length;
-                          _contentController.selection =
-                              TextSelection.collapsed(offset: textLength);
-                        });
-                      } else if (paragraphToFocus != null) {
-                        _requestParagraphFocus(paragraphToFocus!, 0);
-                      }
-                      _scheduleDraftPersist();
-                    },
+                    onSelectionChanged: (selection) =>
+                        _switchEditorMode(selection.first),
                   ),
                   const SizedBox(height: 12),
                   if (_editorMode == NoteEditorMode.quick) ...[
@@ -8424,14 +8570,21 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                   child: Text(strings.cancel),
                 ),
                 const Spacer(),
-                FilledButton(
-                  key: const Key('save-note-button'),
-                  onPressed: _canSave ? _save : null,
-                  child: Text(
-                    widget.note == null
-                        ? strings.createNote
-                        : strings.saveChanges,
-                  ),
+                ValueListenableBuilder<bool>(
+                  valueListenable: _canSubmitNotifier,
+                  builder: (context, canSubmit, _) {
+                    return FilledButton(
+                      key: const Key('save-note-button'),
+                      onPressed: canSubmit && _selectedVaultId != null
+                          ? _save
+                          : null,
+                      child: Text(
+                        widget.note == null
+                            ? strings.createNote
+                            : strings.saveChanges,
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -8441,13 +8594,19 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     );
   }
 
-  bool get _canSave {
+  bool get _hasSubmitContent {
     final hasText = _editorMode == NoteEditorMode.quick
-        ? _splitMemoContent(_contentController.text).title.isNotEmpty ||
-              _splitMemoContent(_contentController.text).body.isNotEmpty
+        ? (() {
+            final content = _splitMemoContent(_contentController.text);
+            return content.title.isNotEmpty || content.body.isNotEmpty;
+          })()
         : _deriveRichTitle().isNotEmpty || _deriveRichBody().isNotEmpty;
     final hasAttachments = _allCurrentAttachments.isNotEmpty;
-    return (hasText || hasAttachments) && _selectedVaultId != null;
+    return hasText || hasAttachments;
+  }
+
+  bool get _canSave {
+    return _hasSubmitContent && _selectedVaultId != null;
   }
 
   void _showEditorSnackBar({required Widget content, SnackBarAction? action}) {
@@ -9684,42 +9843,43 @@ class _RichBlockEditorTile extends StatelessWidget {
       );
     }
 
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Stack(
+    return Stack(
+      children: [
+        _AttachmentListTile(
+          attachment: block.attachment!,
+          showShareAction: false,
+          trailingActionWidth: 88,
+        ),
+        Positioned(
+          top: 12,
+          right: 12,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _AttachmentPreview(attachment: block.attachment!),
-              Positioned(
-                top: 6,
-                right: 6,
-                child: IconButton.filledTonal(
-                  onPressed: onRemove,
-                  icon: const Icon(Icons.delete_outline_rounded),
-                  tooltip: strings.removeBlock,
-                  visualDensity: VisualDensity.compact,
-                  iconSize: 18,
-                  padding: const EdgeInsets.all(6),
-                  constraints: const BoxConstraints.tightFor(
-                    width: 32,
-                    height: 32,
-                  ),
+              IconButton.filledTonal(
+                onPressed: onRemove,
+                icon: const Icon(Icons.delete_outline_rounded),
+                tooltip: strings.removeBlock,
+                visualDensity: VisualDensity.compact,
+                iconSize: 18,
+                padding: const EdgeInsets.all(6),
+                constraints: const BoxConstraints.tightFor(
+                  width: 32,
+                  height: 32,
                 ),
+              ),
+              const SizedBox(width: 6),
+              _CompactMediaActionRail(
+                canMovePrevious: canMovePrevious,
+                canMoveNext: canMoveNext,
+                onMovePrevious: onMovePrevious,
+                onMoveNext: onMoveNext,
               ),
             ],
           ),
-          const SizedBox(width: 6),
-          _CompactMediaActionRail(
-            canMovePrevious: canMovePrevious,
-            canMoveNext: canMoveNext,
-            onMovePrevious: onMovePrevious,
-            onMoveNext: onMoveNext,
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -9888,7 +10048,11 @@ class _EditableAttachmentTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        _AttachmentListTile(attachment: attachment),
+        _AttachmentListTile(
+          attachment: attachment,
+          showShareAction: false,
+          trailingActionWidth: 144,
+        ),
         Positioned(
           top: 8,
           right: 0,
@@ -9918,9 +10082,15 @@ class _EditableAttachmentTile extends StatelessWidget {
 }
 
 class _AttachmentListTile extends ConsumerWidget {
-  const _AttachmentListTile({required this.attachment});
+  const _AttachmentListTile({
+    required this.attachment,
+    this.showShareAction = true,
+    this.trailingActionWidth = 0,
+  });
 
   final NoteAttachment attachment;
+  final bool showShareAction;
+  final double trailingActionWidth;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -9958,11 +10128,14 @@ class _AttachmentListTile extends ConsumerWidget {
                     ],
                   ),
                 ),
-                IconButton(
-                  onPressed: () => _shareAttachment(context, ref, attachment),
-                  icon: const Icon(Icons.share_outlined),
-                  tooltip: context.strings.share,
-                ),
+                if (showShareAction)
+                  IconButton(
+                    onPressed: () => _shareAttachment(context, ref, attachment),
+                    icon: const Icon(Icons.share_outlined),
+                    tooltip: context.strings.share,
+                  )
+                else if (trailingActionWidth > 0)
+                  SizedBox(width: trailingActionWidth),
               ],
             ),
           ),
@@ -10068,7 +10241,20 @@ class _EmbeddedAttachmentBlock extends ConsumerWidget {
           height: 180,
           child: _AudioAttachmentViewer(attachment: attachment),
         );
+      case AttachmentType.file:
+        return _EmbeddedFileAttachment(attachment: attachment);
     }
+  }
+}
+
+class _EmbeddedFileAttachment extends ConsumerWidget {
+  const _EmbeddedFileAttachment({required this.attachment});
+
+  final NoteAttachment attachment;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return _AttachmentListTile(attachment: attachment);
   }
 }
 
@@ -10116,26 +10302,6 @@ class _EmbeddedPhotoAttachmentState
     if (!widget.mediaActive) {
       return _InactivePhotoAttachmentPreview(label: widget.attachment.label);
     }
-    final previewBytesBase64 = widget.attachment.previewBytesBase64;
-    final hasPreview =
-        previewBytesBase64 != null && previewBytesBase64.isNotEmpty;
-    final filePath = widget.attachment.filePath;
-    if (!hasPreview && filePath != null && filePath.isNotEmpty) {
-      _debugNotePerf(
-        'detail photo deferred label="${widget.attachment.label}" file=${path.basename(filePath)}',
-      );
-      return _DeferredPhotoAttachmentPreview(
-        label: widget.attachment.label,
-        onTap: () => _openAttachmentViewer(
-          context,
-          ref,
-          widget.attachment,
-          photoAttachments: widget.photoAttachments,
-          initialPhotoIndex: widget.photoIndex,
-        ),
-      );
-    }
-
     return FutureBuilder<List<int>?>(
       future: _ensureImageBytesFuture(),
       builder: (context, snapshot) {
@@ -10181,51 +10347,6 @@ class _EmbeddedPhotoAttachmentState
   }
 }
 
-class _DeferredPhotoAttachmentPreview extends StatelessWidget {
-  const _DeferredPhotoAttachmentPreview({
-    required this.label,
-    required this.onTap,
-  });
-
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final strings = context.strings;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        height: 180,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Theme.of(context).dividerColor),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.image_outlined,
-              color: _mutedTextColor(context),
-              semanticLabel: label,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              strings.text('home.tap.to.open.image'),
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _InactivePhotoAttachmentPreview extends StatelessWidget {
   const _InactivePhotoAttachmentPreview({required this.label});
 
@@ -10250,14 +10371,46 @@ class _InactivePhotoAttachmentPreview extends StatelessWidget {
   }
 }
 
-class _AttachmentPreview extends ConsumerWidget {
+class _AttachmentPreview extends ConsumerStatefulWidget {
   const _AttachmentPreview({required this.attachment, this.size = 72});
 
   final NoteAttachment attachment;
   final double size;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_AttachmentPreview> createState() => _AttachmentPreviewState();
+}
+
+class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
+  Future<List<int>?>? _bytesFuture;
+  String? _futureFilePath;
+
+  @override
+  void didUpdateWidget(covariant _AttachmentPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.attachment.filePath != widget.attachment.filePath ||
+        oldWidget.attachment.type != widget.attachment.type ||
+        oldWidget.attachment.previewBytesBase64 !=
+            widget.attachment.previewBytesBase64) {
+      _bytesFuture = null;
+      _futureFilePath = null;
+    }
+  }
+
+  Future<List<int>?> _attachmentBytesFuture(String filePath) {
+    if (_bytesFuture != null && _futureFilePath == filePath) {
+      return _bytesFuture!;
+    }
+    _futureFilePath = filePath;
+    return _bytesFuture = ref
+        .read(encryptedAttachmentStoreProvider)
+        .readAttachment(filePath, type: widget.attachment.type);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final attachment = widget.attachment;
+    final size = widget.size;
     if (attachment.type != AttachmentType.photo) {
       return _AttachmentIconBox(type: attachment.type, size: size);
     }
@@ -10276,9 +10429,7 @@ class _AttachmentPreview extends ConsumerWidget {
     }
 
     return FutureBuilder<List<int>?>(
-      future: ref
-          .watch(encryptedAttachmentStoreProvider)
-          .readAttachment(filePath, type: attachment.type),
+      future: _attachmentBytesFuture(filePath),
       builder: (context, snapshot) {
         final bytes = snapshot.data;
         if (bytes == null || bytes.isEmpty) {
@@ -10350,6 +10501,10 @@ String _attachmentDescription(BuildContext context, NoteAttachment attachment) {
       return attachment.filePath == null
           ? strings.audioPlaceholder
           : strings.tapToPlayAudio;
+    case AttachmentType.file:
+      return attachment.filePath == null
+          ? strings.filePlaceholder
+          : strings.tapToOpenFile;
   }
 }
 
@@ -11005,9 +11160,59 @@ class _AttachmentViewerSheet extends ConsumerWidget {
             AttachmentType.audio => _AudioAttachmentViewer(
               attachment: attachment,
             ),
+            AttachmentType.file => _FileAttachmentViewer(
+              attachment: attachment,
+            ),
           },
         ),
       ],
+    );
+  }
+}
+
+class _FileAttachmentViewer extends ConsumerWidget {
+  const _FileAttachmentViewer({required this.attachment});
+
+  final NoteAttachment attachment;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.insert_drive_file_outlined,
+              size: 56,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              attachment.label,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              context.strings.filePreviewUnavailable,
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: () => _shareAttachment(context, ref, attachment),
+              icon: const Icon(Icons.ios_share_outlined),
+              label: Text(context.strings.share),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -12437,5 +12642,7 @@ IconData _iconForAttachment(AttachmentType type) {
       return Icons.videocam_outlined;
     case AttachmentType.audio:
       return Icons.mic_none_rounded;
+    case AttachmentType.file:
+      return Icons.insert_drive_file_outlined;
   }
 }

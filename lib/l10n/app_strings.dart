@@ -76,6 +76,7 @@ class AppStrings {
       'home.admin.mode.active': 'Admin mode active',
       'home.switch.private.access': 'Switch private access',
       'home.lock': 'Lock',
+      'home.lock.private.access': 'Lock private access',
       'home.unlock': 'Unlock',
       'home.delete.note': 'Delete note',
       'home.delete': 'Delete',
@@ -464,6 +465,7 @@ class AppStrings {
           'El paquete remoto aún no está configurado.',
       'home.no.remote.bundle.metadata.loaded.yet':
           'Aún no se han cargado metadatos del paquete remoto.',
+      'home.lock.private.access': 'Bloquear acceso privado',
       'home.use.a.4.digit.pin.for.this.browser':
           'Usa un PIN de 4 dígitos para este navegador.',
       'home.pin.must.be.exactly.4.digits':
@@ -512,6 +514,7 @@ class AppStrings {
           'Das Remote-Bundle ist noch nicht eingerichtet.',
       'home.no.remote.bundle.metadata.loaded.yet':
           'Es wurden noch keine Remote-Bundle-Metadaten geladen.',
+      'home.lock.private.access': 'Privaten Zugriff sperren',
       'home.use.a.4.digit.pin.for.this.browser':
           'Verwende eine 4-stellige PIN für diesen Browser.',
       'home.pin.must.be.exactly.4.digits':
@@ -544,6 +547,7 @@ class AppStrings {
       'home.admin.mode.active': '管理者モード中',
       'home.switch.private.access': 'プライベート表示を切り替え',
       'home.lock': '閉じる',
+      'home.lock.private.access': 'ロックする',
       'home.unlock': '開く',
       'home.delete.note': 'ノートを削除',
       'home.delete': '削除',
@@ -916,6 +920,7 @@ class AppStrings {
       'home.admin.mode.active': '管理员模式已启用',
       'home.switch.private.access': '切换私密访问',
       'home.lock': '锁定',
+      'home.lock.private.access': '锁定私密访问',
       'home.unlock': '解锁',
       'home.delete.note': '删除笔记',
       'home.delete': '删除',
@@ -1251,6 +1256,7 @@ class AppStrings {
       'home.admin.mode.active': '관리자 모드 활성화',
       'home.switch.private.access': '비공개 접근 전환',
       'home.lock': '잠금',
+      'home.lock.private.access': '비공개 접근 잠금',
       'home.unlock': '잠금 해제',
       'home.delete.note': '노트 삭제',
       'home.delete': '삭제',
@@ -1882,6 +1888,30 @@ class AppStrings {
     ko: '탭하여 오디오 재생',
     es: 'Toca para reproducir el audio',
     de: 'Tippen, um Audio abzuspielen',
+  );
+  String get filePlaceholder => localized(
+    en: 'File placeholder',
+    ja: 'ファイルのプレースホルダー',
+    zh: '文件占位符',
+    ko: '파일 자리표시자',
+    es: 'Marcador de posición de archivo',
+    de: 'Datei-Platzhalter',
+  );
+  String get tapToOpenFile => localized(
+    en: 'Tap to open file',
+    ja: 'タップしてファイルを開く',
+    zh: '点按以打开文件',
+    ko: '탭하여 파일 열기',
+    es: 'Toca para abrir el archivo',
+    de: 'Tippen, um die Datei zu öffnen',
+  );
+  String get filePreviewUnavailable => localized(
+    en: 'Preview is not available for this file. Share it to open it in another app.',
+    ja: 'このファイルはプレビューできません。共有して別のアプリで開けます。',
+    zh: '此文件无法预览。可通过共享在其他应用中打开。',
+    ko: '이 파일은 미리 볼 수 없습니다. 공유해서 다른 앱에서 열 수 있습니다.',
+    es: 'La vista previa no está disponible para este archivo. Compártelo para abrirlo en otra app.',
+    de: 'Für diese Datei ist keine Vorschau verfügbar. Teile sie, um sie in einer anderen App zu öffnen.',
   );
   String get closeImageViewer => localized(
     en: 'Close image viewer',
@@ -3584,6 +3614,22 @@ class AppStrings {
     es: 'Añadir multimedia',
     de: 'Medien hinzufügen',
   );
+  String get captureMedia => localized(
+    en: 'Capture or record',
+    ja: '撮影・録音',
+    zh: '拍摄或录音',
+    ko: '촬영 또는 녹음',
+    es: 'Capturar o grabar',
+    de: 'Aufnehmen',
+  );
+  String get importFiles => localized(
+    en: 'Import from files',
+    ja: 'ファイルから追加',
+    zh: '从文件导入',
+    ko: '파일에서 가져오기',
+    es: 'Importar archivos',
+    de: 'Aus Dateien importieren',
+  );
   String get pickPhoto => localized(
     en: 'Pick photo',
     ja: '写真を選ぶ',
@@ -3631,6 +3677,14 @@ class AppStrings {
     ko: '오디오 선택',
     es: 'Elegir audio',
     de: 'Audio auswählen',
+  );
+  String get pickFile => localized(
+    en: 'Pick file',
+    ja: 'ファイルを選ぶ',
+    zh: '选择文件',
+    ko: '파일 선택',
+    es: 'Elegir archivo',
+    de: 'Datei auswählen',
   );
   String get addCurrentLocation => localized(
     en: 'Add current location',
