@@ -2572,8 +2572,11 @@ class SettingsScreen extends ConsumerWidget {
     final syncSummary = syncProvider == SyncProvider.off
         ? (strings.text('home.device.only.storage'))
         : _syncAuthSummary(context, syncProvider, syncAuthState);
-    final appearanceSummary =
-        '${_localeSettingLabel(context, localeSetting)} / ${_themeModeLabel(context, themeMode)} / ${_colorThemeLabel(context, colorTheme)}';
+    final appearanceSummary = strings.appearanceSummary(
+      language: _localeSettingLabel(context, localeSetting),
+      theme: _themeModeLabel(context, themeMode),
+      color: _colorThemeLabel(context, colorTheme),
+    );
     final colorThemeTargetLabel =
         activePrivateProfileLabel ?? strings.text('home.normal.memo.mode');
     final aboutVersion = packageInfo.when(
@@ -4222,7 +4225,7 @@ class SettingsScreen extends ConsumerWidget {
     required String appearanceSummary,
   }) {
     return _SettingsGroup(
-      title: strings.appearance,
+      title: strings.appearanceWithControls,
       summary: appearanceSummary,
       assetPath: 'assets/settings/appearance.svg',
       semanticLabel: 'settings-appearance',
@@ -4364,12 +4367,16 @@ class SettingsScreen extends ConsumerWidget {
             AppColorTheme.hanada,
             AppColorTheme.sora,
             AppColorTheme.ruri,
+            AppColorTheme.asagi,
             AppColorTheme.wakatake,
             AppColorTheme.tokiwa,
+            AppColorTheme.byakuroku,
             AppColorTheme.nanohana,
             AppColorTheme.haizakura,
+            AppColorTheme.akane,
             AppColorTheme.kikyo,
             AppColorTheme.edomurasaki,
+            AppColorTheme.shion,
             AppColorTheme.rikyucha,
           ],
           titleFor: (theme) => _colorThemeLabel(context, theme),
@@ -4718,12 +4725,16 @@ class SettingsScreen extends ConsumerWidget {
       AppColorTheme.hanada => strings.colorHanada,
       AppColorTheme.sora => strings.colorSora,
       AppColorTheme.ruri => strings.colorRuri,
+      AppColorTheme.asagi => strings.colorAsagi,
       AppColorTheme.wakatake => strings.colorWakatake,
       AppColorTheme.tokiwa => strings.colorTokiwa,
+      AppColorTheme.byakuroku => strings.colorByakuroku,
       AppColorTheme.nanohana => strings.colorNanohana,
       AppColorTheme.haizakura => strings.colorHaizakura,
+      AppColorTheme.akane => strings.colorAkane,
       AppColorTheme.kikyo => strings.colorKikyo,
       AppColorTheme.edomurasaki => strings.colorEdomurasaki,
+      AppColorTheme.shion => strings.colorShion,
       AppColorTheme.rikyucha => strings.colorRikyucha,
     };
   }
@@ -4750,12 +4761,16 @@ class SettingsScreen extends ConsumerWidget {
       AppColorTheme.hanada => strings.colorHanadaDesc,
       AppColorTheme.sora => strings.colorSoraDesc,
       AppColorTheme.ruri => strings.colorRuriDesc,
+      AppColorTheme.asagi => strings.colorAsagiDesc,
       AppColorTheme.wakatake => strings.colorWakatakeDesc,
       AppColorTheme.tokiwa => strings.colorTokiwaDesc,
+      AppColorTheme.byakuroku => strings.colorByakurokuDesc,
       AppColorTheme.nanohana => strings.colorNanohanaDesc,
       AppColorTheme.haizakura => strings.colorHaizakuraDesc,
+      AppColorTheme.akane => strings.colorAkaneDesc,
       AppColorTheme.kikyo => strings.colorKikyoDesc,
       AppColorTheme.edomurasaki => strings.colorEdomurasakiDesc,
+      AppColorTheme.shion => strings.colorShionDesc,
       AppColorTheme.rikyucha => strings.colorRikyuchaDesc,
     };
   }
@@ -4794,12 +4809,16 @@ class SettingsScreen extends ConsumerWidget {
       AppColorTheme.hanada => const Color(0xFF006284),
       AppColorTheme.sora => const Color(0xFF58B2DC),
       AppColorTheme.ruri => const Color(0xFF005CAF),
+      AppColorTheme.asagi => const Color(0xFF33A6B8),
       AppColorTheme.wakatake => const Color(0xFF5DAC81),
       AppColorTheme.tokiwa => const Color(0xFF1B813E),
+      AppColorTheme.byakuroku => const Color(0xFFA8D8B9),
       AppColorTheme.nanohana => const Color(0xFFFFEC47),
       AppColorTheme.haizakura => const Color(0xFFD7C4BB),
+      AppColorTheme.akane => const Color(0xFFB7282E),
       AppColorTheme.kikyo => const Color(0xFF6A4C9C),
       AppColorTheme.edomurasaki => const Color(0xFF77428D),
+      AppColorTheme.shion => const Color(0xFF8F77B5),
       AppColorTheme.rikyucha => const Color(0xFF897D55),
     };
   }
@@ -6543,7 +6562,9 @@ class _ColorThemePickerState extends State<_ColorThemePicker> {
           child: TextButton.icon(
             onPressed: () => _showExtendedThemeDialog(context),
             icon: const Icon(Icons.palette_outlined),
-            label: Text(strings.extendedThemes),
+            label: Text(
+              strings.extendedThemesWithCount(widget.extendedThemes.length),
+            ),
           ),
         ),
       ],
@@ -6722,15 +6743,18 @@ class _ExtendedColorThemeSheetBody extends StatelessWidget {
       AppColorTheme.konjyo ||
       AppColorTheme.hanada ||
       AppColorTheme.sora ||
-      AppColorTheme.ruri => strings.themeCategoryBlueGreen,
+      AppColorTheme.ruri ||
+      AppColorTheme.asagi => strings.themeCategoryBlueGreen,
       AppColorTheme.fuji ||
       AppColorTheme.sumire ||
       AppColorTheme.kikyo ||
-      AppColorTheme.edomurasaki => strings.themeCategoryPurple,
+      AppColorTheme.edomurasaki ||
+      AppColorTheme.shion => strings.themeCategoryPurple,
       AppColorTheme.moegi ||
       AppColorTheme.seiheki ||
       AppColorTheme.wakatake ||
-      AppColorTheme.tokiwa => strings.themeCategoryGreenYellow,
+      AppColorTheme.tokiwa ||
+      AppColorTheme.byakuroku => strings.themeCategoryGreenYellow,
       AppColorTheme.yamabuki ||
       AppColorTheme.nanohana ||
       AppColorTheme.kurumi ||
@@ -6738,7 +6762,8 @@ class _ExtendedColorThemeSheetBody extends StatelessWidget {
       AppColorTheme.kurenai ||
       AppColorTheme.sakura ||
       AppColorTheme.enji ||
-      AppColorTheme.haizakura => strings.themeCategoryRedPink,
+      AppColorTheme.haizakura ||
+      AppColorTheme.akane => strings.themeCategoryRedPink,
       AppColorTheme.sumi ||
       AppColorTheme.ginnezumi ||
       AppColorTheme.shironeri ||

@@ -985,9 +985,17 @@ class _OnboardingSetupPanelBodyState
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final colorTheme = ref.watch(appColorThemeControllerProvider);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _OnboardingColorThemePicker(
+          current: colorTheme,
+          onSelect: (theme) => ref
+              .read(appColorThemeControllerProvider.notifier)
+              .setTheme(theme),
+        ),
+        const SizedBox(height: 12),
         _OnboardingSetupTile(
           tileKey: const Key('onboarding-set-pin-button'),
           title: kIsWeb
@@ -1048,6 +1056,174 @@ class _OnboardingSetupPanelBodyState
       ],
     );
   }
+}
+
+class _OnboardingColorThemePicker extends StatelessWidget {
+  const _OnboardingColorThemePicker({
+    required this.current,
+    required this.onSelect,
+  });
+
+  final AppColorTheme current;
+  final ValueChanged<AppColorTheme> onSelect;
+
+  static const _themes = [
+    AppColorTheme.konjyo,
+    AppColorTheme.moegi,
+    AppColorTheme.yamabuki,
+    AppColorTheme.kurenai,
+    AppColorTheme.sakura,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            strings.accentColor,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            strings.onboardingColorThemeBody(AppColorTheme.values.length),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxWidth < 520;
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final theme in _themes)
+                    SizedBox(
+                      width: compact
+                          ? constraints.maxWidth
+                          : (constraints.maxWidth - 8) / 2,
+                      child: _OnboardingColorThemeOption(
+                        theme: theme,
+                        title: _onboardingColorThemeLabel(strings, theme),
+                        sampleColor: _onboardingColorThemeSample(theme),
+                        selected: current == theme,
+                        onTap: () => onSelect(theme),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OnboardingColorThemeOption extends StatelessWidget {
+  const _OnboardingColorThemeOption({
+    required this.theme,
+    required this.title,
+    required this.sampleColor,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final AppColorTheme theme;
+  final String title;
+  final Color sampleColor;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return InkWell(
+      key: Key('onboarding-color-theme-${theme.name}-option'),
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        decoration: BoxDecoration(
+          color: selected
+              ? colorScheme.primary.withValues(alpha: 0.08)
+              : colorScheme.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected ? colorScheme.primary : colorScheme.outlineVariant,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: sampleColor,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: colorScheme.outlineVariant),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              selected
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.radio_button_unchecked_rounded,
+              color: selected
+                  ? colorScheme.primary
+                  : colorScheme.onSurfaceVariant,
+              size: 20,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _onboardingColorThemeLabel(AppStrings strings, AppColorTheme theme) {
+  return switch (theme) {
+    AppColorTheme.konjyo => strings.colorKonjyo,
+    AppColorTheme.moegi => strings.colorMoegi,
+    AppColorTheme.yamabuki => strings.colorYamabuki,
+    AppColorTheme.kurenai => strings.colorKurenai,
+    AppColorTheme.sakura => strings.colorSakura,
+    _ => strings.colorSakura,
+  };
+}
+
+Color _onboardingColorThemeSample(AppColorTheme theme) {
+  return switch (theme) {
+    AppColorTheme.konjyo => const Color(0xFF113285),
+    AppColorTheme.moegi => const Color(0xFF7BA23F),
+    AppColorTheme.yamabuki => const Color(0xFFFFB11B),
+    AppColorTheme.kurenai => const Color(0xFFCB1B45),
+    AppColorTheme.sakura => const Color(0xFFFEDFE1),
+    _ => const Color(0xFFFEDFE1),
+  };
 }
 
 class _OnboardingSetupTile extends StatelessWidget {
@@ -2038,6 +2214,44 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
               appBarBackground: Colors.white,
               navigationBackground: Colors.white,
             );
+    case AppColorTheme.asagi:
+      return isDark
+          ? const _ThemePalette(
+              primary: Color(0xFF8BD9E5),
+              onPrimary: Color(0xFF08282E),
+              secondary: Color(0xFF62B9C8),
+              onSecondary: Color(0xFF06242A),
+              tertiary: Color(0xFFC8EEF4),
+              onTertiary: Color(0xFF08282E),
+              surface: Color(0xFF162529),
+              onSurface: Color(0xFFE9F3F5),
+              onSurfaceVariant: Color(0xFFA8BCC1),
+              surfaceContainer: Color(0xFF203238),
+              surfaceContainerHighest: Color(0xFF2A4149),
+              outline: Color(0xFF536871),
+              outlineVariant: Color(0xFF3E525A),
+              scaffoldBackground: Color(0xFF272C32),
+              appBarBackground: Color(0xFF272C32),
+              navigationBackground: Color(0xFF272C32),
+            )
+          : const _ThemePalette(
+              primary: Color(0xFF23889A),
+              onPrimary: Colors.white,
+              secondary: Color(0xFF33A6B8),
+              onSecondary: Colors.white,
+              tertiary: Color(0xFFC9EEF3),
+              onTertiary: Color(0xFF0B333B),
+              surface: Colors.white,
+              onSurface: Color(0xFF1A2225),
+              onSurfaceVariant: Color(0xFF5C6A70),
+              surfaceContainer: Color(0xFFF3FAFC),
+              surfaceContainerHighest: Color(0xFFE0F1F5),
+              outline: Color(0xFFB8CCD3),
+              outlineVariant: Color(0xFFD6E5EA),
+              scaffoldBackground: Color(0xFFF8FCFD),
+              appBarBackground: Colors.white,
+              navigationBackground: Colors.white,
+            );
     case AppColorTheme.wakatake:
       return isDark
           ? const _ThemePalette(
@@ -2111,6 +2325,44 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
               outline: Color(0xFFB8CCBB),
               outlineVariant: Color(0xFFD6E6D8),
               scaffoldBackground: Color(0xFFF8FCF8),
+              appBarBackground: Colors.white,
+              navigationBackground: Colors.white,
+            );
+    case AppColorTheme.byakuroku:
+      return isDark
+          ? const _ThemePalette(
+              primary: Color(0xFFC9EBD5),
+              onPrimary: Color(0xFF132719),
+              secondary: Color(0xFFA8D8B9),
+              onSecondary: Color(0xFF102315),
+              tertiary: Color(0xFFE1F3E7),
+              onTertiary: Color(0xFF132719),
+              surface: Color(0xFF1A241D),
+              onSurface: Color(0xFFEBF3ED),
+              onSurfaceVariant: Color(0xFFADBCAE),
+              surfaceContainer: Color(0xFF243127),
+              surfaceContainerHighest: Color(0xFF304034),
+              outline: Color(0xFF59675B),
+              outlineVariant: Color(0xFF445047),
+              scaffoldBackground: Color(0xFF272C32),
+              appBarBackground: Color(0xFF272C32),
+              navigationBackground: Color(0xFF272C32),
+            )
+          : const _ThemePalette(
+              primary: Color(0xFF4F9C72),
+              onPrimary: Colors.white,
+              secondary: Color(0xFFA8D8B9),
+              onSecondary: Color(0xFF14331F),
+              tertiary: Color(0xFFE1F2E7),
+              onTertiary: Color(0xFF14331F),
+              surface: Colors.white,
+              onSurface: Color(0xFF1B211C),
+              onSurfaceVariant: Color(0xFF5F6A61),
+              surfaceContainer: Color(0xFFF5FAF6),
+              surfaceContainerHighest: Color(0xFFE5F1E8),
+              outline: Color(0xFFBDCCBF),
+              outlineVariant: Color(0xFFD9E6DC),
+              scaffoldBackground: Color(0xFFFAFDFA),
               appBarBackground: Colors.white,
               navigationBackground: Colors.white,
             );
@@ -2190,6 +2442,44 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
               appBarBackground: Colors.white,
               navigationBackground: Colors.white,
             );
+    case AppColorTheme.akane:
+      return isDark
+          ? const _ThemePalette(
+              primary: Color(0xFFFFA2A5),
+              onPrimary: Color(0xFF3A0709),
+              secondary: Color(0xFFD96A6E),
+              onSecondary: Color(0xFF340607),
+              tertiary: Color(0xFFFFCACC),
+              onTertiary: Color(0xFF3A0709),
+              surface: Color(0xFF281819),
+              onSurface: Color(0xFFF8EAEB),
+              onSurfaceVariant: Color(0xFFCBAFB1),
+              surfaceContainer: Color(0xFF362122),
+              surfaceContainerHighest: Color(0xFF482C2E),
+              outline: Color(0xFF7F595B),
+              outlineVariant: Color(0xFF654244),
+              scaffoldBackground: Color(0xFF272C32),
+              appBarBackground: Color(0xFF272C32),
+              navigationBackground: Color(0xFF272C32),
+            )
+          : const _ThemePalette(
+              primary: Color(0xFFB7282E),
+              onPrimary: Colors.white,
+              secondary: Color(0xFFD65A61),
+              onSecondary: Colors.white,
+              tertiary: Color(0xFFF2BFC2),
+              onTertiary: Color(0xFF420D10),
+              surface: Colors.white,
+              onSurface: Color(0xFF25191A),
+              onSurfaceVariant: Color(0xFF765F61),
+              surfaceContainer: Color(0xFFFCF6F6),
+              surfaceContainerHighest: Color(0xFFF3E0E1),
+              outline: Color(0xFFD5BFC1),
+              outlineVariant: Color(0xFFE9D8D9),
+              scaffoldBackground: Color(0xFFFFF8F8),
+              appBarBackground: Colors.white,
+              navigationBackground: Colors.white,
+            );
     case AppColorTheme.kikyo:
       return isDark
           ? const _ThemePalette(
@@ -2263,6 +2553,44 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
               outline: Color(0xFFCEBDD5),
               outlineVariant: Color(0xFFE5D7EA),
               scaffoldBackground: Color(0xFFFCF8FD),
+              appBarBackground: Colors.white,
+              navigationBackground: Colors.white,
+            );
+    case AppColorTheme.shion:
+      return isDark
+          ? const _ThemePalette(
+              primary: Color(0xFFD2BDEE),
+              onPrimary: Color(0xFF22163A),
+              secondary: Color(0xFFAC93D0),
+              onSecondary: Color(0xFF1E1234),
+              tertiary: Color(0xFFE6D8F5),
+              onTertiary: Color(0xFF22163A),
+              surface: Color(0xFF211D28),
+              onSurface: Color(0xFFF1EEF7),
+              onSurfaceVariant: Color(0xFFBEB5C8),
+              surfaceContainer: Color(0xFF2C2736),
+              surfaceContainerHighest: Color(0xFF3A3347),
+              outline: Color(0xFF696076),
+              outlineVariant: Color(0xFF514A5D),
+              scaffoldBackground: Color(0xFF272C32),
+              appBarBackground: Color(0xFF272C32),
+              navigationBackground: Color(0xFF272C32),
+            )
+          : const _ThemePalette(
+              primary: Color(0xFF6F5A96),
+              onPrimary: Colors.white,
+              secondary: Color(0xFF8F77B5),
+              onSecondary: Colors.white,
+              tertiary: Color(0xFFE2D7F0),
+              onTertiary: Color(0xFF281E3E),
+              surface: Colors.white,
+              onSurface: Color(0xFF201D24),
+              onSurfaceVariant: Color(0xFF676070),
+              surfaceContainer: Color(0xFFF8F6FC),
+              surfaceContainerHighest: Color(0xFFEDE7F5),
+              outline: Color(0xFFC8C0D2),
+              outlineVariant: Color(0xFFE1DAE9),
+              scaffoldBackground: Color(0xFFFBFAFE),
               appBarBackground: Colors.white,
               navigationBackground: Colors.white,
             );

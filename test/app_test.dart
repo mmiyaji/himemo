@@ -31,14 +31,26 @@ void main() {
     expect(strings.deleteDemoNotesBody(3), contains('3 demo notes'));
     expect(strings.noteDayLabel(DateTime(2026, 5, 3)), 'May 3, 2026 (Sun)');
     expect(strings.languageSystemOption, 'Follow system');
+    expect(strings.appearanceWithControls, 'Appearance (language and color)');
+    expect(
+      strings.appearanceSummary(
+        language: 'English',
+        theme: 'Light',
+        color: '桜 (Sakura)',
+      ),
+      'Language: English / Theme: Light / Color: 桜 (Sakura)',
+    );
     expect(strings.colorKonjyo, '紺青 (Konjyo)');
     expect(strings.colorKurenai, '紅 (Kurenai)');
     expect(strings.colorSakura, '桜 (Sakura)');
     expect(strings.colorFuji, '藤 (Fuji)');
     expect(strings.extendedThemes, 'Extended themes');
+    expect(strings.extendedThemesWithCount(30), 'Extended themes (30 total)');
     expect(strings.colorAi, '藍 (Ai)');
+    expect(strings.colorAsagi, '浅葱 (Asagi)');
     expect(strings.colorShironeri, '白練 (Shironeri)');
     expect(strings.themeCategoryNeutral, 'White, black, and neutral');
+    expect(strings.onboardingColorThemeBody(30), contains('30+'));
   });
 
   test('app strings localize home UI labels to Japanese', () {
@@ -49,14 +61,30 @@ void main() {
     expect(strings.videoPreviewUnavailableWeb, 'Web では動画プレビューを利用できません。');
     expect(strings.languageSystemOption, 'システムに合わせる (System)');
     expect(strings.languageJapaneseOption, '日本語 (Japanese)');
+    expect(strings.appearanceWithControls, '表示（言語・カラー）');
+    expect(
+      strings.appearanceSummary(
+        language: '日本語 (Japanese)',
+        theme: 'ライト',
+        color: '桜 (Sakura)',
+      ),
+      '言語: 日本語 (Japanese) / テーマ: ライト / カラー: 桜 (Sakura)',
+    );
     expect(strings.colorKonjyo, '紺青 (Konjyo)');
     expect(strings.colorKurenai, '紅 (Kurenai)');
     expect(strings.colorSakura, '桜 (Sakura)');
     expect(strings.colorFuji, '藤 (Fuji)');
     expect(strings.extendedThemes, '拡張テーマ');
+    expect(strings.extendedThemesWithCount(30), '拡張テーマ（全30種）');
     expect(strings.colorAi, '藍 (Ai)');
+    expect(strings.colorAsagi, '浅葱 (Asagi)');
     expect(strings.colorShironeri, '白練 (Shironeri)');
     expect(strings.themeCategoryNeutral, '白・黒・無彩色');
+    expect(strings.onboardingColorThemeBody(30), contains('全30色以上'));
+  });
+
+  test('traditional color themes include 30 or more choices', () {
+    expect(AppColorTheme.values.length, greaterThanOrEqualTo(30));
   });
 
   test('app strings support Chinese and Korean locales', () {

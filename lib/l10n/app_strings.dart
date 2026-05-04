@@ -2149,6 +2149,26 @@ class AppStrings {
     es: 'Apariencia',
     de: 'Darstellung',
   );
+  String get appearanceWithControls => localized(
+    en: 'Appearance (language and color)',
+    ja: '表示（言語・カラー）',
+    zh: '外观（语言与颜色）',
+    ko: '표시(언어·색상)',
+    es: 'Apariencia (idioma y color)',
+    de: 'Darstellung (Sprache und Farbe)',
+  );
+  String appearanceSummary({
+    required String language,
+    required String theme,
+    required String color,
+  }) => localized(
+    en: 'Language: $language / Theme: $theme / Color: $color',
+    ja: '言語: $language / テーマ: $theme / カラー: $color',
+    zh: '语言：$language / 主题：$theme / 颜色：$color',
+    ko: '언어: $language / 테마: $theme / 색상: $color',
+    es: 'Idioma: $language / Tema: $theme / Color: $color',
+    de: 'Sprache: $language / Design: $theme / Farbe: $color',
+  );
   String get language => localized(
     en: 'Language',
     ja: '言語',
@@ -2317,6 +2337,14 @@ class AppStrings {
     ko: '확장 테마',
     es: 'Temas ampliados',
     de: 'Erweiterte Themen',
+  );
+  String extendedThemesWithCount(int count) => localized(
+    en: 'Extended themes ($count total)',
+    ja: '拡張テーマ（全$count種）',
+    zh: '扩展主题（共$count 种）',
+    ko: '확장 테마(총 $count종)',
+    es: 'Temas ampliados ($count en total)',
+    de: 'Erweiterte Themen ($count insgesamt)',
   );
   String get hideExtendedThemes => localized(
     en: 'Hide extended themes',
@@ -2526,6 +2554,14 @@ class AppStrings {
     es: '瑠璃 (Ruri)',
     de: '瑠璃 (Ruri)',
   );
+  String get colorAsagi => localized(
+    en: '浅葱 (Asagi)',
+    ja: '浅葱 (Asagi)',
+    zh: '浅葱 (Asagi)',
+    ko: '浅葱 (Asagi)',
+    es: '浅葱 (Asagi)',
+    de: '浅葱 (Asagi)',
+  );
   String get colorWakatake => localized(
     en: '若竹 (Wakatake)',
     ja: '若竹 (Wakatake)',
@@ -2541,6 +2577,14 @@ class AppStrings {
     ko: '常磐 (Tokiwa)',
     es: '常磐 (Tokiwa)',
     de: '常磐 (Tokiwa)',
+  );
+  String get colorByakuroku => localized(
+    en: '白緑 (Byakuroku)',
+    ja: '白緑 (Byakuroku)',
+    zh: '白緑 (Byakuroku)',
+    ko: '白緑 (Byakuroku)',
+    es: '白緑 (Byakuroku)',
+    de: '白緑 (Byakuroku)',
   );
   String get colorNanohana => localized(
     en: '菜の花 (Nanohana)',
@@ -2558,6 +2602,14 @@ class AppStrings {
     es: '灰桜 (Haizakura)',
     de: '灰桜 (Haizakura)',
   );
+  String get colorAkane => localized(
+    en: '茜 (Akane)',
+    ja: '茜 (Akane)',
+    zh: '茜 (Akane)',
+    ko: '茜 (Akane)',
+    es: '茜 (Akane)',
+    de: '茜 (Akane)',
+  );
   String get colorKikyo => localized(
     en: '桔梗 (Kikyo)',
     ja: '桔梗 (Kikyo)',
@@ -2573,6 +2625,14 @@ class AppStrings {
     ko: '江戸紫 (Edomurasaki)',
     es: '江戸紫 (Edomurasaki)',
     de: '江戸紫 (Edomurasaki)',
+  );
+  String get colorShion => localized(
+    en: '紫苑 (Shion)',
+    ja: '紫苑 (Shion)',
+    zh: '紫苑 (Shion)',
+    ko: '紫苑 (Shion)',
+    es: '紫苑 (Shion)',
+    de: '紫苑 (Shion)',
   );
   String get colorRikyucha => localized(
     en: '利休茶 (Rikyucha)',
@@ -2734,6 +2794,14 @@ class AppStrings {
     es: 'Azul lapislázuli basado en Ruri.',
     de: 'Lapislazuliblau auf Basis von Ruri.',
   );
+  String get colorAsagiDesc => localized(
+    en: 'Fresh blue-green based on Asagi.',
+    ja: '浅葱の爽やかな青緑を基調にした配色です。',
+    zh: '以浅葱般清爽蓝绿色为主的配色。',
+    ko: '아사기의 산뜻한 청록을 중심으로 한 배색입니다.',
+    es: 'Azul verdoso fresco basado en Asagi.',
+    de: 'Frisches Blaugrün auf Basis von Asagi.',
+  );
   String get colorWakatakeDesc => localized(
     en: 'Fresh bamboo green based on Wakatake.',
     ja: '若竹を思わせる爽やかな緑の配色です。',
@@ -2749,6 +2817,14 @@ class AppStrings {
     ko: '상록을 떠올리게 하는 도키와 녹색 배색입니다.',
     es: 'Verde perenne basado en Tokiwa.',
     de: 'Immergrüner Ton auf Basis von Tokiwa.',
+  );
+  String get colorByakurokuDesc => localized(
+    en: 'Pale mineral green based on Byakuroku.',
+    ja: '白緑の淡い鉱物感を基調にした配色です。',
+    zh: '以白绿般淡雅矿物绿色为主的配色。',
+    ko: '백록의 옅은 광물감 있는 초록을 중심으로 한 배색입니다.',
+    es: 'Verde mineral pálido basado en Byakuroku.',
+    de: 'Helles Mineralgrün auf Basis von Byakuroku.',
   );
   String get colorNanohanaDesc => localized(
     en: 'Rapeseed flower yellow based on Nanohana.',
@@ -2766,6 +2842,14 @@ class AppStrings {
     es: 'Tono cerezo apagado basado en Haizakura.',
     de: 'Gedämpfter heller Kirschton auf Basis von Haizakura.',
   );
+  String get colorAkaneDesc => localized(
+    en: 'Madder red based on Akane.',
+    ja: '茜の深い赤を基調にした配色です。',
+    zh: '以茜草般深红为主的配色。',
+    ko: '꼭두서니의 깊은 빨강을 중심으로 한 배색입니다.',
+    es: 'Rojo rubia basado en Akane.',
+    de: 'Krapprot auf Basis von Akane.',
+  );
   String get colorKikyoDesc => localized(
     en: 'Bellflower purple based on Kikyo.',
     ja: '桔梗の花を思わせる紫の配色です。',
@@ -2781,6 +2865,14 @@ class AppStrings {
     ko: '에도무라사키의 깊이를 살린 보라 배색입니다.',
     es: 'Púrpura Edo refinado con un tono más profundo.',
     de: 'Raffiniertes Edo-Violett mit tieferem Ton.',
+  );
+  String get colorShionDesc => localized(
+    en: 'Aster purple based on Shion.',
+    ja: '紫苑の落ち着いた紫を基調にした配色です。',
+    zh: '以紫苑般沉稳紫色为主的配色。',
+    ko: '시온의 차분한 보라를 중심으로 한 배색입니다.',
+    es: 'Púrpura de áster basado en Shion.',
+    de: 'Asterviolett auf Basis von Shion.',
   );
   String get colorRikyuchaDesc => localized(
     en: 'Tea-toned green brown based on Rikyucha.',
@@ -3091,6 +3183,14 @@ class AppStrings {
   String get onboardingAddImageFallback =>
       isJapanese ? 'オンボーディング画像を追加' : 'Add an onboarding image';
   String get onboardingAppUnlockTitle => isJapanese ? 'アプリ起動ロック' : 'App unlock';
+  String onboardingColorThemeBody(int count) => localized(
+    en: 'Choose a basic accent now. In Settings > Appearance, you can choose from $count+ traditional Japanese color themes.',
+    ja: 'ここでは基本のアクセントカラーを選びます。設定の「表示」では、全$count色以上の日本の伝統色テーマから選択できます。',
+    zh: '现在选择一个基础强调色。之后可在“设置”>“外观”中从 $count+ 种日本传统色主题中选择。',
+    ko: '여기서는 기본 강조 색상을 선택합니다. 설정 > 표시에서 $count가지 이상의 일본 전통색 테마를 선택할 수 있습니다.',
+    es: 'Elige ahora un acento básico. En Ajustes > Apariencia puedes elegir entre más de $count temas de colores tradicionales japoneses.',
+    de: 'Wähle jetzt eine grundlegende Akzentfarbe. Unter Einstellungen > Darstellung kannst du aus über $count traditionellen japanischen Farbthemen wählen.',
+  );
   String get onboardingPinConfiguredBrowser => isJapanese
       ? 'このブラウザでは解除用 PIN が設定されています。'
       : 'Configured for this browser.';

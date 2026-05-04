@@ -66,12 +66,16 @@ enum AppColorTheme {
   hanada,
   sora,
   ruri,
+  asagi,
   wakatake,
   tokiwa,
+  byakuroku,
   nanohana,
   haizakura,
+  akane,
   kikyo,
   edomurasaki,
+  shion,
   rikyucha,
 }
 
@@ -2561,7 +2565,7 @@ class AppColorThemeController extends Notifier<AppColorTheme> {
       _restored = true;
       unawaited(_restore());
     }
-    return AppColorTheme.konjyo;
+    return AppColorTheme.sakura;
   }
 
   Future<void> setTheme(AppColorTheme theme) async {
@@ -2580,7 +2584,7 @@ class AppColorThemeController extends Notifier<AppColorTheme> {
         return;
       }
 
-      state = _appColorThemeFromName(stored) ?? AppColorTheme.konjyo;
+      state = _appColorThemeFromName(stored) ?? AppColorTheme.sakura;
     } catch (_) {}
   }
 }
