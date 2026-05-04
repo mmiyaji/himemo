@@ -140,6 +140,9 @@ class _FakeMediaImportService implements MediaImportService {
           label: 'simulator-audio.m4a',
         ),
       ),
+      MediaImportAction.pickFile => const MediaImportResult.success(
+        NoteAttachment(type: AttachmentType.file, label: 'simulator-file.pdf'),
+      ),
       MediaImportAction.addLocation => const MediaImportResult.failure(
         'Location insertion is handled by the note editor.',
       ),

@@ -5,13 +5,13 @@ import 'note_tags.dart';
 part 'note_entry.freezed.dart';
 part 'note_entry.g.dart';
 
-enum AttachmentType { photo, video, audio }
+enum AttachmentType { photo, video, audio, file }
 
 enum NoteSyncState { localOnly, pendingUpload, synced, pendingDelete, conflict }
 
 enum NoteEditorMode { quick, rich }
 
-enum NoteBlockType { paragraph, photo, video, audio }
+enum NoteBlockType { paragraph, photo, video, audio, file }
 
 @freezed
 abstract class NoteAttachment with _$NoteAttachment {

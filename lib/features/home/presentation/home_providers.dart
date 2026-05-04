@@ -261,7 +261,7 @@ class QuickCaptureFile {
     if (normalized.startsWith('audio/')) {
       return AttachmentType.audio;
     }
-    return null;
+    return AttachmentType.file;
   }
 
   static QuickCaptureFile fromJson(Map<String, dynamic> json) {
@@ -482,6 +482,7 @@ enum MediaImportAction {
   pickVideo,
   recordAudio,
   pickAudio,
+  pickFile,
   addLocation,
 }
 
@@ -1084,6 +1085,8 @@ class DefaultMediaImportService implements MediaImportService {
         );
       case MediaImportAction.pickAudio:
         return _pickAudio();
+      case MediaImportAction.pickFile:
+        return _pickFile();
       case MediaImportAction.addLocation:
         return const MediaImportResult.failure(
           'Location insertion is handled by the note editor.',
@@ -1223,6 +1226,58 @@ class DefaultMediaImportService implements MediaImportService {
         type: AttachmentType.audio,
         sourceFile: sourceFile,
       ),
+    );
+  }
+
+  Future<MediaImportResult> _pickFile() async {
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        withData: kIsWeb,
+      );
+    } on MissingPluginException {
+      return const MediaImportResult.failure(
+        'File import is not configured in this runtime.',
+      );
+    } on PlatformException catch (error) {
+      return MediaImportResult.failure(
+        error.message ?? 'File import failed on this device.',
+      );
+    } catch (error) {
+      return MediaImportResult.failure(
+        'File import failed on this device. ($error)',
+      );
+    }
+    if (result == null || result.files.isEmpty) {
+      return const MediaImportResult.cancelled();
+    }
+
+    final file = result.files.single;
+    final bytes = file.bytes;
+    if (file.path == null && bytes == null) {
+      return const MediaImportResult.failure(
+        'The selected file could not be opened on this device.',
+      );
+    }
+    if (bytes != null && bytes.length > 100 * 1024 * 1024) {
+      return const MediaImportResult.failure(
+        'Files over 100 MB are not supported yet.',
+      );
+    }
+    final sourceFile = file.path == null
+        ? XFile.fromData(file.bytes!, name: file.name)
+        : XFile(file.path!, name: file.name);
+    final tooLarge = await _validateFileSize(
+      sourceFile,
+      maxBytes: 100 * 1024 * 1024,
+      tooLargeMessage: 'Files over 100 MB are not supported yet.',
+    );
+    if (tooLarge != null) {
+      return tooLarge;
+    }
+    return MediaImportResult.success(
+      await _buildAttachment(type: AttachmentType.file, sourceFile: sourceFile),
     );
   }
 
@@ -3504,6 +3559,7 @@ class NotesController extends _$NotesController {
                 AttachmentType.photo => NoteBlockType.photo,
                 AttachmentType.video => NoteBlockType.video,
                 AttachmentType.audio => NoteBlockType.audio,
+                AttachmentType.file => NoteBlockType.file,
               },
               attachment: attachment,
             ),

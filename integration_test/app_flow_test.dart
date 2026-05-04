@@ -61,15 +61,15 @@ void main() {
     await tester.pumpAndSettle();
     await _scrollIntoViewIfNeeded(
       tester,
-      find.byKey(SettingsScreen.greenColorThemeKey),
+      find.byKey(SettingsScreen.moegiColorThemeKey),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(SettingsScreen.greenColorThemeKey));
+    await tester.tap(find.byKey(SettingsScreen.moegiColorThemeKey));
     await tester.pumpAndSettle();
 
     final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
     expect(app.themeMode, ThemeMode.dark);
-    expect(app.theme?.colorScheme.primary, const Color(0xFF2F6B3C));
+    expect(app.theme?.colorScheme.primary, const Color(0xFF4E6D2A));
 
     final quickCaptureTile = find.widgetWithText(
       SwitchListTile,

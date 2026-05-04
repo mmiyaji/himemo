@@ -428,6 +428,7 @@ void main() {
     });
 
     final controller = container.read(notesControllerProvider.notifier);
+    await controller.seedIfEmpty();
     final original = container.read(notesControllerProvider).single;
     await controller.upsert(
       original.copyWith(attachments: const <NoteAttachment>[]),
@@ -907,7 +908,9 @@ void main() {
     addTearDown(container.dispose);
     addTearDown(noteDatabase.close);
 
-    await container.read(notesControllerProvider.notifier).replaceFromSync([
+    final controller = container.read(notesControllerProvider.notifier);
+    await controller.seedIfEmpty();
+    await controller.replaceFromSync([
       NoteEntry(
         id: 'imported',
         vaultId: 'everyday',
@@ -1242,7 +1245,9 @@ class _SingleNoteRepository implements HomeRepository {
   ];
 
   @override
-  List<VaultBucket> get vaults => const <VaultBucket>[];
+  List<VaultBucket> get vaults => const <VaultBucket>[
+    VaultBucket(id: 'everyday', name: 'Notes', description: 'Test vault'),
+  ];
 }
 
 class _AttachmentSeedRepository implements HomeRepository {
@@ -1272,7 +1277,9 @@ class _AttachmentSeedRepository implements HomeRepository {
   ];
 
   @override
-  List<VaultBucket> get vaults => const <VaultBucket>[];
+  List<VaultBucket> get vaults => const <VaultBucket>[
+    VaultBucket(id: 'everyday', name: 'Notes', description: 'Test vault'),
+  ];
 }
 
 class _MinimalHomeRepository implements HomeRepository {

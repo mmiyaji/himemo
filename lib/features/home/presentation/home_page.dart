@@ -6379,6 +6379,7 @@ List<Widget> _buildDetailBlocks(
       case NoteBlockType.photo:
       case NoteBlockType.video:
       case NoteBlockType.audio:
+      case NoteBlockType.file:
         final attachment = block.attachment;
         if (attachment != null) {
           widgets.add(
@@ -6412,6 +6413,7 @@ List<NoteBlock> _legacyBlocksFromNote(NoteEntry note) {
           AttachmentType.photo => NoteBlockType.photo,
           AttachmentType.video => NoteBlockType.video,
           AttachmentType.audio => NoteBlockType.audio,
+          AttachmentType.file => NoteBlockType.file,
         },
         attachment: attachment,
       ),
@@ -7695,6 +7697,7 @@ class _RichBlockDraft {
         AttachmentType.photo => NoteBlockType.photo,
         AttachmentType.video => NoteBlockType.video,
         AttachmentType.audio => NoteBlockType.audio,
+        AttachmentType.file => NoteBlockType.file,
       },
       controller = null,
       focusNode = null,
@@ -7912,6 +7915,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         case NoteBlockType.photo:
         case NoteBlockType.video:
         case NoteBlockType.audio:
+        case NoteBlockType.file:
           if (block.attachment != null) {
             drafts.add(_RichBlockDraft.attachment(block.attachment!));
           }
@@ -8290,7 +8294,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                           PopupMenuButton<MediaImportAction>(
                             key: const Key('note-capture-media-menu'),
                             tooltip: strings.captureMedia,
-                            icon: const Icon(Icons.add_a_photo_outlined),
+                            icon: Icon(
+                              Icons.photo_camera_outlined,
+                              color: _mutedTextColor(context),
+                            ),
                             onSelected: _handleAttachmentAction,
                             itemBuilder: (context) => [
                               if (!kIsWeb)
@@ -8328,7 +8335,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                           PopupMenuButton<MediaImportAction>(
                             key: const Key('note-import-file-menu'),
                             tooltip: strings.importFiles,
-                            icon: const Icon(Icons.upload_file_outlined),
+                            icon: Icon(
+                              Icons.folder_open_outlined,
+                              color: _mutedTextColor(context),
+                            ),
                             onSelected: _handleAttachmentAction,
                             itemBuilder: (context) => [
                               PopupMenuItem(
@@ -8350,6 +8360,13 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                 child: _MediaMenuEntry(
                                   icon: Icons.graphic_eq_rounded,
                                   label: strings.pickAudio,
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: MediaImportAction.pickFile,
+                                child: _MediaMenuEntry(
+                                  icon: Icons.insert_drive_file_outlined,
+                                  label: strings.pickFile,
                                 ),
                               ),
                             ],
@@ -10224,7 +10241,20 @@ class _EmbeddedAttachmentBlock extends ConsumerWidget {
           height: 180,
           child: _AudioAttachmentViewer(attachment: attachment),
         );
+      case AttachmentType.file:
+        return _EmbeddedFileAttachment(attachment: attachment);
     }
+  }
+}
+
+class _EmbeddedFileAttachment extends ConsumerWidget {
+  const _EmbeddedFileAttachment({required this.attachment});
+
+  final NoteAttachment attachment;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return _AttachmentListTile(attachment: attachment);
   }
 }
 
@@ -10471,6 +10501,10 @@ String _attachmentDescription(BuildContext context, NoteAttachment attachment) {
       return attachment.filePath == null
           ? strings.audioPlaceholder
           : strings.tapToPlayAudio;
+    case AttachmentType.file:
+      return attachment.filePath == null
+          ? strings.filePlaceholder
+          : strings.tapToOpenFile;
   }
 }
 
@@ -11126,9 +11160,59 @@ class _AttachmentViewerSheet extends ConsumerWidget {
             AttachmentType.audio => _AudioAttachmentViewer(
               attachment: attachment,
             ),
+            AttachmentType.file => _FileAttachmentViewer(
+              attachment: attachment,
+            ),
           },
         ),
       ],
+    );
+  }
+}
+
+class _FileAttachmentViewer extends ConsumerWidget {
+  const _FileAttachmentViewer({required this.attachment});
+
+  final NoteAttachment attachment;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.insert_drive_file_outlined,
+              size: 56,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              attachment.label,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              context.strings.filePreviewUnavailable,
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: () => _shareAttachment(context, ref, attachment),
+              icon: const Icon(Icons.ios_share_outlined),
+              label: Text(context.strings.share),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -12558,5 +12642,7 @@ IconData _iconForAttachment(AttachmentType type) {
       return Icons.videocam_outlined;
     case AttachmentType.audio:
       return Icons.mic_none_rounded;
+    case AttachmentType.file:
+      return Icons.insert_drive_file_outlined;
   }
 }

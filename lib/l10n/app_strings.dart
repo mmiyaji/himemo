@@ -1889,6 +1889,30 @@ class AppStrings {
     es: 'Toca para reproducir el audio',
     de: 'Tippen, um Audio abzuspielen',
   );
+  String get filePlaceholder => localized(
+    en: 'File placeholder',
+    ja: 'ファイルのプレースホルダー',
+    zh: '文件占位符',
+    ko: '파일 자리표시자',
+    es: 'Marcador de posición de archivo',
+    de: 'Datei-Platzhalter',
+  );
+  String get tapToOpenFile => localized(
+    en: 'Tap to open file',
+    ja: 'タップしてファイルを開く',
+    zh: '点按以打开文件',
+    ko: '탭하여 파일 열기',
+    es: 'Toca para abrir el archivo',
+    de: 'Tippen, um die Datei zu öffnen',
+  );
+  String get filePreviewUnavailable => localized(
+    en: 'Preview is not available for this file. Share it to open it in another app.',
+    ja: 'このファイルはプレビューできません。共有して別のアプリで開けます。',
+    zh: '此文件无法预览。可通过共享在其他应用中打开。',
+    ko: '이 파일은 미리 볼 수 없습니다. 공유해서 다른 앱에서 열 수 있습니다.',
+    es: 'La vista previa no está disponible para este archivo. Compártelo para abrirlo en otra app.',
+    de: 'Für diese Datei ist keine Vorschau verfügbar. Teile sie, um sie in einer anderen App zu öffnen.',
+  );
   String get closeImageViewer => localized(
     en: 'Close image viewer',
     ja: '画像ビューアを閉じる',
@@ -3653,6 +3677,14 @@ class AppStrings {
     ko: '오디오 선택',
     es: 'Elegir audio',
     de: 'Audio auswählen',
+  );
+  String get pickFile => localized(
+    en: 'Pick file',
+    ja: 'ファイルを選ぶ',
+    zh: '选择文件',
+    ko: '파일 선택',
+    es: 'Elegir archivo',
+    de: 'Datei auswählen',
   );
   String get addCurrentLocation => localized(
     en: 'Add current location',

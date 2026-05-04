@@ -26,6 +26,7 @@ const _$AttachmentTypeEnumMap = {
   AttachmentType.photo: 'photo',
   AttachmentType.video: 'video',
   AttachmentType.audio: 'audio',
+  AttachmentType.file: 'file',
 };
 
 _NoteBlock _$NoteBlockFromJson(Map<String, dynamic> json) => _NoteBlock(
@@ -48,6 +49,7 @@ const _$NoteBlockTypeEnumMap = {
   NoteBlockType.photo: 'photo',
   NoteBlockType.video: 'video',
   NoteBlockType.audio: 'audio',
+  NoteBlockType.file: 'file',
 };
 
 _NoteEntry _$NoteEntryFromJson(Map<String, dynamic> json) => _NoteEntry(
