@@ -1316,7 +1316,7 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
   final isDark = brightness == Brightness.dark;
 
   switch (theme) {
-    case AppColorTheme.blue:
+    case AppColorTheme.konjyo:
       return isDark
           ? const _ThemePalette(
               primary: Color(0xFF9CB1FF),
@@ -1354,7 +1354,7 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
               appBarBackground: Colors.white,
               navigationBackground: Colors.white,
             );
-    case AppColorTheme.green:
+    case AppColorTheme.moegi:
       return isDark
           ? const _ThemePalette(
               primary: Color(0xFFC3D88A),
@@ -1392,7 +1392,7 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
               appBarBackground: Colors.white,
               navigationBackground: Colors.white,
             );
-    case AppColorTheme.orange:
+    case AppColorTheme.yamabuki:
       return isDark
           ? const _ThemePalette(
               primary: Color(0xFFFFC85A),
@@ -1430,7 +1430,7 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
               appBarBackground: Colors.white,
               navigationBackground: Colors.white,
             );
-    case AppColorTheme.slate:
+    case AppColorTheme.ginnezumi:
       return isDark
           ? const _ThemePalette(
               primary: Color(0xFFBCC5CC),
@@ -1468,7 +1468,7 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
               appBarBackground: Colors.white,
               navigationBackground: Colors.white,
             );
-    case AppColorTheme.teal:
+    case AppColorTheme.seiheki:
       return isDark
           ? const _ThemePalette(
               primary: Color(0xFF8FD4D1),
@@ -1506,7 +1506,7 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
               appBarBackground: Colors.white,
               navigationBackground: Colors.white,
             );
-    case AppColorTheme.rose:
+    case AppColorTheme.kurenai:
       return isDark
           ? const _ThemePalette(
               primary: Color(0xFFFF9AAF),
@@ -2225,6 +2225,44 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
               outline: Color(0xFFC7BFD4),
               outlineVariant: Color(0xFFE0D9EA),
               scaffoldBackground: Color(0xFFFBFAFE),
+              appBarBackground: Colors.white,
+              navigationBackground: Colors.white,
+            );
+    case AppColorTheme.edomurasaki:
+      return isDark
+          ? const _ThemePalette(
+              primary: Color(0xFFD1A8E0),
+              onPrimary: Color(0xFF281032),
+              secondary: Color(0xFFAD7AC1),
+              onSecondary: Color(0xFF240D2D),
+              tertiary: Color(0xFFE7C9F0),
+              onTertiary: Color(0xFF281032),
+              surface: Color(0xFF241B28),
+              onSurface: Color(0xFFF4ECF7),
+              onSurfaceVariant: Color(0xFFC4B1CA),
+              surfaceContainer: Color(0xFF302438),
+              surfaceContainerHighest: Color(0xFF402F48),
+              outline: Color(0xFF72597C),
+              outlineVariant: Color(0xFF594461),
+              scaffoldBackground: Color(0xFF272C32),
+              appBarBackground: Color(0xFF272C32),
+              navigationBackground: Color(0xFF272C32),
+            )
+          : const _ThemePalette(
+              primary: Color(0xFF77428D),
+              onPrimary: Colors.white,
+              secondary: Color(0xFF9964AB),
+              onSecondary: Colors.white,
+              tertiary: Color(0xFFE5C7EC),
+              onTertiary: Color(0xFF30123A),
+              surface: Colors.white,
+              onSurface: Color(0xFF211B24),
+              onSurfaceVariant: Color(0xFF6D6073),
+              surfaceContainer: Color(0xFFFAF6FC),
+              surfaceContainerHighest: Color(0xFFF0E1F4),
+              outline: Color(0xFFCEBDD5),
+              outlineVariant: Color(0xFFE5D7EA),
+              scaffoldBackground: Color(0xFFFCF8FD),
               appBarBackground: Colors.white,
               navigationBackground: Colors.white,
             );

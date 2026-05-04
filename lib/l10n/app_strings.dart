@@ -1640,12 +1640,16 @@ class AppStrings {
     ja: 'サイドバーを折りたたむ',
     zh: '折叠侧边栏',
     ko: '사이드바 접기',
+    es: 'Contraer barra lateral',
+    de: 'Seitenleiste einklappen',
   );
   String get expandSidebar => localized(
     en: 'Expand sidebar',
     ja: 'サイドバーを開く',
     zh: '展开侧边栏',
     ko: '사이드바 펼치기',
+    es: 'Expandir barra lateral',
+    de: 'Seitenleiste ausklappen',
   );
   String get search => localized(
     en: 'Search',
@@ -1699,18 +1703,54 @@ class AppStrings {
   List<String> get weekdayShortLabels => [
     for (var weekday = 1; weekday <= 7; weekday++) weekdayShort(weekday),
   ];
-  String viewingPrivateProfile(String label) =>
-      isJapanese ? '$label を表示中' : 'Viewing $label';
-  String currentPrivateProfile(String? label) =>
-      isJapanese ? '現在は $label を表示しています。' : 'Currently viewing $label.';
-  String filteredByTag(String tag) =>
-      isJapanese ? '#$tag のタグで絞り込みました' : 'Filtered notes by #$tag';
-  String deleteNoteConfirmation(String title) => isJapanese
-      ? '「$title」をこの端末から完全に削除しますか？'
-      : 'Delete "$title" permanently from this device?';
-  String get deleteNote => isJapanese ? 'ノートを削除' : 'Delete note';
-  String noteDeleted(String title) =>
-      isJapanese ? '「$title」を削除しました' : '"$title" deleted';
+  String viewingPrivateProfile(String label) => localized(
+    en: 'Viewing $label',
+    ja: '$label を表示中',
+    zh: '正在查看 $label',
+    ko: '$label 보는 중',
+    es: 'Viendo $label',
+    de: '$label wird angezeigt',
+  );
+  String currentPrivateProfile(String? label) => localized(
+    en: 'Currently viewing $label.',
+    ja: '現在は $label を表示しています。',
+    zh: '当前正在查看 $label。',
+    ko: '현재 $label을 보고 있습니다.',
+    es: 'Viendo $label actualmente.',
+    de: '$label wird derzeit angezeigt.',
+  );
+  String filteredByTag(String tag) => localized(
+    en: 'Filtered notes by #$tag',
+    ja: '#$tag のタグで絞り込みました',
+    zh: '已按 #$tag 筛选笔记',
+    ko: '#$tag 태그로 노트를 필터링했습니다',
+    es: 'Notas filtradas por #$tag',
+    de: 'Notizen nach #$tag gefiltert',
+  );
+  String deleteNoteConfirmation(String title) => localized(
+    en: 'Delete "$title" permanently from this device?',
+    ja: '「$title」をこの端末から完全に削除しますか？',
+    zh: '要从此设备永久删除“$title”吗？',
+    ko: '이 기기에서 "$title"을(를) 영구 삭제할까요?',
+    es: '¿Eliminar "$title" permanentemente de este dispositivo?',
+    de: '"$title" dauerhaft von diesem Gerät löschen?',
+  );
+  String get deleteNote => localized(
+    en: 'Delete note',
+    ja: 'ノートを削除',
+    zh: '删除笔记',
+    ko: '노트 삭제',
+    es: 'Eliminar nota',
+    de: 'Notiz löschen',
+  );
+  String noteDeleted(String title) => localized(
+    en: '"$title" deleted',
+    ja: '「$title」を削除しました',
+    zh: '已删除“$title”',
+    ko: '"$title" 삭제됨',
+    es: '"$title" eliminada',
+    de: '"$title" gelöscht',
+  );
   String get accessKey => isJapanese ? 'アクセスキー' : 'Access key';
   String get specialAccessKeyHelp => isJapanese
       ? '有効なキーを入力すると別のモードに切り替わります。'
@@ -1728,17 +1768,46 @@ class AppStrings {
       ? '設定済みのプライベート領域キーを削除し、プライベート領域をすぐにロックします。'
       : 'This removes the configured private-vault key and locks the private vault immediately.';
   String get reset => text('home.reset');
-  String get unableToShareAttachment =>
-      isJapanese ? 'この添付はまだ共有できません。' : 'This attachment cannot be shared yet.';
-  String get unableToDecryptAttachment =>
-      isJapanese ? 'この添付を復号できませんでした。' : 'Unable to decrypt this attachment.';
-  String get unableToLoadImage =>
-      isJapanese ? 'この画像を読み込めませんでした。' : 'Unable to load this image.';
-  String get unableToDecryptImage =>
-      isJapanese ? 'この画像を復号できませんでした。' : 'Unable to decrypt this image.';
-  String get videoPreviewUnavailableWeb => isJapanese
-      ? 'Web では動画プレビューを利用できません。'
-      : 'Video preview is not enabled on web.';
+  String get unableToShareAttachment => localized(
+    en: 'This attachment cannot be shared yet.',
+    ja: 'この添付はまだ共有できません。',
+    zh: '此附件暂时无法分享。',
+    ko: '이 첨부 파일은 아직 공유할 수 없습니다.',
+    es: 'Este adjunto aún no se puede compartir.',
+    de: 'Dieser Anhang kann noch nicht geteilt werden.',
+  );
+  String get unableToDecryptAttachment => localized(
+    en: 'Unable to decrypt this attachment.',
+    ja: 'この添付を復号できませんでした。',
+    zh: '无法解密此附件。',
+    ko: '이 첨부 파일을 복호화할 수 없습니다.',
+    es: 'No se pudo descifrar este adjunto.',
+    de: 'Dieser Anhang konnte nicht entschlüsselt werden.',
+  );
+  String get unableToLoadImage => localized(
+    en: 'Unable to load this image.',
+    ja: 'この画像を読み込めませんでした。',
+    zh: '无法加载此图片。',
+    ko: '이 이미지를 불러올 수 없습니다.',
+    es: 'No se pudo cargar esta imagen.',
+    de: 'Dieses Bild konnte nicht geladen werden.',
+  );
+  String get unableToDecryptImage => localized(
+    en: 'Unable to decrypt this image.',
+    ja: 'この画像を復号できませんでした。',
+    zh: '无法解密此图片。',
+    ko: '이 이미지를 복호화할 수 없습니다.',
+    es: 'No se pudo descifrar esta imagen.',
+    de: 'Dieses Bild konnte nicht entschlüsselt werden.',
+  );
+  String get videoPreviewUnavailableWeb => localized(
+    en: 'Video preview is not enabled on web.',
+    ja: 'Web では動画プレビューを利用できません。',
+    zh: 'Web 上未启用视频预览。',
+    ko: '웹에서는 동영상 미리보기를 사용할 수 없습니다.',
+    es: 'La vista previa de vídeo no está activada en web.',
+    de: 'Die Videovorschau ist im Web nicht aktiviert.',
+  );
   String get replaceRecoveryKey =>
       isJapanese ? '復元キーを置き換え' : 'Replace recovery key';
   String replaceRecoveryKeyBody({
@@ -1763,30 +1832,88 @@ class AppStrings {
     ja: '解除済みのノート',
     zh: '已解锁的笔记',
     ko: '잠금 해제된 노트',
+    es: 'Notas desbloqueadas',
+    de: 'Entsperrte Notizen',
   );
-  String get photoPlaceholder =>
-      isJapanese ? '写真のプレースホルダー' : 'Photo placeholder';
-  String get tapToViewPhoto => isJapanese ? 'タップして写真を表示' : 'Tap to view photo';
-  String get videoPlaceholder =>
-      isJapanese ? '動画のプレースホルダー' : 'Video placeholder';
-  String get tapToPlayVideo => isJapanese ? 'タップして動画を再生' : 'Tap to play video';
-  String get audioPlaceholder =>
-      isJapanese ? '音声のプレースホルダー' : 'Audio placeholder';
-  String get tapToPlayAudio => isJapanese ? 'タップして音声を再生' : 'Tap to play audio';
-  String get closeImageViewer =>
-      isJapanese ? '画像ビューアを閉じる' : 'Close image viewer';
-  String get syncLabel => localized(en: 'Sync', ja: '同期', zh: '同步', ko: '동기화');
+  String get photoPlaceholder => localized(
+    en: 'Photo placeholder',
+    ja: '写真のプレースホルダー',
+    zh: '照片占位符',
+    ko: '사진 자리 표시자',
+    es: 'Marcador de posición de foto',
+    de: 'Foto-Platzhalter',
+  );
+  String get tapToViewPhoto => localized(
+    en: 'Tap to view photo',
+    ja: 'タップして写真を表示',
+    zh: '点按查看照片',
+    ko: '탭하여 사진 보기',
+    es: 'Toca para ver la foto',
+    de: 'Tippen, um das Foto anzusehen',
+  );
+  String get videoPlaceholder => localized(
+    en: 'Video placeholder',
+    ja: '動画のプレースホルダー',
+    zh: '视频占位符',
+    ko: '동영상 자리 표시자',
+    es: 'Marcador de posición de vídeo',
+    de: 'Video-Platzhalter',
+  );
+  String get tapToPlayVideo => localized(
+    en: 'Tap to play video',
+    ja: 'タップして動画を再生',
+    zh: '点按播放视频',
+    ko: '탭하여 동영상 재생',
+    es: 'Toca para reproducir el vídeo',
+    de: 'Tippen, um das Video abzuspielen',
+  );
+  String get audioPlaceholder => localized(
+    en: 'Audio placeholder',
+    ja: '音声のプレースホルダー',
+    zh: '音频占位符',
+    ko: '오디오 자리 표시자',
+    es: 'Marcador de posición de audio',
+    de: 'Audio-Platzhalter',
+  );
+  String get tapToPlayAudio => localized(
+    en: 'Tap to play audio',
+    ja: 'タップして音声を再生',
+    zh: '点按播放音频',
+    ko: '탭하여 오디오 재생',
+    es: 'Toca para reproducir el audio',
+    de: 'Tippen, um Audio abzuspielen',
+  );
+  String get closeImageViewer => localized(
+    en: 'Close image viewer',
+    ja: '画像ビューアを閉じる',
+    zh: '关闭图片查看器',
+    ko: '이미지 뷰어 닫기',
+    es: 'Cerrar visor de imágenes',
+    de: 'Bildbetrachter schließen',
+  );
+  String get syncLabel => localized(
+    en: 'Sync',
+    ja: '同期',
+    zh: '同步',
+    ko: '동기화',
+    es: 'Sincronización',
+    de: 'Synchronisierung',
+  );
   String get enableDeviceAuthReason => localized(
     en: 'Enable device authentication for HiMemo',
     ja: 'HiMemo の端末認証を有効にします',
     zh: '为 HiMemo 启用设备认证',
     ko: 'HiMemo 기기 인증을 활성화합니다',
+    es: 'Activar la autenticación del dispositivo para HiMemo',
+    de: 'Geräteauthentifizierung für HiMemo aktivieren',
   );
   String get unlockWithDeviceAuthReason => localized(
     en: 'Unlock HiMemo with device authentication',
     ja: '端末認証で HiMemo を解除します',
     zh: '使用设备认证解锁 HiMemo',
     ko: '기기 인증으로 HiMemo를 잠금 해제합니다',
+    es: 'Desbloquear HiMemo con la autenticación del dispositivo',
+    de: 'HiMemo mit Geräteauthentifizierung entsperren',
   );
   String notesCount(int count, {bool spacedEnglish = true}) =>
       isJapanese ? '$count件' : '$count${spacedEnglish ? ' ' : ''}notes';
@@ -1803,18 +1930,24 @@ class AppStrings {
     ja: 'このブラウザでは 4 桁の PIN でメモ画面を保護します。$pinSummary',
     zh: '使用 4 位 PIN 保护此浏览器会话。$pinSummary',
     ko: '이 브라우저 세션을 4자리 PIN으로 보호합니다. $pinSummary',
+    es: 'Protege esta sesión del navegador con un PIN de 4 dígitos. $pinSummary',
+    de: 'Schütze diese Browsersitzung mit einer 4-stelligen PIN. $pinSummary',
   );
   String deviceAuthProtectionSummary(String summary) => localized(
     en: 'Protect the app with device authentication. Availability: $summary',
     ja: 'この端末の生体認証や画面ロックで保護します。利用状況: $summary',
     zh: '使用设备认证保护应用。可用性：$summary',
     ko: '기기 인증으로 앱을 보호합니다. 사용 가능 상태: $summary',
+    es: 'Protege la app con la autenticación del dispositivo. Disponibilidad: $summary',
+    de: 'Schütze die App mit Geräteauthentifizierung. Verfügbarkeit: $summary',
   );
   String lastQueuedAt(String timestamp) => localized(
     en: 'last queued $timestamp',
     ja: '最終追加 $timestamp',
     zh: '最后加入队列 $timestamp',
     ko: '마지막 대기열 추가 $timestamp',
+    es: 'último en cola $timestamp',
+    de: 'zuletzt eingereiht $timestamp',
   );
   String pendingSyncSummary({
     required int total,
@@ -1826,36 +1959,48 @@ class AppStrings {
     ja: '$total件が保留中（更新 $upserts / 削除 $deletes）、$stamp',
     zh: '$total 项更改待同步（更新 $upserts / 删除 $deletes），$stamp',
     ko: '$total개 변경 대기 중(업데이트 $upserts / 삭제 $deletes), $stamp',
+    es: '$total cambios pendientes ($upserts actualizaciones, $deletes eliminaciones), $stamp',
+    de: '$total Änderungen ausstehend ($upserts Aktualisierungen, $deletes Löschungen), $stamp',
   );
   String recoveryKeyImported(String fingerprint) => localized(
     en: 'Cloud recovery key imported. Fingerprint: $fingerprint',
     ja: 'クラウド復元キーを読み込みました。フィンガープリント: $fingerprint',
     zh: '已导入云恢复密钥。指纹：$fingerprint',
     ko: '클라우드 복구 키를 가져왔습니다. 지문: $fingerprint',
+    es: 'Clave de recuperación en la nube importada. Huella: $fingerprint',
+    de: 'Cloud-Wiederherstellungsschlüssel importiert. Fingerabdruck: $fingerprint',
   );
   String lastUploadAt(String timestamp) => localized(
     en: 'Last upload $timestamp',
     ja: '最終アップロード $timestamp',
     zh: '最后上传 $timestamp',
     ko: '마지막 업로드 $timestamp',
+    es: 'Última subida $timestamp',
+    de: 'Letzter Upload $timestamp',
   );
   String lastApplyAt(String timestamp) => localized(
     en: 'Last apply $timestamp',
     ja: '最終適用 $timestamp',
     zh: '最后应用 $timestamp',
     ko: '마지막 적용 $timestamp',
+    es: 'Última aplicación $timestamp',
+    de: 'Zuletzt angewendet $timestamp',
   );
   String remoteBundleAt(String timestamp) => localized(
     en: 'Remote bundle $timestamp',
     ja: 'リモート更新 $timestamp',
     zh: '远程包 $timestamp',
     ko: '원격 번들 $timestamp',
+    es: 'Paquete remoto $timestamp',
+    de: 'Remote-Bundle $timestamp',
   );
   String localBundleStoredAt(String reference) => localized(
     en: 'Stored at $reference',
     ja: '$reference に保存済み',
     zh: '已存储在 $reference',
     ko: '$reference에 저장됨',
+    es: 'Guardado en $reference',
+    de: 'Gespeichert unter $reference',
   );
   String syncSnapshotSummary({
     required int notes,
@@ -1867,6 +2012,8 @@ class AppStrings {
     ja: 'ノート: $notes\n添付: $attachments\nキュー: $pending件保留中\n端末 ID: $deviceId',
     zh: '笔记：$notes\n附件：$attachments\n队列：$pending 项待处理\n设备 ID：$deviceId',
     ko: '노트: $notes\n첨부: $attachments\n대기열: $pending개 대기 중\n기기 ID: $deviceId',
+    es: 'Notas: $notes\nAdjuntos: $attachments\nCola: $pending pendientes\nID del dispositivo: $deviceId',
+    de: 'Notizen: $notes\nAnhänge: $attachments\nWarteschlange: $pending ausstehend\nGeräte-ID: $deviceId',
   );
   String syncConnected({String? identity, String suffix = ''}) {
     if (identity == null) {
@@ -1875,6 +2022,8 @@ class AppStrings {
         ja: '接続済みです。$suffix',
         zh: '已连接。$suffix',
         ko: '연결되었습니다. $suffix',
+        es: 'Conectado. $suffix',
+        de: 'Verbunden. $suffix',
       );
     }
     return localized(
@@ -1882,6 +2031,8 @@ class AppStrings {
       ja: '$identity で接続済みです。$suffix',
       zh: '已用 $identity 连接。$suffix',
       ko: '$identity로 연결되었습니다. $suffix',
+      es: 'Conectado como $identity. $suffix',
+      de: 'Verbunden als $identity. $suffix',
     );
   }
 
@@ -1892,6 +2043,8 @@ class AppStrings {
         ja: '接続済み。$suffix',
         zh: '已连接。$suffix',
         ko: '연결됨. $suffix',
+        es: 'Conectado. $suffix',
+        de: 'Verbunden. $suffix',
       );
     }
     return localized(
@@ -1899,6 +2052,8 @@ class AppStrings {
       ja: '$identity で接続済み。$suffix',
       zh: '已用 $identity 连接。$suffix',
       ko: '$identity로 연결됨. $suffix',
+      es: 'Conectado como $identity. $suffix',
+      de: 'Verbunden als $identity. $suffix',
     );
   }
 
@@ -1915,6 +2070,8 @@ class AppStrings {
     ja: '最新バンドル: $modifiedAt、$sizeLabel、ノート $noteCount 件、添付 $attachmentCount 件。',
     zh: '最新包：$modifiedAt，$sizeLabel，笔记 $noteCount 条，附件 $attachmentCount 个。',
     ko: '최신 번들: $modifiedAt, $sizeLabel, 노트 $noteCount개, 첨부 $attachmentCount개.',
+    es: 'Último paquete: $modifiedAt, $sizeLabel, $noteCount notas, $attachmentCount adjuntos.',
+    de: 'Letztes Bundle: $modifiedAt, $sizeLabel, $noteCount Notizen, $attachmentCount Anhänge.',
   );
   String bundleNotes(int count) =>
       isJapanese ? 'バンドル内ノート: $count' : 'Notes in bundle: $count';
@@ -2113,13 +2270,38 @@ class AppStrings {
     es: 'Usa el idioma del dispositivo. Si no es compatible, se usa inglés.',
     de: 'Folgt der Gerätesprache. Nicht unterstützte Sprachen fallen auf Englisch zurück.',
   );
-  String get themeLight =>
-      localized(en: 'Light', ja: 'ライト', zh: '浅色', ko: '라이트');
-  String get themeSystem =>
-      localized(en: 'System', ja: 'システム', zh: '系统', ko: '시스템');
-  String get themeDark => localized(en: 'Dark', ja: 'ダーク', zh: '深色', ko: '다크');
-  String get accentColor =>
-      localized(en: 'Accent color', ja: 'アクセントカラー', zh: '强调色', ko: '강조 색상');
+  String get themeLight => localized(
+    en: 'Light',
+    ja: 'ライト',
+    zh: '浅色',
+    ko: '라이트',
+    es: 'Claro',
+    de: 'Hell',
+  );
+  String get themeSystem => localized(
+    en: 'System',
+    ja: 'システム',
+    zh: '系统',
+    ko: '시스템',
+    es: 'Sistema',
+    de: 'System',
+  );
+  String get themeDark => localized(
+    en: 'Dark',
+    ja: 'ダーク',
+    zh: '深色',
+    ko: '다크',
+    es: 'Oscuro',
+    de: 'Dunkel',
+  );
+  String get accentColor => localized(
+    en: 'Accent color',
+    ja: 'アクセントカラー',
+    zh: '强调色',
+    ko: '강조 색상',
+    es: 'Color de acento',
+    de: 'Akzentfarbe',
+  );
   String get accentColorJapanesePaletteDesc => localized(
     en: 'These accents are inspired by traditional Japanese colors.',
     ja: '日本の伝統色をもとにしたアクセントカラーです。',
@@ -2192,7 +2374,7 @@ class AppStrings {
     es: 'Blanco, negro y neutros',
     de: 'Weiß, Schwarz und Neutral',
   );
-  String get colorBlue => localized(
+  String get colorKonjyo => localized(
     en: '紺青 (Konjyo)',
     ja: '紺青 (Konjyo)',
     zh: '紺青 (Konjyo)',
@@ -2200,7 +2382,7 @@ class AppStrings {
     es: '紺青 (Konjyo)',
     de: '紺青 (Konjyo)',
   );
-  String get colorGreen => localized(
+  String get colorMoegi => localized(
     en: '萌黄 (Moegi)',
     ja: '萌黄 (Moegi)',
     zh: '萌黄 (Moegi)',
@@ -2208,7 +2390,7 @@ class AppStrings {
     es: '萌黄 (Moegi)',
     de: '萌黄 (Moegi)',
   );
-  String get colorOrange => localized(
+  String get colorYamabuki => localized(
     en: '山吹 (Yamabuki)',
     ja: '山吹 (Yamabuki)',
     zh: '山吹 (Yamabuki)',
@@ -2216,7 +2398,7 @@ class AppStrings {
     es: '山吹 (Yamabuki)',
     de: '山吹 (Yamabuki)',
   );
-  String get colorSlate => localized(
+  String get colorGinnezumi => localized(
     en: '銀鼠 (Ginnezumi)',
     ja: '銀鼠 (Ginnezumi)',
     zh: '銀鼠 (Ginnezumi)',
@@ -2224,7 +2406,7 @@ class AppStrings {
     es: '銀鼠 (Ginnezumi)',
     de: '銀鼠 (Ginnezumi)',
   );
-  String get colorTeal => localized(
+  String get colorSeiheki => localized(
     en: '青碧 (Seiheki)',
     ja: '青碧 (Seiheki)',
     zh: '青碧 (Seiheki)',
@@ -2232,7 +2414,7 @@ class AppStrings {
     es: '青碧 (Seiheki)',
     de: '青碧 (Seiheki)',
   );
-  String get colorRose => localized(
+  String get colorKurenai => localized(
     en: '紅 (Kurenai)',
     ja: '紅 (Kurenai)',
     zh: '紅 (Kurenai)',
@@ -2384,6 +2566,14 @@ class AppStrings {
     es: '桔梗 (Kikyo)',
     de: '桔梗 (Kikyo)',
   );
+  String get colorEdomurasaki => localized(
+    en: '江戸紫 (Edomurasaki)',
+    ja: '江戸紫 (Edomurasaki)',
+    zh: '江戸紫 (Edomurasaki)',
+    ko: '江戸紫 (Edomurasaki)',
+    es: '江戸紫 (Edomurasaki)',
+    de: '江戸紫 (Edomurasaki)',
+  );
   String get colorRikyucha => localized(
     en: '利休茶 (Rikyucha)',
     ja: '利休茶 (Rikyucha)',
@@ -2392,7 +2582,7 @@ class AppStrings {
     es: '利休茶 (Rikyucha)',
     de: '利休茶 (Rikyucha)',
   );
-  String get colorBlueDesc => localized(
+  String get colorKonjyoDesc => localized(
     en: 'Deep traditional blue based on Konjyo.',
     ja: '深い伝統色の紺青を基調にした配色です。',
     zh: '以深邃传统绀青为主的配色。',
@@ -2400,7 +2590,7 @@ class AppStrings {
     es: 'Azul tradicional profundo basado en Konjyo.',
     de: 'Tiefes traditionelles Blau auf Basis von Konjyo.',
   );
-  String get colorGreenDesc => localized(
+  String get colorMoegiDesc => localized(
     en: 'Fresh yellow-green based on Moegi.',
     ja: '芽吹きの色を思わせる萌黄の配色です。',
     zh: '以新芽般的萌黄为主的配色。',
@@ -2408,7 +2598,7 @@ class AppStrings {
     es: 'Verde amarillento fresco basado en Moegi.',
     de: 'Frisches Gelbgrün auf Basis von Moegi.',
   );
-  String get colorOrangeDesc => localized(
+  String get colorYamabukiDesc => localized(
     en: 'Golden yellow based on Yamabuki.',
     ja: '華やかな山吹色を基調にした配色です。',
     zh: '以明亮山吹色为主的配色。',
@@ -2416,7 +2606,7 @@ class AppStrings {
     es: 'Amarillo dorado basado en Yamabuki.',
     de: 'Goldgelb auf Basis von Yamabuki.',
   );
-  String get colorSlateDesc => localized(
+  String get colorGinnezumiDesc => localized(
     en: 'Quiet blue-gray based on Ginnezumi.',
     ja: '静かな青みの銀鼠を基調にした配色です。',
     zh: '以安静带蓝感的银鼠为主的配色。',
@@ -2424,7 +2614,7 @@ class AppStrings {
     es: 'Gris azulado sereno basado en Ginnezumi.',
     de: 'Ruhiges Blaugrau auf Basis von Ginnezumi.',
   );
-  String get colorTealDesc => localized(
+  String get colorSeihekiDesc => localized(
     en: 'Balanced blue-green based on Seiheki.',
     ja: '青と緑の間を落ち着かせた青碧の配色です。',
     zh: '以平衡蓝与绿的青碧为主的配色。',
@@ -2432,7 +2622,7 @@ class AppStrings {
     es: 'Azul verdoso equilibrado basado en Seiheki.',
     de: 'Ausgewogenes Blaugrün auf Basis von Seiheki.',
   );
-  String get colorRoseDesc => localized(
+  String get colorKurenaiDesc => localized(
     en: 'Vivid safflower red based on Kurenai.',
     ja: '鮮やかな紅を基調にした赤系の配色です。',
     zh: '以鲜明红色为主的配色。',
@@ -2584,6 +2774,14 @@ class AppStrings {
     es: 'Púrpura campanilla basado en Kikyo.',
     de: 'Glockenblumenviolett auf Basis von Kikyo.',
   );
+  String get colorEdomurasakiDesc => localized(
+    en: 'Refined Edo purple with a deeper tone.',
+    ja: '江戸紫の深みをもたせた紫系の配色です。',
+    zh: '以更有深度的江户紫为主的配色。',
+    ko: '에도무라사키의 깊이를 살린 보라 배색입니다.',
+    es: 'Púrpura Edo refinado con un tono más profundo.',
+    de: 'Raffiniertes Edo-Violett mit tieferem Ton.',
+  );
   String get colorRikyuchaDesc => localized(
     en: 'Tea-toned green brown based on Rikyucha.',
     ja: '利休茶の渋い緑茶系を基調にした配色です。',
@@ -2597,83 +2795,137 @@ class AppStrings {
     ja: '白基調のメモらしい見た目を保ちます。',
     zh: '保持白色为主的备忘录外观。',
     ko: '흰색 중심의 메모다운 화면을 유지합니다.',
+    es: 'Mantiene una interfaz blanca de estilo memo.',
+    de: 'Behält die weiße Memo-Oberfläche bei.',
   );
   String get systemDesc => localized(
     en: 'Follow the device setting.',
     ja: '端末の表示設定に合わせます。',
     zh: '跟随设备显示设置。',
     ko: '기기의 표시 설정을 따릅니다.',
+    es: 'Sigue la configuración del dispositivo.',
+    de: 'Folgt der Geräteeinstellung.',
   );
   String get darkDesc => localized(
     en: 'Use the higher-contrast dark theme explicitly.',
     ja: '高コントラストなダークテーマを明示的に使います。',
     zh: '明确使用高对比度深色主题。',
     ko: '대비가 높은 다크 테마를 명시적으로 사용합니다.',
+    es: 'Usa explícitamente el tema oscuro de mayor contraste.',
+    de: 'Verwendet ausdrücklich das kontrastreichere dunkle Design.',
   );
 
-  String get about =>
-      localized(en: 'About', ja: 'アプリ情報', zh: '应用信息', ko: '앱 정보');
-  String get appVersion =>
-      localized(en: 'App version', ja: 'アプリバージョン', zh: '应用版本', ko: '앱 버전');
-  String get appUpdates =>
-      localized(en: 'App updates', ja: 'アプリ更新', zh: '应用更新', ko: '앱 업데이트');
+  String get about => localized(
+    en: 'About',
+    ja: 'アプリ情報',
+    zh: '应用信息',
+    ko: '앱 정보',
+    es: 'Información',
+    de: 'Info',
+  );
+  String get appVersion => localized(
+    en: 'App version',
+    ja: 'アプリバージョン',
+    zh: '应用版本',
+    ko: '앱 버전',
+    es: 'Versión de la app',
+    de: 'App-Version',
+  );
+  String get appUpdates => localized(
+    en: 'App updates',
+    ja: 'アプリ更新',
+    zh: '应用更新',
+    ko: '앱 업데이트',
+    es: 'Actualizaciones de la app',
+    de: 'App-Updates',
+  );
   String get appUpdatesDesc => localized(
     en: 'Check Google Play in-app updates and start the recommended update flow.',
     ja: 'Google Play のアプリ内更新を確認し、必要な更新を開始します。',
     zh: '检查 Google Play 应用内更新，并启动推荐的更新流程。',
     ko: 'Google Play 인앱 업데이트를 확인하고 권장 업데이트 흐름을 시작합니다.',
+    es: 'Comprueba las actualizaciones integradas de Google Play e inicia el flujo recomendado.',
+    de: 'Prüft Google Play In-App-Updates und startet den empfohlenen Update-Ablauf.',
   );
   String get checkForUpdates => localized(
     en: 'Check for updates',
     ja: '更新を確認',
     zh: '检查更新',
     ko: '업데이트 확인',
+    es: 'Buscar actualizaciones',
+    de: 'Nach Updates suchen',
   );
-  String get startUpdate =>
-      localized(en: 'Start update', ja: '更新を開始', zh: '开始更新', ko: '업데이트 시작');
-  String get completeUpdateInstall =>
-      localized(en: 'Complete update', ja: '更新を完了', zh: '完成更新', ko: '업데이트 완료');
+  String get startUpdate => localized(
+    en: 'Start update',
+    ja: '更新を開始',
+    zh: '开始更新',
+    ko: '업데이트 시작',
+    es: 'Iniciar actualización',
+    de: 'Update starten',
+  );
+  String get completeUpdateInstall => localized(
+    en: 'Complete update',
+    ja: '更新を完了',
+    zh: '完成更新',
+    ko: '업데이트 완료',
+    es: 'Completar actualización',
+    de: 'Update abschließen',
+  );
   String get updateSupportedOnAndroidOnly => localized(
     en: 'In-app updates are available on Android builds distributed through Google Play.',
     ja: 'アプリ内更新は Android の Google Play 配布で利用できます。',
     zh: '应用内更新可用于通过 Google Play 分发的 Android 版本。',
     ko: '인앱 업데이트는 Google Play로 배포된 Android 빌드에서 사용할 수 있습니다.',
+    es: 'Las actualizaciones integradas están disponibles en builds de Android distribuidas por Google Play.',
+    de: 'In-App-Updates sind für Android-Builds verfügbar, die über Google Play verteilt werden.',
   );
   String get updateStatusUpToDate => localized(
     en: 'The installed build is up to date.',
     ja: '現在のビルドは最新です。',
     zh: '当前安装的版本已是最新。',
     ko: '설치된 빌드가 최신입니다.',
+    es: 'La build instalada está actualizada.',
+    de: 'Der installierte Build ist aktuell.',
   );
   String get updateStatusAvailable => localized(
     en: 'A newer build is available on Google Play.',
     ja: 'Google Play に新しい更新があります。',
     zh: 'Google Play 上有新版本可用。',
     ko: 'Google Play에 새 빌드가 있습니다.',
+    es: 'Hay una build más reciente en Google Play.',
+    de: 'Ein neuerer Build ist auf Google Play verfügbar.',
   );
   String get updateStatusChecking => localized(
     en: 'Checking for updates...',
     ja: '更新を確認しています...',
     zh: '正在检查更新...',
     ko: '업데이트 확인 중...',
+    es: 'Buscando actualizaciones...',
+    de: 'Updates werden gesucht...',
   );
   String get updateStatusUnsupported => localized(
     en: 'In-app updates are not available in this runtime.',
     ja: 'この実行環境ではアプリ内更新を利用できません。',
     zh: '此运行环境不支持应用内更新。',
     ko: '이 실행 환경에서는 인앱 업데이트를 사용할 수 없습니다.',
+    es: 'Las actualizaciones integradas no están disponibles en este entorno.',
+    de: 'In-App-Updates sind in dieser Laufzeit nicht verfügbar.',
   );
   String get updateStatusStarted => localized(
     en: 'Started the Google Play update flow.',
     ja: 'Google Play の更新フローを開始しました。',
     zh: '已开始 Google Play 更新流程。',
     ko: 'Google Play 업데이트 흐름을 시작했습니다.',
+    es: 'Se inició el flujo de actualización de Google Play.',
+    de: 'Der Google Play Update-Ablauf wurde gestartet.',
   );
   String get updateFlexibleReady => localized(
     en: 'A flexible update is downloaded. Complete it to restart and apply the update.',
     ja: '柔軟な更新がダウンロード済みです。完了を押すと再起動して更新します。',
     zh: '灵活更新已下载。完成后将重启并应用更新。',
     ko: '유연한 업데이트가 다운로드되었습니다. 완료하면 재시작 후 업데이트가 적용됩니다.',
+    es: 'Se descargó una actualización flexible. Complétala para reiniciar y aplicarla.',
+    de: 'Ein flexibles Update wurde heruntergeladen. Schließe es ab, um neu zu starten und es anzuwenden.',
   );
   String updateVersionLabel(int? versionCode) => isJapanese
       ? (versionCode == null ? '配信中の更新' : '配信中の更新: $versionCode')
@@ -2687,12 +2939,16 @@ class AppStrings {
     ja: 'OSS ライセンス',
     zh: 'OSS 许可证',
     ko: 'OSS 라이선스',
+    es: 'Licencias OSS',
+    de: 'OSS-Lizenzen',
   );
   String get ossLicensesDesc => localized(
     en: 'View bundled open-source software licenses.',
     ja: '利用しているオープンソースソフトウェアのライセンスを表示します。',
     zh: '查看捆绑的开源软件许可证。',
     ko: '포함된 오픈 소스 소프트웨어 라이선스를 봅니다.',
+    es: 'Muestra las licencias del software de código abierto incluido.',
+    de: 'Zeigt die Lizenzen der gebündelten Open-Source-Software an.',
   );
   String currentFlavor(String name) =>
       isJapanese ? '現在の flavor: $name' : 'Current flavor: $name';
@@ -2704,18 +2960,24 @@ class AppStrings {
     ja: '外部クイックメモ',
     zh: '允许外部快速记录',
     ko: '외부 빠른 캡처 허용',
+    es: 'Permitir captura rápida externa',
+    de: 'Externe Schnellnotiz erlauben',
   );
   String get homeWidgetQuickCaptureDesc => localized(
     en: 'Let the home widget or Android share sheet open a quick memo surface without unlocking the full app.',
     ja: 'ホームウィジェットや共有メニューから、通常のアプリロックを開かずに簡易メモ画面を開けます。',
     zh: '允许主屏幕小组件或 Android 分享面板在不解锁完整应用的情况下打开快速备忘录界面。',
     ko: '홈 위젯이나 Android 공유 시트에서 전체 앱 잠금 해제 없이 빠른 메모 화면을 열 수 있습니다.',
+    es: 'Permite que el widget de inicio o la hoja para compartir de Android abra una nota rápida sin desbloquear toda la app.',
+    de: 'Erlaubt dem Home-Widget oder Android-Teilen-Menü, eine Schnellnotiz zu öffnen, ohne die ganze App zu entsperren.',
   );
   String get homeWidgetQuickCaptureMobileOnly => localized(
     en: 'Mobile-only. When enabled, the home widget or Android share sheet can open a quick memo surface outside the normal app lock.',
     ja: 'モバイルのみ。オンにすると、ホームウィジェットや共有メニューから通常のアプリロックを開かずに簡易メモ画面を開けます。',
     zh: '仅限移动端。开启后，主屏幕小组件或 Android 分享面板可在普通应用锁之外打开快速备忘录界面。',
     ko: '모바일 전용입니다. 켜면 홈 위젯이나 Android 공유 시트에서 일반 앱 잠금 밖의 빠른 메모 화면을 열 수 있습니다.',
+    es: 'Solo móvil. Al activarlo, el widget de inicio o la hoja para compartir de Android puede abrir una nota rápida fuera del bloqueo normal.',
+    de: 'Nur mobil. Wenn aktiviert, können Home-Widget oder Android-Teilen-Menü eine Schnellnotiz außerhalb der normalen App-Sperre öffnen.',
   );
 
   String get unlockHiMemo => localized(
@@ -2723,32 +2985,48 @@ class AppStrings {
     ja: 'HiMemo を解除',
     zh: '解锁 HiMemo',
     ko: 'HiMemo 잠금 해제',
+    es: 'Desbloquear HiMemo',
+    de: 'HiMemo entsperren',
   );
   String get unlockWithPin => localized(
     en: 'Unlock with PIN',
     ja: 'PIN で解除',
     zh: '使用 PIN 解锁',
     ko: 'PIN으로 잠금 해제',
+    es: 'Desbloquear con PIN',
+    de: 'Mit PIN entsperren',
   );
-  String get authenticate =>
-      localized(en: 'Authenticate', ja: '認証する', zh: '认证', ko: '인증');
+  String get authenticate => localized(
+    en: 'Authenticate',
+    ja: '認証する',
+    zh: '认证',
+    ko: '인증',
+    es: 'Autenticar',
+    de: 'Authentifizieren',
+  );
   String get disableUnlockForNow => localized(
     en: 'Disable app unlock for now',
     ja: '今はアプリロックを無効にする',
     zh: '暂时关闭应用解锁',
     ko: '지금은 앱 잠금 해제 끄기',
+    es: 'Desactivar el desbloqueo por ahora',
+    de: 'App-Entsperrung vorerst deaktivieren',
   );
   String get browserPinGate => localized(
     en: 'This browser session is protected with a web PIN.',
     ja: 'このブラウザのセッションは Web PIN で保護されています。',
     zh: '此浏览器会话受 Web PIN 保护。',
     ko: '이 브라우저 세션은 Web PIN으로 보호됩니다.',
+    es: 'Esta sesión del navegador está protegida con un PIN web.',
+    de: 'Diese Browsersitzung ist mit einer Web-PIN geschützt.',
   );
   String get deviceAuthGate => localized(
     en: 'Resume this session with device authentication.',
     ja: '端末認証でこのセッションを再開します。',
     zh: '使用设备认证恢复此会话。',
     ko: '기기 인증으로 이 세션을 다시 시작합니다.',
+    es: 'Reanuda esta sesión con la autenticación del dispositivo.',
+    de: 'Setze diese Sitzung mit Geräteauthentifizierung fort.',
   );
   String pinLockSummary({required bool isConfigured, String? lastError}) {
     if (isConfigured) {
@@ -2757,6 +3035,8 @@ class AppStrings {
         ja: 'このブラウザでは解除用 PIN が設定されています。',
         zh: '此浏览器会话已设置仅限 Web 的解锁 PIN。',
         ko: '이 브라우저 세션에는 웹 전용 잠금 해제 PIN이 설정되어 있습니다.',
+        es: 'Hay un PIN de desbloqueo web configurado para esta sesión del navegador.',
+        de: 'Für diese Browsersitzung ist eine Web-Entsperr-PIN eingerichtet.',
       );
     }
     if (lastError != null && lastError.isNotEmpty) {
@@ -2767,6 +3047,8 @@ class AppStrings {
       ja: 'このブラウザでは解除用 PIN はまだ設定されていません。',
       zh: '此浏览器尚未设置解锁 PIN。',
       ko: '이 브라우저에는 아직 잠금 해제 PIN이 설정되어 있지 않습니다.',
+      es: 'Todavía no hay un PIN de desbloqueo configurado para este navegador.',
+      de: 'Für diesen Browser ist noch keine Entsperr-PIN eingerichtet.',
     );
   }
 
@@ -2844,411 +3126,976 @@ class AppStrings {
     ja: 'プライベートプロファイル',
     zh: '私密档案',
     ko: '비공개 프로필',
+    es: 'Perfiles privados',
+    de: 'Private Profile',
   );
   String get privateProfilesSettingsAdminSummary => localized(
     en: 'Profile names and vault IDs stay hidden in Settings, even in admin mode.',
     ja: '管理者モードでも、プロファイル名や保存先IDは設定画面に表示しません。',
     zh: '即使在管理员模式下，设置中也不会显示档案名称和保险库 ID。',
     ko: '관리자 모드에서도 설정 화면에는 프로필 이름과 보관함 ID를 표시하지 않습니다.',
+    es: 'Los nombres de perfiles y los ID de bóveda permanecen ocultos en Ajustes, incluso en modo administrador.',
+    de: 'Profilnamen und Tresor-IDs bleiben in den Einstellungen verborgen, auch im Administratormodus.',
   );
   String privateProfilesSettingsActiveSummary(String _) => localized(
     en: 'A verified private profile is currently open.',
     ja: '現在は認証済みのプライベートプロファイルを表示しています。',
     zh: '当前已打开经过验证的私密档案。',
     ko: '현재 인증된 비공개 프로필이 열려 있습니다.',
+    es: 'Hay un perfil privado verificado abierto.',
+    de: 'Ein verifiziertes privates Profil ist derzeit geöffnet.',
   );
   String get privateProfilesSettingsDefaultSummary => localized(
     en: 'Notes stays visible by default. Open another profile only when you need it.',
     ja: '通常は Notes だけを表示し、必要なときだけ別のプロファイルを開きます。',
     zh: '默认只显示 Notes。仅在需要时打开其他档案。',
     ko: '기본적으로 Notes만 표시하고, 필요할 때만 다른 프로필을 엽니다.',
+    es: 'Notes permanece visible de forma predeterminada. Abre otro perfil solo cuando lo necesites.',
+    de: 'Notes bleibt standardmäßig sichtbar. Öffne ein anderes Profil nur bei Bedarf.',
   );
   String get privateProfilesSettingsBody => localized(
     en: 'Enter a password from the key icon in the top bar to open only the matching profile. Settings does not list configured profile names or vault IDs. When a profile is open, Appearance can set its accent color separately from normal mode.',
     ja: '右上の鍵アイコンからパスワードを入力すると、一致するプロファイルだけを開けます。設定画面では登録済みプロファイルの名前や保存先IDを列挙しません。プロファイルを開いている間は、「表示」から通常モードとは別のアクセントカラーを設定できます。',
     zh: '从顶部栏的钥匙图标输入密码后，只会打开匹配的档案。设置中不会列出已配置档案的名称或保险库 ID。打开档案时，可在“外观”中为该档案设置不同于普通模式的强调色。',
     ko: '상단의 열쇠 아이콘에서 비밀번호를 입력하면 일치하는 프로필만 열립니다. 설정 화면에는 구성된 프로필 이름이나 보관함 ID를 나열하지 않습니다. 프로필이 열려 있을 때는 표시 설정에서 일반 모드와 다른 강조 색상을 따로 설정할 수 있습니다.',
+    es: 'Introduce una contraseña desde el icono de llave de la barra superior para abrir solo el perfil que coincida. Ajustes no enumera nombres de perfiles ni ID de bóveda configurados. Cuando un perfil está abierto, Apariencia puede definir su color de acento por separado del modo normal.',
+    de: 'Gib über das Schlüsselsymbol in der oberen Leiste ein Passwort ein, um nur das passende Profil zu öffnen. Die Einstellungen listen keine eingerichteten Profilnamen oder Tresor-IDs auf. Wenn ein Profil geöffnet ist, kann Darstellung seine Akzentfarbe getrennt vom normalen Modus festlegen.',
   );
-  String get addPrivateProfile =>
-      localized(en: 'Add profile', ja: 'プロファイルを追加', zh: '添加档案', ko: '프로필 추가');
+  String get addPrivateProfile => localized(
+    en: 'Add profile',
+    ja: 'プロファイルを追加',
+    zh: '添加档案',
+    ko: '프로필 추가',
+    es: 'Añadir perfil',
+    de: 'Profil hinzufügen',
+  );
   String get adminModeActiveLabel => localized(
     en: 'Admin mode active',
     ja: '管理者モード中',
     zh: '管理员模式已启用',
     ko: '관리자 모드 활성화',
+    es: 'Modo administrador activo',
+    de: 'Administratormodus aktiv',
   );
   String get enterAdminModeLabel => localized(
     en: 'Enter admin mode',
     ja: '管理者モードへ移行',
     zh: '进入管理员模式',
     ko: '관리자 모드로 전환',
+    es: 'Entrar en modo administrador',
+    de: 'Administratormodus öffnen',
   );
   String get exitAdminModeLabel => localized(
     en: 'Exit admin mode',
     ja: '管理者モードを終了',
     zh: '退出管理员模式',
     ko: '관리자 모드 종료',
+    es: 'Salir del modo administrador',
+    de: 'Administratormodus beenden',
   );
   String get noPrivateProfilesMessage => localized(
     en: 'No private profiles yet.',
     ja: 'まだプライベートプロファイルはありません。',
     zh: '还没有私密档案。',
     ko: '아직 비공개 프로필이 없습니다.',
+    es: 'Todavía no hay perfiles privados.',
+    de: 'Noch keine privaten Profile.',
   );
   String privateProfilesHiddenSummary(int count) => localized(
     en: '$count private profiles are configured. Names and vault IDs are hidden.',
     ja: '$count 件のプライベートプロファイルが登録されています。名前と保存先IDは非表示です。',
     zh: '已配置 $count 个私密档案。名称和保险库 ID 已隐藏。',
     ko: '비공개 프로필 $count개가 설정되어 있습니다. 이름과 보관함 ID는 숨겨집니다.',
+    es: 'Hay $count perfiles privados configurados. Los nombres y los ID de bóveda están ocultos.',
+    de: '$count private Profile sind eingerichtet. Namen und Tresor-IDs sind verborgen.',
   );
   String get setAlternateProfilePassword => localized(
     en: 'Set alternate profile password',
     ja: '別プロファイル用パスワードを設定',
     zh: '设置备用档案密码',
     ko: '대체 프로필 비밀번호 설정',
+    es: 'Definir contraseña de perfil alternativo',
+    de: 'Passwort für alternatives Profil festlegen',
   );
   String get changeAlternateProfilePassword => localized(
     en: 'Change alternate profile password',
     ja: '別プロファイル用パスワードを変更',
     zh: '更改备用档案密码',
     ko: '대체 프로필 비밀번호 변경',
+    es: 'Cambiar contraseña de perfil alternativo',
+    de: 'Passwort für alternatives Profil ändern',
   );
   String get resetAlternateProfilePassword => localized(
     en: 'Reset alternate profile password',
     ja: '別プロファイル用パスワードをリセット',
     zh: '重置备用档案密码',
     ko: '대체 프로필 비밀번호 재설정',
+    es: 'Restablecer contraseña de perfil alternativo',
+    de: 'Passwort für alternatives Profil zurücksetzen',
   );
 
-  String get skip => localized(en: 'Skip', ja: 'スキップ', zh: '跳过', ko: '건너뛰기');
-  String get next => localized(en: 'Next', ja: '次へ', zh: '下一步', ko: '다음');
-  String get finishSetup =>
-      localized(en: 'Finish setup', ja: 'セットアップ完了', zh: '完成设置', ko: '설정 완료');
+  String get skip => localized(
+    en: 'Skip',
+    ja: 'スキップ',
+    zh: '跳过',
+    ko: '건너뛰기',
+    es: 'Omitir',
+    de: 'Überspringen',
+  );
+  String get next => localized(
+    en: 'Next',
+    ja: '次へ',
+    zh: '下一步',
+    ko: '다음',
+    es: 'Siguiente',
+    de: 'Weiter',
+  );
+  String get finishSetup => localized(
+    en: 'Finish setup',
+    ja: 'セットアップ完了',
+    zh: '完成设置',
+    ko: '설정 완료',
+    es: 'Finalizar configuración',
+    de: 'Einrichtung abschließen',
+  );
   String get setAppUnlockPin => localized(
     en: 'Set app unlock PIN',
     ja: 'アプリ解除 PIN を設定',
     zh: '设置应用解锁 PIN',
     ko: '앱 잠금 해제 PIN 설정',
+    es: 'Definir PIN de desbloqueo de la app',
+    de: 'App-Entsperr-PIN festlegen',
   );
   String get pin => 'PIN';
-  String get cancel => localized(en: 'Cancel', ja: 'キャンセル', zh: '取消', ko: '취소');
+  String get cancel => localized(
+    en: 'Cancel',
+    ja: 'キャンセル',
+    zh: '取消',
+    ko: '취소',
+    es: 'Cancelar',
+    de: 'Abbrechen',
+  );
   String get delete => text('action.delete');
-  String get save => localized(en: 'Save', ja: '保存', zh: '保存', ko: '저장');
+  String get save => localized(
+    en: 'Save',
+    ja: '保存',
+    zh: '保存',
+    ko: '저장',
+    es: 'Guardar',
+    de: 'Speichern',
+  );
   String get useExactly4Digits => localized(
     en: 'Use exactly 4 digits.',
     ja: '4桁ちょうどで入力してください。',
     zh: '请正好输入 4 位数字。',
     ko: '정확히 4자리로 입력하세요.',
+    es: 'Usa exactamente 4 dígitos.',
+    de: 'Verwende genau 4 Ziffern.',
   );
   String get digitsOnly => localized(
     en: 'Digits only.',
     ja: '数字のみ入力できます。',
     zh: '只能输入数字。',
     ko: '숫자만 입력할 수 있습니다.',
+    es: 'Solo dígitos.',
+    de: 'Nur Ziffern.',
   );
-  String get coverKey =>
-      localized(en: 'Cover key', ja: 'カバーキー', zh: '掩护密钥', ko: '커버 키');
-  String get privateKey =>
-      localized(en: 'Private key', ja: 'プライベートキー', zh: '私密密钥', ko: '비공개 키');
+  String get coverKey => localized(
+    en: 'Cover key',
+    ja: 'カバーキー',
+    zh: '掩护密钥',
+    ko: '커버 키',
+    es: 'Clave de cobertura',
+    de: 'Tarnschlüssel',
+  );
+  String get privateKey => localized(
+    en: 'Private key',
+    ja: 'プライベートキー',
+    zh: '私密密钥',
+    ko: '비공개 키',
+    es: 'Clave privada',
+    de: 'Privater Schlüssel',
+  );
   String get setPrivateKey => localized(
     en: 'Set private key',
     ja: 'プライベートキーを設定',
     zh: '设置私密密钥',
     ko: '비공개 키 설정',
+    es: 'Definir clave privada',
+    de: 'Privaten Schlüssel festlegen',
   );
   String get unlockPrivateVault => localized(
     en: 'Unlock private vault',
     ja: 'プライベート領域を解除',
     zh: '解锁私密保险库',
     ko: '비공개 보관함 잠금 해제',
+    es: 'Desbloquear bóveda privada',
+    de: 'Privaten Tresor entsperren',
   );
-  String get unlock => localized(en: 'Unlock', ja: '解除', zh: '解锁', ko: '잠금 해제');
+  String get unlock => localized(
+    en: 'Unlock',
+    ja: '解除',
+    zh: '解锁',
+    ko: '잠금 해제',
+    es: 'Desbloquear',
+    de: 'Entsperren',
+  );
   String confirmPrivateKey(String label) => localized(
     en: 'Confirm $label',
     ja: '$label を確認',
     zh: '确认$label',
     ko: '$label 확인',
+    es: 'Confirmar $label',
+    de: '$label bestätigen',
   );
   String get keysDoNotMatch => localized(
     en: 'Keys do not match.',
     ja: 'キーが一致しません。',
     zh: '密钥不一致。',
     ko: '키가 일치하지 않습니다.',
+    es: 'Las claves no coinciden.',
+    de: 'Die Schlüssel stimmen nicht überein.',
   );
   String get privateKeyIncorrect => localized(
     en: 'Private key is not correct.',
     ja: 'プライベートキーが正しくありません。',
     zh: '私密密钥不正确。',
     ko: '비공개 키가 올바르지 않습니다.',
+    es: 'La clave privada no es correcta.',
+    de: 'Der private Schlüssel ist nicht korrekt.',
   );
   String get useAtLeast4Chars => localized(
     en: 'Use at least 4 characters.',
     ja: '4文字以上で入力してください。',
     zh: '请至少输入 4 个字符。',
     ko: '4자 이상 입력하세요.',
+    es: 'Usa al menos 4 caracteres.',
+    de: 'Verwende mindestens 4 Zeichen.',
   );
-  String get quickMemo =>
-      localized(en: 'Quick memo', ja: 'クイックメモ', zh: '快速备忘录', ko: '빠른 메모');
-  String get richMemo =>
-      localized(en: 'Rich memo', ja: 'リッチメモ', zh: '富文本备忘录', ko: '리치 메모');
-  String get newNote =>
-      localized(en: 'New note', ja: '新しいノート', zh: '新笔记', ko: '새 노트');
-  String get editNote =>
-      localized(en: 'Edit note', ja: 'ノートを編集', zh: '编辑笔记', ko: '노트 편집');
-  String get memoLabel => localized(en: 'Memo', ja: 'メモ', zh: '备忘录', ko: '메모');
+  String get quickMemo => localized(
+    en: 'Quick memo',
+    ja: 'クイックメモ',
+    zh: '快速备忘录',
+    ko: '빠른 메모',
+    es: 'Memo rápido',
+    de: 'Schnellnotiz',
+  );
+  String get richMemo => localized(
+    en: 'Rich memo',
+    ja: 'リッチメモ',
+    zh: '富文本备忘录',
+    ko: '리치 메모',
+    es: 'Memo enriquecido',
+    de: 'Rich-Memo',
+  );
+  String get newNote => localized(
+    en: 'New note',
+    ja: '新しいノート',
+    zh: '新笔记',
+    ko: '새 노트',
+    es: 'Nota nueva',
+    de: 'Neue Notiz',
+  );
+  String get editNote => localized(
+    en: 'Edit note',
+    ja: 'ノートを編集',
+    zh: '编辑笔记',
+    ko: '노트 편집',
+    es: 'Editar nota',
+    de: 'Notiz bearbeiten',
+  );
+  String get memoLabel => localized(
+    en: 'Memo',
+    ja: 'メモ',
+    zh: '备忘录',
+    ko: '메모',
+    es: 'Memo',
+    de: 'Memo',
+  );
   String get memoFirstLineHint => localized(
     en: 'Use the first line as the title',
     ja: '1行目をタイトルとして使います',
     zh: '第一行会作为标题',
     ko: '첫 줄을 제목으로 사용합니다',
+    es: 'Usa la primera línea como título',
+    de: 'Die erste Zeile wird als Titel verwendet',
   );
-  String get vault => localized(en: 'Vault', ja: '分類', zh: '分类', ko: '분류');
+  String get vault => localized(
+    en: 'Vault',
+    ja: '分類',
+    zh: '分类',
+    ko: '분류',
+    es: 'Bóveda',
+    de: 'Tresor',
+  );
   String get pinThisNote => localized(
     en: 'Pin this note',
     ja: 'このノートを固定',
     zh: '固定此笔记',
     ko: '이 노트 고정',
+    es: 'Fijar esta nota',
+    de: 'Diese Notiz anheften',
   );
   String get pinThisNoteDesc => localized(
     en: 'Pinned notes stay near the top.',
     ja: '固定したノートは一覧の上に表示されます。',
     zh: '固定的笔记会显示在列表上方。',
     ko: '고정한 노트는 목록 위쪽에 표시됩니다.',
+    es: 'Las notas fijadas permanecen cerca de la parte superior.',
+    de: 'Angeheftete Notizen bleiben weiter oben.',
   );
-  String get createNote =>
-      localized(en: 'Create note', ja: 'ノートを作成', zh: '创建笔记', ko: '노트 만들기');
-  String get saveChanges =>
-      localized(en: 'Save changes', ja: '変更を保存', zh: '保存更改', ko: '변경 사항 저장');
+  String get createNote => localized(
+    en: 'Create note',
+    ja: 'ノートを作成',
+    zh: '创建笔记',
+    ko: '노트 만들기',
+    es: 'Crear nota',
+    de: 'Notiz erstellen',
+  );
+  String get saveChanges => localized(
+    en: 'Save changes',
+    ja: '変更を保存',
+    zh: '保存更改',
+    ko: '변경 사항 저장',
+    es: 'Guardar cambios',
+    de: 'Änderungen speichern',
+  );
   String get startWritingHere => localized(
     en: 'Start writing here',
     ja: 'ここから書き始めます',
     zh: '从这里开始书写',
     ko: '여기에서 쓰기 시작합니다',
+    es: 'Empieza a escribir aquí',
+    de: 'Hier mit dem Schreiben beginnen',
   );
-  String get attachments =>
-      localized(en: 'Attachments', ja: '添付', zh: '附件', ko: '첨부');
-  String get addMedia =>
-      localized(en: 'Add media', ja: 'メディアを追加', zh: '添加媒体', ko: '미디어 추가');
-  String get pickPhoto =>
-      localized(en: 'Pick photo', ja: '写真を選ぶ', zh: '选择照片', ko: '사진 선택');
-  String get takePhoto =>
-      localized(en: 'Take photo', ja: '写真を撮る', zh: '拍照', ko: '사진 촬영');
-  String get pickVideo =>
-      localized(en: 'Pick video', ja: '動画を選ぶ', zh: '选择视频', ko: '동영상 선택');
-  String get recordVideo =>
-      localized(en: 'Record video', ja: '動画を撮る', zh: '录制视频', ko: '동영상 녹화');
-  String get recordAudio =>
-      localized(en: 'Record audio', ja: '音声を録音', zh: '录音', ko: '오디오 녹음');
-  String get pickAudio =>
-      localized(en: 'Pick audio', ja: '音声を選ぶ', zh: '选择音频', ko: '오디오 선택');
+  String get attachments => localized(
+    en: 'Attachments',
+    ja: '添付',
+    zh: '附件',
+    ko: '첨부',
+    es: 'Adjuntos',
+    de: 'Anhänge',
+  );
+  String get addMedia => localized(
+    en: 'Add media',
+    ja: 'メディアを追加',
+    zh: '添加媒体',
+    ko: '미디어 추가',
+    es: 'Añadir multimedia',
+    de: 'Medien hinzufügen',
+  );
+  String get pickPhoto => localized(
+    en: 'Pick photo',
+    ja: '写真を選ぶ',
+    zh: '选择照片',
+    ko: '사진 선택',
+    es: 'Elegir foto',
+    de: 'Foto auswählen',
+  );
+  String get takePhoto => localized(
+    en: 'Take photo',
+    ja: '写真を撮る',
+    zh: '拍照',
+    ko: '사진 촬영',
+    es: 'Tomar foto',
+    de: 'Foto aufnehmen',
+  );
+  String get pickVideo => localized(
+    en: 'Pick video',
+    ja: '動画を選ぶ',
+    zh: '选择视频',
+    ko: '동영상 선택',
+    es: 'Elegir vídeo',
+    de: 'Video auswählen',
+  );
+  String get recordVideo => localized(
+    en: 'Record video',
+    ja: '動画を撮る',
+    zh: '录制视频',
+    ko: '동영상 녹화',
+    es: 'Grabar vídeo',
+    de: 'Video aufnehmen',
+  );
+  String get recordAudio => localized(
+    en: 'Record audio',
+    ja: '音声を録音',
+    zh: '录音',
+    ko: '오디오 녹음',
+    es: 'Grabar audio',
+    de: 'Audio aufnehmen',
+  );
+  String get pickAudio => localized(
+    en: 'Pick audio',
+    ja: '音声を選ぶ',
+    zh: '选择音频',
+    ko: '오디오 선택',
+    es: 'Elegir audio',
+    de: 'Audio auswählen',
+  );
   String get addCurrentLocation => localized(
     en: 'Add current location',
     ja: '現在地を追加',
     zh: '添加当前位置',
     ko: '현재 위치 추가',
+    es: 'Añadir ubicación actual',
+    de: 'Aktuellen Standort hinzufügen',
   );
-  String get currentLocationLabel =>
-      localized(en: 'Current location', ja: '現在地', zh: '当前位置', ko: '현재 위치');
-  String get estimatedAddressLabel =>
-      localized(en: 'Estimated address', ja: '推定住所', zh: '推测地址', ko: '추정 주소');
-  String get latitudeLabel =>
-      localized(en: 'Latitude', ja: '緯度', zh: '纬度', ko: '위도');
-  String get longitudeLabel =>
-      localized(en: 'Longitude', ja: '経度', zh: '经度', ko: '경도');
-  String get locationAccuracyLabel =>
-      localized(en: 'Accuracy', ja: '精度', zh: '精度', ko: '정확도');
-  String get openMap =>
-      localized(en: 'Open map', ja: '地図を開く', zh: '打开地图', ko: '지도 열기');
+  String get currentLocationLabel => localized(
+    en: 'Current location',
+    ja: '現在地',
+    zh: '当前位置',
+    ko: '현재 위치',
+    es: 'Ubicación actual',
+    de: 'Aktueller Standort',
+  );
+  String get estimatedAddressLabel => localized(
+    en: 'Estimated address',
+    ja: '推定住所',
+    zh: '推测地址',
+    ko: '추정 주소',
+    es: 'Dirección estimada',
+    de: 'Geschätzte Adresse',
+  );
+  String get latitudeLabel => localized(
+    en: 'Latitude',
+    ja: '緯度',
+    zh: '纬度',
+    ko: '위도',
+    es: 'Latitud',
+    de: 'Breitengrad',
+  );
+  String get longitudeLabel => localized(
+    en: 'Longitude',
+    ja: '経度',
+    zh: '经度',
+    ko: '경도',
+    es: 'Longitud',
+    de: 'Längengrad',
+  );
+  String get locationAccuracyLabel => localized(
+    en: 'Accuracy',
+    ja: '精度',
+    zh: '精度',
+    ko: '정확도',
+    es: 'Precisión',
+    de: 'Genauigkeit',
+  );
+  String get openMap => localized(
+    en: 'Open map',
+    ja: '地図を開く',
+    zh: '打开地图',
+    ko: '지도 열기',
+    es: 'Abrir mapa',
+    de: 'Karte öffnen',
+  );
   String get copyMapLink => localized(
     en: 'Copy map link',
     ja: '地図リンクをコピー',
     zh: '复制地图链接',
     ko: '지도 링크 복사',
+    es: 'Copiar enlace del mapa',
+    de: 'Kartenlink kopieren',
   );
   String get mapLinkCopied => localized(
     en: 'Map link copied.',
     ja: '地図リンクをコピーしました。',
     zh: '已复制地图链接。',
     ko: '지도 링크를 복사했습니다.',
+    es: 'Enlace del mapa copiado.',
+    de: 'Kartenlink kopiert.',
   );
   String get mapOpenFailed => localized(
     en: 'Could not open the map.',
     ja: '地図を開けませんでした。',
     zh: '无法打开地图。',
     ko: '지도를 열 수 없습니다.',
+    es: 'No se pudo abrir el mapa.',
+    de: 'Die Karte konnte nicht geöffnet werden.',
   );
   String get linkOpenFailed => localized(
     en: 'Could not open the link.',
     ja: 'リンクを開けませんでした。',
     zh: '无法打开链接。',
     ko: '링크를 열 수 없습니다.',
+    es: 'No se pudo abrir el enlace.',
+    de: 'Der Link konnte nicht geöffnet werden.',
   );
   String get openExternalLinkTitle => localized(
     en: 'Open external link?',
     ja: '外部リンクを開きますか？',
     zh: '要打开外部链接吗？',
     ko: '외부 링크를 열까요?',
+    es: '¿Abrir enlace externo?',
+    de: 'Externen Link öffnen?',
   );
   String get openExternalLinkMessage => localized(
     en: 'This link will open outside HiMemo. Check the URL before continuing.',
     ja: 'このリンクはHiMemoの外部で開かれます。URLを確認してから続行してください。',
     zh: '此链接将在 HiMemo 外部打开。继续前请确认 URL。',
     ko: '이 링크는 HiMemo 외부에서 열립니다. 계속하기 전에 URL을 확인하세요.',
+    es: 'Este enlace se abrirá fuera de HiMemo. Comprueba la URL antes de continuar.',
+    de: 'Dieser Link wird außerhalb von HiMemo geöffnet. Prüfe die URL, bevor du fortfährst.',
   );
-  String get openLink => localized(en: 'Open', ja: '開く', zh: '打开', ko: '열기');
+  String get openLink => localized(
+    en: 'Open',
+    ja: '開く',
+    zh: '打开',
+    ko: '열기',
+    es: 'Abrir',
+    de: 'Öffnen',
+  );
   String get locationServicesOff => localized(
     en: 'Location services are off. Enable them in device settings.',
     ja: '位置情報サービスがオフです。端末設定で有効にしてください。',
     zh: '定位服务已关闭。请在设备设置中启用。',
     ko: '위치 서비스가 꺼져 있습니다. 기기 설정에서 켜세요.',
+    es: 'Los servicios de ubicación están desactivados. Actívalos en los ajustes del dispositivo.',
+    de: 'Standortdienste sind deaktiviert. Aktiviere sie in den Geräteeinstellungen.',
   );
   String get locationPermissionRequired => localized(
     en: 'Location permission is required to add current location.',
     ja: '現在地を追加するには位置情報の許可が必要です。',
     zh: '添加当前位置需要位置权限。',
     ko: '현재 위치를 추가하려면 위치 권한이 필요합니다.',
+    es: 'Se necesita permiso de ubicación para añadir la ubicación actual.',
+    de: 'Zum Hinzufügen des aktuellen Standorts ist eine Standortberechtigung erforderlich.',
   );
   String get currentLocationAdded => localized(
     en: 'Current location added to the note.',
     ja: '現在地をメモに追加しました。',
     zh: '已将当前位置添加到笔记。',
     ko: '현재 위치를 노트에 추가했습니다.',
+    es: 'Ubicación actual añadida a la nota.',
+    de: 'Aktueller Standort zur Notiz hinzugefügt.',
   );
   String get currentLocationUnavailable => localized(
     en: 'Could not get current location.',
     ja: '現在地を取得できませんでした。',
     zh: '无法获取当前位置。',
     ko: '현재 위치를 가져올 수 없습니다.',
+    es: 'No se pudo obtener la ubicación actual.',
+    de: 'Aktueller Standort konnte nicht abgerufen werden.',
   );
   String get attachFromBrowser => localized(
     en: 'Attach photos, videos, or audio files from this browser.',
     ja: 'このブラウザから写真・動画・音声を添付できます。',
     zh: '可从此浏览器添加照片、视频或音频文件。',
     ko: '이 브라우저에서 사진, 동영상 또는 오디오 파일을 첨부할 수 있습니다.',
+    es: 'Adjunta fotos, vídeos o archivos de audio desde este navegador.',
+    de: 'Füge Fotos, Videos oder Audiodateien aus diesem Browser hinzu.',
   );
   String get attachFromDevice => localized(
     en: 'Attach photos, videos, or audio files from camera or device storage.',
     ja: 'カメラや端末内の写真・動画・音声を添付できます。',
     zh: '可从相机或设备存储添加照片、视频或音频文件。',
     ko: '카메라나 기기 저장소에서 사진, 동영상 또는 오디오 파일을 첨부할 수 있습니다.',
+    es: 'Adjunta fotos, vídeos o archivos de audio desde la cámara o el almacenamiento del dispositivo.',
+    de: 'Füge Fotos, Videos oder Audiodateien von Kamera oder Gerätespeicher hinzu.',
   );
   String get dateTimeUpdated => localized(
     en: 'Date and time updated',
     ja: '日時を更新しました',
     zh: '已更新时间',
     ko: '날짜와 시간을 업데이트했습니다',
+    es: 'Fecha y hora actualizadas',
+    de: 'Datum und Uhrzeit aktualisiert',
   );
-  String get microphonePermissionNotGranted => isJapanese
-      ? 'マイクの使用が許可されていません。'
-      : 'Microphone permission was not granted.';
-  String get microphonePermissionBrowserHelp => isJapanese
-      ? 'Chrome または Edge で開き、サイト設定からマイクを許可してください。'
-      : 'Open this app in Chrome or Edge and allow microphone access from the site settings.';
-  String get microphonePermissionRequestTimedOut => isJapanese
-      ? 'マイク許可の確認がタイムアウトしました。ブラウザの許可ダイアログを確認してください。'
-      : 'Microphone permission check timed out. Check the browser permission prompt.';
-  String get microphoneStartTimedOut => isJapanese
-      ? 'マイクの開始がタイムアウトしました。別のアプリがマイクを使用していないか確認してください。'
-      : 'Microphone startup timed out. Check whether another app is using the microphone.';
-  String audioRecordingStartFailed(String diagnostic) => isJapanese
-      ? '録音を開始できませんでした。$diagnostic'
-      : 'Could not start recording.$diagnostic';
-  String get audioRecordingNotificationTitle =>
-      isJapanese ? 'HiMemoで録音中' : 'HiMemo is recording';
-  String get audioRecordingNotificationContent =>
-      isJapanese ? '音声メモの録音を継続しています。' : 'Audio memo recording is continuing.';
-  String get audioRecordingSaveFailed =>
-      isJapanese ? '録音データを保存できませんでした。' : 'Could not save the recording.';
-  String get audioRecordingEmpty =>
-      isJapanese ? '録音データが空でした。' : 'The recording was empty.';
-  String get audioRecordingAttachFailed =>
-      isJapanese ? '録音を添付できませんでした。' : 'Could not attach the recording.';
-  String get audioRecordingStoreFailed =>
-      isJapanese ? '録音を保存できませんでした。' : 'Could not save the recording.';
-  String get audioPlaybackFailed =>
-      isJapanese ? '音声を再生できませんでした。' : 'Could not play this audio.';
-  String get audioMemoRecordingTitle =>
-      isJapanese ? '音声メモを録音' : 'Record audio memo';
-  String get stopAndAttachRecording =>
-      isJapanese ? '停止して添付' : 'Stop and attach';
-  String get startRecording => isJapanese ? '録音開始' : 'Start recording';
-  String get undo => isJapanese ? '元に戻す' : 'Undo';
-  String get draftRestored => isJapanese ? '下書きを復元しました' : 'Draft restored';
-  String get discardDraft => isJapanese ? '破棄' : 'Discard';
-  String get dismiss => isJapanese ? '閉じる' : 'Dismiss';
-  String attachmentRemoved(String label) =>
-      isJapanese ? '$label を削除しました' : '$label removed';
-  String get removeBlock => isJapanese ? 'この添付を削除' : 'Remove block';
-  String get moveEarlier => isJapanese ? '前へ移動' : 'Move earlier';
-  String get moveLater => isJapanese ? '後へ移動' : 'Move later';
-  String get syncAppleIdUnsupported => isJapanese
-      ? 'このビルドでは iOS / macOS のみ iCloud 同期を利用できます。'
-      : 'iCloud sync is only available on iOS and macOS in this build.';
-  String get syncAppleIdUnavailable => isJapanese
-      ? 'この端末では iCloud を利用できません。'
-      : 'iCloud is not available on this device.';
-  String get syncAppleIdConnected => isJapanese
-      ? 'iCloud の利用状態を確認できました。同期設定を続けてください。'
-      : 'iCloud is available. Continue setting up sync.';
-  String get syncApplePluginMissing => isJapanese
-      ? 'この実行環境では iCloud 同期を利用できません。'
-      : 'iCloud sync is not configured in this runtime.';
-  String get syncAppleUnknownError => isJapanese
-      ? 'iCloud の状態を確認できませんでした。iCloud へのサインイン状態とアプリの権限を確認してください。'
-      : 'Unable to confirm iCloud availability. Check the iCloud sign-in state and app capabilities.';
-  String get close => isJapanese ? '閉じる' : 'Close';
-  String get sendMemo => isJapanese ? 'メモを送信' : 'Send memo';
-  String get sending => isJapanese ? '送信中...' : 'Sending...';
-  String get sendQuickMemo => isJapanese ? 'クイックメモを送信' : 'Send a quick memo';
-  String get quickMemoSaved =>
-      isJapanese ? 'クイックメモを Notes に保存しました。' : 'Quick memo saved to Notes.';
-  String get sharedMemoSaveFailed =>
-      isJapanese ? '共有メモを保存できませんでした。' : 'Could not save the shared memo.';
-  String quickCaptureDescription({required bool isShare}) => isJapanese
-      ? (isShare
-            ? '共有メニューから受け取ったテキストやファイルを、そのまま Notes に送れます。既存ノートやロック中のプロファイルは開きません。'
-            : 'すばやくメモを記録します。この画面では既存ノートやロック中のプロファイルは表示しません。')
-      : (isShare
-            ? 'Shared text and files can be sent straight to Notes. This route never reveals existing notes or locked profiles.'
-            : 'Capture a quick memo. This route never reveals existing notes or locked profiles.');
-  String get sharedFiles => isJapanese ? '共有ファイル' : 'Shared files';
-  String get filesNotImported =>
-      isJapanese ? '取り込めなかったファイル' : 'Files not imported';
-  String get sharedFileFallback => isJapanese ? '共有ファイル' : 'Shared file';
-  String quickCaptureHint({required bool isShare}) => isJapanese
-      ? (isShare
-            ? '共有されたテキストを整えて、そのまま Notes に保存できます。'
-            : 'メモを書いて、そのまま Notes に送ります。')
-      : (isShare
-            ? 'Tidy the shared text and save it to Notes.'
-            : 'Write a memo and send it to Notes.');
+  String get microphonePermissionNotGranted => localized(
+    en: 'Microphone permission was not granted.',
+    ja: 'マイクの使用が許可されていません。',
+    zh: '未授予麦克风权限。',
+    ko: '마이크 권한이 허용되지 않았습니다.',
+    es: 'No se concedió el permiso del micrófono.',
+    de: 'Die Mikrofonberechtigung wurde nicht erteilt.',
+  );
+  String get microphonePermissionBrowserHelp => localized(
+    en: 'Open this app in Chrome or Edge and allow microphone access from the site settings.',
+    ja: 'Chrome または Edge で開き、サイト設定からマイクを許可してください。',
+    zh: '请在 Chrome 或 Edge 中打开此应用，并在网站设置中允许麦克风访问。',
+    ko: 'Chrome 또는 Edge에서 이 앱을 열고 사이트 설정에서 마이크 접근을 허용하세요.',
+    es: 'Abre esta app en Chrome o Edge y permite el acceso al micrófono desde la configuración del sitio.',
+    de: 'Öffne diese App in Chrome oder Edge und erlaube den Mikrofonzugriff in den Website-Einstellungen.',
+  );
+  String get microphonePermissionRequestTimedOut => localized(
+    en: 'Microphone permission check timed out. Check the browser permission prompt.',
+    ja: 'マイク許可の確認がタイムアウトしました。ブラウザの許可ダイアログを確認してください。',
+    zh: '麦克风权限检查超时。请查看浏览器权限提示。',
+    ko: '마이크 권한 확인 시간이 초과되었습니다. 브라우저 권한 알림을 확인하세요.',
+    es: 'La comprobación del permiso del micrófono agotó el tiempo. Revisa el aviso de permisos del navegador.',
+    de: 'Die Mikrofon-Berechtigungsprüfung ist abgelaufen. Prüfe die Berechtigungsabfrage des Browsers.',
+  );
+  String get microphoneStartTimedOut => localized(
+    en: 'Microphone startup timed out. Check whether another app is using the microphone.',
+    ja: 'マイクの開始がタイムアウトしました。別のアプリがマイクを使用していないか確認してください。',
+    zh: '麦克风启动超时。请检查是否有其他应用正在使用麦克风。',
+    ko: '마이크 시작 시간이 초과되었습니다. 다른 앱이 마이크를 사용 중인지 확인하세요.',
+    es: 'El inicio del micrófono agotó el tiempo. Comprueba si otra app está usando el micrófono.',
+    de: 'Der Mikrofonstart ist abgelaufen. Prüfe, ob eine andere App das Mikrofon verwendet.',
+  );
+  String audioRecordingStartFailed(String diagnostic) => localized(
+    en: 'Could not start recording.$diagnostic',
+    ja: '録音を開始できませんでした。$diagnostic',
+    zh: '无法开始录音。$diagnostic',
+    ko: '녹음을 시작할 수 없습니다. $diagnostic',
+    es: 'No se pudo iniciar la grabación. $diagnostic',
+    de: 'Die Aufnahme konnte nicht gestartet werden. $diagnostic',
+  );
+  String get audioRecordingNotificationTitle => localized(
+    en: 'HiMemo is recording',
+    ja: 'HiMemoで録音中',
+    zh: 'HiMemo 正在录音',
+    ko: 'HiMemo 녹음 중',
+    es: 'HiMemo está grabando',
+    de: 'HiMemo nimmt auf',
+  );
+  String get audioRecordingNotificationContent => localized(
+    en: 'Audio memo recording is continuing.',
+    ja: '音声メモの録音を継続しています。',
+    zh: '音频备忘录录音正在继续。',
+    ko: '오디오 메모 녹음이 계속되고 있습니다.',
+    es: 'La grabación del memo de audio continúa.',
+    de: 'Die Audiomemo-Aufnahme läuft weiter.',
+  );
+  String get audioRecordingSaveFailed => localized(
+    en: 'Could not save the recording.',
+    ja: '録音データを保存できませんでした。',
+    zh: '无法保存录音。',
+    ko: '녹음 데이터를 저장할 수 없습니다.',
+    es: 'No se pudo guardar la grabación.',
+    de: 'Die Aufnahme konnte nicht gespeichert werden.',
+  );
+  String get audioRecordingEmpty => localized(
+    en: 'The recording was empty.',
+    ja: '録音データが空でした。',
+    zh: '录音为空。',
+    ko: '녹음 데이터가 비어 있습니다.',
+    es: 'La grabación estaba vacía.',
+    de: 'Die Aufnahme war leer.',
+  );
+  String get audioRecordingAttachFailed => localized(
+    en: 'Could not attach the recording.',
+    ja: '録音を添付できませんでした。',
+    zh: '无法附加录音。',
+    ko: '녹음을 첨부할 수 없습니다.',
+    es: 'No se pudo adjuntar la grabación.',
+    de: 'Die Aufnahme konnte nicht angehängt werden.',
+  );
+  String get audioRecordingStoreFailed => localized(
+    en: 'Could not save the recording.',
+    ja: '録音を保存できませんでした。',
+    zh: '无法保存录音。',
+    ko: '녹음을 저장할 수 없습니다.',
+    es: 'No se pudo guardar la grabación.',
+    de: 'Die Aufnahme konnte nicht gespeichert werden.',
+  );
+  String get audioPlaybackFailed => localized(
+    en: 'Could not play this audio.',
+    ja: '音声を再生できませんでした。',
+    zh: '无法播放此音频。',
+    ko: '이 오디오를 재생할 수 없습니다.',
+    es: 'No se pudo reproducir este audio.',
+    de: 'Dieses Audio konnte nicht abgespielt werden.',
+  );
+  String get audioMemoRecordingTitle => localized(
+    en: 'Record audio memo',
+    ja: '音声メモを録音',
+    zh: '录制音频备忘录',
+    ko: '오디오 메모 녹음',
+    es: 'Grabar memo de audio',
+    de: 'Audiomemo aufnehmen',
+  );
+  String get stopAndAttachRecording => localized(
+    en: 'Stop and attach',
+    ja: '停止して添付',
+    zh: '停止并附加',
+    ko: '중지하고 첨부',
+    es: 'Detener y adjuntar',
+    de: 'Stoppen und anhängen',
+  );
+  String get startRecording => localized(
+    en: 'Start recording',
+    ja: '録音開始',
+    zh: '开始录音',
+    ko: '녹음 시작',
+    es: 'Iniciar grabación',
+    de: 'Aufnahme starten',
+  );
+  String get undo => localized(
+    en: 'Undo',
+    ja: '元に戻す',
+    zh: '撤销',
+    ko: '실행 취소',
+    es: 'Deshacer',
+    de: 'Rückgängig',
+  );
+  String get draftRestored => localized(
+    en: 'Draft restored',
+    ja: '下書きを復元しました',
+    zh: '草稿已恢复',
+    ko: '초안을 복원했습니다',
+    es: 'Borrador restaurado',
+    de: 'Entwurf wiederhergestellt',
+  );
+  String get discardDraft => localized(
+    en: 'Discard',
+    ja: '破棄',
+    zh: '丢弃',
+    ko: '삭제',
+    es: 'Descartar',
+    de: 'Verwerfen',
+  );
+  String get dismiss => localized(
+    en: 'Dismiss',
+    ja: '閉じる',
+    zh: '关闭',
+    ko: '닫기',
+    es: 'Cerrar',
+    de: 'Schließen',
+  );
+  String attachmentRemoved(String label) => localized(
+    en: '$label removed',
+    ja: '$label を削除しました',
+    zh: '已移除 $label',
+    ko: '$label 제거됨',
+    es: '$label eliminado',
+    de: '$label entfernt',
+  );
+  String get removeBlock => localized(
+    en: 'Remove block',
+    ja: 'この添付を削除',
+    zh: '移除此块',
+    ko: '이 블록 제거',
+    es: 'Eliminar bloque',
+    de: 'Block entfernen',
+  );
+  String get moveEarlier => localized(
+    en: 'Move earlier',
+    ja: '前へ移動',
+    zh: '向前移动',
+    ko: '앞으로 이동',
+    es: 'Mover antes',
+    de: 'Nach vorne verschieben',
+  );
+  String get moveLater => localized(
+    en: 'Move later',
+    ja: '後へ移動',
+    zh: '向后移动',
+    ko: '뒤로 이동',
+    es: 'Mover después',
+    de: 'Nach hinten verschieben',
+  );
+  String get syncAppleIdUnsupported => localized(
+    en: 'iCloud sync is only available on iOS and macOS in this build.',
+    ja: 'このビルドでは iOS / macOS のみ iCloud 同期を利用できます。',
+    zh: '此版本仅在 iOS 和 macOS 上支持 iCloud 同步。',
+    ko: '이 빌드에서는 iOS 및 macOS에서만 iCloud 동기화를 사용할 수 있습니다.',
+    es: 'La sincronización con iCloud solo está disponible en iOS y macOS en esta build.',
+    de: 'iCloud-Synchronisierung ist in diesem Build nur unter iOS und macOS verfügbar.',
+  );
+  String get syncAppleIdUnavailable => localized(
+    en: 'iCloud is not available on this device.',
+    ja: 'この端末では iCloud を利用できません。',
+    zh: '此设备无法使用 iCloud。',
+    ko: '이 기기에서는 iCloud를 사용할 수 없습니다.',
+    es: 'iCloud no está disponible en este dispositivo.',
+    de: 'iCloud ist auf diesem Gerät nicht verfügbar.',
+  );
+  String get syncAppleIdConnected => localized(
+    en: 'iCloud is available. Continue setting up sync.',
+    ja: 'iCloud の利用状態を確認できました。同期設定を続けてください。',
+    zh: 'iCloud 可用。请继续设置同步。',
+    ko: 'iCloud를 사용할 수 있습니다. 동기화 설정을 계속하세요.',
+    es: 'iCloud está disponible. Continúa configurando la sincronización.',
+    de: 'iCloud ist verfügbar. Fahre mit der Synchronisierungseinrichtung fort.',
+  );
+  String get syncApplePluginMissing => localized(
+    en: 'iCloud sync is not configured in this runtime.',
+    ja: 'この実行環境では iCloud 同期を利用できません。',
+    zh: '此运行环境未配置 iCloud 同步。',
+    ko: '이 실행 환경에는 iCloud 동기화가 설정되어 있지 않습니다.',
+    es: 'La sincronización con iCloud no está configurada en este entorno.',
+    de: 'iCloud-Synchronisierung ist in dieser Laufzeit nicht konfiguriert.',
+  );
+  String get syncAppleUnknownError => localized(
+    en: 'Unable to confirm iCloud availability. Check the iCloud sign-in state and app capabilities.',
+    ja: 'iCloud の状態を確認できませんでした。iCloud へのサインイン状態とアプリの権限を確認してください。',
+    zh: '无法确认 iCloud 可用性。请检查 iCloud 登录状态和应用权限。',
+    ko: 'iCloud 사용 가능 여부를 확인할 수 없습니다. iCloud 로그인 상태와 앱 권한을 확인하세요.',
+    es: 'No se pudo confirmar la disponibilidad de iCloud. Comprueba el inicio de sesión en iCloud y las capacidades de la app.',
+    de: 'Die iCloud-Verfügbarkeit konnte nicht bestätigt werden. Prüfe den iCloud-Anmeldestatus und die App-Berechtigungen.',
+  );
+  String get close => localized(
+    en: 'Close',
+    ja: '閉じる',
+    zh: '关闭',
+    ko: '닫기',
+    es: 'Cerrar',
+    de: 'Schließen',
+  );
+  String get sendMemo => localized(
+    en: 'Send memo',
+    ja: 'メモを送信',
+    zh: '发送备忘录',
+    ko: '메모 보내기',
+    es: 'Enviar memo',
+    de: 'Memo senden',
+  );
+  String get sending => localized(
+    en: 'Sending...',
+    ja: '送信中...',
+    zh: '正在发送...',
+    ko: '보내는 중...',
+    es: 'Enviando...',
+    de: 'Wird gesendet...',
+  );
+  String get sendQuickMemo => localized(
+    en: 'Send a quick memo',
+    ja: 'クイックメモを送信',
+    zh: '发送快速备忘录',
+    ko: '빠른 메모 보내기',
+    es: 'Enviar memo rápido',
+    de: 'Schnellnotiz senden',
+  );
+  String get quickMemoSaved => localized(
+    en: 'Quick memo saved to Notes.',
+    ja: 'クイックメモを Notes に保存しました。',
+    zh: '快速备忘录已保存到 Notes。',
+    ko: '빠른 메모를 Notes에 저장했습니다.',
+    es: 'Memo rápido guardado en Notes.',
+    de: 'Schnellnotiz in Notes gespeichert.',
+  );
+  String get sharedMemoSaveFailed => localized(
+    en: 'Could not save the shared memo.',
+    ja: '共有メモを保存できませんでした。',
+    zh: '无法保存共享备忘录。',
+    ko: '공유 메모를 저장할 수 없습니다.',
+    es: 'No se pudo guardar el memo compartido.',
+    de: 'Das geteilte Memo konnte nicht gespeichert werden.',
+  );
+  String quickCaptureDescription({required bool isShare}) => isShare
+      ? localized(
+          en: 'Shared text and files can be sent straight to Notes. This route never reveals existing notes or locked profiles.',
+          ja: '共有メニューから受け取ったテキストやファイルを、そのまま Notes に送れます。既存ノートやロック中のプロファイルは開きません。',
+          zh: '共享的文本和文件可直接发送到 Notes。此入口不会显示现有笔记或锁定的档案。',
+          ko: '공유된 텍스트와 파일을 바로 Notes로 보낼 수 있습니다. 이 경로는 기존 노트나 잠긴 프로필을 표시하지 않습니다.',
+          es: 'El texto y los archivos compartidos se pueden enviar directamente a Notes. Esta ruta nunca muestra notas existentes ni perfiles bloqueados.',
+          de: 'Geteilte Texte und Dateien können direkt an Notes gesendet werden. Diese Route zeigt niemals vorhandene Notizen oder gesperrte Profile.',
+        )
+      : localized(
+          en: 'Capture a quick memo. This route never reveals existing notes or locked profiles.',
+          ja: 'すばやくメモを記録します。この画面では既存ノートやロック中のプロファイルは表示しません。',
+          zh: '快速记录备忘录。此入口不会显示现有笔记或锁定的档案。',
+          ko: '빠른 메모를 기록합니다. 이 화면에서는 기존 노트나 잠긴 프로필을 표시하지 않습니다.',
+          es: 'Captura un memo rápido. Esta ruta nunca muestra notas existentes ni perfiles bloqueados.',
+          de: 'Erfasse eine Schnellnotiz. Diese Route zeigt niemals vorhandene Notizen oder gesperrte Profile.',
+        );
+  String get sharedFiles => localized(
+    en: 'Shared files',
+    ja: '共有ファイル',
+    zh: '共享文件',
+    ko: '공유 파일',
+    es: 'Archivos compartidos',
+    de: 'Geteilte Dateien',
+  );
+  String get filesNotImported => localized(
+    en: 'Files not imported',
+    ja: '取り込めなかったファイル',
+    zh: '未导入的文件',
+    ko: '가져오지 못한 파일',
+    es: 'Archivos no importados',
+    de: 'Nicht importierte Dateien',
+  );
+  String get sharedFileFallback => localized(
+    en: 'Shared file',
+    ja: '共有ファイル',
+    zh: '共享文件',
+    ko: '공유 파일',
+    es: 'Archivo compartido',
+    de: 'Geteilte Datei',
+  );
+  String quickCaptureHint({required bool isShare}) => isShare
+      ? localized(
+          en: 'Tidy the shared text and save it to Notes.',
+          ja: '共有されたテキストを整えて、そのまま Notes に保存できます。',
+          zh: '整理共享文本并保存到 Notes。',
+          ko: '공유된 텍스트를 정리해 Notes에 저장할 수 있습니다.',
+          es: 'Ordena el texto compartido y guárdalo en Notes.',
+          de: 'Bereinige den geteilten Text und speichere ihn in Notes.',
+        )
+      : localized(
+          en: 'Write a memo and send it to Notes.',
+          ja: 'メモを書いて、そのまま Notes に送ります。',
+          zh: '写一条备忘录并发送到 Notes。',
+          ko: '메모를 작성해 Notes로 보냅니다.',
+          es: 'Escribe un memo y envíalo a Notes.',
+          de: 'Schreibe ein Memo und sende es an Notes.',
+        );
   String sharedFileImportFailureReason(String reason) {
     switch (reason) {
       case 'unsupported_type':
-        return isJapanese
-            ? 'このファイル形式はサポートしていません。'
-            : 'This file type is not supported.';
+        return localized(
+          en: 'This file type is not supported.',
+          ja: 'このファイル形式はサポートしていません。',
+          zh: '不支持此文件类型。',
+          ko: '이 파일 형식은 지원되지 않습니다.',
+          es: 'Este tipo de archivo no es compatible.',
+          de: 'Dieser Dateityp wird nicht unterstützt.',
+        );
       case 'too_large':
-        return isJapanese ? 'このファイルは大きすぎます。' : 'This file is too large.';
+        return localized(
+          en: 'This file is too large.',
+          ja: 'このファイルは大きすぎます。',
+          zh: '此文件太大。',
+          ko: '이 파일은 너무 큽니다.',
+          es: 'Este archivo es demasiado grande.',
+          de: 'Diese Datei ist zu groß.',
+        );
       case 'unreadable':
-        return isJapanese
-            ? 'このファイルを読み込めませんでした。'
-            : 'This file could not be read.';
+        return localized(
+          en: 'This file could not be read.',
+          ja: 'このファイルを読み込めませんでした。',
+          zh: '无法读取此文件。',
+          ko: '이 파일을 읽을 수 없습니다.',
+          es: 'No se pudo leer este archivo.',
+          de: 'Diese Datei konnte nicht gelesen werden.',
+        );
       default:
         return reason;
     }
   }
 
-  String get finishSetupFirst =>
-      isJapanese ? '先に初期設定を完了してください' : 'Finish setup first';
-  String get quickWidgetCaptureOff =>
-      isJapanese ? '外部クイックメモはオフです' : 'External quick capture is off';
-  String get enableQuickWidgetInSettings => isJapanese
-      ? '設定で外部クイックメモをオンにすると、ホームウィジェットや共有メニューからフルアプリを開かずにメモを送れます。'
-      : 'Enable external quick capture in Settings if you want the home widget or Android share sheet to send memos without unlocking the full app.';
-  String get completeOnboardingBeforeWidget => isJapanese
-      ? 'ホームウィジェットから使う前に、初期設定を完了してください。'
-      : 'Complete onboarding before using quick capture from the home widget.';
+  String get finishSetupFirst => localized(
+    en: 'Finish setup first',
+    ja: '先に初期設定を完了してください',
+    zh: '请先完成初始设置',
+    ko: '먼저 초기 설정을 완료하세요',
+    es: 'Completa primero la configuración',
+    de: 'Schließe zuerst die Einrichtung ab',
+  );
+  String get quickWidgetCaptureOff => localized(
+    en: 'External quick capture is off',
+    ja: '外部クイックメモはオフです',
+    zh: '外部快速记录已关闭',
+    ko: '외부 빠른 캡처가 꺼져 있습니다',
+    es: 'La captura rápida externa está desactivada',
+    de: 'Externe Schnellnotiz ist deaktiviert',
+  );
+  String get enableQuickWidgetInSettings => localized(
+    en: 'Enable external quick capture in Settings if you want the home widget or Android share sheet to send memos without unlocking the full app.',
+    ja: '設定で外部クイックメモをオンにすると、ホームウィジェットや共有メニューからフルアプリを開かずにメモを送れます。',
+    zh: '如果希望主屏幕小组件或 Android 分享面板在不解锁完整应用的情况下发送备忘录，请在设置中启用外部快速记录。',
+    ko: '홈 위젯이나 Android 공유 시트에서 전체 앱 잠금 해제 없이 메모를 보내려면 설정에서 외부 빠른 캡처를 켜세요.',
+    es: 'Activa la captura rápida externa en Ajustes si quieres que el widget de inicio o la hoja para compartir de Android envíen memos sin desbloquear toda la app.',
+    de: 'Aktiviere externe Schnellnotizen in den Einstellungen, wenn Home-Widget oder Android-Teilen-Menü Memos senden sollen, ohne die ganze App zu entsperren.',
+  );
+  String get completeOnboardingBeforeWidget => localized(
+    en: 'Complete onboarding before using quick capture from the home widget.',
+    ja: 'ホームウィジェットから使う前に、初期設定を完了してください。',
+    zh: '从主屏幕小组件使用快速记录前，请先完成引导设置。',
+    ko: '홈 위젯에서 빠른 캡처를 사용하기 전에 온보딩을 완료하세요.',
+    es: 'Completa la introducción antes de usar la captura rápida desde el widget de inicio.',
+    de: 'Schließe das Onboarding ab, bevor du Schnellnotizen über das Home-Widget verwendest.',
+  );
 }
 
 class _AppStringsDelegate extends LocalizationsDelegate<AppStrings> {

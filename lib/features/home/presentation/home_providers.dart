@@ -47,12 +47,12 @@ import '../../sync/data/sync_engine.dart';
 part 'home_providers.g.dart';
 
 enum AppColorTheme {
-  blue,
-  green,
-  orange,
-  slate,
-  teal,
-  rose,
+  konjyo,
+  moegi,
+  yamabuki,
+  ginnezumi,
+  seiheki,
+  kurenai,
   sakura,
   fuji,
   ai,
@@ -71,7 +71,32 @@ enum AppColorTheme {
   nanohana,
   haizakura,
   kikyo,
+  edomurasaki,
   rikyucha,
+}
+
+AppColorTheme? _appColorThemeFromName(String? value) {
+  if (value == null) {
+    return null;
+  }
+  const legacyNames = {
+    'blue': AppColorTheme.konjyo,
+    'green': AppColorTheme.moegi,
+    'orange': AppColorTheme.yamabuki,
+    'slate': AppColorTheme.ginnezumi,
+    'teal': AppColorTheme.seiheki,
+    'rose': AppColorTheme.kurenai,
+  };
+  final legacy = legacyNames[value];
+  if (legacy != null) {
+    return legacy;
+  }
+  for (final theme in AppColorTheme.values) {
+    if (theme.name == value) {
+      return theme;
+    }
+  }
+  return null;
 }
 
 enum AppLocaleSetting {
@@ -2536,7 +2561,7 @@ class AppColorThemeController extends Notifier<AppColorTheme> {
       _restored = true;
       unawaited(_restore());
     }
-    return AppColorTheme.blue;
+    return AppColorTheme.konjyo;
   }
 
   Future<void> setTheme(AppColorTheme theme) async {
@@ -2555,10 +2580,7 @@ class AppColorThemeController extends Notifier<AppColorTheme> {
         return;
       }
 
-      state = AppColorTheme.values.firstWhere(
-        (theme) => theme.name == stored,
-        orElse: () => AppColorTheme.blue,
-      );
+      state = _appColorThemeFromName(stored) ?? AppColorTheme.konjyo;
     } catch (_) {}
   }
 }
@@ -2627,15 +2649,7 @@ class ProfileColorThemeController extends Notifier<Map<String, AppColorTheme>> {
   }
 
   AppColorTheme? _themeFromName(String? value) {
-    if (value == null) {
-      return null;
-    }
-    for (final theme in AppColorTheme.values) {
-      if (theme.name == value) {
-        return theme;
-      }
-    }
-    return null;
+    return _appColorThemeFromName(value);
   }
 }
 

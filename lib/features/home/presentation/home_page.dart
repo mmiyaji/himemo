@@ -2157,9 +2157,9 @@ class SettingsScreen extends ConsumerWidget {
   static const localeKoreanKey = Key('locale-korean-option');
   static const localeSpanishKey = Key('locale-spanish-option');
   static const localeGermanKey = Key('locale-german-option');
-  static const blueColorThemeKey = Key('color-theme-blue-option');
-  static const greenColorThemeKey = Key('color-theme-green-option');
-  static const orangeColorThemeKey = Key('color-theme-orange-option');
+  static const konjyoColorThemeKey = Key('color-theme-konjyo-option');
+  static const moegiColorThemeKey = Key('color-theme-moegi-option');
+  static const yamabukiColorThemeKey = Key('color-theme-yamabuki-option');
   static const syncOffKey = Key('sync-off-option');
   static const syncICloudKey = Key('sync-icloud-option');
   static const syncGoogleDriveKey = Key('sync-google-drive-option');
@@ -4338,20 +4338,20 @@ class SettingsScreen extends ConsumerWidget {
         _ColorThemePicker(
           current: colorTheme,
           basicThemes: const [
-            AppColorTheme.blue,
-            AppColorTheme.green,
-            AppColorTheme.orange,
-            AppColorTheme.rose,
+            AppColorTheme.konjyo,
+            AppColorTheme.moegi,
+            AppColorTheme.yamabuki,
+            AppColorTheme.kurenai,
             AppColorTheme.sakura,
           ],
           extendedThemes: const [
-            AppColorTheme.blue,
-            AppColorTheme.green,
-            AppColorTheme.orange,
-            AppColorTheme.rose,
+            AppColorTheme.konjyo,
+            AppColorTheme.moegi,
+            AppColorTheme.yamabuki,
+            AppColorTheme.kurenai,
             AppColorTheme.sakura,
-            AppColorTheme.slate,
-            AppColorTheme.teal,
+            AppColorTheme.ginnezumi,
+            AppColorTheme.seiheki,
             AppColorTheme.fuji,
             AppColorTheme.ai,
             AppColorTheme.kurumi,
@@ -4369,6 +4369,7 @@ class SettingsScreen extends ConsumerWidget {
             AppColorTheme.nanohana,
             AppColorTheme.haizakura,
             AppColorTheme.kikyo,
+            AppColorTheme.edomurasaki,
             AppColorTheme.rikyucha,
           ],
           titleFor: (theme) => _colorThemeLabel(context, theme),
@@ -4698,12 +4699,12 @@ class SettingsScreen extends ConsumerWidget {
   String _colorThemeLabel(BuildContext context, AppColorTheme theme) {
     final strings = context.strings;
     return switch (theme) {
-      AppColorTheme.blue => strings.colorBlue,
-      AppColorTheme.green => strings.colorGreen,
-      AppColorTheme.orange => strings.colorOrange,
-      AppColorTheme.slate => strings.colorSlate,
-      AppColorTheme.teal => strings.colorTeal,
-      AppColorTheme.rose => strings.colorRose,
+      AppColorTheme.konjyo => strings.colorKonjyo,
+      AppColorTheme.moegi => strings.colorMoegi,
+      AppColorTheme.yamabuki => strings.colorYamabuki,
+      AppColorTheme.ginnezumi => strings.colorGinnezumi,
+      AppColorTheme.seiheki => strings.colorSeiheki,
+      AppColorTheme.kurenai => strings.colorKurenai,
       AppColorTheme.sakura => strings.colorSakura,
       AppColorTheme.fuji => strings.colorFuji,
       AppColorTheme.ai => strings.colorAi,
@@ -4722,6 +4723,7 @@ class SettingsScreen extends ConsumerWidget {
       AppColorTheme.nanohana => strings.colorNanohana,
       AppColorTheme.haizakura => strings.colorHaizakura,
       AppColorTheme.kikyo => strings.colorKikyo,
+      AppColorTheme.edomurasaki => strings.colorEdomurasaki,
       AppColorTheme.rikyucha => strings.colorRikyucha,
     };
   }
@@ -4729,12 +4731,12 @@ class SettingsScreen extends ConsumerWidget {
   String _colorThemeDescription(BuildContext context, AppColorTheme theme) {
     final strings = context.strings;
     return switch (theme) {
-      AppColorTheme.blue => strings.colorBlueDesc,
-      AppColorTheme.green => strings.colorGreenDesc,
-      AppColorTheme.orange => strings.colorOrangeDesc,
-      AppColorTheme.slate => strings.colorSlateDesc,
-      AppColorTheme.teal => strings.colorTealDesc,
-      AppColorTheme.rose => strings.colorRoseDesc,
+      AppColorTheme.konjyo => strings.colorKonjyoDesc,
+      AppColorTheme.moegi => strings.colorMoegiDesc,
+      AppColorTheme.yamabuki => strings.colorYamabukiDesc,
+      AppColorTheme.ginnezumi => strings.colorGinnezumiDesc,
+      AppColorTheme.seiheki => strings.colorSeihekiDesc,
+      AppColorTheme.kurenai => strings.colorKurenaiDesc,
       AppColorTheme.sakura => strings.colorSakuraDesc,
       AppColorTheme.fuji => strings.colorFujiDesc,
       AppColorTheme.ai => strings.colorAiDesc,
@@ -4753,6 +4755,7 @@ class SettingsScreen extends ConsumerWidget {
       AppColorTheme.nanohana => strings.colorNanohanaDesc,
       AppColorTheme.haizakura => strings.colorHaizakuraDesc,
       AppColorTheme.kikyo => strings.colorKikyoDesc,
+      AppColorTheme.edomurasaki => strings.colorEdomurasakiDesc,
       AppColorTheme.rikyucha => strings.colorRikyuchaDesc,
     };
   }
@@ -4772,12 +4775,12 @@ class SettingsScreen extends ConsumerWidget {
 
   Color _themeSampleColor(AppColorTheme theme) {
     return switch (theme) {
-      AppColorTheme.blue => const Color(0xFF113285),
-      AppColorTheme.green => const Color(0xFF7BA23F),
-      AppColorTheme.orange => const Color(0xFFFFB11B),
-      AppColorTheme.slate => const Color(0xFF91989F),
-      AppColorTheme.teal => const Color(0xFF268785),
-      AppColorTheme.rose => const Color(0xFFCB1B45),
+      AppColorTheme.konjyo => const Color(0xFF113285),
+      AppColorTheme.moegi => const Color(0xFF7BA23F),
+      AppColorTheme.yamabuki => const Color(0xFFFFB11B),
+      AppColorTheme.ginnezumi => const Color(0xFF91989F),
+      AppColorTheme.seiheki => const Color(0xFF268785),
+      AppColorTheme.kurenai => const Color(0xFFCB1B45),
       AppColorTheme.sakura => const Color(0xFFFEDFE1),
       AppColorTheme.fuji => const Color(0xFF8B81C3),
       AppColorTheme.ai => const Color(0xFF0F4C81),
@@ -4796,6 +4799,7 @@ class SettingsScreen extends ConsumerWidget {
       AppColorTheme.nanohana => const Color(0xFFFFEC47),
       AppColorTheme.haizakura => const Color(0xFFD7C4BB),
       AppColorTheme.kikyo => const Color(0xFF6A4C9C),
+      AppColorTheme.edomurasaki => const Color(0xFF77428D),
       AppColorTheme.rikyucha => const Color(0xFF897D55),
     };
   }
@@ -6518,9 +6522,10 @@ class _ColorThemePickerState extends State<_ColorThemePicker> {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final extendedSelected = widget.extendedThemes.contains(widget.current);
+    final basicSelected = widget.basicThemes.contains(widget.current);
     final themes = [
       ...widget.basicThemes,
-      if (extendedSelected) widget.current,
+      if (extendedSelected && !basicSelected) widget.current,
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -6549,7 +6554,9 @@ class _ColorThemePickerState extends State<_ColorThemePicker> {
     final selected = await showModalBottomSheet<AppColorTheme>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
+      useSafeArea: true,
+      showDragHandle: false,
+      clipBehavior: Clip.antiAlias,
       builder: (context) {
         return _ExtendedColorThemeSheet(
           current: widget.current,
@@ -6583,76 +6590,126 @@ class _ExtendedColorThemeSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.86,
+      minChildSize: 0.48,
+      maxChildSize: 0.94,
+      builder: (context, scrollController) {
+        return _ExtendedColorThemeSheetBody(
+          current: current,
+          themes: themes,
+          titleFor: titleFor,
+          subtitleFor: subtitleFor,
+          sampleColorFor: sampleColorFor,
+          scrollController: scrollController,
+        );
+      },
+    );
+  }
+}
+
+class _ExtendedColorThemeSheetBody extends StatelessWidget {
+  const _ExtendedColorThemeSheetBody({
+    required this.current,
+    required this.themes,
+    required this.titleFor,
+    required this.subtitleFor,
+    required this.sampleColorFor,
+    required this.scrollController,
+  });
+
+  final AppColorTheme current;
+  final List<AppColorTheme> themes;
+  final String Function(AppColorTheme theme) titleFor;
+  final String Function(AppColorTheme theme) subtitleFor;
+  final Color Function(AppColorTheme theme) sampleColorFor;
+  final ScrollController scrollController;
+
+  @override
+  Widget build(BuildContext context) {
     final strings = context.strings;
     final grouped = <String, List<AppColorTheme>>{};
     for (final theme in themes) {
       grouped.putIfAbsent(_categoryFor(context, theme), () => []).add(theme);
     }
-    return SafeArea(
-      child: FractionallySizedBox(
-        heightFactor: 0.86,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                strings.extendedThemes,
-                style: Theme.of(context).textTheme.titleLarge,
+    final colorScheme = Theme.of(context).colorScheme;
+    return Material(
+      color: colorScheme.surface,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              margin: const EdgeInsets.only(top: 10, bottom: 12),
+              decoration: BoxDecoration(
+                color: colorScheme.onSurfaceVariant.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(999),
               ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final columns = constraints.maxWidth >= 720
-                        ? 3
-                        : constraints.maxWidth >= 460
-                        ? 2
-                        : 1;
-                    return CustomScrollView(
-                      slivers: [
-                        for (final entry in grouped.entries) ...[
-                          SliverToBoxAdapter(
-                            child: Padding(
-                              padding: const EdgeInsets.only(
-                                top: 12,
-                                bottom: 8,
-                              ),
-                              child: Text(
-                                entry.key,
-                                style: Theme.of(context).textTheme.labelLarge,
-                              ),
-                            ),
-                          ),
-                          SliverGrid.builder(
-                            itemCount: entry.value.length,
-                            gridDelegate:
-                                SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: columns,
-                                  crossAxisSpacing: 10,
-                                  mainAxisSpacing: 10,
-                                  childAspectRatio: columns == 1 ? 3.7 : 2.5,
-                                ),
-                            itemBuilder: (context, index) {
-                              final theme = entry.value[index];
-                              return _ColorThemeCard(
-                                title: titleFor(theme),
-                                subtitle: subtitleFor(theme),
-                                sampleColor: sampleColorFor(theme),
-                                selected: current == theme,
-                                onTap: () => Navigator.of(context).pop(theme),
-                              );
-                            },
-                          ),
-                        ],
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              strings.extendedThemes,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = constraints.maxWidth >= 720
+                    ? 3
+                    : constraints.maxWidth >= 460
+                    ? 2
+                    : 1;
+                return CustomScrollView(
+                  controller: scrollController,
+                  slivers: [
+                    for (final entry in grouped.entries) ...[
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                          child: Text(
+                            entry.key,
+                            style: Theme.of(context).textTheme.labelLarge,
+                          ),
+                        ),
+                      ),
+                      SliverPadding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        sliver: SliverGrid.builder(
+                          itemCount: entry.value.length,
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: columns,
+                                crossAxisSpacing: 10,
+                                mainAxisSpacing: 10,
+                                childAspectRatio: columns == 1 ? 3.7 : 2.5,
+                              ),
+                          itemBuilder: (context, index) {
+                            final theme = entry.value[index];
+                            return _ColorThemeCard(
+                              title: titleFor(theme),
+                              subtitle: subtitleFor(theme),
+                              sampleColor: sampleColorFor(theme),
+                              selected: current == theme,
+                              onTap: () => Navigator.of(context).pop(theme),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                    const SliverToBoxAdapter(child: SizedBox(height: 16)),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -6662,27 +6719,28 @@ class _ExtendedColorThemeSheet extends StatelessWidget {
     return switch (theme) {
       AppColorTheme.ai ||
       AppColorTheme.chigusa ||
-      AppColorTheme.blue ||
+      AppColorTheme.konjyo ||
       AppColorTheme.hanada ||
       AppColorTheme.sora ||
       AppColorTheme.ruri => strings.themeCategoryBlueGreen,
       AppColorTheme.fuji ||
       AppColorTheme.sumire ||
-      AppColorTheme.kikyo => strings.themeCategoryPurple,
-      AppColorTheme.green ||
-      AppColorTheme.teal ||
+      AppColorTheme.kikyo ||
+      AppColorTheme.edomurasaki => strings.themeCategoryPurple,
+      AppColorTheme.moegi ||
+      AppColorTheme.seiheki ||
       AppColorTheme.wakatake ||
       AppColorTheme.tokiwa => strings.themeCategoryGreenYellow,
-      AppColorTheme.orange ||
+      AppColorTheme.yamabuki ||
       AppColorTheme.nanohana ||
       AppColorTheme.kurumi ||
       AppColorTheme.rikyucha => strings.themeCategoryEarth,
-      AppColorTheme.rose ||
+      AppColorTheme.kurenai ||
       AppColorTheme.sakura ||
       AppColorTheme.enji ||
       AppColorTheme.haizakura => strings.themeCategoryRedPink,
       AppColorTheme.sumi ||
-      AppColorTheme.slate ||
+      AppColorTheme.ginnezumi ||
       AppColorTheme.shironeri ||
       AppColorTheme.gofun => strings.themeCategoryNeutral,
     };

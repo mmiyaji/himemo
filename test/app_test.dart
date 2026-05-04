@@ -31,8 +31,8 @@ void main() {
     expect(strings.deleteDemoNotesBody(3), contains('3 demo notes'));
     expect(strings.noteDayLabel(DateTime(2026, 5, 3)), 'May 3, 2026 (Sun)');
     expect(strings.languageSystemOption, 'Follow system');
-    expect(strings.colorBlue, '紺青 (Konjyo)');
-    expect(strings.colorRose, '紅 (Kurenai)');
+    expect(strings.colorKonjyo, '紺青 (Konjyo)');
+    expect(strings.colorKurenai, '紅 (Kurenai)');
     expect(strings.colorSakura, '桜 (Sakura)');
     expect(strings.colorFuji, '藤 (Fuji)');
     expect(strings.extendedThemes, 'Extended themes');
@@ -49,8 +49,8 @@ void main() {
     expect(strings.videoPreviewUnavailableWeb, 'Web では動画プレビューを利用できません。');
     expect(strings.languageSystemOption, 'システムに合わせる (System)');
     expect(strings.languageJapaneseOption, '日本語 (Japanese)');
-    expect(strings.colorBlue, '紺青 (Konjyo)');
-    expect(strings.colorRose, '紅 (Kurenai)');
+    expect(strings.colorKonjyo, '紺青 (Konjyo)');
+    expect(strings.colorKurenai, '紅 (Kurenai)');
     expect(strings.colorSakura, '桜 (Sakura)');
     expect(strings.colorFuji, '藤 (Fuji)');
     expect(strings.extendedThemes, '拡張テーマ');
@@ -123,6 +123,13 @@ void main() {
     expect(es.languageSpanishOption, 'Español (Spanish)');
     expect(es.emptyNotesTitle, 'No hay notas coincidentes');
     expect(es.noteDayLabel(DateTime(2026, 5, 3)), 'mayo 3, 2026 (dom)');
+    expect(es.themeSystem, 'Sistema');
+    expect(es.accentColor, 'Color de acento');
+    expect(es.privateProfilesSettingsTitle, 'Perfiles privados');
+    expect(es.quickMemo, 'Memo rápido');
+    expect(es.createNote, 'Crear nota');
+    expect(es.recordAudio, 'Grabar audio');
+    expect(es.audioPlaybackFailed, 'No se pudo reproducir este audio.');
     expect(
       es.text('home.remote.bundle.storage.is.not.configured.yet'),
       'El almacenamiento del paquete remoto aún no está configurado.',
@@ -133,10 +140,40 @@ void main() {
     expect(de.languageGermanOption, 'Deutsch (German)');
     expect(de.emptyNotesTitle, 'Keine passenden Notizen');
     expect(de.noteDayLabel(DateTime(2026, 5, 3)), 'Mai 3, 2026 (So)');
+    expect(de.themeSystem, 'System');
+    expect(de.accentColor, 'Akzentfarbe');
+    expect(de.privateProfilesSettingsTitle, 'Private Profile');
+    expect(de.quickMemo, 'Schnellnotiz');
+    expect(de.createNote, 'Notiz erstellen');
+    expect(de.recordAudio, 'Audio aufnehmen');
+    expect(
+      de.audioPlaybackFailed,
+      'Dieses Audio konnte nicht abgespielt werden.',
+    );
     expect(
       de.text('home.remote.bundle.storage.is.not.configured.yet'),
       'Der Remote-Bundle-Speicher ist noch nicht eingerichtet.',
     );
+  });
+
+  test('localized AppStrings entries include Spanish and German values', () {
+    final source = File('lib/l10n/app_strings.dart').readAsStringSync();
+    final missing = <String>[];
+    for (final match in RegExp(
+      r'localized\(([\s\S]*?)\);',
+    ).allMatches(source)) {
+      final block = match.group(0)!;
+      if (block.contains('required String en')) {
+        continue;
+      }
+      if (!block.contains('es:') || !block.contains('de:')) {
+        final line =
+            '\n'.allMatches(source.substring(0, match.start)).length + 1;
+        missing.add('line $line');
+      }
+    }
+
+    expect(missing, isEmpty);
   });
 
   test('generated app localizations support configured locales', () async {
@@ -220,12 +257,15 @@ void main() {
 
     await container
         .read(appColorThemeControllerProvider.notifier)
-        .setTheme(AppColorTheme.blue);
+        .setTheme(AppColorTheme.konjyo);
     await container
         .read(profileColorThemeControllerProvider.notifier)
         .setTheme('private_profile:p1', AppColorTheme.fuji);
 
-    expect(container.read(effectiveAppColorThemeProvider), AppColorTheme.blue);
+    expect(
+      container.read(effectiveAppColorThemeProvider),
+      AppColorTheme.konjyo,
+    );
 
     container
         .read(unlockedPrivateProfileVaultIdProvider.notifier)
