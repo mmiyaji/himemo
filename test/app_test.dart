@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
 import 'package:drift/native.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,6 +31,11 @@ void main() {
     expect(strings.deleteDemoNotesBody(3), contains('3 demo notes'));
     expect(strings.noteDayLabel(DateTime(2026, 5, 3)), 'May 3, 2026 (Sun)');
     expect(strings.languageSystemOption, 'Follow system');
+    expect(strings.colorBlue, '紺青 (Konjyo)');
+    expect(strings.colorRose, '紅 (Kurenai)');
+    expect(strings.colorSakura, '桜 (Sakura)');
+    expect(strings.colorFuji, '藤 (Fuji)');
+    expect(strings.extendedThemes, 'Extended themes');
   });
 
   test('app strings localize home UI labels to Japanese', () {
@@ -39,6 +46,11 @@ void main() {
     expect(strings.videoPreviewUnavailableWeb, 'Web では動画プレビューを利用できません。');
     expect(strings.languageSystemOption, 'システムに合わせる (System)');
     expect(strings.languageJapaneseOption, '日本語 (Japanese)');
+    expect(strings.colorBlue, '紺青 (Konjyo)');
+    expect(strings.colorRose, '紅 (Kurenai)');
+    expect(strings.colorSakura, '桜 (Sakura)');
+    expect(strings.colorFuji, '藤 (Fuji)');
+    expect(strings.extendedThemes, '拡張テーマ');
   });
 
   test('app strings support Chinese and Korean locales', () {
@@ -154,13 +166,66 @@ void main() {
     expect(isICloudSyncSupported, isFalse);
     expect(container.read(syncProviderControllerProvider), SyncProvider.off);
 
-    await Future<void>.delayed(Duration.zero);
+    await pumpEventQueue();
     expect(container.read(syncProviderControllerProvider), SyncProvider.off);
 
     await container
         .read(syncProviderControllerProvider.notifier)
         .setProvider(SyncProvider.iCloud);
     expect(container.read(syncProviderControllerProvider), SyncProvider.off);
+  });
+
+  test('stale iCloud Sign in with Apple errors are not restored', () async {
+    SharedPreferences.setMockInitialValues({
+      'sync.auth_accounts.v1': jsonEncode({
+        'iCloud': {
+          'provider': 'iCloud',
+          'stage': 'error',
+          'message':
+              'SignInWithAppleAuthorizationException(AuthorizationErrorCode.unknown, The operation couldn\'t be completed. (com.apple.AuthenticationServices.AuthorizationError error 1000.))',
+        },
+      }),
+    });
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    await pumpEventQueue();
+
+    expect(
+      container.read(syncAuthControllerProvider)[SyncProvider.iCloud]?.stage,
+      SyncAuthStage.idle,
+    );
+  });
+
+  test('iCloud connect does not require an Apple sign-in plugin', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    final state = await DefaultSyncAuthGateway().connect(SyncProvider.iCloud);
+
+    expect(state.stage, SyncAuthStage.authenticated);
+    expect(state.displayName, 'iCloud');
+  });
+
+  test('effective color theme follows unlocked private profile', () async {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    await container
+        .read(appColorThemeControllerProvider.notifier)
+        .setTheme(AppColorTheme.blue);
+    await container
+        .read(profileColorThemeControllerProvider.notifier)
+        .setTheme('private_profile:p1', AppColorTheme.fuji);
+
+    expect(container.read(effectiveAppColorThemeProvider), AppColorTheme.blue);
+
+    container
+        .read(unlockedPrivateProfileVaultIdProvider.notifier)
+        .unlock('private_profile:p1');
+
+    expect(container.read(effectiveAppColorThemeProvider), AppColorTheme.fuji);
   });
 
   test('providers expose private profiles only after unlock', () async {

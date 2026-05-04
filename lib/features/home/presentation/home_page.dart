@@ -2492,7 +2492,8 @@ class SettingsScreen extends ConsumerWidget {
     final strings = context.strings;
     final activeIdentity = ref.watch(activeIdentityProvider);
     final themeMode = ref.watch(themeModeControllerProvider);
-    final colorTheme = ref.watch(appColorThemeControllerProvider);
+    final colorTheme = ref.watch(effectiveAppColorThemeProvider);
+    final colorThemeScope = ref.watch(activeColorThemeScopeProvider);
     final localeSetting = ref.watch(appLocaleControllerProvider);
     final appLockEnabled = ref.watch(appLockSettingsControllerProvider);
     final appLockRelockDelay = ref.watch(appLockRelockDelayControllerProvider);
@@ -2573,6 +2574,8 @@ class SettingsScreen extends ConsumerWidget {
         : _syncAuthSummary(context, syncProvider, syncAuthState);
     final appearanceSummary =
         '${_localeSettingLabel(context, localeSetting)} / ${_themeModeLabel(context, themeMode)} / ${_colorThemeLabel(context, colorTheme)}';
+    final colorThemeTargetLabel =
+        activePrivateProfileLabel ?? strings.text('home.normal.memo.mode');
     final aboutVersion = packageInfo.when(
       data: (info) => info.displayVersion,
       loading: strings.readingVersion,
@@ -2631,6 +2634,18 @@ class SettingsScreen extends ConsumerWidget {
               assetPath: 'assets/settings/appearance.svg',
             ),
           ],
+        ),
+        const SizedBox(height: 16),
+        _buildAppearanceSettingsGroup(
+          context: context,
+          ref: ref,
+          strings: strings,
+          localeSetting: localeSetting,
+          themeMode: themeMode,
+          colorTheme: colorTheme,
+          colorThemeScope: colorThemeScope,
+          colorThemeTargetLabel: colorThemeTargetLabel,
+          appearanceSummary: appearanceSummary,
         ),
         const SizedBox(height: 16),
         _SettingsGroup(
@@ -4046,162 +4061,6 @@ class SettingsScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
         _SettingsGroup(
-          title: strings.appearance,
-          summary: appearanceSummary,
-          assetPath: 'assets/settings/appearance.svg',
-          semanticLabel: 'settings-appearance',
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                strings.language,
-                style: Theme.of(context).textTheme.labelLarge,
-              ),
-            ),
-            DropdownButtonFormField<AppLocaleSetting>(
-              key: SettingsScreen.localeDropdownKey,
-              initialValue: localeSetting,
-              isExpanded: true,
-              decoration: InputDecoration(
-                border: const OutlineInputBorder(),
-                helperText: strings.languageSystemDesc,
-                prefixIcon: const Icon(Icons.translate_rounded),
-              ),
-              items: [
-                DropdownMenuItem(
-                  key: SettingsScreen.localeSystemKey,
-                  value: AppLocaleSetting.system,
-                  child: Text(strings.languageSystemOption),
-                ),
-                DropdownMenuItem(
-                  key: SettingsScreen.localeJapaneseKey,
-                  value: AppLocaleSetting.japanese,
-                  child: Text(strings.languageJapaneseOption),
-                ),
-                DropdownMenuItem(
-                  key: SettingsScreen.localeEnglishKey,
-                  value: AppLocaleSetting.english,
-                  child: Text(strings.languageEnglishOption),
-                ),
-                DropdownMenuItem(
-                  key: SettingsScreen.localeChineseKey,
-                  value: AppLocaleSetting.chinese,
-                  child: Text(strings.languageChineseOption),
-                ),
-                DropdownMenuItem(
-                  key: SettingsScreen.localeKoreanKey,
-                  value: AppLocaleSetting.korean,
-                  child: Text(strings.languageKoreanOption),
-                ),
-                DropdownMenuItem(
-                  key: SettingsScreen.localeSpanishKey,
-                  value: AppLocaleSetting.spanish,
-                  child: Text(strings.languageSpanishOption),
-                ),
-                DropdownMenuItem(
-                  key: SettingsScreen.localeGermanKey,
-                  value: AppLocaleSetting.german,
-                  child: Text(strings.languageGermanOption),
-                ),
-              ],
-              onChanged: (value) {
-                if (value == null || value == localeSetting) {
-                  return;
-                }
-                ref.read(appLocaleControllerProvider.notifier).setLocale(value);
-              },
-            ),
-            const Divider(height: 24),
-            _ThemeOptionTile(
-              tileKey: lightThemeKey,
-              title: strings.themeLight,
-              subtitle: strings.lightDesc,
-              selected: themeMode == ThemeMode.light,
-              onTap: () => ref
-                  .read(themeModeControllerProvider.notifier)
-                  .setMode(ThemeMode.light),
-            ),
-            _ThemeOptionTile(
-              tileKey: systemThemeKey,
-              title: strings.themeSystem,
-              subtitle: strings.systemDesc,
-              selected: themeMode == ThemeMode.system,
-              onTap: () => ref
-                  .read(themeModeControllerProvider.notifier)
-                  .setMode(ThemeMode.system),
-            ),
-            _ThemeOptionTile(
-              tileKey: darkThemeKey,
-              title: strings.themeDark,
-              subtitle: strings.darkDesc,
-              selected: themeMode == ThemeMode.dark,
-              onTap: () => ref
-                  .read(themeModeControllerProvider.notifier)
-                  .setMode(ThemeMode.dark),
-            ),
-            const Divider(height: 24),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                strings.accentColor,
-                style: Theme.of(context).textTheme.labelLarge,
-              ),
-            ),
-            _ThemeOptionTile(
-              tileKey: blueColorThemeKey,
-              title: strings.colorBlue,
-              subtitle: strings.colorBlueDesc,
-              selected: colorTheme == AppColorTheme.blue,
-              onTap: () => ref
-                  .read(appColorThemeControllerProvider.notifier)
-                  .setTheme(AppColorTheme.blue),
-            ),
-            _ThemeOptionTile(
-              tileKey: greenColorThemeKey,
-              title: strings.colorGreen,
-              subtitle: strings.colorGreenDesc,
-              selected: colorTheme == AppColorTheme.green,
-              onTap: () => ref
-                  .read(appColorThemeControllerProvider.notifier)
-                  .setTheme(AppColorTheme.green),
-            ),
-            _ThemeOptionTile(
-              tileKey: orangeColorThemeKey,
-              title: strings.colorOrange,
-              subtitle: strings.colorOrangeDesc,
-              selected: colorTheme == AppColorTheme.orange,
-              onTap: () => ref
-                  .read(appColorThemeControllerProvider.notifier)
-                  .setTheme(AppColorTheme.orange),
-            ),
-            _ThemeOptionTile(
-              title: strings.colorSlate,
-              subtitle: strings.colorSlateDesc,
-              selected: colorTheme == AppColorTheme.slate,
-              onTap: () => ref
-                  .read(appColorThemeControllerProvider.notifier)
-                  .setTheme(AppColorTheme.slate),
-            ),
-            _ThemeOptionTile(
-              title: strings.colorTeal,
-              subtitle: strings.colorTealDesc,
-              selected: colorTheme == AppColorTheme.teal,
-              onTap: () => ref
-                  .read(appColorThemeControllerProvider.notifier)
-                  .setTheme(AppColorTheme.teal),
-            ),
-            _ThemeOptionTile(
-              title: strings.colorRose,
-              subtitle: strings.colorRoseDesc,
-              selected: colorTheme == AppColorTheme.rose,
-              onTap: () => ref
-                  .read(appColorThemeControllerProvider.notifier)
-                  .setTheme(AppColorTheme.rose),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        _SettingsGroup(
           title: strings.about,
           summary: showFlavorInfo
               ? '$aboutVersion / $displayName'
@@ -4346,6 +4205,143 @@ class SettingsScreen extends ConsumerWidget {
               },
             ),
           ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAppearanceSettingsGroup({
+    required BuildContext context,
+    required WidgetRef ref,
+    required AppStrings strings,
+    required AppLocaleSetting localeSetting,
+    required ThemeMode themeMode,
+    required AppColorTheme colorTheme,
+    required String colorThemeScope,
+    required String colorThemeTargetLabel,
+    required String appearanceSummary,
+  }) {
+    return _SettingsGroup(
+      title: strings.appearance,
+      summary: appearanceSummary,
+      assetPath: 'assets/settings/appearance.svg',
+      semanticLabel: 'settings-appearance',
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            strings.language,
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+        ),
+        DropdownButtonFormField<AppLocaleSetting>(
+          key: SettingsScreen.localeDropdownKey,
+          initialValue: localeSetting,
+          isExpanded: true,
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            helperText: strings.languageSystemDesc,
+            prefixIcon: const Icon(Icons.translate_rounded),
+          ),
+          items: [
+            DropdownMenuItem(
+              key: SettingsScreen.localeSystemKey,
+              value: AppLocaleSetting.system,
+              child: Text(strings.languageSystemOption),
+            ),
+            DropdownMenuItem(
+              key: SettingsScreen.localeJapaneseKey,
+              value: AppLocaleSetting.japanese,
+              child: Text(strings.languageJapaneseOption),
+            ),
+            DropdownMenuItem(
+              key: SettingsScreen.localeEnglishKey,
+              value: AppLocaleSetting.english,
+              child: Text(strings.languageEnglishOption),
+            ),
+            DropdownMenuItem(
+              key: SettingsScreen.localeChineseKey,
+              value: AppLocaleSetting.chinese,
+              child: Text(strings.languageChineseOption),
+            ),
+            DropdownMenuItem(
+              key: SettingsScreen.localeKoreanKey,
+              value: AppLocaleSetting.korean,
+              child: Text(strings.languageKoreanOption),
+            ),
+            DropdownMenuItem(
+              key: SettingsScreen.localeSpanishKey,
+              value: AppLocaleSetting.spanish,
+              child: Text(strings.languageSpanishOption),
+            ),
+            DropdownMenuItem(
+              key: SettingsScreen.localeGermanKey,
+              value: AppLocaleSetting.german,
+              child: Text(strings.languageGermanOption),
+            ),
+          ],
+          onChanged: (value) {
+            if (value == null || value == localeSetting) {
+              return;
+            }
+            ref.read(appLocaleControllerProvider.notifier).setLocale(value);
+          },
+        ),
+        const Divider(height: 24),
+        _ThemeOptionTile(
+          tileKey: lightThemeKey,
+          title: strings.themeLight,
+          subtitle: strings.lightDesc,
+          selected: themeMode == ThemeMode.light,
+          onTap: () => ref
+              .read(themeModeControllerProvider.notifier)
+              .setMode(ThemeMode.light),
+        ),
+        _ThemeOptionTile(
+          tileKey: systemThemeKey,
+          title: strings.themeSystem,
+          subtitle: strings.systemDesc,
+          selected: themeMode == ThemeMode.system,
+          onTap: () => ref
+              .read(themeModeControllerProvider.notifier)
+              .setMode(ThemeMode.system),
+        ),
+        _ThemeOptionTile(
+          tileKey: darkThemeKey,
+          title: strings.themeDark,
+          subtitle: strings.darkDesc,
+          selected: themeMode == ThemeMode.dark,
+          onTap: () => ref
+              .read(themeModeControllerProvider.notifier)
+              .setMode(ThemeMode.dark),
+        ),
+        const Divider(height: 24),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            '${strings.accentColor} ($colorThemeTargetLabel)',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+        ),
+        _ColorThemePicker(
+          current: colorTheme,
+          basicThemes: const [
+            AppColorTheme.blue,
+            AppColorTheme.green,
+            AppColorTheme.orange,
+            AppColorTheme.rose,
+            AppColorTheme.sakura,
+          ],
+          extendedThemes: const [
+            AppColorTheme.slate,
+            AppColorTheme.teal,
+            AppColorTheme.fuji,
+          ],
+          titleFor: (theme) => _colorThemeLabel(context, theme),
+          subtitleFor: (theme) => _colorThemeDescription(context, theme),
+          sampleColorFor: _themeSampleColor,
+          onSelect: (theme) =>
+              _setColorThemeForScope(ref, colorThemeScope, theme),
         ),
       ],
     );
@@ -4674,6 +4670,48 @@ class SettingsScreen extends ConsumerWidget {
       AppColorTheme.slate => strings.colorSlate,
       AppColorTheme.teal => strings.colorTeal,
       AppColorTheme.rose => strings.colorRose,
+      AppColorTheme.sakura => strings.colorSakura,
+      AppColorTheme.fuji => strings.colorFuji,
+    };
+  }
+
+  String _colorThemeDescription(BuildContext context, AppColorTheme theme) {
+    final strings = context.strings;
+    return switch (theme) {
+      AppColorTheme.blue => strings.colorBlueDesc,
+      AppColorTheme.green => strings.colorGreenDesc,
+      AppColorTheme.orange => strings.colorOrangeDesc,
+      AppColorTheme.slate => strings.colorSlateDesc,
+      AppColorTheme.teal => strings.colorTealDesc,
+      AppColorTheme.rose => strings.colorRoseDesc,
+      AppColorTheme.sakura => strings.colorSakuraDesc,
+      AppColorTheme.fuji => strings.colorFujiDesc,
+    };
+  }
+
+  Future<void> _setColorThemeForScope(
+    WidgetRef ref,
+    String scope,
+    AppColorTheme theme,
+  ) {
+    if (scope == defaultColorThemeScope) {
+      return ref.read(appColorThemeControllerProvider.notifier).setTheme(theme);
+    }
+    return ref
+        .read(profileColorThemeControllerProvider.notifier)
+        .setTheme(scope, theme);
+  }
+
+  Color _themeSampleColor(AppColorTheme theme) {
+    return switch (theme) {
+      AppColorTheme.blue => const Color(0xFF113285),
+      AppColorTheme.green => const Color(0xFF7BA23F),
+      AppColorTheme.orange => const Color(0xFFFFB11B),
+      AppColorTheme.slate => const Color(0xFF91989F),
+      AppColorTheme.teal => const Color(0xFF268785),
+      AppColorTheme.rose => const Color(0xFFCB1B45),
+      AppColorTheme.sakura => const Color(0xFFFEDFE1),
+      AppColorTheme.fuji => const Color(0xFF8B81C3),
     };
   }
 }
@@ -6367,11 +6405,78 @@ class _SettingsSectionIcon extends StatelessWidget {
   }
 }
 
+class _ColorThemePicker extends StatefulWidget {
+  const _ColorThemePicker({
+    required this.current,
+    required this.basicThemes,
+    required this.extendedThemes,
+    required this.titleFor,
+    required this.subtitleFor,
+    required this.sampleColorFor,
+    required this.onSelect,
+  });
+
+  final AppColorTheme current;
+  final List<AppColorTheme> basicThemes;
+  final List<AppColorTheme> extendedThemes;
+  final String Function(AppColorTheme theme) titleFor;
+  final String Function(AppColorTheme theme) subtitleFor;
+  final Color Function(AppColorTheme theme) sampleColorFor;
+  final ValueChanged<AppColorTheme> onSelect;
+
+  @override
+  State<_ColorThemePicker> createState() => _ColorThemePickerState();
+}
+
+class _ColorThemePickerState extends State<_ColorThemePicker> {
+  bool _showExtended = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final extendedSelected = widget.extendedThemes.contains(widget.current);
+    final themes = [
+      ...widget.basicThemes,
+      if (_showExtended || extendedSelected) ...widget.extendedThemes,
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final theme in themes)
+          _ThemeOptionTile(
+            title: widget.titleFor(theme),
+            subtitle: widget.subtitleFor(theme),
+            sampleColor: widget.sampleColorFor(theme),
+            selected: widget.current == theme,
+            onTap: () => widget.onSelect(theme),
+          ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () => setState(() => _showExtended = !_showExtended),
+            icon: Icon(
+              _showExtended
+                  ? Icons.expand_less_rounded
+                  : Icons.palette_outlined,
+            ),
+            label: Text(
+              _showExtended
+                  ? strings.hideExtendedThemes
+                  : strings.extendedThemes,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _ThemeOptionTile extends StatelessWidget {
   const _ThemeOptionTile({
     this.tileKey,
     required this.title,
     required this.subtitle,
+    this.sampleColor,
     required this.selected,
     required this.onTap,
   });
@@ -6379,18 +6484,37 @@ class _ThemeOptionTile extends StatelessWidget {
   final Key? tileKey;
   final String title;
   final String subtitle;
+  final Color? sampleColor;
   final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final sampleColor = this.sampleColor;
     return ListTile(
       key: tileKey,
       contentPadding: EdgeInsets.zero,
       leading: Icon(
         selected ? Icons.radio_button_checked : Icons.radio_button_off,
       ),
-      title: Text(title),
+      title: sampleColor == null
+          ? Text(title)
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(title),
+                const SizedBox(height: 4),
+                Container(
+                  width: 44,
+                  height: 3,
+                  decoration: BoxDecoration(
+                    color: sampleColor,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ],
+            ),
       subtitle: Text(subtitle),
       onTap: onTap,
     );

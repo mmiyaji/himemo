@@ -46,7 +46,7 @@ import '../../sync/data/sync_engine.dart';
 
 part 'home_providers.g.dart';
 
-enum AppColorTheme { blue, green, orange, slate, teal, rose }
+enum AppColorTheme { blue, green, orange, slate, teal, rose, sakura, fuji }
 
 enum AppLocaleSetting {
   system,
@@ -985,9 +985,7 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
   }
 
   Future<SyncAuthState> _connectICloud() async {
-    final supportsICloud =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
-    if (!supportsICloud) {
+    if (!isICloudSyncSupported) {
       return const SyncAuthState(
         provider: SyncProvider.iCloud,
         stage: SyncAuthStage.unsupported,
@@ -995,34 +993,12 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
       );
     }
 
-    try {
-      final status = await MethodChannelICloudSyncTransport()
-          .checkAccountStatus();
-      if (status.isAvailable) {
-        return const SyncAuthState(
-          provider: SyncProvider.iCloud,
-          stage: SyncAuthStage.authenticated,
-          displayName: 'iCloud',
-          message: 'This device can use iCloud for HiMemo sync.',
-        );
-      }
-
-      final stage = switch (status.availability) {
-        ICloudAccountAvailability.unsupported => SyncAuthStage.unsupported,
-        _ => SyncAuthStage.error,
-      };
-      return SyncAuthState(
-        provider: SyncProvider.iCloud,
-        stage: stage,
-        message: status.message,
-      );
-    } catch (error) {
-      return SyncAuthState(
-        provider: SyncProvider.iCloud,
-        stage: SyncAuthStage.error,
-        message: '$error',
-      );
-    }
+    return const SyncAuthState(
+      provider: SyncProvider.iCloud,
+      stage: SyncAuthStage.authenticated,
+      displayName: 'iCloud',
+      message: 'iCloud is selected as this device sync target.',
+    );
   }
 }
 
@@ -2374,13 +2350,36 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
       );
       state = {
         for (final provider in SyncProvider.values)
-          provider: decoded[provider.name] == null
-              ? SyncAuthState.idle(provider)
-              : SyncAuthState.fromJson(
-                  Map<String, dynamic>.from(decoded[provider.name] as Map),
-                ),
+          provider: _normalizeRestoredState(
+            provider,
+            decoded[provider.name] == null
+                ? SyncAuthState.idle(provider)
+                : SyncAuthState.fromJson(
+                    Map<String, dynamic>.from(decoded[provider.name] as Map),
+                  ),
+          ),
       };
     } catch (_) {}
+  }
+
+  SyncAuthState _normalizeRestoredState(
+    SyncProvider provider,
+    SyncAuthState restored,
+  ) {
+    if (provider != SyncProvider.iCloud) {
+      return restored;
+    }
+    final message = restored.message ?? '';
+    final staleAppleSignInError =
+        restored.stage == SyncAuthStage.error &&
+        (message.contains('SignInWithAppleAuthorizationException') ||
+            message.contains(
+              'com.apple.AuthenticationServices.AuthorizationError',
+            ));
+    if (staleAppleSignInError) {
+      return SyncAuthState.idle(provider);
+    }
+    return restored;
   }
 
   Future<void> _persist() async {
@@ -2484,6 +2483,23 @@ final appColorThemeControllerProvider =
       AppColorThemeController.new,
     );
 
+const defaultColorThemeScope = 'daily';
+
+final activeColorThemeScopeProvider = Provider<String>((ref) {
+  return ref.watch(unlockedPrivateProfileVaultIdProvider) ??
+      defaultColorThemeScope;
+});
+
+final effectiveAppColorThemeProvider = Provider<AppColorTheme>((ref) {
+  final defaultTheme = ref.watch(appColorThemeControllerProvider);
+  final activeScope = ref.watch(activeColorThemeScopeProvider);
+  if (activeScope == defaultColorThemeScope) {
+    return defaultTheme;
+  }
+  return ref.watch(profileColorThemeControllerProvider)[activeScope] ??
+      defaultTheme;
+});
+
 class AppColorThemeController extends Notifier<AppColorTheme> {
   static const _storageKey = 'settings.color_theme';
   bool _restored = false;
@@ -2518,6 +2534,82 @@ class AppColorThemeController extends Notifier<AppColorTheme> {
         orElse: () => AppColorTheme.blue,
       );
     } catch (_) {}
+  }
+}
+
+final profileColorThemeControllerProvider =
+    NotifierProvider<ProfileColorThemeController, Map<String, AppColorTheme>>(
+      ProfileColorThemeController.new,
+    );
+
+class ProfileColorThemeController extends Notifier<Map<String, AppColorTheme>> {
+  static const _storageKey = 'settings.profile_color_themes';
+  bool _restored = false;
+
+  @override
+  Map<String, AppColorTheme> build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return const <String, AppColorTheme>{};
+  }
+
+  Future<void> setTheme(String scope, AppColorTheme theme) async {
+    if (scope == defaultColorThemeScope) {
+      return;
+    }
+    state = {...state, scope: theme};
+    await _persist();
+  }
+
+  Future<void> clearTheme(String scope) async {
+    if (!state.containsKey(scope)) {
+      return;
+    }
+    final next = {...state}..remove(scope);
+    state = next;
+    await _persist();
+  }
+
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_storageKey);
+      if (stored == null || stored.isEmpty) {
+        return;
+      }
+      final decoded = Map<String, dynamic>.from(
+        jsonDecode(stored) as Map<String, dynamic>,
+      );
+      state = {
+        for (final entry in decoded.entries)
+          if (_themeFromName(entry.value as String?) != null)
+            entry.key: _themeFromName(entry.value as String?)!,
+      };
+    } catch (_) {}
+  }
+
+  Future<void> _persist() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode({
+        for (final entry in state.entries) entry.key: entry.value.name,
+      });
+      await prefs.setString(_storageKey, encoded);
+    } catch (_) {}
+  }
+
+  AppColorTheme? _themeFromName(String? value) {
+    if (value == null) {
+      return null;
+    }
+    for (final theme in AppColorTheme.values) {
+      if (theme.name == value) {
+        return theme;
+      }
+    }
+    return null;
   }
 }
 
@@ -3701,7 +3793,11 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
   Future<void> deleteProfile(String id) async {
     await ref.read(privateMemoProfileStoreProvider).deleteProfile(id);
     final unlockedVaultId = ref.read(unlockedPrivateProfileVaultIdProvider);
-    if (unlockedVaultId == '$customPrivateVaultPrefix$id') {
+    final vaultId = '$customPrivateVaultPrefix$id';
+    await ref
+        .read(profileColorThemeControllerProvider.notifier)
+        .clearTheme(vaultId);
+    if (unlockedVaultId == vaultId) {
       ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
     }
     await refresh();

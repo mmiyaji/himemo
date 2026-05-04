@@ -2120,50 +2120,149 @@ class AppStrings {
   String get themeDark => localized(en: 'Dark', ja: 'ダーク', zh: '深色', ko: '다크');
   String get accentColor =>
       localized(en: 'Accent color', ja: 'アクセントカラー', zh: '强调色', ko: '강조 색상');
-  String get colorBlue => localized(en: 'Blue', ja: 'ブルー', zh: '蓝色', ko: '블루');
-  String get colorGreen =>
-      localized(en: 'Green', ja: 'グリーン', zh: '绿色', ko: '그린');
-  String get colorOrange =>
-      localized(en: 'Orange', ja: 'オレンジ', zh: '橙色', ko: '오렌지');
-  String get colorSlate =>
-      localized(en: 'Slate', ja: 'スレート', zh: '灰蓝', ko: '슬레이트');
-  String get colorTeal => localized(en: 'Teal', ja: 'ティール', zh: '蓝绿', ko: '틸');
-  String get colorRose => localized(en: 'Rose', ja: 'ローズ', zh: '玫瑰', ko: '로즈');
+  String get extendedThemes => localized(
+    en: 'Extended themes',
+    ja: '拡張テーマ',
+    zh: '扩展主题',
+    ko: '확장 테마',
+    es: 'Temas ampliados',
+    de: 'Erweiterte Themen',
+  );
+  String get hideExtendedThemes => localized(
+    en: 'Hide extended themes',
+    ja: '拡張テーマを隠す',
+    zh: '隐藏扩展主题',
+    ko: '확장 테마 숨기기',
+    es: 'Ocultar temas ampliados',
+    de: 'Erweiterte Themen ausblenden',
+  );
+  String get colorBlue => localized(
+    en: '紺青 (Konjyo)',
+    ja: '紺青 (Konjyo)',
+    zh: '紺青 (Konjyo)',
+    ko: '紺青 (Konjyo)',
+    es: '紺青 (Konjyo)',
+    de: '紺青 (Konjyo)',
+  );
+  String get colorGreen => localized(
+    en: '萌黄 (Moegi)',
+    ja: '萌黄 (Moegi)',
+    zh: '萌黄 (Moegi)',
+    ko: '萌黄 (Moegi)',
+    es: '萌黄 (Moegi)',
+    de: '萌黄 (Moegi)',
+  );
+  String get colorOrange => localized(
+    en: '山吹 (Yamabuki)',
+    ja: '山吹 (Yamabuki)',
+    zh: '山吹 (Yamabuki)',
+    ko: '山吹 (Yamabuki)',
+    es: '山吹 (Yamabuki)',
+    de: '山吹 (Yamabuki)',
+  );
+  String get colorSlate => localized(
+    en: '銀鼠 (Ginnezumi)',
+    ja: '銀鼠 (Ginnezumi)',
+    zh: '銀鼠 (Ginnezumi)',
+    ko: '銀鼠 (Ginnezumi)',
+    es: '銀鼠 (Ginnezumi)',
+    de: '銀鼠 (Ginnezumi)',
+  );
+  String get colorTeal => localized(
+    en: '青碧 (Seiheki)',
+    ja: '青碧 (Seiheki)',
+    zh: '青碧 (Seiheki)',
+    ko: '青碧 (Seiheki)',
+    es: '青碧 (Seiheki)',
+    de: '青碧 (Seiheki)',
+  );
+  String get colorRose => localized(
+    en: '紅 (Kurenai)',
+    ja: '紅 (Kurenai)',
+    zh: '紅 (Kurenai)',
+    ko: '紅 (Kurenai)',
+    es: '紅 (Kurenai)',
+    de: '紅 (Kurenai)',
+  );
+  String get colorSakura => localized(
+    en: '桜 (Sakura)',
+    ja: '桜 (Sakura)',
+    zh: '桜 (Sakura)',
+    ko: '桜 (Sakura)',
+    es: '桜 (Sakura)',
+    de: '桜 (Sakura)',
+  );
+  String get colorFuji => localized(
+    en: '藤 (Fuji)',
+    ja: '藤 (Fuji)',
+    zh: '藤 (Fuji)',
+    ko: '藤 (Fuji)',
+    es: '藤 (Fuji)',
+    de: '藤 (Fuji)',
+  );
   String get colorBlueDesc => localized(
-    en: 'Primary blue with calm support colors.',
-    ja: '落ち着いた青を基調にした標準テーマです。',
-    zh: '以沉稳蓝色为主的标准主题。',
-    ko: '차분한 파란색을 중심으로 한 기본 테마입니다.',
+    en: 'Deep traditional blue based on Konjyo.',
+    ja: '深い伝統色の紺青を基調にした配色です。',
+    zh: '以深邃传统绀青为主的配色。',
+    ko: '깊은 전통 감청색을 중심으로 한 배색입니다.',
+    es: 'Azul tradicional profundo basado en Konjyo.',
+    de: 'Tiefes traditionelles Blau auf Basis von Konjyo.',
   );
   String get colorGreenDesc => localized(
-    en: 'Muted green palette for lower visual tension.',
-    ja: '視覚的な緊張を抑えた柔らかいグリーンです。',
-    zh: '柔和的绿色配色，降低视觉压力。',
-    ko: '시각적 부담을 줄인 부드러운 녹색 팔레트입니다.',
+    en: 'Fresh yellow-green based on Moegi.',
+    ja: '芽吹きの色を思わせる萌黄の配色です。',
+    zh: '以新芽般的萌黄为主的配色。',
+    ko: '새싹을 떠올리게 하는 모에기 배색입니다.',
+    es: 'Verde amarillento fresco basado en Moegi.',
+    de: 'Frisches Gelbgrün auf Basis von Moegi.',
   );
   String get colorOrangeDesc => localized(
-    en: 'Warm orange palette for highlighted actions and notes.',
-    ja: '暖かいアクセントで操作や記録を目立たせます。',
-    zh: '温暖的橙色强调操作和记录。',
-    ko: '따뜻한 주황색으로 작업과 기록을 돋보이게 합니다.',
+    en: 'Golden yellow based on Yamabuki.',
+    ja: '華やかな山吹色を基調にした配色です。',
+    zh: '以明亮山吹色为主的配色。',
+    ko: '화사한 야마부키색을 중심으로 한 배색입니다.',
+    es: 'Amarillo dorado basado en Yamabuki.',
+    de: 'Goldgelb auf Basis von Yamabuki.',
   );
   String get colorSlateDesc => localized(
-    en: 'Neutral slate palette for a quieter interface.',
-    ja: '中立的で静かな印象のスレート配色です。',
-    zh: '中性安静的灰蓝配色。',
-    ko: '중립적이고 차분한 슬레이트 배색입니다.',
+    en: 'Quiet blue-gray based on Ginnezumi.',
+    ja: '静かな青みの銀鼠を基調にした配色です。',
+    zh: '以安静带蓝感的银鼠为主的配色。',
+    ko: '차분한 푸른빛의 긴네즈미 배색입니다.',
+    es: 'Gris azulado sereno basado en Ginnezumi.',
+    de: 'Ruhiges Blaugrau auf Basis von Ginnezumi.',
   );
   String get colorTealDesc => localized(
-    en: 'Fresh teal palette with a light feel.',
-    ja: '軽やかな印象を出すティール配色です。',
-    zh: '轻快清新的蓝绿色配色。',
-    ko: '가벼운 느낌의 산뜻한 틸 배색입니다.',
+    en: 'Balanced blue-green based on Seiheki.',
+    ja: '青と緑の間を落ち着かせた青碧の配色です。',
+    zh: '以平衡蓝与绿的青碧为主的配色。',
+    ko: '파랑과 초록 사이를 차분하게 잡은 청벽 배색입니다.',
+    es: 'Azul verdoso equilibrado basado en Seiheki.',
+    de: 'Ausgewogenes Blaugrün auf Basis von Seiheki.',
   );
   String get colorRoseDesc => localized(
-    en: 'Soft rose palette for a more diary-like tone.',
-    ja: '日記らしい柔らかな雰囲気のローズ配色です。',
-    zh: '柔和的玫瑰色，更有日记氛围。',
-    ko: '일기장 같은 부드러운 로즈 배색입니다.',
+    en: 'Vivid safflower red based on Kurenai.',
+    ja: '鮮やかな紅を基調にした赤系の配色です。',
+    zh: '以鲜明红色为主的配色。',
+    ko: '선명한 쿠레나이 붉은색을 중심으로 한 배색입니다.',
+    es: 'Rojo vivo de cártamo basado en Kurenai.',
+    de: 'Lebendiges Färberdistelrot auf Basis von Kurenai.',
+  );
+  String get colorSakuraDesc => localized(
+    en: 'Pale cherry blossom pink for a soft reading surface.',
+    ja: '淡い桜色を基調にした柔らかな配色です。',
+    zh: '以淡樱花色为主的柔和配色。',
+    ko: '옅은 벚꽃색을 중심으로 한 부드러운 배색입니다.',
+    es: 'Rosa cerezo pálido para una superficie suave.',
+    de: 'Helles Kirschblütenrosa für eine sanfte Oberfläche.',
+  );
+  String get colorFujiDesc => localized(
+    en: 'Wisteria purple based on Fuji.',
+    ja: '藤の花を思わせる紫系の配色です。',
+    zh: '以藤花般紫色为主的配色。',
+    ko: '등꽃을 떠올리게 하는 보라색 배색입니다.',
+    es: 'Púrpura glicinia basado en Fuji.',
+    de: 'Glyzinienviolett auf Basis von Fuji.',
   );
   String get lightDesc => localized(
     en: 'Keep the white memo-style interface.',
