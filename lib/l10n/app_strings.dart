@@ -76,6 +76,7 @@ class AppStrings {
       'home.admin.mode.active': 'Admin mode active',
       'home.switch.private.access': 'Switch private access',
       'home.lock': 'Lock',
+      'home.lock.private.access': 'Lock private access',
       'home.unlock': 'Unlock',
       'home.delete.note': 'Delete note',
       'home.delete': 'Delete',
@@ -464,6 +465,7 @@ class AppStrings {
           'El paquete remoto aún no está configurado.',
       'home.no.remote.bundle.metadata.loaded.yet':
           'Aún no se han cargado metadatos del paquete remoto.',
+      'home.lock.private.access': 'Bloquear acceso privado',
       'home.use.a.4.digit.pin.for.this.browser':
           'Usa un PIN de 4 dígitos para este navegador.',
       'home.pin.must.be.exactly.4.digits':
@@ -512,6 +514,7 @@ class AppStrings {
           'Das Remote-Bundle ist noch nicht eingerichtet.',
       'home.no.remote.bundle.metadata.loaded.yet':
           'Es wurden noch keine Remote-Bundle-Metadaten geladen.',
+      'home.lock.private.access': 'Privaten Zugriff sperren',
       'home.use.a.4.digit.pin.for.this.browser':
           'Verwende eine 4-stellige PIN für diesen Browser.',
       'home.pin.must.be.exactly.4.digits':
@@ -544,6 +547,7 @@ class AppStrings {
       'home.admin.mode.active': '管理者モード中',
       'home.switch.private.access': 'プライベート表示を切り替え',
       'home.lock': '閉じる',
+      'home.lock.private.access': 'ロックする',
       'home.unlock': '開く',
       'home.delete.note': 'ノートを削除',
       'home.delete': '削除',
@@ -916,6 +920,7 @@ class AppStrings {
       'home.admin.mode.active': '管理员模式已启用',
       'home.switch.private.access': '切换私密访问',
       'home.lock': '锁定',
+      'home.lock.private.access': '锁定私密访问',
       'home.unlock': '解锁',
       'home.delete.note': '删除笔记',
       'home.delete': '删除',
@@ -1251,6 +1256,7 @@ class AppStrings {
       'home.admin.mode.active': '관리자 모드 활성화',
       'home.switch.private.access': '비공개 접근 전환',
       'home.lock': '잠금',
+      'home.lock.private.access': '비공개 접근 잠금',
       'home.unlock': '잠금 해제',
       'home.delete.note': '노트 삭제',
       'home.delete': '삭제',

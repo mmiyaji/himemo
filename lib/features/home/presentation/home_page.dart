@@ -378,7 +378,7 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
               ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
               Navigator.of(context).pop();
             },
-            child: Text(strings.text('home.lock')),
+            child: Text(strings.text('home.lock.private.access')),
           ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
@@ -5302,8 +5302,8 @@ class _NoteListTile extends StatelessWidget {
     };
 
     if (density == NotesListDensity.compact) {
-      return Material(
-        color: selected ? _selectedSurfaceColor(context) : Colors.transparent,
+      return _NoteListTileSelectionSurface(
+        selected: selected,
         child: InkWell(
           key: Key('note-tile-${note.id}'),
           onTap: onTap,
@@ -5348,8 +5348,8 @@ class _NoteListTile extends StatelessWidget {
       );
     }
 
-    return Material(
-      color: selected ? _selectedSurfaceColor(context) : Colors.transparent,
+    return _NoteListTileSelectionSurface(
+      selected: selected,
       child: InkWell(
         key: Key('note-tile-${note.id}'),
         onTap: onTap,
@@ -5477,6 +5477,30 @@ class _NoteListTile extends StatelessWidget {
         .replaceAll(RegExp(r'\s+'), ' ')
         .replaceAll(RegExp(r' {2,}'), ' ')
         .trim();
+  }
+}
+
+class _NoteListTileSelectionSurface extends StatelessWidget {
+  const _NoteListTileSelectionSurface({
+    required this.selected,
+    required this.child,
+  });
+
+  final bool selected;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!selected) {
+      return Material(color: Colors.transparent, child: child);
+    }
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 1),
+        child: Material(color: _selectedSurfaceColor(context), child: child),
+      ),
+    );
   }
 }
 
@@ -5731,23 +5755,28 @@ class _DecoratedSplitNoteRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pos = position;
-    return DecoratedBox(
+    final borderRadius = BorderRadius.vertical(
+      top: Radius.circular(pos?.first == true ? 6 : 0),
+      bottom: Radius.circular(pos?.last == true ? 6 : 0),
+    );
+    final border = Border(
+      left: BorderSide(color: Theme.of(context).dividerColor),
+      right: BorderSide(color: Theme.of(context).dividerColor),
+      top: pos?.first == true
+          ? BorderSide(color: Theme.of(context).dividerColor)
+          : BorderSide.none,
+      bottom: pos?.last == true
+          ? BorderSide(color: Theme.of(context).dividerColor)
+          : BorderSide.none,
+    );
+    return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(pos?.first == true ? 6 : 0),
-          bottom: Radius.circular(pos?.last == true ? 6 : 0),
-        ),
-        border: Border(
-          left: BorderSide(color: Theme.of(context).dividerColor),
-          right: BorderSide(color: Theme.of(context).dividerColor),
-          top: pos?.first == true
-              ? BorderSide(color: Theme.of(context).dividerColor)
-              : BorderSide.none,
-          bottom: pos?.last == true
-              ? BorderSide(color: Theme.of(context).dividerColor)
-              : BorderSide.none,
-        ),
+        borderRadius: borderRadius,
+      ),
+      foregroundDecoration: BoxDecoration(
+        borderRadius: borderRadius,
+        border: border,
       ),
       child: child,
     );
@@ -9888,7 +9917,11 @@ class _EditableAttachmentTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        _AttachmentListTile(attachment: attachment),
+        _AttachmentListTile(
+          attachment: attachment,
+          showShareAction: false,
+          trailingActionWidth: 144,
+        ),
         Positioned(
           top: 8,
           right: 0,
@@ -9918,9 +9951,15 @@ class _EditableAttachmentTile extends StatelessWidget {
 }
 
 class _AttachmentListTile extends ConsumerWidget {
-  const _AttachmentListTile({required this.attachment});
+  const _AttachmentListTile({
+    required this.attachment,
+    this.showShareAction = true,
+    this.trailingActionWidth = 0,
+  });
 
   final NoteAttachment attachment;
+  final bool showShareAction;
+  final double trailingActionWidth;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -9958,11 +9997,14 @@ class _AttachmentListTile extends ConsumerWidget {
                     ],
                   ),
                 ),
-                IconButton(
-                  onPressed: () => _shareAttachment(context, ref, attachment),
-                  icon: const Icon(Icons.share_outlined),
-                  tooltip: context.strings.share,
-                ),
+                if (showShareAction)
+                  IconButton(
+                    onPressed: () => _shareAttachment(context, ref, attachment),
+                    icon: const Icon(Icons.share_outlined),
+                    tooltip: context.strings.share,
+                  )
+                else if (trailingActionWidth > 0)
+                  SizedBox(width: trailingActionWidth),
               ],
             ),
           ),
@@ -10116,26 +10158,6 @@ class _EmbeddedPhotoAttachmentState
     if (!widget.mediaActive) {
       return _InactivePhotoAttachmentPreview(label: widget.attachment.label);
     }
-    final previewBytesBase64 = widget.attachment.previewBytesBase64;
-    final hasPreview =
-        previewBytesBase64 != null && previewBytesBase64.isNotEmpty;
-    final filePath = widget.attachment.filePath;
-    if (!hasPreview && filePath != null && filePath.isNotEmpty) {
-      _debugNotePerf(
-        'detail photo deferred label="${widget.attachment.label}" file=${path.basename(filePath)}',
-      );
-      return _DeferredPhotoAttachmentPreview(
-        label: widget.attachment.label,
-        onTap: () => _openAttachmentViewer(
-          context,
-          ref,
-          widget.attachment,
-          photoAttachments: widget.photoAttachments,
-          initialPhotoIndex: widget.photoIndex,
-        ),
-      );
-    }
-
     return FutureBuilder<List<int>?>(
       future: _ensureImageBytesFuture(),
       builder: (context, snapshot) {
@@ -10177,51 +10199,6 @@ class _EmbeddedPhotoAttachmentState
           ),
         );
       },
-    );
-  }
-}
-
-class _DeferredPhotoAttachmentPreview extends StatelessWidget {
-  const _DeferredPhotoAttachmentPreview({
-    required this.label,
-    required this.onTap,
-  });
-
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final strings = context.strings;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        height: 180,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Theme.of(context).dividerColor),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.image_outlined,
-              color: _mutedTextColor(context),
-              semanticLabel: label,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              strings.text('home.tap.to.open.image'),
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
