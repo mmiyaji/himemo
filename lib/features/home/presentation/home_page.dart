@@ -2148,6 +2148,7 @@ class SettingsScreen extends ConsumerWidget {
   static const systemThemeKey = Key('theme-system-option');
   static const darkThemeKey = Key('theme-dark-option');
   static const localeDropdownKey = Key('locale-dropdown');
+  static const fontDropdownKey = Key('font-dropdown');
   static const localeSystemKey = Key('locale-system-option');
   static const createDemoNotesKey = Key('create-demo-notes-button');
   static const deleteDemoNotesKey = Key('delete-demo-notes-button');
@@ -2494,6 +2495,7 @@ class SettingsScreen extends ConsumerWidget {
     final themeMode = ref.watch(themeModeControllerProvider);
     final colorTheme = ref.watch(effectiveAppColorThemeProvider);
     final colorThemeScope = ref.watch(activeColorThemeScopeProvider);
+    final fontFamily = ref.watch(appFontFamilyControllerProvider);
     final localeSetting = ref.watch(appLocaleControllerProvider);
     final appLockEnabled = ref.watch(appLockSettingsControllerProvider);
     final appLockRelockDelay = ref.watch(appLockRelockDelayControllerProvider);
@@ -2575,6 +2577,7 @@ class SettingsScreen extends ConsumerWidget {
     final appearanceSummary = strings.appearanceSummary(
       language: _localeSettingLabel(context, localeSetting),
       theme: _themeModeLabel(context, themeMode),
+      font: _fontFamilyLabel(context, fontFamily),
       color: _colorThemeLabel(context, colorTheme),
     );
     final colorThemeTargetLabel =
@@ -2645,6 +2648,7 @@ class SettingsScreen extends ConsumerWidget {
           strings: strings,
           localeSetting: localeSetting,
           themeMode: themeMode,
+          fontFamily: fontFamily,
           colorTheme: colorTheme,
           colorThemeScope: colorThemeScope,
           colorThemeTargetLabel: colorThemeTargetLabel,
@@ -4219,6 +4223,7 @@ class SettingsScreen extends ConsumerWidget {
     required AppStrings strings,
     required AppLocaleSetting localeSetting,
     required ThemeMode themeMode,
+    required AppFontFamily fontFamily,
     required AppColorTheme colorTheme,
     required String colorThemeScope,
     required String colorThemeTargetLabel,
@@ -4288,6 +4293,72 @@ class SettingsScreen extends ConsumerWidget {
               return;
             }
             ref.read(appLocaleControllerProvider.notifier).setLocale(value);
+          },
+        ),
+        const Divider(height: 24),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            strings.appFont,
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
+        ),
+        DropdownButtonFormField<AppFontFamily>(
+          key: SettingsScreen.fontDropdownKey,
+          initialValue: fontFamily,
+          isExpanded: true,
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            helperText: strings.appFontDesc,
+            prefixIcon: const Icon(Icons.text_fields_rounded),
+          ),
+          items: [
+            DropdownMenuItem(
+              value: AppFontFamily.system,
+              child: Text(strings.fontSystem),
+            ),
+            DropdownMenuItem(
+              value: AppFontFamily.gothic,
+              child: Text(strings.fontGothic),
+            ),
+            DropdownMenuItem(
+              value: AppFontFamily.uiGothic,
+              child: Text(strings.fontUiGothic),
+            ),
+            DropdownMenuItem(
+              value: AppFontFamily.kakuGothic,
+              child: Text(strings.fontKakuGothic),
+            ),
+            DropdownMenuItem(
+              value: AppFontFamily.mincho,
+              child: Text(strings.fontMincho),
+            ),
+            DropdownMenuItem(
+              value: AppFontFamily.uiMincho,
+              child: Text(strings.fontUiMincho),
+            ),
+            DropdownMenuItem(
+              value: AppFontFamily.rounded,
+              child: Text(strings.fontRounded),
+            ),
+            DropdownMenuItem(
+              value: AppFontFamily.zenRounded,
+              child: Text(strings.fontZenRounded),
+            ),
+            DropdownMenuItem(
+              value: AppFontFamily.casual,
+              child: Text(strings.fontCasual),
+            ),
+            DropdownMenuItem(
+              value: AppFontFamily.monospace,
+              child: Text(strings.fontMonospace),
+            ),
+          ],
+          onChanged: (value) {
+            if (value == null || value == fontFamily) {
+              return;
+            }
+            ref.read(appFontFamilyControllerProvider.notifier).setFont(value);
           },
         ),
         const Divider(height: 24),
@@ -4687,6 +4758,22 @@ class SettingsScreen extends ConsumerWidget {
       ThemeMode.light => strings.themeLight,
       ThemeMode.system => strings.themeSystem,
       ThemeMode.dark => strings.themeDark,
+    };
+  }
+
+  String _fontFamilyLabel(BuildContext context, AppFontFamily fontFamily) {
+    final strings = context.strings;
+    return switch (fontFamily) {
+      AppFontFamily.system => strings.fontSystem,
+      AppFontFamily.gothic => strings.fontGothic,
+      AppFontFamily.uiGothic => strings.fontUiGothic,
+      AppFontFamily.kakuGothic => strings.fontKakuGothic,
+      AppFontFamily.mincho => strings.fontMincho,
+      AppFontFamily.uiMincho => strings.fontUiMincho,
+      AppFontFamily.rounded => strings.fontRounded,
+      AppFontFamily.zenRounded => strings.fontZenRounded,
+      AppFontFamily.casual => strings.fontCasual,
+      AppFontFamily.monospace => strings.fontMonospace,
     };
   }
 

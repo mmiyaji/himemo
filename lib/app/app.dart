@@ -24,6 +24,7 @@ class HiMemoApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeControllerProvider);
     final colorTheme = ref.watch(effectiveAppColorThemeProvider);
+    final fontFamily = ref.watch(appFontFamilyControllerProvider);
     final localeSetting = ref.watch(appLocaleControllerProvider);
     final launchSurface = ref.watch(appLaunchControllerProvider);
     final router = ref.watch(appRouterProvider);
@@ -72,8 +73,8 @@ class HiMemoApp extends ConsumerWidget {
           GlobalCupertinoLocalizations.delegate,
         ],
         themeMode: themeMode,
-        theme: _buildTheme(Brightness.light, colorTheme),
-        darkTheme: _buildTheme(Brightness.dark, colorTheme),
+        theme: _buildTheme(Brightness.light, colorTheme, fontFamily),
+        darkTheme: _buildTheme(Brightness.dark, colorTheme, fontFamily),
         builder: (context, child) {
           return _LaunchSurfaceGate(
             flavor: flavor,
@@ -1348,7 +1349,11 @@ Future<String?> _showOnboardingPinSetupDialog(BuildContext context) {
   );
 }
 
-ThemeData _buildTheme(Brightness brightness, AppColorTheme colorTheme) {
+ThemeData _buildTheme(
+  Brightness brightness,
+  AppColorTheme colorTheme,
+  AppFontFamily fontFamily,
+) {
   final palette = _paletteFor(colorTheme, brightness);
   final scheme =
       ColorScheme.fromSeed(
@@ -1374,14 +1379,18 @@ ThemeData _buildTheme(Brightness brightness, AppColorTheme colorTheme) {
     colorScheme: scheme,
     platform: TargetPlatform.android,
   );
-  final textTheme = _applyJapaneseFontFallback(
+  final textTheme = _applyAppFont(
     (brightness == Brightness.dark
             ? baseTypography.white
             : baseTypography.black)
         .apply(bodyColor: scheme.onSurface, displayColor: scheme.onSurface),
+    fontFamily,
   );
+  final fontStack = _fontStackFor(fontFamily);
 
   return ThemeData(
+    fontFamily: fontStack.family,
+    fontFamilyFallback: fontStack.fallback,
     colorScheme: scheme,
     scaffoldBackgroundColor: palette.scaffoldBackground,
     canvasColor: palette.scaffoldBackground,
@@ -1461,30 +1470,139 @@ const _japaneseFontFallback = <String>[
   'sans-serif',
 ];
 
-TextTheme _applyJapaneseFontFallback(TextTheme textTheme) {
-  TextStyle? withFallback(TextStyle? style) {
+const _gothicFontFallback = <String>[
+  'Noto Sans JP',
+  'Yu Gothic UI',
+  'Meiryo',
+  'sans-serif',
+];
+
+const _uiGothicFontFallback = <String>[
+  'BIZ UDPGothic',
+  'Noto Sans JP',
+  'Meiryo',
+  'sans-serif',
+];
+
+const _kakuGothicFontFallback = <String>[
+  'Zen Kaku Gothic New',
+  'Noto Sans JP',
+  'Meiryo',
+  'sans-serif',
+];
+
+const _minchoFontFallback = <String>[
+  'Noto Serif JP',
+  'Yu Mincho',
+  'Hiragino Mincho ProN',
+  'serif',
+];
+
+const _uiMinchoFontFallback = <String>[
+  'BIZ UDPMincho',
+  'Noto Serif JP',
+  'Yu Mincho',
+  'serif',
+];
+
+const _roundedFontFallback = <String>[
+  'M PLUS Rounded 1c',
+  'Noto Sans JP',
+  'Hiragino Maru Gothic ProN',
+  'Meiryo',
+  'sans-serif',
+];
+
+const _zenRoundedFontFallback = <String>[
+  'Zen Maru Gothic',
+  'M PLUS Rounded 1c',
+  'Noto Sans JP',
+  'sans-serif',
+];
+
+const _casualFontFallback = <String>['Kiwi Maru', 'Noto Sans JP', 'serif'];
+
+const _monospaceFontFallback = <String>[
+  'Roboto Mono',
+  'Noto Sans JP',
+  'Consolas',
+  'Yu Gothic UI',
+  'monospace',
+];
+
+({String? family, List<String> fallback}) _fontStackFor(
+  AppFontFamily fontFamily,
+) {
+  return switch (fontFamily) {
+    AppFontFamily.system => (family: null, fallback: _japaneseFontFallback),
+    AppFontFamily.gothic => (
+      family: 'Noto Sans JP',
+      fallback: _gothicFontFallback,
+    ),
+    AppFontFamily.uiGothic => (
+      family: 'BIZ UDPGothic',
+      fallback: _uiGothicFontFallback,
+    ),
+    AppFontFamily.kakuGothic => (
+      family: 'Zen Kaku Gothic New',
+      fallback: _kakuGothicFontFallback,
+    ),
+    AppFontFamily.mincho => (
+      family: 'Noto Serif JP',
+      fallback: _minchoFontFallback,
+    ),
+    AppFontFamily.uiMincho => (
+      family: 'BIZ UDPMincho',
+      fallback: _uiMinchoFontFallback,
+    ),
+    AppFontFamily.rounded => (
+      family: 'M PLUS Rounded 1c',
+      fallback: _roundedFontFallback,
+    ),
+    AppFontFamily.zenRounded => (
+      family: 'Zen Maru Gothic',
+      fallback: _zenRoundedFontFallback,
+    ),
+    AppFontFamily.casual => (
+      family: 'Kiwi Maru',
+      fallback: _casualFontFallback,
+    ),
+    AppFontFamily.monospace => (
+      family: 'Roboto Mono',
+      fallback: _monospaceFontFallback,
+    ),
+  };
+}
+
+TextTheme _applyAppFont(TextTheme textTheme, AppFontFamily fontFamily) {
+  final stack = _fontStackFor(fontFamily);
+
+  TextStyle? withFont(TextStyle? style) {
     if (style == null) {
       return null;
     }
-    return style.copyWith(fontFamilyFallback: _japaneseFontFallback);
+    return style.copyWith(
+      fontFamily: stack.family,
+      fontFamilyFallback: stack.fallback,
+    );
   }
 
   return textTheme.copyWith(
-    displayLarge: withFallback(textTheme.displayLarge),
-    displayMedium: withFallback(textTheme.displayMedium),
-    displaySmall: withFallback(textTheme.displaySmall),
-    headlineLarge: withFallback(textTheme.headlineLarge),
-    headlineMedium: withFallback(textTheme.headlineMedium),
-    headlineSmall: withFallback(textTheme.headlineSmall),
-    titleLarge: withFallback(textTheme.titleLarge),
-    titleMedium: withFallback(textTheme.titleMedium),
-    titleSmall: withFallback(textTheme.titleSmall),
-    bodyLarge: withFallback(textTheme.bodyLarge),
-    bodyMedium: withFallback(textTheme.bodyMedium),
-    bodySmall: withFallback(textTheme.bodySmall),
-    labelLarge: withFallback(textTheme.labelLarge),
-    labelMedium: withFallback(textTheme.labelMedium),
-    labelSmall: withFallback(textTheme.labelSmall),
+    displayLarge: withFont(textTheme.displayLarge),
+    displayMedium: withFont(textTheme.displayMedium),
+    displaySmall: withFont(textTheme.displaySmall),
+    headlineLarge: withFont(textTheme.headlineLarge),
+    headlineMedium: withFont(textTheme.headlineMedium),
+    headlineSmall: withFont(textTheme.headlineSmall),
+    titleLarge: withFont(textTheme.titleLarge),
+    titleMedium: withFont(textTheme.titleMedium),
+    titleSmall: withFont(textTheme.titleSmall),
+    bodyLarge: withFont(textTheme.bodyLarge),
+    bodyMedium: withFont(textTheme.bodyMedium),
+    bodySmall: withFont(textTheme.bodySmall),
+    labelLarge: withFont(textTheme.labelLarge),
+    labelMedium: withFont(textTheme.labelMedium),
+    labelSmall: withFont(textTheme.labelSmall),
   );
 }
 

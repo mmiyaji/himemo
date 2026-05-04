@@ -2180,24 +2180,25 @@ class AppStrings {
     de: 'Darstellung',
   );
   String get appearanceWithControls => localized(
-    en: 'Appearance (language and color)',
-    ja: '表示（言語・カラー）',
-    zh: '外观（语言与颜色）',
-    ko: '표시(언어·색상)',
-    es: 'Apariencia (idioma y color)',
-    de: 'Darstellung (Sprache und Farbe)',
+    en: 'Appearance (language, font, and color)',
+    ja: '表示（言語・フォント・カラー）',
+    zh: '外观（语言、字体和颜色）',
+    ko: '표시(언어, 글꼴, 색상)',
+    es: 'Apariencia (idioma, fuente y color)',
+    de: 'Darstellung (Sprache, Schrift und Farbe)',
   );
   String appearanceSummary({
     required String language,
     required String theme,
+    required String font,
     required String color,
   }) => localized(
-    en: 'Language: $language / Theme: $theme / Color: $color',
-    ja: '言語: $language / テーマ: $theme / カラー: $color',
-    zh: '语言：$language / 主题：$theme / 颜色：$color',
-    ko: '언어: $language / 테마: $theme / 색상: $color',
-    es: 'Idioma: $language / Tema: $theme / Color: $color',
-    de: 'Sprache: $language / Design: $theme / Farbe: $color',
+    en: 'Language: $language / Theme: $theme / Font: $font / Color: $color',
+    ja: '言語: $language / テーマ: $theme / フォント: $font / カラー: $color',
+    zh: '语言：$language / 主题：$theme / 字体：$font / 颜色：$color',
+    ko: '언어: $language / 테마: $theme / 글꼴: $font / 색상: $color',
+    es: 'Idioma: $language / Tema: $theme / Fuente: $font / Color: $color',
+    de: 'Sprache: $language / Design: $theme / Schrift: $font / Farbe: $color',
   );
   String get language => localized(
     en: 'Language',
@@ -2319,6 +2320,102 @@ class AppStrings {
     ko: '기기 언어 설정을 따릅니다. 지원하지 않는 언어는 영어로 표시됩니다.',
     es: 'Usa el idioma del dispositivo. Si no es compatible, se usa inglés.',
     de: 'Folgt der Gerätesprache. Nicht unterstützte Sprachen fallen auf Englisch zurück.',
+  );
+  String get appFont => localized(
+    en: 'App font',
+    ja: 'アプリのフォント',
+    zh: '应用字体',
+    ko: '앱 글꼴',
+    es: 'Fuente de la app',
+    de: 'App-Schrift',
+  );
+  String get appFontDesc => localized(
+    en: 'Choose the font used across notes, settings, and navigation. If the font is not available on this device, the appearance may not change.',
+    ja: 'ノート、設定、ナビゲーション全体で使うフォントを選びます。端末に該当フォントがない場合は見た目が変わらないことがあります。',
+    zh: '选择用于笔记、设置和导航的字体。如果此设备没有相应字体，外观可能不会改变。',
+    ko: '노트, 설정, 내비게이션 전체에 사용할 글꼴을 선택합니다. 이 기기에 해당 글꼴이 없으면 모양이 바뀌지 않을 수 있습니다.',
+    es: 'Elige la fuente usada en notas, ajustes y navegación. Si la fuente no está disponible en este dispositivo, es posible que la apariencia no cambie.',
+    de: 'Wähle die Schrift für Notizen, Einstellungen und Navigation. Wenn die Schrift auf diesem Gerät nicht verfügbar ist, ändert sich die Darstellung möglicherweise nicht.',
+  );
+  String get fontSystem => localized(
+    en: 'System default',
+    ja: 'システム標準',
+    zh: '系统默认',
+    ko: '시스템 기본값',
+    es: 'Predeterminada del sistema',
+    de: 'Systemstandard',
+  );
+  String get fontGothic => localized(
+    en: 'Gothic / sans-serif',
+    ja: 'ゴシック体',
+    zh: '黑体 / 无衬线',
+    ko: '고딕 / 산세리프',
+    es: 'Gótica / sans serif',
+    de: 'Grotesk / Sans Serif',
+  );
+  String get fontUiGothic => localized(
+    en: 'BIZ UD Gothic',
+    ja: 'BIZ UD ゴシック',
+    zh: 'BIZ UD 黑体',
+    ko: 'BIZ UD 고딕',
+    es: 'BIZ UD Gothic',
+    de: 'BIZ UD Gothic',
+  );
+  String get fontKakuGothic => localized(
+    en: 'Zen Kaku Gothic',
+    ja: 'ZEN 角ゴシック',
+    zh: 'ZEN 角黑体',
+    ko: 'ZEN 각고딕',
+    es: 'Zen Kaku Gothic',
+    de: 'Zen Kaku Gothic',
+  );
+  String get fontMincho => localized(
+    en: 'Mincho / serif',
+    ja: '明朝体',
+    zh: '明朝 / 衬线',
+    ko: '명조 / 세리프',
+    es: 'Mincho / serif',
+    de: 'Mincho / Serif',
+  );
+  String get fontUiMincho => localized(
+    en: 'BIZ UD Mincho',
+    ja: 'BIZ UD 明朝',
+    zh: 'BIZ UD 明朝',
+    ko: 'BIZ UD 명조',
+    es: 'BIZ UD Mincho',
+    de: 'BIZ UD Mincho',
+  );
+  String get fontRounded => localized(
+    en: 'Rounded',
+    ja: '丸ゴシック',
+    zh: '圆体',
+    ko: '둥근 고딕',
+    es: 'Redondeada',
+    de: 'Abgerundet',
+  );
+  String get fontZenRounded => localized(
+    en: 'Zen Maru Gothic',
+    ja: 'ZEN 丸ゴシック',
+    zh: 'ZEN 圆黑体',
+    ko: 'ZEN 둥근고딕',
+    es: 'Zen Maru Gothic',
+    de: 'Zen Maru Gothic',
+  );
+  String get fontCasual => localized(
+    en: 'Kiwi Maru',
+    ja: 'Kiwi 丸',
+    zh: 'Kiwi Maru',
+    ko: 'Kiwi Maru',
+    es: 'Kiwi Maru',
+    de: 'Kiwi Maru',
+  );
+  String get fontMonospace => localized(
+    en: 'Monospace',
+    ja: '等幅',
+    zh: '等宽',
+    ko: '고정폭',
+    es: 'Monoespaciada',
+    de: 'Monospace',
   );
   String get themeLight => localized(
     en: 'Light',

@@ -113,6 +113,19 @@ enum AppLocaleSetting {
   german,
 }
 
+enum AppFontFamily {
+  system,
+  gothic,
+  uiGothic,
+  kakuGothic,
+  mincho,
+  uiMincho,
+  rounded,
+  zenRounded,
+  casual,
+  monospace,
+}
+
 enum NotesListDensity { standard, compact }
 
 enum SyncProvider { off, iCloud, googleDrive }
@@ -2592,6 +2605,48 @@ final appColorThemeControllerProvider =
     NotifierProvider<AppColorThemeController, AppColorTheme>(
       AppColorThemeController.new,
     );
+
+final appFontFamilyControllerProvider =
+    NotifierProvider<AppFontFamilyController, AppFontFamily>(
+      AppFontFamilyController.new,
+    );
+
+class AppFontFamilyController extends Notifier<AppFontFamily> {
+  static const _storageKey = 'settings.font_family';
+  bool _restored = false;
+
+  @override
+  AppFontFamily build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return AppFontFamily.system;
+  }
+
+  Future<void> setFont(AppFontFamily font) async {
+    state = font;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_storageKey, font.name);
+    } catch (_) {}
+  }
+
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_storageKey);
+      if (stored == null) {
+        return;
+      }
+
+      state = AppFontFamily.values.firstWhere(
+        (font) => font.name == stored,
+        orElse: () => AppFontFamily.system,
+      );
+    } catch (_) {}
+  }
+}
 
 const defaultColorThemeScope = 'daily';
 
