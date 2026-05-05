@@ -43,6 +43,7 @@ import '../../sync/data/secure_sync_bundle_store.dart';
 import '../../sync/data/sync_bundle_key_service.dart';
 import '../../sync/data/sync_bundle_state_store.dart';
 import '../../sync/data/sync_engine.dart';
+import 'media_duration_stub.dart' if (dart.library.io) 'media_duration_io.dart';
 
 part 'home_providers.g.dart';
 
@@ -518,6 +519,20 @@ class MediaImportResult {
   final NoteAttachment? attachment;
   final String? errorMessage;
   final bool wasCancelled;
+}
+
+Future<int?> _mediaDurationMs({
+  required AttachmentType type,
+  required XFile sourceFile,
+}) async {
+  if (kIsWeb || sourceFile.path.isEmpty) {
+    return null;
+  }
+  return switch (type) {
+    AttachmentType.audio => probeAudioDurationMs(sourceFile.path),
+    AttachmentType.video => probeVideoDurationMs(sourceFile.path),
+    _ => null,
+  };
 }
 
 class DeviceAuthState {
@@ -1374,6 +1389,10 @@ class DefaultMediaImportService implements MediaImportService {
     required AttachmentType type,
     required XFile sourceFile,
   }) async {
+    final durationMs = await _mediaDurationMs(
+      type: type,
+      sourceFile: sourceFile,
+    );
     final storedPath = await _attachmentStore.storeAttachment(
       sourceFile,
       type: type,
@@ -1384,6 +1403,7 @@ class DefaultMediaImportService implements MediaImportService {
           ? path.basename(sourceFile.path)
           : sourceFile.name,
       filePath: storedPath,
+      durationMs: durationMs,
     );
   }
 
@@ -2808,6 +2828,20 @@ final activeColorThemeScopeProvider = Provider<String>((ref) {
       defaultColorThemeScope;
 });
 
+final colorThemeSettingsScopeProvider =
+    NotifierProvider<ColorThemeSettingsScopeController, String>(
+      ColorThemeSettingsScopeController.new,
+    );
+
+class ColorThemeSettingsScopeController extends Notifier<String> {
+  @override
+  String build() => ref.watch(activeColorThemeScopeProvider);
+
+  void select(String scope) {
+    state = scope;
+  }
+}
+
 final effectiveAppColorThemeProvider = Provider<AppColorTheme>((ref) {
   final defaultTheme = ref.watch(appColorThemeControllerProvider);
   final activeScope = ref.watch(activeColorThemeScopeProvider);
@@ -3741,11 +3775,16 @@ class NotesController extends _$NotesController {
         sourceFile,
         type: attachmentType,
       );
+      final durationMs = await _mediaDurationMs(
+        type: attachmentType,
+        sourceFile: sourceFile,
+      );
       attachments.add(
         NoteAttachment(
           type: attachmentType,
           label: sourceFile.name,
           filePath: storedPath,
+          durationMs: durationMs,
         ),
       );
     }
@@ -3978,6 +4017,10 @@ class NotesController extends _$NotesController {
     notes.sort((left, right) {
       if (left.isPinned != right.isPinned) {
         return right.isPinned ? 1 : -1;
+      }
+      final dateOrder = right.createdAt.compareTo(left.createdAt);
+      if (dateOrder != 0) {
+        return dateOrder;
       }
       return (right.updatedAt ?? right.createdAt).compareTo(
         left.updatedAt ?? left.createdAt,

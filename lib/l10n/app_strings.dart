@@ -3050,6 +3050,14 @@ class AppStrings {
     es: 'Versión de la app',
     de: 'App-Version',
   );
+  String buildDateLabel(String date) => localized(
+    en: 'Built $date',
+    ja: 'ビルド日 $date',
+    zh: '构建日期 $date',
+    ko: '빌드일 $date',
+    es: 'Compilación $date',
+    de: 'Build-Datum $date',
+  );
   String get appUpdates => localized(
     en: 'App updates',
     ja: 'アプリ更新',
@@ -3065,6 +3073,38 @@ class AppStrings {
     ko: 'Google Play 인앱 업데이트를 확인하고 권장 업데이트 흐름을 시작합니다.',
     es: 'Comprueba las actualizaciones integradas de Google Play e inicia el flujo recomendado.',
     de: 'Prüft Google Play In-App-Updates und startet den empfohlenen Update-Ablauf.',
+  );
+  String get appUpdatesDescIos => localized(
+    en: 'iOS app updates are handled by the App Store. Check the App Store for the latest version.',
+    ja: 'iOS のアプリ更新は App Store で確認します。最新バージョンは App Store から確認してください。',
+    zh: 'iOS 应用更新通过 App Store 处理。请在 App Store 中确认最新版本。',
+    ko: 'iOS 앱 업데이트는 App Store에서 처리됩니다. 최신 버전은 App Store에서 확인하세요.',
+    es: 'Las actualizaciones de iOS se gestionan desde App Store. Consulta App Store para obtener la versión más reciente.',
+    de: 'iOS-App-Updates werden über den App Store verwaltet. Prüfe im App Store die neueste Version.',
+  );
+  String get writeStoreReview => localized(
+    en: 'Write a store review',
+    ja: 'ストアでレビュー',
+    zh: '在商店评价',
+    ko: '스토어에서 리뷰',
+    es: 'Escribir reseña',
+    de: 'Store-Bewertung schreiben',
+  );
+  String get appStoreIdNotConfigured => localized(
+    en: 'The App Store page is not configured for this build yet. Set HIMEMO_APP_STORE_ID after the app is created in App Store Connect.',
+    ja: 'このビルドには App Store ページがまだ設定されていません。App Store Connect でアプリ作成後に HIMEMO_APP_STORE_ID を設定してください。',
+    zh: '此构建尚未配置 App Store 页面。请在 App Store Connect 创建应用后设置 HIMEMO_APP_STORE_ID。',
+    ko: '이 빌드에는 아직 App Store 페이지가 설정되어 있지 않습니다. App Store Connect에서 앱을 만든 뒤 HIMEMO_APP_STORE_ID를 설정하세요.',
+    es: 'La página de App Store aún no está configurada para esta build. Configura HIMEMO_APP_STORE_ID después de crear la app en App Store Connect.',
+    de: 'Die App-Store-Seite ist für diesen Build noch nicht konfiguriert. Setze HIMEMO_APP_STORE_ID, nachdem die App in App Store Connect erstellt wurde.',
+  );
+  String get appStoreOpenFailed => localized(
+    en: 'Could not open the store page.',
+    ja: 'ストアページを開けませんでした。',
+    zh: '无法打开商店页面。',
+    ko: '스토어 페이지를 열 수 없습니다.',
+    es: 'No se pudo abrir la página de la tienda.',
+    de: 'Die Store-Seite konnte nicht geöffnet werden.',
   );
   String get checkForUpdates => localized(
     en: 'Check for updates',

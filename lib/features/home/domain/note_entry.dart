@@ -20,6 +20,7 @@ abstract class NoteAttachment with _$NoteAttachment {
     required String label,
     String? filePath,
     String? previewBytesBase64,
+    int? durationMs,
   }) = _NoteAttachment;
 
   factory NoteAttachment.fromJson(Map<String, dynamic> json) =>

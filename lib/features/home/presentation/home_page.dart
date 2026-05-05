@@ -32,6 +32,10 @@ import '../domain/note_tags.dart';
 import '../domain/vault_models.dart';
 import 'home_providers.dart';
 
+const _appStoreId = String.fromEnvironment('HIMEMO_APP_STORE_ID');
+const _androidStorePackageName = 'org.ruhenheim.himemo';
+const _buildDateIso = String.fromEnvironment('HIMEMO_BUILD_DATE');
+
 enum AppSection { notes, calendar, insights, settings }
 
 void _debugNotePerf(String message) {
@@ -656,13 +660,6 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _SectionIntro(
-          title: strings.calendar,
-          description: strings.text(
-            'home.review.notes.grouped.by.day.and.keep.diary.entries.ancho',
-          ),
-        ),
-        const SizedBox(height: 16),
         Container(
           decoration: _sectionDecoration(context),
           padding: const EdgeInsets.all(12),
@@ -2493,8 +2490,11 @@ class SettingsScreen extends ConsumerWidget {
     final strings = context.strings;
     final activeIdentity = ref.watch(activeIdentityProvider);
     final themeMode = ref.watch(themeModeControllerProvider);
-    final colorTheme = ref.watch(effectiveAppColorThemeProvider);
-    final colorThemeScope = ref.watch(activeColorThemeScopeProvider);
+    final activeColorTheme = ref.watch(effectiveAppColorThemeProvider);
+    final activeColorThemeScope = ref.watch(activeColorThemeScopeProvider);
+    final colorThemeSettingsScope = ref.watch(colorThemeSettingsScopeProvider);
+    final defaultColorTheme = ref.watch(appColorThemeControllerProvider);
+    final profileColorThemes = ref.watch(profileColorThemeControllerProvider);
     final fontFamily = ref.watch(appFontFamilyControllerProvider);
     final localeSetting = ref.watch(appLocaleControllerProvider);
     final appLockEnabled = ref.watch(appLockSettingsControllerProvider);
@@ -2578,15 +2578,50 @@ class SettingsScreen extends ConsumerWidget {
       language: _localeSettingLabel(context, localeSetting),
       theme: _themeModeLabel(context, themeMode),
       font: _fontFamilyLabel(context, fontFamily),
-      color: _colorThemeLabel(context, colorTheme),
+      color: _colorThemeLabel(context, activeColorTheme),
     );
-    final colorThemeTargetLabel =
-        activePrivateProfileLabel ?? strings.text('home.normal.memo.mode');
+    final colorThemeTargets = [
+      _ColorThemeScopeOption(
+        scope: defaultColorThemeScope,
+        label: strings.text('home.normal.memo.mode'),
+      ),
+      if (unlockedPrivateProfileVaultId != null &&
+          activeColorThemeScope != defaultColorThemeScope)
+        _ColorThemeScopeOption(
+          scope: activeColorThemeScope,
+          label:
+              activePrivateProfileLabel ?? strings.text('home.private.profile'),
+        ),
+    ];
+    final resolvedColorThemeScope =
+        colorThemeTargets.any(
+          (target) => target.scope == colorThemeSettingsScope,
+        )
+        ? colorThemeSettingsScope
+        : (colorThemeTargets.any(
+                (target) => target.scope == activeColorThemeScope,
+              )
+              ? activeColorThemeScope
+              : defaultColorThemeScope);
+    final colorThemeTargetLabel = colorThemeTargets
+        .firstWhere(
+          (target) => target.scope == resolvedColorThemeScope,
+          orElse: () => colorThemeTargets.first,
+        )
+        .label;
+    final selectedColorTheme = resolvedColorThemeScope == defaultColorThemeScope
+        ? defaultColorTheme
+        : (profileColorThemes[resolvedColorThemeScope] ?? defaultColorTheme);
     final aboutVersion = packageInfo.when(
       data: (info) => info.displayVersion,
       loading: strings.readingVersion,
       error: (_, _) => '1.0.0 (1)',
     );
+    final appUpdatesSupported =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    final appUpdatesDescription = appUpdatesSupported
+        ? strings.appUpdatesDesc
+        : _appUpdatesUnavailableDescription(strings);
     final inAppUpdateSummary = switch (inAppUpdateState.stage) {
       InAppUpdateStage.checking => strings.updateStatusChecking,
       InAppUpdateStage.ready => strings.updateStatusAvailable,
@@ -2594,25 +2629,18 @@ class SettingsScreen extends ConsumerWidget {
         inAppUpdateState.status?.updateAvailable == true
             ? strings.updateStatusStarted
             : strings.updateStatusUpToDate,
-      InAppUpdateStage.unsupported => strings.updateSupportedOnAndroidOnly,
+      InAppUpdateStage.unsupported => appUpdatesDescription,
       InAppUpdateStage.error =>
         inAppUpdateState.message ?? strings.updateStatusUnsupported,
       _ =>
         inAppUpdateState.status?.updateAvailable == true
             ? strings.updateStatusAvailable
-            : strings.updateSupportedOnAndroidOnly,
+            : appUpdatesDescription,
     };
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _SectionIntro(
-          title: strings.settings,
-          description: strings.text(
-            'home.manage.access.sync.and.display.policy',
-          ),
-        ),
-        const SizedBox(height: 16),
         _SettingsOverviewCard(
           items: [
             _SettingsOverviewItem(
@@ -2649,8 +2677,9 @@ class SettingsScreen extends ConsumerWidget {
           localeSetting: localeSetting,
           themeMode: themeMode,
           fontFamily: fontFamily,
-          colorTheme: colorTheme,
-          colorThemeScope: colorThemeScope,
+          colorTheme: selectedColorTheme,
+          colorThemeScope: resolvedColorThemeScope,
+          colorThemeTargets: colorThemeTargets,
           colorThemeTargetLabel: colorThemeTargetLabel,
           appearanceSummary: appearanceSummary,
         ),
@@ -2665,7 +2694,6 @@ class SettingsScreen extends ConsumerWidget {
                       )
                     : strings.privateProfilesSettingsDefaultSummary),
           assetPath: 'assets/settings/security.svg',
-          initiallyExpanded: true,
           children: [
             Text(
               strings.privateProfilesSettingsBody,
@@ -2723,7 +2751,6 @@ class SettingsScreen extends ConsumerWidget {
             title: strings.text('home.access.modes'),
             summary: strings.accessModeSummary(currentModeLabel),
             assetPath: 'assets/settings/access.svg',
-            initiallyExpanded: true,
             children: [
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -2791,7 +2818,6 @@ class SettingsScreen extends ConsumerWidget {
           title: strings.text('home.app.security'),
           summary: lockSummary,
           assetPath: 'assets/settings/security.svg',
-          initiallyExpanded: true,
           children: [
             SwitchListTile.adaptive(
               key: appLockToggleKey,
@@ -3257,7 +3283,6 @@ class SettingsScreen extends ConsumerWidget {
           title: strings.text('home.backup.and.sync'),
           summary: syncSummary,
           assetPath: 'assets/settings/sync.svg',
-          initiallyExpanded: true,
           children: [
             if (syncConflictWarning != null)
               Container(
@@ -3290,196 +3315,480 @@ class SettingsScreen extends ConsumerWidget {
                 _syncAuthSummary(context, syncProvider, syncAuthState),
               ),
             ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(strings.text('home.pending.sync.queue')),
-              subtitle: Text(
-                syncQueueSummary.when(
-                  data: (summary) {
-                    if (!summary.hasPendingChanges) {
-                      return strings.text('home.no.pending.device.changes');
-                    }
-                    final timestamp = summary.lastQueuedAt;
-                    final stampText = timestamp == null
-                        ? (strings.text('home.queue.ready'))
-                        : strings.lastQueuedAt(_formatDateTime(timestamp));
-                    return strings.pendingSyncSummary(
-                      total: summary.totalChanges,
-                      upserts: summary.upserts,
-                      deletes: summary.deletes,
-                      stamp: stampText,
-                    );
-                  },
-                  loading: () => strings.text('home.checking.pending.changes'),
-                  error: (_, _) => strings.text(
-                    'home.unable.to.inspect.the.local.sync.queue',
+            Theme(
+              data: Theme.of(
+                context,
+              ).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: EdgeInsets.zero,
+                title: Text(strings.text('home.filters')),
+                children: [
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(strings.text('home.pending.sync.queue')),
+                    subtitle: Text(
+                      syncQueueSummary.when(
+                        data: (summary) {
+                          if (!summary.hasPendingChanges) {
+                            return strings.text(
+                              'home.no.pending.device.changes',
+                            );
+                          }
+                          final timestamp = summary.lastQueuedAt;
+                          final stampText = timestamp == null
+                              ? (strings.text('home.queue.ready'))
+                              : strings.lastQueuedAt(
+                                  _formatDateTime(timestamp),
+                                );
+                          return strings.pendingSyncSummary(
+                            total: summary.totalChanges,
+                            upserts: summary.upserts,
+                            deletes: summary.deletes,
+                            stamp: stampText,
+                          );
+                        },
+                        loading: () =>
+                            strings.text('home.checking.pending.changes'),
+                        error: (_, _) => strings.text(
+                          'home.unable.to.inspect.the.local.sync.queue',
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(strings.text('home.remote.bundle')),
-              subtitle: Text(
-                _remoteBundleSummary(strings, syncProvider, syncTransferState),
-              ),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(strings.text('home.cloud.recovery.key.fingerprint')),
-              subtitle: Text(
-                syncBundleFingerprint.when(
-                  data: (value) => value,
-                  loading: () =>
-                      strings.text('home.preparing.cloud.recovery.key'),
-                  error: (_, _) => strings.text(
-                    'home.unable.to.read.the.cloud.recovery.key.fingerprint',
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(strings.text('home.remote.bundle')),
+                    subtitle: Text(
+                      _remoteBundleSummary(
+                        strings,
+                        syncProvider,
+                        syncTransferState,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                OutlinedButton(
-                  onPressed: () async {
-                    final messenger = ScaffoldMessenger.of(context);
-                    try {
-                      final backupCode = await ref
-                          .read(syncBundleKeyServiceProvider)
-                          .exportBackupCode();
-                      await Clipboard.setData(ClipboardData(text: backupCode));
-                      if (!context.mounted) {
-                        return;
-                      }
-                      messenger.showSnackBar(
-                        SnackBar(
-                          showCloseIcon: true,
-                          content: Text(
-                            strings.text(
-                              'home.cloud.recovery.key.copied.to.clipboard',
-                            ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      strings.text('home.cloud.recovery.key.fingerprint'),
+                    ),
+                    subtitle: Text(
+                      syncBundleFingerprint.when(
+                        data: (value) => value,
+                        loading: () =>
+                            strings.text('home.preparing.cloud.recovery.key'),
+                        error: (_, _) => strings.text(
+                          'home.unable.to.read.the.cloud.recovery.key.fingerprint',
+                        ),
+                      ),
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton(
+                          onPressed: () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            try {
+                              final backupCode = await ref
+                                  .read(syncBundleKeyServiceProvider)
+                                  .exportBackupCode();
+                              await Clipboard.setData(
+                                ClipboardData(text: backupCode),
+                              );
+                              if (!context.mounted) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text(
+                                    strings.text(
+                                      'home.cloud.recovery.key.copied.to.clipboard',
+                                    ),
+                                  ),
+                                ),
+                              );
+                            } catch (error) {
+                              if (!context.mounted) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text('$error'),
+                                ),
+                              );
+                            }
+                          },
+                          child: Text(strings.text('home.copy.recovery.key')),
+                        ),
+                        OutlinedButton(
+                          onPressed: () async {
+                            final backupCode = await _showSyncKeyImportDialog(
+                              context,
+                            );
+                            if (!context.mounted || backupCode == null) {
+                              return;
+                            }
+                            final messenger = ScaffoldMessenger.of(context);
+                            try {
+                              final currentFingerprint = await ref
+                                  .read(syncBundleKeyServiceProvider)
+                                  .fingerprint();
+                              if (!context.mounted) {
+                                return;
+                              }
+                              final incomingFingerprint = ref
+                                  .read(syncBundleKeyServiceProvider)
+                                  .previewBackupCodeFingerprint(backupCode);
+                              final shouldImport =
+                                  await _showSyncKeyImportConfirmDialog(
+                                    context,
+                                    currentFingerprint: currentFingerprint,
+                                    incomingFingerprint: incomingFingerprint,
+                                  ) ??
+                                  false;
+                              if (!shouldImport || !context.mounted) {
+                                return;
+                              }
+                              final fingerprint = await ref
+                                  .read(syncBundleKeyServiceProvider)
+                                  .importBackupCode(backupCode);
+                              ref.invalidate(syncBundleFingerprintProvider);
+                              if (!context.mounted) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text(
+                                    strings.recoveryKeyImported(fingerprint),
+                                  ),
+                                ),
+                              );
+                            } catch (error) {
+                              if (!context.mounted) {
+                                return;
+                              }
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text('$error'),
+                                ),
+                              );
+                            }
+                          },
+                          child: Text(strings.text('home.import.recovery.key')),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(strings.text('home.last.sync.activity')),
+                    subtitle: Text(
+                      syncBundleState.when(
+                        data: (value) {
+                          final entries = <String>[];
+                          if (value.lastUploadedAt != null) {
+                            entries.add(
+                              strings.lastUploadAt(
+                                _formatDateTime(value.lastUploadedAt!),
+                              ),
+                            );
+                          }
+                          if (value.lastAppliedAt != null) {
+                            entries.add(
+                              strings.lastApplyAt(
+                                _formatDateTime(value.lastAppliedAt!),
+                              ),
+                            );
+                          }
+                          if (value.lastRemoteModifiedAt != null) {
+                            entries.add(
+                              strings.remoteBundleAt(
+                                _formatDateTime(value.lastRemoteModifiedAt!),
+                              ),
+                            );
+                          }
+                          if (entries.isEmpty) {
+                            return strings.text(
+                              'home.no.sync.activity.has.been.recorded.on.this.device.yet',
+                            );
+                          }
+                          return entries.join('\n');
+                        },
+                        loading: () =>
+                            strings.text('home.reading.sync.activity'),
+                        error: (_, _) => strings.text(
+                          'home.unable.to.read.local.sync.activity',
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (syncTransferState.localBundle != null)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(strings.text('home.local.bundle.cache')),
+                      subtitle: Text(
+                        strings.localBundleStoredAt(
+                          syncTransferState.localBundle!.reference,
+                        ),
+                      ),
+                    ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        if (syncProvider != SyncProvider.off &&
+                            syncAuthState.isAuthenticated)
+                          OutlinedButton(
+                            onPressed: syncTransferState.isBusy
+                                ? null
+                                : () async {
+                                    final messenger = ScaffoldMessenger.of(
+                                      context,
+                                    );
+                                    try {
+                                      final history = await ref
+                                          .read(
+                                            syncTransferControllerProvider
+                                                .notifier,
+                                          )
+                                          .listRemoteBundleHistory();
+                                      if (!context.mounted) {
+                                        return;
+                                      }
+                                      if (history.isEmpty) {
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            showCloseIcon: true,
+                                            content: Text(
+                                              strings.text(
+                                                'home.no.remote.bundle.history.is.available',
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                        return;
+                                      }
+                                      await _showBundleHistoryDialog(
+                                        context,
+                                        history,
+                                      );
+                                    } catch (error) {
+                                      if (!context.mounted) {
+                                        return;
+                                      }
+                                      messenger.showSnackBar(
+                                        SnackBar(
+                                          showCloseIcon: true,
+                                          content: Text('$error'),
+                                        ),
+                                      );
+                                    }
+                                  },
+                            child: Text(strings.text('home.bundle.history')),
                           ),
-                        ),
-                      );
-                    } catch (error) {
-                      if (!context.mounted) {
-                        return;
-                      }
-                      messenger.showSnackBar(
-                        SnackBar(showCloseIcon: true, content: Text('$error')),
-                      );
-                    }
-                  },
-                  child: Text(strings.text('home.copy.recovery.key')),
-                ),
-                OutlinedButton(
-                  onPressed: () async {
-                    final backupCode = await _showSyncKeyImportDialog(context);
-                    if (!context.mounted || backupCode == null) {
-                      return;
-                    }
-                    final messenger = ScaffoldMessenger.of(context);
-                    try {
-                      final currentFingerprint = await ref
-                          .read(syncBundleKeyServiceProvider)
-                          .fingerprint();
-                      if (!context.mounted) {
-                        return;
-                      }
-                      final incomingFingerprint = ref
-                          .read(syncBundleKeyServiceProvider)
-                          .previewBackupCodeFingerprint(backupCode);
-                      final shouldImport =
-                          await _showSyncKeyImportConfirmDialog(
-                            context,
-                            currentFingerprint: currentFingerprint,
-                            incomingFingerprint: incomingFingerprint,
-                          ) ??
-                          false;
-                      if (!shouldImport || !context.mounted) {
-                        return;
-                      }
-                      final fingerprint = await ref
-                          .read(syncBundleKeyServiceProvider)
-                          .importBackupCode(backupCode);
-                      ref.invalidate(syncBundleFingerprintProvider);
-                      if (!context.mounted) {
-                        return;
-                      }
-                      messenger.showSnackBar(
-                        SnackBar(
-                          showCloseIcon: true,
-                          content: Text(
-                            strings.recoveryKeyImported(fingerprint),
+                        if (syncProvider != SyncProvider.off &&
+                            syncAuthState.isAuthenticated)
+                          OutlinedButton(
+                            key: syncDownloadBundleKey,
+                            onPressed: syncTransferState.isBusy
+                                ? null
+                                : () async {
+                                    final messenger = ScaffoldMessenger.of(
+                                      context,
+                                    );
+                                    try {
+                                      await ref
+                                          .read(
+                                            syncTransferControllerProvider
+                                                .notifier,
+                                          )
+                                          .downloadLatestBundle();
+                                      if (!context.mounted) {
+                                        return;
+                                      }
+                                      final message = ref
+                                          .read(syncTransferControllerProvider)
+                                          .message;
+                                      if (message != null &&
+                                          message.isNotEmpty) {
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            showCloseIcon: true,
+                                            content: Text(message),
+                                          ),
+                                        );
+                                      }
+                                    } catch (error) {
+                                      if (!context.mounted) {
+                                        return;
+                                      }
+                                      messenger.showSnackBar(
+                                        SnackBar(
+                                          showCloseIcon: true,
+                                          content: Text('$error'),
+                                        ),
+                                      );
+                                    }
+                                  },
+                            child: Text(strings.text('home.download.bundle')),
                           ),
+                        if (syncTransferState.localBundle != null)
+                          OutlinedButton(
+                            onPressed: syncTransferState.isBusy
+                                ? null
+                                : () async {
+                                    final messenger = ScaffoldMessenger.of(
+                                      context,
+                                    );
+                                    try {
+                                      final preview = await ref
+                                          .read(
+                                            syncTransferControllerProvider
+                                                .notifier,
+                                          )
+                                          .previewDownloadedBundle();
+                                      if (!context.mounted) {
+                                        return;
+                                      }
+                                      await _showBundlePreviewDialog(
+                                        context,
+                                        preview,
+                                        confirmLabel: strings.close,
+                                      );
+                                    } catch (error) {
+                                      if (!context.mounted) {
+                                        return;
+                                      }
+                                      messenger.showSnackBar(
+                                        SnackBar(
+                                          showCloseIcon: true,
+                                          content: Text('$error'),
+                                        ),
+                                      );
+                                    }
+                                  },
+                            child: Text(strings.text('home.review.bundle')),
+                          ),
+                        if (syncTransferState.localBundle != null)
+                          OutlinedButton(
+                            key: syncApplyBundleKey,
+                            onPressed: syncTransferState.isBusy
+                                ? null
+                                : () async {
+                                    final messenger = ScaffoldMessenger.of(
+                                      context,
+                                    );
+                                    try {
+                                      final preview = await ref
+                                          .read(
+                                            syncTransferControllerProvider
+                                                .notifier,
+                                          )
+                                          .previewDownloadedBundle();
+                                      if (!context.mounted) {
+                                        return;
+                                      }
+                                      final shouldApply =
+                                          await _showBundlePreviewDialog(
+                                            context,
+                                            preview,
+                                            confirmLabel: strings.text(
+                                              'home.apply.bundle',
+                                            ),
+                                          ) ??
+                                          false;
+                                      if (!shouldApply) {
+                                        return;
+                                      }
+                                      await ref
+                                          .read(
+                                            syncTransferControllerProvider
+                                                .notifier,
+                                          )
+                                          .applyDownloadedBundle();
+                                      if (!context.mounted) {
+                                        return;
+                                      }
+                                      final message = ref
+                                          .read(syncTransferControllerProvider)
+                                          .message;
+                                      if (message != null &&
+                                          message.isNotEmpty) {
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            showCloseIcon: true,
+                                            content: Text(message),
+                                          ),
+                                        );
+                                      }
+                                    } catch (error) {
+                                      if (!context.mounted) {
+                                        return;
+                                      }
+                                      messenger.showSnackBar(
+                                        SnackBar(
+                                          showCloseIcon: true,
+                                          content: Text('$error'),
+                                        ),
+                                      );
+                                    }
+                                  },
+                            child: Text(strings.text('home.apply.bundle')),
+                          ),
+                        OutlinedButton(
+                          onPressed: () async {
+                            final snapshot = await ref
+                                .read(syncEngineProvider)
+                                .prepareSnapshot(
+                                  ref.read(notesControllerProvider),
+                                );
+                            if (!context.mounted) {
+                              return;
+                            }
+                            await showDialog<void>(
+                              context: context,
+                              builder: (context) {
+                                return AlertDialog(
+                                  title: Text(
+                                    strings.text('home.prepared.sync.snapshot'),
+                                  ),
+                                  content: Text(
+                                    strings.syncSnapshotSummary(
+                                      notes: snapshot.notes.length,
+                                      attachments: snapshot.attachments.length,
+                                      pending: snapshot.summary.totalChanges,
+                                      deviceId: snapshot.deviceId,
+                                    ),
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.of(context).pop(),
+                                      child: Text(strings.close),
+                                    ),
+                                  ],
+                                );
+                              },
+                            );
+                          },
+                          child: Text(strings.text('home.inspect.snapshot')),
                         ),
-                      );
-                    } catch (error) {
-                      if (!context.mounted) {
-                        return;
-                      }
-                      messenger.showSnackBar(
-                        SnackBar(showCloseIcon: true, content: Text('$error')),
-                      );
-                    }
-                  },
-                  child: Text(strings.text('home.import.recovery.key')),
-                ),
-              ],
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(strings.text('home.last.sync.activity')),
-              subtitle: Text(
-                syncBundleState.when(
-                  data: (value) {
-                    final entries = <String>[];
-                    if (value.lastUploadedAt != null) {
-                      entries.add(
-                        strings.lastUploadAt(
-                          _formatDateTime(value.lastUploadedAt!),
-                        ),
-                      );
-                    }
-                    if (value.lastAppliedAt != null) {
-                      entries.add(
-                        strings.lastApplyAt(
-                          _formatDateTime(value.lastAppliedAt!),
-                        ),
-                      );
-                    }
-                    if (value.lastRemoteModifiedAt != null) {
-                      entries.add(
-                        strings.remoteBundleAt(
-                          _formatDateTime(value.lastRemoteModifiedAt!),
-                        ),
-                      );
-                    }
-                    if (entries.isEmpty) {
-                      return strings.text(
-                        'home.no.sync.activity.has.been.recorded.on.this.device.yet',
-                      );
-                    }
-                    return entries.join('\n');
-                  },
-                  loading: () => strings.text('home.reading.sync.activity'),
-                  error: (_, _) =>
-                      strings.text('home.unable.to.read.local.sync.activity'),
-                ),
-              ),
-            ),
-            if (syncTransferState.localBundle != null)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(strings.text('home.local.bundle.cache')),
-                subtitle: Text(
-                  strings.localBundleStoredAt(
-                    syncTransferState.localBundle!.reference,
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ),
+            ),
             _ThemeOptionTile(
               tileKey: syncOffKey,
               title: strings.text('home.off'),
@@ -3712,261 +4021,6 @@ class SettingsScreen extends ConsumerWidget {
                           },
                     child: Text(strings.text('home.force.upload')),
                   ),
-                if (syncProvider != SyncProvider.off &&
-                    syncAuthState.isAuthenticated)
-                  OutlinedButton(
-                    onPressed: syncTransferState.isBusy
-                        ? null
-                        : () async {
-                            final messenger = ScaffoldMessenger.of(context);
-                            try {
-                              final history = await ref
-                                  .read(syncTransferControllerProvider.notifier)
-                                  .listRemoteBundleHistory();
-                              if (!context.mounted) {
-                                return;
-                              }
-                              if (history.isEmpty) {
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    showCloseIcon: true,
-                                    content: Text(
-                                      strings.text(
-                                        'home.no.remote.bundle.history.is.available',
-                                      ),
-                                    ),
-                                  ),
-                                );
-                                return;
-                              }
-                              final selected = await _showBundleHistoryDialog(
-                                context,
-                                history,
-                              );
-                              if (selected == null) {
-                                return;
-                              }
-                              final preview = await ref
-                                  .read(syncTransferControllerProvider.notifier)
-                                  .downloadBundlePreview(selected);
-                              if (!context.mounted) {
-                                return;
-                              }
-                              final shouldKeep =
-                                  await _showBundlePreviewDialog(
-                                    context,
-                                    preview,
-                                    confirmLabel: strings.text(
-                                      'home.keep.for.apply',
-                                    ),
-                                  ) ??
-                                  false;
-                              if (!shouldKeep || !context.mounted) {
-                                return;
-                              }
-                              final message = ref
-                                  .read(syncTransferControllerProvider)
-                                  .message;
-                              if (message != null && message.isNotEmpty) {
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    showCloseIcon: true,
-                                    content: Text(message),
-                                  ),
-                                );
-                              } else {
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    showCloseIcon: true,
-                                    content: Text(
-                                      strings.text(
-                                        'home.selected.bundle.is.ready.for.apply',
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }
-                            } catch (error) {
-                              if (!context.mounted) {
-                                return;
-                              }
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  showCloseIcon: true,
-                                  content: Text('$error'),
-                                ),
-                              );
-                            }
-                          },
-                    child: Text(strings.text('home.bundle.history')),
-                  ),
-                if (syncProvider != SyncProvider.off &&
-                    syncAuthState.isAuthenticated)
-                  OutlinedButton(
-                    key: syncDownloadBundleKey,
-                    onPressed: syncTransferState.isBusy
-                        ? null
-                        : () async {
-                            final messenger = ScaffoldMessenger.of(context);
-                            try {
-                              await ref
-                                  .read(syncTransferControllerProvider.notifier)
-                                  .downloadLatestBundle();
-                              if (!context.mounted) {
-                                return;
-                              }
-                              final message = ref
-                                  .read(syncTransferControllerProvider)
-                                  .message;
-                              if (message == null || message.isEmpty) {
-                                return;
-                              }
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  showCloseIcon: true,
-                                  content: Text(message),
-                                ),
-                              );
-                            } catch (error) {
-                              if (!context.mounted) {
-                                return;
-                              }
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  showCloseIcon: true,
-                                  content: Text('$error'),
-                                ),
-                              );
-                            }
-                          },
-                    child: Text(strings.text('home.download.bundle')),
-                  ),
-                if (syncTransferState.localBundle != null)
-                  OutlinedButton(
-                    onPressed: syncTransferState.isBusy
-                        ? null
-                        : () async {
-                            final messenger = ScaffoldMessenger.of(context);
-                            try {
-                              final preview = await ref
-                                  .read(syncTransferControllerProvider.notifier)
-                                  .previewDownloadedBundle();
-                              if (!context.mounted) {
-                                return;
-                              }
-                              await _showBundlePreviewDialog(
-                                context,
-                                preview,
-                                confirmLabel: strings.close,
-                              );
-                            } catch (error) {
-                              if (!context.mounted) {
-                                return;
-                              }
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  showCloseIcon: true,
-                                  content: Text('$error'),
-                                ),
-                              );
-                            }
-                          },
-                    child: Text(strings.text('home.review.bundle')),
-                  ),
-                if (syncTransferState.localBundle != null)
-                  OutlinedButton(
-                    key: syncApplyBundleKey,
-                    onPressed: syncTransferState.isBusy
-                        ? null
-                        : () async {
-                            final messenger = ScaffoldMessenger.of(context);
-                            try {
-                              final preview = await ref
-                                  .read(syncTransferControllerProvider.notifier)
-                                  .previewDownloadedBundle();
-                              if (!context.mounted) {
-                                return;
-                              }
-                              final shouldApply =
-                                  await _showBundlePreviewDialog(
-                                    context,
-                                    preview,
-                                    confirmLabel: strings.text(
-                                      'home.apply.bundle',
-                                    ),
-                                  ) ??
-                                  false;
-                              if (!shouldApply) {
-                                return;
-                              }
-                            } catch (error) {
-                              if (!context.mounted) {
-                                return;
-                              }
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  showCloseIcon: true,
-                                  content: Text('$error'),
-                                ),
-                              );
-                              return;
-                            }
-                            await ref
-                                .read(syncTransferControllerProvider.notifier)
-                                .applyDownloadedBundle();
-                            if (!context.mounted) {
-                              return;
-                            }
-                            final message = ref
-                                .read(syncTransferControllerProvider)
-                                .message;
-                            if (message == null || message.isEmpty) {
-                              return;
-                            }
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                showCloseIcon: true,
-                                content: Text(message),
-                              ),
-                            );
-                          },
-                    child: Text(strings.text('home.apply.bundle')),
-                  ),
-                OutlinedButton(
-                  onPressed: () async {
-                    final snapshot = await ref
-                        .read(syncEngineProvider)
-                        .prepareSnapshot(ref.read(notesControllerProvider));
-                    if (!context.mounted) {
-                      return;
-                    }
-                    await showDialog<void>(
-                      context: context,
-                      builder: (context) {
-                        return AlertDialog(
-                          title: Text(
-                            strings.text('home.prepared.sync.snapshot'),
-                          ),
-                          content: Text(
-                            strings.syncSnapshotSummary(
-                              notes: snapshot.notes.length,
-                              attachments: snapshot.attachments.length,
-                              pending: snapshot.summary.totalChanges,
-                              deviceId: snapshot.deviceId,
-                            ),
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.of(context).pop(),
-                              child: Text(strings.close),
-                            ),
-                          ],
-                        );
-                      },
-                    );
-                  },
-                  child: Text(strings.text('home.inspect.snapshot')),
-                ),
               ],
             ),
           ],
@@ -4085,9 +4139,10 @@ class SettingsScreen extends ConsumerWidget {
               title: Text(strings.appVersion),
               subtitle: Text(
                 packageInfo.when(
-                  data: (info) => info.displayVersion,
+                  data: (info) =>
+                      _versionWithBuildDate(strings, info.displayVersion),
                   loading: strings.readingVersion,
-                  error: (_, _) => '1.0.0 (1)',
+                  error: (_, _) => _versionWithBuildDate(strings, '1.0.0 (1)'),
                 ),
               ),
             ),
@@ -4096,7 +4151,7 @@ class SettingsScreen extends ConsumerWidget {
               title: Text(strings.appUpdates),
               subtitle: Text(
                 inAppUpdateState.status == null
-                    ? strings.appUpdatesDesc
+                    ? appUpdatesDescription
                     : [
                         inAppUpdateSummary,
                         if (inAppUpdateState.status?.availableVersionCode !=
@@ -4122,6 +4177,10 @@ class SettingsScreen extends ConsumerWidget {
                   onPressed: inAppUpdateState.isBusy
                       ? null
                       : () async {
+                          if (!appUpdatesSupported) {
+                            await _openStoreListingOrExplain(context, strings);
+                            return;
+                          }
                           await ref
                               .read(inAppUpdateControllerProvider.notifier)
                               .check();
@@ -4141,6 +4200,11 @@ class SettingsScreen extends ConsumerWidget {
                           }
                         },
                   child: Text(strings.checkForUpdates),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _openStoreReviewOrExplain(context, strings),
+                  icon: const Icon(Icons.rate_review_outlined),
+                  label: Text(strings.writeStoreReview),
                 ),
                 if (inAppUpdateState.status?.updateAvailable == true &&
                     inAppUpdateState.status?.installStatus !=
@@ -4226,6 +4290,7 @@ class SettingsScreen extends ConsumerWidget {
     required AppFontFamily fontFamily,
     required AppColorTheme colorTheme,
     required String colorThemeScope,
+    required List<_ColorThemeScopeOption> colorThemeTargets,
     required String colorThemeTargetLabel,
     required String appearanceSummary,
   }) {
@@ -4390,6 +4455,31 @@ class SettingsScreen extends ConsumerWidget {
               .setMode(ThemeMode.dark),
         ),
         const Divider(height: 24),
+        if (colorThemeTargets.length > 1) ...[
+          DropdownButtonFormField<String>(
+            initialValue: colorThemeScope,
+            isExpanded: true,
+            decoration: InputDecoration(
+              border: const OutlineInputBorder(),
+              labelText: strings.accentColor,
+              prefixIcon: const Icon(Icons.palette_outlined),
+            ),
+            items: [
+              for (final target in colorThemeTargets)
+                DropdownMenuItem(
+                  value: target.scope,
+                  child: Text(target.label),
+                ),
+            ],
+            onChanged: (value) {
+              if (value == null || value == colorThemeScope) {
+                return;
+              }
+              ref.read(colorThemeSettingsScopeProvider.notifier).select(value);
+            },
+          ),
+          const SizedBox(height: 12),
+        ],
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Column(
@@ -4420,35 +4510,35 @@ class SettingsScreen extends ConsumerWidget {
           ],
           extendedThemes: const [
             AppColorTheme.konjyo,
-            AppColorTheme.moegi,
-            AppColorTheme.yamabuki,
-            AppColorTheme.kurenai,
-            AppColorTheme.sakura,
-            AppColorTheme.ginnezumi,
-            AppColorTheme.seiheki,
-            AppColorTheme.fuji,
             AppColorTheme.ai,
-            AppColorTheme.kurumi,
+            AppColorTheme.ruri,
+            AppColorTheme.hanada,
             AppColorTheme.chigusa,
-            AppColorTheme.sumire,
+            AppColorTheme.asagi,
+            AppColorTheme.sora,
+            AppColorTheme.tokiwa,
+            AppColorTheme.seiheki,
+            AppColorTheme.wakatake,
+            AppColorTheme.moegi,
+            AppColorTheme.byakuroku,
+            AppColorTheme.rikyucha,
+            AppColorTheme.kurumi,
+            AppColorTheme.yamabuki,
+            AppColorTheme.nanohana,
+            AppColorTheme.enji,
+            AppColorTheme.akane,
+            AppColorTheme.kurenai,
+            AppColorTheme.haizakura,
+            AppColorTheme.sakura,
             AppColorTheme.sumi,
+            AppColorTheme.ginnezumi,
             AppColorTheme.shironeri,
             AppColorTheme.gofun,
-            AppColorTheme.enji,
-            AppColorTheme.hanada,
-            AppColorTheme.sora,
-            AppColorTheme.ruri,
-            AppColorTheme.asagi,
-            AppColorTheme.wakatake,
-            AppColorTheme.tokiwa,
-            AppColorTheme.byakuroku,
-            AppColorTheme.nanohana,
-            AppColorTheme.haizakura,
-            AppColorTheme.akane,
             AppColorTheme.kikyo,
             AppColorTheme.edomurasaki,
+            AppColorTheme.sumire,
+            AppColorTheme.fuji,
             AppColorTheme.shion,
-            AppColorTheme.rikyucha,
           ],
           titleFor: (theme) => _colorThemeLabel(context, theme),
           subtitleFor: (theme) => _colorThemeDescription(context, theme),
@@ -5373,6 +5463,7 @@ class _NoteListTile extends StatelessWidget {
     final bodyText = note.body.trim();
     final compactPreview = _normalizeCompactPreview(note.body);
     final tags = note.normalizedTags;
+    final previewFacts = _notePreviewFacts(note);
     final hasDistinctBody =
         bodyText.isNotEmpty &&
         bodyText.replaceAll('\n', ' ').trim() != note.title.trim();
@@ -5477,6 +5568,17 @@ class _NoteListTile extends StatelessWidget {
                     color: _strongMutedTextColor(context),
                   ),
                 ),
+              if (previewFacts.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final fact in previewFacts.take(3))
+                      _NotePreviewFactChip(fact: fact),
+                  ],
+                ),
+              ],
               if (tags.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Wrap(
@@ -5564,6 +5666,103 @@ class _NoteListTile extends StatelessWidget {
         .replaceAll(RegExp(r'\s+'), ' ')
         .replaceAll(RegExp(r' {2,}'), ' ')
         .trim();
+  }
+}
+
+class _NotePreviewFact {
+  const _NotePreviewFact({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+}
+
+List<_NotePreviewFact> _notePreviewFacts(NoteEntry note) {
+  final facts = <_NotePreviewFact>[];
+  final location = _firstLocationPreview(note);
+  if (location != null) {
+    facts.add(
+      _NotePreviewFact(
+        icon: Icons.location_on_outlined,
+        label: location.address?.trim().isNotEmpty == true
+            ? location.address!.trim()
+            : '${location.latitude}, ${location.longitude}',
+      ),
+    );
+  }
+
+  for (final attachment in note.attachments) {
+    final durationMs = attachment.durationMs;
+    if (durationMs == null || durationMs <= 0) {
+      continue;
+    }
+    final type = attachment.type;
+    if (type != AttachmentType.audio && type != AttachmentType.video) {
+      continue;
+    }
+    facts.add(
+      _NotePreviewFact(
+        icon: type == AttachmentType.audio
+            ? Icons.graphic_eq_rounded
+            : Icons.videocam_outlined,
+        label: _formatAudioDuration(Duration(milliseconds: durationMs)),
+      ),
+    );
+  }
+  return facts;
+}
+
+_LocationMemoData? _firstLocationPreview(NoteEntry note) {
+  for (final block in note.blocks) {
+    if (block.type != NoteBlockType.paragraph) {
+      continue;
+    }
+    final text = block.text;
+    if (text == null || text.trim().isEmpty) {
+      continue;
+    }
+    final location = _tryParseLocationMemo(text);
+    if (location != null) {
+      return location;
+    }
+  }
+  return _tryParseLocationMemo(note.body);
+}
+
+class _NotePreviewFactChip extends StatelessWidget {
+  const _NotePreviewFactChip({required this.fact});
+
+  final _NotePreviewFact fact;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 260),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(fact.icon, size: 14, color: colorScheme.onSurfaceVariant),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              fact.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -6243,30 +6442,6 @@ class _NoteDetailPane extends StatelessWidget {
   }
 }
 
-class _SectionIntro extends StatelessWidget {
-  const _SectionIntro({required this.title, required this.description});
-
-  final String title;
-  final String description;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: Theme.of(context).textTheme.headlineSmall),
-        const SizedBox(height: 8),
-        Text(
-          description,
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            color: _strongMutedTextColor(context),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _LinkifiedMemoText extends StatefulWidget {
   const _LinkifiedMemoText({required this.text, this.style});
 
@@ -6521,6 +6696,13 @@ class _SettingsOverviewItem {
   final String assetPath;
 }
 
+class _ColorThemeScopeOption {
+  const _ColorThemeScopeOption({required this.scope, required this.label});
+
+  final String scope;
+  final String label;
+}
+
 class _SettingsOverviewCard extends StatelessWidget {
   const _SettingsOverviewCard({required this.items});
 
@@ -6532,41 +6714,49 @@ class _SettingsOverviewCard extends StatelessWidget {
     return Container(
       decoration: _sectionDecoration(context),
       padding: const EdgeInsets.all(16),
-      child: Wrap(
-        spacing: 12,
-        runSpacing: 12,
-        children: [
-          for (final item in items)
-            SizedBox(
-              width: 180,
-              child: Row(
-                children: [
-                  _SettingsSectionIcon(assetPath: item.assetPath),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.label,
-                          style: Theme.of(
-                            context,
-                          ).textTheme.labelMedium?.copyWith(color: muted),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          const spacing = 12.0;
+          final width = constraints.maxWidth;
+          final columns = width >= 720 ? 4 : (width >= 320 ? 2 : 1);
+          final itemWidth = (width - spacing * (columns - 1)) / columns;
+          return Wrap(
+            spacing: spacing,
+            runSpacing: spacing,
+            children: [
+              for (final item in items)
+                SizedBox(
+                  width: itemWidth,
+                  child: Row(
+                    children: [
+                      _SettingsSectionIcon(assetPath: item.assetPath),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item.label,
+                              style: Theme.of(
+                                context,
+                              ).textTheme.labelMedium?.copyWith(color: muted),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              item.value,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          item.value,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
-        ],
+                ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -6579,7 +6769,6 @@ class _SettingsGroup extends StatelessWidget {
     required this.assetPath,
     required this.children,
     this.semanticLabel,
-    this.initiallyExpanded = false,
   });
 
   final String title;
@@ -6587,7 +6776,6 @@ class _SettingsGroup extends StatelessWidget {
   final String assetPath;
   final List<Widget> children;
   final String? semanticLabel;
-  final bool initiallyExpanded;
 
   @override
   Widget build(BuildContext context) {
@@ -6600,7 +6788,6 @@ class _SettingsGroup extends StatelessWidget {
           data: theme.copyWith(dividerColor: Colors.transparent),
           child: ExpansionTile(
             maintainState: true,
-            initiallyExpanded: initiallyExpanded,
             tilePadding: const EdgeInsets.symmetric(
               horizontal: 16,
               vertical: 10,
@@ -8378,6 +8565,38 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                   : _mutedTextColor(context),
                             ),
                           ),
+                          PopupMenuButton<NoteEditorMode>(
+                            tooltip: _editorMode == NoteEditorMode.quick
+                                ? strings.quickMemo
+                                : strings.richMemo,
+                            icon: Icon(
+                              _editorMode == NoteEditorMode.quick
+                                  ? Icons.notes_outlined
+                                  : Icons.view_stream_outlined,
+                              color: _mutedTextColor(context),
+                            ),
+                            onSelected: _switchEditorMode,
+                            itemBuilder: (context) => [
+                              PopupMenuItem(
+                                value: NoteEditorMode.quick,
+                                child: _MediaMenuEntry(
+                                  icon: _editorMode == NoteEditorMode.quick
+                                      ? Icons.check_rounded
+                                      : Icons.notes_outlined,
+                                  label: strings.quickMemo,
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: NoteEditorMode.rich,
+                                child: _MediaMenuEntry(
+                                  icon: _editorMode == NoteEditorMode.rich
+                                      ? Icons.check_rounded
+                                      : Icons.view_stream_outlined,
+                                  label: strings.richMemo,
+                                ),
+                              ),
+                            ],
+                          ),
                           PopupMenuButton<MediaImportAction>(
                             key: const Key('note-capture-media-menu'),
                             tooltip: strings.captureMedia,
@@ -8476,24 +8695,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
               child: ListView(
                 padding: const EdgeInsets.only(bottom: 96),
                 children: [
-                  SegmentedButton<NoteEditorMode>(
-                    segments: [
-                      ButtonSegment(
-                        value: NoteEditorMode.quick,
-                        label: Text(strings.quickMemo),
-                        icon: const Icon(Icons.notes_outlined),
-                      ),
-                      ButtonSegment(
-                        value: NoteEditorMode.rich,
-                        label: Text(strings.richMemo),
-                        icon: const Icon(Icons.view_stream_outlined),
-                      ),
-                    ],
-                    selected: {_editorMode},
-                    onSelectionChanged: (selection) =>
-                        _switchEditorMode(selection.first),
-                  ),
-                  const SizedBox(height: 12),
                   if (_editorMode == NoteEditorMode.quick) ...[
                     TextField(
                       key: const Key('note-content-input'),
@@ -10654,6 +10855,129 @@ String _remoteBundleSummary(
   );
 }
 
+String _appUpdatesUnavailableDescription(AppStrings strings) {
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+    return strings.appUpdatesDescIos;
+  }
+  return strings.updateSupportedOnAndroidOnly;
+}
+
+String _versionWithBuildDate(AppStrings strings, String version) {
+  final buildDate = _formattedBuildDate();
+  if (buildDate == null) {
+    return version;
+  }
+  return '$version / ${strings.buildDateLabel(buildDate)}';
+}
+
+String? _formattedBuildDate() {
+  final value = _buildDateIso.trim();
+  if (value.isEmpty) {
+    return null;
+  }
+  final parsed = DateTime.tryParse(value);
+  final date = parsed == null ? value : parsed.toLocal().toIso8601String();
+  if (date.length >= 10) {
+    return date.substring(0, 10).replaceAll('-', '/');
+  }
+  return value;
+}
+
+Future<void> _openStoreListingOrExplain(
+  BuildContext context,
+  AppStrings strings,
+) async {
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+    final id = _configuredAppStoreId();
+    if (id == null) {
+      _showStoreFeedback(context, strings.appStoreIdNotConfigured);
+      return;
+    }
+    final opened = await _launchFirstExternal([
+      Uri.parse('itms-apps://apps.apple.com/app/id$id'),
+      Uri.parse('https://apps.apple.com/app/id$id'),
+    ]);
+    if (!context.mounted) {
+      return;
+    }
+    if (!opened) {
+      _showStoreFeedback(context, strings.appStoreOpenFailed);
+    }
+    return;
+  }
+
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    final opened = await _launchFirstExternal([
+      Uri.parse('market://details?id=$_androidStorePackageName'),
+      Uri.parse(
+        'https://play.google.com/store/apps/details?id=$_androidStorePackageName',
+      ),
+    ]);
+    if (!context.mounted) {
+      return;
+    }
+    if (!opened) {
+      _showStoreFeedback(context, strings.appStoreOpenFailed);
+    }
+    return;
+  }
+
+  _showStoreFeedback(context, strings.updateStatusUnsupported);
+}
+
+Future<void> _openStoreReviewOrExplain(
+  BuildContext context,
+  AppStrings strings,
+) async {
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+    final id = _configuredAppStoreId();
+    if (id == null) {
+      _showStoreFeedback(context, strings.appStoreIdNotConfigured);
+      return;
+    }
+    final opened = await _launchFirstExternal([
+      Uri.parse('itms-apps://itunes.apple.com/app/id$id?action=write-review'),
+      Uri.parse('https://apps.apple.com/app/id$id?action=write-review'),
+    ]);
+    if (!context.mounted) {
+      return;
+    }
+    if (!opened) {
+      _showStoreFeedback(context, strings.appStoreOpenFailed);
+    }
+    return;
+  }
+
+  await _openStoreListingOrExplain(context, strings);
+}
+
+String? _configuredAppStoreId() {
+  final value = _appStoreId.trim();
+  return value.isEmpty ? null : value;
+}
+
+Future<bool> _launchFirstExternal(List<Uri> uris) async {
+  for (final uri in uris) {
+    try {
+      if (await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        return true;
+      }
+    } catch (_) {
+      // Try the next URL, usually a web fallback after a store scheme.
+    }
+  }
+  return false;
+}
+
+void _showStoreFeedback(BuildContext context, String message) {
+  if (!context.mounted) {
+    return;
+  }
+  ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(showCloseIcon: true, content: Text(message)));
+}
+
 Future<bool?> _showBundlePreviewDialog(
   BuildContext context,
   SyncBundlePreview preview, {
@@ -12256,6 +12580,7 @@ class _AudioRecordingDialogState extends State<_AudioRecordingDialog> {
             type: AttachmentType.audio,
             label: fileName,
             filePath: filePath,
+            durationMs: _elapsed.inMilliseconds,
           ),
         ),
       );

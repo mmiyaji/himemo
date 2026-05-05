@@ -93,6 +93,16 @@ void main() {
     expect(AppColorTheme.values.length, greaterThanOrEqualTo(30));
   });
 
+  test('note attachments preserve media duration metadata', () {
+    const attachment = NoteAttachment(
+      type: AttachmentType.audio,
+      label: 'memo.m4a',
+      durationMs: 65000,
+    );
+
+    expect(NoteAttachment.fromJson(attachment.toJson()).durationMs, 65000);
+  });
+
   test('app strings support Chinese and Korean locales', () {
     final zh = AppStrings(const Locale('zh'));
     final ko = AppStrings(const Locale('ko'));
@@ -327,6 +337,33 @@ void main() {
     expect(container.read(effectiveAppColorThemeProvider), AppColorTheme.fuji);
   });
 
+  test('color theme settings target resets to active profile scope', () {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    expect(
+      container.read(colorThemeSettingsScopeProvider),
+      defaultColorThemeScope,
+    );
+
+    container
+        .read(colorThemeSettingsScopeProvider.notifier)
+        .select('private_profile:p1');
+    expect(
+      container.read(colorThemeSettingsScopeProvider),
+      'private_profile:p1',
+    );
+
+    container
+        .read(unlockedPrivateProfileVaultIdProvider.notifier)
+        .unlock('private_profile:p2');
+    expect(
+      container.read(colorThemeSettingsScopeProvider),
+      'private_profile:p2',
+    );
+  });
+
   test('providers expose private profiles only after unlock', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();
@@ -548,6 +585,72 @@ void main() {
       );
     },
   );
+
+  test('notes are sorted by memo date after the date is edited', () async {
+    SharedPreferences.setMockInitialValues({});
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(42));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    final controller = container.read(notesControllerProvider.notifier);
+    await controller.restoreCompleted;
+    await controller.upsert(
+      NoteEntry(
+        id: 'older',
+        vaultId: 'everyday',
+        title: 'Older',
+        body: '',
+        createdAt: DateTime(2026, 5, 1, 10, 0),
+        updatedAt: DateTime(2026, 5, 1, 10, 0),
+      ),
+    );
+    await controller.upsert(
+      NoteEntry(
+        id: 'newer',
+        vaultId: 'everyday',
+        title: 'Newer',
+        body: '',
+        createdAt: DateTime(2026, 5, 3, 10, 0),
+        updatedAt: DateTime(2026, 5, 3, 10, 0),
+      ),
+    );
+    await controller.upsert(
+      container
+          .read(notesControllerProvider)
+          .firstWhere((note) => note.id == 'older')
+          .copyWith(
+            createdAt: DateTime(2026, 5, 4, 9, 0),
+            updatedAt: DateTime(2026, 5, 5, 12, 0),
+          ),
+    );
+
+    expect(container.read(notesControllerProvider).map((note) => note.id), [
+      'older',
+      'newer',
+    ]);
+  });
 
   test('privacy screen activates for legacy private vault session', () {
     SharedPreferences.setMockInitialValues({});

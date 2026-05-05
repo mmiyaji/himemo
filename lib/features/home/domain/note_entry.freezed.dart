@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$NoteAttachment {
 
- AttachmentType get type; String get label; String? get filePath; String? get previewBytesBase64;
+ AttachmentType get type; String get label; String? get filePath; String? get previewBytesBase64; int? get durationMs;
 /// Create a copy of NoteAttachment
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -28,16 +28,16 @@ $NoteAttachmentCopyWith<NoteAttachment> get copyWith => _$NoteAttachmentCopyWith
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteAttachment&&(identical(other.type, type) || other.type == type)&&(identical(other.label, label) || other.label == label)&&(identical(other.filePath, filePath) || other.filePath == filePath)&&(identical(other.previewBytesBase64, previewBytesBase64) || other.previewBytesBase64 == previewBytesBase64));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteAttachment&&(identical(other.type, type) || other.type == type)&&(identical(other.label, label) || other.label == label)&&(identical(other.filePath, filePath) || other.filePath == filePath)&&(identical(other.previewBytesBase64, previewBytesBase64) || other.previewBytesBase64 == previewBytesBase64)&&(identical(other.durationMs, durationMs) || other.durationMs == durationMs));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,type,label,filePath,previewBytesBase64);
+int get hashCode => Object.hash(runtimeType,type,label,filePath,previewBytesBase64,durationMs);
 
 @override
 String toString() {
-  return 'NoteAttachment(type: $type, label: $label, filePath: $filePath, previewBytesBase64: $previewBytesBase64)';
+  return 'NoteAttachment(type: $type, label: $label, filePath: $filePath, previewBytesBase64: $previewBytesBase64, durationMs: $durationMs)';
 }
 
 
@@ -48,7 +48,7 @@ abstract mixin class $NoteAttachmentCopyWith<$Res>  {
   factory $NoteAttachmentCopyWith(NoteAttachment value, $Res Function(NoteAttachment) _then) = _$NoteAttachmentCopyWithImpl;
 @useResult
 $Res call({
- AttachmentType type, String label, String? filePath, String? previewBytesBase64
+ AttachmentType type, String label, String? filePath, String? previewBytesBase64, int? durationMs
 });
 
 
@@ -65,13 +65,14 @@ class _$NoteAttachmentCopyWithImpl<$Res>
 
 /// Create a copy of NoteAttachment
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? type = null,Object? label = null,Object? filePath = freezed,Object? previewBytesBase64 = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? type = null,Object? label = null,Object? filePath = freezed,Object? previewBytesBase64 = freezed,Object? durationMs = freezed,}) {
   return _then(_self.copyWith(
 type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
 as AttachmentType,label: null == label ? _self.label : label // ignore: cast_nullable_to_non_nullable
 as String,filePath: freezed == filePath ? _self.filePath : filePath // ignore: cast_nullable_to_non_nullable
 as String?,previewBytesBase64: freezed == previewBytesBase64 ? _self.previewBytesBase64 : previewBytesBase64 // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,durationMs: freezed == durationMs ? _self.durationMs : durationMs // ignore: cast_nullable_to_non_nullable
+as int?,
   ));
 }
 
@@ -156,10 +157,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( AttachmentType type,  String label,  String? filePath,  String? previewBytesBase64)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( AttachmentType type,  String label,  String? filePath,  String? previewBytesBase64,  int? durationMs)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _NoteAttachment() when $default != null:
-return $default(_that.type,_that.label,_that.filePath,_that.previewBytesBase64);case _:
+return $default(_that.type,_that.label,_that.filePath,_that.previewBytesBase64,_that.durationMs);case _:
   return orElse();
 
 }
@@ -177,10 +178,10 @@ return $default(_that.type,_that.label,_that.filePath,_that.previewBytesBase64);
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( AttachmentType type,  String label,  String? filePath,  String? previewBytesBase64)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( AttachmentType type,  String label,  String? filePath,  String? previewBytesBase64,  int? durationMs)  $default,) {final _that = this;
 switch (_that) {
 case _NoteAttachment():
-return $default(_that.type,_that.label,_that.filePath,_that.previewBytesBase64);case _:
+return $default(_that.type,_that.label,_that.filePath,_that.previewBytesBase64,_that.durationMs);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -197,10 +198,10 @@ return $default(_that.type,_that.label,_that.filePath,_that.previewBytesBase64);
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( AttachmentType type,  String label,  String? filePath,  String? previewBytesBase64)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( AttachmentType type,  String label,  String? filePath,  String? previewBytesBase64,  int? durationMs)?  $default,) {final _that = this;
 switch (_that) {
 case _NoteAttachment() when $default != null:
-return $default(_that.type,_that.label,_that.filePath,_that.previewBytesBase64);case _:
+return $default(_that.type,_that.label,_that.filePath,_that.previewBytesBase64,_that.durationMs);case _:
   return null;
 
 }
@@ -212,13 +213,14 @@ return $default(_that.type,_that.label,_that.filePath,_that.previewBytesBase64);
 @JsonSerializable()
 
 class _NoteAttachment implements NoteAttachment {
-  const _NoteAttachment({required this.type, required this.label, this.filePath, this.previewBytesBase64});
+  const _NoteAttachment({required this.type, required this.label, this.filePath, this.previewBytesBase64, this.durationMs});
   factory _NoteAttachment.fromJson(Map<String, dynamic> json) => _$NoteAttachmentFromJson(json);
 
 @override final  AttachmentType type;
 @override final  String label;
 @override final  String? filePath;
 @override final  String? previewBytesBase64;
+@override final  int? durationMs;
 
 /// Create a copy of NoteAttachment
 /// with the given fields replaced by the non-null parameter values.
@@ -233,16 +235,16 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NoteAttachment&&(identical(other.type, type) || other.type == type)&&(identical(other.label, label) || other.label == label)&&(identical(other.filePath, filePath) || other.filePath == filePath)&&(identical(other.previewBytesBase64, previewBytesBase64) || other.previewBytesBase64 == previewBytesBase64));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NoteAttachment&&(identical(other.type, type) || other.type == type)&&(identical(other.label, label) || other.label == label)&&(identical(other.filePath, filePath) || other.filePath == filePath)&&(identical(other.previewBytesBase64, previewBytesBase64) || other.previewBytesBase64 == previewBytesBase64)&&(identical(other.durationMs, durationMs) || other.durationMs == durationMs));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,type,label,filePath,previewBytesBase64);
+int get hashCode => Object.hash(runtimeType,type,label,filePath,previewBytesBase64,durationMs);
 
 @override
 String toString() {
-  return 'NoteAttachment(type: $type, label: $label, filePath: $filePath, previewBytesBase64: $previewBytesBase64)';
+  return 'NoteAttachment(type: $type, label: $label, filePath: $filePath, previewBytesBase64: $previewBytesBase64, durationMs: $durationMs)';
 }
 
 
@@ -253,7 +255,7 @@ abstract mixin class _$NoteAttachmentCopyWith<$Res> implements $NoteAttachmentCo
   factory _$NoteAttachmentCopyWith(_NoteAttachment value, $Res Function(_NoteAttachment) _then) = __$NoteAttachmentCopyWithImpl;
 @override @useResult
 $Res call({
- AttachmentType type, String label, String? filePath, String? previewBytesBase64
+ AttachmentType type, String label, String? filePath, String? previewBytesBase64, int? durationMs
 });
 
 
@@ -270,13 +272,14 @@ class __$NoteAttachmentCopyWithImpl<$Res>
 
 /// Create a copy of NoteAttachment
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? type = null,Object? label = null,Object? filePath = freezed,Object? previewBytesBase64 = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? type = null,Object? label = null,Object? filePath = freezed,Object? previewBytesBase64 = freezed,Object? durationMs = freezed,}) {
   return _then(_NoteAttachment(
 type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
 as AttachmentType,label: null == label ? _self.label : label // ignore: cast_nullable_to_non_nullable
 as String,filePath: freezed == filePath ? _self.filePath : filePath // ignore: cast_nullable_to_non_nullable
 as String?,previewBytesBase64: freezed == previewBytesBase64 ? _self.previewBytesBase64 : previewBytesBase64 // ignore: cast_nullable_to_non_nullable
-as String?,
+as String?,durationMs: freezed == durationMs ? _self.durationMs : durationMs // ignore: cast_nullable_to_non_nullable
+as int?,
   ));
 }
 
