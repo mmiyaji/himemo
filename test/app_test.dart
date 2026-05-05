@@ -225,6 +225,29 @@ void main() {
     expect(find.textContaining(RegExp(r'\d+/\d+')), findsNothing);
   });
 
+  test('note location metadata is serialized with notes', () {
+    final note = NoteEntry(
+      id: 'location-note',
+      vaultId: 'everyday',
+      title: 'Location',
+      body: '',
+      createdAt: DateTime(2026, 5, 6, 10, 0),
+      location: NoteLocation(
+        latitude: 35.681236,
+        longitude: 139.767125,
+        accuracyMeters: 12,
+        address: 'Tokyo Station',
+        capturedAt: DateTime(2026, 5, 6, 10, 1),
+      ),
+    );
+
+    final restored = NoteEntry.fromJson(note.toJson());
+
+    expect(restored.location?.latitude, 35.681236);
+    expect(restored.location?.longitude, 139.767125);
+    expect(restored.location?.address, 'Tokyo Station');
+  });
+
   test('app strings support Spanish and German locales', () {
     final es = AppStrings(const Locale('es'));
     final de = AppStrings(const Locale('de'));

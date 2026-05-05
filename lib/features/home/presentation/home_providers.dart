@@ -272,10 +272,12 @@ class LastNoteEditorSettings {
   const LastNoteEditorSettings({
     this.mode = NoteEditorMode.rich,
     this.vaultId = 'everyday',
+    this.captureLocation = false,
   });
 
   final NoteEditorMode mode;
   final String vaultId;
+  final bool captureLocation;
 }
 
 enum QuickCaptureSource { widget, share }
@@ -465,6 +467,7 @@ class NoteEditorDraftSnapshot {
     required this.quickContent,
     required this.quickAttachments,
     required this.richBlocks,
+    this.location,
   });
 
   final DateTime createdAt;
@@ -475,6 +478,7 @@ class NoteEditorDraftSnapshot {
   final String quickContent;
   final List<NoteAttachment> quickAttachments;
   final List<NoteBlock> richBlocks;
+  final NoteLocation? location;
 
   Map<String, dynamic> toJson() => {
     'createdAt': createdAt.toIso8601String(),
@@ -485,6 +489,7 @@ class NoteEditorDraftSnapshot {
     'quickContent': quickContent,
     'quickAttachments': quickAttachments.map((e) => e.toJson()).toList(),
     'richBlocks': richBlocks.map((e) => e.toJson()).toList(),
+    'location': location?.toJson(),
   };
 
   static NoteEditorDraftSnapshot fromJson(Map<String, dynamic> json) {
@@ -512,6 +517,11 @@ class NoteEditorDraftSnapshot {
                 NoteBlock.fromJson(Map<String, dynamic>.from(entry as Map)),
           )
           .toList(growable: false),
+      location: json['location'] == null
+          ? null
+          : NoteLocation.fromJson(
+              Map<String, dynamic>.from(json['location'] as Map),
+            ),
     );
   }
 }
@@ -1232,7 +1242,7 @@ class DefaultMediaImportService implements MediaImportService {
         return _pickFile();
       case MediaImportAction.addLocation:
         return const MediaImportResult.failure(
-          'Location insertion is handled by the note editor.',
+          'Location capture is handled by the note editor.',
         );
     }
   }
@@ -4002,6 +4012,7 @@ class LastNoteEditorSettingsController
     extends _$LastNoteEditorSettingsController {
   static const _modeKey = 'notes.last_editor_mode';
   static const _vaultKey = 'notes.last_vault_id';
+  static const _captureLocationKey = 'notes.last_capture_location';
   bool _restored = false;
 
   @override
@@ -4016,22 +4027,40 @@ class LastNoteEditorSettingsController
   Future<void> remember({
     required NoteEditorMode mode,
     required String vaultId,
+    bool? captureLocation,
   }) async {
-    state = LastNoteEditorSettings(mode: mode, vaultId: vaultId);
+    state = LastNoteEditorSettings(
+      mode: mode,
+      vaultId: vaultId,
+      captureLocation: captureLocation ?? state.captureLocation,
+    );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_modeKey, mode.name);
     await prefs.setString(_vaultKey, vaultId);
+    await prefs.setBool(_captureLocationKey, state.captureLocation);
+  }
+
+  Future<void> setCaptureLocation(bool enabled) async {
+    state = LastNoteEditorSettings(
+      mode: state.mode,
+      vaultId: state.vaultId,
+      captureLocation: enabled,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_captureLocationKey, enabled);
   }
 
   Future<void> _restore() async {
     final prefs = await SharedPreferences.getInstance();
     final modeName = prefs.getString(_modeKey);
     final vaultId = prefs.getString(_vaultKey);
+    final captureLocation = prefs.getBool(_captureLocationKey) ?? false;
     state = LastNoteEditorSettings(
       mode: modeName == null || modeName.isEmpty
           ? NoteEditorMode.rich
           : NoteEditorMode.values.byName(modeName),
       vaultId: vaultId == null || vaultId.isEmpty ? 'everyday' : vaultId,
+      captureLocation: captureLocation,
     );
   }
 }

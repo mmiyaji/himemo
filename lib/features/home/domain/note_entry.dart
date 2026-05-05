@@ -14,6 +14,20 @@ enum NoteEditorMode { quick, rich }
 enum NoteBlockType { paragraph, photo, video, audio, file }
 
 @freezed
+abstract class NoteLocation with _$NoteLocation {
+  const factory NoteLocation({
+    required double latitude,
+    required double longitude,
+    double? accuracyMeters,
+    String? address,
+    DateTime? capturedAt,
+  }) = _NoteLocation;
+
+  factory NoteLocation.fromJson(Map<String, dynamic> json) =>
+      _$NoteLocationFromJson(json);
+}
+
+@freezed
 abstract class NoteAttachment with _$NoteAttachment {
   const factory NoteAttachment({
     required AttachmentType type,
@@ -41,6 +55,8 @@ abstract class NoteBlock with _$NoteBlock {
 
 @freezed
 abstract class NoteEntry with _$NoteEntry {
+  // ignore: invalid_annotation_target
+  @JsonSerializable(explicitToJson: true)
   const factory NoteEntry({
     required String id,
     required String vaultId,
@@ -58,6 +74,7 @@ abstract class NoteEntry with _$NoteEntry {
     @Default(1) int revision,
     @Default(NoteSyncState.localOnly) NoteSyncState syncState,
     @Default(NoteEditorMode.rich) NoteEditorMode editorMode,
+    NoteLocation? location,
   }) = _NoteEntry;
 
   factory NoteEntry.fromJson(Map<String, dynamic> json) =>

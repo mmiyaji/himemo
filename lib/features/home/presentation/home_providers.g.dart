@@ -465,7 +465,7 @@ final class LastNoteEditorSettingsControllerProvider
 }
 
 String _$lastNoteEditorSettingsControllerHash() =>
-    r'58e05d87cec62f830d88ba5835a8f120a9243a18';
+    r'8500b8058fe26eb308a91da26b23ae7b01836400';
 
 abstract class _$LastNoteEditorSettingsController
     extends $Notifier<LastNoteEditorSettings> {
@@ -519,7 +519,7 @@ final class NotesControllerProvider
   }
 }
 
-String _$notesControllerHash() => r'20ffe0ea89173233b4bd7ab7ca596b0fd1efa271';
+String _$notesControllerHash() => r'db04c33fb0d214e4a501c736a00e8ee34db3414c';
 
 abstract class _$NotesController extends $Notifier<List<NoteEntry>> {
   List<NoteEntry> build();

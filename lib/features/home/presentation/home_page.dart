@@ -5976,6 +5976,10 @@ List<_NotePreviewFact> _notePreviewFacts(NoteEntry note) {
 }
 
 _LocationMemoData? _firstLocationPreview(NoteEntry note) {
+  final metadataLocation = note.location;
+  if (metadataLocation != null) {
+    return _locationMemoDataFromMetadata(metadataLocation);
+  }
   for (final block in note.blocks) {
     if (block.type != NoteBlockType.paragraph) {
       continue;
@@ -6887,7 +6891,7 @@ List<Widget> _buildDetailBlocks(
       .map((block) => block.attachment)
       .whereType<NoteAttachment>()
       .toList(growable: false);
-  if (blocks.isEmpty) {
+  if (blocks.isEmpty && note.location == null) {
     return [
       _LinkifiedMemoText(
         text: note.body,
@@ -6899,6 +6903,18 @@ List<Widget> _buildDetailBlocks(
   }
 
   final widgets = <Widget>[];
+  if (note.location != null) {
+    widgets.add(
+      _LocationMemoCard(
+        location: _locationMemoDataFromMetadata(note.location!),
+        strings: context.strings,
+        width: double.infinity,
+      ),
+    );
+    if (blocks.isNotEmpty) {
+      widgets.add(const SizedBox(height: 16));
+    }
+  }
   for (var i = 0; i < blocks.length; i++) {
     final block = blocks[i];
     switch (block.type) {
@@ -8318,9 +8334,12 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late List<_RichBlockDraft> _richBlocks;
   late final Set<String> _initialAttachmentPaths;
   late final ValueNotifier<bool> _canSubmitNotifier;
+  late bool _captureLocationEnabled;
   final Set<String> _pendingAttachmentDeletes = <String>{};
   int? _activeRichParagraphIndex;
   String? _selectedVaultId;
+  NoteLocation? _location;
+  bool _locationBusy = false;
   bool _saved = false;
   bool _draftLoaded = false;
   bool _editorDisposed = false;
@@ -8345,6 +8364,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         ((widget.note?.blocks.isNotEmpty ?? false)
             ? NoteEditorMode.rich
             : lastSettings.mode);
+    _captureLocationEnabled =
+        widget.note == null && lastSettings.captureLocation;
+    _location = widget.note?.location;
     _attachments = [...?widget.note?.attachments];
     _tags = [...?widget.note?.tags];
     _richBlocks = _buildInitialRichBlocks();
@@ -8363,6 +8385,13 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _scheduleInitialEditorFocus();
     if (widget.note == null) {
       unawaited(_restoreDraftIfAny());
+      if (_captureLocationEnabled) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _location == null) {
+            unawaited(_captureCurrentLocationForNote(showErrors: false));
+          }
+        });
+      }
     }
   }
 
@@ -8418,6 +8447,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             quickContent: _contentController.text,
             quickAttachments: _attachments,
             richBlocks: _richBlocksToNoteBlocks(),
+            location: _location,
           ),
         ),
       );
@@ -8570,6 +8600,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       _editorMode = draft.editorMode;
       _selectedVaultId = draft.vaultId;
       _tags = [...draft.tags];
+      _location = draft.location;
       _contentController.text = draft.quickContent;
       _attachments = [...draft.quickAttachments];
       for (final block in _richBlocks) {
@@ -8659,6 +8690,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
               quickContent: _contentController.text,
               quickAttachments: _attachments,
               richBlocks: _richBlocksToNoteBlocks(),
+              location: _location,
             ),
           );
     });
@@ -8931,6 +8963,34 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                     : _mutedTextColor(context),
                               ),
                             ),
+                            IconButton(
+                              tooltip: _captureLocationEnabled
+                                  ? strings.currentLocationLabel
+                                  : strings.addCurrentLocation,
+                              onPressed: _locationBusy
+                                  ? null
+                                  : _toggleLocationCapture,
+                              icon: _locationBusy
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Icon(
+                                      _location != null
+                                          ? Icons.my_location_rounded
+                                          : Icons.my_location_outlined,
+                                      color:
+                                          _captureLocationEnabled ||
+                                              _location != null
+                                          ? Theme.of(
+                                              context,
+                                            ).colorScheme.primary
+                                          : _mutedTextColor(context),
+                                    ),
+                            ),
                             PopupMenuButton<MediaImportAction>(
                               key: const Key('note-capture-media-menu'),
                               tooltip: strings.captureMedia,
@@ -8961,13 +9021,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                   child: _MediaMenuEntry(
                                     icon: Icons.mic_none_rounded,
                                     label: strings.recordAudio,
-                                  ),
-                                ),
-                                PopupMenuItem(
-                                  value: MediaImportAction.addLocation,
-                                  child: _MediaMenuEntry(
-                                    icon: Icons.my_location_outlined,
-                                    label: strings.addCurrentLocation,
                                   ),
                                 ),
                               ],
@@ -9073,6 +9126,29 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       onRemove: _removeQuickAttachmentAt,
                       onMove: _moveQuickAttachment,
                     ),
+                  if (_location != null) ...[
+                    const SizedBox(height: 12),
+                    _EditableLocationSection(
+                      location: _location!,
+                      strings: strings,
+                      onEdit: _editLocation,
+                      onRemove: () {
+                        setState(() {
+                          _location = null;
+                          _captureLocationEnabled = false;
+                        });
+                        unawaited(
+                          ref
+                              .read(
+                                lastNoteEditorSettingsControllerProvider
+                                    .notifier,
+                              )
+                              .setCaptureLocation(false),
+                        );
+                        _scheduleDraftPersist();
+                      },
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   Container(
                     decoration: _sectionDecoration(context),
@@ -9319,7 +9395,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
 
   Future<void> _handleAttachmentAction(MediaImportAction action) async {
     if (action == MediaImportAction.addLocation) {
-      await _handleLocationAction();
+      await _toggleLocationCapture();
       return;
     }
     final MediaImportResult result;
@@ -9410,8 +9486,33 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _scheduleDraftPersist();
   }
 
-  Future<void> _handleLocationAction() async {
+  Future<void> _toggleLocationCapture() async {
+    final nextEnabled = !_captureLocationEnabled;
+    setState(() {
+      _captureLocationEnabled = nextEnabled;
+      if (!nextEnabled) {
+        _location = null;
+      }
+    });
+    await ref
+        .read(lastNoteEditorSettingsControllerProvider.notifier)
+        .setCaptureLocation(nextEnabled);
+    _scheduleDraftPersist();
+    if (nextEnabled) {
+      await _captureCurrentLocationForNote(showErrors: true);
+    }
+  }
+
+  Future<void> _captureCurrentLocationForNote({
+    required bool showErrors,
+  }) async {
+    if (_locationBusy) {
+      return;
+    }
     final strings = context.strings;
+    setState(() {
+      _locationBusy = true;
+    });
     try {
       final locationServiceEnabled =
           kIsWeb || await Geolocator.isLocationServiceEnabled();
@@ -9419,7 +9520,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         if (!mounted) {
           return;
         }
-        _showEditorSnackBar(content: Text(strings.locationServicesOff));
+        if (showErrors) {
+          _showEditorSnackBar(content: Text(strings.locationServicesOff));
+        }
         return;
       }
 
@@ -9432,7 +9535,11 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         if (!mounted) {
           return;
         }
-        _showEditorSnackBar(content: Text(strings.locationPermissionRequired));
+        if (showErrors) {
+          _showEditorSnackBar(
+            content: Text(strings.locationPermissionRequired),
+          );
+        }
         return;
       }
 
@@ -9449,100 +9556,40 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       if (!mounted) {
         return;
       }
-      _insertLocationText(
-        _formatLocationMemo(position, strings, estimatedAddress: address),
-      );
-      _showEditorSnackBar(content: Text(strings.currentLocationAdded));
+      setState(() {
+        _location = _noteLocationFromPosition(position, address: address);
+      });
+      _scheduleDraftPersist();
+      if (showErrors) {
+        _showEditorSnackBar(content: Text(strings.currentLocationAdded));
+      }
     } catch (_) {
       if (!mounted) {
         return;
       }
-      _showEditorSnackBar(content: Text(strings.currentLocationUnavailable));
+      if (showErrors) {
+        _showEditorSnackBar(content: Text(strings.currentLocationUnavailable));
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _locationBusy = false;
+        });
+      }
     }
   }
 
-  void _insertLocationText(String locationText) {
+  Future<void> _editLocation() async {
+    final current = _location;
+    if (current == null) {
+      return;
+    }
+    final edited = await _showLocationEditDialog(context, current);
+    if (edited == null || !mounted) {
+      return;
+    }
     setState(() {
-      if (_editorMode == NoteEditorMode.quick) {
-        final text = _contentController.text;
-        final selection = _contentController.selection;
-        final insertionOffset = selection.isValid
-            ? selection.baseOffset.clamp(0, text.length)
-            : text.length;
-        final prefix = insertionOffset > 0 && !text.endsWith('\n')
-            ? '\n\n'
-            : '';
-        final suffix = insertionOffset < text.length ? '\n\n' : '';
-        final nextText = text.replaceRange(
-          insertionOffset,
-          insertionOffset,
-          '$prefix$locationText$suffix',
-        );
-        final nextOffset =
-            insertionOffset + prefix.length + locationText.length;
-        _contentController.text = nextText;
-        _contentController.selection = TextSelection.collapsed(
-          offset: nextOffset,
-        );
-        return;
-      }
-
-      final insertionIndex = _resolveRichInsertionIndex();
-      final nextBlocks = [..._richBlocks];
-      late final _RichBlockDraft paragraphToFocus;
-      var focusOffset = 0;
-
-      if (insertionIndex < nextBlocks.length &&
-          nextBlocks[insertionIndex].type == NoteBlockType.paragraph) {
-        final current = nextBlocks[insertionIndex];
-        final controller = current.controller!;
-        final text = controller.text;
-        final selection = controller.selection;
-        final cursorOffset = selection.isValid
-            ? selection.baseOffset.clamp(0, text.length)
-            : text.length;
-        if (text.trim().isEmpty) {
-          controller.text = locationText;
-          final trailingParagraph = _RichBlockDraft.paragraph();
-          _attachRichBlockListener(trailingParagraph);
-          nextBlocks.insert(insertionIndex + 1, trailingParagraph);
-          paragraphToFocus = trailingParagraph;
-        } else {
-          final beforeText = text.substring(0, cursorOffset);
-          final afterText = text.substring(cursorOffset);
-          current.dispose();
-          nextBlocks.removeAt(insertionIndex);
-
-          final replacement = <_RichBlockDraft>[];
-          if (beforeText.trim().isNotEmpty) {
-            final beforeParagraph = _RichBlockDraft.paragraph(beforeText);
-            _attachRichBlockListener(beforeParagraph);
-            replacement.add(beforeParagraph);
-          }
-
-          final locationParagraph = _RichBlockDraft.paragraph(locationText);
-          _attachRichBlockListener(locationParagraph);
-          replacement.add(locationParagraph);
-
-          final afterParagraph = _RichBlockDraft.paragraph(afterText);
-          _attachRichBlockListener(afterParagraph);
-          replacement.add(afterParagraph);
-
-          nextBlocks.insertAll(insertionIndex, replacement);
-          paragraphToFocus = afterParagraph;
-        }
-      } else {
-        final paragraph = _RichBlockDraft.paragraph(locationText);
-        _attachRichBlockListener(paragraph);
-        final trailingParagraph = _RichBlockDraft.paragraph();
-        _attachRichBlockListener(trailingParagraph);
-        nextBlocks.insertAll(insertionIndex, [paragraph, trailingParagraph]);
-        paragraphToFocus = trailingParagraph;
-      }
-
-      _richBlocks = nextBlocks;
-      _activeRichParagraphIndex = _richBlocks.indexOf(paragraphToFocus);
-      _requestParagraphFocus(paragraphToFocus, focusOffset);
+      _location = edited;
     });
     _scheduleDraftPersist();
   }
@@ -9577,6 +9624,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       deviceId: widget.note?.deviceId,
       syncState: widget.note?.syncState ?? NoteSyncState.localOnly,
       editorMode: _editorMode,
+      location: _location,
     );
     final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
     for (final filePath in _pendingAttachmentDeletes) {
@@ -9585,7 +9633,11 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _pendingAttachmentDeletes.clear();
     await ref
         .read(lastNoteEditorSettingsControllerProvider.notifier)
-        .remember(mode: _editorMode, vaultId: _selectedVaultId!);
+        .remember(
+          mode: _editorMode,
+          vaultId: _selectedVaultId!,
+          captureLocation: _captureLocationEnabled,
+        );
     await ref.read(notesControllerProvider.notifier).upsert(note);
     if (widget.note == null) {
       await ref.read(noteEditorDraftStoreProvider).clear();
@@ -9919,23 +9971,13 @@ String? _formatPlacemarkAddress(Placemark placemark) {
   return deduped.isEmpty ? null : deduped.join(', ');
 }
 
-String _formatLocationMemo(
-  Position position,
-  AppStrings strings, {
-  String? estimatedAddress,
-}) {
-  final latitude = position.latitude.toStringAsFixed(6);
-  final longitude = position.longitude.toStringAsFixed(6);
-  final accuracy = position.accuracy.isFinite
-      ? '${position.accuracy.round()}m'
-      : '-';
-  final mapUrl = 'https://maps.google.com/?q=$latitude,$longitude';
-  return strings.locationMemo(
-    latitude: latitude,
-    longitude: longitude,
-    accuracy: accuracy,
-    mapUrl: mapUrl,
-    estimatedAddress: estimatedAddress,
+NoteLocation _noteLocationFromPosition(Position position, {String? address}) {
+  return NoteLocation(
+    latitude: position.latitude,
+    longitude: position.longitude,
+    accuracyMeters: position.accuracy.isFinite ? position.accuracy : null,
+    address: address,
+    capturedAt: DateTime.now(),
   );
 }
 
@@ -9953,6 +9995,20 @@ class _LocationMemoData {
   final String accuracy;
   final String mapUrl;
   final String? address;
+}
+
+_LocationMemoData _locationMemoDataFromMetadata(NoteLocation location) {
+  final latitude = location.latitude.toStringAsFixed(6);
+  final longitude = location.longitude.toStringAsFixed(6);
+  return _LocationMemoData(
+    latitude: latitude,
+    longitude: longitude,
+    accuracy: location.accuracyMeters == null
+        ? '-'
+        : '${location.accuracyMeters!.round()}m',
+    mapUrl: 'https://maps.google.com/?q=$latitude,$longitude',
+    address: location.address,
+  );
 }
 
 _LocationMemoData? _tryParseLocationMemo(String text) {
@@ -10032,6 +10088,219 @@ Future<void> _openLocationMap(
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(showCloseIcon: true, content: Text(context.strings.mapOpenFailed)),
   );
+}
+
+class _EditableLocationSection extends StatelessWidget {
+  const _EditableLocationSection({
+    required this.location,
+    required this.strings,
+    required this.onEdit,
+    required this.onRemove,
+  });
+
+  final NoteLocation location;
+  final AppStrings strings;
+  final VoidCallback onEdit;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final data = _locationMemoDataFromMetadata(location);
+    return Container(
+      decoration: _sectionDecoration(context),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.my_location_rounded,
+                size: 18,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  strings.currentLocationLabel,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              IconButton(
+                tooltip: strings.editNote,
+                onPressed: onEdit,
+                icon: const Icon(Icons.map_outlined),
+              ),
+              IconButton(
+                tooltip: strings.removeBlock,
+                onPressed: onRemove,
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _LocationMemoCard(location: data, strings: strings),
+        ],
+      ),
+    );
+  }
+}
+
+Future<NoteLocation?> _showLocationEditDialog(
+  BuildContext context,
+  NoteLocation location,
+) async {
+  final strings = context.strings;
+  final latitudeController = TextEditingController(
+    text: location.latitude.toStringAsFixed(6),
+  );
+  final longitudeController = TextEditingController(
+    text: location.longitude.toStringAsFixed(6),
+  );
+  final accuracyController = TextEditingController(
+    text: location.accuracyMeters == null
+        ? ''
+        : location.accuracyMeters!.round().toString(),
+  );
+  final addressController = TextEditingController(text: location.address ?? '');
+  try {
+    return await showDialog<NoteLocation>(
+      context: context,
+      builder: (dialogContext) {
+        String? errorText;
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(strings.currentLocationLabel),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      height: 120,
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Theme.of(context).dividerColor,
+                        ),
+                      ),
+                      child: Center(
+                        child: Icon(
+                          Icons.location_on_rounded,
+                          size: 36,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: latitudeController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                        signed: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: strings.latitudeLabel,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: longitudeController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                        signed: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: strings.longitudeLabel,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: accuracyController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: strings.locationAccuracyLabel,
+                        suffixText: 'm',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: addressController,
+                      decoration: InputDecoration(
+                        labelText: strings.estimatedAddressLabel,
+                      ),
+                    ),
+                    if (errorText != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        errorText!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: Text(strings.cancel),
+                ),
+                TextButton.icon(
+                  onPressed: () => _openLocationMap(
+                    context,
+                    _locationMemoDataFromMetadata(location),
+                  ),
+                  icon: const Icon(Icons.open_in_new_rounded),
+                  label: Text(strings.openMap),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final latitude = double.tryParse(
+                      latitudeController.text.trim(),
+                    );
+                    final longitude = double.tryParse(
+                      longitudeController.text.trim(),
+                    );
+                    if (latitude == null || longitude == null) {
+                      setDialogState(() {
+                        errorText = strings.currentLocationUnavailable;
+                      });
+                      return;
+                    }
+                    Navigator.of(dialogContext).pop(
+                      NoteLocation(
+                        latitude: latitude,
+                        longitude: longitude,
+                        accuracyMeters: double.tryParse(
+                          accuracyController.text.trim(),
+                        ),
+                        address: addressController.text.trim().isEmpty
+                            ? null
+                            : addressController.text.trim(),
+                        capturedAt: location.capturedAt ?? DateTime.now(),
+                      ),
+                    );
+                  },
+                  child: Text(strings.save),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  } finally {
+    latitudeController.dispose();
+    longitudeController.dispose();
+    accuracyController.dispose();
+    addressController.dispose();
+  }
 }
 
 class _LocationMemoCard extends StatelessWidget {

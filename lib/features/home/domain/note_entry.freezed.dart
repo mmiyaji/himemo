@@ -13,6 +13,281 @@ part of 'note_entry.dart';
 T _$identity<T>(T value) => value;
 
 /// @nodoc
+mixin _$NoteLocation {
+
+ double get latitude; double get longitude; double? get accuracyMeters; String? get address; DateTime? get capturedAt;
+/// Create a copy of NoteLocation
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$NoteLocationCopyWith<NoteLocation> get copyWith => _$NoteLocationCopyWithImpl<NoteLocation>(this as NoteLocation, _$identity);
+
+  /// Serializes this NoteLocation to a JSON map.
+  Map<String, dynamic> toJson();
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteLocation&&(identical(other.latitude, latitude) || other.latitude == latitude)&&(identical(other.longitude, longitude) || other.longitude == longitude)&&(identical(other.accuracyMeters, accuracyMeters) || other.accuracyMeters == accuracyMeters)&&(identical(other.address, address) || other.address == address)&&(identical(other.capturedAt, capturedAt) || other.capturedAt == capturedAt));
+}
+
+@JsonKey(includeFromJson: false, includeToJson: false)
+@override
+int get hashCode => Object.hash(runtimeType,latitude,longitude,accuracyMeters,address,capturedAt);
+
+@override
+String toString() {
+  return 'NoteLocation(latitude: $latitude, longitude: $longitude, accuracyMeters: $accuracyMeters, address: $address, capturedAt: $capturedAt)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $NoteLocationCopyWith<$Res>  {
+  factory $NoteLocationCopyWith(NoteLocation value, $Res Function(NoteLocation) _then) = _$NoteLocationCopyWithImpl;
+@useResult
+$Res call({
+ double latitude, double longitude, double? accuracyMeters, String? address, DateTime? capturedAt
+});
+
+
+
+
+}
+/// @nodoc
+class _$NoteLocationCopyWithImpl<$Res>
+    implements $NoteLocationCopyWith<$Res> {
+  _$NoteLocationCopyWithImpl(this._self, this._then);
+
+  final NoteLocation _self;
+  final $Res Function(NoteLocation) _then;
+
+/// Create a copy of NoteLocation
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') @override $Res call({Object? latitude = null,Object? longitude = null,Object? accuracyMeters = freezed,Object? address = freezed,Object? capturedAt = freezed,}) {
+  return _then(_self.copyWith(
+latitude: null == latitude ? _self.latitude : latitude // ignore: cast_nullable_to_non_nullable
+as double,longitude: null == longitude ? _self.longitude : longitude // ignore: cast_nullable_to_non_nullable
+as double,accuracyMeters: freezed == accuracyMeters ? _self.accuracyMeters : accuracyMeters // ignore: cast_nullable_to_non_nullable
+as double?,address: freezed == address ? _self.address : address // ignore: cast_nullable_to_non_nullable
+as String?,capturedAt: freezed == capturedAt ? _self.capturedAt : capturedAt // ignore: cast_nullable_to_non_nullable
+as DateTime?,
+  ));
+}
+
+}
+
+
+/// Adds pattern-matching-related methods to [NoteLocation].
+extension NoteLocationPatterns on NoteLocation {
+/// A variant of `map` that fallback to returning `orElse`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>(TResult Function( _NoteLocation value)?  $default,{required TResult orElse(),}){
+final _that = this;
+switch (_that) {
+case _NoteLocation() when $default != null:
+return $default(_that);case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// Callbacks receives the raw object, upcasted.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case final Subclass2 value:
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult map<TResult extends Object?>(TResult Function( _NoteLocation value)  $default,){
+final _that = this;
+switch (_that) {
+case _NoteLocation():
+return $default(_that);case _:
+  throw StateError('Unexpected subclass');
+
+}
+}
+/// A variant of `map` that fallback to returning `null`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>(TResult? Function( _NoteLocation value)?  $default,){
+final _that = this;
+switch (_that) {
+case _NoteLocation() when $default != null:
+return $default(_that);case _:
+  return null;
+
+}
+}
+/// A variant of `when` that fallback to an `orElse` callback.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( double latitude,  double longitude,  double? accuracyMeters,  String? address,  DateTime? capturedAt)?  $default,{required TResult orElse(),}) {final _that = this;
+switch (_that) {
+case _NoteLocation() when $default != null:
+return $default(_that.latitude,_that.longitude,_that.accuracyMeters,_that.address,_that.capturedAt);case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// As opposed to `map`, this offers destructuring.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case Subclass2(:final field2):
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( double latitude,  double longitude,  double? accuracyMeters,  String? address,  DateTime? capturedAt)  $default,) {final _that = this;
+switch (_that) {
+case _NoteLocation():
+return $default(_that.latitude,_that.longitude,_that.accuracyMeters,_that.address,_that.capturedAt);case _:
+  throw StateError('Unexpected subclass');
+
+}
+}
+/// A variant of `when` that fallback to returning `null`
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( double latitude,  double longitude,  double? accuracyMeters,  String? address,  DateTime? capturedAt)?  $default,) {final _that = this;
+switch (_that) {
+case _NoteLocation() when $default != null:
+return $default(_that.latitude,_that.longitude,_that.accuracyMeters,_that.address,_that.capturedAt);case _:
+  return null;
+
+}
+}
+
+}
+
+/// @nodoc
+@JsonSerializable()
+
+class _NoteLocation implements NoteLocation {
+  const _NoteLocation({required this.latitude, required this.longitude, this.accuracyMeters, this.address, this.capturedAt});
+  factory _NoteLocation.fromJson(Map<String, dynamic> json) => _$NoteLocationFromJson(json);
+
+@override final  double latitude;
+@override final  double longitude;
+@override final  double? accuracyMeters;
+@override final  String? address;
+@override final  DateTime? capturedAt;
+
+/// Create a copy of NoteLocation
+/// with the given fields replaced by the non-null parameter values.
+@override @JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+_$NoteLocationCopyWith<_NoteLocation> get copyWith => __$NoteLocationCopyWithImpl<_NoteLocation>(this, _$identity);
+
+@override
+Map<String, dynamic> toJson() {
+  return _$NoteLocationToJson(this, );
+}
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NoteLocation&&(identical(other.latitude, latitude) || other.latitude == latitude)&&(identical(other.longitude, longitude) || other.longitude == longitude)&&(identical(other.accuracyMeters, accuracyMeters) || other.accuracyMeters == accuracyMeters)&&(identical(other.address, address) || other.address == address)&&(identical(other.capturedAt, capturedAt) || other.capturedAt == capturedAt));
+}
+
+@JsonKey(includeFromJson: false, includeToJson: false)
+@override
+int get hashCode => Object.hash(runtimeType,latitude,longitude,accuracyMeters,address,capturedAt);
+
+@override
+String toString() {
+  return 'NoteLocation(latitude: $latitude, longitude: $longitude, accuracyMeters: $accuracyMeters, address: $address, capturedAt: $capturedAt)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class _$NoteLocationCopyWith<$Res> implements $NoteLocationCopyWith<$Res> {
+  factory _$NoteLocationCopyWith(_NoteLocation value, $Res Function(_NoteLocation) _then) = __$NoteLocationCopyWithImpl;
+@override @useResult
+$Res call({
+ double latitude, double longitude, double? accuracyMeters, String? address, DateTime? capturedAt
+});
+
+
+
+
+}
+/// @nodoc
+class __$NoteLocationCopyWithImpl<$Res>
+    implements _$NoteLocationCopyWith<$Res> {
+  __$NoteLocationCopyWithImpl(this._self, this._then);
+
+  final _NoteLocation _self;
+  final $Res Function(_NoteLocation) _then;
+
+/// Create a copy of NoteLocation
+/// with the given fields replaced by the non-null parameter values.
+@override @pragma('vm:prefer-inline') $Res call({Object? latitude = null,Object? longitude = null,Object? accuracyMeters = freezed,Object? address = freezed,Object? capturedAt = freezed,}) {
+  return _then(_NoteLocation(
+latitude: null == latitude ? _self.latitude : latitude // ignore: cast_nullable_to_non_nullable
+as double,longitude: null == longitude ? _self.longitude : longitude // ignore: cast_nullable_to_non_nullable
+as double,accuracyMeters: freezed == accuracyMeters ? _self.accuracyMeters : accuracyMeters // ignore: cast_nullable_to_non_nullable
+as double?,address: freezed == address ? _self.address : address // ignore: cast_nullable_to_non_nullable
+as String?,capturedAt: freezed == capturedAt ? _self.capturedAt : capturedAt // ignore: cast_nullable_to_non_nullable
+as DateTime?,
+  ));
+}
+
+
+}
+
+
+/// @nodoc
 mixin _$NoteAttachment {
 
  AttachmentType get type; String get label; String? get filePath; String? get previewBytesBase64; int? get durationMs;
@@ -583,7 +858,7 @@ $NoteAttachmentCopyWith<$Res>? get attachment {
 /// @nodoc
 mixin _$NoteEntry {
 
- String get id; String get vaultId; String get title; String get body; DateTime get createdAt; DateTime? get updatedAt; DateTime? get deletedAt; String? get deviceId; String? get contentHash; List<NoteAttachment> get attachments; List<NoteBlock> get blocks; List<String> get tags; bool get isPinned; int get revision; NoteSyncState get syncState; NoteEditorMode get editorMode;
+ String get id; String get vaultId; String get title; String get body; DateTime get createdAt; DateTime? get updatedAt; DateTime? get deletedAt; String? get deviceId; String? get contentHash; List<NoteAttachment> get attachments; List<NoteBlock> get blocks; List<String> get tags; bool get isPinned; int get revision; NoteSyncState get syncState; NoteEditorMode get editorMode; NoteLocation? get location;
 /// Create a copy of NoteEntry
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -596,16 +871,16 @@ $NoteEntryCopyWith<NoteEntry> get copyWith => _$NoteEntryCopyWithImpl<NoteEntry>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteEntry&&(identical(other.id, id) || other.id == id)&&(identical(other.vaultId, vaultId) || other.vaultId == vaultId)&&(identical(other.title, title) || other.title == title)&&(identical(other.body, body) || other.body == body)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.deletedAt, deletedAt) || other.deletedAt == deletedAt)&&(identical(other.deviceId, deviceId) || other.deviceId == deviceId)&&(identical(other.contentHash, contentHash) || other.contentHash == contentHash)&&const DeepCollectionEquality().equals(other.attachments, attachments)&&const DeepCollectionEquality().equals(other.blocks, blocks)&&const DeepCollectionEquality().equals(other.tags, tags)&&(identical(other.isPinned, isPinned) || other.isPinned == isPinned)&&(identical(other.revision, revision) || other.revision == revision)&&(identical(other.syncState, syncState) || other.syncState == syncState)&&(identical(other.editorMode, editorMode) || other.editorMode == editorMode));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteEntry&&(identical(other.id, id) || other.id == id)&&(identical(other.vaultId, vaultId) || other.vaultId == vaultId)&&(identical(other.title, title) || other.title == title)&&(identical(other.body, body) || other.body == body)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.deletedAt, deletedAt) || other.deletedAt == deletedAt)&&(identical(other.deviceId, deviceId) || other.deviceId == deviceId)&&(identical(other.contentHash, contentHash) || other.contentHash == contentHash)&&const DeepCollectionEquality().equals(other.attachments, attachments)&&const DeepCollectionEquality().equals(other.blocks, blocks)&&const DeepCollectionEquality().equals(other.tags, tags)&&(identical(other.isPinned, isPinned) || other.isPinned == isPinned)&&(identical(other.revision, revision) || other.revision == revision)&&(identical(other.syncState, syncState) || other.syncState == syncState)&&(identical(other.editorMode, editorMode) || other.editorMode == editorMode)&&(identical(other.location, location) || other.location == location));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,vaultId,title,body,createdAt,updatedAt,deletedAt,deviceId,contentHash,const DeepCollectionEquality().hash(attachments),const DeepCollectionEquality().hash(blocks),const DeepCollectionEquality().hash(tags),isPinned,revision,syncState,editorMode);
+int get hashCode => Object.hash(runtimeType,id,vaultId,title,body,createdAt,updatedAt,deletedAt,deviceId,contentHash,const DeepCollectionEquality().hash(attachments),const DeepCollectionEquality().hash(blocks),const DeepCollectionEquality().hash(tags),isPinned,revision,syncState,editorMode,location);
 
 @override
 String toString() {
-  return 'NoteEntry(id: $id, vaultId: $vaultId, title: $title, body: $body, createdAt: $createdAt, updatedAt: $updatedAt, deletedAt: $deletedAt, deviceId: $deviceId, contentHash: $contentHash, attachments: $attachments, blocks: $blocks, tags: $tags, isPinned: $isPinned, revision: $revision, syncState: $syncState, editorMode: $editorMode)';
+  return 'NoteEntry(id: $id, vaultId: $vaultId, title: $title, body: $body, createdAt: $createdAt, updatedAt: $updatedAt, deletedAt: $deletedAt, deviceId: $deviceId, contentHash: $contentHash, attachments: $attachments, blocks: $blocks, tags: $tags, isPinned: $isPinned, revision: $revision, syncState: $syncState, editorMode: $editorMode, location: $location)';
 }
 
 
@@ -616,11 +891,11 @@ abstract mixin class $NoteEntryCopyWith<$Res>  {
   factory $NoteEntryCopyWith(NoteEntry value, $Res Function(NoteEntry) _then) = _$NoteEntryCopyWithImpl;
 @useResult
 $Res call({
- String id, String vaultId, String title, String body, DateTime createdAt, DateTime? updatedAt, DateTime? deletedAt, String? deviceId, String? contentHash, List<NoteAttachment> attachments, List<NoteBlock> blocks, List<String> tags, bool isPinned, int revision, NoteSyncState syncState, NoteEditorMode editorMode
+ String id, String vaultId, String title, String body, DateTime createdAt, DateTime? updatedAt, DateTime? deletedAt, String? deviceId, String? contentHash, List<NoteAttachment> attachments, List<NoteBlock> blocks, List<String> tags, bool isPinned, int revision, NoteSyncState syncState, NoteEditorMode editorMode, NoteLocation? location
 });
 
 
-
+$NoteLocationCopyWith<$Res>? get location;
 
 }
 /// @nodoc
@@ -633,7 +908,7 @@ class _$NoteEntryCopyWithImpl<$Res>
 
 /// Create a copy of NoteEntry
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? vaultId = null,Object? title = null,Object? body = null,Object? createdAt = null,Object? updatedAt = freezed,Object? deletedAt = freezed,Object? deviceId = freezed,Object? contentHash = freezed,Object? attachments = null,Object? blocks = null,Object? tags = null,Object? isPinned = null,Object? revision = null,Object? syncState = null,Object? editorMode = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? vaultId = null,Object? title = null,Object? body = null,Object? createdAt = null,Object? updatedAt = freezed,Object? deletedAt = freezed,Object? deviceId = freezed,Object? contentHash = freezed,Object? attachments = null,Object? blocks = null,Object? tags = null,Object? isPinned = null,Object? revision = null,Object? syncState = null,Object? editorMode = null,Object? location = freezed,}) {
   return _then(_self.copyWith(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,vaultId: null == vaultId ? _self.vaultId : vaultId // ignore: cast_nullable_to_non_nullable
@@ -651,10 +926,23 @@ as List<String>,isPinned: null == isPinned ? _self.isPinned : isPinned // ignore
 as bool,revision: null == revision ? _self.revision : revision // ignore: cast_nullable_to_non_nullable
 as int,syncState: null == syncState ? _self.syncState : syncState // ignore: cast_nullable_to_non_nullable
 as NoteSyncState,editorMode: null == editorMode ? _self.editorMode : editorMode // ignore: cast_nullable_to_non_nullable
-as NoteEditorMode,
+as NoteEditorMode,location: freezed == location ? _self.location : location // ignore: cast_nullable_to_non_nullable
+as NoteLocation?,
   ));
 }
+/// Create a copy of NoteEntry
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$NoteLocationCopyWith<$Res>? get location {
+    if (_self.location == null) {
+    return null;
+  }
 
+  return $NoteLocationCopyWith<$Res>(_self.location!, (value) {
+    return _then(_self.copyWith(location: value));
+  });
+}
 }
 
 
@@ -736,10 +1024,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String vaultId,  String title,  String body,  DateTime createdAt,  DateTime? updatedAt,  DateTime? deletedAt,  String? deviceId,  String? contentHash,  List<NoteAttachment> attachments,  List<NoteBlock> blocks,  List<String> tags,  bool isPinned,  int revision,  NoteSyncState syncState,  NoteEditorMode editorMode)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String vaultId,  String title,  String body,  DateTime createdAt,  DateTime? updatedAt,  DateTime? deletedAt,  String? deviceId,  String? contentHash,  List<NoteAttachment> attachments,  List<NoteBlock> blocks,  List<String> tags,  bool isPinned,  int revision,  NoteSyncState syncState,  NoteEditorMode editorMode,  NoteLocation? location)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _NoteEntry() when $default != null:
-return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_that.updatedAt,_that.deletedAt,_that.deviceId,_that.contentHash,_that.attachments,_that.blocks,_that.tags,_that.isPinned,_that.revision,_that.syncState,_that.editorMode);case _:
+return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_that.updatedAt,_that.deletedAt,_that.deviceId,_that.contentHash,_that.attachments,_that.blocks,_that.tags,_that.isPinned,_that.revision,_that.syncState,_that.editorMode,_that.location);case _:
   return orElse();
 
 }
@@ -757,10 +1045,10 @@ return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_t
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String vaultId,  String title,  String body,  DateTime createdAt,  DateTime? updatedAt,  DateTime? deletedAt,  String? deviceId,  String? contentHash,  List<NoteAttachment> attachments,  List<NoteBlock> blocks,  List<String> tags,  bool isPinned,  int revision,  NoteSyncState syncState,  NoteEditorMode editorMode)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String vaultId,  String title,  String body,  DateTime createdAt,  DateTime? updatedAt,  DateTime? deletedAt,  String? deviceId,  String? contentHash,  List<NoteAttachment> attachments,  List<NoteBlock> blocks,  List<String> tags,  bool isPinned,  int revision,  NoteSyncState syncState,  NoteEditorMode editorMode,  NoteLocation? location)  $default,) {final _that = this;
 switch (_that) {
 case _NoteEntry():
-return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_that.updatedAt,_that.deletedAt,_that.deviceId,_that.contentHash,_that.attachments,_that.blocks,_that.tags,_that.isPinned,_that.revision,_that.syncState,_that.editorMode);case _:
+return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_that.updatedAt,_that.deletedAt,_that.deviceId,_that.contentHash,_that.attachments,_that.blocks,_that.tags,_that.isPinned,_that.revision,_that.syncState,_that.editorMode,_that.location);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -777,10 +1065,10 @@ return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_t
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String vaultId,  String title,  String body,  DateTime createdAt,  DateTime? updatedAt,  DateTime? deletedAt,  String? deviceId,  String? contentHash,  List<NoteAttachment> attachments,  List<NoteBlock> blocks,  List<String> tags,  bool isPinned,  int revision,  NoteSyncState syncState,  NoteEditorMode editorMode)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String vaultId,  String title,  String body,  DateTime createdAt,  DateTime? updatedAt,  DateTime? deletedAt,  String? deviceId,  String? contentHash,  List<NoteAttachment> attachments,  List<NoteBlock> blocks,  List<String> tags,  bool isPinned,  int revision,  NoteSyncState syncState,  NoteEditorMode editorMode,  NoteLocation? location)?  $default,) {final _that = this;
 switch (_that) {
 case _NoteEntry() when $default != null:
-return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_that.updatedAt,_that.deletedAt,_that.deviceId,_that.contentHash,_that.attachments,_that.blocks,_that.tags,_that.isPinned,_that.revision,_that.syncState,_that.editorMode);case _:
+return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_that.updatedAt,_that.deletedAt,_that.deviceId,_that.contentHash,_that.attachments,_that.blocks,_that.tags,_that.isPinned,_that.revision,_that.syncState,_that.editorMode,_that.location);case _:
   return null;
 
 }
@@ -789,10 +1077,10 @@ return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_t
 }
 
 /// @nodoc
-@JsonSerializable()
 
+@JsonSerializable(explicitToJson: true)
 class _NoteEntry implements NoteEntry {
-  const _NoteEntry({required this.id, required this.vaultId, required this.title, required this.body, required this.createdAt, this.updatedAt, this.deletedAt, this.deviceId, this.contentHash, final  List<NoteAttachment> attachments = const <NoteAttachment>[], final  List<NoteBlock> blocks = const <NoteBlock>[], final  List<String> tags = const <String>[], this.isPinned = false, this.revision = 1, this.syncState = NoteSyncState.localOnly, this.editorMode = NoteEditorMode.rich}): _attachments = attachments,_blocks = blocks,_tags = tags;
+  const _NoteEntry({required this.id, required this.vaultId, required this.title, required this.body, required this.createdAt, this.updatedAt, this.deletedAt, this.deviceId, this.contentHash, final  List<NoteAttachment> attachments = const <NoteAttachment>[], final  List<NoteBlock> blocks = const <NoteBlock>[], final  List<String> tags = const <String>[], this.isPinned = false, this.revision = 1, this.syncState = NoteSyncState.localOnly, this.editorMode = NoteEditorMode.rich, this.location}): _attachments = attachments,_blocks = blocks,_tags = tags;
   factory _NoteEntry.fromJson(Map<String, dynamic> json) => _$NoteEntryFromJson(json);
 
 @override final  String id;
@@ -829,6 +1117,7 @@ class _NoteEntry implements NoteEntry {
 @override@JsonKey() final  int revision;
 @override@JsonKey() final  NoteSyncState syncState;
 @override@JsonKey() final  NoteEditorMode editorMode;
+@override final  NoteLocation? location;
 
 /// Create a copy of NoteEntry
 /// with the given fields replaced by the non-null parameter values.
@@ -843,16 +1132,16 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NoteEntry&&(identical(other.id, id) || other.id == id)&&(identical(other.vaultId, vaultId) || other.vaultId == vaultId)&&(identical(other.title, title) || other.title == title)&&(identical(other.body, body) || other.body == body)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.deletedAt, deletedAt) || other.deletedAt == deletedAt)&&(identical(other.deviceId, deviceId) || other.deviceId == deviceId)&&(identical(other.contentHash, contentHash) || other.contentHash == contentHash)&&const DeepCollectionEquality().equals(other._attachments, _attachments)&&const DeepCollectionEquality().equals(other._blocks, _blocks)&&const DeepCollectionEquality().equals(other._tags, _tags)&&(identical(other.isPinned, isPinned) || other.isPinned == isPinned)&&(identical(other.revision, revision) || other.revision == revision)&&(identical(other.syncState, syncState) || other.syncState == syncState)&&(identical(other.editorMode, editorMode) || other.editorMode == editorMode));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NoteEntry&&(identical(other.id, id) || other.id == id)&&(identical(other.vaultId, vaultId) || other.vaultId == vaultId)&&(identical(other.title, title) || other.title == title)&&(identical(other.body, body) || other.body == body)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.deletedAt, deletedAt) || other.deletedAt == deletedAt)&&(identical(other.deviceId, deviceId) || other.deviceId == deviceId)&&(identical(other.contentHash, contentHash) || other.contentHash == contentHash)&&const DeepCollectionEquality().equals(other._attachments, _attachments)&&const DeepCollectionEquality().equals(other._blocks, _blocks)&&const DeepCollectionEquality().equals(other._tags, _tags)&&(identical(other.isPinned, isPinned) || other.isPinned == isPinned)&&(identical(other.revision, revision) || other.revision == revision)&&(identical(other.syncState, syncState) || other.syncState == syncState)&&(identical(other.editorMode, editorMode) || other.editorMode == editorMode)&&(identical(other.location, location) || other.location == location));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,vaultId,title,body,createdAt,updatedAt,deletedAt,deviceId,contentHash,const DeepCollectionEquality().hash(_attachments),const DeepCollectionEquality().hash(_blocks),const DeepCollectionEquality().hash(_tags),isPinned,revision,syncState,editorMode);
+int get hashCode => Object.hash(runtimeType,id,vaultId,title,body,createdAt,updatedAt,deletedAt,deviceId,contentHash,const DeepCollectionEquality().hash(_attachments),const DeepCollectionEquality().hash(_blocks),const DeepCollectionEquality().hash(_tags),isPinned,revision,syncState,editorMode,location);
 
 @override
 String toString() {
-  return 'NoteEntry(id: $id, vaultId: $vaultId, title: $title, body: $body, createdAt: $createdAt, updatedAt: $updatedAt, deletedAt: $deletedAt, deviceId: $deviceId, contentHash: $contentHash, attachments: $attachments, blocks: $blocks, tags: $tags, isPinned: $isPinned, revision: $revision, syncState: $syncState, editorMode: $editorMode)';
+  return 'NoteEntry(id: $id, vaultId: $vaultId, title: $title, body: $body, createdAt: $createdAt, updatedAt: $updatedAt, deletedAt: $deletedAt, deviceId: $deviceId, contentHash: $contentHash, attachments: $attachments, blocks: $blocks, tags: $tags, isPinned: $isPinned, revision: $revision, syncState: $syncState, editorMode: $editorMode, location: $location)';
 }
 
 
@@ -863,11 +1152,11 @@ abstract mixin class _$NoteEntryCopyWith<$Res> implements $NoteEntryCopyWith<$Re
   factory _$NoteEntryCopyWith(_NoteEntry value, $Res Function(_NoteEntry) _then) = __$NoteEntryCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String vaultId, String title, String body, DateTime createdAt, DateTime? updatedAt, DateTime? deletedAt, String? deviceId, String? contentHash, List<NoteAttachment> attachments, List<NoteBlock> blocks, List<String> tags, bool isPinned, int revision, NoteSyncState syncState, NoteEditorMode editorMode
+ String id, String vaultId, String title, String body, DateTime createdAt, DateTime? updatedAt, DateTime? deletedAt, String? deviceId, String? contentHash, List<NoteAttachment> attachments, List<NoteBlock> blocks, List<String> tags, bool isPinned, int revision, NoteSyncState syncState, NoteEditorMode editorMode, NoteLocation? location
 });
 
 
-
+@override $NoteLocationCopyWith<$Res>? get location;
 
 }
 /// @nodoc
@@ -880,7 +1169,7 @@ class __$NoteEntryCopyWithImpl<$Res>
 
 /// Create a copy of NoteEntry
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? vaultId = null,Object? title = null,Object? body = null,Object? createdAt = null,Object? updatedAt = freezed,Object? deletedAt = freezed,Object? deviceId = freezed,Object? contentHash = freezed,Object? attachments = null,Object? blocks = null,Object? tags = null,Object? isPinned = null,Object? revision = null,Object? syncState = null,Object? editorMode = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? vaultId = null,Object? title = null,Object? body = null,Object? createdAt = null,Object? updatedAt = freezed,Object? deletedAt = freezed,Object? deviceId = freezed,Object? contentHash = freezed,Object? attachments = null,Object? blocks = null,Object? tags = null,Object? isPinned = null,Object? revision = null,Object? syncState = null,Object? editorMode = null,Object? location = freezed,}) {
   return _then(_NoteEntry(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,vaultId: null == vaultId ? _self.vaultId : vaultId // ignore: cast_nullable_to_non_nullable
@@ -898,11 +1187,24 @@ as List<String>,isPinned: null == isPinned ? _self.isPinned : isPinned // ignore
 as bool,revision: null == revision ? _self.revision : revision // ignore: cast_nullable_to_non_nullable
 as int,syncState: null == syncState ? _self.syncState : syncState // ignore: cast_nullable_to_non_nullable
 as NoteSyncState,editorMode: null == editorMode ? _self.editorMode : editorMode // ignore: cast_nullable_to_non_nullable
-as NoteEditorMode,
+as NoteEditorMode,location: freezed == location ? _self.location : location // ignore: cast_nullable_to_non_nullable
+as NoteLocation?,
   ));
 }
 
+/// Create a copy of NoteEntry
+/// with the given fields replaced by the non-null parameter values.
+@override
+@pragma('vm:prefer-inline')
+$NoteLocationCopyWith<$Res>? get location {
+    if (_self.location == null) {
+    return null;
+  }
 
+  return $NoteLocationCopyWith<$Res>(_self.location!, (value) {
+    return _then(_self.copyWith(location: value));
+  });
+}
 }
 
 // dart format on
