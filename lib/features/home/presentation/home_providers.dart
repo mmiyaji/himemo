@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
 
+import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -33,6 +34,7 @@ import '../../security/data/encrypted_note_database.dart';
 import '../../security/data/encrypted_attachment_store.dart';
 import '../../security/data/encryption_service.dart';
 import '../../security/data/master_key_service.dart';
+import '../../security/data/profile_data_key_service.dart';
 import '../../security/data/private_vault_secret_store.dart';
 import '../../security/data/secure_key_value_store.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
@@ -875,6 +877,34 @@ class SyncTransferState {
   }
 }
 
+class LocalNoteArchive {
+  const LocalNoteArchive({
+    required this.bytes,
+    required this.fileName,
+    required this.noteCount,
+    required this.attachmentCount,
+    required this.isPasswordProtected,
+  });
+
+  final Uint8List bytes;
+  final String fileName;
+  final int noteCount;
+  final int attachmentCount;
+  final bool isPasswordProtected;
+}
+
+class _DecodedLocalZipArchive {
+  const _DecodedLocalZipArchive({
+    required this.manifest,
+    required this.notes,
+    required this.attachmentFiles,
+  });
+
+  final Map<String, dynamic> manifest;
+  final List<Map<String, dynamic>> notes;
+  final Map<String, Uint8List> attachmentFiles;
+}
+
 enum InAppUpdateStage {
   idle,
   checking,
@@ -1502,7 +1532,16 @@ final encryptedNoteStoreProvider = Provider<EncryptedNoteStore>((ref) {
   return EncryptedNoteStore(
     encryptionService: ref.watch(encryptionServiceProvider),
     masterKeyService: ref.watch(masterKeyServiceProvider),
+    profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
     database: ref.watch(encryptedNoteDatabaseProvider),
+  );
+});
+
+final profileDataKeyServiceProvider = Provider<ProfileDataKeyService>((ref) {
+  return ProfileDataKeyService(
+    secureStore: ref.watch(secureKeyValueStoreProvider),
+    encryptionService: ref.watch(encryptionServiceProvider),
+    normalMasterKeyService: ref.watch(masterKeyServiceProvider),
   );
 });
 
@@ -1522,6 +1561,7 @@ final encryptedAttachmentStoreProvider = Provider<EncryptedAttachmentStore>((
   return EncryptedAttachmentStore(
     encryptionService: ref.watch(encryptionServiceProvider),
     masterKeyService: ref.watch(masterKeyServiceProvider),
+    profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
   );
 });
 
@@ -1861,6 +1901,169 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
+  Future<LocalNoteArchive> exportLocalArchive({String? password}) async {
+    state = state.copyWith(
+      stage: SyncTransferStage.busy,
+      clearMessage: true,
+      clearCooldown: true,
+    );
+    try {
+      await logFirebaseBreadcrumb('local zip archive export requested');
+      final archive = await runFirebaseTrace(
+        'notes_prepare_local_zip_archive',
+        () => _buildLocalZipArchive(password: password),
+      );
+      if (archive.bytes.isEmpty) {
+        throw StateError('Local archive could not be prepared.');
+      }
+      state = SyncTransferState(
+        stage: SyncTransferStage.success,
+        message:
+            'ZIP archive prepared with ${archive.noteCount} notes and ${archive.attachmentCount} attachments.',
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
+      return archive;
+    } catch (error) {
+      state = _failureState(
+        error,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
+      rethrow;
+    }
+  }
+
+  Future<SyncBundlePreview> importLocalArchiveBytes(
+    List<int> bytes, {
+    String? password,
+  }) async {
+    if (bytes.isEmpty) {
+      throw StateError('Selected archive is empty.');
+    }
+    state = state.copyWith(
+      stage: SyncTransferStage.busy,
+      clearMessage: true,
+      clearCooldown: true,
+    );
+    try {
+      await logFirebaseBreadcrumb('local zip archive import selected');
+      final decoded = _decodeLocalZipArchive(bytes, password: password);
+      final preview = buildSyncBundlePreview(
+        decodedBundle: _zipArchiveAsSyncBundle(decoded),
+        currentNotes: ref.read(notesControllerProvider),
+      );
+      state = SyncTransferState(
+        stage: SyncTransferStage.success,
+        message: 'ZIP archive loaded for review.',
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
+      return preview;
+    } catch (error) {
+      state = _failureState(
+        error,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> applyLocalArchiveBytes(
+    List<int> bytes, {
+    String? password,
+  }) async {
+    state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
+    try {
+      await logFirebaseBreadcrumb('local zip archive apply selected');
+      final decoded = _decodeLocalZipArchive(bytes, password: password);
+      final attachmentFiles = decoded.attachmentFiles;
+      final importedChanges = <PreparedSyncNote>[];
+      for (final rawNote in decoded.notes) {
+        final note = NoteEntry.fromJson(rawNote);
+        final storedByArchivePath = <String, String?>{};
+
+        Future<NoteAttachment> importAttachment(
+          NoteAttachment attachment,
+        ) async {
+          final filePath = attachment.filePath;
+          if (filePath == null || filePath.isEmpty) {
+            return attachment.copyWith(
+              filePath: null,
+              previewBytesBase64: null,
+            );
+          }
+          final bytes = attachmentFiles[filePath];
+          if (bytes == null || bytes.isEmpty) {
+            return attachment.copyWith(
+              filePath: null,
+              previewBytesBase64: null,
+            );
+          }
+          if (!storedByArchivePath.containsKey(filePath)) {
+            final encryptedPayload = await ref
+                .read(encryptedAttachmentStoreProvider)
+                .encryptAttachmentBytes(
+                  bytes: bytes,
+                  type: attachment.type,
+                  vaultId: note.vaultId,
+                );
+            storedByArchivePath[filePath] = await ref
+                .read(encryptedAttachmentStoreProvider)
+                .storeEncryptedPayload(
+                  encodedPayload: encryptedPayload,
+                  type: attachment.type,
+                  fileNameHint: attachment.label,
+                  vaultId: note.vaultId,
+                );
+          }
+          return attachment.copyWith(
+            filePath: storedByArchivePath[filePath],
+            previewBytesBase64: null,
+          );
+        }
+
+        final importedAttachments = <NoteAttachment>[];
+        for (final attachment in note.attachments) {
+          importedAttachments.add(await importAttachment(attachment));
+        }
+        final importedBlocks = <NoteBlock>[];
+        for (final block in note.blocks) {
+          final attachment = block.attachment;
+          importedBlocks.add(
+            attachment == null
+                ? block
+                : block.copyWith(
+                    attachment: await importAttachment(attachment),
+                  ),
+          );
+        }
+
+        importedChanges.add(
+          PreparedSyncNote(
+            action: PendingNoteChangeAction.upsert,
+            note: note.copyWith(
+              attachments: importedAttachments,
+              blocks: importedBlocks,
+              syncState: NoteSyncState.pendingUpload,
+            ),
+          ),
+        );
+      }
+      await ref
+          .read(notesControllerProvider.notifier)
+          .mergeFromSync(importedChanges);
+      state = state.copyWith(
+        stage: SyncTransferStage.success,
+        message: 'ZIP archive merged into local notes.',
+      );
+    } catch (error) {
+      state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
+      rethrow;
+    }
+  }
+
   Future<void> downloadLatestBundle() async {
     final remoteStatus = state.remoteStatus;
     if (remoteStatus != null && remoteStatus.fileId.isNotEmpty) {
@@ -2013,6 +2216,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
                   orElse: () => attachment.type,
                 ),
                 fileNameHint: payload['label'] as String? ?? attachment.label,
+                vaultId: note.vaultId,
               );
           importedAttachments.add(
             attachment.copyWith(filePath: storedReference),
@@ -2101,6 +2305,219 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       SyncProvider.googleDrive => 'Google Drive',
       SyncProvider.off => 'remote storage',
     };
+  }
+
+  Future<LocalNoteArchive> _buildLocalZipArchive({String? password}) async {
+    final exportedAt = DateTime.now();
+    final notes = ref
+        .read(notesControllerProvider)
+        .where((entry) => entry.deletedAt == null)
+        .toList(growable: false);
+    final archive = Archive();
+    final exportedNotes = <Map<String, dynamic>>[];
+    var attachmentCount = 0;
+
+    for (final note in notes) {
+      final archivePathByAttachmentKey = <String, String>{};
+
+      Future<NoteAttachment> exportAttachment(
+        NoteAttachment attachment,
+        int index,
+      ) async {
+        final filePath = attachment.filePath;
+        if (filePath == null || filePath.isEmpty) {
+          return attachment.copyWith(filePath: null, previewBytesBase64: null);
+        }
+        final key = _attachmentExportKey(attachment);
+        final existingPath = archivePathByAttachmentKey[key];
+        if (existingPath != null) {
+          return attachment.copyWith(
+            filePath: existingPath,
+            previewBytesBase64: null,
+          );
+        }
+        final bytes = await ref
+            .read(encryptedAttachmentStoreProvider)
+            .readAttachment(filePath, type: attachment.type);
+        if (bytes == null || bytes.isEmpty) {
+          return attachment.copyWith(filePath: null, previewBytesBase64: null);
+        }
+        final archivePath = _archiveAttachmentPath(
+          noteId: note.id,
+          index: index,
+          label: attachment.label,
+        );
+        archive.addFile(ArchiveFile.bytes(archivePath, bytes));
+        archivePathByAttachmentKey[key] = archivePath;
+        attachmentCount += 1;
+        return attachment.copyWith(
+          filePath: archivePath,
+          previewBytesBase64: null,
+        );
+      }
+
+      final exportedAttachments = <NoteAttachment>[];
+      for (var i = 0; i < note.attachments.length; i++) {
+        exportedAttachments.add(await exportAttachment(note.attachments[i], i));
+      }
+      final exportedBlocks = <NoteBlock>[];
+      for (var i = 0; i < note.blocks.length; i++) {
+        final block = note.blocks[i];
+        final attachment = block.attachment;
+        exportedBlocks.add(
+          attachment == null
+              ? block
+              : block.copyWith(
+                  attachment: await exportAttachment(
+                    attachment,
+                    note.attachments.length + i,
+                  ),
+                ),
+        );
+      }
+
+      exportedNotes.add(
+        note
+            .copyWith(
+              attachments: exportedAttachments,
+              blocks: exportedBlocks,
+              syncState: NoteSyncState.localOnly,
+            )
+            .toJson(),
+      );
+    }
+
+    archive.addFile(
+      ArchiveFile.string(
+        'manifest.json',
+        jsonEncode({
+          'format': 'org.ruhenheim.himemo.notes.zip',
+          'version': 1,
+          'exportedAt': exportedAt.toIso8601String(),
+          'encryption': password == null || password.isEmpty
+              ? 'none'
+              : 'zip-aes-256',
+          'noteCount': exportedNotes.length,
+          'attachmentCount': attachmentCount,
+          'contents': ['notes.json', 'attachments/'],
+        }),
+      ),
+    );
+    archive.addFile(
+      ArchiveFile.string(
+        'notes.json',
+        jsonEncode({'schemaVersion': 1, 'notes': exportedNotes}),
+      ),
+    );
+
+    final encoded = ZipEncoder(
+      password: password == null || password.isEmpty ? null : password,
+    ).encode(archive);
+    if (encoded.isEmpty) {
+      throw StateError('ZIP archive could not be encoded.');
+    }
+    return LocalNoteArchive(
+      bytes: Uint8List.fromList(encoded),
+      fileName: _localArchiveFileName(
+        exportedAt,
+        passwordProtected: password != null && password.isNotEmpty,
+      ),
+      noteCount: exportedNotes.length,
+      attachmentCount: attachmentCount,
+      isPasswordProtected: password != null && password.isNotEmpty,
+    );
+  }
+
+  _DecodedLocalZipArchive _decodeLocalZipArchive(
+    List<int> bytes, {
+    String? password,
+  }) {
+    final archive = ZipDecoder().decodeBytes(bytes, password: password);
+    final manifestFile = archive.findFile('manifest.json');
+    final notesFile = archive.findFile('notes.json');
+    if (manifestFile == null || notesFile == null) {
+      throw StateError('This file is not a HiMemo ZIP archive.');
+    }
+    final manifest = Map<String, dynamic>.from(
+      jsonDecode(utf8.decode(manifestFile.content)) as Map,
+    );
+    final notesPayload = Map<String, dynamic>.from(
+      jsonDecode(utf8.decode(notesFile.content)) as Map,
+    );
+    final notes = [
+      for (final entry
+          in (notesPayload['notes'] as List<dynamic>? ?? const <dynamic>[]))
+        Map<String, dynamic>.from(entry as Map),
+    ];
+    final attachmentFiles = <String, Uint8List>{};
+    for (final file in archive.files) {
+      if (!file.isFile || !file.name.startsWith('attachments/')) {
+        continue;
+      }
+      attachmentFiles[file.name] = Uint8List.fromList(file.content);
+    }
+    return _DecodedLocalZipArchive(
+      manifest: manifest,
+      notes: notes,
+      attachmentFiles: attachmentFiles,
+    );
+  }
+
+  Map<String, dynamic> _zipArchiveAsSyncBundle(
+    _DecodedLocalZipArchive archive,
+  ) {
+    return {
+      'deviceId': 'local-zip',
+      'exportedAt': archive.manifest['exportedAt'],
+      'notes': [
+        for (final note in archive.notes)
+          {'action': PendingNoteChangeAction.upsert.name, 'note': note},
+      ],
+      'attachments': [
+        for (final entry in archive.attachmentFiles.entries)
+          {'id': entry.key, 'encryptedPayload': '', 'type': 'file'},
+      ],
+    };
+  }
+
+  String _attachmentExportKey(NoteAttachment attachment) {
+    return [
+      attachment.type.name,
+      attachment.label,
+      attachment.filePath ?? '',
+      attachment.durationMs?.toString() ?? '',
+    ].join('\u0000');
+  }
+
+  String _archiveAttachmentPath({
+    required String noteId,
+    required int index,
+    required String label,
+  }) {
+    final rawName = path.basename(label).trim();
+    final safeName = _safeArchiveSegment(
+      rawName.isEmpty ? 'attachment.bin' : rawName,
+    );
+    return 'attachments/${_safeArchiveSegment(noteId)}_${index}_$safeName';
+  }
+
+  String _safeArchiveSegment(String value) {
+    final safe = value
+        .replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1f]'), '_')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return safe.isEmpty ? 'file' : safe;
+  }
+
+  String _localArchiveFileName(
+    DateTime exportedAt, {
+    required bool passwordProtected,
+  }) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    final stamp =
+        '${exportedAt.year}${two(exportedAt.month)}${two(exportedAt.day)}_${two(exportedAt.hour)}${two(exportedAt.minute)}${two(exportedAt.second)}';
+    final suffix = passwordProtected ? 'encrypted' : 'plain';
+    return 'himemo_archive_${suffix}_$stamp.zip';
   }
 
   Future<RemoteSyncBundleStatus?> _fetchLatestRemoteStatus() {
@@ -2234,16 +2651,19 @@ class PrivateMemoProfileStore {
   PrivateMemoProfileStore({
     required SecureKeyValueStore secureStore,
     required EncryptionService encryptionService,
+    required ProfileDataKeyService profileDataKeyService,
     Future<SharedPreferences> Function()? sharedPreferencesProvider,
     this.listStorageKey = 'security.private_profiles.list.v1',
     this.verifierStoragePrefix = 'security.private_profile.verifier.',
   }) : _secureStore = secureStore,
        _encryptionService = encryptionService,
+       _profileDataKeyService = profileDataKeyService,
        _sharedPreferencesProvider =
            sharedPreferencesProvider ?? SharedPreferences.getInstance;
 
   final SecureKeyValueStore _secureStore;
   final EncryptionService _encryptionService;
+  final ProfileDataKeyService _profileDataKeyService;
   final Future<SharedPreferences> Function() _sharedPreferencesProvider;
   final String listStorageKey;
   final String verifierStoragePrefix;
@@ -2296,6 +2716,10 @@ class PrivateMemoProfileStore {
       '$verifierStoragePrefix${profile.id}',
       jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
     );
+    await _profileDataKeyService.configureProfile(
+      vaultId: profile.vaultId,
+      password: password,
+    );
     await _saveProfiles([...existing, profile]);
     return null;
   }
@@ -2305,6 +2729,10 @@ class PrivateMemoProfileStore {
     for (final profile in profiles) {
       final matched = await _verifyProfilePassword(profile.id, password);
       if (matched) {
+        await _profileDataKeyService.unlockProfile(
+          vaultId: profile.vaultId,
+          password: password,
+        );
         return UnlockProfileResult(
           vaultId: profile.vaultId,
           label: profile.name,
@@ -2321,6 +2749,9 @@ class PrivateMemoProfileStore {
       existing.where((profile) => profile.id != id).toList(growable: false),
     );
     await _secureStore.delete('$verifierStoragePrefix$id');
+    await _profileDataKeyService.deleteProfileKey(
+      '$customPrivateVaultPrefix$id',
+    );
   }
 
   Future<void> updateProfilePassword({
@@ -2331,12 +2762,23 @@ class PrivateMemoProfileStore {
     if (!profiles.any((profile) => profile.id == id)) {
       return;
     }
+    final vaultId = '$customPrivateVaultPrefix$id';
+    if (!_profileDataKeyService.isProfileUnlocked(vaultId)) {
+      return;
+    }
     final encryption = EncryptionService();
     final salt = encryption.generateSalt();
     final verifier = await encryption.deriveSecretVerifier(
       secret: password,
       salt: salt,
     );
+    final changed = await _profileDataKeyService.changeProfilePassword(
+      vaultId: vaultId,
+      newPassword: password,
+    );
+    if (!changed) {
+      return;
+    }
     await _secureStore.write(
       '$verifierStoragePrefix$id',
       jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
@@ -2384,6 +2826,7 @@ final privateMemoProfileStoreProvider = Provider<PrivateMemoProfileStore>((
   return PrivateMemoProfileStore(
     secureStore: ref.watch(secureKeyValueStoreProvider),
     encryptionService: ref.watch(encryptionServiceProvider),
+    profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
   );
 });
 
@@ -3323,7 +3766,10 @@ class PrivateVaultSessionController extends Notifier<bool> {
 
   void unlock() => state = true;
 
-  void lock() => state = false;
+  void lock() {
+    ref.read(profileDataKeyServiceProvider).lockProfile(legacyPrivateVaultId);
+    state = false;
+  }
 }
 
 final privateVaultSecretControllerProvider =
@@ -3345,6 +3791,9 @@ class PrivateVaultSecretController extends Notifier<bool> {
 
   Future<void> configure(String secret) async {
     await ref.read(privateVaultSecretStoreProvider).configure(secret);
+    await ref
+        .read(profileDataKeyServiceProvider)
+        .configureProfile(vaultId: legacyPrivateVaultId, password: secret);
     state = true;
     ref.read(privateVaultSessionControllerProvider.notifier).unlock();
   }
@@ -3355,6 +3804,9 @@ class PrivateVaultSecretController extends Notifier<bool> {
           .read(privateVaultSecretStoreProvider)
           .verify(secret);
       if (matched) {
+        await ref
+            .read(profileDataKeyServiceProvider)
+            .unlockProfile(vaultId: legacyPrivateVaultId, password: secret);
         ref.read(privateVaultSessionControllerProvider.notifier).unlock();
       }
       return matched;
@@ -3366,6 +3818,9 @@ class PrivateVaultSecretController extends Notifier<bool> {
   Future<void> clear() async {
     try {
       await ref.read(privateVaultSecretStoreProvider).clear();
+      await ref
+          .read(profileDataKeyServiceProvider)
+          .deleteProfileKey(legacyPrivateVaultId);
     } catch (_) {}
     state = false;
     ref.read(privateVaultSessionControllerProvider.notifier).lock();
@@ -3638,6 +4093,12 @@ class NotesController extends _$NotesController {
         if (note.id != noteId) {
           continue;
         }
+        if (_isLockedPrivatePlaceholder(note)) {
+          next.removeAt(i);
+          state = next;
+          await ref.read(encryptedNoteStoreProvider).deleteById(noteId);
+          return;
+        }
         final now = DateTime.now();
         final tombstone = note.copyWith(
           deletedAt: now,
@@ -3689,6 +4150,11 @@ class NotesController extends _$NotesController {
   }
 
   Future<void> get restoreCompleted => _waitForInitialRestore();
+
+  Future<void> reloadFromStorage() async {
+    _restoreFailed = false;
+    await _restore();
+  }
 
   Future<int> deleteDemoNotes() async {
     await _waitForInitialRestore();
@@ -3997,6 +4463,11 @@ class NotesController extends _$NotesController {
   bool _isSeedNote(NoteEntry note) =>
       note.deviceId == 'seeded-device' || note.id.startsWith('seed-');
 
+  bool _isLockedPrivatePlaceholder(NoteEntry note) {
+    return note.deviceId == 'locked-private-note' &&
+        isPrivateVaultId(note.vaultId);
+  }
+
   Future<void> _persist() async {
     if (_restoreFailed) {
       return;
@@ -4061,7 +4532,43 @@ class NotesController extends _$NotesController {
       revision: previous == null ? note.revision : previous.revision + 1,
       syncState: NoteSyncState.pendingUpload,
     );
-    return normalized.copyWith(contentHash: _computeContentHash(normalized));
+    final protected = await _protectAttachmentsForVault(normalized);
+    return protected.copyWith(contentHash: _computeContentHash(protected));
+  }
+
+  Future<NoteEntry> _protectAttachmentsForVault(NoteEntry note) async {
+    final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+    final protectedPaths = <String>{};
+
+    Future<NoteAttachment> protect(NoteAttachment attachment) async {
+      final filePath = attachment.filePath;
+      if (filePath == null || filePath.isEmpty) {
+        return attachment;
+      }
+      if (protectedPaths.add(filePath)) {
+        await attachmentStore.protectAttachmentForVault(
+          filePath,
+          type: attachment.type,
+          vaultId: note.vaultId,
+        );
+      }
+      return attachment;
+    }
+
+    final attachments = <NoteAttachment>[];
+    for (final attachment in note.attachments) {
+      attachments.add(await protect(attachment));
+    }
+    final blocks = <NoteBlock>[];
+    for (final block in note.blocks) {
+      final attachment = block.attachment;
+      blocks.add(
+        attachment == null
+            ? block
+            : block.copyWith(attachment: await protect(attachment)),
+      );
+    }
+    return note.copyWith(attachments: attachments, blocks: blocks);
   }
 
   String _computeContentHash(NoteEntry note) {
@@ -4139,7 +4646,13 @@ class UnlockedPrivateProfileVaultIdController extends Notifier<String?> {
 
   void unlock(String vaultId) => state = vaultId;
 
-  void lock() => state = null;
+  void lock() {
+    final vaultId = state;
+    if (vaultId != null) {
+      ref.read(profileDataKeyServiceProvider).lockProfile(vaultId);
+    }
+    state = null;
+  }
 }
 
 final adminModeSessionControllerProvider =
@@ -4176,6 +4689,7 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
             .read(unlockedPrivateProfileVaultIdProvider.notifier)
             .unlock(custom.vaultId);
         ref.read(adminModeSessionControllerProvider.notifier).lock();
+        await ref.read(notesControllerProvider.notifier).reloadFromStorage();
         state = const AsyncData(null);
         return custom;
       }
@@ -4192,6 +4706,7 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
             .read(unlockedPrivateProfileVaultIdProvider.notifier)
             .unlock(result.vaultId);
         ref.read(adminModeSessionControllerProvider.notifier).lock();
+        await ref.read(notesControllerProvider.notifier).reloadFromStorage();
         state = const AsyncData(null);
         return result;
       }

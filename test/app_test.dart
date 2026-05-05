@@ -4,7 +4,8 @@ import 'dart:math';
 
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:himemo/app/app.dart';
@@ -194,6 +195,34 @@ void main() {
       ),
       '최신 번들: 2026/05/03 22:00, 12 KB, 노트 3개, 첨부 2개.',
     );
+  });
+
+  testWidgets('insights do not show a best day when there are no notes', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(
+          locale: Locale('en'),
+          supportedLocales: AppStrings.supportedLocales,
+          localizationsDelegates: [
+            AppLocalizations.delegate,
+            AppStrings.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: Scaffold(body: InsightsScreen()),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Best day'), findsOneWidget);
+    expect(find.text('-'), findsWidgets);
+    expect(find.textContaining(RegExp(r'\d+/\d+')), findsNothing);
   });
 
   test('app strings support Spanish and German locales', () {
@@ -532,6 +561,8 @@ void main() {
       );
       expect(noteDay.isBefore(earliestDemoDay), isFalse);
       expect(noteDay.isAfter(launchDay), isFalse);
+      expect(note.createdAt.isAfter(launchDate), isFalse);
+      expect(note.updatedAt?.isAfter(launchDate) ?? false, isFalse);
     }
     expect(
       notes.any(

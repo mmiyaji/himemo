@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
@@ -93,39 +94,80 @@ class _AppShellState extends ConsumerState<AppShell> {
         title: const _AppBrandTitle(),
         actions: [
           if (privateProfileActive)
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: math.min(180, width * 0.34),
-              ),
-              child: Text(
-                activePrivateProfileLabel,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: privateProfileActiveColor,
-                  fontWeight: FontWeight.w700,
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 8),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: math.min(220, width * 0.42),
+                ),
+                child: Tooltip(
+                  message: context.strings.viewingPrivateProfile(
+                    activePrivateProfileLabel,
+                  ),
+                  child: Material(
+                    color: privateProfileActiveColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                    child: InkWell(
+                      key: AppShell.privateProfileAccessKey,
+                      borderRadius: BorderRadius.circular(999),
+                      onTap: () => _showProfileAccessDialog(context, ref),
+                      child: Padding(
+                        padding: const EdgeInsetsDirectional.fromSTEB(
+                          10,
+                          7,
+                          12,
+                          7,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.lock_open_rounded,
+                              size: 20,
+                              color: privateProfileActiveColor,
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                activePrivateProfileLabel,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.labelLarge
+                                    ?.copyWith(
+                                      color: privateProfileActiveColor,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
+            )
+          else
+            IconButton(
+              key: AppShell.privateProfileAccessKey,
+              tooltip: adminMode
+                  ? (context.strings.text('home.admin.mode.active'))
+                  : (activePrivateProfileLabel != null
+                        ? context.strings.viewingPrivateProfile(
+                            activePrivateProfileLabel,
+                          )
+                        : (context.strings.text(
+                            'home.unlock.private.profile',
+                          ))),
+              onPressed: () => _showProfileAccessDialog(context, ref),
+              icon: Icon(
+                adminMode
+                    ? Icons.admin_panel_settings_rounded
+                    : activePrivateProfileLabel != null
+                    ? Icons.lock_open_rounded
+                    : Icons.lock_rounded,
+              ),
             ),
-          IconButton(
-            key: AppShell.privateProfileAccessKey,
-            tooltip: adminMode
-                ? (context.strings.text('home.admin.mode.active'))
-                : (activePrivateProfileLabel != null
-                      ? context.strings.viewingPrivateProfile(
-                          activePrivateProfileLabel,
-                        )
-                      : (context.strings.text('home.unlock.private.profile'))),
-            onPressed: () => _showProfileAccessDialog(context, ref),
-            icon: Icon(
-              adminMode
-                  ? Icons.admin_panel_settings_rounded
-                  : activePrivateProfileLabel != null
-                  ? Icons.lock_open_rounded
-                  : Icons.lock_rounded,
-              color: privateProfileActive ? privateProfileActiveColor : null,
-            ),
-          ),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
@@ -192,7 +234,8 @@ class _AppShellState extends ConsumerState<AppShell> {
               ],
             ),
       floatingActionButton:
-          section == AppSection.notes || section == AppSection.calendar
+          (section == AppSection.notes && width < 1180) ||
+              section == AppSection.calendar
           ? FloatingActionButton.small(
               key: AppShell.addNoteKey,
               onPressed: () => showNoteEditorSheet(context, ref),
@@ -486,6 +529,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             showVaultName: visibleVaults.length > 1,
             density: listDensity,
             query: query,
+            onAddNote: () => showNoteEditorSheet(context, ref),
             onNoteSelected: (note) {
               _debugNotePerf('select split-list ${_notePerfLabel(note)}');
               ref.read(selectedNoteIdProvider.notifier).select(note.id);
@@ -1974,15 +2018,19 @@ _InsightsSummary _buildInsightsSummary(
     }
   }
   final bestDay = _buildRecentDayBuckets(context, notes, count: 31)
+      .where((bucket) => bucket.value > 0)
       .fold<_InsightBucket?>(
         null,
         (best, bucket) =>
             best == null || bucket.value > best.value ? bucket : best,
       );
-  final bestHour = _buildHourBuckets(notes).fold<_InsightBucket?>(
-    null,
-    (best, bucket) => best == null || bucket.value > best.value ? bucket : best,
-  );
+  final bestHour = _buildHourBuckets(notes)
+      .where((bucket) => bucket.value > 0)
+      .fold<_InsightBucket?>(
+        null,
+        (best, bucket) =>
+            best == null || bucket.value > best.value ? bucket : best,
+      );
   final previousMonth = DateTime(now.year, now.month - 1);
   final previousMonthCount = notes
       .where(
@@ -3444,6 +3492,16 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ),
               ),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Remote backup',
+                ja: 'リモートバックアップ',
+                zh: '远程备份',
+                ko: '원격 백업',
+                es: 'Copia remota',
+                de: 'Remote-Backup',
+              ),
+            ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(strings.text('home.selected.target')),
@@ -4195,6 +4253,55 @@ class SettingsScreen extends ConsumerWidget {
                     child: Text(strings.text('home.force.upload')),
                   ),
               ],
+            ),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'File backup',
+                ja: 'ファイルバックアップ',
+                zh: '文件备份',
+                ko: '파일 백업',
+                es: 'Copia en archivo',
+                de: 'Datei-Backup',
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: noteCount == 0
+                        ? null
+                        : () => _exportLocalArchive(context, ref),
+                    icon: const Icon(Icons.upload_file_outlined),
+                    label: Text(
+                      strings.localized(
+                        en: 'File export',
+                        ja: 'ファイルエクスポート',
+                        zh: '文件导出',
+                        ko: '파일 내보내기',
+                        es: 'Exportar archivo',
+                        de: 'Datei exportieren',
+                      ),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _importLocalArchive(context, ref),
+                    icon: const Icon(Icons.download_for_offline_outlined),
+                    label: Text(
+                      strings.localized(
+                        en: 'File import',
+                        ja: 'ファイルインポート',
+                        zh: '文件导入',
+                        ko: '파일 가져오기',
+                        es: 'Importar archivo',
+                        de: 'Datei importieren',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -6013,6 +6120,7 @@ class _SplitNotesListPane extends StatefulWidget {
     required this.showVaultName,
     required this.density,
     required this.query,
+    required this.onAddNote,
     required this.onNoteSelected,
   });
 
@@ -6024,6 +6132,7 @@ class _SplitNotesListPane extends StatefulWidget {
   final bool showVaultName;
   final NotesListDensity density;
   final String query;
+  final VoidCallback onAddNote;
   final ValueChanged<NoteEntry> onNoteSelected;
 
   @override
@@ -6061,47 +6170,64 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
 
   @override
   Widget build(BuildContext context) {
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _rows.length,
-      itemBuilder: (context, index) {
-        final row = _rows[index];
-        return switch (row) {
-          _SplitNoteIdentityRow() => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _IdentityHeader(identity: widget.activeIdentity),
+    return Stack(
+      children: [
+        ListView.builder(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
+          itemCount: _rows.length,
+          itemBuilder: (context, index) {
+            final row = _rows[index];
+            return switch (row) {
+              _SplitNoteIdentityRow() => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _IdentityHeader(identity: widget.activeIdentity),
+              ),
+              _SplitNotePrivateNoticeRow() => const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: _PrivateVaultLockedNotice(),
+              ),
+              _SplitNoteToolbarRow() => const Padding(
+                padding: EdgeInsets.only(bottom: 16),
+                child: _NotesToolbar(),
+              ),
+              _SplitNoteEmptyRow() => const _EmptyNotesState(),
+              _SplitNoteDayRow(:final date) => _DecoratedSplitNoteRow(
+                position: row.position,
+                child: _NoteDayDivider(date: date),
+              ),
+              _SplitNoteTileRow(:final note) => _DecoratedSplitNoteRow(
+                position: row.position,
+                child: _NoteListTile(
+                  note: note,
+                  vaultName: widget.vaultNameById[note.vaultId] ?? note.vaultId,
+                  showVaultName: widget.showVaultName,
+                  density: widget.density,
+                  query: widget.query,
+                  selected: widget.selectedNoteId == note.id,
+                  onTap: () => widget.onNoteSelected(note),
+                ),
+              ),
+              _SplitNoteDividerRow() => _DecoratedSplitNoteRow(
+                position: row.position,
+                child: Divider(
+                  height: 1,
+                  color: Theme.of(context).dividerColor,
+                ),
+              ),
+            };
+          },
+        ),
+        PositionedDirectional(
+          end: 16,
+          bottom: 16,
+          child: FloatingActionButton.small(
+            key: AppShell.addNoteKey,
+            onPressed: widget.onAddNote,
+            tooltip: context.strings.addNote,
+            child: const Icon(Icons.add),
           ),
-          _SplitNotePrivateNoticeRow() => const Padding(
-            padding: EdgeInsets.only(bottom: 12),
-            child: _PrivateVaultLockedNotice(),
-          ),
-          _SplitNoteToolbarRow() => const Padding(
-            padding: EdgeInsets.only(bottom: 16),
-            child: _NotesToolbar(),
-          ),
-          _SplitNoteEmptyRow() => const _EmptyNotesState(),
-          _SplitNoteDayRow(:final date) => _DecoratedSplitNoteRow(
-            position: row.position,
-            child: _NoteDayDivider(date: date),
-          ),
-          _SplitNoteTileRow(:final note) => _DecoratedSplitNoteRow(
-            position: row.position,
-            child: _NoteListTile(
-              note: note,
-              vaultName: widget.vaultNameById[note.vaultId] ?? note.vaultId,
-              showVaultName: widget.showVaultName,
-              density: widget.density,
-              query: widget.query,
-              selected: widget.selectedNoteId == note.id,
-              onTap: () => widget.onNoteSelected(note),
-            ),
-          ),
-          _SplitNoteDividerRow() => _DecoratedSplitNoteRow(
-            position: row.position,
-            child: Divider(height: 1, color: Theme.of(context).dividerColor),
-          ),
-        };
-      },
+        ),
+      ],
     );
   }
 }
@@ -6979,6 +7105,30 @@ class _SettingsGroup extends StatelessWidget {
                 children: children,
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsSectionLabel extends StatelessWidget {
+  const _SettingsSectionLabel({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 4),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          label,
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: _mutedTextColor(context),
+            fontWeight: FontWeight.w700,
           ),
         ),
       ),
@@ -8727,171 +8877,172 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Wrap(
-                        spacing: 4,
-                        children: [
-                          IconButton(
-                            tooltip: strings.pinThisNote,
-                            onPressed: () {
-                              setState(() {
-                                _isPinned = !_isPinned;
-                              });
-                              _scheduleDraftPersist();
-                            },
-                            icon: Icon(
-                              _isPinned
-                                  ? Icons.push_pin_rounded
-                                  : Icons.push_pin_outlined,
-                              color: _isPinned
-                                  ? Theme.of(context).colorScheme.primary
-                                  : _mutedTextColor(context),
-                            ),
-                          ),
-                          PopupMenuButton<NoteEditorMode>(
-                            tooltip: _editorMode == NoteEditorMode.quick
-                                ? strings.quickMemo
-                                : strings.richMemo,
-                            icon: Icon(
-                              _editorMode == NoteEditorMode.quick
-                                  ? Icons.notes_outlined
-                                  : Icons.view_stream_outlined,
-                              color: _mutedTextColor(context),
-                            ),
-                            onSelected: _switchEditorMode,
-                            itemBuilder: (context) => [
-                              PopupMenuItem(
-                                value: NoteEditorMode.quick,
-                                child: _MediaMenuEntry(
-                                  icon: _editorMode == NoteEditorMode.quick
-                                      ? Icons.check_rounded
-                                      : Icons.notes_outlined,
-                                  label: strings.quickMemo,
-                                ),
+                    Row(
+                      children: [
+                        PopupMenuButton<NoteEditorMode>(
+                          tooltip: _editorMode == NoteEditorMode.quick
+                              ? strings.quickMemo
+                              : strings.richMemo,
+                          offset: const Offset(0, 8),
+                          onSelected: _switchEditorMode,
+                          itemBuilder: (context) => [
+                            PopupMenuItem(
+                              value: NoteEditorMode.quick,
+                              child: _MediaMenuEntry(
+                                icon: _editorMode == NoteEditorMode.quick
+                                    ? Icons.check_rounded
+                                    : Icons.notes_outlined,
+                                label: strings.quickMemo,
                               ),
-                              PopupMenuItem(
-                                value: NoteEditorMode.rich,
-                                child: _MediaMenuEntry(
-                                  icon: _editorMode == NoteEditorMode.rich
-                                      ? Icons.check_rounded
-                                      : Icons.view_stream_outlined,
-                                  label: strings.richMemo,
-                                ),
-                              ),
-                            ],
-                          ),
-                          PopupMenuButton<MediaImportAction>(
-                            key: const Key('note-capture-media-menu'),
-                            tooltip: strings.captureMedia,
-                            icon: Icon(
-                              Icons.photo_camera_outlined,
-                              color: _mutedTextColor(context),
                             ),
-                            onSelected: _handleAttachmentAction,
-                            itemBuilder: (context) => [
-                              if (!kIsWeb)
+                            PopupMenuItem(
+                              value: NoteEditorMode.rich,
+                              child: _MediaMenuEntry(
+                                icon: _editorMode == NoteEditorMode.rich
+                                    ? Icons.check_rounded
+                                    : Icons.view_stream_outlined,
+                                label: strings.richMemo,
+                              ),
+                            ),
+                          ],
+                          child: _EditorModeButton(
+                            mode: _editorMode,
+                            strings: strings,
+                          ),
+                        ),
+                        const Spacer(),
+                        Wrap(
+                          spacing: 4,
+                          children: [
+                            IconButton(
+                              tooltip: strings.pinThisNote,
+                              onPressed: () {
+                                setState(() {
+                                  _isPinned = !_isPinned;
+                                });
+                                _scheduleDraftPersist();
+                              },
+                              icon: Icon(
+                                _isPinned
+                                    ? Icons.push_pin_rounded
+                                    : Icons.push_pin_outlined,
+                                color: _isPinned
+                                    ? Theme.of(context).colorScheme.primary
+                                    : _mutedTextColor(context),
+                              ),
+                            ),
+                            PopupMenuButton<MediaImportAction>(
+                              key: const Key('note-capture-media-menu'),
+                              tooltip: strings.captureMedia,
+                              icon: Icon(
+                                Icons.photo_camera_outlined,
+                                color: _mutedTextColor(context),
+                              ),
+                              onSelected: _handleAttachmentAction,
+                              itemBuilder: (context) => [
+                                if (!kIsWeb)
+                                  PopupMenuItem(
+                                    value: MediaImportAction.takePhoto,
+                                    child: _MediaMenuEntry(
+                                      icon: Icons.photo_camera_outlined,
+                                      label: strings.takePhoto,
+                                    ),
+                                  ),
+                                if (!kIsWeb)
+                                  PopupMenuItem(
+                                    value: MediaImportAction.recordVideo,
+                                    child: _MediaMenuEntry(
+                                      icon: Icons.videocam_outlined,
+                                      label: strings.recordVideo,
+                                    ),
+                                  ),
                                 PopupMenuItem(
-                                  value: MediaImportAction.takePhoto,
+                                  value: MediaImportAction.recordAudio,
                                   child: _MediaMenuEntry(
-                                    icon: Icons.photo_camera_outlined,
-                                    label: strings.takePhoto,
+                                    icon: Icons.mic_none_rounded,
+                                    label: strings.recordAudio,
                                   ),
                                 ),
-                              if (!kIsWeb)
                                 PopupMenuItem(
-                                  value: MediaImportAction.recordVideo,
+                                  value: MediaImportAction.addLocation,
                                   child: _MediaMenuEntry(
-                                    icon: Icons.videocam_outlined,
-                                    label: strings.recordVideo,
+                                    icon: Icons.my_location_outlined,
+                                    label: strings.addCurrentLocation,
                                   ),
                                 ),
-                              PopupMenuItem(
-                                value: MediaImportAction.recordAudio,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.mic_none_rounded,
-                                  label: strings.recordAudio,
-                                ),
-                              ),
-                              PopupMenuItem(
-                                value: MediaImportAction.addLocation,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.my_location_outlined,
-                                  label: strings.addCurrentLocation,
-                                ),
-                              ),
-                            ],
-                          ),
-                          PopupMenuButton<MediaImportAction>(
-                            key: const Key('note-import-file-menu'),
-                            tooltip: strings.importFiles,
-                            icon: Icon(
-                              Icons.folder_open_outlined,
-                              color: _mutedTextColor(context),
+                              ],
                             ),
-                            onSelected: _handleAttachmentAction,
-                            itemBuilder: (context) => [
-                              PopupMenuItem(
-                                value: MediaImportAction.pickPhoto,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.photo_library_outlined,
-                                  label: strings.pickPhoto,
-                                ),
+                            PopupMenuButton<MediaImportAction>(
+                              key: const Key('note-import-file-menu'),
+                              tooltip: strings.importFiles,
+                              icon: Icon(
+                                Icons.folder_open_outlined,
+                                color: _mutedTextColor(context),
                               ),
-                              PopupMenuItem(
-                                value: MediaImportAction.pickVideo,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.video_library_outlined,
-                                  label: strings.pickVideo,
+                              onSelected: _handleAttachmentAction,
+                              itemBuilder: (context) => [
+                                PopupMenuItem(
+                                  value: MediaImportAction.pickPhoto,
+                                  child: _MediaMenuEntry(
+                                    icon: Icons.photo_library_outlined,
+                                    label: strings.pickPhoto,
+                                  ),
                                 ),
-                              ),
-                              PopupMenuItem(
-                                value: MediaImportAction.pickAudio,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.graphic_eq_rounded,
-                                  label: strings.pickAudio,
+                                PopupMenuItem(
+                                  value: MediaImportAction.pickVideo,
+                                  child: _MediaMenuEntry(
+                                    icon: Icons.video_library_outlined,
+                                    label: strings.pickVideo,
+                                  ),
                                 ),
-                              ),
-                              PopupMenuItem(
-                                value: MediaImportAction.pickFile,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.insert_drive_file_outlined,
-                                  label: strings.pickFile,
+                                PopupMenuItem(
+                                  value: MediaImportAction.pickAudio,
+                                  child: _MediaMenuEntry(
+                                    icon: Icons.graphic_eq_rounded,
+                                    label: strings.pickAudio,
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                                PopupMenuItem(
+                                  value: MediaImportAction.pickFile,
+                                  child: _MediaMenuEntry(
+                                    icon: Icons.insert_drive_file_outlined,
+                                    label: strings.pickFile,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
             ),
-            Text(
-              widget.note == null ? strings.newNote : strings.editNote,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
-            ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.only(bottom: 96),
                 children: [
                   if (_editorMode == NoteEditorMode.quick) ...[
-                    TextField(
-                      key: const Key('note-content-input'),
-                      controller: _contentController,
-                      focusNode: _quickContentFocusNode,
-                      autofocus: widget.note == null,
-                      minLines: 12,
-                      maxLines: null,
-                      decoration: InputDecoration(
-                        labelText: strings.memoLabel,
-                        hintText: strings.memoFirstLineHint,
-                        alignLabelWithHint: true,
-                        border: const OutlineInputBorder(),
+                    Container(
+                      decoration: _sectionDecoration(context),
+                      padding: const EdgeInsets.all(12),
+                      child: TextField(
+                        key: const Key('note-content-input'),
+                        controller: _contentController,
+                        focusNode: _quickContentFocusNode,
+                        autofocus: widget.note == null,
+                        minLines: 12,
+                        maxLines: null,
+                        decoration: InputDecoration(
+                          hintText: strings.memoFirstLineHint,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          isCollapsed: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -9102,7 +9253,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             ? SnackBarBehavior.floating
             : SnackBarBehavior.fixed,
         width: useFloating ? snackBarWidth : null,
-        margin: useFloating
+        margin: useFloating && snackBarWidth == null
             ? EdgeInsets.fromLTRB(16, 0, 16, bottomInset + 16)
             : null,
         duration: action == null
@@ -10356,6 +10507,54 @@ class _RichBlockEditorTile extends StatelessWidget {
   }
 }
 
+class _EditorModeButton extends StatelessWidget {
+  const _EditorModeButton({required this.mode, required this.strings});
+
+  final NoteEditorMode mode;
+  final AppStrings strings;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isRich = mode == NoteEditorMode.rich;
+    return Container(
+      height: 40,
+      constraints: const BoxConstraints(minWidth: 96),
+      padding: const EdgeInsetsDirectional.fromSTEB(10, 0, 8, 0),
+      decoration: BoxDecoration(
+        color: colorScheme.primary.withValues(alpha: 0.08),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.22)),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isRich ? Icons.view_stream_outlined : Icons.notes_outlined,
+            size: 18,
+            color: colorScheme.primary,
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              isRich ? strings.richMemo : strings.quickMemo,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: colorScheme.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 2),
+          Icon(Icons.expand_more_rounded, size: 18, color: colorScheme.primary),
+        ],
+      ),
+    );
+  }
+}
+
 class _MediaMenuEntry extends StatelessWidget {
   const _MediaMenuEntry({required this.icon, required this.label});
 
@@ -10477,14 +10676,21 @@ class _QuickAttachmentSection extends StatelessWidget {
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
-          if (attachments.isEmpty)
-            Text(
-              kIsWeb ? strings.attachFromBrowser : strings.attachFromDevice,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
-            )
-          else
+          Text(
+            strings.localized(
+              en: 'Use the camera or folder icons in the top right to add media.',
+              ja: '右上のカメラ・フォルダアイコンからメディアを追加できます。',
+              zh: '可通过右上角的相机或文件夹图标添加媒体。',
+              ko: '오른쪽 위의 카메라・폴더 아이콘에서 미디어를 추가할 수 있습니다.',
+              es: 'Usa los iconos de cámara o carpeta arriba a la derecha para añadir medios.',
+              de: 'Über die Kamera- oder Ordner-Symbole oben rechts kannst du Medien hinzufügen.',
+            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+          ),
+          if (attachments.isNotEmpty) ...[
+            const SizedBox(height: 10),
             for (var i = 0; i < attachments.length; i++)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -10497,6 +10703,7 @@ class _QuickAttachmentSection extends StatelessWidget {
                       : null,
                 ),
               ),
+          ],
         ],
       ),
     );
@@ -11160,6 +11367,510 @@ void _showStoreFeedback(BuildContext context, String message) {
   ScaffoldMessenger.of(
     context,
   ).showSnackBar(SnackBar(showCloseIcon: true, content: Text(message)));
+}
+
+enum _LocalArchiveExportKind { passwordProtectedZip, plainZip }
+
+class _LocalArchiveExportOptions {
+  const _LocalArchiveExportOptions({required this.kind, this.password});
+
+  final _LocalArchiveExportKind kind;
+  final String? password;
+}
+
+Future<void> _exportLocalArchive(BuildContext context, WidgetRef ref) async {
+  final strings = context.strings;
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final options = await _showLocalArchiveExportDialog(context);
+    if (options == null || !context.mounted) {
+      return;
+    }
+    final archive = await ref
+        .read(syncTransferControllerProvider.notifier)
+        .exportLocalArchive(password: options.password);
+    if (!context.mounted) {
+      return;
+    }
+    final savedPath = await FilePicker.platform.saveFile(
+      dialogTitle: strings.localized(
+        en: 'File export',
+        ja: 'ファイルエクスポート',
+        zh: '文件导出',
+        ko: '파일 내보내기',
+        es: 'Exportar archivo',
+        de: 'Datei exportieren',
+      ),
+      fileName: archive.fileName,
+      type: FileType.custom,
+      allowedExtensions: const ['zip'],
+      bytes: archive.bytes,
+    );
+    if (!context.mounted) {
+      return;
+    }
+    if (savedPath == null || savedPath.isEmpty) {
+      await Share.shareXFiles([
+        XFile.fromData(
+          archive.bytes,
+          name: archive.fileName,
+          mimeType: 'application/zip',
+        ),
+      ], text: 'HiMemo ZIP archive');
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(
+          strings.localized(
+            en: 'Exported ${archive.noteCount} notes and ${archive.attachmentCount} attachments.',
+            ja: '${archive.noteCount}件のメモと${archive.attachmentCount}件の添付を書き出しました。',
+            zh: '已导出 ${archive.noteCount} 条笔记和 ${archive.attachmentCount} 个附件。',
+            ko: '${archive.noteCount}개의 메모와 ${archive.attachmentCount}개의 첨부 파일을 내보냈습니다.',
+            es: 'Se exportaron ${archive.noteCount} notas y ${archive.attachmentCount} adjuntos.',
+            de: '${archive.noteCount} Notizen und ${archive.attachmentCount} Anhänge wurden exportiert.',
+          ),
+        ),
+      ),
+    );
+  } catch (error) {
+    if (!context.mounted) {
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(showCloseIcon: true, content: Text('$error')),
+    );
+  }
+}
+
+Future<void> _importLocalArchive(BuildContext context, WidgetRef ref) async {
+  final strings = context.strings;
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['zip'],
+      withData: true,
+    );
+    if (picked == null || picked.files.isEmpty) {
+      return;
+    }
+    if (!context.mounted) {
+      return;
+    }
+    final file = picked.files.single;
+    final bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      messenger.showSnackBar(
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(
+            strings.localized(
+              en: 'The selected archive could not be read.',
+              ja: '選択したアーカイブを読み込めませんでした。',
+              zh: '无法读取所选归档。',
+              ko: '선택한 아카이브를 읽을 수 없습니다.',
+              es: 'No se pudo leer el archivo seleccionado.',
+              de: 'Das ausgewählte Archiv konnte nicht gelesen werden.',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    final password = await _passwordForLocalArchivePreview(context, ref, bytes);
+    if (password == _cancelledArchivePassword || !context.mounted) {
+      return;
+    }
+    final preview = await ref
+        .read(syncTransferControllerProvider.notifier)
+        .importLocalArchiveBytes(bytes, password: password);
+    if (!context.mounted) {
+      return;
+    }
+    final confirmed =
+        await _showBundlePreviewDialog(
+          context,
+          preview,
+          confirmLabel: strings.localized(
+            en: 'Import',
+            ja: '読み込む',
+            zh: '导入',
+            ko: '가져오기',
+            es: 'Importar',
+            de: 'Importieren',
+          ),
+        ) ??
+        false;
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    await ref
+        .read(syncTransferControllerProvider.notifier)
+        .applyLocalArchiveBytes(bytes, password: password);
+    if (!context.mounted) {
+      return;
+    }
+    final message =
+        ref.read(syncTransferControllerProvider).message ??
+        strings.localized(
+          en: 'Archive imported.',
+          ja: 'アーカイブを読み込みました。',
+          zh: '归档已导入。',
+          ko: '아카이브를 가져왔습니다.',
+          es: 'Archivo importado.',
+          de: 'Archiv importiert.',
+        );
+    messenger.showSnackBar(
+      SnackBar(showCloseIcon: true, content: Text(message)),
+    );
+  } catch (error) {
+    if (!context.mounted) {
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(showCloseIcon: true, content: Text('$error')),
+    );
+  }
+}
+
+const _cancelledArchivePassword = '\u0000__cancelled__';
+
+Future<String?> _passwordForLocalArchivePreview(
+  BuildContext context,
+  WidgetRef ref,
+  List<int> bytes,
+) async {
+  try {
+    await ref
+        .read(syncTransferControllerProvider.notifier)
+        .importLocalArchiveBytes(bytes);
+    return null;
+  } catch (_) {
+    if (!context.mounted) {
+      return _cancelledArchivePassword;
+    }
+    return _showArchivePasswordDialog(context);
+  }
+}
+
+Future<_LocalArchiveExportOptions?> _showLocalArchiveExportDialog(
+  BuildContext context,
+) async {
+  final strings = context.strings;
+  return showDialog<_LocalArchiveExportOptions>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text(
+          strings.localized(
+            en: 'File export',
+            ja: 'ファイルエクスポート',
+            zh: '文件导出',
+            ko: '파일 내보내기',
+            es: 'Exportar archivo',
+            de: 'Datei exportieren',
+          ),
+        ),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                strings.localized(
+                  en: 'Choose a portable ZIP format. Password-protected ZIP is safer for storage and sharing. Plain ZIP is readable without HiMemo and is useful for long-term recovery.',
+                  ja: '持ち運びしやすいZIP形式で書き出します。保存や共有にはキー付きZIPが安全です。プレーンZIPはHiMemoなしでも読めるため、長期的な復旧に向いています。',
+                  zh: '请选择可移植的 ZIP 格式。带密码的 ZIP 更适合保存和共享；纯 ZIP 无需 HiMemo 也能读取，适合长期恢复。',
+                  ko: '휴대 가능한 ZIP 형식으로 내보냅니다. 비밀번호 ZIP은 보관과 공유에 더 안전하고, 일반 ZIP은 HiMemo 없이도 읽을 수 있어 장기 복구에 적합합니다.',
+                  es: 'Elige un formato ZIP portátil. El ZIP con contraseña es más seguro para guardar y compartir. El ZIP sin cifrar se puede leer sin HiMemo y sirve para recuperación a largo plazo.',
+                  de: 'Wähle ein portables ZIP-Format. Ein passwortgeschütztes ZIP ist sicherer zum Speichern und Teilen. Ein unverschlüsseltes ZIP ist ohne HiMemo lesbar und eignet sich zur langfristigen Wiederherstellung.',
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.lock_outline),
+                title: Text(
+                  strings.localized(
+                    en: 'Password-protected ZIP',
+                    ja: 'キー付きZIP',
+                    zh: '带密码的 ZIP',
+                    ko: '비밀번호 ZIP',
+                    es: 'ZIP con contraseña',
+                    de: 'Passwortgeschütztes ZIP',
+                  ),
+                ),
+                subtitle: Text(
+                  strings.localized(
+                    en: 'Recommended for normal backups.',
+                    ja: '通常のバックアップにおすすめです。',
+                    zh: '推荐用于普通备份。',
+                    ko: '일반 백업에 권장됩니다.',
+                    es: 'Recomendado para copias de seguridad normales.',
+                    de: 'Für normale Backups empfohlen.',
+                  ),
+                ),
+                onTap: () async {
+                  final password = await _showArchivePasswordDialog(
+                    dialogContext,
+                    confirmPassword: true,
+                  );
+                  if (password == null || password.isEmpty) {
+                    return;
+                  }
+                  if (dialogContext.mounted) {
+                    Navigator.of(dialogContext).pop(
+                      _LocalArchiveExportOptions(
+                        kind: _LocalArchiveExportKind.passwordProtectedZip,
+                        password: password,
+                      ),
+                    );
+                  }
+                },
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.folder_open_outlined),
+                title: Text(
+                  strings.localized(
+                    en: 'Plain ZIP',
+                    ja: 'プレーンZIP',
+                    zh: '纯 ZIP',
+                    ko: '일반 ZIP',
+                    es: 'ZIP sin cifrar',
+                    de: 'Unverschlüsseltes ZIP',
+                  ),
+                ),
+                subtitle: Text(
+                  strings.localized(
+                    en: 'Readable outside the app. Anyone with the file can see its contents.',
+                    ja: 'アプリ外でも読めます。ファイルを持つ人は内容を閲覧できます。',
+                    zh: '可在应用外读取。持有文件的人都能查看内容。',
+                    ko: '앱 밖에서도 읽을 수 있습니다. 파일을 가진 사람은 내용을 볼 수 있습니다.',
+                    es: 'Se puede leer fuera de la app. Cualquier persona con el archivo puede ver su contenido.',
+                    de: 'Außerhalb der App lesbar. Jede Person mit der Datei kann den Inhalt sehen.',
+                  ),
+                ),
+                onTap: () async {
+                  final confirmed = await _confirmPlainZipExport(dialogContext);
+                  if (confirmed && dialogContext.mounted) {
+                    Navigator.of(dialogContext).pop(
+                      const _LocalArchiveExportOptions(
+                        kind: _LocalArchiveExportKind.plainZip,
+                      ),
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(strings.cancel),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+Future<bool> _confirmPlainZipExport(BuildContext context) async {
+  final strings = context.strings;
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(
+        strings.localized(
+          en: 'Export plain ZIP?',
+          ja: 'プレーンZIPで書き出しますか？',
+          zh: '导出纯 ZIP？',
+          ko: '일반 ZIP으로 내보낼까요?',
+          es: '¿Exportar ZIP sin cifrar?',
+          de: 'Unverschlüsseltes ZIP exportieren?',
+        ),
+      ),
+      content: Text(
+        strings.localized(
+          en: 'The exported file contains readable note text, tags, dates, locations, photos, videos, audio, and files. Store it only in a place you trust.',
+          ja: '書き出したファイルには、メモ本文、タグ、日時、位置情報、写真、動画、音声、ファイルが読み取り可能な状態で含まれます。信頼できる場所にのみ保存してください。',
+          zh: '导出的文件会以可读取状态包含笔记正文、标签、日期、位置、照片、视频、音频和文件。请只保存到可信位置。',
+          ko: '내보낸 파일에는 메모 본문, 태그, 날짜, 위치, 사진, 동영상, 오디오, 파일이 읽을 수 있는 상태로 포함됩니다. 신뢰할 수 있는 위치에만 저장하세요.',
+          es: 'El archivo exportado contiene texto, etiquetas, fechas, ubicaciones, fotos, videos, audio y archivos en formato legible. Guárdalo solo en un lugar de confianza.',
+          de: 'Die exportierte Datei enthält lesbare Notiztexte, Tags, Daten, Standorte, Fotos, Videos, Audio und Dateien. Speichere sie nur an einem vertrauenswürdigen Ort.',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(strings.cancel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(
+            strings.localized(
+              en: 'Export plain ZIP',
+              ja: 'プレーンZIPで書き出す',
+              zh: '导出纯 ZIP',
+              ko: '일반 ZIP 내보내기',
+              es: 'Exportar ZIP sin cifrar',
+              de: 'Unverschlüsselt exportieren',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+  return result ?? false;
+}
+
+Future<String?> _showArchivePasswordDialog(
+  BuildContext context, {
+  bool confirmPassword = false,
+}) async {
+  final strings = context.strings;
+  final controller = TextEditingController();
+  final confirmController = TextEditingController();
+  String? errorText;
+  final result = await showDialog<String>(
+    context: context,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: Text(
+              confirmPassword
+                  ? strings.localized(
+                      en: 'Set archive key',
+                      ja: 'アーカイブキーを設定',
+                      zh: '设置归档密钥',
+                      ko: '아카이브 키 설정',
+                      es: 'Definir clave del archivo',
+                      de: 'Archivschlüssel festlegen',
+                    )
+                  : strings.localized(
+                      en: 'Archive key',
+                      ja: 'アーカイブキー',
+                      zh: '归档密钥',
+                      ko: '아카이브 키',
+                      es: 'Clave del archivo',
+                      de: 'Archivschlüssel',
+                    ),
+            ),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    strings.localized(
+                      en: 'This key is not stored by HiMemo. If you lose it, this ZIP cannot be imported.',
+                      ja: 'このキーはHiMemoには保存されません。忘れると、このZIPは読み込めません。',
+                      zh: '此密钥不会保存在 HiMemo 中。如果遗失，将无法导入此 ZIP。',
+                      ko: '이 키는 HiMemo에 저장되지 않습니다. 잊어버리면 이 ZIP을 가져올 수 없습니다.',
+                      es: 'HiMemo no guarda esta clave. Si la pierdes, no podrás importar este ZIP.',
+                      de: 'HiMemo speichert diesen Schlüssel nicht. Wenn du ihn verlierst, kann dieses ZIP nicht importiert werden.',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: controller,
+                    obscureText: true,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      labelText: strings.localized(
+                        en: 'Key',
+                        ja: 'キー',
+                        zh: '密钥',
+                        ko: '키',
+                        es: 'Clave',
+                        de: 'Schlüssel',
+                      ),
+                      errorText: errorText,
+                    ),
+                  ),
+                  if (confirmPassword) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: confirmController,
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        labelText: strings.localized(
+                          en: 'Confirm key',
+                          ja: 'キーを確認',
+                          zh: '确认密钥',
+                          ko: '키 확인',
+                          es: 'Confirmar clave',
+                          de: 'Schlüssel bestätigen',
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(strings.cancel),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final password = controller.text;
+                  if (password.length < 8) {
+                    setState(() {
+                      errorText = strings.localized(
+                        en: 'Use at least 8 characters.',
+                        ja: '8文字以上で入力してください。',
+                        zh: '请至少输入 8 个字符。',
+                        ko: '8자 이상 입력하세요.',
+                        es: 'Usa al menos 8 caracteres.',
+                        de: 'Mindestens 8 Zeichen verwenden.',
+                      );
+                    });
+                    return;
+                  }
+                  if (confirmPassword && password != confirmController.text) {
+                    setState(() {
+                      errorText = strings.localized(
+                        en: 'Keys do not match.',
+                        ja: 'キーが一致しません。',
+                        zh: '密钥不一致。',
+                        ko: '키가 일치하지 않습니다.',
+                        es: 'Las claves no coinciden.',
+                        de: 'Die Schlüssel stimmen nicht überein.',
+                      );
+                    });
+                    return;
+                  }
+                  Navigator.of(context).pop(password);
+                },
+                child: Text(
+                  confirmPassword
+                      ? strings.save
+                      : strings.localized(
+                          en: 'Continue',
+                          ja: '続行',
+                          zh: '继续',
+                          ko: '계속',
+                          es: 'Continuar',
+                          de: 'Weiter',
+                        ),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+  controller.dispose();
+  confirmController.dispose();
+  return result;
 }
 
 Future<bool?> _showBundlePreviewDialog(

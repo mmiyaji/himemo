@@ -15,6 +15,7 @@ import 'package:himemo/features/security/data/encrypted_note_database.dart';
 import 'package:himemo/features/security/data/encrypted_note_store.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/master_key_service.dart';
+import 'package:himemo/features/security/data/profile_data_key_service.dart';
 import 'package:himemo/features/security/data/private_vault_secret_store.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
@@ -248,6 +249,77 @@ void main() {
         encryptionService: encryptionService,
         sharedPreferencesProvider: () async => prefs,
       );
+    });
+
+    test('private profile notes require unlocked profile data key', () async {
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-profile-key-notes-',
+      );
+      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+      addTearDown(database.close);
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final profileKeys = ProfileDataKeyService(
+        secureStore: secureStore,
+        encryptionService: encryptionService,
+        normalMasterKeyService: masterKeyService,
+      );
+      await profileKeys.configureProfile(
+        vaultId: 'private_profile:a',
+        password: 'correct horse battery staple',
+      );
+      final profileStore = EncryptedNoteStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        profileDataKeyService: profileKeys,
+        database: database,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: () async => prefs,
+      );
+      final privateNote = NoteEntry(
+        id: 'private-a',
+        vaultId: 'private_profile:a',
+        title: 'Secret profile title',
+        body: 'Secret profile body',
+        createdAt: DateTime(2026, 5, 6, 8, 0),
+      );
+      await profileStore.save([privateNote]);
+
+      final lockedProfileKeys = ProfileDataKeyService(
+        secureStore: secureStore,
+        encryptionService: encryptionService,
+        normalMasterKeyService: masterKeyService,
+      );
+      final lockedStore = EncryptedNoteStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        profileDataKeyService: lockedProfileKeys,
+        database: database,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: () async => prefs,
+      );
+      final locked = await lockedStore.load(fallbackNotes: const []);
+      expect(locked.single.id, privateNote.id);
+      expect(locked.single.title, 'Locked private note');
+      expect(locked.single.body, isEmpty);
+
+      expect(
+        await lockedProfileKeys.unlockProfile(
+          vaultId: 'private_profile:a',
+          password: 'correct horse battery staple',
+        ),
+        isTrue,
+      );
+      final unlocked = await lockedStore.load(fallbackNotes: const []);
+      expect(unlocked.single.title, privateNote.title);
+      expect(unlocked.single.body, privateNote.body);
     });
 
     test(
