@@ -12,6 +12,7 @@ import 'package:himemo/app/app_flavor.dart';
 import 'package:himemo/features/home/data/home_repository.dart';
 import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/home/domain/note_tags.dart';
+import 'package:himemo/features/home/domain/vault_models.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
 import 'package:himemo/features/security/data/encrypted_note_database.dart';
@@ -101,6 +102,46 @@ void main() {
     );
 
     expect(NoteAttachment.fromJson(attachment.toJson()).durationMs, 65000);
+  });
+
+  test('widget quick capture stores first line only as title', () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = MemoryHomeRepository();
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(11));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        homeRepositoryProvider.overrideWithValue(repository),
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    await container
+        .read(notesControllerProvider.notifier)
+        .createWidgetQuickCapture('Title line\nBody line');
+
+    final note = container.read(notesControllerProvider).single;
+    expect(note.title, 'Title line');
+    expect(note.body, 'Body line');
+    expect(note.blocks.single.text, 'Body line');
   });
 
   test('app strings support Chinese and Korean locales', () {
@@ -880,4 +921,27 @@ void main() {
     expect(container.read(visibleTagSuggestionsProvider), contains('Alpha'));
     expect(dedupeNoteTags([' Alpha ', '#alpha', 'HOME']), ['Alpha', 'HOME']);
   });
+}
+
+class MemoryHomeRepository implements HomeRepository {
+  @override
+  List<UnlockIdentity> get identities => const [
+    UnlockIdentity(
+      id: 'daily',
+      name: 'Notes',
+      tagline: '',
+      lockLabel: 'Standard access',
+      visibleVaultIds: ['everyday'],
+      accentHex: 0xFF6B8798,
+      warning: '',
+    ),
+  ];
+
+  @override
+  List<NoteEntry> get seededNotes => const [];
+
+  @override
+  List<VaultBucket> get vaults => const [
+    VaultBucket(id: 'everyday', name: 'Notes', description: ''),
+  ];
 }

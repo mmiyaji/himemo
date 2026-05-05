@@ -8018,6 +8018,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   bool _draftLoaded = false;
   bool _editorDisposed = false;
   Timer? _draftSaveTimer;
+  bool _discardingDraft = false;
 
   @override
   void initState() {
@@ -8292,16 +8293,42 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       content: Text(context.strings.draftRestored),
       action: SnackBarAction(
         label: context.strings.discardDraft,
-        onPressed: () {
-          ref.read(noteEditorDraftStoreProvider).clear();
-        },
+        onPressed: _discardRestoredDraft,
       ),
     );
   }
 
+  void _discardRestoredDraft() {
+    if (!mounted || _editorDisposed) {
+      return;
+    }
+    _discardingDraft = true;
+    _draftSaveTimer?.cancel();
+    unawaited(ref.read(noteEditorDraftStoreProvider).clear());
+    for (final attachment in _allCurrentAttachments) {
+      final filePath = attachment.filePath;
+      if (filePath == null || _initialAttachmentPaths.contains(filePath)) {
+        continue;
+      }
+      unawaited(_attachmentStore.deleteAttachment(filePath));
+    }
+    setState(() {
+      _createdAt = DateTime.now();
+      _isPinned = false;
+      _tags = [];
+      _attachments = [];
+      _contentController.clear();
+      _replaceRichBlocks([_RichBlockDraft.paragraph()]);
+    });
+    _discardingDraft = false;
+    _updateCanSubmit();
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    _scheduleInitialEditorFocus();
+  }
+
   void _scheduleDraftPersist() {
     _updateCanSubmit();
-    if (widget.note != null) {
+    if (widget.note != null || _discardingDraft) {
       return;
     }
     _draftSaveTimer?.cancel();

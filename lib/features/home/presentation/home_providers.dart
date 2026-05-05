@@ -104,6 +104,22 @@ AppColorTheme? _appColorThemeFromName(String? value) {
   return null;
 }
 
+({String title, String body}) _splitExternalCaptureText(
+  String rawText,
+  List<QuickCaptureFile> validFiles,
+) {
+  final text = rawText.trim();
+  final lines = const LineSplitter()
+      .convert(text)
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList(growable: false);
+  final title = lines.isEmpty
+      ? (validFiles.length == 1 ? validFiles.single.name : 'Shared attachments')
+      : lines.first;
+  return (title: title, body: lines.skip(1).join('\n'));
+}
+
 enum AppLocaleSetting {
   system,
   japanese,
@@ -3750,15 +3766,7 @@ class NotesController extends _$NotesController {
     }
     await logFirebaseBreadcrumb('widget quick capture saved');
     final now = DateTime.now();
-    final lines = LineSplitter.split(text)
-        .map((line) => line.trim())
-        .where((line) => line.isNotEmpty)
-        .toList(growable: false);
-    final title = lines.isEmpty
-        ? (validFiles.length == 1
-              ? validFiles.single.name
-              : 'Shared attachments')
-        : lines.first;
+    final content = _splitExternalCaptureText(text, validFiles);
     final attachments = <NoteAttachment>[];
     final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
     for (final file in validFiles) {
@@ -3792,14 +3800,14 @@ class NotesController extends _$NotesController {
       NoteEntry(
         id: now.microsecondsSinceEpoch.toString(),
         vaultId: 'everyday',
-        title: title,
-        body: text,
+        title: content.title,
+        body: content.body,
         createdAt: now,
         updatedAt: now,
         attachments: attachments,
         blocks: [
-          if (text.isNotEmpty)
-            NoteBlock(type: NoteBlockType.paragraph, text: text),
+          if (content.body.isNotEmpty)
+            NoteBlock(type: NoteBlockType.paragraph, text: content.body),
           for (final attachment in attachments)
             NoteBlock(
               type: switch (attachment.type) {
