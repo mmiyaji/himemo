@@ -11,7 +11,7 @@
       "toolArgs": [
         "--flavor",
         "development",
-        "--dart-define-from-file=.env"
+        "--dart-define-from-file=${workspaceFolder}/.env"
       ],
       "preLaunchTask": "HiMemo: start Android emulator"
     },
@@ -25,7 +25,7 @@
       "toolArgs": [
         "--flavor",
         "production",
-        "--dart-define-from-file=.env"
+        "--dart-define-from-file=${workspaceFolder}/.env"
       ],
       "preLaunchTask": "HiMemo: start Android emulator"
     },
@@ -43,7 +43,11 @@
       "type": "dart",
       "program": "lib/main_development.dart",
       "flutterMode": "debug",
-      "toolArgs": ["--flavor", "development", "--dart-define-from-file=.env"]
+      "toolArgs": [
+        "--flavor",
+        "development",
+        "--dart-define-from-file=${workspaceFolder}/.env"
+      ]
     },
     {
       "name": "HiMemo production",
@@ -59,7 +63,11 @@
       "type": "dart",
       "program": "lib/main_production.dart",
       "flutterMode": "debug",
-      "toolArgs": ["--flavor", "production", "--dart-define-from-file=.env"]
+      "toolArgs": [
+        "--flavor",
+        "production",
+        "--dart-define-from-file=${workspaceFolder}/.env"
+      ]
     },
     {
       "name": "HiMemo web development",
@@ -67,7 +75,14 @@
       "type": "dart",
       "program": "lib/main_development.dart",
       "deviceId": "chrome",
-      "flutterMode": "debug"
+      "flutterMode": "debug",
+      "toolArgs": [
+        "--dart-define-from-file=${workspaceFolder}/.env",
+        "--web-hostname",
+        "localhost",
+        "--web-port",
+        "58080"
+      ]
     }
   ]
 }

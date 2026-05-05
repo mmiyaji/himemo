@@ -13,6 +13,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:in_app_update/in_app_update.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as path;
@@ -26,7 +27,9 @@ import 'package:video_player/video_player.dart';
 import '../../../l10n/app_strings.dart';
 import '../../security/data/encrypted_attachment_store.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
+import '../../sync/data/google_sign_in_initializer.dart';
 import '../../sync/data/sync_bundle_preview.dart';
+import '../../sync/presentation/google_sign_in_web_button.dart';
 import '../domain/note_entry.dart';
 import '../domain/note_tags.dart';
 import '../domain/vault_models.dart';
@@ -2128,6 +2131,141 @@ bool _isSameCalendarDay(DateTime left, DateTime right) {
       left.day == right.day;
 }
 
+class _GoogleDriveWebSignInPanel extends ConsumerStatefulWidget {
+  const _GoogleDriveWebSignInPanel();
+
+  @override
+  ConsumerState<_GoogleDriveWebSignInPanel> createState() =>
+      _GoogleDriveWebSignInPanelState();
+}
+
+class _GoogleDriveWebSignInPanelState
+    extends ConsumerState<_GoogleDriveWebSignInPanel> {
+  StreamSubscription<GoogleSignInAuthenticationEvent>? _subscription;
+  Object? _error;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_initialize());
+  }
+
+  @override
+  void dispose() {
+    unawaited(_subscription?.cancel());
+    super.dispose();
+  }
+
+  Future<void> _initialize() async {
+    try {
+      await GoogleSignInInitializer.ensureInitialized(
+        ref.read(googleDriveAuthConfigProvider),
+      );
+      _subscription = GoogleSignIn.instance.authenticationEvents.listen(
+        _handleAuthenticationEvent,
+        onError: _handleAuthenticationError,
+      );
+      GoogleSignIn.instance.attemptLightweightAuthentication();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _ready = true;
+        _error = null;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _ready = false;
+        _error = error is GoogleDriveAuthConfigurationException
+            ? error.message
+            : error;
+      });
+    }
+  }
+
+  Future<void> _handleAuthenticationEvent(
+    GoogleSignInAuthenticationEvent event,
+  ) async {
+    switch (event) {
+      case GoogleSignInAuthenticationEventSignIn(user: final user):
+        await ref
+            .read(syncAuthControllerProvider.notifier)
+            .completeGoogleDriveWebAuthentication(user);
+      case GoogleSignInAuthenticationEventSignOut():
+        await ref
+            .read(syncAuthControllerProvider.notifier)
+            .disconnect(SyncProvider.googleDrive);
+    }
+  }
+
+  void _handleAuthenticationError(Object error) {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _error = error;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final colorScheme = Theme.of(context).colorScheme;
+    final error = _error;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 8, bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            strings.googleDriveWebSignInTitle,
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            strings.googleDriveWebSignInBody,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (_ready)
+            buildGoogleSignInWebButton(locale: strings.locale.languageCode)
+          else
+            const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          if (error != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              '$error',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: colorScheme.error),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
@@ -2574,10 +2712,13 @@ class SettingsScreen extends ConsumerWidget {
     final syncSummary = syncProvider == SyncProvider.off
         ? (strings.text('home.device.only.storage'))
         : _syncAuthSummary(context, syncProvider, syncAuthState);
+    final effectiveFontFamily = _availableFontFamilies.contains(fontFamily)
+        ? fontFamily
+        : AppFontFamily.system;
     final appearanceSummary = strings.appearanceSummary(
       language: _localeSettingLabel(context, localeSetting),
       theme: _themeModeLabel(context, themeMode),
-      font: _fontFamilyLabel(context, fontFamily),
+      font: _fontFamilyLabel(context, effectiveFontFamily),
       color: _colorThemeLabel(context, activeColorTheme),
     );
     final colorThemeTargets = [
@@ -3315,478 +3456,505 @@ class SettingsScreen extends ConsumerWidget {
                 _syncAuthSummary(context, syncProvider, syncAuthState),
               ),
             ),
-            Theme(
-              data: Theme.of(
-                context,
-              ).copyWith(dividerColor: Colors.transparent),
-              child: ExpansionTile(
-                tilePadding: EdgeInsets.zero,
-                childrenPadding: EdgeInsets.zero,
-                title: Text(strings.text('home.filters')),
-                children: [
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(strings.text('home.pending.sync.queue')),
-                    subtitle: Text(
-                      syncQueueSummary.when(
-                        data: (summary) {
-                          if (!summary.hasPendingChanges) {
-                            return strings.text(
-                              'home.no.pending.device.changes',
-                            );
-                          }
-                          final timestamp = summary.lastQueuedAt;
-                          final stampText = timestamp == null
-                              ? (strings.text('home.queue.ready'))
-                              : strings.lastQueuedAt(
-                                  _formatDateTime(timestamp),
-                                );
-                          return strings.pendingSyncSummary(
-                            total: summary.totalChanges,
-                            upserts: summary.upserts,
-                            deletes: summary.deletes,
-                            stamp: stampText,
-                          );
-                        },
-                        loading: () =>
-                            strings.text('home.checking.pending.changes'),
-                        error: (_, _) => strings.text(
-                          'home.unable.to.inspect.the.local.sync.queue',
-                        ),
-                      ),
-                    ),
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              decoration: BoxDecoration(
+                color: Theme.of(
+                  context,
+                ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.36),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Theme(
+                data: Theme.of(
+                  context,
+                ).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  leading: const Icon(Icons.info_outline_rounded),
+                  tilePadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 2,
                   ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(strings.text('home.remote.bundle')),
-                    subtitle: Text(
-                      _remoteBundleSummary(
-                        strings,
-                        syncProvider,
-                        syncTransferState,
-                      ),
-                    ),
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      strings.text('home.cloud.recovery.key.fingerprint'),
-                    ),
-                    subtitle: Text(
-                      syncBundleFingerprint.when(
-                        data: (value) => value,
-                        loading: () =>
-                            strings.text('home.preparing.cloud.recovery.key'),
-                        error: (_, _) => strings.text(
-                          'home.unable.to.read.the.cloud.recovery.key.fingerprint',
-                        ),
-                      ),
-                    ),
-                  ),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        OutlinedButton(
-                          onPressed: () async {
-                            final messenger = ScaffoldMessenger.of(context);
-                            try {
-                              final backupCode = await ref
-                                  .read(syncBundleKeyServiceProvider)
-                                  .exportBackupCode();
-                              await Clipboard.setData(
-                                ClipboardData(text: backupCode),
-                              );
-                              if (!context.mounted) {
-                                return;
-                              }
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  showCloseIcon: true,
-                                  content: Text(
-                                    strings.text(
-                                      'home.cloud.recovery.key.copied.to.clipboard',
-                                    ),
-                                  ),
-                                ),
-                              );
-                            } catch (error) {
-                              if (!context.mounted) {
-                                return;
-                              }
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  showCloseIcon: true,
-                                  content: Text('$error'),
-                                ),
-                              );
-                            }
-                          },
-                          child: Text(strings.text('home.copy.recovery.key')),
-                        ),
-                        OutlinedButton(
-                          onPressed: () async {
-                            final backupCode = await _showSyncKeyImportDialog(
-                              context,
-                            );
-                            if (!context.mounted || backupCode == null) {
-                              return;
-                            }
-                            final messenger = ScaffoldMessenger.of(context);
-                            try {
-                              final currentFingerprint = await ref
-                                  .read(syncBundleKeyServiceProvider)
-                                  .fingerprint();
-                              if (!context.mounted) {
-                                return;
-                              }
-                              final incomingFingerprint = ref
-                                  .read(syncBundleKeyServiceProvider)
-                                  .previewBackupCodeFingerprint(backupCode);
-                              final shouldImport =
-                                  await _showSyncKeyImportConfirmDialog(
-                                    context,
-                                    currentFingerprint: currentFingerprint,
-                                    incomingFingerprint: incomingFingerprint,
-                                  ) ??
-                                  false;
-                              if (!shouldImport || !context.mounted) {
-                                return;
-                              }
-                              final fingerprint = await ref
-                                  .read(syncBundleKeyServiceProvider)
-                                  .importBackupCode(backupCode);
-                              ref.invalidate(syncBundleFingerprintProvider);
-                              if (!context.mounted) {
-                                return;
-                              }
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  showCloseIcon: true,
-                                  content: Text(
-                                    strings.recoveryKeyImported(fingerprint),
-                                  ),
-                                ),
-                              );
-                            } catch (error) {
-                              if (!context.mounted) {
-                                return;
-                              }
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  showCloseIcon: true,
-                                  content: Text('$error'),
-                                ),
-                              );
-                            }
-                          },
-                          child: Text(strings.text('home.import.recovery.key')),
-                        ),
-                      ],
-                    ),
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(strings.text('home.last.sync.activity')),
-                    subtitle: Text(
-                      syncBundleState.when(
-                        data: (value) {
-                          final entries = <String>[];
-                          if (value.lastUploadedAt != null) {
-                            entries.add(
-                              strings.lastUploadAt(
-                                _formatDateTime(value.lastUploadedAt!),
-                              ),
-                            );
-                          }
-                          if (value.lastAppliedAt != null) {
-                            entries.add(
-                              strings.lastApplyAt(
-                                _formatDateTime(value.lastAppliedAt!),
-                              ),
-                            );
-                          }
-                          if (value.lastRemoteModifiedAt != null) {
-                            entries.add(
-                              strings.remoteBundleAt(
-                                _formatDateTime(value.lastRemoteModifiedAt!),
-                              ),
-                            );
-                          }
-                          if (entries.isEmpty) {
-                            return strings.text(
-                              'home.no.sync.activity.has.been.recorded.on.this.device.yet',
-                            );
-                          }
-                          return entries.join('\n');
-                        },
-                        loading: () =>
-                            strings.text('home.reading.sync.activity'),
-                        error: (_, _) => strings.text(
-                          'home.unable.to.read.local.sync.activity',
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (syncTransferState.localBundle != null)
+                  childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  title: Text(strings.syncDetailsTitle),
+                  subtitle: Text(strings.syncDetailsSummary),
+                  children: [
                     ListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: Text(strings.text('home.local.bundle.cache')),
+                      title: Text(strings.text('home.pending.sync.queue')),
                       subtitle: Text(
-                        strings.localBundleStoredAt(
-                          syncTransferState.localBundle!.reference,
+                        syncQueueSummary.when(
+                          data: (summary) {
+                            if (!summary.hasPendingChanges) {
+                              return strings.text(
+                                'home.no.pending.device.changes',
+                              );
+                            }
+                            final timestamp = summary.lastQueuedAt;
+                            final stampText = timestamp == null
+                                ? (strings.text('home.queue.ready'))
+                                : strings.lastQueuedAt(
+                                    _formatDateTime(timestamp),
+                                  );
+                            return strings.pendingSyncSummary(
+                              total: summary.totalChanges,
+                              upserts: summary.upserts,
+                              deletes: summary.deletes,
+                              stamp: stampText,
+                            );
+                          },
+                          loading: () =>
+                              strings.text('home.checking.pending.changes'),
+                          error: (_, _) => strings.text(
+                            'home.unable.to.inspect.the.local.sync.queue',
+                          ),
                         ),
                       ),
                     ),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        if (syncProvider != SyncProvider.off &&
-                            syncAuthState.isAuthenticated)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(strings.text('home.remote.bundle')),
+                      subtitle: Text(
+                        _remoteBundleSummary(
+                          strings,
+                          syncProvider,
+                          syncTransferState,
+                        ),
+                      ),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        strings.text('home.cloud.recovery.key.fingerprint'),
+                      ),
+                      subtitle: Text(
+                        syncBundleFingerprint.when(
+                          data: (value) => value,
+                          loading: () =>
+                              strings.text('home.preparing.cloud.recovery.key'),
+                          error: (_, _) => strings.text(
+                            'home.unable.to.read.the.cloud.recovery.key.fingerprint',
+                          ),
+                        ),
+                      ),
+                    ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
                           OutlinedButton(
-                            onPressed: syncTransferState.isBusy
-                                ? null
-                                : () async {
-                                    final messenger = ScaffoldMessenger.of(
+                            onPressed: () async {
+                              final messenger = ScaffoldMessenger.of(context);
+                              try {
+                                final backupCode = await ref
+                                    .read(syncBundleKeyServiceProvider)
+                                    .exportBackupCode();
+                                await Clipboard.setData(
+                                  ClipboardData(text: backupCode),
+                                );
+                                if (!context.mounted) {
+                                  return;
+                                }
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    showCloseIcon: true,
+                                    content: Text(
+                                      strings.text(
+                                        'home.cloud.recovery.key.copied.to.clipboard',
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              } catch (error) {
+                                if (!context.mounted) {
+                                  return;
+                                }
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    showCloseIcon: true,
+                                    content: Text('$error'),
+                                  ),
+                                );
+                              }
+                            },
+                            child: Text(strings.text('home.copy.recovery.key')),
+                          ),
+                          OutlinedButton(
+                            onPressed: () async {
+                              final backupCode = await _showSyncKeyImportDialog(
+                                context,
+                              );
+                              if (!context.mounted || backupCode == null) {
+                                return;
+                              }
+                              final messenger = ScaffoldMessenger.of(context);
+                              try {
+                                final currentFingerprint = await ref
+                                    .read(syncBundleKeyServiceProvider)
+                                    .fingerprint();
+                                if (!context.mounted) {
+                                  return;
+                                }
+                                final incomingFingerprint = ref
+                                    .read(syncBundleKeyServiceProvider)
+                                    .previewBackupCodeFingerprint(backupCode);
+                                final shouldImport =
+                                    await _showSyncKeyImportConfirmDialog(
                                       context,
-                                    );
-                                    try {
-                                      final history = await ref
-                                          .read(
-                                            syncTransferControllerProvider
-                                                .notifier,
-                                          )
-                                          .listRemoteBundleHistory();
-                                      if (!context.mounted) {
-                                        return;
-                                      }
-                                      if (history.isEmpty) {
-                                        messenger.showSnackBar(
-                                          SnackBar(
-                                            showCloseIcon: true,
-                                            content: Text(
-                                              strings.text(
-                                                'home.no.remote.bundle.history.is.available',
+                                      currentFingerprint: currentFingerprint,
+                                      incomingFingerprint: incomingFingerprint,
+                                    ) ??
+                                    false;
+                                if (!shouldImport || !context.mounted) {
+                                  return;
+                                }
+                                final fingerprint = await ref
+                                    .read(syncBundleKeyServiceProvider)
+                                    .importBackupCode(backupCode);
+                                ref.invalidate(syncBundleFingerprintProvider);
+                                if (!context.mounted) {
+                                  return;
+                                }
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    showCloseIcon: true,
+                                    content: Text(
+                                      strings.recoveryKeyImported(fingerprint),
+                                    ),
+                                  ),
+                                );
+                              } catch (error) {
+                                if (!context.mounted) {
+                                  return;
+                                }
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    showCloseIcon: true,
+                                    content: Text('$error'),
+                                  ),
+                                );
+                              }
+                            },
+                            child: Text(
+                              strings.text('home.import.recovery.key'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(strings.text('home.last.sync.activity')),
+                      subtitle: Text(
+                        syncBundleState.when(
+                          data: (value) {
+                            final entries = <String>[];
+                            if (value.lastUploadedAt != null) {
+                              entries.add(
+                                strings.lastUploadAt(
+                                  _formatDateTime(value.lastUploadedAt!),
+                                ),
+                              );
+                            }
+                            if (value.lastAppliedAt != null) {
+                              entries.add(
+                                strings.lastApplyAt(
+                                  _formatDateTime(value.lastAppliedAt!),
+                                ),
+                              );
+                            }
+                            if (value.lastRemoteModifiedAt != null) {
+                              entries.add(
+                                strings.remoteBundleAt(
+                                  _formatDateTime(value.lastRemoteModifiedAt!),
+                                ),
+                              );
+                            }
+                            if (entries.isEmpty) {
+                              return strings.text(
+                                'home.no.sync.activity.has.been.recorded.on.this.device.yet',
+                              );
+                            }
+                            return entries.join('\n');
+                          },
+                          loading: () =>
+                              strings.text('home.reading.sync.activity'),
+                          error: (_, _) => strings.text(
+                            'home.unable.to.read.local.sync.activity',
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (syncTransferState.localBundle != null)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(strings.text('home.local.bundle.cache')),
+                        subtitle: Text(
+                          strings.localBundleStoredAt(
+                            syncTransferState.localBundle!.reference,
+                          ),
+                        ),
+                      ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (syncProvider != SyncProvider.off &&
+                              syncAuthState.isAuthenticated)
+                            OutlinedButton(
+                              onPressed: syncTransferState.isBusy
+                                  ? null
+                                  : () async {
+                                      final messenger = ScaffoldMessenger.of(
+                                        context,
+                                      );
+                                      try {
+                                        final history = await ref
+                                            .read(
+                                              syncTransferControllerProvider
+                                                  .notifier,
+                                            )
+                                            .listRemoteBundleHistory();
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        if (history.isEmpty) {
+                                          messenger.showSnackBar(
+                                            SnackBar(
+                                              showCloseIcon: true,
+                                              content: Text(
+                                                strings.text(
+                                                  'home.no.remote.bundle.history.is.available',
+                                                ),
                                               ),
                                             ),
-                                          ),
+                                          );
+                                          return;
+                                        }
+                                        await _showBundleHistoryDialog(
+                                          context,
+                                          history,
                                         );
-                                        return;
-                                      }
-                                      await _showBundleHistoryDialog(
-                                        context,
-                                        history,
-                                      );
-                                    } catch (error) {
-                                      if (!context.mounted) {
-                                        return;
-                                      }
-                                      messenger.showSnackBar(
-                                        SnackBar(
-                                          showCloseIcon: true,
-                                          content: Text('$error'),
-                                        ),
-                                      );
-                                    }
-                                  },
-                            child: Text(strings.text('home.bundle.history')),
-                          ),
-                        if (syncProvider != SyncProvider.off &&
-                            syncAuthState.isAuthenticated)
-                          OutlinedButton(
-                            key: syncDownloadBundleKey,
-                            onPressed: syncTransferState.isBusy
-                                ? null
-                                : () async {
-                                    final messenger = ScaffoldMessenger.of(
-                                      context,
-                                    );
-                                    try {
-                                      await ref
-                                          .read(
-                                            syncTransferControllerProvider
-                                                .notifier,
-                                          )
-                                          .downloadLatestBundle();
-                                      if (!context.mounted) {
-                                        return;
-                                      }
-                                      final message = ref
-                                          .read(syncTransferControllerProvider)
-                                          .message;
-                                      if (message != null &&
-                                          message.isNotEmpty) {
+                                      } catch (error) {
+                                        if (!context.mounted) {
+                                          return;
+                                        }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text(message),
+                                            content: Text('$error'),
                                           ),
                                         );
                                       }
-                                    } catch (error) {
-                                      if (!context.mounted) {
-                                        return;
-                                      }
-                                      messenger.showSnackBar(
-                                        SnackBar(
-                                          showCloseIcon: true,
-                                          content: Text('$error'),
-                                        ),
-                                      );
-                                    }
-                                  },
-                            child: Text(strings.text('home.download.bundle')),
-                          ),
-                        if (syncTransferState.localBundle != null)
-                          OutlinedButton(
-                            onPressed: syncTransferState.isBusy
-                                ? null
-                                : () async {
-                                    final messenger = ScaffoldMessenger.of(
-                                      context,
-                                    );
-                                    try {
-                                      final preview = await ref
-                                          .read(
-                                            syncTransferControllerProvider
-                                                .notifier,
-                                          )
-                                          .previewDownloadedBundle();
-                                      if (!context.mounted) {
-                                        return;
-                                      }
-                                      await _showBundlePreviewDialog(
+                                    },
+                              child: Text(strings.text('home.bundle.history')),
+                            ),
+                          if (syncProvider != SyncProvider.off &&
+                              syncAuthState.isAuthenticated)
+                            OutlinedButton(
+                              key: syncDownloadBundleKey,
+                              onPressed: syncTransferState.isBusy
+                                  ? null
+                                  : () async {
+                                      final messenger = ScaffoldMessenger.of(
                                         context,
-                                        preview,
-                                        confirmLabel: strings.close,
                                       );
-                                    } catch (error) {
-                                      if (!context.mounted) {
-                                        return;
-                                      }
-                                      messenger.showSnackBar(
-                                        SnackBar(
-                                          showCloseIcon: true,
-                                          content: Text('$error'),
-                                        ),
-                                      );
-                                    }
-                                  },
-                            child: Text(strings.text('home.review.bundle')),
-                          ),
-                        if (syncTransferState.localBundle != null)
-                          OutlinedButton(
-                            key: syncApplyBundleKey,
-                            onPressed: syncTransferState.isBusy
-                                ? null
-                                : () async {
-                                    final messenger = ScaffoldMessenger.of(
-                                      context,
-                                    );
-                                    try {
-                                      final preview = await ref
-                                          .read(
-                                            syncTransferControllerProvider
-                                                .notifier,
-                                          )
-                                          .previewDownloadedBundle();
-                                      if (!context.mounted) {
-                                        return;
-                                      }
-                                      final shouldApply =
-                                          await _showBundlePreviewDialog(
-                                            context,
-                                            preview,
-                                            confirmLabel: strings.text(
-                                              'home.apply.bundle',
+                                      try {
+                                        await ref
+                                            .read(
+                                              syncTransferControllerProvider
+                                                  .notifier,
+                                            )
+                                            .downloadLatestBundle();
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        final message = ref
+                                            .read(
+                                              syncTransferControllerProvider,
+                                            )
+                                            .message;
+                                        if (message != null &&
+                                            message.isNotEmpty) {
+                                          messenger.showSnackBar(
+                                            SnackBar(
+                                              showCloseIcon: true,
+                                              content: Text(message),
                                             ),
-                                          ) ??
-                                          false;
-                                      if (!shouldApply) {
-                                        return;
-                                      }
-                                      await ref
-                                          .read(
-                                            syncTransferControllerProvider
-                                                .notifier,
-                                          )
-                                          .applyDownloadedBundle();
-                                      if (!context.mounted) {
-                                        return;
-                                      }
-                                      final message = ref
-                                          .read(syncTransferControllerProvider)
-                                          .message;
-                                      if (message != null &&
-                                          message.isNotEmpty) {
+                                          );
+                                        }
+                                      } catch (error) {
+                                        if (!context.mounted) {
+                                          return;
+                                        }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text(message),
+                                            content: Text('$error'),
                                           ),
                                         );
                                       }
-                                    } catch (error) {
-                                      if (!context.mounted) {
-                                        return;
-                                      }
-                                      messenger.showSnackBar(
-                                        SnackBar(
-                                          showCloseIcon: true,
-                                          content: Text('$error'),
-                                        ),
+                                    },
+                              child: Text(strings.text('home.download.bundle')),
+                            ),
+                          if (syncTransferState.localBundle != null)
+                            OutlinedButton(
+                              onPressed: syncTransferState.isBusy
+                                  ? null
+                                  : () async {
+                                      final messenger = ScaffoldMessenger.of(
+                                        context,
                                       );
-                                    }
-                                  },
-                            child: Text(strings.text('home.apply.bundle')),
+                                      try {
+                                        final preview = await ref
+                                            .read(
+                                              syncTransferControllerProvider
+                                                  .notifier,
+                                            )
+                                            .previewDownloadedBundle();
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        await _showBundlePreviewDialog(
+                                          context,
+                                          preview,
+                                          confirmLabel: strings.close,
+                                        );
+                                      } catch (error) {
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            showCloseIcon: true,
+                                            content: Text('$error'),
+                                          ),
+                                        );
+                                      }
+                                    },
+                              child: Text(strings.text('home.review.bundle')),
+                            ),
+                          if (syncTransferState.localBundle != null)
+                            OutlinedButton(
+                              key: syncApplyBundleKey,
+                              onPressed: syncTransferState.isBusy
+                                  ? null
+                                  : () async {
+                                      final messenger = ScaffoldMessenger.of(
+                                        context,
+                                      );
+                                      try {
+                                        final preview = await ref
+                                            .read(
+                                              syncTransferControllerProvider
+                                                  .notifier,
+                                            )
+                                            .previewDownloadedBundle();
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        final shouldApply =
+                                            await _showBundlePreviewDialog(
+                                              context,
+                                              preview,
+                                              confirmLabel: strings.text(
+                                                'home.apply.bundle',
+                                              ),
+                                            ) ??
+                                            false;
+                                        if (!shouldApply) {
+                                          return;
+                                        }
+                                        await ref
+                                            .read(
+                                              syncTransferControllerProvider
+                                                  .notifier,
+                                            )
+                                            .applyDownloadedBundle();
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        final message = ref
+                                            .read(
+                                              syncTransferControllerProvider,
+                                            )
+                                            .message;
+                                        if (message != null &&
+                                            message.isNotEmpty) {
+                                          messenger.showSnackBar(
+                                            SnackBar(
+                                              showCloseIcon: true,
+                                              content: Text(message),
+                                            ),
+                                          );
+                                        }
+                                      } catch (error) {
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            showCloseIcon: true,
+                                            content: Text('$error'),
+                                          ),
+                                        );
+                                      }
+                                    },
+                              child: Text(strings.text('home.apply.bundle')),
+                            ),
+                          OutlinedButton(
+                            onPressed: () async {
+                              final snapshot = await ref
+                                  .read(syncEngineProvider)
+                                  .prepareSnapshot(
+                                    ref.read(notesControllerProvider),
+                                  );
+                              if (!context.mounted) {
+                                return;
+                              }
+                              await showDialog<void>(
+                                context: context,
+                                builder: (context) {
+                                  return AlertDialog(
+                                    title: Text(
+                                      strings.text(
+                                        'home.prepared.sync.snapshot',
+                                      ),
+                                    ),
+                                    content: Text(
+                                      strings.syncSnapshotSummary(
+                                        notes: snapshot.notes.length,
+                                        attachments:
+                                            snapshot.attachments.length,
+                                        pending: snapshot.summary.totalChanges,
+                                        deviceId: snapshot.deviceId,
+                                      ),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.of(context).pop(),
+                                        child: Text(strings.close),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              );
+                            },
+                            child: Text(strings.text('home.inspect.snapshot')),
                           ),
-                        OutlinedButton(
-                          onPressed: () async {
-                            final snapshot = await ref
-                                .read(syncEngineProvider)
-                                .prepareSnapshot(
-                                  ref.read(notesControllerProvider),
-                                );
-                            if (!context.mounted) {
-                              return;
-                            }
-                            await showDialog<void>(
-                              context: context,
-                              builder: (context) {
-                                return AlertDialog(
-                                  title: Text(
-                                    strings.text('home.prepared.sync.snapshot'),
-                                  ),
-                                  content: Text(
-                                    strings.syncSnapshotSummary(
-                                      notes: snapshot.notes.length,
-                                      attachments: snapshot.attachments.length,
-                                      pending: snapshot.summary.totalChanges,
-                                      deviceId: snapshot.deviceId,
-                                    ),
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.of(context).pop(),
-                                      child: Text(strings.close),
-                                    ),
-                                  ],
-                                );
-                              },
-                            );
-                          },
-                          child: Text(strings.text('home.inspect.snapshot')),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             _ThemeOptionTile(
@@ -3819,11 +3987,16 @@ class SettingsScreen extends ConsumerWidget {
                   .read(syncProviderControllerProvider.notifier)
                   .setProvider(SyncProvider.googleDrive),
             ),
+            if (kIsWeb &&
+                syncProvider == SyncProvider.googleDrive &&
+                !syncAuthState.isAuthenticated)
+              const _GoogleDriveWebSignInPanel(),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                if (syncProvider != SyncProvider.off)
+                if (syncProvider != SyncProvider.off &&
+                    !(kIsWeb && syncProvider == SyncProvider.googleDrive))
                   FilledButton(
                     key: syncConnectKey,
                     onPressed: syncAuthState.stage == SyncAuthStage.busy
@@ -4294,6 +4467,9 @@ class SettingsScreen extends ConsumerWidget {
     required String colorThemeTargetLabel,
     required String appearanceSummary,
   }) {
+    final effectiveFontFamily = _availableFontFamilies.contains(fontFamily)
+        ? fontFamily
+        : AppFontFamily.system;
     return _SettingsGroup(
       title: strings.appearanceWithControls,
       summary: appearanceSummary,
@@ -4370,57 +4546,23 @@ class SettingsScreen extends ConsumerWidget {
         ),
         DropdownButtonFormField<AppFontFamily>(
           key: SettingsScreen.fontDropdownKey,
-          initialValue: fontFamily,
+          initialValue: effectiveFontFamily,
           isExpanded: true,
           decoration: InputDecoration(
             border: const OutlineInputBorder(),
             helperText: strings.appFontDesc,
             prefixIcon: const Icon(Icons.text_fields_rounded),
           ),
-          items: [
-            DropdownMenuItem(
-              value: AppFontFamily.system,
-              child: Text(strings.fontSystem),
-            ),
-            DropdownMenuItem(
-              value: AppFontFamily.gothic,
-              child: Text(strings.fontGothic),
-            ),
-            DropdownMenuItem(
-              value: AppFontFamily.uiGothic,
-              child: Text(strings.fontUiGothic),
-            ),
-            DropdownMenuItem(
-              value: AppFontFamily.kakuGothic,
-              child: Text(strings.fontKakuGothic),
-            ),
-            DropdownMenuItem(
-              value: AppFontFamily.mincho,
-              child: Text(strings.fontMincho),
-            ),
-            DropdownMenuItem(
-              value: AppFontFamily.uiMincho,
-              child: Text(strings.fontUiMincho),
-            ),
-            DropdownMenuItem(
-              value: AppFontFamily.rounded,
-              child: Text(strings.fontRounded),
-            ),
-            DropdownMenuItem(
-              value: AppFontFamily.zenRounded,
-              child: Text(strings.fontZenRounded),
-            ),
-            DropdownMenuItem(
-              value: AppFontFamily.casual,
-              child: Text(strings.fontCasual),
-            ),
-            DropdownMenuItem(
-              value: AppFontFamily.monospace,
-              child: Text(strings.fontMonospace),
-            ),
-          ],
+          items: _availableFontFamilies
+              .map(
+                (font) => DropdownMenuItem(
+                  value: font,
+                  child: Text(_fontFamilyLabel(context, font)),
+                ),
+              )
+              .toList(),
           onChanged: (value) {
-            if (value == null || value == fontFamily) {
+            if (value == null || value == effectiveFontFamily) {
               return;
             }
             ref.read(appFontFamilyControllerProvider.notifier).setFont(value);
@@ -4648,9 +4790,20 @@ class SettingsScreen extends ConsumerWidget {
             : strings.syncConnected(identity: identity, suffix: suffix);
       case SyncAuthStage.unsupported:
       case SyncAuthStage.error:
+        if (provider == SyncProvider.googleDrive &&
+            _isGoogleDriveWebSignInUnavailable(authState.message)) {
+          return strings.googleDriveWebSignInUnavailable;
+        }
         return authState.message ??
             (strings.text('home.authentication.is.not.available'));
     }
+  }
+
+  bool _isGoogleDriveWebSignInUnavailable(String? message) {
+    return message != null &&
+        message.contains(
+          'Google Drive sync on web requires the Google Sign-In SDK button flow',
+        );
   }
 
   String syncAuthSummaryLegacy(
@@ -4841,6 +4994,10 @@ class SettingsScreen extends ConsumerWidget {
       await ref.read(privateVaultSecretControllerProvider.notifier).clear();
     }
   }
+
+  static const _availableFontFamilies = <AppFontFamily>[
+    ...iOSFriendlyAppFontFamilies,
+  ];
 
   String _themeModeLabel(BuildContext context, ThemeMode mode) {
     final strings = context.strings;
@@ -6780,39 +6937,48 @@ class _SettingsGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final borderRadius = BorderRadius.circular(6);
     return Semantics(
       label: semanticLabel,
-      child: Container(
-        decoration: _sectionDecoration(context),
-        child: Theme(
-          data: theme.copyWith(dividerColor: Colors.transparent),
-          child: ExpansionTile(
-            maintainState: true,
-            tilePadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 10,
-            ),
-            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-            leading: _SettingsSectionIcon(assetPath: assetPath),
-            title: Text(title, style: theme.textTheme.titleMedium),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                summary,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: _mutedTextColor(context),
+      child: ClipRRect(
+        borderRadius: borderRadius,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: borderRadius,
+            border: Border.all(color: Theme.of(context).dividerColor),
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: Theme(
+              data: theme.copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                maintainState: true,
+                tilePadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
                 ),
+                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                leading: _SettingsSectionIcon(assetPath: assetPath),
+                title: Text(title, style: theme.textTheme.titleMedium),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    summary,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: _mutedTextColor(context),
+                    ),
+                  ),
+                ),
+                shape: RoundedRectangleBorder(borderRadius: borderRadius),
+                collapsedShape: RoundedRectangleBorder(
+                  borderRadius: borderRadius,
+                ),
+                children: children,
               ),
             ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            collapsedShape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            children: children,
           ),
         ),
       ),
@@ -6942,21 +7108,15 @@ class _ExtendedColorThemeSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.86,
-      minChildSize: 0.48,
-      maxChildSize: 0.94,
-      builder: (context, scrollController) {
-        return _ExtendedColorThemeSheetBody(
-          current: current,
-          themes: themes,
-          titleFor: titleFor,
-          subtitleFor: subtitleFor,
-          sampleColorFor: sampleColorFor,
-          scrollController: scrollController,
-        );
-      },
+    return FractionallySizedBox(
+      heightFactor: 0.88,
+      child: _ExtendedColorThemeSheetBody(
+        current: current,
+        themes: themes,
+        titleFor: titleFor,
+        subtitleFor: subtitleFor,
+        sampleColorFor: sampleColorFor,
+      ),
     );
   }
 }
@@ -6968,7 +7128,6 @@ class _ExtendedColorThemeSheetBody extends StatelessWidget {
     required this.titleFor,
     required this.subtitleFor,
     required this.sampleColorFor,
-    required this.scrollController,
   });
 
   final AppColorTheme current;
@@ -6976,7 +7135,6 @@ class _ExtendedColorThemeSheetBody extends StatelessWidget {
   final String Function(AppColorTheme theme) titleFor;
   final String Function(AppColorTheme theme) subtitleFor;
   final Color Function(AppColorTheme theme) sampleColorFor;
-  final ScrollController scrollController;
 
   @override
   Widget build(BuildContext context) {
@@ -7019,7 +7177,6 @@ class _ExtendedColorThemeSheetBody extends StatelessWidget {
                     ? 2
                     : 1;
                 return CustomScrollView(
-                  controller: scrollController,
                   slivers: [
                     for (final entry in grouped.entries) ...[
                       SliverToBoxAdapter(

@@ -741,7 +741,10 @@ void main() {
   });
 
   testWidgets('app renders HiMemo shell', (tester) async {
-    SharedPreferences.setMockInitialValues({'app.onboarding_completed': true});
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+    });
     final secureStore = MemorySecureKeyValueStore();
     final encryptionService = EncryptionService(random: Random(5));
     final masterKeyService = MasterKeyService(
@@ -789,6 +792,7 @@ void main() {
 
     SharedPreferences.setMockInitialValues({
       'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
       'settings.locale': 'english',
     });
     final secureStore = MemorySecureKeyValueStore();

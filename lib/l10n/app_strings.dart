@@ -3388,6 +3388,13 @@ class AppStrings {
       ? 'iCloud や Google Drive への同期は、あとから設定で有効化できます。最初はオフラインのまま始められます。'
       : 'Enable iCloud or Google Drive later in Settings. You can start as an offline-first memo app.';
 
+  String get termsOfUse => localized(en: 'Terms of Use', ja: '利用規約');
+  String get privacyPolicy => localized(en: 'Privacy Policy', ja: 'プライバシーポリシー');
+  String get onboardingLegalPrefix =>
+      localized(en: 'By continuing, you agree to the', ja: '続行することで');
+  String get onboardingLegalSeparator => localized(en: 'and', ja: 'および');
+  String get onboardingLegalSuffix => localized(en: '.', ja: 'に同意したものとみなされます。');
+
   String get privateProfilesSettingsTitle => localized(
     en: 'Private profiles',
     ja: 'プライベートプロファイル',
@@ -4214,6 +4221,46 @@ class AppStrings {
     ko: 'iCloud 사용 가능 여부를 확인할 수 없습니다. iCloud 로그인 상태와 앱 권한을 확인하세요.',
     es: 'No se pudo confirmar la disponibilidad de iCloud. Comprueba el inicio de sesión en iCloud y las capacidades de la app.',
     de: 'Die iCloud-Verfügbarkeit konnte nicht bestätigt werden. Prüfe den iCloud-Anmeldestatus und die App-Berechtigungen.',
+  );
+  String get googleDriveWebSignInUnavailable => localized(
+    en: 'Google Drive sync on web is not available in this build. Use the iOS or Android app, or rebuild with the Google Sign-In web button flow enabled.',
+    ja: 'このビルドでは Web 版の Google Drive 同期は利用できません。iOS / Android 版を使うか、Google Sign-In の Web ボタンフローを有効にしてビルドしてください。',
+    zh: '此版本无法在 Web 上使用 Google Drive 同步。请使用 iOS 或 Android 应用，或在启用 Google Sign-In Web 按钮流程后重新构建。',
+    ko: '이 빌드에서는 웹용 Google Drive 동기화를 사용할 수 없습니다. iOS 또는 Android 앱을 사용하거나 Google Sign-In 웹 버튼 흐름을 활성화해 다시 빌드하세요.',
+    es: 'La sincronización de Google Drive en web no está disponible en esta compilación. Usa la app para iOS o Android, o recompila con el flujo de botón web de Google Sign-In habilitado.',
+    de: 'Die Google-Drive-Synchronisierung im Web ist in diesem Build nicht verfügbar. Verwende die iOS- oder Android-App oder erstelle den Build erneut mit aktiviertem Google-Sign-In-Web-Button-Flow.',
+  );
+  String get googleDriveWebSignInTitle => localized(
+    en: 'Sign in with Google',
+    ja: 'Google でログイン',
+    zh: '使用 Google 登录',
+    ko: 'Google로 로그인',
+    es: 'Iniciar sesión con Google',
+    de: 'Mit Google anmelden',
+  );
+  String get googleDriveWebSignInBody => localized(
+    en: 'Web builds must use the official Google button. After sign-in, allow Drive app-data access to enable sync.',
+    ja: 'Web 版では公式の Google ボタンから認証します。ログイン後、Drive のアプリ専用領域へのアクセスを許可すると同期できます。',
+    zh: 'Web 版本必须使用官方 Google 按钮。登录后，请允许访问 Drive 应用数据以启用同步。',
+    ko: '웹 빌드는 공식 Google 버튼으로 인증해야 합니다. 로그인 후 Drive 앱 데이터 접근을 허용하면 동기화가 활성화됩니다.',
+    es: 'Las compilaciones web deben usar el botón oficial de Google. Tras iniciar sesión, permite el acceso a los datos de la app en Drive para activar la sincronización.',
+    de: 'Web-Builds müssen die offizielle Google-Schaltfläche verwenden. Erlaube nach der Anmeldung den Zugriff auf Drive-App-Daten, um die Synchronisierung zu aktivieren.',
+  );
+  String get syncDetailsTitle => localized(
+    en: 'Details',
+    ja: '詳細',
+    zh: '详细信息',
+    ko: '세부 정보',
+    es: 'Detalles',
+    de: 'Details',
+  );
+  String get syncDetailsSummary => localized(
+    en: 'Open technical backup details and maintenance actions.',
+    ja: 'バックアップの詳細情報とメンテナンス操作を表示します。',
+    zh: '打开备份的技术详细信息和维护操作。',
+    ko: '백업의 기술 세부 정보와 유지 관리 작업을 엽니다.',
+    es: 'Abre detalles técnicos de la copia de seguridad y acciones de mantenimiento.',
+    de: 'Öffnet technische Backupdetails und Wartungsaktionen.',
   );
   String get close => localized(
     en: 'Close',

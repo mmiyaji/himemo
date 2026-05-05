@@ -36,6 +36,7 @@ import '../../security/data/master_key_service.dart';
 import '../../security/data/private_vault_secret_store.dart';
 import '../../security/data/secure_key_value_store.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
+import '../../sync/data/google_sign_in_initializer.dart';
 import '../../sync/data/icloud_sync_transport.dart';
 import '../../sync/data/sync_conflict_policy.dart';
 import '../../sync/data/sync_bundle_preview.dart';
@@ -142,6 +143,14 @@ enum AppFontFamily {
   casual,
   monospace,
 }
+
+const iOSFriendlyAppFontFamilies = <AppFontFamily>{
+  AppFontFamily.system,
+  AppFontFamily.gothic,
+  AppFontFamily.mincho,
+  AppFontFamily.rounded,
+  AppFontFamily.monospace,
+};
 
 enum NotesListDensity { standard, compact }
 
@@ -1021,7 +1030,6 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
   ];
 
   final GoogleDriveAuthConfig googleDriveAuthConfig;
-  bool _googleInitialized = false;
 
   @override
   Future<SyncAuthState> connect(SyncProvider provider) {
@@ -1035,7 +1043,7 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
   @override
   Future<void> disconnect(SyncProvider provider) async {
     try {
-      if (provider == SyncProvider.googleDrive && !kIsWeb) {
+      if (provider == SyncProvider.googleDrive) {
         await _ensureGoogleInitialized();
         await GoogleSignIn.instance.disconnect();
       }
@@ -1043,26 +1051,11 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
   }
 
   Future<void> _ensureGoogleInitialized() async {
-    if (_googleInitialized || kIsWeb) {
-      return;
-    }
-    await GoogleSignIn.instance.initialize(
-      clientId: googleDriveAuthConfig.normalizedClientId,
-      serverClientId: googleDriveAuthConfig.normalizedServerClientId,
-    );
-    _googleInitialized = true;
+    await GoogleSignInInitializer.ensureInitialized(googleDriveAuthConfig);
   }
 
   Future<SyncAuthState> _connectGoogle() async {
     try {
-      if (kIsWeb) {
-        return const SyncAuthState(
-          provider: SyncProvider.googleDrive,
-          stage: SyncAuthStage.unsupported,
-          message:
-              'Google Drive sync on web requires the Google Sign-In SDK button flow and is not enabled in this build.',
-        );
-      }
       await _ensureGoogleInitialized();
       GoogleSignInAccount? account;
       final lightweight = GoogleSignIn.instance
@@ -2573,6 +2566,9 @@ final syncAuthControllerProvider =
 class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
   static const _storageKey = 'sync.auth_accounts.v1';
   static const _integrityApprovalKey = 'sync.integrity_approved.v1';
+  static const _googleScopes = <String>[
+    'https://www.googleapis.com/auth/drive.appdata',
+  ];
   bool _restored = false;
 
   @override
@@ -2634,6 +2630,83 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
 
     _update(provider, next);
     await _persist();
+  }
+
+  Future<void> completeGoogleDriveWebAuthentication(
+    GoogleSignInAccount account,
+  ) async {
+    const provider = SyncProvider.googleDrive;
+    _update(
+      provider,
+      stateFor(provider).copyWith(
+        stage: SyncAuthStage.busy,
+        userId: account.id,
+        displayName: account.displayName,
+        email: account.email,
+        clearMessage: true,
+      ),
+    );
+
+    try {
+      final alreadyApproved = await _hasIntegrityApproval(provider);
+      if (!alreadyApproved) {
+        final verification = await ref
+            .read(playIntegrityVerifierProvider)
+            .verifyOperation(
+              flavor: ref.read(currentAppFlavorProvider),
+              operation: 'sync.enable',
+              payload: {'provider': provider.name},
+            );
+        if (!verification.allowed) {
+          _update(
+            provider,
+            stateFor(provider).copyWith(
+              stage: SyncAuthStage.error,
+              message: verification.message,
+            ),
+          );
+          return;
+        }
+        await _markIntegrityApproved(provider);
+      }
+
+      final authorizationClient = account.authorizationClient;
+      final existingAuthorization = await authorizationClient
+          .authorizationForScopes(_googleScopes);
+      if (existingAuthorization == null) {
+        await authorizationClient.authorizeScopes(_googleScopes);
+      }
+
+      _update(
+        provider,
+        SyncAuthState(
+          provider: provider,
+          stage: SyncAuthStage.authenticated,
+          userId: account.id,
+          displayName: account.displayName,
+          email: account.email,
+          message: 'Google Drive app-data access is authorized.',
+        ),
+      );
+      await _persist();
+    } on GoogleSignInException catch (error) {
+      _update(
+        provider,
+        stateFor(provider).copyWith(
+          stage: SyncAuthStage.error,
+          message: DefaultSyncAuthGateway()._googleDriveSignInExceptionMessage(
+            error,
+          ),
+        ),
+      );
+    } catch (error) {
+      _update(
+        provider,
+        stateFor(
+          provider,
+        ).copyWith(stage: SyncAuthStage.error, message: '$error'),
+      );
+    }
   }
 
   Future<void> disconnectSelected() async {
@@ -2722,6 +2795,8 @@ final appLaunchControllerProvider =
 
 class AppLaunchController extends Notifier<AppLaunchSurface> {
   static const _storageKey = 'app.onboarding_completed';
+  static const _versionStorageKey = 'app.onboarding_completed_version';
+  static const _currentOnboardingVersion = 2;
   bool _restored = false;
 
   @override
@@ -2738,6 +2813,7 @@ class AppLaunchController extends Notifier<AppLaunchSurface> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_storageKey, true);
+      await prefs.setInt(_versionStorageKey, _currentOnboardingVersion);
     } catch (_) {}
   }
 
@@ -2745,7 +2821,12 @@ class AppLaunchController extends Notifier<AppLaunchSurface> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final completed = prefs.getBool(_storageKey) ?? false;
-      state = completed ? AppLaunchSurface.ready : AppLaunchSurface.onboarding;
+      final completedVersion = prefs.getInt(_versionStorageKey) ?? 0;
+      final hasCompletedCurrentOnboarding =
+          completed && completedVersion >= _currentOnboardingVersion;
+      state = hasCompletedCurrentOnboarding
+          ? AppLaunchSurface.ready
+          : AppLaunchSurface.onboarding;
     } catch (_) {
       state = AppLaunchSurface.onboarding;
     }
@@ -2829,10 +2910,13 @@ class AppFontFamilyController extends Notifier<AppFontFamily> {
         return;
       }
 
-      state = AppFontFamily.values.firstWhere(
+      final restored = AppFontFamily.values.firstWhere(
         (font) => font.name == stored,
         orElse: () => AppFontFamily.system,
       );
+      state = iOSFriendlyAppFontFamilies.contains(restored)
+          ? restored
+          : AppFontFamily.system;
     } catch (_) {}
   }
 }
@@ -2985,7 +3069,7 @@ class AppLocaleController extends Notifier<AppLocaleSetting> {
       _restored = true;
       unawaited(_restore());
     }
-    return AppLocaleSetting.system;
+    return _defaultLocaleSetting();
   }
 
   Future<void> setLocale(AppLocaleSetting locale) async {
@@ -3009,6 +3093,13 @@ class AppLocaleController extends Notifier<AppLocaleSetting> {
         orElse: () => AppLocaleSetting.system,
       );
     } catch (_) {}
+  }
+
+  AppLocaleSetting _defaultLocaleSetting() {
+    final languageCode = ui.PlatformDispatcher.instance.locale.languageCode;
+    return languageCode == 'ja'
+        ? AppLocaleSetting.japanese
+        : AppLocaleSetting.english;
   }
 }
 
