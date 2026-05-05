@@ -3050,6 +3050,14 @@ class AppStrings {
     es: 'Versión de la app',
     de: 'App-Version',
   );
+  String buildDateLabel(String date) => localized(
+    en: 'Built $date',
+    ja: 'ビルド日 $date',
+    zh: '构建日期 $date',
+    ko: '빌드일 $date',
+    es: 'Compilación $date',
+    de: 'Build-Datum $date',
+  );
   String get appUpdates => localized(
     en: 'App updates',
     ja: 'アプリ更新',
@@ -3065,6 +3073,38 @@ class AppStrings {
     ko: 'Google Play 인앱 업데이트를 확인하고 권장 업데이트 흐름을 시작합니다.',
     es: 'Comprueba las actualizaciones integradas de Google Play e inicia el flujo recomendado.',
     de: 'Prüft Google Play In-App-Updates und startet den empfohlenen Update-Ablauf.',
+  );
+  String get appUpdatesDescIos => localized(
+    en: 'iOS app updates are handled by the App Store. Check the App Store for the latest version.',
+    ja: 'iOS のアプリ更新は App Store で確認します。最新バージョンは App Store から確認してください。',
+    zh: 'iOS 应用更新通过 App Store 处理。请在 App Store 中确认最新版本。',
+    ko: 'iOS 앱 업데이트는 App Store에서 처리됩니다. 최신 버전은 App Store에서 확인하세요.',
+    es: 'Las actualizaciones de iOS se gestionan desde App Store. Consulta App Store para obtener la versión más reciente.',
+    de: 'iOS-App-Updates werden über den App Store verwaltet. Prüfe im App Store die neueste Version.',
+  );
+  String get writeStoreReview => localized(
+    en: 'Write a store review',
+    ja: 'ストアでレビュー',
+    zh: '在商店评价',
+    ko: '스토어에서 리뷰',
+    es: 'Escribir reseña',
+    de: 'Store-Bewertung schreiben',
+  );
+  String get appStoreIdNotConfigured => localized(
+    en: 'The App Store page is not configured for this build yet. Set HIMEMO_APP_STORE_ID after the app is created in App Store Connect.',
+    ja: 'このビルドには App Store ページがまだ設定されていません。App Store Connect でアプリ作成後に HIMEMO_APP_STORE_ID を設定してください。',
+    zh: '此构建尚未配置 App Store 页面。请在 App Store Connect 创建应用后设置 HIMEMO_APP_STORE_ID。',
+    ko: '이 빌드에는 아직 App Store 페이지가 설정되어 있지 않습니다. App Store Connect에서 앱을 만든 뒤 HIMEMO_APP_STORE_ID를 설정하세요.',
+    es: 'La página de App Store aún no está configurada para esta build. Configura HIMEMO_APP_STORE_ID después de crear la app en App Store Connect.',
+    de: 'Die App-Store-Seite ist für diesen Build noch nicht konfiguriert. Setze HIMEMO_APP_STORE_ID, nachdem die App in App Store Connect erstellt wurde.',
+  );
+  String get appStoreOpenFailed => localized(
+    en: 'Could not open the store page.',
+    ja: 'ストアページを開けませんでした。',
+    zh: '无法打开商店页面。',
+    ko: '스토어 페이지를 열 수 없습니다.',
+    es: 'No se pudo abrir la página de la tienda.',
+    de: 'Die Store-Seite konnte nicht geöffnet werden.',
   );
   String get checkForUpdates => localized(
     en: 'Check for updates',
@@ -3347,6 +3387,13 @@ class AppStrings {
   String get onboardingCloudSyncBody => isJapanese
       ? 'iCloud や Google Drive への同期は、あとから設定で有効化できます。最初はオフラインのまま始められます。'
       : 'Enable iCloud or Google Drive later in Settings. You can start as an offline-first memo app.';
+
+  String get termsOfUse => localized(en: 'Terms of Use', ja: '利用規約');
+  String get privacyPolicy => localized(en: 'Privacy Policy', ja: 'プライバシーポリシー');
+  String get onboardingLegalPrefix =>
+      localized(en: 'By continuing, you agree to the', ja: '続行することで');
+  String get onboardingLegalSeparator => localized(en: 'and', ja: 'および');
+  String get onboardingLegalSuffix => localized(en: '.', ja: 'に同意したものとみなされます。');
 
   String get privateProfilesSettingsTitle => localized(
     en: 'Private profiles',
@@ -4174,6 +4221,46 @@ class AppStrings {
     ko: 'iCloud 사용 가능 여부를 확인할 수 없습니다. iCloud 로그인 상태와 앱 권한을 확인하세요.',
     es: 'No se pudo confirmar la disponibilidad de iCloud. Comprueba el inicio de sesión en iCloud y las capacidades de la app.',
     de: 'Die iCloud-Verfügbarkeit konnte nicht bestätigt werden. Prüfe den iCloud-Anmeldestatus und die App-Berechtigungen.',
+  );
+  String get googleDriveWebSignInUnavailable => localized(
+    en: 'Google Drive sync on web is not available in this build. Use the iOS or Android app, or rebuild with the Google Sign-In web button flow enabled.',
+    ja: 'このビルドでは Web 版の Google Drive 同期は利用できません。iOS / Android 版を使うか、Google Sign-In の Web ボタンフローを有効にしてビルドしてください。',
+    zh: '此版本无法在 Web 上使用 Google Drive 同步。请使用 iOS 或 Android 应用，或在启用 Google Sign-In Web 按钮流程后重新构建。',
+    ko: '이 빌드에서는 웹용 Google Drive 동기화를 사용할 수 없습니다. iOS 또는 Android 앱을 사용하거나 Google Sign-In 웹 버튼 흐름을 활성화해 다시 빌드하세요.',
+    es: 'La sincronización de Google Drive en web no está disponible en esta compilación. Usa la app para iOS o Android, o recompila con el flujo de botón web de Google Sign-In habilitado.',
+    de: 'Die Google-Drive-Synchronisierung im Web ist in diesem Build nicht verfügbar. Verwende die iOS- oder Android-App oder erstelle den Build erneut mit aktiviertem Google-Sign-In-Web-Button-Flow.',
+  );
+  String get googleDriveWebSignInTitle => localized(
+    en: 'Sign in with Google',
+    ja: 'Google でログイン',
+    zh: '使用 Google 登录',
+    ko: 'Google로 로그인',
+    es: 'Iniciar sesión con Google',
+    de: 'Mit Google anmelden',
+  );
+  String get googleDriveWebSignInBody => localized(
+    en: 'Web builds must use the official Google button. After sign-in, allow Drive app-data access to enable sync.',
+    ja: 'Web 版では公式の Google ボタンから認証します。ログイン後、Drive のアプリ専用領域へのアクセスを許可すると同期できます。',
+    zh: 'Web 版本必须使用官方 Google 按钮。登录后，请允许访问 Drive 应用数据以启用同步。',
+    ko: '웹 빌드는 공식 Google 버튼으로 인증해야 합니다. 로그인 후 Drive 앱 데이터 접근을 허용하면 동기화가 활성화됩니다.',
+    es: 'Las compilaciones web deben usar el botón oficial de Google. Tras iniciar sesión, permite el acceso a los datos de la app en Drive para activar la sincronización.',
+    de: 'Web-Builds müssen die offizielle Google-Schaltfläche verwenden. Erlaube nach der Anmeldung den Zugriff auf Drive-App-Daten, um die Synchronisierung zu aktivieren.',
+  );
+  String get syncDetailsTitle => localized(
+    en: 'Details',
+    ja: '詳細',
+    zh: '详细信息',
+    ko: '세부 정보',
+    es: 'Detalles',
+    de: 'Details',
+  );
+  String get syncDetailsSummary => localized(
+    en: 'Open technical backup details and maintenance actions.',
+    ja: 'バックアップの詳細情報とメンテナンス操作を表示します。',
+    zh: '打开备份的技术详细信息和维护操作。',
+    ko: '백업의 기술 세부 정보와 유지 관리 작업을 엽니다.',
+    es: 'Abre detalles técnicos de la copia de seguridad y acciones de mantenimiento.',
+    de: 'Öffnet technische Backupdetails und Wartungsaktionen.',
   );
   String get close => localized(
     en: 'Close',

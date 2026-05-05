@@ -8,12 +8,16 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:pinput/pinput.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../features/home/presentation/home_providers.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/app_strings.dart';
 import 'app_flavor.dart';
 import 'app_router.dart';
+
+const _termsUrl = 'https://mmiyaji.github.io/himemo/terms.html';
+const _privacyUrl = 'https://mmiyaji.github.io/himemo/privacy.html';
 
 class HiMemoApp extends ConsumerWidget {
   const HiMemoApp({super.key, required this.flavor});
@@ -845,6 +849,8 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 10),
+                    const _OnboardingLegalNotice(),
                   ],
                 ),
               ),
@@ -944,6 +950,58 @@ class _OnboardingImageCard extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+class _OnboardingLegalNotice extends StatelessWidget {
+  const _OnboardingLegalNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final colorScheme = Theme.of(context).colorScheme;
+    final textStyle = Theme.of(
+      context,
+    ).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant);
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 4,
+        runSpacing: 2,
+        children: [
+          Text(strings.onboardingLegalPrefix, style: textStyle),
+          TextButton(
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+            ),
+            onPressed: () => _openLegalUrl(_termsUrl),
+            child: Text(strings.termsOfUse),
+          ),
+          Text(strings.onboardingLegalSeparator, style: textStyle),
+          TextButton(
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+            ),
+            onPressed: () => _openLegalUrl(_privacyUrl),
+            child: Text(strings.privacyPolicy),
+          ),
+          Text(strings.onboardingLegalSuffix, style: textStyle),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openLegalUrl(String url) async {
+    final uri = Uri.parse(url);
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 }
 
@@ -1461,19 +1519,17 @@ ThemeData _buildTheme(
 }
 
 const _japaneseFontFallback = <String>[
-  'Noto Sans JP',
   'Hiragino Sans',
-  'Yu Gothic UI',
-  'Yu Gothic',
-  'Meiryo',
-  'MS PGothic',
+  'Hiragino Kaku Gothic ProN',
+  'Hiragino Sans GB',
+  'Apple SD Gothic Neo',
   'sans-serif',
 ];
 
 const _gothicFontFallback = <String>[
-  'Noto Sans JP',
-  'Yu Gothic UI',
-  'Meiryo',
+  'Hiragino Sans',
+  'Hiragino Kaku Gothic ProN',
+  'Apple SD Gothic Neo',
   'sans-serif',
 ];
 
@@ -1492,9 +1548,8 @@ const _kakuGothicFontFallback = <String>[
 ];
 
 const _minchoFontFallback = <String>[
-  'Noto Serif JP',
-  'Yu Mincho',
   'Hiragino Mincho ProN',
+  'Songti SC',
   'serif',
 ];
 
@@ -1506,10 +1561,8 @@ const _uiMinchoFontFallback = <String>[
 ];
 
 const _roundedFontFallback = <String>[
-  'M PLUS Rounded 1c',
-  'Noto Sans JP',
   'Hiragino Maru Gothic ProN',
-  'Meiryo',
+  'Hiragino Sans',
   'sans-serif',
 ];
 
@@ -1523,10 +1576,9 @@ const _zenRoundedFontFallback = <String>[
 const _casualFontFallback = <String>['Kiwi Maru', 'Noto Sans JP', 'serif'];
 
 const _monospaceFontFallback = <String>[
-  'Roboto Mono',
-  'Noto Sans JP',
-  'Consolas',
-  'Yu Gothic UI',
+  'Menlo',
+  'Courier New',
+  'Courier',
   'monospace',
 ];
 
@@ -1536,7 +1588,7 @@ const _monospaceFontFallback = <String>[
   return switch (fontFamily) {
     AppFontFamily.system => (family: null, fallback: _japaneseFontFallback),
     AppFontFamily.gothic => (
-      family: 'Noto Sans JP',
+      family: 'Hiragino Sans',
       fallback: _gothicFontFallback,
     ),
     AppFontFamily.uiGothic => (
@@ -1548,7 +1600,7 @@ const _monospaceFontFallback = <String>[
       fallback: _kakuGothicFontFallback,
     ),
     AppFontFamily.mincho => (
-      family: 'Noto Serif JP',
+      family: 'Hiragino Mincho ProN',
       fallback: _minchoFontFallback,
     ),
     AppFontFamily.uiMincho => (
@@ -1556,7 +1608,7 @@ const _monospaceFontFallback = <String>[
       fallback: _uiMinchoFontFallback,
     ),
     AppFontFamily.rounded => (
-      family: 'M PLUS Rounded 1c',
+      family: 'Hiragino Maru Gothic ProN',
       fallback: _roundedFontFallback,
     ),
     AppFontFamily.zenRounded => (
@@ -1568,7 +1620,7 @@ const _monospaceFontFallback = <String>[
       fallback: _casualFontFallback,
     ),
     AppFontFamily.monospace => (
-      family: 'Roboto Mono',
+      family: 'Menlo',
       fallback: _monospaceFontFallback,
     ),
   };

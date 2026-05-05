@@ -51,7 +51,9 @@ $supportsDartDefines = $FlutterArgs.Count -gt 0 -and $FlutterArgs[0] -in @(
 if ($supportsDartDefines) {
   foreach ($name in @(
     'HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID',
-    'HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID'
+    'HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID',
+    'HIMEMO_APP_STORE_ID',
+    'HIMEMO_BUILD_DATE'
   )) {
     $value = [Environment]::GetEnvironmentVariable($name)
     if (-not [string]::IsNullOrWhiteSpace($value)) {

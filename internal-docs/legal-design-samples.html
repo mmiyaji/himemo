@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HiMemo Legal Page Design Samples</title>
+    <style>
+      :root {
+        --page: #f3f4f6;
+        --ink: #202124;
+        --muted: #667085;
+        --line: #d7dce2;
+        --blue: #0b57d0;
+        --sakura: #d84b73;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans",
+          "Hiragino Kaku Gothic ProN", "Segoe UI", sans-serif;
+        line-height: 1.75;
+      }
+
+      .samples-shell {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 32px 0 56px;
+      }
+
+      .samples-header {
+        margin-bottom: 28px;
+      }
+
+      .samples-header h1 {
+        margin: 0 0 6px;
+        font-size: 2rem;
+      }
+
+      .samples-header p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .sample-list {
+        display: grid;
+        gap: 28px;
+      }
+
+      .sample-frame {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: hidden;
+        background: white;
+      }
+
+      .sample-label {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line);
+        background: #fafafa;
+      }
+
+      .sample-label strong {
+        font-size: 1rem;
+      }
+
+      .sample-label span {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .sample {
+        min-height: 560px;
+      }
+
+      .sample a {
+        color: inherit;
+      }
+
+      .sample h1,
+      .sample h2,
+      .sample p {
+        letter-spacing: 0;
+      }
+
+      .sample p,
+      .sample li {
+        font-size: 0.96rem;
+      }
+
+      .sample footer {
+        color: var(--muted);
+        font-size: 0.86rem;
+      }
+
+      /* A: Apple-like plain document */
+      .sample-a {
+        background: #fbfbfd;
+        color: #1d1d1f;
+      }
+
+      .sample-a .topbar {
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        width: min(760px, calc(100% - 36px));
+        margin: 0 auto;
+        padding: 18px 0;
+        font-size: 0.9rem;
+      }
+
+      .sample-a .brand {
+        margin-right: auto;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .sample-a .topbar a,
+      .sample-a .topbar button {
+        border: 0;
+        padding: 0;
+        color: #515154;
+        background: transparent;
+        font: inherit;
+        text-decoration: none;
+      }
+
+      .sample-a article {
+        width: min(760px, calc(100% - 36px));
+        margin: 0 auto;
+        padding: 44px 0 52px;
+      }
+
+      .sample-a h1 {
+        margin: 0 0 8px;
+        font-size: clamp(2.1rem, 5vw, 3.4rem);
+        line-height: 1.12;
+      }
+
+      .sample-a .meta {
+        margin: 0 0 34px;
+        color: #6e6e73;
+      }
+
+      .sample-a h2 {
+        margin-top: 34px;
+        padding-top: 24px;
+        border-top: 1px solid #d2d2d7;
+        font-size: 1.2rem;
+      }
+
+      .sample-a footer {
+        width: min(760px, calc(100% - 36px));
+        margin: 0 auto;
+        padding: 22px 0 34px;
+        border-top: 1px solid #d2d2d7;
+      }
+
+      /* B: GitHub/README-like */
+      .sample-b {
+        background: #ffffff;
+        color: #1f2328;
+      }
+
+      .sample-b .doc-shell {
+        display: grid;
+        grid-template-columns: 220px minmax(0, 1fr);
+        min-height: 560px;
+      }
+
+      .sample-b aside {
+        padding: 28px 20px;
+        border-right: 1px solid #d0d7de;
+        background: #f6f8fa;
+      }
+
+      .sample-b aside strong {
+        display: block;
+        margin-bottom: 18px;
+      }
+
+      .sample-b aside a {
+        display: block;
+        margin: 7px 0;
+        color: #57606a;
+        text-decoration: none;
+      }
+
+      .sample-b article {
+        padding: 34px 42px 40px;
+      }
+
+      .sample-b .crumb {
+        margin-bottom: 22px;
+        color: #57606a;
+        font-size: 0.88rem;
+      }
+
+      .sample-b h1 {
+        margin: 0 0 8px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid #d0d7de;
+        font-size: 2rem;
+      }
+
+      .sample-b h2 {
+        margin-top: 28px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #d8dee4;
+        font-size: 1.22rem;
+      }
+
+      .sample-b footer {
+        margin-top: 36px;
+      }
+
+      /* C: formal public document */
+      .sample-c {
+        background: #f8f8f6;
+        color: #242424;
+      }
+
+      .sample-c .header {
+        border-bottom: 1px solid #c9c9c2;
+        background: #fff;
+      }
+
+      .sample-c .header-inner {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        width: min(860px, calc(100% - 36px));
+        margin: 0 auto;
+        padding: 16px 0;
+      }
+
+      .sample-c .header-inner strong {
+        margin-right: auto;
+      }
+
+      .sample-c .header-inner a,
+      .sample-c .header-inner button {
+        border: 1px solid #c9c9c2;
+        border-radius: 4px;
+        padding: 5px 9px;
+        color: #444;
+        background: #fff;
+        font: inherit;
+        text-decoration: none;
+      }
+
+      .sample-c article {
+        width: min(860px, calc(100% - 36px));
+        margin: 0 auto;
+        padding: 36px 0 46px;
+      }
+
+      .sample-c h1 {
+        margin: 0 0 8px;
+        font-size: 2.35rem;
+      }
+
+      .sample-c .meta {
+        margin-bottom: 30px;
+        color: #666;
+      }
+
+      .sample-c h2 {
+        display: grid;
+        grid-template-columns: 3.2rem minmax(0, 1fr);
+        gap: 14px;
+        align-items: baseline;
+        margin-top: 30px;
+        padding-top: 18px;
+        border-top: 1px solid #d8d8d2;
+        font-size: 1.18rem;
+      }
+
+      .sample-c h2 .num {
+        color: #606060;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .sample-c footer {
+        width: min(860px, calc(100% - 36px));
+        margin: 0 auto;
+        padding: 18px 0 30px;
+        border-top: 1px solid #c9c9c2;
+      }
+
+      /* D: HiMemo subtle brand */
+      .sample-d {
+        background: #fff7f8;
+        color: #292124;
+      }
+
+      .sample-d .paper {
+        width: min(820px, calc(100% - 36px));
+        margin: 0 auto;
+        padding: 28px 0 42px;
+      }
+
+      .sample-d nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 34px;
+      }
+
+      .sample-d .brand {
+        margin-right: auto;
+        color: #7b2038;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .sample-d nav a,
+      .sample-d nav button {
+        border: 1px solid #e8cbd3;
+        border-radius: 999px;
+        padding: 6px 10px;
+        color: #5f3e48;
+        background: #fff;
+        font: inherit;
+        text-decoration: none;
+      }
+
+      .sample-d article {
+        padding: 30px 34px;
+        border: 1px solid #e6c6cf;
+        border-radius: 14px;
+        background: #fff;
+      }
+
+      .sample-d h1 {
+        margin: 0 0 8px;
+        font-size: 2.25rem;
+      }
+
+      .sample-d .meta {
+        margin-bottom: 30px;
+        color: #7d6470;
+      }
+
+      .sample-d h2 {
+        margin-top: 30px;
+        padding-top: 20px;
+        border-top: 1px solid #ead3da;
+        color: #7b2038;
+        font-size: 1.18rem;
+      }
+
+      .sample-d footer {
+        margin-top: 22px;
+      }
+
+      @media (max-width: 760px) {
+        .sample-b .doc-shell {
+          display: block;
+        }
+
+        .sample-b aside {
+          border-right: 0;
+          border-bottom: 1px solid #d0d7de;
+        }
+
+        .sample-b article,
+        .sample-d article {
+          padding: 24px 22px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="samples-shell">
+      <header class="samples-header">
+        <h1>HiMemo Legal Page Design Samples</h1>
+        <p>本番ページには未反映の比較用サンプルです。</p>
+      </header>
+
+      <div class="sample-list">
+        <section class="sample-frame">
+          <div class="sample-label">
+            <strong>案A: Apple風の静かな文書ページ</strong>
+            <span>最小限の導線、余白広め、生成AI感が出にくい</span>
+          </div>
+          <div class="sample sample-a">
+            <nav class="topbar">
+              <a class="brand" href="#">HiMemo</a>
+              <a href="#">Privacy</a>
+              <a href="#">Terms</a>
+              <a href="#">日本語</a>
+              <button type="button">Dark</button>
+            </nav>
+            <article>
+              <h1>プライバシーポリシー</h1>
+              <p class="meta">最終更新日: 2026年5月5日</p>
+              <p>
+                HiMemo は、メモ、添付ファイル、プライベートプロファイル、バックアップおよび同期機能を提供します。
+              </p>
+              <h2>1. 取得または保存される情報</h2>
+              <p>
+                本アプリは、利用者が入力または選択したメモ本文、タグ、添付ファイル、設定情報を端末内に保存することがあります。
+              </p>
+              <h2>2. クラウド同期とバックアップ</h2>
+              <p>
+                クラウド同期は、利用者の端末と利用者が選択したクラウドサービスとの間で直接行われます。
+              </p>
+            </article>
+            <footer>&copy; HiMemo</footer>
+          </div>
+        </section>
+
+        <section class="sample-frame">
+          <div class="sample-label">
+            <strong>案B: GitHub README風</strong>
+            <span>ドキュメント感が強く、GitHub Pages と相性が良い</span>
+          </div>
+          <div class="sample sample-b">
+            <div class="doc-shell">
+              <aside>
+                <strong>HiMemo Docs</strong>
+                <a href="#">Privacy Policy</a>
+                <a href="#">Terms of Use</a>
+                <a href="#">日本語</a>
+                <a href="#">English</a>
+                <a href="#">Dark</a>
+              </aside>
+              <article>
+                <div class="crumb">HiMemo Docs / Privacy Policy / Japanese</div>
+                <h1>プライバシーポリシー</h1>
+                <p class="meta">最終更新日: 2026年5月5日</p>
+                <p>
+                  本ページは HiMemo における利用者情報の取り扱いを説明します。
+                </p>
+                <h2>クラウド同期とバックアップ</h2>
+                <p>
+                  同期データは暗号化され、端末とクラウドサービスの間で直接処理されます。
+                </p>
+                <h2>利用者による管理</h2>
+                <ul>
+                  <li>メモ、添付ファイル、同期設定はアプリ内で管理できます。</li>
+                  <li>暗号化された保存データは、通常のファイル閲覧アプリから直接読めません。</li>
+                </ul>
+                <footer>&copy; HiMemo</footer>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="sample-frame">
+          <div class="sample-label">
+            <strong>案C: 公的文書風ミニマル</strong>
+            <span>堅く、信頼感重視。章番号の揃いで読みやすい</span>
+          </div>
+          <div class="sample sample-c">
+            <div class="header">
+              <div class="header-inner">
+                <strong>HiMemo</strong>
+                <a href="#">利用規約</a>
+                <a href="#">English</a>
+                <button type="button">Dark</button>
+              </div>
+            </div>
+            <article>
+              <h1>利用規約</h1>
+              <p class="meta">最終更新日: 2026年5月5日</p>
+              <p>
+                本利用規約は、HiMemo の利用条件を定めるものです。
+              </p>
+              <h2><span class="num">第1条</span><span>本アプリの内容</span></h2>
+              <p>
+                本アプリは、メモの作成、編集、添付ファイルの保存、端末内暗号化、バックアップ、同期などの機能を提供します。
+              </p>
+              <h2><span class="num">第2条</span><span>利用者の責任</span></h2>
+              <p>
+                利用者は、入力した情報、バックアップ、同期設定、復元キーを自身の責任で管理するものとします。
+              </p>
+            </article>
+            <footer>&copy; HiMemo</footer>
+          </div>
+        </section>
+
+        <section class="sample-frame">
+          <div class="sample-label">
+            <strong>案D: HiMemoブランド控えめ反映</strong>
+            <span>桜系アクセント。アプリとの一体感を少し出す</span>
+          </div>
+          <div class="sample sample-d">
+            <div class="paper">
+              <nav>
+                <a class="brand" href="#">HiMemo</a>
+                <a href="#">Privacy</a>
+                <a href="#">Terms</a>
+                <a href="#">English</a>
+                <button type="button">Dark</button>
+              </nav>
+              <article>
+                <h1>プライバシーポリシー</h1>
+                <p class="meta">最終更新日: 2026年5月5日</p>
+                <p>
+                  HiMemo は、利用者の端末上でメモや添付ファイルを暗号化して保存するよう設計されています。
+                </p>
+                <h2>クラウド同期とバックアップ</h2>
+                <p>
+                  クラウド同期は、端末と選択したクラウドサービスの間で直接行われ、運営者は内容データへアクセスできません。
+                </p>
+                <h2>第三者提供</h2>
+                <p>
+                  運営者は内容データを提供できる形で保有していません。
+                </p>
+              </article>
+              <footer>&copy; HiMemo</footer>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </body>
+</html>

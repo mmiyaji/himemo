@@ -643,15 +643,26 @@ import CloudKit
       ((record[cloudKitAssetField] as? CKAsset)?.fileURL?.lastPathComponent) ??
       record.recordID.recordName
 
-    return [
+    var payload: [String: Any] = [
       "recordName": record.recordID.recordName,
       "fileName": assetFileName,
-      "modifiedAt": record.modificationDate?.iso8601String as Any,
-      "sizeBytes": bundleFileSize(for: record) as Any,
-      "noteCount": noteCount as Any,
-      "attachmentCount": attachmentCount as Any,
-      "deviceId": record[cloudKitDeviceIdField] as? String as Any,
     ]
+    if let modifiedAt = record.modificationDate?.iso8601String {
+      payload["modifiedAt"] = modifiedAt
+    }
+    if let sizeBytes = bundleFileSize(for: record) {
+      payload["sizeBytes"] = sizeBytes
+    }
+    if let noteCount = noteCount {
+      payload["noteCount"] = noteCount
+    }
+    if let attachmentCount = attachmentCount {
+      payload["attachmentCount"] = attachmentCount
+    }
+    if let deviceId = record[cloudKitDeviceIdField] as? String {
+      payload["deviceId"] = deviceId
+    }
+    return payload
   }
 
   private func bundleFileSize(for record: CKRecord) -> Int? {

@@ -92,7 +92,7 @@ $env:GOOGLE_APPLICATION_CREDENTIALS="D:\secrets\himemo-appdist.json"
 HiMemo では、クラウド同期を有効化する最初の操作に寄せて使っている。通常のローカルメモ利用はオフライン主体のままにする。
 
 関連:
-- [play-integrity-server.md](/C:/Users/mail/Documents/git/himemo/docs/play-integrity-server.md)
+- [play-integrity-server.md](./play-integrity-server.md)
 
 ## In-app updates
 

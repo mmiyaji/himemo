@@ -519,7 +519,7 @@ final class NotesControllerProvider
   }
 }
 
-String _$notesControllerHash() => r'5144075ebd97a697eb28962c2215377fb184ad45';
+String _$notesControllerHash() => r'20ffe0ea89173233b4bd7ab7ca596b0fd1efa271';
 
 abstract class _$NotesController extends $Notifier<List<NoteEntry>> {
   List<NoteEntry> build();

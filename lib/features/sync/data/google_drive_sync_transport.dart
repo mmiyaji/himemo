@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 
+import 'google_sign_in_initializer.dart';
+
 class RemoteSyncBundleStatus {
   const RemoteSyncBundleStatus({
     required this.fileId,
@@ -225,10 +227,7 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
 
   Future<drive.DriveApi> _openDriveApi({required bool interactive}) async {
     try {
-      await GoogleSignIn.instance.initialize(
-        clientId: authConfig.normalizedClientId,
-        serverClientId: authConfig.normalizedServerClientId,
-      );
+      await GoogleSignInInitializer.ensureInitialized(authConfig);
       GoogleSignInAccount? account;
       final lightweight = GoogleSignIn.instance
           .attemptLightweightAuthentication();

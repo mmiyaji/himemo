@@ -12,6 +12,7 @@ _NoteAttachment _$NoteAttachmentFromJson(Map<String, dynamic> json) =>
       label: json['label'] as String,
       filePath: json['filePath'] as String?,
       previewBytesBase64: json['previewBytesBase64'] as String?,
+      durationMs: (json['durationMs'] as num?)?.toInt(),
     );
 
 Map<String, dynamic> _$NoteAttachmentToJson(_NoteAttachment instance) =>
@@ -20,6 +21,7 @@ Map<String, dynamic> _$NoteAttachmentToJson(_NoteAttachment instance) =>
       'label': instance.label,
       'filePath': instance.filePath,
       'previewBytesBase64': instance.previewBytesBase64,
+      'durationMs': instance.durationMs,
     };
 
 const _$AttachmentTypeEnumMap = {

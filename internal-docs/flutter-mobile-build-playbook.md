@@ -3,9 +3,9 @@
 このドキュメントは、Flutter アプリを Android / iOS で公開・運用するための実務メモです。HiMemo で実際に使っている構成をベースにしていますが、他の Flutter アプリでもそのまま参考にしやすい形に寄せています。
 
 関連ドキュメント:
-- [android-release-ops.md](/C:/Users/mail/Documents/git/himemo/docs/android-release-ops.md)
-- [codemagic-ios.md](/C:/Users/mail/Documents/git/himemo/docs/codemagic-ios.md)
-- [play-integrity-server.md](/C:/Users/mail/Documents/git/himemo/docs/play-integrity-server.md)
+- [android-release-ops.md](./android-release-ops.md)
+- [codemagic-ios.md](./codemagic-ios.md)
+- [play-integrity-server.md](./play-integrity-server.md)
 
 ## 方針
 
