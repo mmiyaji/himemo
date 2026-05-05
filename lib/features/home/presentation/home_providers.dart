@@ -791,33 +791,46 @@ class SyncTransferState {
     this.message,
     this.remoteStatus,
     this.localBundle,
+    this.cooldownUntil,
   });
 
   const SyncTransferState.idle()
     : stage = SyncTransferStage.idle,
       message = null,
       remoteStatus = null,
-      localBundle = null;
+      localBundle = null,
+      cooldownUntil = null;
 
   final SyncTransferStage stage;
   final String? message;
   final RemoteSyncBundleStatus? remoteStatus;
   final StoredSyncBundle? localBundle;
+  final DateTime? cooldownUntil;
 
-  bool get isBusy => stage == SyncTransferStage.busy;
+  bool get isBusy => stage == SyncTransferStage.busy || isCoolingDown;
+
+  bool get isCoolingDown {
+    final until = cooldownUntil;
+    return until != null && DateTime.now().isBefore(until);
+  }
 
   SyncTransferState copyWith({
     SyncTransferStage? stage,
     String? message,
     RemoteSyncBundleStatus? remoteStatus,
     StoredSyncBundle? localBundle,
+    DateTime? cooldownUntil,
     bool clearMessage = false,
+    bool clearCooldown = false,
   }) {
     return SyncTransferState(
       stage: stage ?? this.stage,
       message: clearMessage ? null : (message ?? this.message),
       remoteStatus: remoteStatus ?? this.remoteStatus,
       localBundle: localBundle ?? this.localBundle,
+      cooldownUntil: clearCooldown
+          ? null
+          : (cooldownUntil ?? this.cooldownUntil),
     );
   }
 }
@@ -1699,8 +1712,13 @@ final syncTransferControllerProvider =
     );
 
 class SyncTransferController extends Notifier<SyncTransferState> {
+  Timer? _cooldownTimer;
+
   @override
-  SyncTransferState build() => const SyncTransferState.idle();
+  SyncTransferState build() {
+    ref.onDispose(() => _cooldownTimer?.cancel());
+    return const SyncTransferState.idle();
+  }
 
   Future<void> refreshRemoteStatus() async {
     final provider = ref.read(syncProviderControllerProvider);
@@ -1711,7 +1729,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       return;
     }
-    state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
+    state = state.copyWith(
+      stage: SyncTransferStage.busy,
+      clearMessage: true,
+      clearCooldown: true,
+    );
     try {
       final remoteStatus = await runFirebaseTrace(
         'sync_refresh_remote_status',
@@ -1731,11 +1753,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             .recordRemoteStatus(remoteStatus);
       }
     } catch (error) {
-      state = SyncTransferState(
-        stage: SyncTransferStage.error,
-        message: '$error',
-        remoteStatus: state.remoteStatus,
-      );
+      state = _failureState(error, remoteStatus: state.remoteStatus);
     }
   }
 
@@ -1762,7 +1780,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       return;
     }
-    state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
+    state = state.copyWith(
+      stage: SyncTransferStage.busy,
+      clearMessage: true,
+      clearCooldown: true,
+    );
     try {
       await logFirebaseBreadcrumb('sync upload requested');
       final snapshot = await runFirebaseTrace(
@@ -1802,9 +1824,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       await ref.read(syncBundleStateStoreProvider).recordUpload(remoteStatus);
     } catch (error) {
-      state = SyncTransferState(
-        stage: SyncTransferStage.error,
-        message: '$error',
+      state = _failureState(
+        error,
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
       );
@@ -1825,7 +1846,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       return;
     }
-    state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
+    state = state.copyWith(
+      stage: SyncTransferStage.busy,
+      clearMessage: true,
+      clearCooldown: true,
+    );
     try {
       await logFirebaseBreadcrumb('sync download latest requested');
       final remoteBundle = await runFirebaseTrace(
@@ -1838,9 +1863,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             'No remote ${_providerLabel(provider)} bundle is available.',
       );
     } catch (error) {
-      state = SyncTransferState(
-        stage: SyncTransferStage.error,
-        message: '$error',
+      state = _failureState(
+        error,
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
       );
@@ -1860,7 +1884,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       return;
     }
-    state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
+    state = state.copyWith(
+      stage: SyncTransferStage.busy,
+      clearMessage: true,
+      clearCooldown: true,
+    );
     try {
       await logFirebaseBreadcrumb(
         'sync download bundle ${remoteStatus.fileId}',
@@ -1875,7 +1903,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             'The selected ${_providerLabel(provider)} bundle could not be downloaded.',
       );
     } catch (error) {
-      state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
+      state = _failureState(
+        error,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
     }
   }
 
@@ -2116,6 +2148,56 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         ref.read(googleDriveSyncTransportProvider).downloadBundleByFileId(id),
       SyncProvider.off => Future.value(null),
     };
+  }
+
+  SyncTransferState _failureState(
+    Object error, {
+    RemoteSyncBundleStatus? remoteStatus,
+    StoredSyncBundle? localBundle,
+  }) {
+    if (error is GoogleDriveSyncException) {
+      final retryAfter = error.retryAfter;
+      if (retryAfter != null) {
+        _scheduleCooldownRefresh(retryAfter);
+      }
+      return SyncTransferState(
+        stage: SyncTransferStage.error,
+        message: error.message,
+        remoteStatus: remoteStatus,
+        localBundle: localBundle,
+        cooldownUntil: retryAfter == null
+            ? null
+            : DateTime.now().add(retryAfter),
+      );
+    }
+    if (error is ICloudSyncException) {
+      final retryAfter = error.retryAfter;
+      if (retryAfter != null) {
+        _scheduleCooldownRefresh(retryAfter);
+      }
+      return SyncTransferState(
+        stage: SyncTransferStage.error,
+        message: error.message,
+        remoteStatus: remoteStatus,
+        localBundle: localBundle,
+        cooldownUntil: retryAfter == null
+            ? null
+            : DateTime.now().add(retryAfter),
+      );
+    }
+    return SyncTransferState(
+      stage: SyncTransferStage.error,
+      message: '$error',
+      remoteStatus: remoteStatus,
+      localBundle: localBundle,
+    );
+  }
+
+  void _scheduleCooldownRefresh(Duration duration) {
+    _cooldownTimer?.cancel();
+    _cooldownTimer = Timer(duration, () {
+      state = state.copyWith(clearCooldown: true);
+    });
   }
 }
 

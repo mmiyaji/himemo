@@ -2,18 +2,64 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "HiMemo Android development",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_development.dart",
+      "deviceId": "emulator-5554",
+      "flutterMode": "debug",
+      "toolArgs": [
+        "--flavor",
+        "development",
+        "--dart-define-from-file=.env"
+      ],
+      "preLaunchTask": "HiMemo: start Android emulator"
+    },
+    {
+      "name": "HiMemo Android production",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_production.dart",
+      "deviceId": "emulator-5554",
+      "flutterMode": "debug",
+      "toolArgs": [
+        "--flavor",
+        "production",
+        "--dart-define-from-file=.env"
+      ],
+      "preLaunchTask": "HiMemo: start Android emulator"
+    },
+    {
       "name": "HiMemo development",
       "request": "launch",
       "type": "dart",
       "program": "lib/main_development.dart",
-      "args": ["--flavor", "development"]
+      "flutterMode": "debug",
+      "toolArgs": ["--flavor", "development"]
+    },
+    {
+      "name": "HiMemo development (.env)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_development.dart",
+      "flutterMode": "debug",
+      "toolArgs": ["--flavor", "development", "--dart-define-from-file=.env"]
     },
     {
       "name": "HiMemo production",
       "request": "launch",
       "type": "dart",
       "program": "lib/main_production.dart",
-      "args": ["--flavor", "production"]
+      "flutterMode": "debug",
+      "toolArgs": ["--flavor", "production"]
+    },
+    {
+      "name": "HiMemo production (.env)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main_production.dart",
+      "flutterMode": "debug",
+      "toolArgs": ["--flavor", "production", "--dart-define-from-file=.env"]
     },
     {
       "name": "HiMemo web development",
@@ -21,7 +67,7 @@
       "type": "dart",
       "program": "lib/main_development.dart",
       "deviceId": "chrome",
-      "args": ["--flavor", "development"]
+      "flutterMode": "debug"
     }
   ]
 }

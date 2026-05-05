@@ -48,6 +48,11 @@ node_modules/
 playwright-report/
 test-results/
 
+# Local secrets and build-time configuration
+.env
+.env.*
+!.env.example
+
 # Symbolication related
 app.*.symbols
 

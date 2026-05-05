@@ -86,6 +86,25 @@ class GoogleDriveAuthConfigurationException implements Exception {
   String toString() => details == null ? message : '$message ($details)';
 }
 
+class GoogleDriveSyncException implements Exception {
+  const GoogleDriveSyncException(
+    this.message, {
+    this.statusCode,
+    this.retryAfter,
+    this.isRateLimited = false,
+    this.details,
+  });
+
+  final String message;
+  final int? statusCode;
+  final Duration? retryAfter;
+  final bool isRateLimited;
+  final Object? details;
+
+  @override
+  String toString() => message;
+}
+
 class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   GoogleApisGoogleDriveSyncTransport({
     this.authConfig = const GoogleDriveAuthConfig(),
@@ -95,6 +114,11 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   static const _bundleFileName = 'himemo_sync_bundle.enc';
   static const _bundleFilePrefix = 'himemo_sync_bundle_';
   static const _spaces = 'appDataFolder';
+  static const _retryDelays = <Duration>[
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+  ];
 
   final GoogleDriveAuthConfig authConfig;
 
@@ -137,10 +161,12 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
         'attachmentCount': '$attachmentCount',
       };
 
-    final result = await api.files.create(
-      metadata,
-      uploadMedia: media,
-      $fields: 'id,name,modifiedTime,size,appProperties',
+    final result = await _withDriveRetry(
+      () => api.files.create(
+        metadata,
+        uploadMedia: media,
+        $fields: 'id,name,modifiedTime,size,appProperties',
+      ),
     );
 
     return _toStatus(result);
@@ -165,9 +191,11 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
       return null;
     }
     final response =
-        await api.files.get(
-              fileId,
-              $fields: 'id,name,modifiedTime,size,appProperties',
+        await _withDriveRetry(
+              () => api.files.get(
+                fileId,
+                $fields: 'id,name,modifiedTime,size,appProperties',
+              ),
             )
             as drive.File;
     if (response.id == null || response.id!.isEmpty) {
@@ -180,12 +208,14 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     drive.DriveApi api,
     drive.File file,
   ) async {
-    final response = await api.files.get(
-      file.id!,
-      downloadOptions: drive.DownloadOptions.fullMedia,
+    final response = await _withDriveRetry(
+      () => api.files.get(
+        file.id!,
+        downloadOptions: drive.DownloadOptions.fullMedia,
+      ),
     );
     final media = response as drive.Media;
-    final chunks = await media.stream.toList();
+    final chunks = await _withDriveRetry(media.stream.toList);
     final bytes = chunks.expand((chunk) => chunk).toList(growable: false);
     return DownloadedRemoteSyncBundle(
       status: _toStatus(file),
@@ -304,12 +334,14 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     drive.DriveApi api, {
     int limit = 10,
   }) async {
-    final response = await api.files.list(
-      spaces: _spaces,
-      q: "name = '$_bundleFileName' or name contains '$_bundleFilePrefix'",
-      orderBy: 'modifiedTime desc',
-      pageSize: limit,
-      $fields: 'files(id,name,modifiedTime,size,appProperties)',
+    final response = await _withDriveRetry(
+      () => api.files.list(
+        spaces: _spaces,
+        q: "name = '$_bundleFileName' or name contains '$_bundleFilePrefix'",
+        orderBy: 'modifiedTime desc',
+        pageSize: limit,
+        $fields: 'files(id,name,modifiedTime,size,appProperties)',
+      ),
     );
     final files = response.files;
     if (files == null || files.isEmpty) {
@@ -328,6 +360,90 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
       noteCount: int.tryParse(appProperties['noteCount'] ?? ''),
       attachmentCount: int.tryParse(appProperties['attachmentCount'] ?? ''),
       deviceId: appProperties['deviceId'],
+    );
+  }
+
+  Future<T> _withDriveRetry<T>(Future<T> Function() operation) async {
+    for (var attempt = 0; attempt <= _retryDelays.length; attempt += 1) {
+      try {
+        return await operation();
+      } on drive.DetailedApiRequestError catch (error) {
+        final mapped = _mapDriveApiError(error);
+        if (attempt >= _retryDelays.length || !_isRetryable(mapped, error)) {
+          throw mapped;
+        }
+        await Future<void>.delayed(_retryDelays[attempt]);
+      } on drive.ApiRequestError catch (error) {
+        final mapped = GoogleDriveSyncException(
+          'Google Drive request failed. Check your connection and try again.',
+          details: error,
+        );
+        if (attempt >= _retryDelays.length) {
+          throw mapped;
+        }
+        await Future<void>.delayed(_retryDelays[attempt]);
+      }
+    }
+    throw const GoogleDriveSyncException('Google Drive request failed.');
+  }
+
+  bool _isRetryable(
+    GoogleDriveSyncException mapped,
+    drive.DetailedApiRequestError error,
+  ) {
+    final status = error.status;
+    final message = (error.message ?? '').toLowerCase();
+    if (status == 429 || status == 500 || status == 503 || status == 504) {
+      return true;
+    }
+    if (status == 403 &&
+        (message.contains('userratelimit') || message.contains('ratelimit')) &&
+        !message.contains('dailylimit') &&
+        !message.contains('quotaexceeded')) {
+      return true;
+    }
+    return mapped.isRateLimited && status != 403;
+  }
+
+  GoogleDriveSyncException _mapDriveApiError(
+    drive.DetailedApiRequestError error,
+  ) {
+    final status = error.status;
+    final rawMessage = error.message ?? '';
+    final normalized = rawMessage.toLowerCase();
+    final isRateLimited =
+        status == 429 ||
+        normalized.contains('ratelimit') ||
+        normalized.contains('quota') ||
+        normalized.contains('limitexceeded');
+    if (isRateLimited) {
+      return GoogleDriveSyncException(
+        'Google Drive is temporarily limiting sync requests. Please wait a few minutes and try again.',
+        statusCode: status,
+        retryAfter: const Duration(minutes: 2),
+        isRateLimited: true,
+        details: error,
+      );
+    }
+    if (status == 401 || status == 403) {
+      return GoogleDriveSyncException(
+        'Google Drive access was denied. Reconnect Google Drive from Settings and try again.',
+        statusCode: status,
+        details: error,
+      );
+    }
+    if (status == 500 || status == 503 || status == 504) {
+      return GoogleDriveSyncException(
+        'Google Drive is temporarily unavailable. Please try again shortly.',
+        statusCode: status,
+        retryAfter: const Duration(minutes: 1),
+        details: error,
+      );
+    }
+    return GoogleDriveSyncException(
+      'Google Drive request failed. Please try again.',
+      statusCode: status,
+      details: error,
     );
   }
 }

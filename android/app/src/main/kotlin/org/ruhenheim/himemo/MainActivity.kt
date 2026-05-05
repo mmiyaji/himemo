@@ -47,7 +47,16 @@ class MainActivity : FlutterFragmentActivity() {
         privacyChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PRIVACY_CHANNEL)
         widgetChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
-                "consumePendingQuickCapture" -> result.success(buildQuickCapturePayload(intent))
+                "consumePendingQuickCapture" -> {
+                    val currentIntent = intent
+                    result.success(
+                        if (shouldOpenQuickCapture(currentIntent)) {
+                            buildQuickCapturePayload(currentIntent)
+                        } else {
+                            null
+                        },
+                    )
+                }
                 "deleteSharedImportFiles" -> {
                     val paths = call.argument<List<String>>("paths").orEmpty()
                     paths.forEach { path ->

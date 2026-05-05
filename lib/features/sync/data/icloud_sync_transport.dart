@@ -26,6 +26,23 @@ class ICloudAccountStatusResult {
   bool get isAvailable => availability == ICloudAccountAvailability.available;
 }
 
+class ICloudSyncException implements Exception {
+  const ICloudSyncException(
+    this.message, {
+    this.retryAfter,
+    this.isTemporary = false,
+    this.details,
+  });
+
+  final String message;
+  final Duration? retryAfter;
+  final bool isTemporary;
+  final Object? details;
+
+  @override
+  String toString() => message;
+}
+
 abstract class ICloudSyncTransport {
   Future<ICloudAccountStatusResult> checkAccountStatus();
 
@@ -51,6 +68,11 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
   static const MethodChannel _channel = MethodChannel(
     'org.ruhenheim.himemo/cloudkit',
   );
+  static const _retryDelays = <Duration>[
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+  ];
 
   @override
   Future<ICloudAccountStatusResult> checkAccountStatus() async {
@@ -90,12 +112,12 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
   }
 
   @override
-  Future<List<RemoteSyncBundleStatus>> listBundleHistory({int limit = 10}) async {
-    final result =
-        await _channel.invokeListMethod<dynamic>('cloudKitListBundleHistory', {
-          'limit': limit,
-        }) ??
-        const <dynamic>[];
+  Future<List<RemoteSyncBundleStatus>> listBundleHistory({
+    int limit = 10,
+  }) async {
+    final result = await _invokeList('cloudKitListBundleHistory', {
+      'limit': limit,
+    });
     return result
         .map((entry) => _statusFromMap(Map<String, dynamic>.from(entry as Map)))
         .toList(growable: false);
@@ -146,20 +168,84 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
     String method, [
     Map<String, dynamic>? arguments,
   ]) async {
-    try {
-      final result = await _channel.invokeMapMethod<String, dynamic>(
-        method,
-        arguments,
-      );
-      if (result == null) {
-        return null;
-      }
-      return Map<String, dynamic>.from(result);
-    } on PlatformException catch (error) {
-      throw StateError(_messageForPlatformException(error));
-    } on MissingPluginException {
-      throw StateError('CloudKit is not available in this runtime.');
+    final result = await _withCloudKitRetry(
+      () => _channel.invokeMapMethod<String, dynamic>(method, arguments),
+    );
+    if (result == null) {
+      return null;
     }
+    return Map<String, dynamic>.from(result);
+  }
+
+  Future<List<dynamic>> _invokeList(
+    String method, [
+    Map<String, dynamic>? arguments,
+  ]) async {
+    final result = await _withCloudKitRetry(
+      () => _channel.invokeListMethod<dynamic>(method, arguments),
+    );
+    return result ?? const <dynamic>[];
+  }
+
+  Future<T> _withCloudKitRetry<T>(Future<T> Function() operation) async {
+    for (var attempt = 0; attempt <= _retryDelays.length; attempt += 1) {
+      try {
+        return await operation();
+      } on PlatformException catch (error) {
+        final mapped = _mapPlatformException(error);
+        if (attempt >= _retryDelays.length || !mapped.isTemporary) {
+          throw mapped;
+        }
+        await Future<void>.delayed(_retryDelays[attempt]);
+      } on MissingPluginException {
+        throw const ICloudSyncException(
+          'CloudKit is not available in this runtime.',
+        );
+      }
+    }
+    throw const ICloudSyncException('CloudKit request failed.');
+  }
+
+  ICloudSyncException _mapPlatformException(PlatformException error) {
+    final details = error.details;
+    final retryAfter = details is Map
+        ? _durationFromSeconds(details['retryAfterSeconds'])
+        : null;
+    final message = _messageForPlatformException(error);
+    final isTemporary =
+        retryAfter != null ||
+        message.contains('temporarily') ||
+        message.contains('Retry') ||
+        message.contains('network is unavailable') ||
+        message.contains('CloudKit is temporarily unavailable');
+    return ICloudSyncException(
+      message,
+      retryAfter:
+          retryAfter ?? (isTemporary ? const Duration(minutes: 1) : null),
+      isTemporary: isTemporary,
+      details: error,
+    );
+  }
+
+  Duration? _durationFromSeconds(Object? value) {
+    final seconds = switch (value) {
+      int seconds => seconds,
+      double seconds => seconds.ceil(),
+      String seconds => double.tryParse(seconds)?.ceil(),
+      _ => null,
+    };
+    if (seconds == null || seconds <= 0) {
+      return null;
+    }
+    return Duration(seconds: seconds);
+  }
+
+  String _messageForPlatformException(PlatformException error) {
+    final details = error.details;
+    if (details is Map && details['message'] is String) {
+      return details['message'] as String;
+    }
+    return error.message ?? error.code;
   }
 
   DownloadedRemoteSyncBundle _downloadedBundleFromMap(
@@ -203,13 +289,5 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
       'unsupported' => ICloudAccountAvailability.unsupported,
       _ => ICloudAccountAvailability.unknown,
     };
-  }
-
-  String _messageForPlatformException(PlatformException error) {
-    final details = error.details;
-    if (details is Map && details['message'] is String) {
-      return details['message'] as String;
-    }
-    return error.message ?? error.code;
   }
 }

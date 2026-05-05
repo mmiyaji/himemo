@@ -52,6 +52,29 @@ fvm flutter run -d android --flavor development -t lib/main_development.dart
 fvm flutter run -d ios -t lib/main_development.dart
 ```
 
+### Google Drive sync OAuth for local builds
+
+Create a local `.env` file from `.env.example` and set the Google OAuth client
+IDs. The `.env` file is ignored by git.
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+Run Flutter through the wrapper when you need those values passed as
+`--dart-define` entries:
+
+```powershell
+.\tools\flutter_with_env.ps1 run -d emulator-5554 --flavor development -t lib/main_development.dart
+.\tools\flutter_with_env.ps1 build apk --debug --flavor development -t lib/main_development.dart
+```
+
+VS Code can also run the same wrapper from `Terminal > Run Task...`:
+
+- `HiMemo: build production APK with .env`
+- `HiMemo: build development APK with .env`
+
 ### 本番用 flavor
 
 ```powershell
