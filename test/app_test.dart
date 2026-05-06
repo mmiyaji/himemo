@@ -1061,6 +1061,11 @@ void main() {
     final visible = container.read(visibleNotesProvider);
     expect(visible.map((note) => note.id), ['tag-1']);
     expect(container.read(visibleTagSuggestionsProvider), contains('Alpha'));
+    container.read(searchFiltersControllerProvider.notifier).reset();
+    container.read(searchQueryProvider.notifier).setQuery('second body');
+    expect(container.read(visibleNotesProvider).map((note) => note.id), [
+      'tag-2',
+    ]);
     expect(dedupeNoteTags([' Alpha ', '#alpha', 'HOME']), ['Alpha', 'HOME']);
   });
 

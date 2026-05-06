@@ -762,7 +762,7 @@ final class VisibleNotesProvider
   }
 }
 
-String _$visibleNotesHash() => r'401c0aa4eb406175f9891deb3e0692d8310f81a7';
+String _$visibleNotesHash() => r'5797341ec5bd05ef4b4f538e7860f2c699e2f1f1';
 
 @ProviderFor(visibleNoteYears)
 final visibleNoteYearsProvider = VisibleNoteYearsProvider._();
@@ -804,6 +804,53 @@ final class VisibleNoteYearsProvider
 }
 
 String _$visibleNoteYearsHash() => r'2ab1162cd34d3256b710f8349489d10ee0cbb281';
+
+@ProviderFor(noteSearchIndex)
+final noteSearchIndexProvider = NoteSearchIndexProvider._();
+
+final class NoteSearchIndexProvider
+    extends
+        $FunctionalProvider<
+          Map<String, String>,
+          Map<String, String>,
+          Map<String, String>
+        >
+    with $Provider<Map<String, String>> {
+  NoteSearchIndexProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'noteSearchIndexProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$noteSearchIndexHash();
+
+  @$internal
+  @override
+  $ProviderElement<Map<String, String>> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  Map<String, String> create(Ref ref) {
+    return noteSearchIndex(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(Map<String, String> value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<Map<String, String>>(value),
+    );
+  }
+}
+
+String _$noteSearchIndexHash() => r'0393413857bce3a37cc97acf8401fd7a051d7039';
 
 @ProviderFor(visibleTagSuggestions)
 final visibleTagSuggestionsProvider = VisibleTagSuggestionsProvider._();

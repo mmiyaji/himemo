@@ -4995,6 +4995,9 @@ List<NoteEntry> visibleNotes(Ref ref) {
       .toSet();
   final query = ref.watch(searchQueryProvider).trim().toLowerCase();
   final filters = ref.watch(searchFiltersControllerProvider);
+  final searchIndex = query.isEmpty
+      ? const <String, String>{}
+      : ref.watch(noteSearchIndexProvider);
   final filterVaultId = filters.vaultId;
   final filterYear = filters.year;
   final requiredTags = filters.tags
@@ -5030,7 +5033,7 @@ List<NoteEntry> visibleNotes(Ref ref) {
         continue;
       }
     }
-    if (query.isNotEmpty && !_noteMatchesQuery(note, query)) {
+    if (query.isNotEmpty && !_noteMatchesQuery(note, query, searchIndex)) {
       continue;
     }
     results.add(note);
@@ -5056,22 +5059,52 @@ List<int> visibleNoteYears(Ref ref) {
   return List.unmodifiable(sorted);
 }
 
-bool _noteMatchesQuery(NoteEntry note, String query) {
-  if (note.title.toLowerCase().contains(query) ||
-      note.body.toLowerCase().contains(query)) {
-    return true;
-  }
-  for (final tag in note.tags) {
-    if (tag.toLowerCase().contains(query)) {
-      return true;
+@riverpod
+Map<String, String> noteSearchIndex(Ref ref) {
+  final entries = <String, String>{};
+  for (final note in ref.watch(notesControllerProvider)) {
+    if (note.deletedAt != null) {
+      continue;
     }
+    entries[note.id] = _noteSearchText(note);
+  }
+  return Map.unmodifiable(entries);
+}
+
+String _noteSearchText(NoteEntry note) {
+  final buffer = StringBuffer()
+    ..write(note.title)
+    ..write('\n')
+    ..write(note.body);
+  for (final tag in note.tags) {
+    buffer
+      ..write('\n')
+      ..write(tag);
   }
   for (final attachment in note.attachments) {
-    if (attachment.label.toLowerCase().contains(query)) {
-      return true;
-    }
+    buffer
+      ..write('\n')
+      ..write(attachment.label);
   }
-  return false;
+  final location = note.location;
+  if (location != null) {
+    buffer
+      ..write('\n')
+      ..write(location.address ?? '')
+      ..write('\n')
+      ..write(location.latitude)
+      ..write('\n')
+      ..write(location.longitude);
+  }
+  return buffer.toString().toLowerCase();
+}
+
+bool _noteMatchesQuery(
+  NoteEntry note,
+  String query,
+  Map<String, String> searchIndex,
+) {
+  return searchIndex[note.id]?.contains(query) ?? false;
 }
 
 @riverpod

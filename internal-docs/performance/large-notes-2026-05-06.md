@@ -101,3 +101,25 @@ Conclusion:
 
 - This cycle moves calendar grouping cost out of the widget build path and makes day navigation reuse the same grouped data.
 - Insights summaries still compute several aggregates from the full visible note list and remain a future optimization target.
+
+## Cycle 4 follow-up
+
+Plan:
+
+- Reduce the per-query cost after the search input debounce fires.
+
+Changes:
+
+- Added `noteSearchIndexProvider`, which builds a lower-cased searchable string per note only when notes change.
+- Updated visible-note filtering to use the cached search index for title/body/tag/attachment/location matching.
+- Extended the search filter test to cover body search through the index.
+
+Measurements:
+
+- Browser E2E with 1000 seeded notes confirmed location/text search still returns matching performance notes.
+- Static validation remained clean with `flutter analyze`.
+
+Conclusion:
+
+- Search now avoids repeated lower-casing and string assembly on every query change.
+- The remaining large cost for Web is still storage restore: all note data must be decrypted before the first list can render.
