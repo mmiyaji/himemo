@@ -4,7 +4,8 @@ import 'dart:math';
 
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:himemo/app/app.dart';
@@ -19,6 +20,7 @@ import 'package:himemo/features/security/data/encrypted_note_database.dart';
 import 'package:himemo/features/security/data/encrypted_note_store.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/master_key_service.dart';
+import 'package:himemo/features/security/data/profile_data_key_service.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
 import 'package:himemo/l10n/app_localizations.dart';
@@ -194,6 +196,57 @@ void main() {
       ),
       '최신 번들: 2026/05/03 22:00, 12 KB, 노트 3개, 첨부 2개.',
     );
+  });
+
+  testWidgets('insights do not show a best day when there are no notes', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(
+          locale: Locale('en'),
+          supportedLocales: AppStrings.supportedLocales,
+          localizationsDelegates: [
+            AppLocalizations.delegate,
+            AppStrings.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          home: Scaffold(body: InsightsScreen()),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Best day'), findsOneWidget);
+    expect(find.text('-'), findsWidgets);
+    expect(find.textContaining(RegExp(r'\d+/\d+')), findsNothing);
+  });
+
+  test('note location metadata is serialized with notes', () {
+    final note = NoteEntry(
+      id: 'location-note',
+      vaultId: 'everyday',
+      title: 'Location',
+      body: '',
+      createdAt: DateTime(2026, 5, 6, 10, 0),
+      location: NoteLocation(
+        latitude: 35.681236,
+        longitude: 139.767125,
+        accuracyMeters: 12,
+        address: 'Tokyo Station',
+        capturedAt: DateTime(2026, 5, 6, 10, 1),
+      ),
+    );
+
+    final restored = NoteEntry.fromJson(note.toJson());
+
+    expect(restored.location?.latitude, 35.681236);
+    expect(restored.location?.longitude, 139.767125);
+    expect(restored.location?.address, 'Tokyo Station');
   });
 
   test('app strings support Spanish and German locales', () {
@@ -532,6 +585,8 @@ void main() {
       );
       expect(noteDay.isBefore(earliestDemoDay), isFalse);
       expect(noteDay.isAfter(launchDay), isFalse);
+      expect(note.createdAt.isAfter(launchDate), isFalse);
+      expect(note.updatedAt?.isAfter(launchDate) ?? false, isFalse);
     }
     expect(
       notes.any(
@@ -693,6 +748,72 @@ void main() {
     ]);
   });
 
+  test('private notes are sorted before normal notes', () async {
+    SharedPreferences.setMockInitialValues({});
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(43));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final profileDataKeyService = ProfileDataKeyService(
+      secureStore: secureStore,
+      encryptionService: encryptionService,
+      normalMasterKeyService: masterKeyService,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        profileDataKeyServiceProvider.overrideWithValue(profileDataKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            profileDataKeyService: profileDataKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    final controller = container.read(notesControllerProvider.notifier);
+    await controller.restoreCompleted;
+    await profileDataKeyService.configureProfile(
+      vaultId: legacyPrivateVaultId,
+      password: 'private-pass',
+    );
+    await controller.upsert(
+      NoteEntry(
+        id: 'normal-newer',
+        vaultId: 'everyday',
+        title: 'Normal newer',
+        body: '',
+        createdAt: DateTime(2026, 5, 5, 10, 0),
+      ),
+    );
+    await controller.upsert(
+      NoteEntry(
+        id: 'private-older',
+        vaultId: legacyPrivateVaultId,
+        title: 'Private older',
+        body: '',
+        createdAt: DateTime(2026, 5, 1, 10, 0),
+      ),
+    );
+
+    expect(container.read(notesControllerProvider).map((note) => note.id), [
+      'private-older',
+      'normal-newer',
+    ]);
+  });
+
   test('privacy screen activates for legacy private vault session', () {
     SharedPreferences.setMockInitialValues({});
     final container = ProviderContainer();
@@ -703,6 +824,23 @@ void main() {
     expect(container.read(privacyScreenActiveProvider), isTrue);
     container.read(privateVaultSessionControllerProvider.notifier).lock();
     expect(container.read(privacyScreenActiveProvider), isFalse);
+  });
+
+  test('onboarding completion is not reverted by restore race', () async {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    expect(
+      container.read(appLaunchControllerProvider),
+      AppLaunchSurface.onboarding,
+    );
+    await container
+        .read(appLaunchControllerProvider.notifier)
+        .completeOnboarding();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(container.read(appLaunchControllerProvider), AppLaunchSurface.ready);
   });
 
   test('app lock policy providers expose secure defaults', () {
@@ -922,8 +1060,79 @@ void main() {
 
     final visible = container.read(visibleNotesProvider);
     expect(visible.map((note) => note.id), ['tag-1']);
+    expect(container.read(visibleNoteIndexByIdProvider), {'tag-1': 0});
     expect(container.read(visibleTagSuggestionsProvider), contains('Alpha'));
+    container.read(searchFiltersControllerProvider.notifier).reset();
+    container.read(searchQueryProvider.notifier).setQuery('second body');
+    expect(container.read(visibleNotesProvider).map((note) => note.id), [
+      'tag-2',
+    ]);
     expect(dedupeNoteTags([' Alpha ', '#alpha', 'HOME']), ['Alpha', 'HOME']);
+  });
+
+  test('search filters can partition notes by year', () async {
+    SharedPreferences.setMockInitialValues({});
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(7));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    await container
+        .read(notesControllerProvider.notifier)
+        .upsert(
+          NoteEntry(
+            id: 'year-2025',
+            vaultId: 'everyday',
+            title: 'Older note',
+            body: 'Older body',
+            createdAt: DateTime(2025, 12, 31, 23, 0),
+          ),
+        );
+    await container
+        .read(notesControllerProvider.notifier)
+        .upsert(
+          NoteEntry(
+            id: 'year-2026',
+            vaultId: 'everyday',
+            title: 'Current note',
+            body: 'Current body',
+            createdAt: DateTime(2026, 1, 1, 8, 0),
+          ),
+        );
+
+    expect(container.read(visibleNoteYearsProvider), [2026, 2025]);
+    expect(
+      container
+          .read(visibleNotesByDayProvider)[DateTime(2026, 1, 1)]
+          ?.map((note) => note.id),
+      ['year-2026'],
+    );
+
+    container.read(searchFiltersControllerProvider.notifier).setYear(2025);
+    expect(container.read(visibleNotesProvider).map((note) => note.id), [
+      'year-2025',
+    ]);
   });
 }
 

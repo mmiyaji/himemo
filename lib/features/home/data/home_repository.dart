@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../domain/note_entry.dart';
 import '../domain/vault_models.dart';
 
@@ -83,9 +85,27 @@ class SeededHomeRepository implements HomeRepository {
       _seedBaseDate.day,
     );
     DateTime seededAt(int daysAgo, int hour, int minute) {
-      return seedToday
+      final candidate = seedToday
           .subtract(Duration(days: daysAgo))
           .add(Duration(hours: hour, minutes: minute));
+      if (daysAgo != 0 || !candidate.isAfter(_seedBaseDate)) {
+        return candidate;
+      }
+
+      final currentMinuteOfDay =
+          (_seedBaseDate.hour * Duration.minutesPerHour) + _seedBaseDate.minute;
+      if (currentMinuteOfDay == 0) {
+        return seedToday;
+      }
+
+      final targetMinuteOfDay = (hour * Duration.minutesPerHour) + minute;
+      final minutesBeforeNow = (Duration.minutesPerDay - targetMinuteOfDay)
+          .clamp(1, 180);
+      final adjustedMinuteOfDay = math.max(
+        0,
+        currentMinuteOfDay - minutesBeforeNow,
+      );
+      return seedToday.add(Duration(minutes: adjustedMinuteOfDay));
     }
 
     return [
@@ -122,8 +142,7 @@ class SeededHomeRepository implements HomeRepository {
             type: NoteBlockType.paragraph,
             text: _seedText(
               ja: '牛乳、卵、果物。帰りにドラッグストアにも寄る。',
-              en:
-                  'Milk, eggs, and fruit. Stop by the drugstore on the way home.',
+              en: 'Milk, eggs, and fruit. Stop by the drugstore on the way home.',
             ),
           ),
           const NoteBlock(
@@ -142,8 +161,7 @@ class SeededHomeRepository implements HomeRepository {
         title: _seedText(ja: 'どうですか', en: 'Presentation idea'),
         body: _seedText(
           ja: '資料の見せ方を先に整理すると、共有会が短く終わりそう。',
-          en:
-              'If we organize the document flow first, the sharing meeting should be shorter.',
+          en: 'If we organize the document flow first, the sharing meeting should be shorter.',
         ),
         createdAt: seededAt(0, 22, 2),
         updatedAt: seededAt(0, 22, 2),
@@ -239,7 +257,9 @@ class SeededHomeRepository implements HomeRepository {
         updatedAt: seededAt(3, 19, 5),
         deviceId: 'seeded-device',
         contentHash: 'seed-2026-04-09-trip',
-        tags: _useEnglishSeedData ? const ['travel', 'station'] : const ['旅行', '駅'],
+        tags: _useEnglishSeedData
+            ? const ['travel', 'station']
+            : const ['旅行', '駅'],
         syncState: NoteSyncState.synced,
         editorMode: NoteEditorMode.rich,
         attachments: const [
@@ -290,7 +310,9 @@ class SeededHomeRepository implements HomeRepository {
         updatedAt: seededAt(4, 14, 10),
         deviceId: 'seeded-device',
         contentHash: 'seed-2026-04-08-cafe',
-        tags: _useEnglishSeedData ? const ['audio', 'cafe'] : const ['音声', 'カフェ'],
+        tags: _useEnglishSeedData
+            ? const ['audio', 'cafe']
+            : const ['音声', 'カフェ'],
         syncState: NoteSyncState.synced,
         editorMode: NoteEditorMode.rich,
         attachments: const [

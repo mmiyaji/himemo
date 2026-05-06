@@ -18,6 +18,7 @@ import 'app_router.dart';
 
 const _termsUrl = 'https://mmiyaji.github.io/himemo/terms.html';
 const _privacyUrl = 'https://mmiyaji.github.io/himemo/privacy.html';
+const _performanceSeedNoteCount = int.fromEnvironment('HIMEMO_PERF_NOTE_COUNT');
 
 class HiMemoApp extends ConsumerWidget {
   const HiMemoApp({super.key, required this.flavor});
@@ -80,16 +81,75 @@ class HiMemoApp extends ConsumerWidget {
         theme: _buildTheme(Brightness.light, colorTheme, fontFamily),
         darkTheme: _buildTheme(Brightness.dark, colorTheme, fontFamily),
         builder: (context, child) {
-          return _LaunchSurfaceGate(
+          return _DevelopmentPerformanceSeedGate(
             flavor: flavor,
             launchSurface: launchSurface,
-            currentLocation: currentLocation,
-            child: child,
+            child: _LaunchSurfaceGate(
+              flavor: flavor,
+              launchSurface: launchSurface,
+              currentLocation: currentLocation,
+              child: child,
+            ),
           );
         },
       ),
     );
   }
+}
+
+class _DevelopmentPerformanceSeedGate extends ConsumerStatefulWidget {
+  const _DevelopmentPerformanceSeedGate({
+    required this.flavor,
+    required this.launchSurface,
+    required this.child,
+  });
+
+  final AppFlavor flavor;
+  final AppLaunchSurface launchSurface;
+  final Widget child;
+
+  @override
+  ConsumerState<_DevelopmentPerformanceSeedGate> createState() =>
+      _DevelopmentPerformanceSeedGateState();
+}
+
+class _DevelopmentPerformanceSeedGateState
+    extends ConsumerState<_DevelopmentPerformanceSeedGate> {
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _maybeStartSeeding();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DevelopmentPerformanceSeedGate oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _maybeStartSeeding();
+  }
+
+  void _maybeStartSeeding() {
+    if (_started ||
+        kReleaseMode ||
+        widget.flavor != AppFlavor.development ||
+        widget.launchSurface != AppLaunchSurface.ready ||
+        _performanceSeedNoteCount <= 0) {
+      return;
+    }
+    _started = true;
+    unawaited(_seedPerformanceNotes());
+  }
+
+  Future<void> _seedPerformanceNotes() async {
+    final added = await ref
+        .read(notesControllerProvider.notifier)
+        .createPerformanceTestNotes(count: _performanceSeedNoteCount);
+    debugPrint('[perf-seed] requested=$_performanceSeedNoteCount added=$added');
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class _LaunchSurfaceGate extends StatefulWidget {
@@ -1518,7 +1578,15 @@ ThemeData _buildTheme(
   );
 }
 
-const _japaneseFontFallback = <String>[
+const _cjkSansFontFallback = <String>[
+  'Yu Gothic',
+  'YuGothic',
+  'Meiryo',
+  'MS PGothic',
+  'MS Gothic',
+  'Noto Sans JP',
+  'Noto Sans CJK JP',
+  'Source Han Sans JP',
   'Hiragino Sans',
   'Hiragino Kaku Gothic ProN',
   'Hiragino Sans GB',
@@ -1526,60 +1594,77 @@ const _japaneseFontFallback = <String>[
   'sans-serif',
 ];
 
-const _gothicFontFallback = <String>[
-  'Hiragino Sans',
-  'Hiragino Kaku Gothic ProN',
-  'Apple SD Gothic Neo',
-  'sans-serif',
-];
-
-const _uiGothicFontFallback = <String>[
-  'BIZ UDPGothic',
-  'Noto Sans JP',
-  'Meiryo',
-  'sans-serif',
-];
-
-const _kakuGothicFontFallback = <String>[
-  'Zen Kaku Gothic New',
-  'Noto Sans JP',
-  'Meiryo',
-  'sans-serif',
-];
-
-const _minchoFontFallback = <String>[
+const _cjkSerifFontFallback = <String>[
+  'Yu Mincho',
+  'YuMincho',
+  'MS PMincho',
+  'MS Mincho',
+  'Noto Serif JP',
+  'Noto Serif CJK JP',
+  'Source Han Serif JP',
   'Hiragino Mincho ProN',
   'Songti SC',
   'serif',
 ];
 
+const _cjkMonoFontFallback = <String>[
+  'BIZ UDGothic',
+  'Yu Gothic',
+  'YuGothic',
+  'Meiryo',
+  'MS Gothic',
+  'Noto Sans Mono CJK JP',
+  'Noto Sans JP',
+  'monospace',
+];
+
+const _japaneseFontFallback = <String>[..._cjkSansFontFallback];
+
+const _gothicFontFallback = <String>[
+  'Hiragino Sans',
+  'Hiragino Kaku Gothic ProN',
+  'Apple SD Gothic Neo',
+  ..._cjkSansFontFallback,
+];
+
+const _uiGothicFontFallback = <String>[
+  'BIZ UDPGothic',
+  ..._cjkSansFontFallback,
+];
+
+const _kakuGothicFontFallback = <String>[
+  'Zen Kaku Gothic New',
+  ..._cjkSansFontFallback,
+];
+
+const _minchoFontFallback = <String>[..._cjkSerifFontFallback];
+
 const _uiMinchoFontFallback = <String>[
   'BIZ UDPMincho',
-  'Noto Serif JP',
-  'Yu Mincho',
-  'serif',
+  ..._cjkSerifFontFallback,
 ];
 
 const _roundedFontFallback = <String>[
   'Hiragino Maru Gothic ProN',
-  'Hiragino Sans',
-  'sans-serif',
+  ..._cjkSansFontFallback,
 ];
 
 const _zenRoundedFontFallback = <String>[
   'Zen Maru Gothic',
   'M PLUS Rounded 1c',
-  'Noto Sans JP',
-  'sans-serif',
+  ..._cjkSansFontFallback,
 ];
 
-const _casualFontFallback = <String>['Kiwi Maru', 'Noto Sans JP', 'serif'];
+const _casualFontFallback = <String>[
+  'Kiwi Maru',
+  ..._cjkSerifFontFallback,
+];
 
 const _monospaceFontFallback = <String>[
   'Menlo',
   'Courier New',
   'Courier',
-  'monospace',
+  ..._cjkMonoFontFallback,
 ];
 
 ({String? family, List<String> fallback}) _fontStackFor(

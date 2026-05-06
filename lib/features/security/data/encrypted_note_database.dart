@@ -68,9 +68,7 @@ class PendingNoteChanges extends Table {
 class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
   EncryptedNoteDatabase._(super.executor);
 
-  factory EncryptedNoteDatabase({
-    QueryExecutor? executor,
-  }) {
+  factory EncryptedNoteDatabase({QueryExecutor? executor}) {
     if (executor != null) {
       return EncryptedNoteDatabase._(executor);
     }
@@ -92,23 +90,24 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
 
   Future<List<EncryptedNoteSnapshot>> loadAll() async {
     final rows =
-        await (select(encryptedNotes)
-              ..orderBy([
-                (table) => OrderingTerm.desc(table.isPinned),
-                (table) => OrderingTerm.desc(table.updatedAtEpochMs),
-                (table) => OrderingTerm.desc(table.createdAtEpochMs),
-              ]))
+        await (select(encryptedNotes)..orderBy([
+              (table) => OrderingTerm.desc(table.isPinned),
+              (table) => OrderingTerm.desc(table.updatedAtEpochMs),
+              (table) => OrderingTerm.desc(table.createdAtEpochMs),
+            ]))
             .get();
     final attachmentRows = await select(encryptedNoteAttachments).get();
     final attachmentsByNote = <String, List<EncryptedAttachmentRecord>>{};
     for (final row in attachmentRows) {
-      attachmentsByNote.putIfAbsent(row.noteId, () => <EncryptedAttachmentRecord>[]).add(
-        EncryptedAttachmentRecord(
-          noteId: row.noteId,
-          position: row.position,
-          encryptedPayload: row.encryptedPayload,
-        ),
-      );
+      attachmentsByNote
+          .putIfAbsent(row.noteId, () => <EncryptedAttachmentRecord>[])
+          .add(
+            EncryptedAttachmentRecord(
+              noteId: row.noteId,
+              position: row.position,
+              encryptedPayload: row.encryptedPayload,
+            ),
+          );
     }
     for (final entries in attachmentsByNote.values) {
       entries.sort((left, right) => left.position.compareTo(right.position));
@@ -117,7 +116,9 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
         .map(
           (row) => EncryptedNoteSnapshot(
             note: _mapRow(row),
-            attachments: attachmentsByNote[row.id] ?? const <EncryptedAttachmentRecord>[],
+            attachments:
+                attachmentsByNote[row.id] ??
+                const <EncryptedAttachmentRecord>[],
           ),
         )
         .toList(growable: false);
@@ -125,11 +126,10 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
 
   Future<List<PendingNoteChangeRecord>> loadPendingChanges() async {
     final rows =
-        await (select(pendingNoteChanges)
-              ..orderBy([
-                (table) => OrderingTerm.desc(table.queuedAtEpochMs),
-                (table) => OrderingTerm.desc(table.revision),
-              ]))
+        await (select(pendingNoteChanges)..orderBy([
+              (table) => OrderingTerm.desc(table.queuedAtEpochMs),
+              (table) => OrderingTerm.desc(table.revision),
+            ]))
             .get();
     return rows
         .map(
@@ -149,6 +149,32 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
           ),
         )
         .toList(growable: false);
+  }
+
+  Future<int> storagePayloadSizeBytes() async {
+    final noteRows = await select(encryptedNotes).get();
+    final attachmentRows = await select(encryptedNoteAttachments).get();
+    final pendingRows = await select(pendingNoteChanges).get();
+    var total = 0;
+    for (final row in noteRows) {
+      total += row.id.length;
+      total += row.vaultId.length;
+      total += row.encryptedPayload.length;
+      total += row.syncState.length;
+      total += row.deviceId?.length ?? 0;
+      total += row.contentHash?.length ?? 0;
+    }
+    for (final row in attachmentRows) {
+      total += row.noteId.length;
+      total += row.encryptedPayload.length;
+    }
+    for (final row in pendingRows) {
+      total += row.noteId.length;
+      total += row.vaultId.length;
+      total += row.syncAction.length;
+      total += row.contentHash?.length ?? 0;
+    }
+    return total;
   }
 
   Future<void> replaceAll({
@@ -177,28 +203,84 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
       await delete(encryptedNoteAttachments).go();
       await delete(pendingNoteChanges).go();
 
-      for (final record in notes) {
-        await into(encryptedNotes).insertOnConflictUpdate(
-          EncryptedNotesCompanion.insert(
-            id: record.id,
-            vaultId: record.vaultId,
-            encryptedPayload: record.encryptedPayload,
-            createdAtEpochMs: record.createdAt.millisecondsSinceEpoch,
-            updatedAtEpochMs: Value(
-              record.updatedAt?.millisecondsSinceEpoch,
-            ),
-            deletedAtEpochMs: Value(
-              record.deletedAt?.millisecondsSinceEpoch,
-            ),
-            isPinned: Value(record.isPinned),
-            revision: Value(record.revision),
-            syncState: record.syncState.name,
-            deviceId: Value(record.deviceId),
-            contentHash: Value(record.contentHash),
-          ),
-        );
-      }
+      await batch((batch) {
+        if (notes.isNotEmpty) {
+          batch.insertAllOnConflictUpdate(encryptedNotes, [
+            for (final record in notes)
+              EncryptedNotesCompanion.insert(
+                id: record.id,
+                vaultId: record.vaultId,
+                encryptedPayload: record.encryptedPayload,
+                createdAtEpochMs: record.createdAt.millisecondsSinceEpoch,
+                updatedAtEpochMs: Value(
+                  record.updatedAt?.millisecondsSinceEpoch,
+                ),
+                deletedAtEpochMs: Value(
+                  record.deletedAt?.millisecondsSinceEpoch,
+                ),
+                isPinned: Value(record.isPinned),
+                revision: Value(record.revision),
+                syncState: record.syncState.name,
+                deviceId: Value(record.deviceId),
+                contentHash: Value(record.contentHash),
+              ),
+          ]);
+        }
+        if (attachments.isNotEmpty) {
+          batch.insertAllOnConflictUpdate(encryptedNoteAttachments, [
+            for (final attachment in attachments)
+              EncryptedNoteAttachmentsCompanion.insert(
+                noteId: attachment.noteId,
+                position: attachment.position,
+                encryptedPayload: attachment.encryptedPayload,
+              ),
+          ]);
+        }
+        if (pendingChanges.isNotEmpty) {
+          batch.insertAllOnConflictUpdate(pendingNoteChanges, [
+            for (final change in pendingChanges)
+              PendingNoteChangesCompanion.insert(
+                noteId: change.noteId,
+                vaultId: change.vaultId,
+                revision: change.revision,
+                syncAction: change.action.name,
+                queuedAtEpochMs: change.queuedAt.millisecondsSinceEpoch,
+                contentHash: Value(change.contentHash),
+                deletedAtEpochMs: Value(
+                  change.deletedAt?.millisecondsSinceEpoch,
+                ),
+              ),
+          ]);
+        }
+      });
+    });
+  }
 
+  Future<void> upsertOne({
+    required EncryptedNoteRecord note,
+    required List<EncryptedAttachmentRecord> attachments,
+    PendingNoteChangeRecord? pendingChange,
+  }) async {
+    await transaction(() async {
+      await into(encryptedNotes).insertOnConflictUpdate(
+        EncryptedNotesCompanion.insert(
+          id: note.id,
+          vaultId: note.vaultId,
+          encryptedPayload: note.encryptedPayload,
+          createdAtEpochMs: note.createdAt.millisecondsSinceEpoch,
+          updatedAtEpochMs: Value(note.updatedAt?.millisecondsSinceEpoch),
+          deletedAtEpochMs: Value(note.deletedAt?.millisecondsSinceEpoch),
+          isPinned: Value(note.isPinned),
+          revision: Value(note.revision),
+          syncState: note.syncState.name,
+          deviceId: Value(note.deviceId),
+          contentHash: Value(note.contentHash),
+        ),
+      );
+
+      await (delete(
+        encryptedNoteAttachments,
+      )..where((table) => table.noteId.equals(note.id))).go();
       for (final attachment in attachments) {
         await into(encryptedNoteAttachments).insertOnConflictUpdate(
           EncryptedNoteAttachmentsCompanion.insert(
@@ -209,23 +291,39 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
         );
       }
 
-      if (pendingChanges.isNotEmpty) {
-        for (final change in pendingChanges) {
-          await into(pendingNoteChanges).insertOnConflictUpdate(
-            PendingNoteChangesCompanion.insert(
-              noteId: change.noteId,
-              vaultId: change.vaultId,
-              revision: change.revision,
-              syncAction: change.action.name,
-              queuedAtEpochMs: change.queuedAt.millisecondsSinceEpoch,
-              contentHash: Value(change.contentHash),
-              deletedAtEpochMs: Value(
-                change.deletedAt?.millisecondsSinceEpoch,
-              ),
+      if (pendingChange == null) {
+        await (delete(
+          pendingNoteChanges,
+        )..where((table) => table.noteId.equals(note.id))).go();
+      } else {
+        await into(pendingNoteChanges).insertOnConflictUpdate(
+          PendingNoteChangesCompanion.insert(
+            noteId: pendingChange.noteId,
+            vaultId: pendingChange.vaultId,
+            revision: pendingChange.revision,
+            syncAction: pendingChange.action.name,
+            queuedAtEpochMs: pendingChange.queuedAt.millisecondsSinceEpoch,
+            contentHash: Value(pendingChange.contentHash),
+            deletedAtEpochMs: Value(
+              pendingChange.deletedAt?.millisecondsSinceEpoch,
             ),
-          );
-        }
+          ),
+        );
       }
+    });
+  }
+
+  Future<void> deleteNoteById(String noteId) async {
+    await transaction(() async {
+      await (delete(
+        encryptedNoteAttachments,
+      )..where((table) => table.noteId.equals(noteId))).go();
+      await (delete(
+        pendingNoteChanges,
+      )..where((table) => table.noteId.equals(noteId))).go();
+      await (delete(
+        encryptedNotes,
+      )..where((table) => table.id.equals(noteId))).go();
     });
   }
 
@@ -254,10 +352,7 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
 }
 
 class EncryptedNoteSnapshot {
-  const EncryptedNoteSnapshot({
-    required this.note,
-    required this.attachments,
-  });
+  const EncryptedNoteSnapshot({required this.note, required this.attachments});
 
   final EncryptedNoteRecord note;
   final List<EncryptedAttachmentRecord> attachments;

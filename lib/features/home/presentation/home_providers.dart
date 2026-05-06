@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
 
+import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -33,6 +34,7 @@ import '../../security/data/encrypted_note_database.dart';
 import '../../security/data/encrypted_attachment_store.dart';
 import '../../security/data/encryption_service.dart';
 import '../../security/data/master_key_service.dart';
+import '../../security/data/profile_data_key_service.dart';
 import '../../security/data/private_vault_secret_store.dart';
 import '../../security/data/secure_key_value_store.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
@@ -47,6 +49,13 @@ import '../../sync/data/sync_engine.dart';
 import 'media_duration_stub.dart' if (dart.library.io) 'media_duration_io.dart';
 
 part 'home_providers.g.dart';
+
+void _debugHomePerf(String message) {
+  if (!kDebugMode) {
+    return;
+  }
+  debugPrint('[home-perf] ${DateTime.now().toIso8601String()} $message');
+}
 
 enum AppColorTheme {
   konjyo,
@@ -236,31 +245,37 @@ class SearchFilters {
     this.pinnedOnly = false,
     this.withMediaOnly = false,
     this.vaultId,
+    this.year,
     this.tags = const <String>[],
   });
 
   final bool pinnedOnly;
   final bool withMediaOnly;
   final String? vaultId;
+  final int? year;
   final List<String> tags;
 
   bool get isDefault =>
       !pinnedOnly &&
       !withMediaOnly &&
       (vaultId == null || vaultId!.isEmpty) &&
+      year == null &&
       tags.isEmpty;
 
   SearchFilters copyWith({
     bool? pinnedOnly,
     bool? withMediaOnly,
     String? vaultId,
+    int? year,
     List<String>? tags,
     bool clearVault = false,
+    bool clearYear = false,
   }) {
     return SearchFilters(
       pinnedOnly: pinnedOnly ?? this.pinnedOnly,
       withMediaOnly: withMediaOnly ?? this.withMediaOnly,
       vaultId: clearVault ? null : (vaultId ?? this.vaultId),
+      year: clearYear ? null : (year ?? this.year),
       tags: tags ?? this.tags,
     );
   }
@@ -270,10 +285,12 @@ class LastNoteEditorSettings {
   const LastNoteEditorSettings({
     this.mode = NoteEditorMode.rich,
     this.vaultId = 'everyday',
+    this.captureLocation = false,
   });
 
   final NoteEditorMode mode;
   final String vaultId;
+  final bool captureLocation;
 }
 
 enum QuickCaptureSource { widget, share }
@@ -463,6 +480,7 @@ class NoteEditorDraftSnapshot {
     required this.quickContent,
     required this.quickAttachments,
     required this.richBlocks,
+    this.location,
   });
 
   final DateTime createdAt;
@@ -473,6 +491,7 @@ class NoteEditorDraftSnapshot {
   final String quickContent;
   final List<NoteAttachment> quickAttachments;
   final List<NoteBlock> richBlocks;
+  final NoteLocation? location;
 
   Map<String, dynamic> toJson() => {
     'createdAt': createdAt.toIso8601String(),
@@ -483,6 +502,7 @@ class NoteEditorDraftSnapshot {
     'quickContent': quickContent,
     'quickAttachments': quickAttachments.map((e) => e.toJson()).toList(),
     'richBlocks': richBlocks.map((e) => e.toJson()).toList(),
+    'location': location?.toJson(),
   };
 
   static NoteEditorDraftSnapshot fromJson(Map<String, dynamic> json) {
@@ -510,6 +530,11 @@ class NoteEditorDraftSnapshot {
                 NoteBlock.fromJson(Map<String, dynamic>.from(entry as Map)),
           )
           .toList(growable: false),
+      location: json['location'] == null
+          ? null
+          : NoteLocation.fromJson(
+              Map<String, dynamic>.from(json['location'] as Map),
+            ),
     );
   }
 }
@@ -875,6 +900,34 @@ class SyncTransferState {
   }
 }
 
+class LocalNoteArchive {
+  const LocalNoteArchive({
+    required this.bytes,
+    required this.fileName,
+    required this.noteCount,
+    required this.attachmentCount,
+    required this.isPasswordProtected,
+  });
+
+  final Uint8List bytes;
+  final String fileName;
+  final int noteCount;
+  final int attachmentCount;
+  final bool isPasswordProtected;
+}
+
+class _DecodedLocalZipArchive {
+  const _DecodedLocalZipArchive({
+    required this.manifest,
+    required this.notes,
+    required this.attachmentFiles,
+  });
+
+  final Map<String, dynamic> manifest;
+  final List<Map<String, dynamic>> notes;
+  final Map<String, Uint8List> attachmentFiles;
+}
+
 enum InAppUpdateStage {
   idle,
   checking,
@@ -1202,7 +1255,7 @@ class DefaultMediaImportService implements MediaImportService {
         return _pickFile();
       case MediaImportAction.addLocation:
         return const MediaImportResult.failure(
-          'Location insertion is handled by the note editor.',
+          'Location capture is handled by the note editor.',
         );
     }
   }
@@ -1502,7 +1555,16 @@ final encryptedNoteStoreProvider = Provider<EncryptedNoteStore>((ref) {
   return EncryptedNoteStore(
     encryptionService: ref.watch(encryptionServiceProvider),
     masterKeyService: ref.watch(masterKeyServiceProvider),
+    profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
     database: ref.watch(encryptedNoteDatabaseProvider),
+  );
+});
+
+final profileDataKeyServiceProvider = Provider<ProfileDataKeyService>((ref) {
+  return ProfileDataKeyService(
+    secureStore: ref.watch(secureKeyValueStoreProvider),
+    encryptionService: ref.watch(encryptionServiceProvider),
+    normalMasterKeyService: ref.watch(masterKeyServiceProvider),
   );
 });
 
@@ -1522,6 +1584,35 @@ final encryptedAttachmentStoreProvider = Provider<EncryptedAttachmentStore>((
   return EncryptedAttachmentStore(
     encryptionService: ref.watch(encryptionServiceProvider),
     masterKeyService: ref.watch(masterKeyServiceProvider),
+    profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
+  );
+});
+
+class StorageUsageSummary {
+  const StorageUsageSummary({
+    required this.notePayloadBytes,
+    required this.attachmentPayloadBytes,
+  });
+
+  final int notePayloadBytes;
+  final int attachmentPayloadBytes;
+
+  int get totalBytes => notePayloadBytes + attachmentPayloadBytes;
+}
+
+final storageUsageSummaryProvider = FutureProvider<StorageUsageSummary>((
+  ref,
+) async {
+  ref.watch(notesControllerProvider);
+  final notePayloadBytes = await ref
+      .watch(encryptedNoteStoreProvider)
+      .storagePayloadSizeBytes();
+  final attachmentPayloadBytes = await ref
+      .watch(encryptedAttachmentStoreProvider)
+      .storagePayloadSizeBytes();
+  return StorageUsageSummary(
+    notePayloadBytes: notePayloadBytes,
+    attachmentPayloadBytes: attachmentPayloadBytes,
   );
 });
 
@@ -1861,6 +1952,169 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
+  Future<LocalNoteArchive> exportLocalArchive({String? password}) async {
+    state = state.copyWith(
+      stage: SyncTransferStage.busy,
+      clearMessage: true,
+      clearCooldown: true,
+    );
+    try {
+      await logFirebaseBreadcrumb('local zip archive export requested');
+      final archive = await runFirebaseTrace(
+        'notes_prepare_local_zip_archive',
+        () => _buildLocalZipArchive(password: password),
+      );
+      if (archive.bytes.isEmpty) {
+        throw StateError('Local archive could not be prepared.');
+      }
+      state = SyncTransferState(
+        stage: SyncTransferStage.success,
+        message:
+            'ZIP archive prepared with ${archive.noteCount} notes and ${archive.attachmentCount} attachments.',
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
+      return archive;
+    } catch (error) {
+      state = _failureState(
+        error,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
+      rethrow;
+    }
+  }
+
+  Future<SyncBundlePreview> importLocalArchiveBytes(
+    List<int> bytes, {
+    String? password,
+  }) async {
+    if (bytes.isEmpty) {
+      throw StateError('Selected archive is empty.');
+    }
+    state = state.copyWith(
+      stage: SyncTransferStage.busy,
+      clearMessage: true,
+      clearCooldown: true,
+    );
+    try {
+      await logFirebaseBreadcrumb('local zip archive import selected');
+      final decoded = _decodeLocalZipArchive(bytes, password: password);
+      final preview = buildSyncBundlePreview(
+        decodedBundle: _zipArchiveAsSyncBundle(decoded),
+        currentNotes: ref.read(notesControllerProvider),
+      );
+      state = SyncTransferState(
+        stage: SyncTransferStage.success,
+        message: 'ZIP archive loaded for review.',
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
+      return preview;
+    } catch (error) {
+      state = _failureState(
+        error,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> applyLocalArchiveBytes(
+    List<int> bytes, {
+    String? password,
+  }) async {
+    state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
+    try {
+      await logFirebaseBreadcrumb('local zip archive apply selected');
+      final decoded = _decodeLocalZipArchive(bytes, password: password);
+      final attachmentFiles = decoded.attachmentFiles;
+      final importedChanges = <PreparedSyncNote>[];
+      for (final rawNote in decoded.notes) {
+        final note = NoteEntry.fromJson(rawNote);
+        final storedByArchivePath = <String, String?>{};
+
+        Future<NoteAttachment> importAttachment(
+          NoteAttachment attachment,
+        ) async {
+          final filePath = attachment.filePath;
+          if (filePath == null || filePath.isEmpty) {
+            return attachment.copyWith(
+              filePath: null,
+              previewBytesBase64: null,
+            );
+          }
+          final bytes = attachmentFiles[filePath];
+          if (bytes == null || bytes.isEmpty) {
+            return attachment.copyWith(
+              filePath: null,
+              previewBytesBase64: null,
+            );
+          }
+          if (!storedByArchivePath.containsKey(filePath)) {
+            final encryptedPayload = await ref
+                .read(encryptedAttachmentStoreProvider)
+                .encryptAttachmentBytes(
+                  bytes: bytes,
+                  type: attachment.type,
+                  vaultId: note.vaultId,
+                );
+            storedByArchivePath[filePath] = await ref
+                .read(encryptedAttachmentStoreProvider)
+                .storeEncryptedPayload(
+                  encodedPayload: encryptedPayload,
+                  type: attachment.type,
+                  fileNameHint: attachment.label,
+                  vaultId: note.vaultId,
+                );
+          }
+          return attachment.copyWith(
+            filePath: storedByArchivePath[filePath],
+            previewBytesBase64: null,
+          );
+        }
+
+        final importedAttachments = <NoteAttachment>[];
+        for (final attachment in note.attachments) {
+          importedAttachments.add(await importAttachment(attachment));
+        }
+        final importedBlocks = <NoteBlock>[];
+        for (final block in note.blocks) {
+          final attachment = block.attachment;
+          importedBlocks.add(
+            attachment == null
+                ? block
+                : block.copyWith(
+                    attachment: await importAttachment(attachment),
+                  ),
+          );
+        }
+
+        importedChanges.add(
+          PreparedSyncNote(
+            action: PendingNoteChangeAction.upsert,
+            note: note.copyWith(
+              attachments: importedAttachments,
+              blocks: importedBlocks,
+              syncState: NoteSyncState.pendingUpload,
+            ),
+          ),
+        );
+      }
+      await ref
+          .read(notesControllerProvider.notifier)
+          .mergeFromSync(importedChanges);
+      state = state.copyWith(
+        stage: SyncTransferStage.success,
+        message: 'ZIP archive merged into local notes.',
+      );
+    } catch (error) {
+      state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
+      rethrow;
+    }
+  }
+
   Future<void> downloadLatestBundle() async {
     final remoteStatus = state.remoteStatus;
     if (remoteStatus != null && remoteStatus.fileId.isNotEmpty) {
@@ -2013,6 +2267,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
                   orElse: () => attachment.type,
                 ),
                 fileNameHint: payload['label'] as String? ?? attachment.label,
+                vaultId: note.vaultId,
               );
           importedAttachments.add(
             attachment.copyWith(filePath: storedReference),
@@ -2101,6 +2356,219 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       SyncProvider.googleDrive => 'Google Drive',
       SyncProvider.off => 'remote storage',
     };
+  }
+
+  Future<LocalNoteArchive> _buildLocalZipArchive({String? password}) async {
+    final exportedAt = DateTime.now();
+    final notes = ref
+        .read(notesControllerProvider)
+        .where((entry) => entry.deletedAt == null)
+        .toList(growable: false);
+    final archive = Archive();
+    final exportedNotes = <Map<String, dynamic>>[];
+    var attachmentCount = 0;
+
+    for (final note in notes) {
+      final archivePathByAttachmentKey = <String, String>{};
+
+      Future<NoteAttachment> exportAttachment(
+        NoteAttachment attachment,
+        int index,
+      ) async {
+        final filePath = attachment.filePath;
+        if (filePath == null || filePath.isEmpty) {
+          return attachment.copyWith(filePath: null, previewBytesBase64: null);
+        }
+        final key = _attachmentExportKey(attachment);
+        final existingPath = archivePathByAttachmentKey[key];
+        if (existingPath != null) {
+          return attachment.copyWith(
+            filePath: existingPath,
+            previewBytesBase64: null,
+          );
+        }
+        final bytes = await ref
+            .read(encryptedAttachmentStoreProvider)
+            .readAttachment(filePath, type: attachment.type);
+        if (bytes == null || bytes.isEmpty) {
+          return attachment.copyWith(filePath: null, previewBytesBase64: null);
+        }
+        final archivePath = _archiveAttachmentPath(
+          noteId: note.id,
+          index: index,
+          label: attachment.label,
+        );
+        archive.addFile(ArchiveFile.bytes(archivePath, bytes));
+        archivePathByAttachmentKey[key] = archivePath;
+        attachmentCount += 1;
+        return attachment.copyWith(
+          filePath: archivePath,
+          previewBytesBase64: null,
+        );
+      }
+
+      final exportedAttachments = <NoteAttachment>[];
+      for (var i = 0; i < note.attachments.length; i++) {
+        exportedAttachments.add(await exportAttachment(note.attachments[i], i));
+      }
+      final exportedBlocks = <NoteBlock>[];
+      for (var i = 0; i < note.blocks.length; i++) {
+        final block = note.blocks[i];
+        final attachment = block.attachment;
+        exportedBlocks.add(
+          attachment == null
+              ? block
+              : block.copyWith(
+                  attachment: await exportAttachment(
+                    attachment,
+                    note.attachments.length + i,
+                  ),
+                ),
+        );
+      }
+
+      exportedNotes.add(
+        note
+            .copyWith(
+              attachments: exportedAttachments,
+              blocks: exportedBlocks,
+              syncState: NoteSyncState.localOnly,
+            )
+            .toJson(),
+      );
+    }
+
+    archive.addFile(
+      ArchiveFile.string(
+        'manifest.json',
+        jsonEncode({
+          'format': 'org.ruhenheim.himemo.notes.zip',
+          'version': 1,
+          'exportedAt': exportedAt.toIso8601String(),
+          'encryption': password == null || password.isEmpty
+              ? 'none'
+              : 'zip-aes-256',
+          'noteCount': exportedNotes.length,
+          'attachmentCount': attachmentCount,
+          'contents': ['notes.json', 'attachments/'],
+        }),
+      ),
+    );
+    archive.addFile(
+      ArchiveFile.string(
+        'notes.json',
+        jsonEncode({'schemaVersion': 1, 'notes': exportedNotes}),
+      ),
+    );
+
+    final encoded = ZipEncoder(
+      password: password == null || password.isEmpty ? null : password,
+    ).encode(archive);
+    if (encoded.isEmpty) {
+      throw StateError('ZIP archive could not be encoded.');
+    }
+    return LocalNoteArchive(
+      bytes: Uint8List.fromList(encoded),
+      fileName: _localArchiveFileName(
+        exportedAt,
+        passwordProtected: password != null && password.isNotEmpty,
+      ),
+      noteCount: exportedNotes.length,
+      attachmentCount: attachmentCount,
+      isPasswordProtected: password != null && password.isNotEmpty,
+    );
+  }
+
+  _DecodedLocalZipArchive _decodeLocalZipArchive(
+    List<int> bytes, {
+    String? password,
+  }) {
+    final archive = ZipDecoder().decodeBytes(bytes, password: password);
+    final manifestFile = archive.findFile('manifest.json');
+    final notesFile = archive.findFile('notes.json');
+    if (manifestFile == null || notesFile == null) {
+      throw StateError('This file is not a HiMemo ZIP archive.');
+    }
+    final manifest = Map<String, dynamic>.from(
+      jsonDecode(utf8.decode(manifestFile.content)) as Map,
+    );
+    final notesPayload = Map<String, dynamic>.from(
+      jsonDecode(utf8.decode(notesFile.content)) as Map,
+    );
+    final notes = [
+      for (final entry
+          in (notesPayload['notes'] as List<dynamic>? ?? const <dynamic>[]))
+        Map<String, dynamic>.from(entry as Map),
+    ];
+    final attachmentFiles = <String, Uint8List>{};
+    for (final file in archive.files) {
+      if (!file.isFile || !file.name.startsWith('attachments/')) {
+        continue;
+      }
+      attachmentFiles[file.name] = Uint8List.fromList(file.content);
+    }
+    return _DecodedLocalZipArchive(
+      manifest: manifest,
+      notes: notes,
+      attachmentFiles: attachmentFiles,
+    );
+  }
+
+  Map<String, dynamic> _zipArchiveAsSyncBundle(
+    _DecodedLocalZipArchive archive,
+  ) {
+    return {
+      'deviceId': 'local-zip',
+      'exportedAt': archive.manifest['exportedAt'],
+      'notes': [
+        for (final note in archive.notes)
+          {'action': PendingNoteChangeAction.upsert.name, 'note': note},
+      ],
+      'attachments': [
+        for (final entry in archive.attachmentFiles.entries)
+          {'id': entry.key, 'encryptedPayload': '', 'type': 'file'},
+      ],
+    };
+  }
+
+  String _attachmentExportKey(NoteAttachment attachment) {
+    return [
+      attachment.type.name,
+      attachment.label,
+      attachment.filePath ?? '',
+      attachment.durationMs?.toString() ?? '',
+    ].join('\u0000');
+  }
+
+  String _archiveAttachmentPath({
+    required String noteId,
+    required int index,
+    required String label,
+  }) {
+    final rawName = path.basename(label).trim();
+    final safeName = _safeArchiveSegment(
+      rawName.isEmpty ? 'attachment.bin' : rawName,
+    );
+    return 'attachments/${_safeArchiveSegment(noteId)}_${index}_$safeName';
+  }
+
+  String _safeArchiveSegment(String value) {
+    final safe = value
+        .replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1f]'), '_')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return safe.isEmpty ? 'file' : safe;
+  }
+
+  String _localArchiveFileName(
+    DateTime exportedAt, {
+    required bool passwordProtected,
+  }) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    final stamp =
+        '${exportedAt.year}${two(exportedAt.month)}${two(exportedAt.day)}_${two(exportedAt.hour)}${two(exportedAt.minute)}${two(exportedAt.second)}';
+    final suffix = passwordProtected ? 'encrypted' : 'plain';
+    return 'himemo_archive_${suffix}_$stamp.zip';
   }
 
   Future<RemoteSyncBundleStatus?> _fetchLatestRemoteStatus() {
@@ -2234,16 +2702,19 @@ class PrivateMemoProfileStore {
   PrivateMemoProfileStore({
     required SecureKeyValueStore secureStore,
     required EncryptionService encryptionService,
+    required ProfileDataKeyService profileDataKeyService,
     Future<SharedPreferences> Function()? sharedPreferencesProvider,
     this.listStorageKey = 'security.private_profiles.list.v1',
     this.verifierStoragePrefix = 'security.private_profile.verifier.',
   }) : _secureStore = secureStore,
        _encryptionService = encryptionService,
+       _profileDataKeyService = profileDataKeyService,
        _sharedPreferencesProvider =
            sharedPreferencesProvider ?? SharedPreferences.getInstance;
 
   final SecureKeyValueStore _secureStore;
   final EncryptionService _encryptionService;
+  final ProfileDataKeyService _profileDataKeyService;
   final Future<SharedPreferences> Function() _sharedPreferencesProvider;
   final String listStorageKey;
   final String verifierStoragePrefix;
@@ -2296,6 +2767,10 @@ class PrivateMemoProfileStore {
       '$verifierStoragePrefix${profile.id}',
       jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
     );
+    await _profileDataKeyService.configureProfile(
+      vaultId: profile.vaultId,
+      password: password,
+    );
     await _saveProfiles([...existing, profile]);
     return null;
   }
@@ -2305,6 +2780,10 @@ class PrivateMemoProfileStore {
     for (final profile in profiles) {
       final matched = await _verifyProfilePassword(profile.id, password);
       if (matched) {
+        await _profileDataKeyService.unlockProfile(
+          vaultId: profile.vaultId,
+          password: password,
+        );
         return UnlockProfileResult(
           vaultId: profile.vaultId,
           label: profile.name,
@@ -2321,6 +2800,9 @@ class PrivateMemoProfileStore {
       existing.where((profile) => profile.id != id).toList(growable: false),
     );
     await _secureStore.delete('$verifierStoragePrefix$id');
+    await _profileDataKeyService.deleteProfileKey(
+      '$customPrivateVaultPrefix$id',
+    );
   }
 
   Future<void> updateProfilePassword({
@@ -2331,12 +2813,23 @@ class PrivateMemoProfileStore {
     if (!profiles.any((profile) => profile.id == id)) {
       return;
     }
+    final vaultId = '$customPrivateVaultPrefix$id';
+    if (!_profileDataKeyService.isProfileUnlocked(vaultId)) {
+      return;
+    }
     final encryption = EncryptionService();
     final salt = encryption.generateSalt();
     final verifier = await encryption.deriveSecretVerifier(
       secret: password,
       salt: salt,
     );
+    final changed = await _profileDataKeyService.changeProfilePassword(
+      vaultId: vaultId,
+      newPassword: password,
+    );
+    if (!changed) {
+      return;
+    }
     await _secureStore.write(
       '$verifierStoragePrefix$id',
       jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
@@ -2384,6 +2877,7 @@ final privateMemoProfileStoreProvider = Provider<PrivateMemoProfileStore>((
   return PrivateMemoProfileStore(
     secureStore: ref.watch(secureKeyValueStoreProvider),
     encryptionService: ref.watch(encryptionServiceProvider),
+    profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
   );
 });
 
@@ -2798,6 +3292,7 @@ class AppLaunchController extends Notifier<AppLaunchSurface> {
   static const _versionStorageKey = 'app.onboarding_completed_version';
   static const _currentOnboardingVersion = 2;
   bool _restored = false;
+  bool _completedInSession = false;
 
   @override
   AppLaunchSurface build() {
@@ -2809,6 +3304,7 @@ class AppLaunchController extends Notifier<AppLaunchSurface> {
   }
 
   Future<void> completeOnboarding() async {
+    _completedInSession = true;
     state = AppLaunchSurface.ready;
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -2820,6 +3316,9 @@ class AppLaunchController extends Notifier<AppLaunchSurface> {
   Future<void> _restore() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (_completedInSession) {
+        return;
+      }
       final completed = prefs.getBool(_storageKey) ?? false;
       final completedVersion = prefs.getInt(_versionStorageKey) ?? 0;
       final hasCompletedCurrentOnboarding =
@@ -2828,6 +3327,9 @@ class AppLaunchController extends Notifier<AppLaunchSurface> {
           ? AppLaunchSurface.ready
           : AppLaunchSurface.onboarding;
     } catch (_) {
+      if (_completedInSession) {
+        return;
+      }
       state = AppLaunchSurface.onboarding;
     }
   }
@@ -3323,7 +3825,10 @@ class PrivateVaultSessionController extends Notifier<bool> {
 
   void unlock() => state = true;
 
-  void lock() => state = false;
+  void lock() {
+    ref.read(profileDataKeyServiceProvider).lockProfile(legacyPrivateVaultId);
+    state = false;
+  }
 }
 
 final privateVaultSecretControllerProvider =
@@ -3345,6 +3850,9 @@ class PrivateVaultSecretController extends Notifier<bool> {
 
   Future<void> configure(String secret) async {
     await ref.read(privateVaultSecretStoreProvider).configure(secret);
+    await ref
+        .read(profileDataKeyServiceProvider)
+        .configureProfile(vaultId: legacyPrivateVaultId, password: secret);
     state = true;
     ref.read(privateVaultSessionControllerProvider.notifier).unlock();
   }
@@ -3355,6 +3863,9 @@ class PrivateVaultSecretController extends Notifier<bool> {
           .read(privateVaultSecretStoreProvider)
           .verify(secret);
       if (matched) {
+        await ref
+            .read(profileDataKeyServiceProvider)
+            .unlockProfile(vaultId: legacyPrivateVaultId, password: secret);
         ref.read(privateVaultSessionControllerProvider.notifier).unlock();
       }
       return matched;
@@ -3366,6 +3877,9 @@ class PrivateVaultSecretController extends Notifier<bool> {
   Future<void> clear() async {
     try {
       await ref.read(privateVaultSecretStoreProvider).clear();
+      await ref
+          .read(profileDataKeyServiceProvider)
+          .deleteProfileKey(legacyPrivateVaultId);
     } catch (_) {}
     state = false;
     ref.read(privateVaultSessionControllerProvider.notifier).lock();
@@ -3437,6 +3951,14 @@ class SearchFiltersController extends Notifier<SearchFilters> {
       return;
     }
     state = state.copyWith(vaultId: vaultId);
+  }
+
+  void setYear(int? year) {
+    if (year == null) {
+      state = state.copyWith(clearYear: true);
+      return;
+    }
+    state = state.copyWith(year: year);
   }
 
   void setTags(List<String> tags) {
@@ -3547,6 +4069,7 @@ class LastNoteEditorSettingsController
     extends _$LastNoteEditorSettingsController {
   static const _modeKey = 'notes.last_editor_mode';
   static const _vaultKey = 'notes.last_vault_id';
+  static const _captureLocationKey = 'notes.last_capture_location';
   bool _restored = false;
 
   @override
@@ -3561,22 +4084,40 @@ class LastNoteEditorSettingsController
   Future<void> remember({
     required NoteEditorMode mode,
     required String vaultId,
+    bool? captureLocation,
   }) async {
-    state = LastNoteEditorSettings(mode: mode, vaultId: vaultId);
+    state = LastNoteEditorSettings(
+      mode: mode,
+      vaultId: vaultId,
+      captureLocation: captureLocation ?? state.captureLocation,
+    );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_modeKey, mode.name);
     await prefs.setString(_vaultKey, vaultId);
+    await prefs.setBool(_captureLocationKey, state.captureLocation);
+  }
+
+  Future<void> setCaptureLocation(bool enabled) async {
+    state = LastNoteEditorSettings(
+      mode: state.mode,
+      vaultId: state.vaultId,
+      captureLocation: enabled,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_captureLocationKey, enabled);
   }
 
   Future<void> _restore() async {
     final prefs = await SharedPreferences.getInstance();
     final modeName = prefs.getString(_modeKey);
     final vaultId = prefs.getString(_vaultKey);
+    final captureLocation = prefs.getBool(_captureLocationKey) ?? false;
     state = LastNoteEditorSettings(
       mode: modeName == null || modeName.isEmpty
           ? NoteEditorMode.rich
           : NoteEditorMode.values.byName(modeName),
       vaultId: vaultId == null || vaultId.isEmpty ? 'everyday' : vaultId,
+      captureLocation: captureLocation,
     );
   }
 }
@@ -3618,7 +4159,7 @@ class NotesController extends _$NotesController {
         _sort(next);
         state = next;
         await _cleanupRemovedAttachments(existing, prepared);
-        await _persist();
+        await _persistOne(prepared);
       },
       attributes: {
         'editor_mode': note.editorMode.name,
@@ -3638,6 +4179,12 @@ class NotesController extends _$NotesController {
         if (note.id != noteId) {
           continue;
         }
+        if (_isLockedPrivatePlaceholder(note)) {
+          next.removeAt(i);
+          state = next;
+          await ref.read(encryptedNoteStoreProvider).deleteById(noteId);
+          return;
+        }
         final now = DateTime.now();
         final tombstone = note.copyWith(
           deletedAt: now,
@@ -3645,14 +4192,15 @@ class NotesController extends _$NotesController {
           revision: note.revision + 1,
           syncState: NoteSyncState.pendingDelete,
         );
-        next[i] = tombstone.copyWith(
+        final prepared = tombstone.copyWith(
           contentHash: _computeContentHash(tombstone),
         );
-        break;
+        next[i] = prepared;
+        _sort(next);
+        state = next;
+        await _persistOne(prepared);
+        return;
       }
-      _sort(next);
-      state = next;
-      await _persist();
     });
   }
 
@@ -3688,7 +4236,69 @@ class NotesController extends _$NotesController {
     return notesToAdd.length;
   }
 
+  Future<int> createPerformanceTestNotes({required int count}) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    if (count <= 0) {
+      return 0;
+    }
+    final now = DateTime.now();
+    final existingIds = state.map((note) => note.id).toSet();
+    final notesToAdd = <NoteEntry>[];
+    for (var index = 0; index < count; index++) {
+      final id = 'perf-${index.toString().padLeft(4, '0')}';
+      if (existingIds.contains(id)) {
+        continue;
+      }
+      final createdAt = now.subtract(Duration(minutes: index * 11));
+      final title = 'Performance note ${index + 1}';
+      final body =
+          'Performance test memo ${index + 1}\n'
+          'This generated note is used to measure list, search, calendar, and detail switching performance.';
+      notesToAdd.add(
+        NoteEntry(
+          id: id,
+          vaultId: 'everyday',
+          title: title,
+          body: body,
+          createdAt: createdAt,
+          updatedAt: createdAt,
+          deviceId: 'performance-seed',
+          contentHash: 'performance-seed-$id',
+          blocks: [NoteBlock(type: NoteBlockType.paragraph, text: body)],
+          tags: [
+            'performance',
+            if (index.isEven) 'batch-a' else 'batch-b',
+            'day-${index % 30 + 1}',
+          ],
+          editorMode: NoteEditorMode.rich,
+          location: index % 5 == 0
+              ? NoteLocation(
+                  latitude: 35.681236 + (index % 20) * 0.001,
+                  longitude: 139.767125 + (index % 20) * 0.001,
+                  address: 'Performance location ${index + 1}',
+                  capturedAt: createdAt,
+                )
+              : null,
+        ),
+      );
+    }
+    if (notesToAdd.isEmpty) {
+      return 0;
+    }
+    final next = [...state, ...notesToAdd];
+    _sort(next);
+    state = next;
+    await _persist();
+    return notesToAdd.length;
+  }
+
   Future<void> get restoreCompleted => _waitForInitialRestore();
+
+  Future<void> reloadFromStorage() async {
+    _restoreFailed = false;
+    await _restore();
+  }
 
   Future<int> deleteDemoNotes() async {
     await _waitForInitialRestore();
@@ -3916,6 +4526,7 @@ class NotesController extends _$NotesController {
   }
 
   Future<void> _restore() async {
+    final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
       final deletedSeedNoteIds = await _deletedSeedNoteIds();
       final restored = [
@@ -3942,10 +4553,18 @@ class NotesController extends _$NotesController {
       _sort(next);
       state = next;
       _restoreFailed = false;
+      stopwatch?.stop();
+      _debugHomePerf(
+        'notes restore count=${state.length} changed=$changed elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms',
+      );
       if (changed) {
         await _persist();
       }
     } catch (error, stackTrace) {
+      stopwatch?.stop();
+      _debugHomePerf(
+        'notes restore failed elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms error=$error',
+      );
       if (!ref.mounted) {
         return;
       }
@@ -3997,18 +4616,61 @@ class NotesController extends _$NotesController {
   bool _isSeedNote(NoteEntry note) =>
       note.deviceId == 'seeded-device' || note.id.startsWith('seed-');
 
+  bool _isLockedPrivatePlaceholder(NoteEntry note) {
+    return note.deviceId == 'locked-private-note' &&
+        isPrivateVaultId(note.vaultId);
+  }
+
   Future<void> _persist() async {
     if (_restoreFailed) {
       return;
     }
+    final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
       await ref.read(encryptedNoteStoreProvider).save(state);
+      stopwatch?.stop();
+      _debugHomePerf(
+        'notes persist full count=${state.length} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms',
+      );
     } catch (error, stackTrace) {
+      stopwatch?.stop();
+      _debugHomePerf(
+        'notes persist full failed count=${state.length} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms error=$error',
+      );
       await recordNonFatalError(
         error,
         stackTrace,
         reason: 'notes_persist_failed',
       );
+    }
+  }
+
+  Future<void> _persistOne(NoteEntry note) async {
+    if (_restoreFailed) {
+      return;
+    }
+    if (kIsWeb) {
+      await _persist();
+      return;
+    }
+    final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
+    try {
+      await ref.read(encryptedNoteStoreProvider).saveOne(note);
+      stopwatch?.stop();
+      _debugHomePerf(
+        'notes persist one id=${note.id} attachments=${note.attachments.length} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms',
+      );
+    } catch (error, stackTrace) {
+      stopwatch?.stop();
+      _debugHomePerf(
+        'notes persist one failed id=${note.id} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms error=$error',
+      );
+      await recordNonFatalError(
+        error,
+        stackTrace,
+        reason: 'note_persist_one_failed',
+      );
+      await _persist();
     }
   }
 
@@ -4061,7 +4723,43 @@ class NotesController extends _$NotesController {
       revision: previous == null ? note.revision : previous.revision + 1,
       syncState: NoteSyncState.pendingUpload,
     );
-    return normalized.copyWith(contentHash: _computeContentHash(normalized));
+    final protected = await _protectAttachmentsForVault(normalized);
+    return protected.copyWith(contentHash: _computeContentHash(protected));
+  }
+
+  Future<NoteEntry> _protectAttachmentsForVault(NoteEntry note) async {
+    final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+    final protectedPaths = <String>{};
+
+    Future<NoteAttachment> protect(NoteAttachment attachment) async {
+      final filePath = attachment.filePath;
+      if (filePath == null || filePath.isEmpty) {
+        return attachment;
+      }
+      if (protectedPaths.add(filePath)) {
+        await attachmentStore.protectAttachmentForVault(
+          filePath,
+          type: attachment.type,
+          vaultId: note.vaultId,
+        );
+      }
+      return attachment;
+    }
+
+    final attachments = <NoteAttachment>[];
+    for (final attachment in note.attachments) {
+      attachments.add(await protect(attachment));
+    }
+    final blocks = <NoteBlock>[];
+    for (final block in note.blocks) {
+      final attachment = block.attachment;
+      blocks.add(
+        attachment == null
+            ? block
+            : block.copyWith(attachment: await protect(attachment)),
+      );
+    }
+    return note.copyWith(attachments: attachments, blocks: blocks);
   }
 
   String _computeContentHash(NoteEntry note) {
@@ -4117,6 +4815,11 @@ class NotesController extends _$NotesController {
       if (left.isPinned != right.isPinned) {
         return right.isPinned ? 1 : -1;
       }
+      final leftPrivate = isPrivateVaultId(left.vaultId);
+      final rightPrivate = isPrivateVaultId(right.vaultId);
+      if (leftPrivate != rightPrivate) {
+        return leftPrivate ? -1 : 1;
+      }
       final dateOrder = right.createdAt.compareTo(left.createdAt);
       if (dateOrder != 0) {
         return dateOrder;
@@ -4139,7 +4842,13 @@ class UnlockedPrivateProfileVaultIdController extends Notifier<String?> {
 
   void unlock(String vaultId) => state = vaultId;
 
-  void lock() => state = null;
+  void lock() {
+    final vaultId = state;
+    if (vaultId != null) {
+      ref.read(profileDataKeyServiceProvider).lockProfile(vaultId);
+    }
+    state = null;
+  }
 }
 
 final adminModeSessionControllerProvider =
@@ -4176,6 +4885,7 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
             .read(unlockedPrivateProfileVaultIdProvider.notifier)
             .unlock(custom.vaultId);
         ref.read(adminModeSessionControllerProvider.notifier).lock();
+        await ref.read(notesControllerProvider.notifier).reloadFromStorage();
         state = const AsyncData(null);
         return custom;
       }
@@ -4192,6 +4902,7 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
             .read(unlockedPrivateProfileVaultIdProvider.notifier)
             .unlock(result.vaultId);
         ref.read(adminModeSessionControllerProvider.notifier).lock();
+        await ref.read(notesControllerProvider.notifier).reloadFromStorage();
         state = const AsyncData(null);
         return result;
       }
@@ -4361,23 +5072,32 @@ List<VaultBucket> visibleVaults(Ref ref) {
 
 @riverpod
 List<NoteEntry> visibleNotes(Ref ref) {
+  final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
+  final allNotes = ref.watch(notesControllerProvider);
   final visibleIds = ref
       .watch(visibleVaultsProvider)
       .map((vault) => vault.id)
       .toSet();
   final query = ref.watch(searchQueryProvider).trim().toLowerCase();
   final filters = ref.watch(searchFiltersControllerProvider);
+  final searchIndex = query.isEmpty
+      ? const <String, String>{}
+      : ref.watch(noteSearchIndexProvider);
   final filterVaultId = filters.vaultId;
+  final filterYear = filters.year;
   final requiredTags = filters.tags
       .map(canonicalizeNoteTag)
       .where((tag) => tag.isNotEmpty)
       .toSet();
   final results = <NoteEntry>[];
-  for (final note in ref.watch(notesControllerProvider)) {
+  for (final note in allNotes) {
     if (!visibleIds.contains(note.vaultId) || note.deletedAt != null) {
       continue;
     }
     if (filterVaultId != null && note.vaultId != filterVaultId) {
+      continue;
+    }
+    if (filterYear != null && note.createdAt.year != filterYear) {
       continue;
     }
     if (filters.pinnedOnly && !note.isPinned) {
@@ -4398,30 +5118,94 @@ List<NoteEntry> visibleNotes(Ref ref) {
         continue;
       }
     }
-    if (query.isNotEmpty && !_noteMatchesQuery(note, query)) {
+    if (query.isNotEmpty && !_noteMatchesQuery(note, query, searchIndex)) {
       continue;
     }
     results.add(note);
   }
+  final elapsed = stopwatch?.elapsedMicroseconds;
+  if (elapsed != null && (allNotes.length >= 500 || elapsed >= 2000)) {
+    _debugHomePerf(
+      'visible notes source=${allNotes.length} result=${results.length} query=${query.isEmpty ? 0 : query.length} tags=${requiredTags.length} elapsed=${elapsed / 1000}ms',
+    );
+  }
   return List.unmodifiable(results);
 }
 
-bool _noteMatchesQuery(NoteEntry note, String query) {
-  if (note.title.toLowerCase().contains(query) ||
-      note.body.toLowerCase().contains(query)) {
-    return true;
+@riverpod
+List<int> visibleNoteYears(Ref ref) {
+  final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
+  final notes = ref.watch(visibleNotesProvider);
+  final years = <int>{};
+  for (final note in notes) {
+    years.add(note.createdAt.year);
   }
-  for (final tag in note.tags) {
-    if (tag.toLowerCase().contains(query)) {
-      return true;
+  final sorted = years.toList(growable: false)
+    ..sort((left, right) => right.compareTo(left));
+  final result = List<int>.unmodifiable(sorted);
+  final elapsed = stopwatch?.elapsedMicroseconds;
+  if (elapsed != null && (notes.length >= 500 || elapsed >= 2000)) {
+    _debugHomePerf(
+      'visible note years source=${notes.length} years=${result.length} elapsed=${elapsed / 1000}ms',
+    );
+  }
+  return result;
+}
+
+@riverpod
+Map<String, String> noteSearchIndex(Ref ref) {
+  final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
+  final notes = ref.watch(notesControllerProvider);
+  final entries = <String, String>{};
+  for (final note in notes) {
+    if (note.deletedAt != null) {
+      continue;
     }
+    entries[note.id] = _noteSearchText(note);
+  }
+  final elapsed = stopwatch?.elapsedMicroseconds;
+  if (elapsed != null && (notes.length >= 500 || elapsed >= 2000)) {
+    _debugHomePerf(
+      'note search index source=${notes.length} entries=${entries.length} elapsed=${elapsed / 1000}ms',
+    );
+  }
+  return Map.unmodifiable(entries);
+}
+
+String _noteSearchText(NoteEntry note) {
+  final buffer = StringBuffer()
+    ..write(note.title)
+    ..write('\n')
+    ..write(note.body);
+  for (final tag in note.tags) {
+    buffer
+      ..write('\n')
+      ..write(tag);
   }
   for (final attachment in note.attachments) {
-    if (attachment.label.toLowerCase().contains(query)) {
-      return true;
-    }
+    buffer
+      ..write('\n')
+      ..write(attachment.label);
   }
-  return false;
+  final location = note.location;
+  if (location != null) {
+    buffer
+      ..write('\n')
+      ..write(location.address ?? '')
+      ..write('\n')
+      ..write(location.latitude)
+      ..write('\n')
+      ..write(location.longitude);
+  }
+  return buffer.toString().toLowerCase();
+}
+
+bool _noteMatchesQuery(
+  NoteEntry note,
+  String query,
+  Map<String, String> searchIndex,
+) {
+  return searchIndex[note.id]?.contains(query) ?? false;
 }
 
 @riverpod
@@ -4452,16 +5236,149 @@ List<String> visibleTagSuggestions(Ref ref) {
   return List.unmodifiable(tags);
 }
 
+class VisibleTagSummary {
+  const VisibleTagSummary({
+    required this.name,
+    required this.count,
+    required this.latestAt,
+  });
+
+  final String name;
+  final int count;
+  final DateTime latestAt;
+}
+
+final visibleTagSummariesProvider = Provider<List<VisibleTagSummary>>((ref) {
+  final visibleIds = ref
+      .watch(visibleVaultsProvider)
+      .map((vault) => vault.id)
+      .toSet();
+  final summaries = <String, ({String name, int count, DateTime latestAt})>{};
+  for (final note in ref.watch(notesControllerProvider)) {
+    if (note.deletedAt != null || !visibleIds.contains(note.vaultId)) {
+      continue;
+    }
+    final noteAt = note.updatedAt ?? note.createdAt;
+    for (final tag in note.tags) {
+      final normalized = normalizeNoteTag(tag);
+      if (normalized.isEmpty) {
+        continue;
+      }
+      final key = canonicalizeNoteTag(normalized);
+      final current = summaries[key];
+      if (current == null) {
+        summaries[key] = (name: normalized, count: 1, latestAt: noteAt);
+      } else {
+        summaries[key] = (
+          name: current.name,
+          count: current.count + 1,
+          latestAt: noteAt.isAfter(current.latestAt)
+              ? noteAt
+              : current.latestAt,
+        );
+      }
+    }
+  }
+  final result = summaries.values
+      .map(
+        (entry) => VisibleTagSummary(
+          name: entry.name,
+          count: entry.count,
+          latestAt: entry.latestAt,
+        ),
+      )
+      .toList();
+  result.sort((left, right) {
+    final countOrder = right.count.compareTo(left.count);
+    if (countOrder != 0) {
+      return countOrder;
+    }
+    final dateOrder = right.latestAt.compareTo(left.latestAt);
+    if (dateOrder != 0) {
+      return dateOrder;
+    }
+    return left.name.toLowerCase().compareTo(right.name.toLowerCase());
+  });
+  return List.unmodifiable(result);
+});
+
 final noteEditorDraftStoreProvider = Provider<NoteEditorDraftStore>(
   (ref) => NoteEditorDraftStore(),
 );
 
 @riverpod
+Map<String, List<NoteEntry>> visibleNotesByVault(Ref ref) {
+  final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
+  final notes = ref.watch(visibleNotesProvider);
+  final grouped = <String, List<NoteEntry>>{};
+  for (final note in notes) {
+    (grouped[note.vaultId] ??= <NoteEntry>[]).add(note);
+  }
+  final result = Map<String, List<NoteEntry>>.unmodifiable({
+    for (final entry in grouped.entries)
+      entry.key: List<NoteEntry>.unmodifiable(entry.value),
+  });
+  final elapsed = stopwatch?.elapsedMicroseconds;
+  if (elapsed != null && (notes.length >= 500 || elapsed >= 2000)) {
+    _debugHomePerf(
+      'visible notes by vault source=${notes.length} vaults=${result.length} elapsed=${elapsed / 1000}ms',
+    );
+  }
+  return result;
+}
+
+@riverpod
+Map<String, int> visibleNoteIndexById(Ref ref) {
+  final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
+  final notes = ref.watch(visibleNotesProvider);
+  final result = Map<String, int>.unmodifiable({
+    for (var index = 0; index < notes.length; index++) notes[index].id: index,
+  });
+  final elapsed = stopwatch?.elapsedMicroseconds;
+  if (elapsed != null && (notes.length >= 500 || elapsed >= 2000)) {
+    _debugHomePerf(
+      'visible note index source=${notes.length} entries=${result.length} elapsed=${elapsed / 1000}ms',
+    );
+  }
+  return result;
+}
+
+@riverpod
+Map<DateTime, List<NoteEntry>> visibleNotesByDay(Ref ref) {
+  final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
+  final notes = ref.watch(visibleNotesProvider);
+  final grouped = <DateTime, List<NoteEntry>>{};
+  for (final note in notes) {
+    final day = DateTime(
+      note.createdAt.year,
+      note.createdAt.month,
+      note.createdAt.day,
+    );
+    (grouped[day] ??= <NoteEntry>[]).add(note);
+  }
+  final result = Map<DateTime, List<NoteEntry>>.unmodifiable({
+    for (final entry in grouped.entries)
+      entry.key: List<NoteEntry>.unmodifiable(entry.value),
+  });
+  final elapsed = stopwatch?.elapsedMicroseconds;
+  if (elapsed != null && (notes.length >= 500 || elapsed >= 2000)) {
+    _debugHomePerf(
+      'visible notes by day source=${notes.length} days=${result.length} elapsed=${elapsed / 1000}ms',
+    );
+  }
+  return result;
+}
+
+@riverpod
+List<DateTime> visibleNoteDays(Ref ref) {
+  final days = ref.watch(visibleNotesByDayProvider).keys.toList(growable: false)
+    ..sort();
+  return List.unmodifiable(days);
+}
+
+@riverpod
 List<NoteEntry> notesForVault(Ref ref, String vaultId) {
-  return ref
-      .watch(visibleNotesProvider)
-      .where((note) => note.vaultId == vaultId)
-      .toList(growable: false);
+  return ref.watch(visibleNotesByVaultProvider)[vaultId] ?? const <NoteEntry>[];
 }
 
 @riverpod
@@ -4492,10 +5409,10 @@ VaultBucket vaultById(Ref ref, String vaultId) {
 
 @riverpod
 NoteEntry? noteById(Ref ref, String noteId) {
-  for (final note in ref.watch(visibleNotesProvider)) {
-    if (note.id == noteId) {
-      return note;
-    }
+  final index = ref.watch(visibleNoteIndexByIdProvider)[noteId];
+  if (index == null) {
+    return null;
   }
-  return null;
+  final notes = ref.watch(visibleNotesProvider);
+  return index >= 0 && index < notes.length ? notes[index] : null;
 }

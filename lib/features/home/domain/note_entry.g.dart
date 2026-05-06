@@ -6,6 +6,26 @@ part of 'note_entry.dart';
 // JsonSerializableGenerator
 // **************************************************************************
 
+_NoteLocation _$NoteLocationFromJson(Map<String, dynamic> json) =>
+    _NoteLocation(
+      latitude: (json['latitude'] as num).toDouble(),
+      longitude: (json['longitude'] as num).toDouble(),
+      accuracyMeters: (json['accuracyMeters'] as num?)?.toDouble(),
+      address: json['address'] as String?,
+      capturedAt: json['capturedAt'] == null
+          ? null
+          : DateTime.parse(json['capturedAt'] as String),
+    );
+
+Map<String, dynamic> _$NoteLocationToJson(_NoteLocation instance) =>
+    <String, dynamic>{
+      'latitude': instance.latitude,
+      'longitude': instance.longitude,
+      'accuracyMeters': instance.accuracyMeters,
+      'address': instance.address,
+      'capturedAt': instance.capturedAt?.toIso8601String(),
+    };
+
 _NoteAttachment _$NoteAttachmentFromJson(Map<String, dynamic> json) =>
     _NoteAttachment(
       type: $enumDecode(_$AttachmentTypeEnumMap, json['type']),
@@ -89,6 +109,9 @@ _NoteEntry _$NoteEntryFromJson(Map<String, dynamic> json) => _NoteEntry(
   editorMode:
       $enumDecodeNullable(_$NoteEditorModeEnumMap, json['editorMode']) ??
       NoteEditorMode.rich,
+  location: json['location'] == null
+      ? null
+      : NoteLocation.fromJson(json['location'] as Map<String, dynamic>),
 );
 
 Map<String, dynamic> _$NoteEntryToJson(_NoteEntry instance) =>
@@ -102,13 +125,14 @@ Map<String, dynamic> _$NoteEntryToJson(_NoteEntry instance) =>
       'deletedAt': instance.deletedAt?.toIso8601String(),
       'deviceId': instance.deviceId,
       'contentHash': instance.contentHash,
-      'attachments': instance.attachments,
-      'blocks': instance.blocks,
+      'attachments': instance.attachments.map((e) => e.toJson()).toList(),
+      'blocks': instance.blocks.map((e) => e.toJson()).toList(),
       'tags': instance.tags,
       'isPinned': instance.isPinned,
       'revision': instance.revision,
       'syncState': _$NoteSyncStateEnumMap[instance.syncState]!,
       'editorMode': _$NoteEditorModeEnumMap[instance.editorMode]!,
+      'location': instance.location?.toJson(),
     };
 
 const _$NoteSyncStateEnumMap = {

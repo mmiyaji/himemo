@@ -1,0 +1,1039 @@
+# Large note set performance notes - 2026-05-06
+
+## Test setup
+
+- Branch: `codex/large-note-performance`
+- Flutter: `D:\Flutter\versions\3.41.6`
+- Web target: Chrome debug build
+- Seed flag: `--dart-define=HIMEMO_PERF_NOTE_COUNT=1000`
+- Seed data: 1000 generated notes, 1 normal vault, every 5th note includes location metadata.
+
+## Baseline
+
+- Desktop split view reload to first visible note: about 6.7s.
+- Desktop note selection wall time: about 0.95s with a detail pane frame of 145ms.
+- Mobile-width list previously nested all note widgets inside a section `Column`, so every note tile in a vault could be built eagerly.
+
+## Changes
+
+1. Added a development-only 1000-note seed hook.
+2. Fixed an onboarding restore race so the seed hook can run after onboarding completion.
+3. Replaced the mobile note section `Column` with a flattened `ListView.builder`.
+4. Added row-build performance logging for mobile lists.
+5. Added a year partition filter so large note histories can be narrowed before list rendering and searching.
+
+## After changes
+
+- Desktop split view reload to first visible note: about 7.1s in debug mode. This did not improve because the dominant cost is app bootstrap, encrypted restore, and debug module loading rather than visible row construction.
+- Desktop note selection wall time: about 0.75s with a detail pane frame of 81.6ms.
+- Mobile row model construction: 1000 notes produce 2010 rows in about 1.9-5.8ms.
+- Mobile visual check: first visible rows render correctly at 742x909 viewport with the same card-style borders.
+
+## Remaining risks
+
+- Web debug reload time is not representative of production builds.
+- The web note store still restores the full encrypted note payload before the list appears.
+- True storage-level paging requires a queryable encrypted-note index per vault/year. Native already uses a database, but web currently uses a single encrypted payload.
+
+## Cycle 1 follow-up
+
+Plan:
+
+- Avoid repeated visible-note scans when grouping by vault.
+- Avoid building tag suggestions until the advanced filter panel is visible.
+
+Changes:
+
+- Added `visibleNotesByVaultProvider` and routed mobile list grouping through it.
+- Kept `notesForVaultProvider` as a compatibility wrapper over the grouped map.
+- Moved `visibleTagSuggestionsProvider` watch into the advanced filter UI branch.
+
+Measurements:
+
+- Mobile row model after this cycle: 1000 notes, 2010 rows, 2.2ms.
+- In-app browser navigation on an already-loaded debug session showed the list content immediately; cold debug reload remains dominated by Flutter web bootstrap and encrypted payload restore.
+
+Conclusion:
+
+- This cycle reduces redundant provider work during normal note-list rendering.
+- The next high-impact cycle is storage/index work: split web note restore into lightweight metadata plus lazy note payloads.
+
+## Cycle 2 follow-up
+
+Plan:
+
+- Reduce full-list filtering while the user is typing in the note search field.
+
+Changes:
+
+- Replaced immediate search-provider updates with a 260ms debounce in the notes toolbar.
+- Kept clearing immediate so removing a search term still restores the list without waiting.
+- Synced external search resets back into the text field so private-mode cleanup and tag-filter actions still update the UI.
+
+Measurements:
+
+- Browser E2E with 1000 notes confirmed that typing in the search box does not immediately filter the list, then applies the result after the debounce delay.
+- Static validation remained clean with `flutter analyze`.
+
+Conclusion:
+
+- This cycle reduces repeated O(n) search scans during typing without changing the visible search UI.
+- The next practical improvement is either cached calendar/insights summaries or the larger web storage split.
+
+## Cycle 3 follow-up
+
+Plan:
+
+- Avoid rebuilding calendar day lists and selected-day note lists from scratch in the calendar screen.
+
+Changes:
+
+- Added `visibleNotesByDayProvider`.
+- Added `visibleNoteDaysProvider`.
+- Updated the calendar screen and calendar detail sheet to reuse the cached day grouping.
+
+Measurements:
+
+- Browser E2E opened the calendar route with 1000 seeded notes and confirmed generated notes were rendered for the selected day.
+- Static validation remained clean with `flutter analyze`.
+
+Conclusion:
+
+- This cycle moves calendar grouping cost out of the widget build path and makes day navigation reuse the same grouped data.
+- Insights summaries still compute several aggregates from the full visible note list and remain a future optimization target.
+
+## Cycle 4 follow-up
+
+Plan:
+
+- Reduce the per-query cost after the search input debounce fires.
+
+Changes:
+
+- Added `noteSearchIndexProvider`, which builds a lower-cased searchable string per note only when notes change.
+- Updated visible-note filtering to use the cached search index for title/body/tag/attachment/location matching.
+- Extended the search filter test to cover body search through the index.
+
+Measurements:
+
+- Browser E2E with 1000 seeded notes confirmed location/text search still returns matching performance notes.
+- Static validation remained clean with `flutter analyze`.
+
+Conclusion:
+
+- Search now avoids repeated lower-casing and string assembly on every query change.
+- The remaining large cost for Web is still storage restore: all note data must be decrypted before the first list can render.
+
+## Cycle 5 follow-up
+
+Plan:
+
+- Avoid repeated scans for resolving the selected note ID to its visible list index.
+
+Changes:
+
+- Added `visibleNoteIndexByIdProvider`.
+- Updated the notes screen to resolve the selected index through the cached map instead of `any` plus `indexWhere`.
+- Routed `noteByIdProvider` through the same index map.
+
+Measurements:
+
+- Provider test confirms index map generation for filtered visible notes.
+- Static validation remained clean with `flutter analyze`.
+
+Conclusion:
+
+- This removes repeated O(n) scans from note selection rebuilds.
+- The improvement is smaller than storage/index work, but it compounds with the previous list virtualization work.
+
+## Cycle 6 follow-up
+
+Plan:
+
+- Reduce repeated scans in the Insights tab.
+
+Changes:
+
+- Replaced separate summary/month/day/hour/attachment aggregation passes with a single `_buildInsightsData` pass.
+- Reused the single aggregate result for all KPI and chart sections.
+
+Measurements:
+
+- Browser E2E opened the Insights route with 1000 seeded notes and confirmed the summary and chart text rendered.
+- Static validation remained clean with `flutter analyze`.
+
+Conclusion:
+
+- Insights no longer performs several independent full-list scans for the same visible note set.
+- Remaining high-impact work is still Web storage restore and lazy payload loading.
+
+## Cycle 7 follow-up
+
+Plan:
+
+- Avoid year-list aggregation while the advanced filter UI is closed.
+
+Changes:
+
+- Moved `visibleNoteYearsProvider` reads into the advanced filter branch.
+- Normal list rendering no longer computes the year list unless the user opens detailed filters.
+
+Measurements:
+
+- Static validation remained clean with `flutter analyze`.
+- Year partition provider test remained green.
+
+Conclusion:
+
+- This mirrors the previous lazy tag-suggestion change and keeps the common note-list path lighter.
+
+## Cycle 8 follow-up
+
+Plan:
+
+- Reduce repeated thumbnail decode work when notes with image attachments are rebuilt while scrolling.
+
+Changes:
+
+- Cached decoded `previewBytesBase64` inside `_AttachmentPreviewState`.
+- Changed `_AttachmentImageBox` to accept `Uint8List` directly so build no longer copies bytes with `Uint8List.fromList` for already-decoded previews.
+- Kept encrypted attachment fallback behavior unchanged.
+
+Measurements:
+
+- Static validation remained clean with `flutter analyze`.
+- Existing provider/search test remained green.
+
+Conclusion:
+
+- This cycle targets attachment-heavy note lists. The 1000 generated note set is mostly text, so the improvement is preventive for real user datasets with many photos.
+
+## Cycle 9 follow-up
+
+Plan:
+
+- Reuse the existing photo attachment bytes cache across list previews and the lightbox viewer.
+- Avoid re-reading the same encrypted image file when users move between note detail, list preview, and image viewer surfaces.
+
+Changes:
+
+- Routed `_AttachmentPreview` file-backed photo reads through `_readPhotoAttachmentBytesWithPerf`.
+- Routed `_PhotoAttachmentViewer` reads through the same cached path.
+- Kept inline preview decoding local to the preview widget because it is already cached as `Uint8List` after Cycle 8.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "search filters can narrow notes by tags"` passed.
+- A headless browser session opened the 1000-note route and captured note selection frame logs, but the reused `web-server` debug session later stayed on Splash during reconnect. The code path was therefore validated by static tests and cache-aware debug instrumentation rather than a second full browser replay in the same server session.
+
+Conclusion:
+
+- This is a targeted attachment-heavy improvement. It should reduce repeated decrypt/read work when photo attachments are visible in multiple surfaces during the same app session.
+
+## Cycle 10 follow-up
+
+Plan:
+
+- Reduce save latency for large local databases on iOS/Android/desktop.
+- Avoid full-database re-encryption when a single note is created, edited, or tombstoned.
+
+Changes:
+
+- Added `EncryptedNoteDatabase.upsertOne` to update one encrypted note record, its attachment metadata, and its pending sync queue entry in one transaction.
+- Added `EncryptedNoteStore.saveOne` for native incremental persistence.
+- Updated `NotesController.upsert` and normal delete/tombstone handling to call the incremental path on native platforms.
+- Kept Web on the existing full-save path because Web storage is still a single encrypted payload.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\security_storage_test.dart` passed, including attachment cleanup, sync metadata, tombstone delete, and sync merge tests.
+
+Conclusion:
+
+- This is a high-impact native-path improvement for large note sets. Editing one note no longer requires encrypting and replacing every note in the local SQLite database.
+- Remaining large-data bottleneck is Web storage, which still stores all notes in one encrypted blob.
+
+## Cycle 11 follow-up
+
+Plan:
+
+- Reduce one-time bulk persistence cost for native local databases.
+- Improve initial demo/performance seed insertion, sync restore, and full replacement paths.
+
+Changes:
+
+- Replaced per-row awaited inserts in `EncryptedNoteDatabase.replaceAll` with Drift batch inserts.
+- Batched note records, attachment metadata records, and pending sync queue records inside the existing transaction.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\security_storage_test.dart` passed.
+
+Conclusion:
+
+- Full replacements still encrypt each note individually, but database writes are now grouped rather than awaited one row at a time.
+- This complements Cycle 10: routine edits use incremental persistence, while unavoidable full replacements have lower database write overhead.
+
+## Cycle 12 follow-up
+
+Plan:
+
+- Make future performance cycles easier to measure without adding external profilers.
+- Separate restore, full persist, and single-note persist timings in debug logs.
+
+Changes:
+
+- Added debug-only `[home-perf]` logs for note restore, full persistence, and incremental one-note persistence.
+- Included note counts, note IDs, attachment counts, and elapsed milliseconds where relevant.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\security_storage_test.dart --plain-name "NotesController writes sync metadata and tombstones deletes"` passed.
+- The targeted test emitted restore and single-note persistence timings, confirming the instrumentation path works.
+
+Conclusion:
+
+- This does not directly speed up release builds, but it gives the next cycles clearer measurements for 1000+ note scenarios and validates that Cycle 10 is exercising the incremental path.
+
+## Cycle 13 follow-up
+
+Plan:
+
+- Check note detail performance beyond the list itself.
+- Improve the case where a note has many blocks or many attachments.
+
+Changes:
+
+- Replaced the detail pane's eager `SingleChildScrollView` + `Column` content construction with a `CustomScrollView` and `SliverList.builder`.
+- Kept the metadata header eager, but made body blocks, location cards, and embedded attachments build lazily as they enter the viewport.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "search filters can partition notes by year"` passed.
+
+Conclusion:
+
+- Multi-attachment detail pages no longer instantiate every embedded attachment viewer during the first frame.
+- This should reduce detail-open latency and memory pressure for notes with many images, videos, audio clips, or files.
+
+## Cycle 14 follow-up
+
+Plan:
+
+- Check long text display performance in note details.
+- Avoid repeating URL regex scans and tap recognizer allocation on every rebuild.
+
+Changes:
+
+- Cached parsed memo text segments inside `_LinkifiedMemoTextState`.
+- Re-parse and recreate recognizers only when the source text changes.
+- Kept theme-dependent link styling in `build` so color changes still apply without re-parsing text.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "widget quick capture stores first line only as title"` passed.
+
+Conclusion:
+
+- Long notes with URLs should rebuild more cheaply, especially when theme, selection, or parent layout changes trigger a detail rebuild without changing the note text.
+
+## Cycle 15 follow-up
+
+Plan:
+
+- Check long text behavior in both note display and rich editor creation paths.
+- Avoid treating every normal paragraph as a possible legacy location memo.
+
+Changes:
+
+- Added a heading guard to `_tryParseLocationMemo`.
+- Normal text now returns before newline normalization, splitting, list allocation, and URL regex checks.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note attachments preserve media duration metadata"` passed.
+
+Conclusion:
+
+- Long ordinary paragraphs are cheaper to render and edit.
+- Legacy embedded location text is still supported when the paragraph starts with the expected current-location heading.
+
+## Cycle 16 follow-up
+
+Plan:
+
+- Check note creation and edit performance for notes with many attachments.
+- Reduce per-save latency from attachment metadata encryption.
+
+Changes:
+
+- Added a shared `_encryptAttachmentRecords` helper in `EncryptedNoteStore`.
+- Encrypt attachment metadata for a single note with `Future.wait` instead of awaiting each attachment sequentially.
+- Reused the helper for both full native save and incremental native `saveOne`.
+
+Measurements:
+
+- `dart format` applied to the touched store file.
+- `flutter analyze` passed.
+- `flutter test test\security_storage_test.dart --plain-name "EncryptedNoteStore persists and restores notes without plaintext leakage"` passed.
+
+Conclusion:
+
+- Notes with many attachments should save faster on native platforms because attachment metadata encryption can overlap.
+- The encrypted attachment bytes themselves remain protected by the existing attachment store path.
+
+## Cycle 17 follow-up
+
+Plan:
+
+- Add coverage for the long-text and many-attachment case so future performance work does not regress correctness.
+- Validate the incremental native save path with a heavier note shape than normal unit fixtures.
+
+Changes:
+
+- Added a storage test that saves one note with 220 text lines, 40 attachments, and matching rich blocks through `EncryptedNoteStore.saveOne`.
+- Verified restore equality, encrypted attachment metadata count, and absence of plaintext in encrypted note/attachment payloads.
+
+Measurements:
+
+- `dart format` applied to the touched test file.
+- `flutter analyze` passed.
+- `flutter test test\security_storage_test.dart --plain-name "incrementally persists notes with long text and many attachments"` passed.
+
+Conclusion:
+
+- The multi-attachment incremental persistence path is now covered by a targeted regression test.
+
+## Cycle 18 follow-up
+
+Plan:
+
+- Re-run browser E2E after the detail and persistence changes.
+- Confirm that the 1000-note development seed still starts, persists, and opens detail without runtime errors.
+
+Measurements:
+
+- Started a fresh `web-server` session on `127.0.0.1:58082` with `HIMEMO_PERF_NOTE_COUNT=1000`.
+- Headless Chromium completed onboarding bypass, loaded the notes route, and clicked note rows.
+- Captured logs:
+  - `[home-perf] notes restore count=0 changed=false elapsed=468ms`
+  - `[home-perf] notes persist full count=1000 elapsed=135ms`
+  - `[note-perf] detail pane frame 160.5ms ... attachments=0 blocks=1 tags=3`
+
+Conclusion:
+
+- The 1000-note seeded route is still functional after the latest cycles.
+- The measured detail row was text-only, so it validates the list/detail path rather than the many-attachment lazy-detail path. Multi-attachment correctness is covered by the new storage test; a future UI fixture with many attachments would make the browser measurement stronger.
+
+## Cycle 19 follow-up
+
+Plan:
+
+- Run the app in the Codex In App Browser and perform monkey-style navigation.
+- Cover notes list, note creation, long text input, mobile note detail, and route switching while a detail modal is open.
+
+Findings:
+
+- Flutter Web semantics made some text locators unstable for note rows and bottom navigation, so the browser run used DOM node IDs and direct route navigation where needed.
+- Opening a mobile note detail and then navigating directly to another route, such as `#/settings`, left the note detail modal visible above the new route.
+- This contradicted the existing expected behavior where leaving the notes tab should close the note detail.
+
+Changes:
+
+- Added route-section change handling in `AppShell`.
+- When the observed route moves from Notes to another section, the selected note is cleared and any root modal route is closed after the frame.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "search filters can partition notes by year"` passed.
+- In App Browser verification on a fresh web-server session with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Opened Notes and skipped onboarding.
+  - Opened `Performance note 1` mobile detail via DOM node click.
+  - Navigated directly to `#/settings`.
+  - Confirmed detail controls were no longer visible and Settings content was visible.
+
+Conclusion:
+
+- Mobile detail overlays now close consistently on route changes, not only through the app's own navigation callbacks.
+
+## Cycle 20 follow-up
+
+Plan:
+
+- Check note creation usability when a draft already has many attachments.
+- Avoid building every quick-attachment tile before the user needs to reorder or remove deep items.
+
+Changes:
+
+- Converted the quick attachment section to local state.
+- Quick drafts now show the first 8 attachments by default and expose an expand/collapse button for the full attachment list.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+
+Conclusion:
+
+- The editor keeps the attachment controls available but reduces initial widget work for unusually large quick drafts.
+
+## Cycle 21 follow-up
+
+Plan:
+
+- Re-run In App Browser monkey navigation after the route-close fix.
+- Specifically verify leaving Notes while a detail route is active.
+
+Findings:
+
+- The previous route-section observer cleared `selectedNoteIdProvider` synchronously from `build()`.
+- Flutter/Riverpod raised `Tried to modify a provider while the widget tree was building` during browser monkey navigation.
+
+Changes:
+
+- Moved the selected-note clear into the same post-frame callback that closes the root modal route.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58085` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - 1000-note list generation logged `mobile list rows notes=1000 rows=2009 completed 6.701ms`.
+  - Opening `Performance note 3` logged `detail pane frame 77.399ms`.
+  - Notes -> Settings -> Notes navigation completed without the provider-build error.
+
+Conclusion:
+
+- The route-close behavior is now compatible with Riverpod lifecycle rules.
+- The remaining user-visible switch time is dominated by browser/debug-mode navigation and Flutter Web paint, not list row generation.
+
+## Cycle 22 follow-up
+
+Plan:
+
+- Inspect search performance for 1000-note data.
+- Confirm whether the toolbar already debounces text input and add measurement where the expensive work actually runs.
+
+Findings:
+
+- Search input is already debounced by 260ms.
+- The missing data point was provider-side filter/index timing, especially when query text is non-empty.
+
+Changes:
+
+- Added debug-only `[home-perf]` timings to `visibleNotesProvider`.
+- Added debug-only `[home-perf]` timings to `noteSearchIndexProvider`.
+- Logs are gated to larger note sets or slower runs so normal small debug sessions stay less noisy.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "search filters can partition notes by year"` passed.
+- In App Browser on `127.0.0.1:58086` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Initial visible filtering: `visible notes source=1000 result=1000 query=0 tags=0 elapsed=0.8ms`.
+  - Search index build: `note search index source=1000 entries=1000 elapsed=5.3ms`.
+  - Query `999`: `visible notes source=1000 result=101 query=3 tags=0 elapsed=8.1ms`.
+  - Clearing search: `visible notes source=1000 result=1000 query=0 tags=0 elapsed=0.699ms`.
+
+Conclusion:
+
+- Provider-side search/filtering is currently under 10ms for the 1000-note fixture in debug web.
+- If users still feel search lag, the next target should be text input focus/paint and row rebuild cost rather than raw filtering.
+
+## Cycle 23 follow-up
+
+Plan:
+
+- Reduce repeated work in note detail rendering, especially for long notes or notes with many attachments.
+- Keep the current lazy sliver behavior while avoiding content-item reconstruction on every parent rebuild.
+
+Changes:
+
+- Converted `_DetailContentSliver` to a stateful widget.
+- Cached detail content items and the photo attachment list until the `NoteEntry` changes.
+- Added debug-only timing for detail content cache rebuilds when notes are large or slow.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note attachments preserve media duration metadata"` passed.
+- In App Browser on `127.0.0.1:58087` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - 1000-note row generation logged `mobile list rows notes=1000 rows=2009 completed 2.4ms`.
+  - `Performance note 3` opened with `detail pane frame 75.6ms`.
+  - `Performance note 4` opened with `detail pane frame 69.7ms`.
+
+Conclusion:
+
+- The text-only 1000-note fixture remains stable after caching.
+- The main benefit is expected for long rich notes and attachment-heavy notes where the content item list is larger than this fixture.
+
+## Cycle 24 follow-up
+
+Plan:
+
+- Check attachment-heavy list/editor paths for avoidable image decode work.
+- Keep thumbnail visual behavior unchanged while reducing memory and paint cost for large original images.
+
+Changes:
+
+- `_AttachmentImageBox` now passes `cacheWidth` and `cacheHeight` based on the displayed thumbnail size and device pixel ratio.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note attachments preserve media duration metadata"` passed.
+
+Conclusion:
+
+- Thumbnail previews should avoid decoding large images at full resolution when the UI only needs a small preview.
+
+## Cycle 25 follow-up
+
+Plan:
+
+- Check the Insights tab because it scans the visible notes to build charts and summary counters.
+- Avoid recalculating the same aggregate data on unrelated rebuilds, such as theme/layout changes.
+
+Changes:
+
+- Converted `InsightsScreen` to a stateful consumer widget.
+- Cached `_InsightsData` while the visible note list identity and locale remain unchanged.
+- Added debug-only timing for insights aggregation.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "search filters can partition notes by year"` passed.
+- In App Browser on `127.0.0.1:58088` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - 1000-note row generation logged `mobile list rows notes=1000 rows=2009 completed 2.9ms`.
+  - Insights aggregation logged `insights build notes=1000 attachments=0 completed 13ms`.
+  - The Insights screen rendered the Japanese summary and charts correctly.
+
+Conclusion:
+
+- Insights aggregation is acceptable at 1000 notes in debug web, but caching prevents paying the same aggregation cost on unrelated rebuilds.
+
+## Cycle 26 follow-up
+
+Plan:
+
+- Check Calendar tab behavior when many generated notes land on the same day.
+- Avoid rendering every note row for a selected day before the user asks to see all of them.
+
+Changes:
+
+- Calendar selected-day notes now show the first 24 notes by default.
+- Added an expand/collapse button when the selected day has more notes.
+- Reset the expanded state when the selected day changes.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "search filters can partition notes by year"` passed.
+- In App Browser on `127.0.0.1:58089` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - The selected day had 90 notes.
+  - Initial render showed a bounded list.
+  - Scrolling to the end of the selected-day section showed `90件すべて表示`.
+
+Conclusion:
+
+- Calendar no longer builds an unbounded same-day note list by default, while still keeping full access one tap away.
+
+## Cycle 27 follow-up
+
+Plan:
+
+- Add provider-side timing for Calendar grouping so future larger data sets can be diagnosed.
+- Measure 1000-note day grouping after adding the log.
+
+Changes:
+
+- Added debug-only `[home-perf]` timing to `visibleNotesByDayProvider`.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "search filters can partition notes by year"` passed.
+- In App Browser on `127.0.0.1:58090` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - `visible notes by day source=1000 days=8 elapsed=2.199ms`.
+  - Calendar rendered after restore with the selected-day section visible.
+
+Conclusion:
+
+- Calendar grouping is currently cheap at 1000 notes.
+- The higher-risk path was same-day row rendering, which Cycle 26 capped.
+
+## Cycle 28 follow-up
+
+Plan:
+
+- Inspect lightweight derived providers that still run during list/detail navigation.
+- Reduce duplicate filtering work and add timing so future growth can be diagnosed.
+
+Changes:
+
+- `visibleNoteYearsProvider` now derives from `visibleNotesProvider` instead of scanning all notes and rechecking visible vaults.
+- Added debug-only timings for:
+  - visible note years
+  - visible notes by vault
+  - visible note ID index
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "search filters can partition notes by year"` passed.
+- In App Browser on `127.0.0.1:58091` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - `visible notes source=1000 result=1000 query=0 tags=0 elapsed=0.701ms`.
+  - `visible notes by vault source=1000 vaults=1 elapsed=0.301ms`.
+  - `visible note index source=1000 entries=1000 elapsed=0.5ms`.
+
+Conclusion:
+
+- The derived list indexes are not a current bottleneck at 1000 notes.
+- The code now avoids one redundant all-notes scan for year partitions and has logs ready if these costs grow.
+
+## Cycle 29 follow-up
+
+Plan:
+
+- Reduce repaint cost while scrolling large note lists and selecting rows.
+- Keep row layout unchanged while isolating paint work for visible note tiles.
+
+Changes:
+
+- Wrapped mobile note tiles in `RepaintBoundary`.
+- Wrapped split-pane note tiles in `RepaintBoundary`.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58092` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - 1000-note row generation logged `mobile list rows notes=1000 rows=2009 completed 2.2ms`.
+  - A list scroll interaction completed and still showed performance rows.
+  - Opening a visible row completed, with `detail pane frame 86.9ms`.
+
+Conclusion:
+
+- Row repaint isolation did not regress list interaction or detail opening.
+- This should help most when rows include thumbnails or selected-state changes, where repaint work can otherwise spread across the surrounding list.
+
+## Cycle 30 follow-up
+
+Plan:
+
+- Check detail rendering paths for notes with many attachments.
+- Remove avoidable per-item work without changing the visible editor or viewer behavior.
+
+Changes:
+
+- Detail content cache now stores each photo block's index while building the cached content list.
+- Detail attachment widgets use the cached index instead of searching the full photo attachment list during each item build.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\security_storage_test.dart --plain-name "incrementally persists notes with long text and many attachments"` passed.
+- In App Browser on `127.0.0.1:58092` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - 1000-note row generation logged `mobile list rows notes=1000 rows=2009 completed 3.7ms`.
+  - Opening a visible row completed, with `detail pane frame 70.101ms`.
+  - Browser console showed no errors during scroll and detail open.
+
+Conclusion:
+
+- Normal 1000-note list/detail navigation remains stable after the attachment-index change.
+- Notes with many embedded photos avoid repeated `indexOf` scans, reducing the risk of quadratic build cost in attachment-heavy detail views.
+
+## Cycle 31 follow-up
+
+Plan:
+
+- Remove measurement-only overhead from non-debug builds.
+- Keep debug instrumentation available for future browser and emulator profiling.
+
+Changes:
+
+- Mobile list row timing now allocates `Stopwatch` only in debug mode.
+- Detail pane frame timing now registers the post-frame callback only in debug mode.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58093` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - 1000-note row generation still logged in debug: `mobile list rows notes=1000 rows=2009 completed 2.101ms`.
+  - Opening a visible row completed, with `detail pane frame 127.299ms`.
+  - Browser console showed no errors.
+
+Conclusion:
+
+- Debug profiling behavior is preserved.
+- Release/profile builds avoid unnecessary `Stopwatch` allocation and post-frame callbacks in the note list/detail hot paths.
+
+## Cycle 32 monkey follow-up
+
+Plan:
+
+- Run a broad In App Browser monkey pass against the 1000-note build.
+- Capture usability issues that appear during normal navigation, detail viewing, and note creation.
+
+Findings:
+
+- The `58084` browser target was initially stale, so the local web-server had to be restarted.
+- With 1000 notes, list generation remained cheap: `mobile list rows notes=1000 rows=2009 completed 2.3ms`.
+- Detail open stayed responsive, generally around 66-138ms depending on whether the note included the location card.
+- The detail bottom sheet did not have an explicit close affordance and the app-level add FAB remained visible behind the sheet.
+- The editor sheet also left the app-level add FAB visible behind its dimmed barrier.
+
+Changes:
+
+- Added an explicit close button to `_NoteDetailPager` when it is used inside a dismissible sheet or modal.
+- Added a shared note overlay depth counter so the app-level add FAB is hidden while note detail or note editor sheets are open.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58084` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Detail sheet showed the close button and no longer showed the add FAB behind it: `detailFabCount=0`.
+  - Editor sheet opened after closing detail and no longer showed the add FAB behind it: `editorFabCount=0`.
+  - Browser console showed no app errors.
+
+Conclusion:
+
+- The large-list performance profile remains acceptable after the monkey pass.
+- The biggest actionable issue was UI clarity around overlapping note overlays; the fix removes misleading background controls and provides an explicit way back to the list.
+
+## Cycle 33 monkey follow-up
+
+Plan:
+
+- Run another In App Browser pass over search, detail, editor, and tab navigation.
+- Focus on controls that remain visible after modal/sheet transitions and on draft-related snackbars.
+
+Findings:
+
+- The 1000-note list remained fast after restart: `mobile list rows notes=1000 rows=2009 completed 2.5ms`.
+- Detail open for the sampled row completed with `detail pane frame 109.901ms`.
+- Typing in the rich editor succeeded, but canceling after a restored draft could leave the "Draft restored" snackbar on the list screen.
+- That snackbar action was bound to the editor state; after the editor was disposed, the action could no longer discard the draft, which made the snackbar misleading.
+
+Changes:
+
+- Track whether the draft-restore snackbar is active inside the editor state.
+- Hide the draft-restore snackbar when the editor is disposed.
+- Also hide the current editor snackbar from the outer sheet context when `showNoteEditorSheet` finishes, covering async restore/cancel races.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58084` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Opening and canceling the editor left no draft snackbar on the list: `hasDraftSnackbarAfterClose=false`.
+  - Browser console showed no app errors.
+
+Conclusion:
+
+- The editor no longer leaves a dead snackbar action behind after it closes.
+- The sampled large-list performance stayed stable during the monkey pass.
+
+## Cycle 34 monkey follow-up
+
+Plan:
+
+- Run a settings/navigation-focused In App Browser pass.
+- Check for text clipping and usability issues in the appearance controls after repeated theme/font changes.
+
+Findings:
+
+- The 1000-note list generation stayed low: `mobile list rows notes=1000 rows=2009 completed 2ms`.
+- Calendar grouping stayed low: `visible notes by day source=1000 days=8 elapsed=2ms`.
+- Settings opened without console errors.
+- The app font warning in Appearance was visually clipped to one line, making the "font may not be available on this device" caveat harder to read.
+
+Changes:
+
+- Allowed the language dropdown helper text to wrap to 2 lines.
+- Allowed the app font dropdown helper text to wrap to 3 lines.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58084` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Appearance opened and the full Japanese font warning was present in the visible DOM.
+  - Browser console showed no app errors.
+
+Conclusion:
+
+- No new performance regression was observed in this pass.
+- The Appearance settings now preserve important helper text instead of truncating it.
+
+## Cycle 35 monkey follow-up
+
+Plan:
+
+- Run another In App Browser pass with 1000 generated notes across notes, settings, and editor entry points.
+- Look for usability failures that are only visible during real interaction, not just measured list build times.
+
+Findings:
+
+- Settings and notes opened with 1000 generated notes and no app console errors.
+- A selected app font could leave Japanese text rendered as missing-glyph boxes on Web/Windows, making Settings hard to recover from.
+- The mobile note detail path used a persistent bottom sheet, so background content could still be scrolled behind the detail sheet.
+
+Changes:
+
+- Added explicit CJK fallback stacks for sans, serif, and monospace app fonts, including Windows, iOS, Android, and common Noto/Source Han family names.
+- Reused those CJK fallback stacks across all selectable app font modes so Japanese UI remains readable even when the selected decorative/system font is missing glyphs.
+- Switched the mobile note detail sheet from a persistent `Scaffold.showBottomSheet` to `showModalBottomSheet` so the route barrier blocks background interactions.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58084` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Settings rendered readable Japanese text after the fallback change.
+  - Browser console showed no app errors.
+
+Conclusion:
+
+- The pass found a high-impact recovery/usability issue rather than a raw list-performance regression.
+- Font selection is now safer for multilingual UI, and mobile detail sheets no longer permit confusing background interaction.
+
+## Cycle 36 monkey follow-up
+
+Plan:
+
+- Run an In App Browser pass through search, editor cancel, calendar, and settings with 1000 generated notes.
+- Focus on list expansion paths that are not part of the main notes list virtualization work.
+
+Findings:
+
+- The app reached the notes screen after the Web debug boot and 1000-note restore, but the initial loading wait remained noticeable in debug mode.
+- Search, editor open/cancel, calendar navigation, and settings navigation did not produce app console errors.
+- Calendar day notes were collapsed to 24 entries by default, but expanding a busy day still used eager row construction inside the parent scroll view.
+
+Changes:
+
+- Replaced the expanded calendar day-note rendering path with `_CalendarDayNotesList`.
+- Kept the collapsed path simple and limited.
+- Used a fixed-height `ListView.separated` for expanded day-note lists so large days are rendered lazily and scroll independently.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58084` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Calendar selected-day list opened with 85 notes for the sampled day.
+  - Expanding the list showed a bounded inner scroll area.
+  - Scrolling the expanded list moved from Performance note 1 to Performance note 8 without console errors.
+
+Conclusion:
+
+- The main notes list was already guarded, but the calendar expansion path had a separate eager-render risk.
+- Busy calendar days now avoid building all expanded rows at once.
+
+## Cycle 37 preview follow-up
+
+Plan:
+
+- Re-check search, list preview, and calendar preview paths after the calendar virtualization pass.
+- Look for long-text cases where the UI displays only 1-2 lines but still passes full note bodies into list text widgets.
+
+Findings:
+
+- Search already uses a 260ms debounce, so the typing path is protected from per-keystroke filtering.
+- Note list body previews and calendar note previews still passed full note bodies into text widgets before `maxLines` truncation.
+- This is cheap for the generated short notes, but long notes would increase layout/highlight work for every visible row.
+
+Changes:
+
+- Added `_normalizePreviewText` to produce bounded preview text before layout.
+- The helper keeps search context by extracting around the query match when the match appears deep in a long body.
+- Updated note list body previews and calendar note previews to use bounded text instead of raw `note.body`.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58084` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Notes list rendered normally.
+  - Searching for `performance` highlighted matches in title and preview text.
+  - Calendar rendered the selected day list without console errors.
+
+Conclusion:
+
+- This pass reduces worst-case long-note preview layout cost without changing the visible behavior for ordinary short notes.
+
+## Cycle 38 non-split index follow-up
+
+Plan:
+
+- Re-check the 1000-note notes screen at tablet/non-split width.
+- Look for providers that still compute split-detail data even when the detail pane is not visible.
+
+Findings:
+
+- The non-split notes screen still watched `visibleNoteIndexByIdProvider`.
+- That provider builds a note-id-to-index map for the full visible list, but the map is only needed to resolve the selected detail index in split view.
+- In non-split mode the selected note id can be passed through directly; if the selected id is not visible, no row will match it anyway.
+
+Changes:
+
+- Moved the `visibleNoteIndexByIdProvider` watch below the non-split early return.
+- Non-split notes now avoids building the full index map during normal list, search, and scroll interactions.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58084` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Notes list rendered normally.
+  - Searching for `location 9` returned the expected location-tagged notes.
+  - Clearing search and scrolling the list worked without app console errors.
+
+Conclusion:
+
+- This is a small but direct reduction in derived-provider work for the common non-split layout.
+
+## Cycle 39 single-vault grouping follow-up
+
+Plan:
+
+- Re-check provider work around the non-split notes list after the previous index-map optimization.
+- Look for derived collections that are only needed for multi-vault or split layouts.
+
+Findings:
+
+- `_NotesScreenState` still watched `visibleNotesByVaultProvider` before deciding whether the screen was split or non-split.
+- `visibleNotesByVaultProvider` groups the full visible list by vault, but the default daily mode has only one visible vault.
+- In that common case, the grouped map can reuse the already-computed `visibleNotes` list directly.
+
+Changes:
+
+- Moved the `visibleNotesByVaultProvider` watch into the non-split branch.
+- For a single visible vault, build a trivial one-entry map from `visibleNotes` instead of running the full grouping provider.
+- Kept the existing grouped provider path for private/admin multi-vault views.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58084` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Notes list rendered normally.
+  - Searching for `location 9` returned location-tagged performance notes.
+  - Browser console showed only Flutter's expected viewport warning and no app errors.
+
+Conclusion:
+
+- This removes one full-list derived grouping step from the default non-split notes layout.
+- Multi-vault behavior remains unchanged, while the single-vault high-volume path does less provider work per visible-list refresh.

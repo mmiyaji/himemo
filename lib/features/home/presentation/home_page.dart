@@ -10,12 +10,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:http/http.dart' as http;
 import 'package:in_app_update/in_app_update.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:latlong2/latlong.dart' show LatLng;
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:pinput/pinput.dart';
@@ -40,6 +44,18 @@ const _androidStorePackageName = 'org.ruhenheim.himemo';
 const _buildDateIso = String.fromEnvironment('HIMEMO_BUILD_DATE');
 
 enum AppSection { notes, calendar, insights, settings }
+
+final _noteOverlaySheetDepth = ValueNotifier<int>(0);
+
+void _pushNoteOverlaySheet() {
+  _noteOverlaySheetDepth.value = _noteOverlaySheetDepth.value + 1;
+}
+
+void _popNoteOverlaySheet() {
+  if (_noteOverlaySheetDepth.value > 0) {
+    _noteOverlaySheetDepth.value = _noteOverlaySheetDepth.value - 1;
+  }
+}
 
 void _debugNotePerf(String message) {
   if (!kDebugMode) {
@@ -72,6 +88,47 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   bool _sidebarCollapsed = false;
+  AppSection? _lastObservedSection;
+  bool _noteOverlayWasOpen = false;
+  DateTime? _suppressProfileAccessUntil;
+
+  @override
+  void initState() {
+    super.initState();
+    _noteOverlaySheetDepth.addListener(_handleNoteOverlayChanged);
+  }
+
+  @override
+  void dispose() {
+    _noteOverlaySheetDepth.removeListener(_handleNoteOverlayChanged);
+    super.dispose();
+  }
+
+  void _handleNoteOverlayChanged() {
+    final noteOverlayOpen = _noteOverlaySheetDepth.value > 0;
+    if (_noteOverlayWasOpen && !noteOverlayOpen) {
+      _suppressProfileAccessUntil = DateTime.now().add(
+        const Duration(milliseconds: 450),
+      );
+    }
+    _noteOverlayWasOpen = noteOverlayOpen;
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  bool get _profileAccessBlocked {
+    final until = _suppressProfileAccessUntil;
+    return _noteOverlaySheetDepth.value > 0 ||
+        (until != null && DateTime.now().isBefore(until));
+  }
+
+  void _handleProfileAccessTap(BuildContext context, WidgetRef ref) {
+    if (_profileAccessBlocked) {
+      return;
+    }
+    _showProfileAccessDialog(context, ref);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -79,6 +136,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     final width = MediaQuery.sizeOf(context).width;
     final useRail = width >= 840;
     final section = _sectionForLocation(GoRouterState.of(context).uri.path);
+    _closeNotesOverlayOnRouteSectionChange(context, ref, section);
+    final noteOverlayOpen = _noteOverlaySheetDepth.value > 0;
     final activeIdentity = ref.watch(activeIdentityDataProvider);
     final activePrivateProfileLabel = ref.watch(
       activePrivateProfileLabelProvider,
@@ -87,45 +146,111 @@ class _AppShellState extends ConsumerState<AppShell> {
     final privateProfileActive =
         !adminMode && activePrivateProfileLabel != null;
     final privateProfileActiveColor = Theme.of(context).colorScheme.primary;
+    final profileAccessTooltip = adminMode
+        ? (context.strings.text('home.admin.mode.active'))
+        : (activePrivateProfileLabel != null
+              ? context.strings.viewingPrivateProfile(activePrivateProfileLabel)
+              : (context.strings.text('home.unlock.private.profile')));
 
     return Scaffold(
       appBar: AppBar(
         title: const _AppBrandTitle(),
         actions: [
           if (privateProfileActive)
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: math.min(180, width * 0.34),
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 28),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: math.min(220, width * 0.42),
+                ),
+                child: Tooltip(
+                  message: context.strings.viewingPrivateProfile(
+                    activePrivateProfileLabel,
+                  ),
+                  child: Material(
+                    color: privateProfileActiveColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                    child: InkWell(
+                      key: AppShell.privateProfileAccessKey,
+                      borderRadius: BorderRadius.circular(999),
+                      onTap: noteOverlayOpen
+                          ? null
+                          : () => _handleProfileAccessTap(context, ref),
+                      child: Padding(
+                        padding: const EdgeInsetsDirectional.fromSTEB(
+                          10,
+                          7,
+                          12,
+                          7,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.lock_open_rounded,
+                              size: 20,
+                              color: privateProfileActiveColor,
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                activePrivateProfileLabel,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.labelLarge
+                                    ?.copyWith(
+                                      color: privateProfileActiveColor,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
-              child: Text(
-                activePrivateProfileLabel,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: privateProfileActiveColor,
-                  fontWeight: FontWeight.w700,
+            )
+          else
+            SizedBox(
+              width: 72,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Tooltip(
+                  message: profileAccessTooltip,
+                  child: SizedBox.square(
+                    dimension: 40,
+                    child: Semantics(
+                      button: true,
+                      label: profileAccessTooltip,
+                      onTap: noteOverlayOpen
+                          ? null
+                          : () => _handleProfileAccessTap(context, ref),
+                      child: Material(
+                        type: MaterialType.transparency,
+                        shape: const CircleBorder(),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          key: AppShell.privateProfileAccessKey,
+                          customBorder: const CircleBorder(),
+                          onTap: noteOverlayOpen
+                              ? null
+                              : () => _handleProfileAccessTap(context, ref),
+                          child: Icon(
+                            adminMode
+                                ? Icons.admin_panel_settings_rounded
+                                : activePrivateProfileLabel != null
+                                ? Icons.lock_open_rounded
+                                : Icons.lock_rounded,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
-          IconButton(
-            key: AppShell.privateProfileAccessKey,
-            tooltip: adminMode
-                ? (context.strings.text('home.admin.mode.active'))
-                : (activePrivateProfileLabel != null
-                      ? context.strings.viewingPrivateProfile(
-                          activePrivateProfileLabel,
-                        )
-                      : (context.strings.text('home.unlock.private.profile'))),
-            onPressed: () => _showProfileAccessDialog(context, ref),
-            icon: Icon(
-              adminMode
-                  ? Icons.admin_panel_settings_rounded
-                  : activePrivateProfileLabel != null
-                  ? Icons.lock_open_rounded
-                  : Icons.lock_rounded,
-              color: privateProfileActive ? privateProfileActiveColor : null,
-            ),
-          ),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
@@ -140,6 +265,8 @@ class _AppShellState extends ConsumerState<AppShell> {
                     section: section,
                     activeIdentity: activeIdentity,
                     collapsed: _sidebarCollapsed,
+                    tagSummaries: ref.watch(visibleTagSummariesProvider),
+                    activeTags: ref.watch(searchFiltersControllerProvider).tags,
                     onToggleCollapsed: () {
                       setState(() {
                         _sidebarCollapsed = !_sidebarCollapsed;
@@ -147,6 +274,8 @@ class _AppShellState extends ConsumerState<AppShell> {
                     },
                     onSectionSelected: (target) =>
                         _goToSection(context, ref, target),
+                    onShowAllNotes: () => _showAllNotes(context, ref),
+                    onTagSelected: (tag) => _openTagFilter(context, ref, tag),
                   ),
                   VerticalDivider(
                     width: 1,
@@ -192,7 +321,9 @@ class _AppShellState extends ConsumerState<AppShell> {
               ],
             ),
       floatingActionButton:
-          section == AppSection.notes || section == AppSection.calendar
+          !noteOverlayOpen &&
+              ((section == AppSection.notes && width < 1180) ||
+                  section == AppSection.calendar)
           ? FloatingActionButton.small(
               key: AppShell.addNoteKey,
               onPressed: () => showNoteEditorSheet(context, ref),
@@ -224,6 +355,45 @@ class _AppShellState extends ConsumerState<AppShell> {
       case AppSection.settings:
         context.go('/settings');
     }
+  }
+
+  void _showAllNotes(BuildContext context, WidgetRef ref) {
+    ref.read(searchFiltersControllerProvider.notifier).setTags(const []);
+    ref.read(searchQueryProvider.notifier).setQuery('');
+    ref.read(selectedNoteIdProvider.notifier).select(null);
+    context.go('/notes');
+  }
+
+  void _openTagFilter(BuildContext context, WidgetRef ref, String tag) {
+    ref.read(searchFiltersControllerProvider.notifier).setTags([tag]);
+    ref.read(searchQueryProvider.notifier).setQuery('');
+    ref.read(selectedNoteIdProvider.notifier).select(null);
+    context.go('/notes');
+  }
+
+  void _closeNotesOverlayOnRouteSectionChange(
+    BuildContext context,
+    WidgetRef ref,
+    AppSection section,
+  ) {
+    final previous = _lastObservedSection;
+    _lastObservedSection = section;
+    if (previous == null ||
+        previous == section ||
+        previous != AppSection.notes ||
+        section == AppSection.notes) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      ref.read(selectedNoteIdProvider.notifier).select(null);
+      final rootNavigator = Navigator.of(context, rootNavigator: true);
+      if (rootNavigator.canPop()) {
+        rootNavigator.pop();
+      }
+    });
   }
 
   AppSection _sectionForLocation(String location) {
@@ -409,6 +579,42 @@ class NotesScreen extends ConsumerStatefulWidget {
 }
 
 class _NotesScreenState extends ConsumerState<NotesScreen> {
+  static const double _defaultSplitListFraction = 5 / 11;
+  static const double _narrowSplitListFraction = 0.36;
+  static const double _wideSplitListFraction = 0.58;
+  static const double _minSplitListWidth = 320;
+  static const double _maxSplitListFraction = 0.62;
+
+  double _splitListFraction = _defaultSplitListFraction;
+
+  void _resizeSplitList(double delta, double availableWidth) {
+    if (availableWidth <= 0) {
+      return;
+    }
+    final currentWidth = availableWidth * _splitListFraction;
+    final minWidth = math.min(_minSplitListWidth, availableWidth * 0.45);
+    final maxWidth = math.max(minWidth, availableWidth * _maxSplitListFraction);
+    setState(() {
+      _splitListFraction =
+          (currentWidth + delta).clamp(minWidth, maxWidth) / availableWidth;
+    });
+  }
+
+  void _cycleSplitListWidth(double availableWidth) {
+    if (availableWidth <= 0) {
+      return;
+    }
+    setState(() {
+      if (_splitListFraction < _defaultSplitListFraction - 0.02) {
+        _splitListFraction = _defaultSplitListFraction;
+      } else if (_splitListFraction < _wideSplitListFraction - 0.02) {
+        _splitListFraction = _wideSplitListFraction;
+      } else {
+        _splitListFraction = _narrowSplitListFraction;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.sizeOf(context);
@@ -429,92 +635,95 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final listDensity = ref.watch(notesListDensityControllerProvider);
     final query = ref.watch(searchQueryProvider).trim();
     final selectedNoteId = ref.watch(selectedNoteIdProvider);
-    final effectiveSelectedNoteId =
-        selectedNoteId != null &&
-            visibleNotes.any((note) => note.id == selectedNoteId)
-        ? selectedNoteId
-        : null;
-
-    final selectedIndex = effectiveSelectedNoteId == null
-        ? -1
-        : visibleNotes.indexWhere((note) => note.id == effectiveSelectedNoteId);
 
     if (!useSplitView) {
-      return ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        children: [
-          if (activeIdentity.id != 'daily') ...[
-            _IdentityHeader(identity: activeIdentity),
-            const SizedBox(height: 12),
-          ],
-          if (activeIdentity.id == 'private' && !privateVaultUnlocked) ...[
-            const SizedBox(height: 12),
-            const _PrivateVaultLockedNotice(),
-          ],
-          _NotesToolbar(compact: useCompactHeader),
-          const SizedBox(height: 16),
-          if (visibleNotes.isEmpty)
-            const _EmptyNotesState()
-          else
-            for (final vault in visibleVaults) ...[
-              _VaultSectionCard(
-                vault: vault,
-                notes: ref.watch(notesForVaultProvider(vault.id)),
-                selectedNoteId: effectiveSelectedNoteId,
-                density: listDensity,
-                query: query,
-                onNoteSelected: (note) =>
-                    _openMobileNoteActions(context, note, visibleNotes),
-              ),
-              const SizedBox(height: 16),
-            ],
-        ],
+      final visibleNotesByVault = visibleVaults.length == 1
+          ? <String, List<NoteEntry>>{visibleVaults.first.id: visibleNotes}
+          : ref.watch(visibleNotesByVaultProvider);
+      return _MobileNotesList(
+        activeIdentity: activeIdentity,
+        showPrivateVaultNotice:
+            activeIdentity.id == 'private' && !privateVaultUnlocked,
+        compactHeader: useCompactHeader,
+        vaults: visibleVaults,
+        notesByVault: visibleNotesByVault,
+        allVisibleNotes: visibleNotes,
+        selectedNoteId: selectedNoteId,
+        density: listDensity,
+        query: query,
+        onNoteSelected: (note) =>
+            _openMobileNoteActions(context, note, visibleNotes),
       );
     }
 
-    return Row(
-      children: [
-        Expanded(
-          flex: 5,
-          child: _SplitNotesListPane(
-            activeIdentity: activeIdentity,
-            showPrivateVaultNotice:
-                activeIdentity.id == 'private' && !privateVaultUnlocked,
-            notes: visibleNotes,
-            selectedNoteId: effectiveSelectedNoteId,
-            vaultNameById: vaultNameById,
-            showVaultName: visibleVaults.length > 1,
-            density: listDensity,
-            query: query,
-            onNoteSelected: (note) {
-              _debugNotePerf('select split-list ${_notePerfLabel(note)}');
-              ref.read(selectedNoteIdProvider.notifier).select(note.id);
-            },
-          ),
-        ),
-        VerticalDivider(width: 1, color: Theme.of(context).dividerColor),
-        Expanded(
-          flex: 6,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: visibleNotes.isEmpty
-                ? const _EmptyNotesState()
-                : selectedIndex < 0
-                ? const _EmptyNoteSelectionState()
-                : _StaticNoteDetailView(
-                    notes: visibleNotes,
-                    selectedIndex: selectedIndex,
-                    onSelected: (index) => ref
-                        .read(selectedNoteIdProvider.notifier)
-                        .select(visibleNotes[index].id),
-                    onEdit: (note) =>
-                        showNoteEditorSheet(context, ref, note: note),
-                    onDelete: (note) => _deleteNote(context, note),
-                    onTagTap: (tag) => _applyTagFilter(context, tag),
-                  ),
-          ),
-        ),
-      ],
+    final visibleNoteIndexById = ref.watch(visibleNoteIndexByIdProvider);
+    final selectedIndex = selectedNoteId == null
+        ? -1
+        : (visibleNoteIndexById[selectedNoteId] ?? -1);
+    final effectiveSelectedNoteId = selectedNoteId != null && selectedIndex >= 0
+        ? selectedNoteId
+        : null;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth;
+        final minWidth = math.min(_minSplitListWidth, availableWidth * 0.45);
+        final maxWidth = math.max(
+          minWidth,
+          availableWidth * _maxSplitListFraction,
+        );
+        final listWidth = (availableWidth * _splitListFraction).clamp(
+          minWidth,
+          maxWidth,
+        );
+        return Row(
+          children: [
+            SizedBox(
+              width: listWidth,
+              child: _SplitNotesListPane(
+                activeIdentity: activeIdentity,
+                showPrivateVaultNotice:
+                    activeIdentity.id == 'private' && !privateVaultUnlocked,
+                notes: visibleNotes,
+                selectedNoteId: effectiveSelectedNoteId,
+                vaultNameById: vaultNameById,
+                showVaultName: visibleVaults.length > 1,
+                density: listDensity,
+                query: query,
+                onAddNote: () => showNoteEditorSheet(context, ref),
+                onNoteSelected: (note) {
+                  _debugNotePerf('select split-list ${_notePerfLabel(note)}');
+                  ref.read(selectedNoteIdProvider.notifier).select(note.id);
+                },
+              ),
+            ),
+            _SplitPaneResizeHandle(
+              onDragDelta: (delta) => _resizeSplitList(delta, availableWidth),
+              onTap: () => _cycleSplitListWidth(availableWidth),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: visibleNotes.isEmpty
+                    ? const _EmptyNotesState()
+                    : selectedIndex < 0
+                    ? const _EmptyNoteSelectionState()
+                    : _StaticNoteDetailView(
+                        notes: visibleNotes,
+                        selectedIndex: selectedIndex,
+                        onSelected: (index) => ref
+                            .read(selectedNoteIdProvider.notifier)
+                            .select(visibleNotes[index].id),
+                        onEdit: (note) =>
+                            showNoteEditorSheet(context, ref, note: note),
+                        onDelete: (note) => _deleteNote(context, note),
+                        onTagTap: (tag) => _applyTagFilter(context, tag),
+                      ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -524,39 +733,54 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     List<NoteEntry> visibleNotes,
   ) async {
     _debugNotePerf('open mobile detail ${_notePerfLabel(note)}');
+    final hostContext = context;
     final initialIndex = visibleNotes.indexWhere(
       (entry) => entry.id == note.id,
     );
-    final controller = Scaffold.of(context).showBottomSheet((context) {
-      return SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.86,
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            child: _NoteDetailPager(
-              notes: visibleNotes,
-              selectedIndex: initialIndex < 0 ? 0 : initialIndex,
-              onPageChanged: (index) => ref
-                  .read(selectedNoteIdProvider.notifier)
-                  .select(visibleNotes[index].id),
-              onEdit: (selectedNote) async {
-                Navigator.of(context).pop();
-                await showNoteEditorSheet(context, ref, note: selectedNote);
-              },
-              onDelete: (selectedNote) async {
-                Navigator.of(context).pop();
-                await _deleteNote(context, selectedNote);
-              },
-              onTagTap: (tag) {
-                Navigator.of(context).pop();
-                _applyTagFilter(context, tag);
-              },
+    _pushNoteOverlaySheet();
+    try {
+      await showModalBottomSheet<void>(
+        context: hostContext,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) {
+          return SizedBox(
+            height: MediaQuery.sizeOf(sheetContext).height * 0.86,
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                child: _NoteDetailPager(
+                  notes: visibleNotes,
+                  selectedIndex: initialIndex < 0 ? 0 : initialIndex,
+                  onPageChanged: (index) => ref
+                      .read(selectedNoteIdProvider.notifier)
+                      .select(visibleNotes[index].id),
+                  onEdit: (selectedNote) async {
+                    Navigator.of(sheetContext).pop();
+                    await showNoteEditorSheet(
+                      hostContext,
+                      ref,
+                      note: selectedNote,
+                    );
+                  },
+                  onDelete: (selectedNote) async {
+                    Navigator.of(sheetContext).pop();
+                    await _deleteNote(hostContext, selectedNote);
+                  },
+                  onClose: () => Navigator.of(sheetContext).pop(),
+                  onTagTap: (tag) {
+                    Navigator.of(sheetContext).pop();
+                    _applyTagFilter(hostContext, tag);
+                  },
+                ),
+              ),
             ),
-          ),
-        ),
+          );
+        },
       );
-    }, showDragHandle: true);
-    await controller.closed;
+    } finally {
+      _popNoteOverlaySheet();
+    }
   }
 
   Future<void> _deleteNote(BuildContext context, NoteEntry note) async {
@@ -635,8 +859,11 @@ class CalendarScreen extends ConsumerStatefulWidget {
 }
 
 class _CalendarScreenState extends ConsumerState<CalendarScreen> {
+  static const _collapsedDayNoteLimit = 24;
+
   DateTime _selectedDay = DateTime.now();
   late DateTime _visibleMonth;
+  bool _dayNotesExpanded = false;
 
   @override
   void initState() {
@@ -647,12 +874,15 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final notes = ref.watch(visibleNotesProvider);
-    final noteDays = _sortedNoteDays(notes);
+    final noteDays = ref.watch(visibleNoteDaysProvider);
+    final notesByDay = ref.watch(visibleNotesByDayProvider);
     final markedDays = noteDays.toSet();
-    final sameDayNotes = notes
-        .where((note) => _isSameDay(note.createdAt, _selectedDay))
-        .toList(growable: false);
+    final sameDayNotes =
+        notesByDay[_calendarDayKey(_selectedDay)] ?? const <NoteEntry>[];
+    final shouldCollapseDayNotes = sameDayNotes.length > _collapsedDayNoteLimit;
+    final visibleDayNoteCount = shouldCollapseDayNotes && !_dayNotesExpanded
+        ? _collapsedDayNoteLimit
+        : sameDayNotes.length;
     final previousDay = _adjacentNoteDay(
       noteDays,
       _selectedDay,
@@ -691,12 +921,14 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               setState(() {
                 _selectedDay = today;
                 _visibleMonth = DateTime(today.year, today.month);
+                _dayNotesExpanded = false;
               });
             },
             onDateSelected: (date) {
               setState(() {
                 _selectedDay = date;
                 _visibleMonth = DateTime(date.year, date.month);
+                _dayNotesExpanded = false;
               });
             },
           ),
@@ -754,22 +986,55 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   ),
                 )
               else
-                for (var i = 0; i < sameDayNotes.length; i++) ...[
-                  _CalendarNoteRow(
-                    note: sameDayNotes[i],
-                    vaultName: ref
-                        .watch(vaultByIdProvider(sameDayNotes[i].vaultId))
-                        .name,
-                    onTap: () => _openCalendarNoteDetails(
-                      context,
-                      notes,
-                      _selectedDay,
-                      i,
+                _CalendarDayNotesList(
+                  notes: sameDayNotes,
+                  itemCount: visibleDayNoteCount,
+                  expanded: _dayNotesExpanded,
+                  onTap: (index) => _openCalendarNoteDetails(
+                    context,
+                    noteDays,
+                    notesByDay,
+                    _selectedDay,
+                    index,
+                  ),
+                ),
+              if (shouldCollapseDayNotes) ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _dayNotesExpanded = !_dayNotesExpanded;
+                      });
+                    },
+                    icon: Icon(
+                      _dayNotesExpanded
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                    ),
+                    label: Text(
+                      _dayNotesExpanded
+                          ? strings.localized(
+                              en: 'Show fewer notes',
+                              ja: '表示件数を減らす',
+                              zh: '显示较少笔记',
+                              ko: '노트 적게 표시',
+                              es: 'Mostrar menos notas',
+                              de: 'Weniger Notizen anzeigen',
+                            )
+                          : strings.localized(
+                              en: 'Show all ${sameDayNotes.length} notes',
+                              ja: '${sameDayNotes.length}件すべて表示',
+                              zh: '显示全部 ${sameDayNotes.length} 条笔记',
+                              ko: '노트 ${sameDayNotes.length}개 모두 표시',
+                              es: 'Mostrar las ${sameDayNotes.length} notas',
+                              de: 'Alle ${sameDayNotes.length} Notizen anzeigen',
+                            ),
                     ),
                   ),
-                  if (i != sameDayNotes.length - 1)
-                    Divider(height: 24, color: Theme.of(context).dividerColor),
-                ],
+                ),
+              ],
             ],
           ),
         ),
@@ -777,10 +1042,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     );
   }
 
-  bool _isSameDay(DateTime left, DateTime right) {
-    return left.year == right.year &&
-        left.month == right.month &&
-        left.day == right.day;
+  DateTime _calendarDayKey(DateTime value) {
+    return DateTime(value.year, value.month, value.day);
   }
 
   DateTime _selectedDateWithCurrentTime() {
@@ -792,22 +1055,6 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       now.hour,
       now.minute,
     );
-  }
-
-  List<DateTime> _sortedNoteDays(List<NoteEntry> notes) {
-    final days =
-        notes
-            .map(
-              (note) => DateTime(
-                note.createdAt.year,
-                note.createdAt.month,
-                note.createdAt.day,
-              ),
-            )
-            .toSet()
-            .toList()
-          ..sort();
-    return days;
   }
 
   DateTime? _adjacentNoteDay(
@@ -838,12 +1085,14 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     setState(() {
       _selectedDay = day;
       _visibleMonth = DateTime(day.year, day.month);
+      _dayNotesExpanded = false;
     });
   }
 
   Future<void> _openCalendarNoteDetails(
     BuildContext context,
-    List<NoteEntry> allNotes,
+    List<DateTime> noteDays,
+    Map<DateTime, List<NoteEntry>> notesByDay,
     DateTime initialDay,
     int initialIndex,
   ) async {
@@ -862,10 +1111,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
         var selectedIndex = initialIndex;
         return StatefulBuilder(
           builder: (context, setModalState) {
-            final noteDays = _sortedNoteDays(allNotes);
-            final dayNotes = allNotes
-                .where((note) => _isSameDay(note.createdAt, selectedDay))
-                .toList(growable: false);
+            final dayNotes =
+                notesByDay[_calendarDayKey(selectedDay)] ?? const <NoteEntry>[];
             if (dayNotes.isEmpty) {
               return const SizedBox.shrink();
             }
@@ -977,6 +1224,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                                   .delete(selectedNote.id);
                             }
                           },
+                          onClose: () => Navigator.of(context).pop(),
                         ),
                       ),
                     ],
@@ -1163,14 +1411,33 @@ class _MarkedCalendar extends StatelessWidget {
   }
 }
 
-class InsightsScreen extends ConsumerWidget {
+class InsightsScreen extends ConsumerStatefulWidget {
   const InsightsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<InsightsScreen> createState() => _InsightsScreenState();
+}
+
+class _InsightsScreenState extends ConsumerState<InsightsScreen> {
+  List<NoteEntry>? _cachedNotes;
+  Locale? _cachedLocale;
+  _InsightsData? _cachedInsights;
+
+  @override
+  Widget build(BuildContext context) {
     final strings = context.strings;
     final notes = ref.watch(visibleNotesProvider);
-    final summary = _buildInsightsSummary(context, notes);
+    final locale = Localizations.localeOf(context);
+    var insights = _cachedInsights;
+    if (insights == null ||
+        !identical(_cachedNotes, notes) ||
+        _cachedLocale != locale) {
+      insights = _buildInsightsData(context, notes);
+      _cachedNotes = notes;
+      _cachedLocale = locale;
+      _cachedInsights = insights;
+    }
+    final summary = insights.summary;
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -1204,7 +1471,7 @@ class InsightsScreen extends ConsumerWidget {
             'home.notes.created.over.the.last.6.months',
           ),
           child: _InsightLineChart(
-            buckets: _buildMonthlyBuckets(context, notes),
+            buckets: insights.monthlyBuckets,
             valueSuffix: strings.text('home.notes'),
           ),
         ),
@@ -1215,7 +1482,7 @@ class InsightsScreen extends ConsumerWidget {
             'home.daily.note.count.over.the.last.14.days',
           ),
           child: _InsightBarChart(
-            buckets: _buildRecentDayBuckets(context, notes),
+            buckets: insights.recentDayBuckets,
             valueSuffix: strings.text('home.notes'),
           ),
         ),
@@ -1226,7 +1493,7 @@ class InsightsScreen extends ConsumerWidget {
             'home.notes.by.weekday.and.3.hour.time.block',
           ),
           child: _WeekdayHourHistogram(
-            buckets: _buildWeekdayHourBuckets(notes),
+            buckets: insights.weekdayHourBuckets,
             valueSuffix: strings.text('home.notes'),
           ),
         ),
@@ -1237,7 +1504,7 @@ class InsightsScreen extends ConsumerWidget {
             'home.how.often.photos.videos.and.audio.are.used',
           ),
           child: _InsightHorizontalBarChart(
-            buckets: _buildAttachmentBuckets(context, notes),
+            buckets: insights.attachmentBuckets,
             valueSuffix: strings.text('home.items'),
           ),
         ),
@@ -1930,39 +2197,78 @@ class _InsightsSummary {
   final String message;
 }
 
-_InsightsSummary _buildInsightsSummary(
-  BuildContext context,
-  List<NoteEntry> notes,
-) {
+class _InsightsData {
+  const _InsightsData({
+    required this.summary,
+    required this.monthlyBuckets,
+    required this.recentDayBuckets,
+    required this.weekdayHourBuckets,
+    required this.attachmentBuckets,
+  });
+
+  final _InsightsSummary summary;
+  final List<_InsightBucket> monthlyBuckets;
+  final List<_InsightBucket> recentDayBuckets;
+  final List<_WeekdayHourBucket> weekdayHourBuckets;
+  final List<_InsightBucket> attachmentBuckets;
+}
+
+_InsightsData _buildInsightsData(BuildContext context, List<NoteEntry> notes) {
+  final watch = kDebugMode ? (Stopwatch()..start()) : null;
   final strings = context.strings;
   final now = DateTime.now();
-  final thisMonthCount = notes
-      .where(
-        (note) =>
-            note.createdAt.year == now.year &&
-            note.createdAt.month == now.month,
-      )
-      .length;
-  final totalCharacters = notes.fold<int>(
-    0,
-    (sum, note) => sum + note.body.trim().length,
-  );
-  final totalAttachments = notes.fold<int>(
-    0,
-    (sum, note) => sum + note.attachments.length,
-  );
-  final activeDays =
-      notes
-          .map(
-            (note) => DateTime(
-              note.createdAt.year,
-              note.createdAt.month,
-              note.createdAt.day,
-            ),
-          )
-          .toSet()
-          .toList()
-        ..sort((a, b) => b.compareTo(a));
+  final today = DateTime(now.year, now.month, now.day);
+  final previousMonth = DateTime(now.year, now.month - 1);
+  var thisMonthCount = 0;
+  var previousMonthCount = 0;
+  var totalCharacters = 0;
+  var totalAttachments = 0;
+  final activeDaysSet = <DateTime>{};
+  final monthCounts = <int, int>{};
+  final dayCounts = <DateTime, int>{};
+  final weekdayHourCounts = <String, int>{};
+  final hourCounts = <int, int>{};
+  var photoAttachments = 0;
+  var videoAttachments = 0;
+  var audioAttachments = 0;
+
+  for (final note in notes) {
+    final createdAt = note.createdAt;
+    totalCharacters += note.body.trim().length;
+    totalAttachments += note.attachments.length;
+    if (createdAt.year == now.year && createdAt.month == now.month) {
+      thisMonthCount += 1;
+    }
+    if (createdAt.year == previousMonth.year &&
+        createdAt.month == previousMonth.month) {
+      previousMonthCount += 1;
+    }
+    final monthKey = createdAt.year * 12 + createdAt.month;
+    monthCounts[monthKey] = (monthCounts[monthKey] ?? 0) + 1;
+    final day = DateTime(createdAt.year, createdAt.month, createdAt.day);
+    activeDaysSet.add(day);
+    dayCounts[day] = (dayCounts[day] ?? 0) + 1;
+    final weekdayStartHour = (createdAt.hour ~/ 3) * 3;
+    final weekdayHourKey = '${createdAt.weekday}:$weekdayStartHour';
+    weekdayHourCounts[weekdayHourKey] =
+        (weekdayHourCounts[weekdayHourKey] ?? 0) + 1;
+    final hourStart = (createdAt.hour ~/ 4) * 4;
+    hourCounts[hourStart] = (hourCounts[hourStart] ?? 0) + 1;
+    for (final attachment in note.attachments) {
+      switch (attachment.type) {
+        case AttachmentType.photo:
+          photoAttachments += 1;
+        case AttachmentType.video:
+          videoAttachments += 1;
+        case AttachmentType.audio:
+          audioAttachments += 1;
+        case AttachmentType.file:
+          break;
+      }
+    }
+  }
+
+  final activeDays = activeDaysSet.toList()..sort((a, b) => b.compareTo(a));
   var currentStreak = 0;
   if (activeDays.isNotEmpty) {
     var cursor = activeDays.first;
@@ -1973,24 +2279,61 @@ _InsightsSummary _buildInsightsSummary(
       }
     }
   }
-  final bestDay = _buildRecentDayBuckets(context, notes, count: 31)
+
+  final recentDayBuckets = <_InsightBucket>[];
+  final recent31DayBuckets = <_InsightBucket>[];
+  for (var i = 30; i >= 0; i--) {
+    final day = today.subtract(Duration(days: i));
+    final bucket = _InsightBucket(
+      label: '${day.month}/${day.day}',
+      value: dayCounts[day] ?? 0,
+    );
+    recent31DayBuckets.add(bucket);
+    if (i < 14) {
+      recentDayBuckets.add(bucket);
+    }
+  }
+  final monthlyBuckets = <_InsightBucket>[];
+  for (var i = 5; i >= 0; i--) {
+    final month = DateTime(now.year, now.month - i);
+    monthlyBuckets.add(
+      _InsightBucket(
+        label: strings.monthBucketLabel(month.month),
+        value: monthCounts[month.year * 12 + month.month] ?? 0,
+      ),
+    );
+  }
+  final weekdayHourBuckets = [
+    for (var startHour = 0; startHour < 24; startHour += 3)
+      for (var weekday = 1; weekday <= 7; weekday++)
+        _WeekdayHourBucket(
+          weekday: weekday,
+          startHour: startHour,
+          value: weekdayHourCounts['$weekday:$startHour'] ?? 0,
+        ),
+  ];
+  final hourBuckets = [
+    for (var hour = 0; hour < 24; hour += 4)
+      _InsightBucket(
+        label:
+            '${hour.toString().padLeft(2, '0')}-${(hour + 3).toString().padLeft(2, '0')}',
+        value: hourCounts[hour] ?? 0,
+      ),
+  ];
+  final bestDay = recent31DayBuckets
+      .where((bucket) => bucket.value > 0)
       .fold<_InsightBucket?>(
         null,
         (best, bucket) =>
             best == null || bucket.value > best.value ? bucket : best,
       );
-  final bestHour = _buildHourBuckets(notes).fold<_InsightBucket?>(
-    null,
-    (best, bucket) => best == null || bucket.value > best.value ? bucket : best,
-  );
-  final previousMonth = DateTime(now.year, now.month - 1);
-  final previousMonthCount = notes
-      .where(
-        (note) =>
-            note.createdAt.year == previousMonth.year &&
-            note.createdAt.month == previousMonth.month,
-      )
-      .length;
+  final bestHour = hourBuckets
+      .where((bucket) => bucket.value > 0)
+      .fold<_InsightBucket?>(
+        null,
+        (best, bucket) =>
+            best == null || bucket.value > best.value ? bucket : best,
+      );
   final monthlyDelta = thisMonthCount - previousMonthCount;
   final message = bestDay == null || bestDay.value == 0
       ? strings.text('home.insights.summary.empty')
@@ -1998,131 +2341,47 @@ _InsightsSummary _buildInsightsSummary(
           'thisMonthCount': thisMonthCount,
           'bestDayLabel': bestDay.label,
         });
-  return _InsightsSummary(
-    currentStreak: currentStreak,
-    thisMonthCount: thisMonthCount,
-    totalCharacters: totalCharacters,
-    totalAttachments: totalAttachments,
-    bestDayLabel: bestDay?.label ?? '-',
-    bestDayValue: bestDay?.value ?? 0,
-    bestHourLabel: bestHour?.label ?? '-',
-    monthlyDeltaLabel: monthlyDelta == 0
-        ? '0'
-        : monthlyDelta > 0
-        ? '+$monthlyDelta'
-        : '$monthlyDelta',
-    message: message,
-  );
-}
-
-List<_InsightBucket> _buildMonthlyBuckets(
-  BuildContext context,
-  List<NoteEntry> notes, {
-  int count = 6,
-}) {
-  final strings = context.strings;
-  final now = DateTime.now();
-  final buckets = <_InsightBucket>[];
-  for (var i = count - 1; i >= 0; i--) {
-    final month = DateTime(now.year, now.month - i);
-    final value = notes
-        .where(
-          (note) =>
-              note.createdAt.year == month.year &&
-              note.createdAt.month == month.month,
-        )
-        .length;
-    buckets.add(
+  final data = _InsightsData(
+    summary: _InsightsSummary(
+      currentStreak: currentStreak,
+      thisMonthCount: thisMonthCount,
+      totalCharacters: totalCharacters,
+      totalAttachments: totalAttachments,
+      bestDayLabel: bestDay?.label ?? '-',
+      bestDayValue: bestDay?.value ?? 0,
+      bestHourLabel: bestHour?.label ?? '-',
+      monthlyDeltaLabel: monthlyDelta == 0
+          ? '0'
+          : monthlyDelta > 0
+          ? '+$monthlyDelta'
+          : '$monthlyDelta',
+      message: message,
+    ),
+    monthlyBuckets: List.unmodifiable(monthlyBuckets),
+    recentDayBuckets: List.unmodifiable(recentDayBuckets),
+    weekdayHourBuckets: List.unmodifiable(weekdayHourBuckets),
+    attachmentBuckets: [
       _InsightBucket(
-        label: strings.monthBucketLabel(month.month),
-        value: value,
+        label: strings.text('home.photo'),
+        value: photoAttachments,
       ),
+      _InsightBucket(
+        label: strings.text('home.video'),
+        value: videoAttachments,
+      ),
+      _InsightBucket(
+        label: strings.text('home.audio'),
+        value: audioAttachments,
+      ),
+    ],
+  );
+  final elapsed = watch?.elapsedMicroseconds;
+  if (elapsed != null && (notes.length >= 500 || elapsed >= 2000)) {
+    _debugNotePerf(
+      'insights build notes=${notes.length} attachments=$totalAttachments completed ${elapsed / 1000}ms',
     );
   }
-  return buckets;
-}
-
-List<_InsightBucket> _buildRecentDayBuckets(
-  BuildContext context,
-  List<NoteEntry> notes, {
-  int count = 14,
-}) {
-  final now = DateTime.now();
-  final buckets = <_InsightBucket>[];
-  for (var i = count - 1; i >= 0; i--) {
-    final day = DateTime(
-      now.year,
-      now.month,
-      now.day,
-    ).subtract(Duration(days: i));
-    final value = notes
-        .where((note) => _isSameCalendarDay(note.createdAt, day))
-        .length;
-    buckets.add(_InsightBucket(label: '${day.month}/${day.day}', value: value));
-  }
-  return buckets;
-}
-
-List<_WeekdayHourBucket> _buildWeekdayHourBuckets(List<NoteEntry> notes) {
-  return [
-    for (var startHour = 0; startHour < 24; startHour += 3)
-      for (var weekday = 1; weekday <= 7; weekday++)
-        _WeekdayHourBucket(
-          weekday: weekday,
-          startHour: startHour,
-          value: notes
-              .where(
-                (note) =>
-                    note.createdAt.weekday == weekday &&
-                    note.createdAt.hour >= startHour &&
-                    note.createdAt.hour < startHour + 3,
-              )
-              .length,
-        ),
-  ];
-}
-
-List<_InsightBucket> _buildAttachmentBuckets(
-  BuildContext context,
-  List<NoteEntry> notes,
-) {
-  final strings = context.strings;
-  int countFor(AttachmentType type) => notes.fold<int>(
-    0,
-    (sum, note) =>
-        sum +
-        note.attachments.where((attachment) => attachment.type == type).length,
-  );
-  return [
-    _InsightBucket(
-      label: strings.text('home.photo'),
-      value: countFor(AttachmentType.photo),
-    ),
-    _InsightBucket(
-      label: strings.text('home.video'),
-      value: countFor(AttachmentType.video),
-    ),
-    _InsightBucket(
-      label: strings.text('home.audio'),
-      value: countFor(AttachmentType.audio),
-    ),
-  ];
-}
-
-List<_InsightBucket> _buildHourBuckets(List<NoteEntry> notes) {
-  return [
-    for (var hour = 0; hour < 24; hour += 4)
-      _InsightBucket(
-        label:
-            '${hour.toString().padLeft(2, '0')}-${(hour + 3).toString().padLeft(2, '0')}',
-        value: notes
-            .where(
-              (note) =>
-                  note.createdAt.hour >= hour && note.createdAt.hour < hour + 4,
-            )
-            .length,
-      ),
-  ];
+  return data;
 }
 
 bool _isSameCalendarDay(DateTime left, DateTime right) {
@@ -2669,6 +2928,7 @@ class SettingsScreen extends ConsumerWidget {
     final syncConflictWarning = ref.watch(syncConflictWarningProvider);
     final inAppUpdateState = ref.watch(inAppUpdateControllerProvider);
     final packageInfo = ref.watch(packageInfoProvider);
+    final storageUsageSummary = ref.watch(storageUsageSummaryProvider);
     const showLegacyAccessSettings = bool.fromEnvironment(
       'HIMEMO_SHOW_LEGACY_ACCESS_SETTINGS',
     );
@@ -3444,6 +3704,16 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ),
               ),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Remote backup',
+                ja: 'リモートバックアップ',
+                zh: '远程备份',
+                ko: '원격 백업',
+                es: 'Copia remota',
+                de: 'Remote-Backup',
+              ),
+            ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(strings.text('home.selected.target')),
@@ -4196,6 +4466,55 @@ class SettingsScreen extends ConsumerWidget {
                   ),
               ],
             ),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'File backup',
+                ja: 'ファイルバックアップ',
+                zh: '文件备份',
+                ko: '파일 백업',
+                es: 'Copia en archivo',
+                de: 'Datei-Backup',
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: noteCount == 0
+                        ? null
+                        : () => _exportLocalArchive(context, ref),
+                    icon: const Icon(Icons.upload_file_outlined),
+                    label: Text(
+                      strings.localized(
+                        en: 'File export',
+                        ja: 'ファイルエクスポート',
+                        zh: '文件导出',
+                        ko: '파일 내보내기',
+                        es: 'Exportar archivo',
+                        de: 'Datei exportieren',
+                      ),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _importLocalArchive(context, ref),
+                    icon: const Icon(Icons.download_for_offline_outlined),
+                    label: Text(
+                      strings.localized(
+                        en: 'File import',
+                        ja: 'ファイルインポート',
+                        zh: '文件导入',
+                        ko: '파일 가져오기',
+                        es: 'Importar archivo',
+                        de: 'Datei importieren',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -4208,6 +4527,47 @@ class SettingsScreen extends ConsumerWidget {
               contentPadding: EdgeInsets.zero,
               title: Text(strings.text('home.saved.notes.on.this.device')),
               subtitle: Text(strings.entriesCount(noteCount)),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                strings.localized(
+                  en: 'Storage size',
+                  ja: '保存サイズ',
+                  zh: '存储大小',
+                  ko: '저장 크기',
+                  es: 'Tamaño guardado',
+                  de: 'Speichergröße',
+                ),
+              ),
+              subtitle: Text(
+                storageUsageSummary.when(
+                  data: (summary) => strings.localized(
+                    en: '${strings.byteCount(summary.totalBytes)} total / notes ${strings.byteCount(summary.notePayloadBytes)} / attachments ${strings.byteCount(summary.attachmentPayloadBytes)}',
+                    ja: '合計 ${strings.byteCount(summary.totalBytes)} / ノート ${strings.byteCount(summary.notePayloadBytes)} / 添付 ${strings.byteCount(summary.attachmentPayloadBytes)}',
+                    zh: '合计 ${strings.byteCount(summary.totalBytes)} / 笔记 ${strings.byteCount(summary.notePayloadBytes)} / 附件 ${strings.byteCount(summary.attachmentPayloadBytes)}',
+                    ko: '합계 ${strings.byteCount(summary.totalBytes)} / 노트 ${strings.byteCount(summary.notePayloadBytes)} / 첨부 ${strings.byteCount(summary.attachmentPayloadBytes)}',
+                    es: '${strings.byteCount(summary.totalBytes)} en total / notas ${strings.byteCount(summary.notePayloadBytes)} / adjuntos ${strings.byteCount(summary.attachmentPayloadBytes)}',
+                    de: '${strings.byteCount(summary.totalBytes)} gesamt / Notizen ${strings.byteCount(summary.notePayloadBytes)} / Anhänge ${strings.byteCount(summary.attachmentPayloadBytes)}',
+                  ),
+                  loading: () => strings.localized(
+                    en: 'Calculating...',
+                    ja: '計算中...',
+                    zh: '正在计算...',
+                    ko: '계산 중...',
+                    es: 'Calculando...',
+                    de: 'Wird berechnet...',
+                  ),
+                  error: (_, _) => strings.localized(
+                    en: 'Unable to calculate storage size.',
+                    ja: '保存サイズを計算できませんでした。',
+                    zh: '无法计算存储大小。',
+                    ko: '저장 크기를 계산할 수 없습니다.',
+                    es: 'No se pudo calcular el tamaño guardado.',
+                    de: 'Speichergröße konnte nicht berechnet werden.',
+                  ),
+                ),
+              ),
             ),
             Align(
               alignment: Alignment.centerLeft,
@@ -4490,6 +4850,7 @@ class SettingsScreen extends ConsumerWidget {
           decoration: InputDecoration(
             border: const OutlineInputBorder(),
             helperText: strings.languageSystemDesc,
+            helperMaxLines: 2,
             prefixIcon: const Icon(Icons.translate_rounded),
           ),
           items: [
@@ -4551,6 +4912,7 @@ class SettingsScreen extends ConsumerWidget {
           decoration: InputDecoration(
             border: const OutlineInputBorder(),
             helperText: strings.appFontDesc,
+            helperMaxLines: 3,
             prefixIcon: const Icon(Icons.text_fields_rounded),
           ),
           items: _availableFontFamilies
@@ -5163,15 +5525,23 @@ class _Sidebar extends StatelessWidget {
     required this.section,
     required this.activeIdentity,
     required this.collapsed,
+    required this.tagSummaries,
+    required this.activeTags,
     required this.onToggleCollapsed,
     required this.onSectionSelected,
+    required this.onShowAllNotes,
+    required this.onTagSelected,
   });
 
   final AppSection section;
   final UnlockIdentity activeIdentity;
   final bool collapsed;
+  final List<VisibleTagSummary> tagSummaries;
+  final List<String> activeTags;
   final VoidCallback onToggleCollapsed;
   final ValueChanged<AppSection> onSectionSelected;
+  final VoidCallback onShowAllNotes;
+  final ValueChanged<String> onTagSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -5235,8 +5605,16 @@ class _Sidebar extends StatelessWidget {
                   label: strings.notes,
                   showLabel: !collapsed,
                   selected: section == AppSection.notes,
-                  onTap: () => onSectionSelected(AppSection.notes),
+                  onTap: activeTags.isEmpty
+                      ? () => onSectionSelected(AppSection.notes)
+                      : onShowAllNotes,
                 ),
+                if (!collapsed && tagSummaries.isNotEmpty)
+                  _SidebarTagSection(
+                    summaries: tagSummaries,
+                    activeTags: activeTags,
+                    onTagSelected: onTagSelected,
+                  ),
                 _SidebarItem(
                   icon: Icons.calendar_month_outlined,
                   selectedIcon: Icons.calendar_month_rounded,
@@ -5346,6 +5724,173 @@ class _SidebarItem extends StatelessWidget {
   }
 }
 
+class _SidebarTagSection extends StatefulWidget {
+  const _SidebarTagSection({
+    required this.summaries,
+    required this.activeTags,
+    required this.onTagSelected,
+  });
+
+  final List<VisibleTagSummary> summaries;
+  final List<String> activeTags;
+  final ValueChanged<String> onTagSelected;
+
+  @override
+  State<_SidebarTagSection> createState() => _SidebarTagSectionState();
+}
+
+class _SidebarTagSectionState extends State<_SidebarTagSection> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final theme = Theme.of(context);
+    final activeKeys = widget.activeTags.map(canonicalizeNoteTag).toSet();
+    final selectedSummaries = activeKeys.isEmpty
+        ? const <VisibleTagSummary>[]
+        : widget.summaries
+              .where(
+                (summary) =>
+                    activeKeys.contains(canonicalizeNoteTag(summary.name)),
+              )
+              .toList(growable: false);
+    final baseSummaries = widget.summaries
+        .take(_expanded ? 14 : 5)
+        .toList(growable: true);
+    for (final selected in selectedSummaries) {
+      final selectedKey = canonicalizeNoteTag(selected.name);
+      if (!baseSummaries.any(
+        (summary) => canonicalizeNoteTag(summary.name) == selectedKey,
+      )) {
+        baseSummaries.add(selected);
+      }
+    }
+    final visibleSummaries = List<VisibleTagSummary>.unmodifiable(
+      baseSummaries,
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerLowest.withValues(
+            alpha: 0.66,
+          ),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: theme.dividerColor),
+        ),
+        child: Column(
+          children: [
+            InkWell(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(8),
+              ),
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 8, 6),
+                child: Row(
+                  children: [
+                    const Icon(Icons.sell_outlined, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        strings.text('home.tags'),
+                        style: theme.textTheme.labelLarge,
+                      ),
+                    ),
+                    Icon(
+                      _expanded
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                      size: 18,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (_expanded || activeKeys.isNotEmpty)
+              ...visibleSummaries.map((summary) {
+                final selected = activeKeys.contains(
+                  canonicalizeNoteTag(summary.name),
+                );
+                return _SidebarTagTile(
+                  summary: summary,
+                  selected: selected,
+                  onTap: () => widget.onTagSelected(summary.name),
+                );
+              }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarTagTile extends StatelessWidget {
+  const _SidebarTagTile({
+    required this.summary,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final VisibleTagSummary summary;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      child: Material(
+        color: selected ? _selectedSurfaceColor(context) : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(6, 7, 4, 7),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.tag_rounded,
+                  size: 16,
+                  color: selected
+                      ? colorScheme.primary
+                      : _mutedTextColor(context),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    summary.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: selected ? colorScheme.primary : null,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${summary.count}',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: selected
+                        ? colorScheme.primary
+                        : _mutedTextColor(context),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _IdentityHeader extends StatelessWidget {
   const _IdentityHeader({required this.identity});
 
@@ -5411,79 +5956,6 @@ class _PrivateVaultLockedNotice extends StatelessWidget {
   }
 }
 
-class _VaultSectionCard extends StatelessWidget {
-  const _VaultSectionCard({
-    required this.vault,
-    required this.notes,
-    required this.selectedNoteId,
-    required this.onNoteSelected,
-    required this.density,
-    required this.query,
-  });
-
-  final VaultBucket vault;
-  final List<NoteEntry> notes;
-  final String? selectedNoteId;
-  final ValueChanged<NoteEntry> onNoteSelected;
-  final NotesListDensity density;
-  final String query;
-
-  @override
-  Widget build(BuildContext context) {
-    final vaultLabel = _vaultDisplayName(context, vault);
-    if (notes.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Container(
-      decoration: _sectionDecoration(context),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(vaultLabel),
-                  if (vault.id != 'everyday' &&
-                      _vaultDisplayDescription(context, vault).isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      _vaultDisplayDescription(context, vault),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: _mutedTextColor(context),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            Divider(height: 1, color: Theme.of(context).dividerColor),
-            for (var i = 0; i < notes.length; i++) ...[
-              if (density != NotesListDensity.compact &&
-                  (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i])))
-                _NoteDayDivider(date: notes[i].createdAt),
-              _NoteListTile(
-                note: notes[i],
-                vaultName: vaultLabel,
-                showVaultName: false,
-                density: density,
-                query: query,
-                selected: notes[i].id == selectedNoteId,
-                onTap: () => onNoteSelected(notes[i]),
-              ),
-              if (i != notes.length - 1)
-                Divider(height: 1, color: Theme.of(context).dividerColor),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 String _vaultDisplayName(BuildContext context, VaultBucket vault) {
   if (vault.id == 'everyday') {
     return context.strings.notes;
@@ -5515,6 +5987,347 @@ bool _isSameNoteDay(NoteEntry left, NoteEntry right) {
   return left.createdAt.year == right.createdAt.year &&
       left.createdAt.month == right.createdAt.month &&
       left.createdAt.day == right.createdAt.day;
+}
+
+class _MobileNotesList extends StatefulWidget {
+  const _MobileNotesList({
+    required this.activeIdentity,
+    required this.showPrivateVaultNotice,
+    required this.compactHeader,
+    required this.vaults,
+    required this.notesByVault,
+    required this.allVisibleNotes,
+    required this.selectedNoteId,
+    required this.density,
+    required this.query,
+    required this.onNoteSelected,
+  });
+
+  final UnlockIdentity activeIdentity;
+  final bool showPrivateVaultNotice;
+  final bool compactHeader;
+  final List<VaultBucket> vaults;
+  final Map<String, List<NoteEntry>> notesByVault;
+  final List<NoteEntry> allVisibleNotes;
+  final String? selectedNoteId;
+  final NotesListDensity density;
+  final String query;
+  final ValueChanged<NoteEntry> onNoteSelected;
+
+  @override
+  State<_MobileNotesList> createState() => _MobileNotesListState();
+}
+
+class _MobileNotesListState extends State<_MobileNotesList> {
+  late List<_MobileNoteRow> _rows;
+
+  @override
+  void initState() {
+    super.initState();
+    _rows = _buildRows();
+  }
+
+  @override
+  void didUpdateWidget(covariant _MobileNotesList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.allVisibleNotes, widget.allVisibleNotes) ||
+        oldWidget.activeIdentity.id != widget.activeIdentity.id ||
+        oldWidget.showPrivateVaultNotice != widget.showPrivateVaultNotice ||
+        oldWidget.compactHeader != widget.compactHeader ||
+        oldWidget.density != widget.density ||
+        oldWidget.vaults.length != widget.vaults.length) {
+      _rows = _buildRows();
+    }
+  }
+
+  List<_MobileNoteRow> _buildRows() {
+    final watch = kDebugMode ? (Stopwatch()..start()) : null;
+    final rows = _buildMobileNoteRows(
+      activeIdentity: widget.activeIdentity,
+      showPrivateVaultNotice: widget.showPrivateVaultNotice,
+      compactHeader: widget.compactHeader,
+      vaults: widget.vaults,
+      notesByVault: widget.notesByVault,
+      notesAreEmpty: widget.allVisibleNotes.isEmpty,
+      density: widget.density,
+    );
+    if (watch != null) {
+      watch.stop();
+      _debugNotePerf(
+        'mobile list rows notes=${widget.allVisibleNotes.length} rows=${rows.length} completed ${watch.elapsedMicroseconds / 1000}ms',
+      );
+    }
+    return rows;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      itemCount: _rows.length,
+      itemBuilder: (context, index) {
+        final row = _rows[index];
+        return switch (row) {
+          _MobileIdentityRow() => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _IdentityHeader(identity: widget.activeIdentity),
+          ),
+          _MobilePrivateNoticeRow() => const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: _PrivateVaultLockedNotice(),
+          ),
+          _MobileToolbarRow() => Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: _NotesToolbar(compact: widget.compactHeader),
+          ),
+          _MobileEmptyRow() => const _EmptyNotesState(),
+          _MobileVaultHeaderRow(:final vault) => _DecoratedMobileNoteRow(
+            position: row.position,
+            child: _VaultSectionHeader(vault: vault),
+          ),
+          _MobileDayRow(:final date) => _DecoratedMobileNoteRow(
+            position: row.position,
+            child: _NoteDayDivider(date: date),
+          ),
+          _MobileTileRow(:final vault, :final note) => _DecoratedMobileNoteRow(
+            position: row.position,
+            child: RepaintBoundary(
+              child: _NoteListTile(
+                note: note,
+                vaultName: _vaultDisplayName(context, vault),
+                showVaultName: false,
+                density: widget.density,
+                query: widget.query,
+                selected: note.id == widget.selectedNoteId,
+                onTap: () => widget.onNoteSelected(note),
+              ),
+            ),
+          ),
+          _MobileDividerRow() => _DecoratedMobileNoteRow(
+            position: row.position,
+            child: Divider(height: 1, color: Theme.of(context).dividerColor),
+          ),
+          _MobileSectionGapRow() => const SizedBox(height: 16),
+        };
+      },
+    );
+  }
+}
+
+List<_MobileNoteRow> _buildMobileNoteRows({
+  required UnlockIdentity activeIdentity,
+  required bool showPrivateVaultNotice,
+  required bool compactHeader,
+  required List<VaultBucket> vaults,
+  required Map<String, List<NoteEntry>> notesByVault,
+  required bool notesAreEmpty,
+  required NotesListDensity density,
+}) {
+  final rows = <_MobileNoteRow>[
+    if (activeIdentity.id != 'daily') const _MobileIdentityRow(),
+    if (showPrivateVaultNotice) const _MobilePrivateNoticeRow(),
+    _MobileToolbarRow(compactHeader),
+  ];
+  if (notesAreEmpty) {
+    rows.add(const _MobileEmptyRow());
+    return rows;
+  }
+
+  var addedAnyVault = false;
+  for (final vault in vaults) {
+    final notes = notesByVault[vault.id] ?? const <NoteEntry>[];
+    if (notes.isEmpty) {
+      continue;
+    }
+    if (addedAnyVault) {
+      rows.add(const _MobileSectionGapRow());
+    }
+    addedAnyVault = true;
+
+    final sectionRows = <_MobileNoteRow>[_MobileVaultHeaderRow(vault)];
+    for (var i = 0; i < notes.length; i++) {
+      if (density != NotesListDensity.compact &&
+          (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i]))) {
+        sectionRows.add(_MobileDayRow(notes[i].createdAt));
+      }
+      sectionRows.add(_MobileTileRow(vault: vault, note: notes[i]));
+      if (i != notes.length - 1) {
+        sectionRows.add(const _MobileDividerRow());
+      }
+    }
+    for (var i = 0; i < sectionRows.length; i++) {
+      rows.add(
+        sectionRows[i].withPosition(
+          _MobileNoteRowPosition(
+            first: i == 0,
+            last: i == sectionRows.length - 1,
+          ),
+        ),
+      );
+    }
+  }
+  return rows;
+}
+
+class _VaultSectionHeader extends StatelessWidget {
+  const _VaultSectionHeader({required this.vault});
+
+  final VaultBucket vault;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(_vaultDisplayName(context, vault)),
+          if (vault.id != 'everyday' &&
+              _vaultDisplayDescription(context, vault).isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              _vaultDisplayDescription(context, vault),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileNoteRowPosition {
+  const _MobileNoteRowPosition({required this.first, required this.last});
+
+  final bool first;
+  final bool last;
+}
+
+sealed class _MobileNoteRow {
+  const _MobileNoteRow({this.position});
+
+  final _MobileNoteRowPosition? position;
+
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position);
+}
+
+class _MobileIdentityRow extends _MobileNoteRow {
+  const _MobileIdentityRow();
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
+}
+
+class _MobilePrivateNoticeRow extends _MobileNoteRow {
+  const _MobilePrivateNoticeRow();
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
+}
+
+class _MobileToolbarRow extends _MobileNoteRow {
+  const _MobileToolbarRow(this.compact);
+
+  final bool compact;
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
+}
+
+class _MobileEmptyRow extends _MobileNoteRow {
+  const _MobileEmptyRow();
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
+}
+
+class _MobileVaultHeaderRow extends _MobileNoteRow {
+  const _MobileVaultHeaderRow(this.vault, {super.position});
+
+  final VaultBucket vault;
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) =>
+      _MobileVaultHeaderRow(vault, position: position);
+}
+
+class _MobileDayRow extends _MobileNoteRow {
+  const _MobileDayRow(this.date, {super.position});
+
+  final DateTime date;
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) =>
+      _MobileDayRow(date, position: position);
+}
+
+class _MobileTileRow extends _MobileNoteRow {
+  const _MobileTileRow({
+    required this.vault,
+    required this.note,
+    super.position,
+  });
+
+  final VaultBucket vault;
+  final NoteEntry note;
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) =>
+      _MobileTileRow(vault: vault, note: note, position: position);
+}
+
+class _MobileDividerRow extends _MobileNoteRow {
+  const _MobileDividerRow({super.position});
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) =>
+      _MobileDividerRow(position: position);
+}
+
+class _MobileSectionGapRow extends _MobileNoteRow {
+  const _MobileSectionGapRow();
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
+}
+
+class _DecoratedMobileNoteRow extends StatelessWidget {
+  const _DecoratedMobileNoteRow({required this.position, required this.child});
+
+  final _MobileNoteRowPosition? position;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final pos = position;
+    final borderRadius = BorderRadius.vertical(
+      top: Radius.circular(pos?.first == true ? 6 : 0),
+      bottom: Radius.circular(pos?.last == true ? 6 : 0),
+    );
+    final border = Border(
+      left: BorderSide(color: Theme.of(context).dividerColor),
+      right: BorderSide(color: Theme.of(context).dividerColor),
+      top: pos?.first == true
+          ? BorderSide(color: Theme.of(context).dividerColor)
+          : BorderSide.none,
+      bottom: pos?.last == true
+          ? BorderSide(color: Theme.of(context).dividerColor)
+          : BorderSide.none,
+    );
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: borderRadius,
+      ),
+      foregroundDecoration: BoxDecoration(
+        borderRadius: borderRadius,
+        border: border,
+      ),
+      child: child,
+    );
+  }
 }
 
 class _NoteDayDivider extends StatelessWidget {
@@ -5617,13 +6430,20 @@ class _NoteListTile extends StatelessWidget {
     final dateLabel =
         '${changedAt.month}/${changedAt.day} ${changedAt.hour.toString().padLeft(2, '0')}:${changedAt.minute.toString().padLeft(2, '0')}';
     final isEdited = note.updatedAt != null && note.updatedAt != note.createdAt;
-    final bodyText = note.body.trim();
-    final compactPreview = _normalizeCompactPreview(note.body);
+    final compactPreview = _normalizePreviewText(
+      note.body,
+      query: query,
+      maxChars: 140,
+    );
+    final bodyPreview = _normalizePreviewText(
+      note.body,
+      query: query,
+      maxChars: 360,
+    );
     final tags = note.normalizedTags;
     final previewFacts = _notePreviewFacts(note);
     final hasDistinctBody =
-        bodyText.isNotEmpty &&
-        bodyText.replaceAll('\n', ' ').trim() != note.title.trim();
+        bodyPreview.isNotEmpty && bodyPreview != note.title.trim();
     final showAttachmentPreviews =
         density != NotesListDensity.compact && !isPrivateNote;
     final thumbnailSize = switch (density) {
@@ -5717,7 +6537,7 @@ class _NoteListTile extends StatelessWidget {
                 _HighlightedText(
                   text: density == NotesListDensity.compact
                       ? compactPreview
-                      : note.body,
+                      : bodyPreview,
                   query: query,
                   maxLines: bodyLines,
                   overflow: TextOverflow.ellipsis,
@@ -5817,13 +6637,6 @@ class _NoteListTile extends StatelessWidget {
       ),
     );
   }
-
-  String _normalizeCompactPreview(String value) {
-    return value
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .replaceAll(RegExp(r' {2,}'), ' ')
-        .trim();
-  }
 }
 
 class _NotePreviewFact {
@@ -5869,6 +6682,10 @@ List<_NotePreviewFact> _notePreviewFacts(NoteEntry note) {
 }
 
 _LocationMemoData? _firstLocationPreview(NoteEntry note) {
+  final metadataLocation = note.location;
+  if (metadataLocation != null) {
+    return _locationMemoDataFromMetadata(metadataLocation);
+  }
   for (final block in note.blocks) {
     if (block.type != NoteBlockType.paragraph) {
       continue;
@@ -6003,6 +6820,119 @@ class _HighlightedText extends StatelessWidget {
   }
 }
 
+String _normalizePreviewText(
+  String value, {
+  String query = '',
+  int maxChars = 360,
+}) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    return '';
+  }
+
+  final normalizedQuery = query.trim().toLowerCase();
+  var source = trimmed;
+  var hasPrefix = false;
+  var hasSuffix = false;
+  if (normalizedQuery.isNotEmpty) {
+    final matchIndex = trimmed.toLowerCase().indexOf(normalizedQuery);
+    if (matchIndex > maxChars ~/ 2) {
+      final start = math.max(0, matchIndex - (maxChars ~/ 3));
+      final end = math.min(trimmed.length, start + maxChars);
+      hasPrefix = start > 0;
+      hasSuffix = end < trimmed.length;
+      source = trimmed.substring(start, end);
+    } else if (trimmed.length > maxChars) {
+      hasSuffix = true;
+      source = trimmed.substring(0, maxChars);
+    }
+  } else if (trimmed.length > maxChars) {
+    hasSuffix = true;
+    source = trimmed.substring(0, maxChars);
+  }
+
+  final normalized = source.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (normalized.isEmpty) {
+    return '';
+  }
+  final prefix = hasPrefix ? '... ' : '';
+  final suffix = hasSuffix ? ' ...' : '';
+  return '$prefix$normalized$suffix';
+}
+
+class _SplitPaneResizeHandle extends StatefulWidget {
+  const _SplitPaneResizeHandle({
+    required this.onDragDelta,
+    required this.onTap,
+  });
+
+  final ValueChanged<double> onDragDelta;
+  final VoidCallback onTap;
+
+  @override
+  State<_SplitPaneResizeHandle> createState() => _SplitPaneResizeHandleState();
+}
+
+class _SplitPaneResizeHandleState extends State<_SplitPaneResizeHandle> {
+  bool _hovered = false;
+  bool _dragging = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final active = _hovered || _dragging;
+    final strings = context.strings;
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeColumn,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Tooltip(
+        message: strings.localized(
+          en: 'Drag to resize the note list. Tap to switch widths.',
+          ja: 'ドラッグでノート一覧の幅を変更します。タップで幅を切り替えます。',
+          zh: '拖动可调整笔记列表宽度。点击可切换宽度。',
+          ko: '드래그하여 노트 목록 너비를 조정합니다. 탭하면 너비가 전환됩니다.',
+          es: 'Arrastra para cambiar el ancho de la lista. Toca para alternar anchos.',
+          de: 'Ziehen, um die Breite der Notizliste zu ändern. Tippen, um Breiten zu wechseln.',
+        ),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          onHorizontalDragStart: (_) => setState(() => _dragging = true),
+          onHorizontalDragEnd: (_) => setState(() => _dragging = false),
+          onHorizontalDragCancel: () => setState(() => _dragging = false),
+          onHorizontalDragUpdate: (details) {
+            widget.onDragDelta(details.delta.dx);
+          },
+          child: SizedBox(
+            width: 14,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                VerticalDivider(
+                  width: 1,
+                  color: Theme.of(context).dividerColor,
+                ),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 120),
+                  width: active ? 5 : 3,
+                  height: active ? 56 : 42,
+                  decoration: BoxDecoration(
+                    color: active
+                        ? colorScheme.primary.withValues(alpha: 0.72)
+                        : colorScheme.outlineVariant.withValues(alpha: 0.68),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SplitNotesListPane extends StatefulWidget {
   const _SplitNotesListPane({
     required this.activeIdentity,
@@ -6013,6 +6943,7 @@ class _SplitNotesListPane extends StatefulWidget {
     required this.showVaultName,
     required this.density,
     required this.query,
+    required this.onAddNote,
     required this.onNoteSelected,
   });
 
@@ -6024,6 +6955,7 @@ class _SplitNotesListPane extends StatefulWidget {
   final bool showVaultName;
   final NotesListDensity density;
   final String query;
+  final VoidCallback onAddNote;
   final ValueChanged<NoteEntry> onNoteSelected;
 
   @override
@@ -6061,47 +6993,67 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
 
   @override
   Widget build(BuildContext context) {
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _rows.length,
-      itemBuilder: (context, index) {
-        final row = _rows[index];
-        return switch (row) {
-          _SplitNoteIdentityRow() => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _IdentityHeader(identity: widget.activeIdentity),
+    return Stack(
+      children: [
+        ListView.builder(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
+          itemCount: _rows.length,
+          itemBuilder: (context, index) {
+            final row = _rows[index];
+            return switch (row) {
+              _SplitNoteIdentityRow() => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _IdentityHeader(identity: widget.activeIdentity),
+              ),
+              _SplitNotePrivateNoticeRow() => const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: _PrivateVaultLockedNotice(),
+              ),
+              _SplitNoteToolbarRow() => const Padding(
+                padding: EdgeInsets.only(bottom: 16),
+                child: _NotesToolbar(),
+              ),
+              _SplitNoteEmptyRow() => const _EmptyNotesState(),
+              _SplitNoteDayRow(:final date) => _DecoratedSplitNoteRow(
+                position: row.position,
+                child: _NoteDayDivider(date: date),
+              ),
+              _SplitNoteTileRow(:final note) => _DecoratedSplitNoteRow(
+                position: row.position,
+                child: RepaintBoundary(
+                  child: _NoteListTile(
+                    note: note,
+                    vaultName:
+                        widget.vaultNameById[note.vaultId] ?? note.vaultId,
+                    showVaultName: widget.showVaultName,
+                    density: widget.density,
+                    query: widget.query,
+                    selected: widget.selectedNoteId == note.id,
+                    onTap: () => widget.onNoteSelected(note),
+                  ),
+                ),
+              ),
+              _SplitNoteDividerRow() => _DecoratedSplitNoteRow(
+                position: row.position,
+                child: Divider(
+                  height: 1,
+                  color: Theme.of(context).dividerColor,
+                ),
+              ),
+            };
+          },
+        ),
+        PositionedDirectional(
+          end: 16,
+          bottom: 16,
+          child: FloatingActionButton.small(
+            key: AppShell.addNoteKey,
+            onPressed: widget.onAddNote,
+            tooltip: context.strings.addNote,
+            child: const Icon(Icons.add),
           ),
-          _SplitNotePrivateNoticeRow() => const Padding(
-            padding: EdgeInsets.only(bottom: 12),
-            child: _PrivateVaultLockedNotice(),
-          ),
-          _SplitNoteToolbarRow() => const Padding(
-            padding: EdgeInsets.only(bottom: 16),
-            child: _NotesToolbar(),
-          ),
-          _SplitNoteEmptyRow() => const _EmptyNotesState(),
-          _SplitNoteDayRow(:final date) => _DecoratedSplitNoteRow(
-            position: row.position,
-            child: _NoteDayDivider(date: date),
-          ),
-          _SplitNoteTileRow(:final note) => _DecoratedSplitNoteRow(
-            position: row.position,
-            child: _NoteListTile(
-              note: note,
-              vaultName: widget.vaultNameById[note.vaultId] ?? note.vaultId,
-              showVaultName: widget.showVaultName,
-              density: widget.density,
-              query: widget.query,
-              selected: widget.selectedNoteId == note.id,
-              onTap: () => widget.onNoteSelected(note),
-            ),
-          ),
-          _SplitNoteDividerRow() => _DecoratedSplitNoteRow(
-            position: row.position,
-            child: Divider(height: 1, color: Theme.of(context).dividerColor),
-          ),
-        };
-      },
+        ),
+      ],
     );
   }
 }
@@ -6337,6 +7289,7 @@ class _NoteDetailPager extends ConsumerStatefulWidget {
     required this.onPageChanged,
     required this.onEdit,
     required this.onDelete,
+    this.onClose,
     this.onTagTap,
   });
 
@@ -6345,6 +7298,7 @@ class _NoteDetailPager extends ConsumerStatefulWidget {
   final ValueChanged<int> onPageChanged;
   final ValueChanged<NoteEntry> onEdit;
   final ValueChanged<NoteEntry> onDelete;
+  final VoidCallback? onClose;
   final ValueChanged<String>? onTagTap;
 
   @override
@@ -6445,6 +7399,13 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
                   ),
                 ),
               ),
+              if (widget.onClose != null)
+                IconButton(
+                  onPressed: widget.onClose,
+                  icon: const Icon(Icons.close_rounded),
+                  tooltip: strings.close,
+                  visualDensity: VisualDensity.compact,
+                ),
             ],
           ),
         ),
@@ -6512,7 +7473,6 @@ class _NoteDetailPane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final buildWatch = Stopwatch()..start();
     final createdLabel =
         '${note.createdAt.year}/${note.createdAt.month}/${note.createdAt.day} ${note.createdAt.hour.toString().padLeft(2, '0')}:${note.createdAt.minute.toString().padLeft(2, '0')}';
     final changedAt = note.updatedAt ?? note.createdAt;
@@ -6520,80 +7480,92 @@ class _NoteDetailPane extends StatelessWidget {
         '${changedAt.year}/${changedAt.month}/${changedAt.day} ${changedAt.hour.toString().padLeft(2, '0')}:${changedAt.minute.toString().padLeft(2, '0')}';
     final isEdited = note.updatedAt != null && note.updatedAt != note.createdAt;
     final tags = note.normalizedTags;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      buildWatch.stop();
-      _debugNotePerf(
-        'detail pane frame ${buildWatch.elapsedMicroseconds / 1000}ms ${_notePerfLabel(note)} tags=${tags.length}',
-      );
-    });
+    final buildWatch = kDebugMode ? (Stopwatch()..start()) : null;
+    if (buildWatch != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        buildWatch.stop();
+        _debugNotePerf(
+          'detail pane frame ${buildWatch.elapsedMicroseconds / 1000}ms ${_notePerfLabel(note)} tags=${tags.length}',
+        );
+      });
+    }
 
     return Container(
       decoration: _sectionDecoration(context),
-      padding: const EdgeInsets.all(20),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      child: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            sliver: SliverList.list(
               children: [
-                Expanded(
-                  child: Text(
-                    vaultName,
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: _mutedTextColor(context),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        vaultName,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: _mutedTextColor(context),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                IconButton(
-                  key: const Key('edit-note-button'),
-                  onPressed: onEdit,
-                  icon: const Icon(Icons.edit_outlined),
-                  tooltip: strings.editNote,
-                ),
-                IconButton(
-                  onPressed: onDelete,
-                  icon: const Icon(Icons.delete_outline_rounded),
-                  tooltip: strings.deleteNote,
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(note.title, style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 8),
-            Text(
-              isEdited ? strings.editedAt(updatedLabel) : createdLabel,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
-            ),
-            if (tags.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final tag in tags)
-                    _NoteTagChip(
-                      tag: tag,
-                      onTap: onTagTap == null ? null : () => onTagTap!(tag),
+                    IconButton(
+                      key: const Key('edit-note-button'),
+                      onPressed: onEdit,
+                      icon: const Icon(Icons.edit_outlined),
+                      tooltip: strings.editNote,
                     ),
-                ],
-              ),
-            ],
-            if (isEdited)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  strings.createdRevision(createdLabel, note.revision),
+                    IconButton(
+                      onPressed: onDelete,
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      tooltip: strings.deleteNote,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  note.title,
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  isEdited ? strings.editedAt(updatedLabel) : createdLabel,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: _mutedTextColor(context),
                   ),
                 ),
-              ),
-            const SizedBox(height: 20),
-            ..._buildDetailBlocks(context, note, mediaActive: isActive),
-          ],
-        ),
+                if (tags.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final tag in tags)
+                        _NoteTagChip(
+                          tag: tag,
+                          onTap: onTagTap == null ? null : () => onTagTap!(tag),
+                        ),
+                    ],
+                  ),
+                ],
+                if (isEdited)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      strings.createdRevision(createdLabel, note.revision),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: _mutedTextColor(context),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            sliver: _DetailContentSliver(note: note, mediaActive: isActive),
+          ),
+        ],
       ),
     );
   }
@@ -6612,6 +7584,22 @@ class _LinkifiedMemoText extends StatefulWidget {
 class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
   static final _urlPattern = RegExp(r'((?:https?:\/\/|www\.)[^\s<>()]+)');
   final List<TapGestureRecognizer> _recognizers = [];
+  late List<_MemoTextSegment> _segments;
+
+  @override
+  void initState() {
+    super.initState();
+    _segments = _parseSegments(widget.text);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LinkifiedMemoText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) {
+      _disposeRecognizers();
+      _segments = _parseSegments(widget.text);
+    }
+  }
 
   @override
   void dispose() {
@@ -6628,25 +7616,44 @@ class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
 
   @override
   Widget build(BuildContext context) {
-    _disposeRecognizers();
-    final text = widget.text;
     final style = widget.style;
-    final matches = _urlPattern.allMatches(text).toList(growable: false);
-    if (matches.isEmpty) {
-      return SelectableText(text, style: style);
+    if (_segments.length == 1 && !_segments.single.isLink) {
+      return SelectableText(_segments.single.text, style: style);
     }
 
-    final spans = <InlineSpan>[];
-    var cursor = 0;
     final linkStyle = style?.copyWith(
       color: Theme.of(context).colorScheme.primary,
       decoration: TextDecoration.underline,
       decorationColor: Theme.of(context).colorScheme.primary,
     );
+    return SelectableText.rich(
+      TextSpan(
+        style: style,
+        children: [
+          for (final segment in _segments)
+            TextSpan(
+              text: segment.text,
+              style: segment.isLink ? linkStyle : null,
+              recognizer: segment.recognizer,
+            ),
+        ],
+      ),
+    );
+  }
 
+  List<_MemoTextSegment> _parseSegments(String text) {
+    final matches = _urlPattern.allMatches(text).toList(growable: false);
+    if (matches.isEmpty) {
+      return [_MemoTextSegment.text(text)];
+    }
+
+    final segments = <_MemoTextSegment>[];
+    var cursor = 0;
     for (final match in matches) {
       if (match.start > cursor) {
-        spans.add(TextSpan(text: text.substring(cursor, match.start)));
+        segments.add(
+          _MemoTextSegment.text(text.substring(cursor, match.start)),
+        );
       }
 
       final rawMatch = match.group(0)!;
@@ -6655,21 +7662,28 @@ class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
       final recognizer = TapGestureRecognizer()
         ..onTap = () => _openMemoLink(context, trimmed);
       _recognizers.add(recognizer);
-      spans.add(
-        TextSpan(text: trimmed, style: linkStyle, recognizer: recognizer),
-      );
+      segments.add(_MemoTextSegment.link(trimmed, recognizer));
       if (trailing.isNotEmpty) {
-        spans.add(TextSpan(text: trailing));
+        segments.add(_MemoTextSegment.text(trailing));
       }
       cursor = match.end;
     }
 
     if (cursor < text.length) {
-      spans.add(TextSpan(text: text.substring(cursor)));
+      segments.add(_MemoTextSegment.text(text.substring(cursor)));
     }
-
-    return SelectableText.rich(TextSpan(style: style, children: spans));
+    return segments;
   }
+}
+
+class _MemoTextSegment {
+  const _MemoTextSegment.text(this.text) : recognizer = null, isLink = false;
+
+  const _MemoTextSegment.link(this.text, this.recognizer) : isLink = true;
+
+  final String text;
+  final TapGestureRecognizer? recognizer;
+  final bool isLink;
 }
 
 String _trimTrailingUrlPunctuation(String value) {
@@ -6748,51 +7762,159 @@ Future<bool> _confirmExternalLinkOpen(BuildContext context, String url) async {
       false;
 }
 
-List<Widget> _buildDetailBlocks(
-  BuildContext context,
-  NoteEntry note, {
-  required bool mediaActive,
-}) {
-  final blocks = note.blocks.isNotEmpty
-      ? note.blocks
-      : _legacyBlocksFromNote(note);
-  final photoAttachments = blocks
-      .where((block) => block.type == NoteBlockType.photo)
-      .map((block) => block.attachment)
-      .whereType<NoteAttachment>()
-      .toList(growable: false);
-  if (blocks.isEmpty) {
-    return [
-      _LinkifiedMemoText(
-        text: note.body,
+class _DetailContentSliver extends StatefulWidget {
+  const _DetailContentSliver({required this.note, required this.mediaActive});
+
+  final NoteEntry note;
+  final bool mediaActive;
+
+  @override
+  State<_DetailContentSliver> createState() => _DetailContentSliverState();
+}
+
+class _DetailContentSliverState extends State<_DetailContentSliver> {
+  late List<_DetailContentItem> _items;
+  late List<NoteAttachment> _photoAttachments;
+
+  @override
+  void initState() {
+    super.initState();
+    _rebuildContentCache();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DetailContentSliver oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.note != widget.note) {
+      _rebuildContentCache();
+    }
+  }
+
+  void _rebuildContentCache() {
+    final watch = kDebugMode ? (Stopwatch()..start()) : null;
+    final items = _buildDetailContentItems(widget.note);
+    final photoAttachments = items
+        .map((item) => item.attachment)
+        .whereType<NoteAttachment>()
+        .where((attachment) => attachment.type == AttachmentType.photo)
+        .toList(growable: false);
+    _items = items;
+    _photoAttachments = photoAttachments;
+    final elapsed = watch?.elapsedMicroseconds;
+    if (elapsed != null &&
+        (widget.note.blocks.length >= 20 ||
+            widget.note.attachments.length >= 10 ||
+            elapsed >= 2000)) {
+      _debugNotePerf(
+        'detail content cache items=${items.length} photos=${photoAttachments.length} ${_notePerfLabel(widget.note)} completed ${elapsed / 1000}ms',
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SliverList.builder(
+      itemCount: _items.length,
+      itemBuilder: (context, index) {
+        final item = _items[index];
+        final child = _DetailContentItemWidget(
+          item: item,
+          mediaActive: widget.mediaActive,
+          photoAttachments: _photoAttachments,
+        );
+        return Padding(
+          padding: EdgeInsets.only(top: index == 0 ? 0 : 16),
+          child: child,
+        );
+      },
+    );
+  }
+}
+
+class _DetailContentItemWidget extends StatelessWidget {
+  const _DetailContentItemWidget({
+    required this.item,
+    required this.mediaActive,
+    required this.photoAttachments,
+  });
+
+  final _DetailContentItem item;
+  final bool mediaActive;
+  final List<NoteAttachment> photoAttachments;
+
+  @override
+  Widget build(BuildContext context) {
+    final location = item.location;
+    if (location != null) {
+      return _LocationMemoCard(
+        location: location,
+        strings: context.strings,
+        width: double.infinity,
+      );
+    }
+    final text = item.text;
+    if (text != null) {
+      return _LinkifiedMemoText(
+        text: text,
         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
           color: Theme.of(context).colorScheme.onSurface,
         ),
-      ),
-    ];
+      );
+    }
+    final attachment = item.attachment;
+    if (attachment == null) {
+      return const SizedBox.shrink();
+    }
+    return _EmbeddedAttachmentBlock(
+      attachment: attachment,
+      mediaActive: mediaActive,
+      photoAttachments: photoAttachments,
+      photoIndex: item.photoIndex,
+    );
+  }
+}
+
+class _DetailContentItem {
+  const _DetailContentItem.text(this.text)
+    : attachment = null,
+      location = null,
+      photoIndex = null;
+
+  const _DetailContentItem.attachment(this.attachment, {this.photoIndex})
+    : text = null,
+      location = null;
+
+  const _DetailContentItem.location(this.location)
+    : text = null,
+      attachment = null,
+      photoIndex = null;
+
+  final String? text;
+  final NoteAttachment? attachment;
+  final _LocationMemoData? location;
+  final int? photoIndex;
+}
+
+List<_DetailContentItem> _buildDetailContentItems(NoteEntry note) {
+  final blocks = note.blocks.isNotEmpty
+      ? note.blocks
+      : _legacyBlocksFromNote(note);
+  if (blocks.isEmpty && note.location == null) {
+    return [_DetailContentItem.text(note.body)];
   }
 
-  final widgets = <Widget>[];
-  for (var i = 0; i < blocks.length; i++) {
-    final block = blocks[i];
+  final items = <_DetailContentItem>[];
+  var photoIndex = 0;
+  for (final block in blocks) {
     switch (block.type) {
       case NoteBlockType.paragraph:
         final text = block.text?.trim() ?? '';
         if (text.isNotEmpty) {
           final location = _tryParseLocationMemo(text);
-          widgets.add(
+          items.add(
             location == null
-                ? _LinkifiedMemoText(
-                    text: text,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  )
-                : _LocationMemoCard(
-                    location: location,
-                    strings: context.strings,
-                    width: double.infinity,
-                  ),
+                ? _DetailContentItem.text(text)
+                : _DetailContentItem.location(location),
           );
         }
       case NoteBlockType.photo:
@@ -6801,23 +7923,25 @@ List<Widget> _buildDetailBlocks(
       case NoteBlockType.file:
         final attachment = block.attachment;
         if (attachment != null) {
-          widgets.add(
-            _EmbeddedAttachmentBlock(
-              attachment: attachment,
-              mediaActive: mediaActive,
-              photoAttachments: photoAttachments,
+          items.add(
+            _DetailContentItem.attachment(
+              attachment,
               photoIndex: attachment.type == AttachmentType.photo
-                  ? photoAttachments.indexOf(attachment)
+                  ? photoIndex++
                   : null,
             ),
           );
         }
     }
-    if (i != blocks.length - 1) {
-      widgets.add(const SizedBox(height: 16));
-    }
   }
-  return widgets;
+  if (note.location != null) {
+    items.add(
+      _DetailContentItem.location(
+        _locationMemoDataFromMetadata(note.location!),
+      ),
+    );
+  }
+  return items;
 }
 
 List<NoteBlock> _legacyBlocksFromNote(NoteEntry note) {
@@ -6979,6 +8103,30 @@ class _SettingsGroup extends StatelessWidget {
                 children: children,
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsSectionLabel extends StatelessWidget {
+  const _SettingsSectionLabel({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 4),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          label,
+          style: theme.textTheme.labelLarge?.copyWith(
+            color: _mutedTextColor(context),
+            fontWeight: FontWeight.w700,
           ),
         ),
       ),
@@ -7395,24 +8543,31 @@ Future<void> showNoteEditorSheet(
   NoteEntry? note,
   DateTime? initialCreatedAt,
 }) async {
-  await showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (context) {
-      final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-      return FractionallySizedBox(
-        heightFactor: bottomInset > 0 ? 1 : 0.92,
-        child: Padding(
-          padding: EdgeInsets.only(bottom: bottomInset),
-          child: _NoteEditorSheet(
-            note: note,
-            initialCreatedAt: initialCreatedAt,
+  _pushNoteOverlaySheet();
+  final scaffoldMessenger = ScaffoldMessenger.maybeOf(context);
+  try {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+        return FractionallySizedBox(
+          heightFactor: bottomInset > 0 ? 1 : 0.92,
+          child: Padding(
+            padding: EdgeInsets.only(bottom: bottomInset),
+            child: _NoteEditorSheet(
+              note: note,
+              initialCreatedAt: initialCreatedAt,
+            ),
           ),
-        ),
-      );
-    },
-  );
+        );
+      },
+    );
+  } finally {
+    scaffoldMessenger?.hideCurrentSnackBar();
+    _popNoteOverlaySheet();
+  }
 }
 
 class _NotesToolbar extends ConsumerStatefulWidget {
@@ -7425,15 +8580,33 @@ class _NotesToolbar extends ConsumerStatefulWidget {
 }
 
 class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
+  late final TextEditingController _searchController;
+  Timer? _searchDebounce;
+  late String _lastAppliedSearchQuery;
   bool _showAdvanced = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastAppliedSearchQuery = ref.read(searchQueryProvider);
+    _searchController = TextEditingController(text: _lastAppliedSearchQuery);
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
     final query = ref.watch(searchQueryProvider);
+    _syncExternalSearchQuery(query);
     final filters = ref.watch(searchFiltersControllerProvider);
     final visibleVaults = ref.watch(visibleVaultsProvider);
-    final tagSuggestions = ref.watch(visibleTagSuggestionsProvider);
+    final tagSummaries = ref.watch(visibleTagSummariesProvider);
     final hasAdvancedFilters = !filters.isDefault;
     final listDensity = ref.watch(notesListDensityControllerProvider);
     final privateModeActive = ref.watch(privacyScreenActiveProvider);
@@ -7443,6 +8616,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
         (filters.pinnedOnly ? 1 : 0) +
         (filters.withMediaOnly ? 1 : 0) +
         (filters.vaultId != null ? 1 : 0) +
+        (filters.year != null ? 1 : 0) +
         filters.tags.length;
 
     return Container(
@@ -7457,7 +8631,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
               Expanded(
                 child: TextFormField(
                   key: const Key('notes-search-input'),
-                  initialValue: query,
+                  controller: _searchController,
                   decoration: InputDecoration(
                     labelText: strings.search,
                     hintText: strings.text(
@@ -7467,7 +8641,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                     border: const OutlineInputBorder(),
                     isDense: true,
                   ),
-                  onChanged: ref.read(searchQueryProvider.notifier).setQuery,
+                  onChanged: _scheduleSearchQuery,
                 ),
               ),
               const SizedBox(width: 8),
@@ -7523,7 +8697,11 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                     height: 48,
                     width: compactToolbarButtons ? 48 : null,
                     constraints: BoxConstraints(
-                      minWidth: compactToolbarButtons ? 48 : 84,
+                      minWidth: compactToolbarButtons
+                          ? 48
+                          : activeFilterCount > 0
+                          ? 110
+                          : 84,
                     ),
                     alignment: Alignment.center,
                     padding: EdgeInsets.symmetric(
@@ -7544,84 +8722,27 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                               const Icon(Icons.tune_rounded, size: 20),
                               if (activeFilterCount > 0)
                                 Positioned(
-                                  top: 6,
-                                  right: 6,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 5,
-                                      vertical: 1,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                    child: Text(
-                                      '$activeFilterCount',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelSmall
-                                          ?.copyWith(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.onPrimary,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                    ),
+                                  top: -5,
+                                  right: -5,
+                                  child: _FilterCountBadge(
+                                    count: activeFilterCount,
                                   ),
                                 ),
                             ],
                           )
-                        : Stack(
-                            alignment: Alignment.center,
-                            clipBehavior: Clip.none,
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Align(
-                                alignment: Alignment.center,
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(Icons.tune_rounded, size: 20),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      strings.text('home.filters'),
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.labelLarge,
-                                    ),
-                                  ],
-                                ),
+                              const Icon(Icons.tune_rounded, size: 20),
+                              const SizedBox(width: 6),
+                              Text(
+                                strings.text('home.filters'),
+                                style: Theme.of(context).textTheme.labelLarge,
                               ),
-                              if (activeFilterCount > 0)
-                                Positioned(
-                                  top: 6,
-                                  right: 8,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 5,
-                                      vertical: 1,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                    child: Text(
-                                      '$activeFilterCount',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelSmall
-                                          ?.copyWith(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.onPrimary,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                    ),
-                                  ),
-                                ),
+                              if (activeFilterCount > 0) ...[
+                                const SizedBox(width: 8),
+                                _FilterCountBadge(count: activeFilterCount),
+                              ],
                             ],
                           ),
                   ),
@@ -7638,6 +8759,22 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+            ),
+          ],
+          if (!_showAdvanced &&
+              tagSummaries.isNotEmpty &&
+              filters.tags.isEmpty) ...[
+            const SizedBox(height: 10),
+            _QuickTagStrip(
+              summaries: tagSummaries,
+              activeTags: filters.tags,
+              onTagSelected: (tag) {
+                ref.read(searchFiltersControllerProvider.notifier).setTags([
+                  tag,
+                ]);
+                ref.read(searchQueryProvider.notifier).setQuery('');
+                ref.read(selectedNoteIdProvider.notifier).select(null);
+              },
             ),
           ],
           if (!_showAdvanced && filters.tags.isNotEmpty) ...[
@@ -7719,10 +8856,36 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                         .read(searchFiltersControllerProvider.notifier)
                         .setVault,
                   ),
+                  if (ref.watch(visibleNoteYearsProvider).length > 1) ...[
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<int?>(
+                      key: ValueKey(filters.year ?? 'all-years'),
+                      initialValue: filters.year,
+                      decoration: InputDecoration(
+                        labelText: strings.text('home.year.partition'),
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        DropdownMenuItem<int?>(
+                          value: null,
+                          child: Text(strings.text('home.all.years')),
+                        ),
+                        for (final year in ref.watch(visibleNoteYearsProvider))
+                          DropdownMenuItem<int?>(
+                            value: year,
+                            child: Text('$year'),
+                          ),
+                      ],
+                      onChanged: ref
+                          .read(searchFiltersControllerProvider.notifier)
+                          .setYear,
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   _TagAutocompleteField(
                     key: const Key('search-tag-input'),
-                    suggestions: tagSuggestions,
+                    suggestions: ref.watch(visibleTagSuggestionsProvider),
                     label: strings.text('home.filter.by.tag'),
                     hintText: strings.text('home.add.tags.to.narrow.the.list'),
                     existingTags: filters.tags,
@@ -7771,6 +8934,146 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  void _syncExternalSearchQuery(String query) {
+    if (query == _lastAppliedSearchQuery || query == _searchController.text) {
+      return;
+    }
+    _searchDebounce?.cancel();
+    _lastAppliedSearchQuery = query;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _searchController.text == query) {
+        return;
+      }
+      _searchController.value = TextEditingValue(
+        text: query,
+        selection: TextSelection.collapsed(offset: query.length),
+      );
+    });
+  }
+
+  void _scheduleSearchQuery(String value) {
+    _searchDebounce?.cancel();
+    if (value.isEmpty) {
+      _applySearchQuery(value);
+      return;
+    }
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 260),
+      () => _applySearchQuery(_searchController.text),
+    );
+  }
+
+  void _applySearchQuery(String value) {
+    if (!mounted || value == _lastAppliedSearchQuery) {
+      return;
+    }
+    _lastAppliedSearchQuery = value;
+    ref.read(searchQueryProvider.notifier).setQuery(value);
+  }
+}
+
+class _QuickTagStrip extends StatelessWidget {
+  const _QuickTagStrip({
+    required this.summaries,
+    required this.activeTags,
+    required this.onTagSelected,
+  });
+
+  final List<VisibleTagSummary> summaries;
+  final List<String> activeTags;
+  final ValueChanged<String> onTagSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final activeKeys = activeTags.map(canonicalizeNoteTag).toSet();
+    final visibleSummaries = summaries.take(10).toList(growable: false);
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final summary in visibleSummaries) ...[
+            _QuickTagChip(
+              summary: summary,
+              selected: activeKeys.contains(canonicalizeNoteTag(summary.name)),
+              onTap: () => onTagSelected(summary.name),
+            ),
+            const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickTagChip extends StatelessWidget {
+  const _QuickTagChip({
+    required this.summary,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final VisibleTagSummary summary;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return ActionChip(
+      avatar: Icon(
+        Icons.tag_rounded,
+        size: 15,
+        color: selected ? colorScheme.onPrimaryContainer : colorScheme.primary,
+      ),
+      label: Text('${summary.name} (${summary.count})'),
+      tooltip: '#${summary.name}',
+      onPressed: onTap,
+      visualDensity: VisualDensity.compact,
+      side: BorderSide(
+        color: selected ? colorScheme.primary : theme.dividerColor,
+      ),
+      backgroundColor: selected
+          ? colorScheme.primaryContainer
+          : colorScheme.surfaceContainerLowest,
+      labelStyle: theme.textTheme.labelMedium?.copyWith(
+        color: selected ? colorScheme.onPrimaryContainer : null,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+}
+
+class _FilterCountBadge extends StatelessWidget {
+  const _FilterCountBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      height: 20,
+      constraints: const BoxConstraints(minWidth: 20),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: BoxDecoration(
+        color: colorScheme.primary,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: colorScheme.surface, width: 1.5),
+      ),
+      child: Text(
+        '$count',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: colorScheme.onPrimary,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          height: 1.0,
+        ),
       ),
     );
   }
@@ -7847,12 +9150,26 @@ class _TagAutocompleteField extends StatefulWidget {
 class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
   late final TextEditingController _controller;
   late final FocusNode _focusNode;
+  late Set<String> _existingTagKeys;
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController();
     _focusNode = FocusNode();
+    _existingTagKeys = _currentExistingTagKeys();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TagAutocompleteField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final nextKeys = _currentExistingTagKeys();
+    if (_setEquals(_existingTagKeys, nextKeys)) {
+      return;
+    }
+    _existingTagKeys = nextKeys;
+    _controller.clear();
+    _focusNode.unfocus();
   }
 
   @override
@@ -7867,9 +9184,10 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
     if (normalized.isEmpty) {
       return;
     }
-    final existingKeys = widget.existingTags.map(canonicalizeNoteTag).toSet();
+    final existingKeys = _currentExistingTagKeys();
     if (existingKeys.contains(canonicalizeNoteTag(normalized))) {
       _controller.clear();
+      _focusNode.unfocus();
       return;
     }
     widget.onTagSelected(normalized);
@@ -7877,15 +9195,30 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
     _focusNode.unfocus();
   }
 
+  Set<String> _currentExistingTagKeys() {
+    return widget.existingTags
+        .map(canonicalizeNoteTag)
+        .where((tag) => tag.isNotEmpty)
+        .toSet();
+  }
+
+  bool _setEquals(Set<String> left, Set<String> right) {
+    if (left.length != right.length) {
+      return false;
+    }
+    return left.containsAll(right);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final existingTagKeys = _currentExistingTagKeys().toList(growable: false)
+      ..sort();
     return RawAutocomplete<String>(
+      key: ValueKey(existingTagKeys.join('\u0000')),
       textEditingController: _controller,
       focusNode: _focusNode,
       optionsBuilder: (value) {
-        final existingKeys = widget.existingTags
-            .map(canonicalizeNoteTag)
-            .toSet();
+        final existingKeys = existingTagKeys.toSet();
         final seenKeys = <String>{};
         final filteredSuggestions = <String>[
           for (final tag in widget.suggestions)
@@ -7919,7 +9252,14 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
             );
           },
       optionsViewBuilder: (context, onSelected, options) {
-        final matches = options.toList(growable: false);
+        final existingKeys = widget.existingTags
+            .map(canonicalizeNoteTag)
+            .where((tag) => tag.isNotEmpty)
+            .toSet();
+        final matches = [
+          for (final option in options)
+            if (!existingKeys.contains(canonicalizeNoteTag(option))) option,
+        ];
         if (matches.isEmpty) {
           return const SizedBox.shrink();
         }
@@ -7964,10 +9304,9 @@ class _CalendarNoteRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bodyText = note.body.trim();
+    final bodyPreview = _normalizePreviewText(note.body, maxChars: 320);
     final hasDistinctBody =
-        bodyText.isNotEmpty &&
-        bodyText.replaceAll('\n', ' ').trim() != note.title.trim();
+        bodyPreview.isNotEmpty && bodyPreview != note.title.trim();
     return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: onTap,
@@ -7994,7 +9333,7 @@ class _CalendarNoteRow extends StatelessWidget {
             if (hasDistinctBody) ...[
               const SizedBox(height: 4),
               Text(
-                note.body,
+                bodyPreview,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -8053,6 +9392,60 @@ class _CalendarNoteRow extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _CalendarDayNotesList extends ConsumerWidget {
+  const _CalendarDayNotesList({
+    required this.notes,
+    required this.itemCount,
+    required this.expanded,
+    required this.onTap,
+  });
+
+  final List<NoteEntry> notes;
+  final int itemCount;
+  final bool expanded;
+  final ValueChanged<int> onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dividerColor = Theme.of(context).dividerColor;
+    final cappedItemCount = itemCount.clamp(0, notes.length);
+
+    Widget buildRow(int index) {
+      final note = notes[index];
+      return _CalendarNoteRow(
+        note: note,
+        vaultName: ref.watch(vaultByIdProvider(note.vaultId)).name,
+        onTap: () => onTap(index),
+      );
+    }
+
+    if (!expanded) {
+      return Column(
+        children: [
+          for (var index = 0; index < cappedItemCount; index++) ...[
+            buildRow(index),
+            if (index != cappedItemCount - 1)
+              Divider(height: 24, color: dividerColor),
+          ],
+        ],
+      );
+    }
+
+    final viewportHeight = MediaQuery.sizeOf(context).height;
+    final listHeight = math.min(560.0, math.max(280.0, viewportHeight * 0.55));
+    return SizedBox(
+      height: listHeight,
+      child: ListView.separated(
+        primary: false,
+        itemCount: cappedItemCount,
+        separatorBuilder: (context, index) =>
+            Divider(height: 24, color: dividerColor),
+        itemBuilder: (context, index) => buildRow(index),
       ),
     );
   }
@@ -8168,14 +9561,18 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late List<_RichBlockDraft> _richBlocks;
   late final Set<String> _initialAttachmentPaths;
   late final ValueNotifier<bool> _canSubmitNotifier;
+  late bool _captureLocationEnabled;
   final Set<String> _pendingAttachmentDeletes = <String>{};
   int? _activeRichParagraphIndex;
   String? _selectedVaultId;
+  NoteLocation? _location;
+  bool _locationBusy = false;
   bool _saved = false;
   bool _draftLoaded = false;
   bool _editorDisposed = false;
   Timer? _draftSaveTimer;
   bool _discardingDraft = false;
+  bool _draftRestoreSnackBarActive = false;
 
   @override
   void initState() {
@@ -8195,6 +9592,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         ((widget.note?.blocks.isNotEmpty ?? false)
             ? NoteEditorMode.rich
             : lastSettings.mode);
+    _captureLocationEnabled =
+        widget.note == null && lastSettings.captureLocation;
+    _location = widget.note?.location;
     _attachments = [...?widget.note?.attachments];
     _tags = [...?widget.note?.tags];
     _richBlocks = _buildInitialRichBlocks();
@@ -8213,6 +9613,13 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _scheduleInitialEditorFocus();
     if (widget.note == null) {
       unawaited(_restoreDraftIfAny());
+      if (_captureLocationEnabled) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _location == null) {
+            unawaited(_captureCurrentLocationForNote(showErrors: false));
+          }
+        });
+      }
     }
   }
 
@@ -8255,6 +9662,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   void dispose() {
     _editorDisposed = true;
     _draftSaveTimer?.cancel();
+    if (_draftRestoreSnackBarActive) {
+      ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+    }
     final shouldKeepDraft = !_saved && widget.note == null && _hasDraftContent;
     if (shouldKeepDraft && _selectedVaultId != null) {
       unawaited(
@@ -8268,6 +9678,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             quickContent: _contentController.text,
             quickAttachments: _attachments,
             richBlocks: _richBlocksToNoteBlocks(),
+            location: _location,
           ),
         ),
       );
@@ -8420,6 +9831,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       _editorMode = draft.editorMode;
       _selectedVaultId = draft.vaultId;
       _tags = [...draft.tags];
+      _location = draft.location;
       _contentController.text = draft.quickContent;
       _attachments = [...draft.quickAttachments];
       for (final block in _richBlocks) {
@@ -8453,6 +9865,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         onPressed: _discardRestoredDraft,
       ),
     );
+    _draftRestoreSnackBarActive = true;
   }
 
   void _discardRestoredDraft() {
@@ -8478,6 +9891,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       _replaceRichBlocks([_RichBlockDraft.paragraph()]);
     });
     _discardingDraft = false;
+    _draftRestoreSnackBarActive = false;
     _updateCanSubmit();
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     _scheduleInitialEditorFocus();
@@ -8509,6 +9923,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
               quickContent: _contentController.text,
               quickAttachments: _attachments,
               richBlocks: _richBlocksToNoteBlocks(),
+              location: _location,
             ),
           );
     });
@@ -8727,171 +10142,198 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Wrap(
-                        spacing: 4,
-                        children: [
-                          IconButton(
-                            tooltip: strings.pinThisNote,
-                            onPressed: () {
-                              setState(() {
-                                _isPinned = !_isPinned;
-                              });
-                              _scheduleDraftPersist();
-                            },
-                            icon: Icon(
-                              _isPinned
-                                  ? Icons.push_pin_rounded
-                                  : Icons.push_pin_outlined,
-                              color: _isPinned
-                                  ? Theme.of(context).colorScheme.primary
-                                  : _mutedTextColor(context),
-                            ),
-                          ),
-                          PopupMenuButton<NoteEditorMode>(
-                            tooltip: _editorMode == NoteEditorMode.quick
-                                ? strings.quickMemo
-                                : strings.richMemo,
-                            icon: Icon(
-                              _editorMode == NoteEditorMode.quick
-                                  ? Icons.notes_outlined
-                                  : Icons.view_stream_outlined,
-                              color: _mutedTextColor(context),
-                            ),
-                            onSelected: _switchEditorMode,
-                            itemBuilder: (context) => [
-                              PopupMenuItem(
-                                value: NoteEditorMode.quick,
-                                child: _MediaMenuEntry(
-                                  icon: _editorMode == NoteEditorMode.quick
-                                      ? Icons.check_rounded
-                                      : Icons.notes_outlined,
-                                  label: strings.quickMemo,
-                                ),
+                    Row(
+                      children: [
+                        PopupMenuButton<NoteEditorMode>(
+                          tooltip: _editorMode == NoteEditorMode.quick
+                              ? strings.quickMemo
+                              : strings.richMemo,
+                          offset: const Offset(0, 8),
+                          onSelected: _switchEditorMode,
+                          itemBuilder: (context) => [
+                            PopupMenuItem(
+                              value: NoteEditorMode.quick,
+                              child: _MediaMenuEntry(
+                                icon: _editorMode == NoteEditorMode.quick
+                                    ? Icons.check_rounded
+                                    : Icons.notes_outlined,
+                                label: strings.quickMemo,
                               ),
-                              PopupMenuItem(
-                                value: NoteEditorMode.rich,
-                                child: _MediaMenuEntry(
-                                  icon: _editorMode == NoteEditorMode.rich
-                                      ? Icons.check_rounded
-                                      : Icons.view_stream_outlined,
-                                  label: strings.richMemo,
-                                ),
-                              ),
-                            ],
-                          ),
-                          PopupMenuButton<MediaImportAction>(
-                            key: const Key('note-capture-media-menu'),
-                            tooltip: strings.captureMedia,
-                            icon: Icon(
-                              Icons.photo_camera_outlined,
-                              color: _mutedTextColor(context),
                             ),
-                            onSelected: _handleAttachmentAction,
-                            itemBuilder: (context) => [
-                              if (!kIsWeb)
+                            PopupMenuItem(
+                              value: NoteEditorMode.rich,
+                              child: _MediaMenuEntry(
+                                icon: _editorMode == NoteEditorMode.rich
+                                    ? Icons.check_rounded
+                                    : Icons.view_stream_outlined,
+                                label: strings.richMemo,
+                              ),
+                            ),
+                          ],
+                          child: _EditorModeButton(
+                            mode: _editorMode,
+                            strings: strings,
+                          ),
+                        ),
+                        const Spacer(),
+                        Wrap(
+                          spacing: 4,
+                          children: [
+                            IconButton(
+                              tooltip: strings.pinThisNote,
+                              onPressed: () {
+                                setState(() {
+                                  _isPinned = !_isPinned;
+                                });
+                                _scheduleDraftPersist();
+                              },
+                              icon: Icon(
+                                _isPinned
+                                    ? Icons.push_pin_rounded
+                                    : Icons.push_pin_outlined,
+                                color: _isPinned
+                                    ? Theme.of(context).colorScheme.primary
+                                    : _mutedTextColor(context),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: _captureLocationEnabled
+                                  ? strings.currentLocationLabel
+                                  : strings.addCurrentLocation,
+                              onPressed: _locationBusy
+                                  ? null
+                                  : _toggleLocationCapture,
+                              icon: _locationBusy
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Icon(
+                                      _location != null
+                                          ? Icons.my_location_rounded
+                                          : Icons.my_location_outlined,
+                                      color:
+                                          _captureLocationEnabled ||
+                                              _location != null
+                                          ? Theme.of(
+                                              context,
+                                            ).colorScheme.primary
+                                          : _mutedTextColor(context),
+                                    ),
+                            ),
+                            PopupMenuButton<MediaImportAction>(
+                              key: const Key('note-capture-media-menu'),
+                              tooltip: strings.captureMedia,
+                              icon: Icon(
+                                Icons.photo_camera_outlined,
+                                color: _mutedTextColor(context),
+                              ),
+                              onSelected: _handleAttachmentAction,
+                              itemBuilder: (context) => [
+                                if (!kIsWeb)
+                                  PopupMenuItem(
+                                    value: MediaImportAction.takePhoto,
+                                    child: _MediaMenuEntry(
+                                      icon: Icons.photo_camera_outlined,
+                                      label: strings.takePhoto,
+                                    ),
+                                  ),
+                                if (!kIsWeb)
+                                  PopupMenuItem(
+                                    value: MediaImportAction.recordVideo,
+                                    child: _MediaMenuEntry(
+                                      icon: Icons.videocam_outlined,
+                                      label: strings.recordVideo,
+                                    ),
+                                  ),
                                 PopupMenuItem(
-                                  value: MediaImportAction.takePhoto,
+                                  value: MediaImportAction.recordAudio,
                                   child: _MediaMenuEntry(
-                                    icon: Icons.photo_camera_outlined,
-                                    label: strings.takePhoto,
+                                    icon: Icons.mic_none_rounded,
+                                    label: strings.recordAudio,
                                   ),
                                 ),
-                              if (!kIsWeb)
+                              ],
+                            ),
+                            PopupMenuButton<MediaImportAction>(
+                              key: const Key('note-import-file-menu'),
+                              tooltip: strings.importFiles,
+                              icon: Icon(
+                                Icons.folder_open_outlined,
+                                color: _mutedTextColor(context),
+                              ),
+                              onSelected: _handleAttachmentAction,
+                              itemBuilder: (context) => [
                                 PopupMenuItem(
-                                  value: MediaImportAction.recordVideo,
+                                  value: MediaImportAction.pickPhoto,
                                   child: _MediaMenuEntry(
-                                    icon: Icons.videocam_outlined,
-                                    label: strings.recordVideo,
+                                    icon: Icons.photo_library_outlined,
+                                    label: strings.pickPhoto,
                                   ),
                                 ),
-                              PopupMenuItem(
-                                value: MediaImportAction.recordAudio,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.mic_none_rounded,
-                                  label: strings.recordAudio,
+                                PopupMenuItem(
+                                  value: MediaImportAction.pickVideo,
+                                  child: _MediaMenuEntry(
+                                    icon: Icons.video_library_outlined,
+                                    label: strings.pickVideo,
+                                  ),
                                 ),
-                              ),
-                              PopupMenuItem(
-                                value: MediaImportAction.addLocation,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.my_location_outlined,
-                                  label: strings.addCurrentLocation,
+                                PopupMenuItem(
+                                  value: MediaImportAction.pickAudio,
+                                  child: _MediaMenuEntry(
+                                    icon: Icons.graphic_eq_rounded,
+                                    label: strings.pickAudio,
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          PopupMenuButton<MediaImportAction>(
-                            key: const Key('note-import-file-menu'),
-                            tooltip: strings.importFiles,
-                            icon: Icon(
-                              Icons.folder_open_outlined,
-                              color: _mutedTextColor(context),
+                                PopupMenuItem(
+                                  value: MediaImportAction.pickFile,
+                                  child: _MediaMenuEntry(
+                                    icon: Icons.insert_drive_file_outlined,
+                                    label: strings.pickFile,
+                                  ),
+                                ),
+                              ],
                             ),
-                            onSelected: _handleAttachmentAction,
-                            itemBuilder: (context) => [
-                              PopupMenuItem(
-                                value: MediaImportAction.pickPhoto,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.photo_library_outlined,
-                                  label: strings.pickPhoto,
-                                ),
-                              ),
-                              PopupMenuItem(
-                                value: MediaImportAction.pickVideo,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.video_library_outlined,
-                                  label: strings.pickVideo,
-                                ),
-                              ),
-                              PopupMenuItem(
-                                value: MediaImportAction.pickAudio,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.graphic_eq_rounded,
-                                  label: strings.pickAudio,
-                                ),
-                              ),
-                              PopupMenuItem(
-                                value: MediaImportAction.pickFile,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.insert_drive_file_outlined,
-                                  label: strings.pickFile,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
             ),
-            Text(
-              widget.note == null ? strings.newNote : strings.editNote,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
-            ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.only(bottom: 96),
                 children: [
                   if (_editorMode == NoteEditorMode.quick) ...[
-                    TextField(
-                      key: const Key('note-content-input'),
-                      controller: _contentController,
-                      focusNode: _quickContentFocusNode,
-                      autofocus: widget.note == null,
-                      minLines: 12,
-                      maxLines: null,
-                      decoration: InputDecoration(
-                        labelText: strings.memoLabel,
-                        hintText: strings.memoFirstLineHint,
-                        alignLabelWithHint: true,
-                        border: const OutlineInputBorder(),
+                    Container(
+                      decoration: _sectionDecoration(context),
+                      padding: const EdgeInsets.all(12),
+                      child: TextField(
+                        key: const Key('note-content-input'),
+                        controller: _contentController,
+                        focusNode: _quickContentFocusNode,
+                        autofocus: widget.note == null,
+                        minLines: 12,
+                        maxLines: null,
+                        scrollPadding: const EdgeInsets.only(
+                          left: 20,
+                          right: 20,
+                          bottom: 180,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: strings.memoFirstLineHint,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          isCollapsed: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -9031,6 +10473,29 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                         },
                       ),
                     ),
+                  if (_location != null) ...[
+                    const SizedBox(height: 12),
+                    _EditableLocationSection(
+                      location: _location!,
+                      strings: strings,
+                      onEdit: _editLocation,
+                      onRemove: () {
+                        setState(() {
+                          _location = null;
+                          _captureLocationEnabled = false;
+                        });
+                        unawaited(
+                          ref
+                              .read(
+                                lastNoteEditorSettingsControllerProvider
+                                    .notifier,
+                              )
+                              .setCaptureLocation(false),
+                        );
+                        _scheduleDraftPersist();
+                      },
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -9102,7 +10567,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             ? SnackBarBehavior.floating
             : SnackBarBehavior.fixed,
         width: useFloating ? snackBarWidth : null,
-        margin: useFloating
+        margin: useFloating && snackBarWidth == null
             ? EdgeInsets.fromLTRB(16, 0, 16, bottomInset + 16)
             : null,
         duration: action == null
@@ -9168,7 +10633,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
 
   Future<void> _handleAttachmentAction(MediaImportAction action) async {
     if (action == MediaImportAction.addLocation) {
-      await _handleLocationAction();
+      await _toggleLocationCapture();
       return;
     }
     final MediaImportResult result;
@@ -9259,8 +10724,33 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _scheduleDraftPersist();
   }
 
-  Future<void> _handleLocationAction() async {
+  Future<void> _toggleLocationCapture() async {
+    final nextEnabled = !_captureLocationEnabled;
+    setState(() {
+      _captureLocationEnabled = nextEnabled;
+      if (!nextEnabled) {
+        _location = null;
+      }
+    });
+    await ref
+        .read(lastNoteEditorSettingsControllerProvider.notifier)
+        .setCaptureLocation(nextEnabled);
+    _scheduleDraftPersist();
+    if (nextEnabled) {
+      await _captureCurrentLocationForNote(showErrors: true);
+    }
+  }
+
+  Future<void> _captureCurrentLocationForNote({
+    required bool showErrors,
+  }) async {
+    if (_locationBusy) {
+      return;
+    }
     final strings = context.strings;
+    setState(() {
+      _locationBusy = true;
+    });
     try {
       final locationServiceEnabled =
           kIsWeb || await Geolocator.isLocationServiceEnabled();
@@ -9268,7 +10758,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         if (!mounted) {
           return;
         }
-        _showEditorSnackBar(content: Text(strings.locationServicesOff));
+        if (showErrors) {
+          _showEditorSnackBar(content: Text(strings.locationServicesOff));
+        }
         return;
       }
 
@@ -9281,7 +10773,11 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         if (!mounted) {
           return;
         }
-        _showEditorSnackBar(content: Text(strings.locationPermissionRequired));
+        if (showErrors) {
+          _showEditorSnackBar(
+            content: Text(strings.locationPermissionRequired),
+          );
+        }
         return;
       }
 
@@ -9298,100 +10794,40 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       if (!mounted) {
         return;
       }
-      _insertLocationText(
-        _formatLocationMemo(position, strings, estimatedAddress: address),
-      );
-      _showEditorSnackBar(content: Text(strings.currentLocationAdded));
+      setState(() {
+        _location = _noteLocationFromPosition(position, address: address);
+      });
+      _scheduleDraftPersist();
+      if (showErrors) {
+        _showEditorSnackBar(content: Text(strings.currentLocationAdded));
+      }
     } catch (_) {
       if (!mounted) {
         return;
       }
-      _showEditorSnackBar(content: Text(strings.currentLocationUnavailable));
+      if (showErrors) {
+        _showEditorSnackBar(content: Text(strings.currentLocationUnavailable));
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _locationBusy = false;
+        });
+      }
     }
   }
 
-  void _insertLocationText(String locationText) {
+  Future<void> _editLocation() async {
+    final current = _location;
+    if (current == null) {
+      return;
+    }
+    final edited = await _showLocationEditDialog(context, current);
+    if (edited == null || !mounted) {
+      return;
+    }
     setState(() {
-      if (_editorMode == NoteEditorMode.quick) {
-        final text = _contentController.text;
-        final selection = _contentController.selection;
-        final insertionOffset = selection.isValid
-            ? selection.baseOffset.clamp(0, text.length)
-            : text.length;
-        final prefix = insertionOffset > 0 && !text.endsWith('\n')
-            ? '\n\n'
-            : '';
-        final suffix = insertionOffset < text.length ? '\n\n' : '';
-        final nextText = text.replaceRange(
-          insertionOffset,
-          insertionOffset,
-          '$prefix$locationText$suffix',
-        );
-        final nextOffset =
-            insertionOffset + prefix.length + locationText.length;
-        _contentController.text = nextText;
-        _contentController.selection = TextSelection.collapsed(
-          offset: nextOffset,
-        );
-        return;
-      }
-
-      final insertionIndex = _resolveRichInsertionIndex();
-      final nextBlocks = [..._richBlocks];
-      late final _RichBlockDraft paragraphToFocus;
-      var focusOffset = 0;
-
-      if (insertionIndex < nextBlocks.length &&
-          nextBlocks[insertionIndex].type == NoteBlockType.paragraph) {
-        final current = nextBlocks[insertionIndex];
-        final controller = current.controller!;
-        final text = controller.text;
-        final selection = controller.selection;
-        final cursorOffset = selection.isValid
-            ? selection.baseOffset.clamp(0, text.length)
-            : text.length;
-        if (text.trim().isEmpty) {
-          controller.text = locationText;
-          final trailingParagraph = _RichBlockDraft.paragraph();
-          _attachRichBlockListener(trailingParagraph);
-          nextBlocks.insert(insertionIndex + 1, trailingParagraph);
-          paragraphToFocus = trailingParagraph;
-        } else {
-          final beforeText = text.substring(0, cursorOffset);
-          final afterText = text.substring(cursorOffset);
-          current.dispose();
-          nextBlocks.removeAt(insertionIndex);
-
-          final replacement = <_RichBlockDraft>[];
-          if (beforeText.trim().isNotEmpty) {
-            final beforeParagraph = _RichBlockDraft.paragraph(beforeText);
-            _attachRichBlockListener(beforeParagraph);
-            replacement.add(beforeParagraph);
-          }
-
-          final locationParagraph = _RichBlockDraft.paragraph(locationText);
-          _attachRichBlockListener(locationParagraph);
-          replacement.add(locationParagraph);
-
-          final afterParagraph = _RichBlockDraft.paragraph(afterText);
-          _attachRichBlockListener(afterParagraph);
-          replacement.add(afterParagraph);
-
-          nextBlocks.insertAll(insertionIndex, replacement);
-          paragraphToFocus = afterParagraph;
-        }
-      } else {
-        final paragraph = _RichBlockDraft.paragraph(locationText);
-        _attachRichBlockListener(paragraph);
-        final trailingParagraph = _RichBlockDraft.paragraph();
-        _attachRichBlockListener(trailingParagraph);
-        nextBlocks.insertAll(insertionIndex, [paragraph, trailingParagraph]);
-        paragraphToFocus = trailingParagraph;
-      }
-
-      _richBlocks = nextBlocks;
-      _activeRichParagraphIndex = _richBlocks.indexOf(paragraphToFocus);
-      _requestParagraphFocus(paragraphToFocus, focusOffset);
+      _location = edited;
     });
     _scheduleDraftPersist();
   }
@@ -9426,6 +10862,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       deviceId: widget.note?.deviceId,
       syncState: widget.note?.syncState ?? NoteSyncState.localOnly,
       editorMode: _editorMode,
+      location: _location,
     );
     final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
     for (final filePath in _pendingAttachmentDeletes) {
@@ -9434,7 +10871,11 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _pendingAttachmentDeletes.clear();
     await ref
         .read(lastNoteEditorSettingsControllerProvider.notifier)
-        .remember(mode: _editorMode, vaultId: _selectedVaultId!);
+        .remember(
+          mode: _editorMode,
+          vaultId: _selectedVaultId!,
+          captureLocation: _captureLocationEnabled,
+        );
     await ref.read(notesControllerProvider.notifier).upsert(note);
     if (widget.note == null) {
       await ref.read(noteEditorDraftStoreProvider).clear();
@@ -9768,23 +11209,13 @@ String? _formatPlacemarkAddress(Placemark placemark) {
   return deduped.isEmpty ? null : deduped.join(', ');
 }
 
-String _formatLocationMemo(
-  Position position,
-  AppStrings strings, {
-  String? estimatedAddress,
-}) {
-  final latitude = position.latitude.toStringAsFixed(6);
-  final longitude = position.longitude.toStringAsFixed(6);
-  final accuracy = position.accuracy.isFinite
-      ? '${position.accuracy.round()}m'
-      : '-';
-  final mapUrl = 'https://maps.google.com/?q=$latitude,$longitude';
-  return strings.locationMemo(
-    latitude: latitude,
-    longitude: longitude,
-    accuracy: accuracy,
-    mapUrl: mapUrl,
-    estimatedAddress: estimatedAddress,
+NoteLocation _noteLocationFromPosition(Position position, {String? address}) {
+  return NoteLocation(
+    latitude: position.latitude,
+    longitude: position.longitude,
+    accuracyMeters: position.accuracy.isFinite ? position.accuracy : null,
+    address: address,
+    capturedAt: DateTime.now(),
   );
 }
 
@@ -9804,7 +11235,26 @@ class _LocationMemoData {
   final String? address;
 }
 
+_LocationMemoData _locationMemoDataFromMetadata(NoteLocation location) {
+  final latitude = location.latitude.toStringAsFixed(6);
+  final longitude = location.longitude.toStringAsFixed(6);
+  return _LocationMemoData(
+    latitude: latitude,
+    longitude: longitude,
+    accuracy: location.accuracyMeters == null
+        ? '-'
+        : '${location.accuracyMeters!.round()}m',
+    mapUrl: 'https://maps.google.com/?q=$latitude,$longitude',
+    address: location.address,
+  );
+}
+
 _LocationMemoData? _tryParseLocationMemo(String text) {
+  final leadingText = text.trimLeft().toLowerCase();
+  if (!leadingText.startsWith('迴ｾ蝨ｨ蝨ｰ') &&
+      !leadingText.startsWith('current location')) {
+    return null;
+  }
   final normalized = text.replaceAll('\r\n', '\n').trim();
   final lines = normalized
       .split('\n')
@@ -9881,6 +11331,575 @@ Future<void> _openLocationMap(
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(showCloseIcon: true, content: Text(context.strings.mapOpenFailed)),
   );
+}
+
+class _EditableLocationSection extends StatelessWidget {
+  const _EditableLocationSection({
+    required this.location,
+    required this.strings,
+    required this.onEdit,
+    required this.onRemove,
+  });
+
+  final NoteLocation location;
+  final AppStrings strings;
+  final VoidCallback onEdit;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final data = _locationMemoDataFromMetadata(location);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final address = data.address?.trim();
+    final subtitle = address == null || address.isEmpty
+        ? '${strings.latitudeLabel}: ${data.latitude}, '
+              '${strings.longitudeLabel}: ${data.longitude}'
+        : address;
+
+    return Material(
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.42),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: theme.dividerColor),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onEdit,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Row(
+            children: [
+              Icon(Icons.my_location_rounded, size: 18, color: scheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      strings.currentLocationLabel,
+                      style: theme.textTheme.labelLarge,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: strings.editNote,
+                onPressed: onEdit,
+                icon: const Icon(Icons.map_outlined),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: strings.removeBlock,
+                onPressed: onRemove,
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LocationSearchResult {
+  const _LocationSearchResult({
+    required this.label,
+    required this.latitude,
+    required this.longitude,
+  });
+
+  final String label;
+  final double latitude;
+  final double longitude;
+}
+
+Future<List<_LocationSearchResult>> _searchLocationCandidates(
+  String query,
+) async {
+  final trimmed = query.trim();
+  if (trimmed.isEmpty) {
+    return const [];
+  }
+  final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
+    'format': 'jsonv2',
+    'limit': '5',
+    'q': trimmed,
+  });
+  final response = await http
+      .get(
+        uri,
+        headers: const {
+          'Accept': 'application/json',
+          'User-Agent': 'HiMemo/1.0 (mail@ruhenheim.org)',
+        },
+      )
+      .timeout(const Duration(seconds: 10));
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw StateError('Location search failed: ${response.statusCode}');
+  }
+  final decoded = jsonDecode(response.body);
+  if (decoded is! List) {
+    return const [];
+  }
+  return [
+    for (final entry in decoded)
+      if (entry is Map)
+        if (double.tryParse('${entry['lat']}') case final latitude?)
+          if (double.tryParse('${entry['lon']}') case final longitude?)
+            _LocationSearchResult(
+              label: '${entry['display_name'] ?? ''}'.trim(),
+              latitude: latitude,
+              longitude: longitude,
+            ),
+  ].where((entry) => entry.label.isNotEmpty).toList(growable: false);
+}
+
+Future<String?> _reverseSearchLocationAddress(LatLng point) async {
+  try {
+    final uri = Uri.https('nominatim.openstreetmap.org', '/reverse', {
+      'format': 'jsonv2',
+      'lat': point.latitude.toStringAsFixed(7),
+      'lon': point.longitude.toStringAsFixed(7),
+      'zoom': '18',
+      'addressdetails': '1',
+    });
+    final response = await http
+        .get(
+          uri,
+          headers: const {
+            'Accept': 'application/json',
+            'User-Agent': 'HiMemo/1.0 (mail@ruhenheim.org)',
+          },
+        )
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return null;
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map) {
+      return null;
+    }
+    final displayName = '${decoded['display_name'] ?? ''}'.trim();
+    return displayName.isEmpty ? null : displayName;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<NoteLocation?> _showLocationEditDialog(
+  BuildContext context,
+  NoteLocation location,
+) {
+  return showDialog<NoteLocation>(
+    context: context,
+    builder: (dialogContext) => _LocationEditDialog(location: location),
+  );
+}
+
+class _LocationEditDialog extends StatefulWidget {
+  const _LocationEditDialog({required this.location});
+
+  final NoteLocation location;
+
+  @override
+  State<_LocationEditDialog> createState() => _LocationEditDialogState();
+}
+
+class _LocationEditDialogState extends State<_LocationEditDialog> {
+  late final TextEditingController _accuracyController;
+  late final TextEditingController _addressController;
+  late final TextEditingController _searchController;
+  late final MapController _mapController;
+  late LatLng _selectedPoint;
+  double _selectedZoom = 15;
+  bool _isSearching = false;
+  bool _isResolvingAddress = false;
+  String? _errorText;
+  Timer? _reverseAddressDebounce;
+  LatLng? _lastReverseAddressPoint;
+  int _reverseAddressRequestId = 0;
+  List<_LocationSearchResult> _searchResults = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _accuracyController = TextEditingController(
+      text: widget.location.accuracyMeters == null
+          ? ''
+          : widget.location.accuracyMeters!.round().toString(),
+    );
+    _addressController = TextEditingController(
+      text: widget.location.address ?? '',
+    );
+    _searchController = TextEditingController();
+    _mapController = MapController();
+    _selectedPoint = LatLng(
+      widget.location.latitude,
+      widget.location.longitude,
+    );
+  }
+
+  @override
+  void dispose() {
+    _reverseAddressDebounce?.cancel();
+    _accuracyController.dispose();
+    _addressController.dispose();
+    _searchController.dispose();
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _runSearch(AppStrings strings) async {
+    final query = _searchController.text.trim();
+    if (query.isEmpty) {
+      setState(() {
+        _searchResults = const [];
+        _errorText = null;
+      });
+      return;
+    }
+    setState(() {
+      _isSearching = true;
+      _errorText = null;
+    });
+    try {
+      final results = await _searchLocationCandidates(query);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _searchResults = results;
+        _isSearching = false;
+        _errorText = results.isEmpty
+            ? strings.localized(
+                en: 'No matching places were found.',
+                ja: '一致する地点が見つかりませんでした。',
+                zh: '未找到匹配的地点。',
+                ko: '일치하는 장소를 찾을 수 없습니다.',
+                es: 'No se encontraron lugares coincidentes.',
+                de: 'Keine passenden Orte gefunden.',
+              )
+            : null;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSearching = false;
+        _errorText = strings.localized(
+          en: 'Location search failed. Try again later.',
+          ja: '地点検索に失敗しました。時間をおいて再試行してください。',
+          zh: '地点搜索失败。请稍后重试。',
+          ko: '장소 검색에 실패했습니다. 나중에 다시 시도하세요.',
+          es: 'La búsqueda de ubicación falló. Inténtalo más tarde.',
+          de: 'Standortsuche fehlgeschlagen. Versuche es später erneut.',
+        );
+      });
+    }
+  }
+
+  void _selectSearchResult(_LocationSearchResult result) {
+    final point = LatLng(result.latitude, result.longitude);
+    _reverseAddressDebounce?.cancel();
+    setState(() {
+      _selectedPoint = point;
+      _lastReverseAddressPoint = point;
+      _addressController.text = result.label;
+      _searchResults = const [];
+      _isResolvingAddress = false;
+      _errorText = null;
+    });
+    _mapController.move(point, 15);
+  }
+
+  void _scheduleReverseAddressUpdate() {
+    _reverseAddressDebounce?.cancel();
+    final point = _selectedPoint;
+    final previous = _lastReverseAddressPoint;
+    if (previous != null &&
+        (previous.latitude - point.latitude).abs() < 0.00008 &&
+        (previous.longitude - point.longitude).abs() < 0.00008) {
+      return;
+    }
+    _reverseAddressDebounce = Timer(const Duration(milliseconds: 850), () {
+      _resolveAddressForPoint(point);
+    });
+  }
+
+  Future<void> _resolveAddressForPoint(LatLng point) async {
+    final requestId = ++_reverseAddressRequestId;
+    if (mounted) {
+      setState(() {
+        _isResolvingAddress = true;
+      });
+    }
+    final address = await _reverseSearchLocationAddress(point);
+    if (!mounted || requestId != _reverseAddressRequestId) {
+      return;
+    }
+    setState(() {
+      _lastReverseAddressPoint = point;
+      _isResolvingAddress = false;
+      if (address != null) {
+        _addressController.text = address;
+      }
+    });
+  }
+
+  void _save() {
+    Navigator.of(context).pop(
+      NoteLocation(
+        latitude: _selectedPoint.latitude,
+        longitude: _selectedPoint.longitude,
+        accuracyMeters: double.tryParse(_accuracyController.text.trim()),
+        address: _addressController.text.trim().isEmpty
+            ? null
+            : _addressController.text.trim(),
+        capturedAt: widget.location.capturedAt ?? DateTime.now(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      title: Text(strings.currentLocationLabel),
+      content: SizedBox(
+        width: math.min(MediaQuery.sizeOf(context).width - 48, 620),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                strings.localized(
+                  en: 'Move the map so the pin points to the note location.',
+                  ja: 'ピンがメモの地点を指すように地図を移動してください。',
+                  zh: '移动地图，让图钉指向笔记位置。',
+                  ko: '핀이 메모 위치를 가리키도록 지도를 이동하세요.',
+                  es: 'Mueve el mapa para que el pin señale la ubicación de la nota.',
+                  de: 'Verschiebe die Karte, damit die Markierung auf den Notizort zeigt.',
+                ),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      textInputAction: TextInputAction.search,
+                      decoration: InputDecoration(
+                        labelText: strings.localized(
+                          en: 'Search place',
+                          ja: '地点を検索',
+                          zh: '搜索地点',
+                          ko: '장소 검색',
+                          es: 'Buscar lugar',
+                          de: 'Ort suchen',
+                        ),
+                        prefixIcon: const Icon(Icons.search_rounded),
+                      ),
+                      onSubmitted: (_) => _runSearch(strings),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    tooltip: strings.localized(
+                      en: 'Search',
+                      ja: '検索',
+                      zh: '搜索',
+                      ko: '검색',
+                      es: 'Buscar',
+                      de: 'Suchen',
+                    ),
+                    onPressed: _isSearching ? null : () => _runSearch(strings),
+                    icon: _isSearching
+                        ? SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: colorScheme.onSecondaryContainer,
+                            ),
+                          )
+                        : const Icon(Icons.search_rounded),
+                  ),
+                ],
+              ),
+              if (_searchResults.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Theme.of(context).dividerColor),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final result in _searchResults)
+                        ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.place_outlined),
+                          title: Text(
+                            result.label,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () => _selectSearchResult(result),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: SizedBox(
+                  height: 280,
+                  child: Stack(
+                    children: [
+                      FlutterMap(
+                        mapController: _mapController,
+                        options: MapOptions(
+                          initialCenter: _selectedPoint,
+                          initialZoom: _selectedZoom,
+                          onPositionChanged: (camera, hasGesture) {
+                            _selectedPoint = camera.center;
+                            _selectedZoom = camera.zoom;
+                            if (hasGesture) {
+                              _scheduleReverseAddressUpdate();
+                            }
+                          },
+                        ),
+                        children: [
+                          TileLayer(
+                            urlTemplate:
+                                'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+                            subdomains: const ['a', 'b', 'c', 'd'],
+                            userAgentPackageName: 'org.ruhenheim.himemo',
+                          ),
+                        ],
+                      ),
+                      IgnorePointer(
+                        child: Center(
+                          child: Icon(
+                            Icons.location_on_rounded,
+                            size: 42,
+                            color: colorScheme.primary,
+                            shadows: [
+                              Shadow(
+                                color: colorScheme.shadow.withValues(
+                                  alpha: 0.3,
+                                ),
+                                blurRadius: 6,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: 8,
+                        bottom: 8,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: colorScheme.surface.withValues(alpha: 0.86),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 3,
+                            ),
+                            child: Text(
+                              '© OpenStreetMap © CARTO',
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _addressController,
+                decoration: InputDecoration(
+                  labelText: strings.estimatedAddressLabel,
+                  suffixIcon: _isResolvingAddress
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : null,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _accuracyController,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: strings.locationAccuracyLabel,
+                  suffixText: 'm',
+                ),
+              ),
+              if (_errorText != null) ...[
+                const SizedBox(height: 8),
+                Text(_errorText!, style: TextStyle(color: colorScheme.error)),
+              ],
+              const SizedBox(height: 8),
+              Text(
+                '${strings.latitudeLabel}: ${_selectedPoint.latitude.toStringAsFixed(6)}\n'
+                '${strings.longitudeLabel}: ${_selectedPoint.longitude.toStringAsFixed(6)}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(strings.cancel),
+        ),
+        TextButton.icon(
+          onPressed: () => _openLocationMap(
+            context,
+            _locationMemoDataFromMetadata(widget.location),
+          ),
+          icon: const Icon(Icons.open_in_new_rounded),
+          label: Text(strings.openMap),
+        ),
+        FilledButton(onPressed: _save, child: Text(strings.save)),
+      ],
+    );
+  }
 }
 
 class _LocationMemoCard extends StatelessWidget {
@@ -10298,6 +12317,11 @@ class _RichBlockEditorTile extends StatelessWidget {
                 focusNode: block.focusNode,
                 minLines: 1,
                 maxLines: null,
+                scrollPadding: const EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  bottom: 180,
+                ),
                 decoration: InputDecoration(
                   semanticCounterText: '',
                   hintText: showPrompt ? strings.startWritingHere : null,
@@ -10352,6 +12376,54 @@ class _RichBlockEditorTile extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _EditorModeButton extends StatelessWidget {
+  const _EditorModeButton({required this.mode, required this.strings});
+
+  final NoteEditorMode mode;
+  final AppStrings strings;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isRich = mode == NoteEditorMode.rich;
+    return Container(
+      height: 40,
+      constraints: const BoxConstraints(minWidth: 96),
+      padding: const EdgeInsetsDirectional.fromSTEB(10, 0, 8, 0),
+      decoration: BoxDecoration(
+        color: colorScheme.primary.withValues(alpha: 0.08),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.22)),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isRich ? Icons.view_stream_outlined : Icons.notes_outlined,
+            size: 18,
+            color: colorScheme.primary,
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              isRich ? strings.richMemo : strings.quickMemo,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: colorScheme.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 2),
+          Icon(Icons.expand_more_rounded, size: 18, color: colorScheme.primary),
+        ],
+      ),
     );
   }
 }
@@ -10451,7 +12523,7 @@ class _CompactMediaIconButton extends StatelessWidget {
   }
 }
 
-class _QuickAttachmentSection extends StatelessWidget {
+class _QuickAttachmentSection extends StatefulWidget {
   const _QuickAttachmentSection({
     required this.strings,
     required this.attachments,
@@ -10465,7 +12537,24 @@ class _QuickAttachmentSection extends StatelessWidget {
   final void Function(int index, int delta) onMove;
 
   @override
+  State<_QuickAttachmentSection> createState() =>
+      _QuickAttachmentSectionState();
+}
+
+class _QuickAttachmentSectionState extends State<_QuickAttachmentSection> {
+  static const _collapsedAttachmentLimit = 8;
+
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
+    final strings = widget.strings;
+    final attachments = widget.attachments;
+    final shouldCollapse = attachments.length > _collapsedAttachmentLimit;
+    final visibleCount = shouldCollapse && !_expanded
+        ? _collapsedAttachmentLimit
+        : attachments.length;
+
     return Container(
       decoration: _sectionDecoration(context),
       padding: const EdgeInsets.all(12),
@@ -10477,26 +12566,69 @@ class _QuickAttachmentSection extends StatelessWidget {
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
-          if (attachments.isEmpty)
-            Text(
-              kIsWeb ? strings.attachFromBrowser : strings.attachFromDevice,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
-            )
-          else
-            for (var i = 0; i < attachments.length; i++)
+          Text(
+            strings.localized(
+              en: 'Use the camera or folder icons in the top right to add media.',
+              ja: '右上のカメラ・フォルダアイコンからメディアを追加できます。',
+              zh: '可通过右上角的相机或文件夹图标添加媒体。',
+              ko: '오른쪽 위의 카메라・폴더 아이콘에서 미디어를 추가할 수 있습니다.',
+              es: 'Usa los iconos de cámara o carpeta arriba a la derecha para añadir medios.',
+              de: 'Über die Kamera- oder Ordner-Symbole oben rechts kannst du Medien hinzufügen.',
+            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+          ),
+          if (attachments.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            for (var i = 0; i < visibleCount; i++)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: _EditableAttachmentTile(
                   attachment: attachments[i],
-                  onRemove: () => onRemove(i),
-                  onMovePrevious: i > 0 ? () => onMove(i, -1) : null,
+                  onRemove: () => widget.onRemove(i),
+                  onMovePrevious: i > 0 ? () => widget.onMove(i, -1) : null,
                   onMoveNext: i < attachments.length - 1
-                      ? () => onMove(i, 1)
+                      ? () => widget.onMove(i, 1)
                       : null,
                 ),
               ),
+            if (shouldCollapse)
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _expanded = !_expanded;
+                    });
+                  },
+                  icon: Icon(
+                    _expanded
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                  ),
+                  label: Text(
+                    _expanded
+                        ? strings.localized(
+                            en: 'Show fewer attachments',
+                            ja: '添付を少なく表示',
+                            zh: '显示较少附件',
+                            ko: '첨부 파일 적게 표시',
+                            es: 'Mostrar menos adjuntos',
+                            de: 'Weniger Anhaenge anzeigen',
+                          )
+                        : strings.localized(
+                            en: 'Show all ${attachments.length} attachments',
+                            ja: '${attachments.length}件の添付をすべて表示',
+                            zh: '显示全部 ${attachments.length} 个附件',
+                            ko: '첨부 파일 ${attachments.length}개 모두 표시',
+                            es: 'Mostrar los ${attachments.length} adjuntos',
+                            de: 'Alle ${attachments.length} Anhaenge anzeigen',
+                          ),
+                  ),
+                ),
+              ),
+          ],
         ],
       ),
     );
@@ -10856,6 +12988,8 @@ class _AttachmentPreview extends ConsumerStatefulWidget {
 class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
   Future<List<int>?>? _bytesFuture;
   String? _futureFilePath;
+  Uint8List? _previewBytes;
+  String? _previewBytesBase64;
 
   @override
   void didUpdateWidget(covariant _AttachmentPreview oldWidget) {
@@ -10866,6 +13000,8 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
             widget.attachment.previewBytesBase64) {
       _bytesFuture = null;
       _futureFilePath = null;
+      _previewBytes = null;
+      _previewBytesBase64 = null;
     }
   }
 
@@ -10874,9 +13010,11 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
       return _bytesFuture!;
     }
     _futureFilePath = filePath;
-    return _bytesFuture = ref
-        .read(encryptedAttachmentStoreProvider)
-        .readAttachment(filePath, type: widget.attachment.type);
+    return _bytesFuture = _readPhotoAttachmentBytesWithPerf(
+      ref,
+      widget.attachment,
+      source: 'attachment preview',
+    );
   }
 
   @override
@@ -10889,10 +13027,7 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
 
     final previewBytesBase64 = attachment.previewBytesBase64;
     if (previewBytesBase64 != null && previewBytesBase64.isNotEmpty) {
-      return _AttachmentImageBox(
-        bytes: base64Decode(previewBytesBase64),
-        size: size,
-      );
+      return _AttachmentImageBox(bytes: _decodePreviewBytes(), size: size);
     }
 
     final filePath = attachment.filePath;
@@ -10907,28 +13042,45 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
         if (bytes == null || bytes.isEmpty) {
           return _AttachmentIconBox(type: attachment.type, size: size);
         }
-        return _AttachmentImageBox(bytes: bytes, size: size);
+        return _AttachmentImageBox(
+          bytes: Uint8List.fromList(bytes),
+          size: size,
+        );
       },
     );
+  }
+
+  Uint8List _decodePreviewBytes() {
+    final encoded = widget.attachment.previewBytesBase64!;
+    if (_previewBytes != null && _previewBytesBase64 == encoded) {
+      return _previewBytes!;
+    }
+    _previewBytesBase64 = encoded;
+    return _previewBytes = base64Decode(encoded);
   }
 }
 
 class _AttachmentImageBox extends StatelessWidget {
   const _AttachmentImageBox({required this.bytes, this.size = 72});
 
-  final List<int> bytes;
+  final Uint8List bytes;
   final double size;
 
   @override
   Widget build(BuildContext context) {
+    final imageCacheSize = (size * MediaQuery.devicePixelRatioOf(context))
+        .round()
+        .clamp(1, 4096);
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: Image.memory(
-        Uint8List.fromList(bytes),
+        bytes,
         width: size,
         height: size,
         fit: BoxFit.cover,
         gaplessPlayback: true,
+        cacheWidth: imageCacheSize,
+        cacheHeight: imageCacheSize,
       ),
     );
   }
@@ -11160,6 +13312,510 @@ void _showStoreFeedback(BuildContext context, String message) {
   ScaffoldMessenger.of(
     context,
   ).showSnackBar(SnackBar(showCloseIcon: true, content: Text(message)));
+}
+
+enum _LocalArchiveExportKind { passwordProtectedZip, plainZip }
+
+class _LocalArchiveExportOptions {
+  const _LocalArchiveExportOptions({required this.kind, this.password});
+
+  final _LocalArchiveExportKind kind;
+  final String? password;
+}
+
+Future<void> _exportLocalArchive(BuildContext context, WidgetRef ref) async {
+  final strings = context.strings;
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final options = await _showLocalArchiveExportDialog(context);
+    if (options == null || !context.mounted) {
+      return;
+    }
+    final archive = await ref
+        .read(syncTransferControllerProvider.notifier)
+        .exportLocalArchive(password: options.password);
+    if (!context.mounted) {
+      return;
+    }
+    final savedPath = await FilePicker.platform.saveFile(
+      dialogTitle: strings.localized(
+        en: 'File export',
+        ja: 'ファイルエクスポート',
+        zh: '文件导出',
+        ko: '파일 내보내기',
+        es: 'Exportar archivo',
+        de: 'Datei exportieren',
+      ),
+      fileName: archive.fileName,
+      type: FileType.custom,
+      allowedExtensions: const ['zip'],
+      bytes: archive.bytes,
+    );
+    if (!context.mounted) {
+      return;
+    }
+    if (savedPath == null || savedPath.isEmpty) {
+      await Share.shareXFiles([
+        XFile.fromData(
+          archive.bytes,
+          name: archive.fileName,
+          mimeType: 'application/zip',
+        ),
+      ], text: 'HiMemo ZIP archive');
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(
+          strings.localized(
+            en: 'Exported ${archive.noteCount} notes and ${archive.attachmentCount} attachments.',
+            ja: '${archive.noteCount}件のメモと${archive.attachmentCount}件の添付を書き出しました。',
+            zh: '已导出 ${archive.noteCount} 条笔记和 ${archive.attachmentCount} 个附件。',
+            ko: '${archive.noteCount}개의 메모와 ${archive.attachmentCount}개의 첨부 파일을 내보냈습니다.',
+            es: 'Se exportaron ${archive.noteCount} notas y ${archive.attachmentCount} adjuntos.',
+            de: '${archive.noteCount} Notizen und ${archive.attachmentCount} Anhänge wurden exportiert.',
+          ),
+        ),
+      ),
+    );
+  } catch (error) {
+    if (!context.mounted) {
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(showCloseIcon: true, content: Text('$error')),
+    );
+  }
+}
+
+Future<void> _importLocalArchive(BuildContext context, WidgetRef ref) async {
+  final strings = context.strings;
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['zip'],
+      withData: true,
+    );
+    if (picked == null || picked.files.isEmpty) {
+      return;
+    }
+    if (!context.mounted) {
+      return;
+    }
+    final file = picked.files.single;
+    final bytes = file.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      messenger.showSnackBar(
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(
+            strings.localized(
+              en: 'The selected archive could not be read.',
+              ja: '選択したアーカイブを読み込めませんでした。',
+              zh: '无法读取所选归档。',
+              ko: '선택한 아카이브를 읽을 수 없습니다.',
+              es: 'No se pudo leer el archivo seleccionado.',
+              de: 'Das ausgewählte Archiv konnte nicht gelesen werden.',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    final password = await _passwordForLocalArchivePreview(context, ref, bytes);
+    if (password == _cancelledArchivePassword || !context.mounted) {
+      return;
+    }
+    final preview = await ref
+        .read(syncTransferControllerProvider.notifier)
+        .importLocalArchiveBytes(bytes, password: password);
+    if (!context.mounted) {
+      return;
+    }
+    final confirmed =
+        await _showBundlePreviewDialog(
+          context,
+          preview,
+          confirmLabel: strings.localized(
+            en: 'Import',
+            ja: '読み込む',
+            zh: '导入',
+            ko: '가져오기',
+            es: 'Importar',
+            de: 'Importieren',
+          ),
+        ) ??
+        false;
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    await ref
+        .read(syncTransferControllerProvider.notifier)
+        .applyLocalArchiveBytes(bytes, password: password);
+    if (!context.mounted) {
+      return;
+    }
+    final message =
+        ref.read(syncTransferControllerProvider).message ??
+        strings.localized(
+          en: 'Archive imported.',
+          ja: 'アーカイブを読み込みました。',
+          zh: '归档已导入。',
+          ko: '아카이브를 가져왔습니다.',
+          es: 'Archivo importado.',
+          de: 'Archiv importiert.',
+        );
+    messenger.showSnackBar(
+      SnackBar(showCloseIcon: true, content: Text(message)),
+    );
+  } catch (error) {
+    if (!context.mounted) {
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(showCloseIcon: true, content: Text('$error')),
+    );
+  }
+}
+
+const _cancelledArchivePassword = '\u0000__cancelled__';
+
+Future<String?> _passwordForLocalArchivePreview(
+  BuildContext context,
+  WidgetRef ref,
+  List<int> bytes,
+) async {
+  try {
+    await ref
+        .read(syncTransferControllerProvider.notifier)
+        .importLocalArchiveBytes(bytes);
+    return null;
+  } catch (_) {
+    if (!context.mounted) {
+      return _cancelledArchivePassword;
+    }
+    return _showArchivePasswordDialog(context);
+  }
+}
+
+Future<_LocalArchiveExportOptions?> _showLocalArchiveExportDialog(
+  BuildContext context,
+) async {
+  final strings = context.strings;
+  return showDialog<_LocalArchiveExportOptions>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text(
+          strings.localized(
+            en: 'File export',
+            ja: 'ファイルエクスポート',
+            zh: '文件导出',
+            ko: '파일 내보내기',
+            es: 'Exportar archivo',
+            de: 'Datei exportieren',
+          ),
+        ),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                strings.localized(
+                  en: 'Choose a portable ZIP format. Password-protected ZIP is safer for storage and sharing. Plain ZIP is readable without HiMemo and is useful for long-term recovery.',
+                  ja: '持ち運びしやすいZIP形式で書き出します。保存や共有にはキー付きZIPが安全です。プレーンZIPはHiMemoなしでも読めるため、長期的な復旧に向いています。',
+                  zh: '请选择可移植的 ZIP 格式。带密码的 ZIP 更适合保存和共享；纯 ZIP 无需 HiMemo 也能读取，适合长期恢复。',
+                  ko: '휴대 가능한 ZIP 형식으로 내보냅니다. 비밀번호 ZIP은 보관과 공유에 더 안전하고, 일반 ZIP은 HiMemo 없이도 읽을 수 있어 장기 복구에 적합합니다.',
+                  es: 'Elige un formato ZIP portátil. El ZIP con contraseña es más seguro para guardar y compartir. El ZIP sin cifrar se puede leer sin HiMemo y sirve para recuperación a largo plazo.',
+                  de: 'Wähle ein portables ZIP-Format. Ein passwortgeschütztes ZIP ist sicherer zum Speichern und Teilen. Ein unverschlüsseltes ZIP ist ohne HiMemo lesbar und eignet sich zur langfristigen Wiederherstellung.',
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.lock_outline),
+                title: Text(
+                  strings.localized(
+                    en: 'Password-protected ZIP',
+                    ja: 'キー付きZIP',
+                    zh: '带密码的 ZIP',
+                    ko: '비밀번호 ZIP',
+                    es: 'ZIP con contraseña',
+                    de: 'Passwortgeschütztes ZIP',
+                  ),
+                ),
+                subtitle: Text(
+                  strings.localized(
+                    en: 'Recommended for normal backups.',
+                    ja: '通常のバックアップにおすすめです。',
+                    zh: '推荐用于普通备份。',
+                    ko: '일반 백업에 권장됩니다.',
+                    es: 'Recomendado para copias de seguridad normales.',
+                    de: 'Für normale Backups empfohlen.',
+                  ),
+                ),
+                onTap: () async {
+                  final password = await _showArchivePasswordDialog(
+                    dialogContext,
+                    confirmPassword: true,
+                  );
+                  if (password == null || password.isEmpty) {
+                    return;
+                  }
+                  if (dialogContext.mounted) {
+                    Navigator.of(dialogContext).pop(
+                      _LocalArchiveExportOptions(
+                        kind: _LocalArchiveExportKind.passwordProtectedZip,
+                        password: password,
+                      ),
+                    );
+                  }
+                },
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.folder_open_outlined),
+                title: Text(
+                  strings.localized(
+                    en: 'Plain ZIP',
+                    ja: 'プレーンZIP',
+                    zh: '纯 ZIP',
+                    ko: '일반 ZIP',
+                    es: 'ZIP sin cifrar',
+                    de: 'Unverschlüsseltes ZIP',
+                  ),
+                ),
+                subtitle: Text(
+                  strings.localized(
+                    en: 'Readable outside the app. Anyone with the file can see its contents.',
+                    ja: 'アプリ外でも読めます。ファイルを持つ人は内容を閲覧できます。',
+                    zh: '可在应用外读取。持有文件的人都能查看内容。',
+                    ko: '앱 밖에서도 읽을 수 있습니다. 파일을 가진 사람은 내용을 볼 수 있습니다.',
+                    es: 'Se puede leer fuera de la app. Cualquier persona con el archivo puede ver su contenido.',
+                    de: 'Außerhalb der App lesbar. Jede Person mit der Datei kann den Inhalt sehen.',
+                  ),
+                ),
+                onTap: () async {
+                  final confirmed = await _confirmPlainZipExport(dialogContext);
+                  if (confirmed && dialogContext.mounted) {
+                    Navigator.of(dialogContext).pop(
+                      const _LocalArchiveExportOptions(
+                        kind: _LocalArchiveExportKind.plainZip,
+                      ),
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(strings.cancel),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+Future<bool> _confirmPlainZipExport(BuildContext context) async {
+  final strings = context.strings;
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(
+        strings.localized(
+          en: 'Export plain ZIP?',
+          ja: 'プレーンZIPで書き出しますか？',
+          zh: '导出纯 ZIP？',
+          ko: '일반 ZIP으로 내보낼까요?',
+          es: '¿Exportar ZIP sin cifrar?',
+          de: 'Unverschlüsseltes ZIP exportieren?',
+        ),
+      ),
+      content: Text(
+        strings.localized(
+          en: 'The exported file contains readable note text, tags, dates, locations, photos, videos, audio, and files. Store it only in a place you trust.',
+          ja: '書き出したファイルには、メモ本文、タグ、日時、位置情報、写真、動画、音声、ファイルが読み取り可能な状態で含まれます。信頼できる場所にのみ保存してください。',
+          zh: '导出的文件会以可读取状态包含笔记正文、标签、日期、位置、照片、视频、音频和文件。请只保存到可信位置。',
+          ko: '내보낸 파일에는 메모 본문, 태그, 날짜, 위치, 사진, 동영상, 오디오, 파일이 읽을 수 있는 상태로 포함됩니다. 신뢰할 수 있는 위치에만 저장하세요.',
+          es: 'El archivo exportado contiene texto, etiquetas, fechas, ubicaciones, fotos, videos, audio y archivos en formato legible. Guárdalo solo en un lugar de confianza.',
+          de: 'Die exportierte Datei enthält lesbare Notiztexte, Tags, Daten, Standorte, Fotos, Videos, Audio und Dateien. Speichere sie nur an einem vertrauenswürdigen Ort.',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(strings.cancel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(
+            strings.localized(
+              en: 'Export plain ZIP',
+              ja: 'プレーンZIPで書き出す',
+              zh: '导出纯 ZIP',
+              ko: '일반 ZIP 내보내기',
+              es: 'Exportar ZIP sin cifrar',
+              de: 'Unverschlüsselt exportieren',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+  return result ?? false;
+}
+
+Future<String?> _showArchivePasswordDialog(
+  BuildContext context, {
+  bool confirmPassword = false,
+}) async {
+  final strings = context.strings;
+  final controller = TextEditingController();
+  final confirmController = TextEditingController();
+  String? errorText;
+  final result = await showDialog<String>(
+    context: context,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: Text(
+              confirmPassword
+                  ? strings.localized(
+                      en: 'Set archive key',
+                      ja: 'アーカイブキーを設定',
+                      zh: '设置归档密钥',
+                      ko: '아카이브 키 설정',
+                      es: 'Definir clave del archivo',
+                      de: 'Archivschlüssel festlegen',
+                    )
+                  : strings.localized(
+                      en: 'Archive key',
+                      ja: 'アーカイブキー',
+                      zh: '归档密钥',
+                      ko: '아카이브 키',
+                      es: 'Clave del archivo',
+                      de: 'Archivschlüssel',
+                    ),
+            ),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    strings.localized(
+                      en: 'This key is not stored by HiMemo. If you lose it, this ZIP cannot be imported.',
+                      ja: 'このキーはHiMemoには保存されません。忘れると、このZIPは読み込めません。',
+                      zh: '此密钥不会保存在 HiMemo 中。如果遗失，将无法导入此 ZIP。',
+                      ko: '이 키는 HiMemo에 저장되지 않습니다. 잊어버리면 이 ZIP을 가져올 수 없습니다.',
+                      es: 'HiMemo no guarda esta clave. Si la pierdes, no podrás importar este ZIP.',
+                      de: 'HiMemo speichert diesen Schlüssel nicht. Wenn du ihn verlierst, kann dieses ZIP nicht importiert werden.',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: controller,
+                    obscureText: true,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      labelText: strings.localized(
+                        en: 'Key',
+                        ja: 'キー',
+                        zh: '密钥',
+                        ko: '키',
+                        es: 'Clave',
+                        de: 'Schlüssel',
+                      ),
+                      errorText: errorText,
+                    ),
+                  ),
+                  if (confirmPassword) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: confirmController,
+                      obscureText: true,
+                      decoration: InputDecoration(
+                        labelText: strings.localized(
+                          en: 'Confirm key',
+                          ja: 'キーを確認',
+                          zh: '确认密钥',
+                          ko: '키 확인',
+                          es: 'Confirmar clave',
+                          de: 'Schlüssel bestätigen',
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(strings.cancel),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final password = controller.text;
+                  if (password.length < 8) {
+                    setState(() {
+                      errorText = strings.localized(
+                        en: 'Use at least 8 characters.',
+                        ja: '8文字以上で入力してください。',
+                        zh: '请至少输入 8 个字符。',
+                        ko: '8자 이상 입력하세요.',
+                        es: 'Usa al menos 8 caracteres.',
+                        de: 'Mindestens 8 Zeichen verwenden.',
+                      );
+                    });
+                    return;
+                  }
+                  if (confirmPassword && password != confirmController.text) {
+                    setState(() {
+                      errorText = strings.localized(
+                        en: 'Keys do not match.',
+                        ja: 'キーが一致しません。',
+                        zh: '密钥不一致。',
+                        ko: '키가 일치하지 않습니다.',
+                        es: 'Las claves no coinciden.',
+                        de: 'Die Schlüssel stimmen nicht überein.',
+                      );
+                    });
+                    return;
+                  }
+                  Navigator.of(context).pop(password);
+                },
+                child: Text(
+                  confirmPassword
+                      ? strings.save
+                      : strings.localized(
+                          en: 'Continue',
+                          ja: '続行',
+                          zh: '继续',
+                          ko: '계속',
+                          es: 'Continuar',
+                          de: 'Weiter',
+                        ),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+  controller.dispose();
+  confirmController.dispose();
+  return result;
 }
 
 Future<bool?> _showBundlePreviewDialog(
@@ -12392,7 +15048,11 @@ class _PhotoAttachmentViewer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return FutureBuilder<List<int>?>(
-      future: _readPhotoAttachmentBytes(ref, attachment),
+      future: _readPhotoAttachmentBytesWithPerf(
+        ref,
+        attachment,
+        source: 'viewer',
+      ),
       builder: (context, snapshot) {
         final bytes = snapshot.data;
         if (snapshot.connectionState == ConnectionState.waiting) {

@@ -11,11 +11,13 @@ import '../../home/domain/note_entry.dart';
 import 'encrypted_note_database.dart';
 import 'encryption_service.dart';
 import 'master_key_service.dart';
+import 'profile_data_key_service.dart';
 
 class EncryptedNoteStore {
   EncryptedNoteStore({
     required EncryptionService encryptionService,
     required MasterKeyService masterKeyService,
+    ProfileDataKeyService? profileDataKeyService,
     EncryptedNoteDatabase? database,
     Future<Directory> Function()? directoryProvider,
     Future<SharedPreferences> Function()? sharedPreferencesProvider,
@@ -24,6 +26,7 @@ class EncryptedNoteStore {
     this.webStorageKey = 'notes.entries.encrypted.v1',
   }) : _encryptionService = encryptionService,
        _masterKeyService = masterKeyService,
+       _profileDataKeyService = profileDataKeyService,
        _database = database,
        _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
        _sharedPreferencesProvider =
@@ -31,6 +34,7 @@ class EncryptedNoteStore {
 
   final EncryptionService _encryptionService;
   final MasterKeyService _masterKeyService;
+  final ProfileDataKeyService? _profileDataKeyService;
   final EncryptedNoteDatabase? _database;
   final Future<Directory> Function() _directoryProvider;
   final Future<SharedPreferences> Function() _sharedPreferencesProvider;
@@ -72,7 +76,10 @@ class EncryptedNoteStore {
   Future<void> save(List<NoteEntry> notes) async {
     if (kIsWeb) {
       final payload = {'notes': notes.map((entry) => entry.toJson()).toList()};
-      final key = await _masterKeyService.obtainOrCreate();
+      final key = await _keyForVault('everyday');
+      if (key == null) {
+        throw StateError('Normal note key is unavailable.');
+      }
       final encoded = await _encryptionService.encryptJson(
         payload: payload,
         secretKey: key,
@@ -81,12 +88,27 @@ class EncryptedNoteStore {
       return;
     }
 
-    final key = await _masterKeyService.obtainOrCreate();
     final database = _database ?? EncryptedNoteDatabase();
+    final existingSnapshots = await database.loadAll();
+    final existingById = {
+      for (final snapshot in existingSnapshots) snapshot.note.id: snapshot,
+    };
     final records = <EncryptedNoteRecord>[];
     final attachments = <EncryptedAttachmentRecord>[];
     final pendingChanges = <PendingNoteChangeRecord>[];
     for (final note in notes) {
+      if (_isLockedPlaceholder(note)) {
+        final existing = existingById[note.id];
+        if (existing != null) {
+          records.add(existing.note);
+          attachments.addAll(existing.attachments);
+        }
+        continue;
+      }
+      final key = await _keyForVault(note.vaultId);
+      if (key == null) {
+        continue;
+      }
       final payload = await _encryptionService.encryptJson(
         payload: _databasePayloadFor(note),
         secretKey: key,
@@ -94,34 +116,10 @@ class EncryptedNoteStore {
       records.add(
         EncryptedNoteRecord.fromNote(note: note, encryptedPayload: payload),
       );
-      for (var i = 0; i < note.attachments.length; i++) {
-        final attachmentPayload = await _encryptionService.encryptJson(
-          payload: note.attachments[i].toJson(),
-          secretKey: key,
-        );
-        attachments.add(
-          EncryptedAttachmentRecord(
-            noteId: note.id,
-            position: i,
-            encryptedPayload: attachmentPayload,
-          ),
-        );
-      }
-      if (note.syncState == NoteSyncState.pendingUpload ||
-          note.syncState == NoteSyncState.pendingDelete) {
-        pendingChanges.add(
-          PendingNoteChangeRecord(
-            noteId: note.id,
-            vaultId: note.vaultId,
-            revision: note.revision,
-            action: note.deletedAt == null
-                ? PendingNoteChangeAction.upsert
-                : PendingNoteChangeAction.delete,
-            queuedAt: note.updatedAt ?? note.createdAt,
-            contentHash: note.contentHash,
-            deletedAt: note.deletedAt,
-          ),
-        );
+      attachments.addAll(await _encryptAttachmentRecords(note, secretKey: key));
+      final pendingChange = _pendingChangeFor(note);
+      if (pendingChange != null) {
+        pendingChanges.add(pendingChange);
       }
     }
     await database.replaceAll(
@@ -131,8 +129,35 @@ class EncryptedNoteStore {
     );
   }
 
+  Future<void> saveOne(NoteEntry note) async {
+    if (kIsWeb) {
+      throw UnsupportedError('Incremental note save is not supported on web.');
+    }
+    if (_isLockedPlaceholder(note)) {
+      return;
+    }
+    final key = await _keyForVault(note.vaultId);
+    if (key == null) {
+      return;
+    }
+    final database = _database ?? EncryptedNoteDatabase();
+    final payload = await _encryptionService.encryptJson(
+      payload: _databasePayloadFor(note),
+      secretKey: key,
+    );
+    final attachments = await _encryptAttachmentRecords(note, secretKey: key);
+    await database.upsertOne(
+      note: EncryptedNoteRecord.fromNote(note: note, encryptedPayload: payload),
+      attachments: attachments,
+      pendingChange: _pendingChangeFor(note),
+    );
+  }
+
   Future<List<NoteEntry>> _decodeEntries(String encodedPayload) async {
-    final key = await _masterKeyService.obtainOrCreate();
+    final key = await _keyForVault('everyday');
+    if (key == null) {
+      return const <NoteEntry>[];
+    }
     final payload = await _encryptionService.decryptJson(
       encodedPayload: encodedPayload,
       secretKey: key,
@@ -154,18 +179,32 @@ class EncryptedNoteStore {
   Future<List<NoteEntry>> _decryptSnapshots(
     List<EncryptedNoteSnapshot> snapshots,
   ) async {
-    final key = await _masterKeyService.obtainOrCreate();
     final notes = <NoteEntry>[];
     for (final snapshot in snapshots) {
       final record = snapshot.note;
-      final payload = await _encryptionService.decryptJson(
-        encodedPayload: record.encryptedPayload,
-        secretKey: key,
-      );
-      final attachmentList = await _decryptAttachmentPayloads(
-        snapshot.attachments,
-        secretKey: key,
-      );
+      final key = await _keyForVault(record.vaultId);
+      if (key == null) {
+        notes.add(_lockedPlaceholder(record));
+        continue;
+      }
+      Map<String, dynamic> payload;
+      List<NoteAttachment> attachmentList;
+      try {
+        payload = await _encryptionService.decryptJson(
+          encodedPayload: record.encryptedPayload,
+          secretKey: key,
+        );
+        attachmentList = await _decryptAttachmentPayloads(
+          snapshot.attachments,
+          secretKey: key,
+        );
+      } catch (_) {
+        if (isProfileDataKeyPrivateVaultId(record.vaultId)) {
+          notes.add(_lockedPlaceholder(record));
+          continue;
+        }
+        rethrow;
+      }
       final legacyAttachments =
           (payload['attachments'] as List<dynamic>? ?? const <dynamic>[])
               .map((entry) => Map<String, dynamic>.from(entry as Map))
@@ -210,10 +249,111 @@ class EncryptedNoteStore {
     return decoded;
   }
 
+  Future<List<EncryptedAttachmentRecord>> _encryptAttachmentRecords(
+    NoteEntry note, {
+    required SecretKey secretKey,
+  }) async {
+    if (note.attachments.isEmpty) {
+      return const <EncryptedAttachmentRecord>[];
+    }
+    return Future.wait([
+      for (var i = 0; i < note.attachments.length; i++)
+        _encryptionService
+            .encryptJson(
+              payload: note.attachments[i].toJson(),
+              secretKey: secretKey,
+            )
+            .then(
+              (payload) => EncryptedAttachmentRecord(
+                noteId: note.id,
+                position: i,
+                encryptedPayload: payload,
+              ),
+            ),
+    ]);
+  }
+
   Map<String, dynamic> _databasePayloadFor(NoteEntry note) {
     final payload = Map<String, dynamic>.from(note.toJson());
     payload['attachments'] = const <Map<String, dynamic>>[];
     return payload;
+  }
+
+  PendingNoteChangeRecord? _pendingChangeFor(NoteEntry note) {
+    if (note.syncState != NoteSyncState.pendingUpload &&
+        note.syncState != NoteSyncState.pendingDelete) {
+      return null;
+    }
+    return PendingNoteChangeRecord(
+      noteId: note.id,
+      vaultId: note.vaultId,
+      revision: note.revision,
+      action: note.deletedAt == null
+          ? PendingNoteChangeAction.upsert
+          : PendingNoteChangeAction.delete,
+      queuedAt: note.updatedAt ?? note.createdAt,
+      contentHash: note.contentHash,
+      deletedAt: note.deletedAt,
+    );
+  }
+
+  Future<void> deleteById(String noteId) async {
+    if (!kIsWeb) {
+      final database = _database ?? EncryptedNoteDatabase();
+      await database.deleteNoteById(noteId);
+      return;
+    }
+    final notes = await load(fallbackNotes: const <NoteEntry>[]);
+    await save(notes.where((note) => note.id != noteId).toList());
+  }
+
+  Future<int> storagePayloadSizeBytes() async {
+    if (!kIsWeb) {
+      final database = _database;
+      if (database != null) {
+        return database.storagePayloadSizeBytes();
+      }
+      final file = await _resolveStorageFile();
+      if (!await file.exists()) {
+        return 0;
+      }
+      return file.length();
+    }
+
+    final prefs = await _sharedPreferencesProvider();
+    final encrypted = prefs.getString(webStorageKey);
+    final legacy = prefs.getString(legacyStorageKey);
+    return (encrypted?.length ?? 0) + (legacy?.length ?? 0);
+  }
+
+  Future<SecretKey?> _keyForVault(String vaultId) {
+    final profileKeyService = _profileDataKeyService;
+    if (profileKeyService != null) {
+      return profileKeyService.keyForVault(vaultId);
+    }
+    return _masterKeyService.obtainOrCreate();
+  }
+
+  NoteEntry _lockedPlaceholder(EncryptedNoteRecord record) {
+    return NoteEntry(
+      id: record.id,
+      vaultId: record.vaultId,
+      title: 'Locked private note',
+      body: '',
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      deletedAt: record.deletedAt,
+      deviceId: 'locked-private-note',
+      contentHash: record.contentHash,
+      isPinned: record.isPinned,
+      revision: record.revision,
+      syncState: record.syncState,
+    );
+  }
+
+  bool _isLockedPlaceholder(NoteEntry note) {
+    return note.deviceId == 'locked-private-note' &&
+        isProfileDataKeyPrivateVaultId(note.vaultId);
   }
 
   Future<String?> _readEncryptedPayload() async {
