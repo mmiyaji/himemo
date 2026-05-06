@@ -811,3 +811,36 @@ Conclusion:
 
 - The large-list performance profile remains acceptable after the monkey pass.
 - The biggest actionable issue was UI clarity around overlapping note overlays; the fix removes misleading background controls and provides an explicit way back to the list.
+
+## Cycle 33 monkey follow-up
+
+Plan:
+
+- Run another In App Browser pass over search, detail, editor, and tab navigation.
+- Focus on controls that remain visible after modal/sheet transitions and on draft-related snackbars.
+
+Findings:
+
+- The 1000-note list remained fast after restart: `mobile list rows notes=1000 rows=2009 completed 2.5ms`.
+- Detail open for the sampled row completed with `detail pane frame 109.901ms`.
+- Typing in the rich editor succeeded, but canceling after a restored draft could leave the "Draft restored" snackbar on the list screen.
+- That snackbar action was bound to the editor state; after the editor was disposed, the action could no longer discard the draft, which made the snackbar misleading.
+
+Changes:
+
+- Track whether the draft-restore snackbar is active inside the editor state.
+- Hide the draft-restore snackbar when the editor is disposed.
+- Also hide the current editor snackbar from the outer sheet context when `showNoteEditorSheet` finishes, covering async restore/cancel races.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58084` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Opening and canceling the editor left no draft snackbar on the list: `hasDraftSnackbarAfterClose=false`.
+  - Browser console showed no app errors.
+
+Conclusion:
+
+- The editor no longer leaves a dead snackbar action behind after it closes.
+- The sampled large-list performance stayed stable during the monkey pass.

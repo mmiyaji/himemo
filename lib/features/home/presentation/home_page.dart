@@ -8076,6 +8076,7 @@ Future<void> showNoteEditorSheet(
   DateTime? initialCreatedAt,
 }) async {
   _pushNoteOverlaySheet();
+  final scaffoldMessenger = ScaffoldMessenger.maybeOf(context);
   try {
     await showModalBottomSheet<void>(
       context: context,
@@ -8096,6 +8097,7 @@ Future<void> showNoteEditorSheet(
       },
     );
   } finally {
+    scaffoldMessenger?.hideCurrentSnackBar();
     _popNoteOverlaySheet();
   }
 }
@@ -8945,6 +8947,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   bool _editorDisposed = false;
   Timer? _draftSaveTimer;
   bool _discardingDraft = false;
+  bool _draftRestoreSnackBarActive = false;
 
   @override
   void initState() {
@@ -9034,6 +9037,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   void dispose() {
     _editorDisposed = true;
     _draftSaveTimer?.cancel();
+    if (_draftRestoreSnackBarActive) {
+      ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+    }
     final shouldKeepDraft = !_saved && widget.note == null && _hasDraftContent;
     if (shouldKeepDraft && _selectedVaultId != null) {
       unawaited(
@@ -9234,6 +9240,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         onPressed: _discardRestoredDraft,
       ),
     );
+    _draftRestoreSnackBarActive = true;
   }
 
   void _discardRestoredDraft() {
@@ -9259,6 +9266,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       _replaceRichBlocks([_RichBlockDraft.paragraph()]);
     });
     _discardingDraft = false;
+    _draftRestoreSnackBarActive = false;
     _updateCanSubmit();
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     _scheduleInitialEditorFocus();
