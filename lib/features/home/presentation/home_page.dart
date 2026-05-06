@@ -561,6 +561,42 @@ class NotesScreen extends ConsumerStatefulWidget {
 }
 
 class _NotesScreenState extends ConsumerState<NotesScreen> {
+  static const double _defaultSplitListFraction = 5 / 11;
+  static const double _narrowSplitListFraction = 0.36;
+  static const double _wideSplitListFraction = 0.58;
+  static const double _minSplitListWidth = 320;
+  static const double _maxSplitListFraction = 0.62;
+
+  double _splitListFraction = _defaultSplitListFraction;
+
+  void _resizeSplitList(double delta, double availableWidth) {
+    if (availableWidth <= 0) {
+      return;
+    }
+    final currentWidth = availableWidth * _splitListFraction;
+    final minWidth = math.min(_minSplitListWidth, availableWidth * 0.45);
+    final maxWidth = math.max(minWidth, availableWidth * _maxSplitListFraction);
+    setState(() {
+      _splitListFraction =
+          (currentWidth + delta).clamp(minWidth, maxWidth) / availableWidth;
+    });
+  }
+
+  void _cycleSplitListWidth(double availableWidth) {
+    if (availableWidth <= 0) {
+      return;
+    }
+    setState(() {
+      if (_splitListFraction < _defaultSplitListFraction - 0.02) {
+        _splitListFraction = _defaultSplitListFraction;
+      } else if (_splitListFraction < _wideSplitListFraction - 0.02) {
+        _splitListFraction = _wideSplitListFraction;
+      } else {
+        _splitListFraction = _narrowSplitListFraction;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.sizeOf(context);
@@ -610,50 +646,66 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         ? selectedNoteId
         : null;
 
-    return Row(
-      children: [
-        Expanded(
-          flex: 5,
-          child: _SplitNotesListPane(
-            activeIdentity: activeIdentity,
-            showPrivateVaultNotice:
-                activeIdentity.id == 'private' && !privateVaultUnlocked,
-            notes: visibleNotes,
-            selectedNoteId: effectiveSelectedNoteId,
-            vaultNameById: vaultNameById,
-            showVaultName: visibleVaults.length > 1,
-            density: listDensity,
-            query: query,
-            onAddNote: () => showNoteEditorSheet(context, ref),
-            onNoteSelected: (note) {
-              _debugNotePerf('select split-list ${_notePerfLabel(note)}');
-              ref.read(selectedNoteIdProvider.notifier).select(note.id);
-            },
-          ),
-        ),
-        VerticalDivider(width: 1, color: Theme.of(context).dividerColor),
-        Expanded(
-          flex: 6,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: visibleNotes.isEmpty
-                ? const _EmptyNotesState()
-                : selectedIndex < 0
-                ? const _EmptyNoteSelectionState()
-                : _StaticNoteDetailView(
-                    notes: visibleNotes,
-                    selectedIndex: selectedIndex,
-                    onSelected: (index) => ref
-                        .read(selectedNoteIdProvider.notifier)
-                        .select(visibleNotes[index].id),
-                    onEdit: (note) =>
-                        showNoteEditorSheet(context, ref, note: note),
-                    onDelete: (note) => _deleteNote(context, note),
-                    onTagTap: (tag) => _applyTagFilter(context, tag),
-                  ),
-          ),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth;
+        final minWidth = math.min(_minSplitListWidth, availableWidth * 0.45);
+        final maxWidth = math.max(
+          minWidth,
+          availableWidth * _maxSplitListFraction,
+        );
+        final listWidth = (availableWidth * _splitListFraction).clamp(
+          minWidth,
+          maxWidth,
+        );
+        return Row(
+          children: [
+            SizedBox(
+              width: listWidth,
+              child: _SplitNotesListPane(
+                activeIdentity: activeIdentity,
+                showPrivateVaultNotice:
+                    activeIdentity.id == 'private' && !privateVaultUnlocked,
+                notes: visibleNotes,
+                selectedNoteId: effectiveSelectedNoteId,
+                vaultNameById: vaultNameById,
+                showVaultName: visibleVaults.length > 1,
+                density: listDensity,
+                query: query,
+                onAddNote: () => showNoteEditorSheet(context, ref),
+                onNoteSelected: (note) {
+                  _debugNotePerf('select split-list ${_notePerfLabel(note)}');
+                  ref.read(selectedNoteIdProvider.notifier).select(note.id);
+                },
+              ),
+            ),
+            _SplitPaneResizeHandle(
+              onDragDelta: (delta) => _resizeSplitList(delta, availableWidth),
+              onTap: () => _cycleSplitListWidth(availableWidth),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: visibleNotes.isEmpty
+                    ? const _EmptyNotesState()
+                    : selectedIndex < 0
+                    ? const _EmptyNoteSelectionState()
+                    : _StaticNoteDetailView(
+                        notes: visibleNotes,
+                        selectedIndex: selectedIndex,
+                        onSelected: (index) => ref
+                            .read(selectedNoteIdProvider.notifier)
+                            .select(visibleNotes[index].id),
+                        onEdit: (note) =>
+                            showNoteEditorSheet(context, ref, note: note),
+                        onDelete: (note) => _deleteNote(context, note),
+                        onTagTap: (tag) => _applyTagFilter(context, tag),
+                      ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -6607,6 +6659,79 @@ String _normalizePreviewText(
   return '$prefix$normalized$suffix';
 }
 
+class _SplitPaneResizeHandle extends StatefulWidget {
+  const _SplitPaneResizeHandle({
+    required this.onDragDelta,
+    required this.onTap,
+  });
+
+  final ValueChanged<double> onDragDelta;
+  final VoidCallback onTap;
+
+  @override
+  State<_SplitPaneResizeHandle> createState() => _SplitPaneResizeHandleState();
+}
+
+class _SplitPaneResizeHandleState extends State<_SplitPaneResizeHandle> {
+  bool _hovered = false;
+  bool _dragging = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final active = _hovered || _dragging;
+    final strings = context.strings;
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeColumn,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Tooltip(
+        message: strings.localized(
+          en: 'Drag to resize the note list. Tap to switch widths.',
+          ja: 'ドラッグでノート一覧の幅を変更します。タップで幅を切り替えます。',
+          zh: '拖动可调整笔记列表宽度。点击可切换宽度。',
+          ko: '드래그하여 노트 목록 너비를 조정합니다. 탭하면 너비가 전환됩니다.',
+          es: 'Arrastra para cambiar el ancho de la lista. Toca para alternar anchos.',
+          de: 'Ziehen, um die Breite der Notizliste zu ändern. Tippen, um Breiten zu wechseln.',
+        ),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          onHorizontalDragStart: (_) => setState(() => _dragging = true),
+          onHorizontalDragEnd: (_) => setState(() => _dragging = false),
+          onHorizontalDragCancel: () => setState(() => _dragging = false),
+          onHorizontalDragUpdate: (details) {
+            widget.onDragDelta(details.delta.dx);
+          },
+          child: SizedBox(
+            width: 14,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                VerticalDivider(
+                  width: 1,
+                  color: Theme.of(context).dividerColor,
+                ),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 120),
+                  width: active ? 5 : 3,
+                  height: active ? 56 : 42,
+                  decoration: BoxDecoration(
+                    color: active
+                        ? colorScheme.primary.withValues(alpha: 0.72)
+                        : colorScheme.outlineVariant.withValues(alpha: 0.68),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SplitNotesListPane extends StatefulWidget {
   const _SplitNotesListPane({
     required this.activeIdentity,
@@ -8370,7 +8495,11 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                     height: 48,
                     width: compactToolbarButtons ? 48 : null,
                     constraints: BoxConstraints(
-                      minWidth: compactToolbarButtons ? 48 : 84,
+                      minWidth: compactToolbarButtons
+                          ? 48
+                          : activeFilterCount > 0
+                          ? 110
+                          : 84,
                     ),
                     alignment: Alignment.center,
                     padding: EdgeInsets.symmetric(
@@ -8391,84 +8520,27 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                               const Icon(Icons.tune_rounded, size: 20),
                               if (activeFilterCount > 0)
                                 Positioned(
-                                  top: 6,
-                                  right: 6,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 5,
-                                      vertical: 1,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                    child: Text(
-                                      '$activeFilterCount',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelSmall
-                                          ?.copyWith(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.onPrimary,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                    ),
+                                  top: -5,
+                                  right: -5,
+                                  child: _FilterCountBadge(
+                                    count: activeFilterCount,
                                   ),
                                 ),
                             ],
                           )
-                        : Stack(
-                            alignment: Alignment.center,
-                            clipBehavior: Clip.none,
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Align(
-                                alignment: Alignment.center,
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(Icons.tune_rounded, size: 20),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      strings.text('home.filters'),
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.labelLarge,
-                                    ),
-                                  ],
-                                ),
+                              const Icon(Icons.tune_rounded, size: 20),
+                              const SizedBox(width: 6),
+                              Text(
+                                strings.text('home.filters'),
+                                style: Theme.of(context).textTheme.labelLarge,
                               ),
-                              if (activeFilterCount > 0)
-                                Positioned(
-                                  top: 6,
-                                  right: 8,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 5,
-                                      vertical: 1,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
-                                      borderRadius: BorderRadius.circular(999),
-                                    ),
-                                    child: Text(
-                                      '$activeFilterCount',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelSmall
-                                          ?.copyWith(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.onPrimary,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                    ),
-                                  ),
-                                ),
+                              if (activeFilterCount > 0) ...[
+                                const SizedBox(width: 8),
+                                _FilterCountBadge(count: activeFilterCount),
+                              ],
                             ],
                           ),
                   ),
@@ -8683,6 +8755,37 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     }
     _lastAppliedSearchQuery = value;
     ref.read(searchQueryProvider.notifier).setQuery(value);
+  }
+}
+
+class _FilterCountBadge extends StatelessWidget {
+  const _FilterCountBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      height: 20,
+      constraints: const BoxConstraints(minWidth: 20),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: BoxDecoration(
+        color: colorScheme.primary,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: colorScheme.surface, width: 1.5),
+      ),
+      child: Text(
+        '$count',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: colorScheme.onPrimary,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          height: 1.0,
+        ),
+      ),
+    );
   }
 }
 
