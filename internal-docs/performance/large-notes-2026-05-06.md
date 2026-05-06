@@ -620,3 +620,53 @@ Measurements:
 Conclusion:
 
 - Insights aggregation is acceptable at 1000 notes in debug web, but caching prevents paying the same aggregation cost on unrelated rebuilds.
+
+## Cycle 26 follow-up
+
+Plan:
+
+- Check Calendar tab behavior when many generated notes land on the same day.
+- Avoid rendering every note row for a selected day before the user asks to see all of them.
+
+Changes:
+
+- Calendar selected-day notes now show the first 24 notes by default.
+- Added an expand/collapse button when the selected day has more notes.
+- Reset the expanded state when the selected day changes.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "search filters can partition notes by year"` passed.
+- In App Browser on `127.0.0.1:58089` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - The selected day had 90 notes.
+  - Initial render showed a bounded list.
+  - Scrolling to the end of the selected-day section showed `90件すべて表示`.
+
+Conclusion:
+
+- Calendar no longer builds an unbounded same-day note list by default, while still keeping full access one tap away.
+
+## Cycle 27 follow-up
+
+Plan:
+
+- Add provider-side timing for Calendar grouping so future larger data sets can be diagnosed.
+- Measure 1000-note day grouping after adding the log.
+
+Changes:
+
+- Added debug-only `[home-perf]` timing to `visibleNotesByDayProvider`.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "search filters can partition notes by year"` passed.
+- In App Browser on `127.0.0.1:58090` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - `visible notes by day source=1000 days=8 elapsed=2.199ms`.
+  - Calendar rendered after restore with the selected-day section visible.
+
+Conclusion:
+
+- Calendar grouping is currently cheap at 1000 notes.
+- The higher-risk path was same-day row rendering, which Cycle 26 capped.

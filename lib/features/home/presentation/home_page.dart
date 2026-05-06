@@ -693,8 +693,11 @@ class CalendarScreen extends ConsumerStatefulWidget {
 }
 
 class _CalendarScreenState extends ConsumerState<CalendarScreen> {
+  static const _collapsedDayNoteLimit = 24;
+
   DateTime _selectedDay = DateTime.now();
   late DateTime _visibleMonth;
+  bool _dayNotesExpanded = false;
 
   @override
   void initState() {
@@ -710,6 +713,12 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     final markedDays = noteDays.toSet();
     final sameDayNotes =
         notesByDay[_calendarDayKey(_selectedDay)] ?? const <NoteEntry>[];
+    final shouldCollapseDayNotes =
+        sameDayNotes.length > _collapsedDayNoteLimit;
+    final visibleDayNoteCount =
+        shouldCollapseDayNotes && !_dayNotesExpanded
+        ? _collapsedDayNoteLimit
+        : sameDayNotes.length;
     final previousDay = _adjacentNoteDay(
       noteDays,
       _selectedDay,
@@ -748,12 +757,14 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               setState(() {
                 _selectedDay = today;
                 _visibleMonth = DateTime(today.year, today.month);
+                _dayNotesExpanded = false;
               });
             },
             onDateSelected: (date) {
               setState(() {
                 _selectedDay = date;
                 _visibleMonth = DateTime(date.year, date.month);
+                _dayNotesExpanded = false;
               });
             },
           ),
@@ -811,7 +822,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   ),
                 )
               else
-                for (var i = 0; i < sameDayNotes.length; i++) ...[
+                for (var i = 0; i < visibleDayNoteCount; i++) ...[
                   _CalendarNoteRow(
                     note: sameDayNotes[i],
                     vaultName: ref
@@ -828,6 +839,45 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   if (i != sameDayNotes.length - 1)
                     Divider(height: 24, color: Theme.of(context).dividerColor),
                 ],
+              if (shouldCollapseDayNotes) ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _dayNotesExpanded = !_dayNotesExpanded;
+                      });
+                    },
+                    icon: Icon(
+                      _dayNotesExpanded
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                    ),
+                    label: Text(
+                      _dayNotesExpanded
+                          ? strings.localized(
+                              en: 'Show fewer notes',
+                              ja: '表示件数を減らす',
+                              zh: '显示较少笔记',
+                              ko: '노트 적게 표시',
+                              es: 'Mostrar menos notas',
+                              de: 'Weniger Notizen anzeigen',
+                            )
+                          : strings.localized(
+                              en: 'Show all ${sameDayNotes.length} notes',
+                              ja: '${sameDayNotes.length}件すべて表示',
+                              zh: '显示全部 ${sameDayNotes.length} 条笔记',
+                              ko: '노트 ${sameDayNotes.length}개 모두 표시',
+                              es:
+                                  'Mostrar las ${sameDayNotes.length} notas',
+                              de:
+                                  'Alle ${sameDayNotes.length} Notizen anzeigen',
+                            ),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -878,6 +928,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     setState(() {
       _selectedDay = day;
       _visibleMonth = DateTime(day.year, day.month);
+      _dayNotesExpanded = false;
     });
   }
 

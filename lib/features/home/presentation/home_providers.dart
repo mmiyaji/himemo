@@ -5232,8 +5232,10 @@ Map<String, int> visibleNoteIndexById(Ref ref) {
 
 @riverpod
 Map<DateTime, List<NoteEntry>> visibleNotesByDay(Ref ref) {
+  final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
+  final notes = ref.watch(visibleNotesProvider);
   final grouped = <DateTime, List<NoteEntry>>{};
-  for (final note in ref.watch(visibleNotesProvider)) {
+  for (final note in notes) {
     final day = DateTime(
       note.createdAt.year,
       note.createdAt.month,
@@ -5241,10 +5243,17 @@ Map<DateTime, List<NoteEntry>> visibleNotesByDay(Ref ref) {
     );
     (grouped[day] ??= <NoteEntry>[]).add(note);
   }
-  return Map.unmodifiable({
+  final result = Map<DateTime, List<NoteEntry>>.unmodifiable({
     for (final entry in grouped.entries)
       entry.key: List<NoteEntry>.unmodifiable(entry.value),
   });
+  final elapsed = stopwatch?.elapsedMicroseconds;
+  if (elapsed != null && (notes.length >= 500 || elapsed >= 2000)) {
+    _debugHomePerf(
+      'visible notes by day source=${notes.length} days=${result.length} elapsed=${elapsed / 1000}ms',
+    );
+  }
+  return result;
 }
 
 @riverpod
