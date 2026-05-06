@@ -1004,3 +1004,36 @@ Measurements:
 Conclusion:
 
 - This is a small but direct reduction in derived-provider work for the common non-split layout.
+
+## Cycle 39 single-vault grouping follow-up
+
+Plan:
+
+- Re-check provider work around the non-split notes list after the previous index-map optimization.
+- Look for derived collections that are only needed for multi-vault or split layouts.
+
+Findings:
+
+- `_NotesScreenState` still watched `visibleNotesByVaultProvider` before deciding whether the screen was split or non-split.
+- `visibleNotesByVaultProvider` groups the full visible list by vault, but the default daily mode has only one visible vault.
+- In that common case, the grouped map can reuse the already-computed `visibleNotes` list directly.
+
+Changes:
+
+- Moved the `visibleNotesByVaultProvider` watch into the non-split branch.
+- For a single visible vault, build a trivial one-entry map from `visibleNotes` instead of running the full grouping provider.
+- Kept the existing grouped provider path for private/admin multi-vault views.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58084` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Notes list rendered normally.
+  - Searching for `location 9` returned location-tagged performance notes.
+  - Browser console showed only Flutter's expected viewport warning and no app errors.
+
+Conclusion:
+
+- This removes one full-list derived grouping step from the default non-split notes layout.
+- Multi-vault behavior remains unchanged, while the single-vault high-volume path does less provider work per visible-list refresh.

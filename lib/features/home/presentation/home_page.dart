@@ -527,7 +527,6 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     );
     final visibleNotes = ref.watch(visibleNotesProvider);
     final visibleVaults = ref.watch(visibleVaultsProvider);
-    final visibleNotesByVault = ref.watch(visibleNotesByVaultProvider);
     final vaultNameById = {
       for (final vault in visibleVaults)
         vault.id: _vaultDisplayName(context, vault),
@@ -537,6 +536,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final selectedNoteId = ref.watch(selectedNoteIdProvider);
 
     if (!useSplitView) {
+      final visibleNotesByVault = visibleVaults.length == 1
+          ? <String, List<NoteEntry>>{visibleVaults.first.id: visibleNotes}
+          : ref.watch(visibleNotesByVaultProvider);
       return _MobileNotesList(
         activeIdentity: activeIdentity,
         showPrivateVaultNotice:
