@@ -1060,6 +1060,7 @@ void main() {
 
     final visible = container.read(visibleNotesProvider);
     expect(visible.map((note) => note.id), ['tag-1']);
+    expect(container.read(visibleNoteIndexByIdProvider), {'tag-1': 0});
     expect(container.read(visibleTagSuggestionsProvider), contains('Alpha'));
     container.read(searchFiltersControllerProvider.notifier).reset();
     container.read(searchQueryProvider.notifier).setQuery('second body');

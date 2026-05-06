@@ -5152,6 +5152,14 @@ Map<String, List<NoteEntry>> visibleNotesByVault(Ref ref) {
 }
 
 @riverpod
+Map<String, int> visibleNoteIndexById(Ref ref) {
+  final notes = ref.watch(visibleNotesProvider);
+  return Map.unmodifiable({
+    for (var index = 0; index < notes.length; index++) notes[index].id: index,
+  });
+}
+
+@riverpod
 Map<DateTime, List<NoteEntry>> visibleNotesByDay(Ref ref) {
   final grouped = <DateTime, List<NoteEntry>>{};
   for (final note in ref.watch(visibleNotesProvider)) {
@@ -5209,10 +5217,10 @@ VaultBucket vaultById(Ref ref, String vaultId) {
 
 @riverpod
 NoteEntry? noteById(Ref ref, String noteId) {
-  for (final note in ref.watch(visibleNotesProvider)) {
-    if (note.id == noteId) {
-      return note;
-    }
+  final index = ref.watch(visibleNoteIndexByIdProvider)[noteId];
+  if (index == null) {
+    return null;
   }
-  return null;
+  final notes = ref.watch(visibleNotesProvider);
+  return index >= 0 && index < notes.length ? notes[index] : null;
 }

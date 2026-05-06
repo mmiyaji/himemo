@@ -123,3 +123,25 @@ Conclusion:
 
 - Search now avoids repeated lower-casing and string assembly on every query change.
 - The remaining large cost for Web is still storage restore: all note data must be decrypted before the first list can render.
+
+## Cycle 5 follow-up
+
+Plan:
+
+- Avoid repeated scans for resolving the selected note ID to its visible list index.
+
+Changes:
+
+- Added `visibleNoteIndexByIdProvider`.
+- Updated the notes screen to resolve the selected index through the cached map instead of `any` plus `indexWhere`.
+- Routed `noteByIdProvider` through the same index map.
+
+Measurements:
+
+- Provider test confirms index map generation for filtered visible notes.
+- Static validation remained clean with `flutter analyze`.
+
+Conclusion:
+
+- This removes repeated O(n) scans from note selection rebuilds.
+- The improvement is smaller than storage/index work, but it compounds with the previous list virtualization work.

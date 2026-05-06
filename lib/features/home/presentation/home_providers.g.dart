@@ -942,6 +942,53 @@ final class VisibleNotesByVaultProvider
 String _$visibleNotesByVaultHash() =>
     r'a3e1b575e8ac67aa93388d295fb38308e92a47a2';
 
+@ProviderFor(visibleNoteIndexById)
+final visibleNoteIndexByIdProvider = VisibleNoteIndexByIdProvider._();
+
+final class VisibleNoteIndexByIdProvider
+    extends
+        $FunctionalProvider<
+          Map<String, int>,
+          Map<String, int>,
+          Map<String, int>
+        >
+    with $Provider<Map<String, int>> {
+  VisibleNoteIndexByIdProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'visibleNoteIndexByIdProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$visibleNoteIndexByIdHash();
+
+  @$internal
+  @override
+  $ProviderElement<Map<String, int>> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  Map<String, int> create(Ref ref) {
+    return visibleNoteIndexById(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(Map<String, int> value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<Map<String, int>>(value),
+    );
+  }
+}
+
+String _$visibleNoteIndexByIdHash() =>
+    r'f1be6edb42f05cf323c834548ec86a5b39d2a2d3';
+
 @ProviderFor(visibleNotesByDay)
 final visibleNotesByDayProvider = VisibleNotesByDayProvider._();
 
@@ -1286,7 +1333,7 @@ final class NoteByIdProvider
   }
 }
 
-String _$noteByIdHash() => r'8cf1b09f20013491d1eb5a357544ae352d57ac80';
+String _$noteByIdHash() => r'2a38235766101426bb0eccb41ba2af7ed1eb9437';
 
 final class NoteByIdFamily extends $Family
     with $FunctionalFamilyOverride<NoteEntry?, String> {

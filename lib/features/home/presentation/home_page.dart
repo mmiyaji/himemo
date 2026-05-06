@@ -476,15 +476,14 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final listDensity = ref.watch(notesListDensityControllerProvider);
     final query = ref.watch(searchQueryProvider).trim();
     final selectedNoteId = ref.watch(selectedNoteIdProvider);
+    final visibleNoteIndexById = ref.watch(visibleNoteIndexByIdProvider);
+    final selectedIndex = selectedNoteId == null
+        ? -1
+        : (visibleNoteIndexById[selectedNoteId] ?? -1);
     final effectiveSelectedNoteId =
-        selectedNoteId != null &&
-            visibleNotes.any((note) => note.id == selectedNoteId)
+        selectedNoteId != null && selectedIndex >= 0
         ? selectedNoteId
         : null;
-
-    final selectedIndex = effectiveSelectedNoteId == null
-        ? -1
-        : visibleNotes.indexWhere((note) => note.id == effectiveSelectedNoteId);
 
     if (!useSplitView) {
       return _MobileNotesList(
