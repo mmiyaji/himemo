@@ -151,6 +151,32 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
         .toList(growable: false);
   }
 
+  Future<int> storagePayloadSizeBytes() async {
+    final noteRows = await select(encryptedNotes).get();
+    final attachmentRows = await select(encryptedNoteAttachments).get();
+    final pendingRows = await select(pendingNoteChanges).get();
+    var total = 0;
+    for (final row in noteRows) {
+      total += row.id.length;
+      total += row.vaultId.length;
+      total += row.encryptedPayload.length;
+      total += row.syncState.length;
+      total += row.deviceId?.length ?? 0;
+      total += row.contentHash?.length ?? 0;
+    }
+    for (final row in attachmentRows) {
+      total += row.noteId.length;
+      total += row.encryptedPayload.length;
+    }
+    for (final row in pendingRows) {
+      total += row.noteId.length;
+      total += row.vaultId.length;
+      total += row.syncAction.length;
+      total += row.contentHash?.length ?? 0;
+    }
+    return total;
+  }
+
   Future<void> replaceAll({
     required List<EncryptedNoteRecord> notes,
     required List<EncryptedAttachmentRecord> attachments,
@@ -179,61 +205,52 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
 
       await batch((batch) {
         if (notes.isNotEmpty) {
-          batch.insertAllOnConflictUpdate(
-            encryptedNotes,
-            [
-              for (final record in notes)
-                EncryptedNotesCompanion.insert(
-                  id: record.id,
-                  vaultId: record.vaultId,
-                  encryptedPayload: record.encryptedPayload,
-                  createdAtEpochMs: record.createdAt.millisecondsSinceEpoch,
-                  updatedAtEpochMs: Value(
-                    record.updatedAt?.millisecondsSinceEpoch,
-                  ),
-                  deletedAtEpochMs: Value(
-                    record.deletedAt?.millisecondsSinceEpoch,
-                  ),
-                  isPinned: Value(record.isPinned),
-                  revision: Value(record.revision),
-                  syncState: record.syncState.name,
-                  deviceId: Value(record.deviceId),
-                  contentHash: Value(record.contentHash),
+          batch.insertAllOnConflictUpdate(encryptedNotes, [
+            for (final record in notes)
+              EncryptedNotesCompanion.insert(
+                id: record.id,
+                vaultId: record.vaultId,
+                encryptedPayload: record.encryptedPayload,
+                createdAtEpochMs: record.createdAt.millisecondsSinceEpoch,
+                updatedAtEpochMs: Value(
+                  record.updatedAt?.millisecondsSinceEpoch,
                 ),
-            ],
-          );
+                deletedAtEpochMs: Value(
+                  record.deletedAt?.millisecondsSinceEpoch,
+                ),
+                isPinned: Value(record.isPinned),
+                revision: Value(record.revision),
+                syncState: record.syncState.name,
+                deviceId: Value(record.deviceId),
+                contentHash: Value(record.contentHash),
+              ),
+          ]);
         }
         if (attachments.isNotEmpty) {
-          batch.insertAllOnConflictUpdate(
-            encryptedNoteAttachments,
-            [
-              for (final attachment in attachments)
-                EncryptedNoteAttachmentsCompanion.insert(
-                  noteId: attachment.noteId,
-                  position: attachment.position,
-                  encryptedPayload: attachment.encryptedPayload,
-                ),
-            ],
-          );
+          batch.insertAllOnConflictUpdate(encryptedNoteAttachments, [
+            for (final attachment in attachments)
+              EncryptedNoteAttachmentsCompanion.insert(
+                noteId: attachment.noteId,
+                position: attachment.position,
+                encryptedPayload: attachment.encryptedPayload,
+              ),
+          ]);
         }
         if (pendingChanges.isNotEmpty) {
-          batch.insertAllOnConflictUpdate(
-            pendingNoteChanges,
-            [
-              for (final change in pendingChanges)
-                PendingNoteChangesCompanion.insert(
-                  noteId: change.noteId,
-                  vaultId: change.vaultId,
-                  revision: change.revision,
-                  syncAction: change.action.name,
-                  queuedAtEpochMs: change.queuedAt.millisecondsSinceEpoch,
-                  contentHash: Value(change.contentHash),
-                  deletedAtEpochMs: Value(
-                    change.deletedAt?.millisecondsSinceEpoch,
-                  ),
+          batch.insertAllOnConflictUpdate(pendingNoteChanges, [
+            for (final change in pendingChanges)
+              PendingNoteChangesCompanion.insert(
+                noteId: change.noteId,
+                vaultId: change.vaultId,
+                revision: change.revision,
+                syncAction: change.action.name,
+                queuedAtEpochMs: change.queuedAt.millisecondsSinceEpoch,
+                contentHash: Value(change.contentHash),
+                deletedAtEpochMs: Value(
+                  change.deletedAt?.millisecondsSinceEpoch,
                 ),
-            ],
-          );
+              ),
+          ]);
         }
       });
     });

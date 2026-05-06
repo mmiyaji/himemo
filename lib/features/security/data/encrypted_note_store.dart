@@ -307,6 +307,25 @@ class EncryptedNoteStore {
     await save(notes.where((note) => note.id != noteId).toList());
   }
 
+  Future<int> storagePayloadSizeBytes() async {
+    if (!kIsWeb) {
+      final database = _database;
+      if (database != null) {
+        return database.storagePayloadSizeBytes();
+      }
+      final file = await _resolveStorageFile();
+      if (!await file.exists()) {
+        return 0;
+      }
+      return file.length();
+    }
+
+    final prefs = await _sharedPreferencesProvider();
+    final encrypted = prefs.getString(webStorageKey);
+    final legacy = prefs.getString(legacyStorageKey);
+    return (encrypted?.length ?? 0) + (legacy?.length ?? 0);
+  }
+
   Future<SecretKey?> _keyForVault(String vaultId) {
     final profileKeyService = _profileDataKeyService;
     if (profileKeyService != null) {

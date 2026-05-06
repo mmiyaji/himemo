@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
@@ -209,6 +210,39 @@ class EncryptedAttachmentStore {
     if (await file.exists()) {
       await file.delete();
     }
+  }
+
+  Future<int> storagePayloadSizeBytes() async {
+    if (kIsWeb) {
+      final prefs = await _sharedPreferencesProvider();
+      var total = 0;
+      for (final key in prefs.getKeys()) {
+        if (!key.startsWith(webStoragePrefix)) {
+          continue;
+        }
+        total += utf8.encode(prefs.getString(key) ?? '').length;
+      }
+      return total;
+    }
+
+    final directory = await _directoryProvider();
+    final attachmentsDirectory = Directory(
+      path.join(directory.path, 'attachments'),
+    );
+    if (!await attachmentsDirectory.exists()) {
+      return 0;
+    }
+    var total = 0;
+    await for (final entity in attachmentsDirectory.list(recursive: true)) {
+      if (entity is! File) {
+        continue;
+      }
+      if (path.split(entity.path).contains('tmp')) {
+        continue;
+      }
+      total += await entity.length();
+    }
+    return total;
   }
 
   Future<String?> _readPayload(String storedReference) async {

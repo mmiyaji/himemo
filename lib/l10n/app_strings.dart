@@ -2101,7 +2101,22 @@ class AppStrings {
 
   String identityActive(String name) =>
       isJapanese ? '$name 利用中' : '$name active';
-  String byteCount(int bytes) => isJapanese ? '$bytes バイト' : '$bytes bytes';
+  String byteCount(int bytes) {
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    final safeBytes = bytes < 0 ? 0 : bytes;
+    var value = safeBytes.toDouble();
+    var unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex += 1;
+    }
+    if (unitIndex == 0) {
+      return '$safeBytes ${units[unitIndex]}';
+    }
+    final decimals = value >= 100 || value == value.roundToDouble() ? 0 : 1;
+    return '${value.toStringAsFixed(decimals)} ${units[unitIndex]}';
+  }
+
   String remoteBundleSummary({
     required String modifiedAt,
     required String sizeLabel,

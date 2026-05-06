@@ -89,6 +89,8 @@ class AppShell extends ConsumerStatefulWidget {
 class _AppShellState extends ConsumerState<AppShell> {
   bool _sidebarCollapsed = false;
   AppSection? _lastObservedSection;
+  bool _noteOverlayWasOpen = false;
+  DateTime? _suppressProfileAccessUntil;
 
   @override
   void initState() {
@@ -103,9 +105,29 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 
   void _handleNoteOverlayChanged() {
+    final noteOverlayOpen = _noteOverlaySheetDepth.value > 0;
+    if (_noteOverlayWasOpen && !noteOverlayOpen) {
+      _suppressProfileAccessUntil = DateTime.now().add(
+        const Duration(milliseconds: 450),
+      );
+    }
+    _noteOverlayWasOpen = noteOverlayOpen;
     if (mounted) {
       setState(() {});
     }
+  }
+
+  bool get _profileAccessBlocked {
+    final until = _suppressProfileAccessUntil;
+    return _noteOverlaySheetDepth.value > 0 ||
+        (until != null && DateTime.now().isBefore(until));
+  }
+
+  void _handleProfileAccessTap(BuildContext context, WidgetRef ref) {
+    if (_profileAccessBlocked) {
+      return;
+    }
+    _showProfileAccessDialog(context, ref);
   }
 
   @override
@@ -124,6 +146,11 @@ class _AppShellState extends ConsumerState<AppShell> {
     final privateProfileActive =
         !adminMode && activePrivateProfileLabel != null;
     final privateProfileActiveColor = Theme.of(context).colorScheme.primary;
+    final profileAccessTooltip = adminMode
+        ? (context.strings.text('home.admin.mode.active'))
+        : (activePrivateProfileLabel != null
+              ? context.strings.viewingPrivateProfile(activePrivateProfileLabel)
+              : (context.strings.text('home.unlock.private.profile')));
 
     return Scaffold(
       appBar: AppBar(
@@ -131,7 +158,7 @@ class _AppShellState extends ConsumerState<AppShell> {
         actions: [
           if (privateProfileActive)
             Padding(
-              padding: const EdgeInsetsDirectional.only(end: 8),
+              padding: const EdgeInsetsDirectional.only(end: 28),
               child: ConstrainedBox(
                 constraints: BoxConstraints(
                   maxWidth: math.min(220, width * 0.42),
@@ -146,7 +173,9 @@ class _AppShellState extends ConsumerState<AppShell> {
                     child: InkWell(
                       key: AppShell.privateProfileAccessKey,
                       borderRadius: BorderRadius.circular(999),
-                      onTap: () => _showProfileAccessDialog(context, ref),
+                      onTap: noteOverlayOpen
+                          ? null
+                          : () => _handleProfileAccessTap(context, ref),
                       child: Padding(
                         padding: const EdgeInsetsDirectional.fromSTEB(
                           10,
@@ -184,24 +213,42 @@ class _AppShellState extends ConsumerState<AppShell> {
               ),
             )
           else
-            IconButton(
-              key: AppShell.privateProfileAccessKey,
-              tooltip: adminMode
-                  ? (context.strings.text('home.admin.mode.active'))
-                  : (activePrivateProfileLabel != null
-                        ? context.strings.viewingPrivateProfile(
-                            activePrivateProfileLabel,
-                          )
-                        : (context.strings.text(
-                            'home.unlock.private.profile',
-                          ))),
-              onPressed: () => _showProfileAccessDialog(context, ref),
-              icon: Icon(
-                adminMode
-                    ? Icons.admin_panel_settings_rounded
-                    : activePrivateProfileLabel != null
-                    ? Icons.lock_open_rounded
-                    : Icons.lock_rounded,
+            SizedBox(
+              width: 72,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Tooltip(
+                  message: profileAccessTooltip,
+                  child: SizedBox.square(
+                    dimension: 40,
+                    child: Semantics(
+                      button: true,
+                      label: profileAccessTooltip,
+                      onTap: noteOverlayOpen
+                          ? null
+                          : () => _handleProfileAccessTap(context, ref),
+                      child: Material(
+                        type: MaterialType.transparency,
+                        shape: const CircleBorder(),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          key: AppShell.privateProfileAccessKey,
+                          customBorder: const CircleBorder(),
+                          onTap: noteOverlayOpen
+                              ? null
+                              : () => _handleProfileAccessTap(context, ref),
+                          child: Icon(
+                            adminMode
+                                ? Icons.admin_panel_settings_rounded
+                                : activePrivateProfileLabel != null
+                                ? Icons.lock_open_rounded
+                                : Icons.lock_rounded,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
         ],
@@ -559,8 +606,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final selectedIndex = selectedNoteId == null
         ? -1
         : (visibleNoteIndexById[selectedNoteId] ?? -1);
-    final effectiveSelectedNoteId =
-        selectedNoteId != null && selectedIndex >= 0
+    final effectiveSelectedNoteId = selectedNoteId != null && selectedIndex >= 0
         ? selectedNoteId
         : null;
 
@@ -763,10 +809,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     final markedDays = noteDays.toSet();
     final sameDayNotes =
         notesByDay[_calendarDayKey(_selectedDay)] ?? const <NoteEntry>[];
-    final shouldCollapseDayNotes =
-        sameDayNotes.length > _collapsedDayNoteLimit;
-    final visibleDayNoteCount =
-        shouldCollapseDayNotes && !_dayNotesExpanded
+    final shouldCollapseDayNotes = sameDayNotes.length > _collapsedDayNoteLimit;
+    final visibleDayNoteCount = shouldCollapseDayNotes && !_dayNotesExpanded
         ? _collapsedDayNoteLimit
         : sameDayNotes.length;
     final previousDay = _adjacentNoteDay(
@@ -914,10 +958,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                               ja: '${sameDayNotes.length}件すべて表示',
                               zh: '显示全部 ${sameDayNotes.length} 条笔记',
                               ko: '노트 ${sameDayNotes.length}개 모두 표시',
-                              es:
-                                  'Mostrar las ${sameDayNotes.length} notas',
-                              de:
-                                  'Alle ${sameDayNotes.length} Notizen anzeigen',
+                              es: 'Mostrar las ${sameDayNotes.length} notas',
+                              de: 'Alle ${sameDayNotes.length} Notizen anzeigen',
                             ),
                     ),
                   ),
@@ -1000,8 +1042,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
         return StatefulBuilder(
           builder: (context, setModalState) {
             final dayNotes =
-                notesByDay[_calendarDayKey(selectedDay)] ??
-                const <NoteEntry>[];
+                notesByDay[_calendarDayKey(selectedDay)] ?? const <NoteEntry>[];
             if (dayNotes.isEmpty) {
               return const SizedBox.shrink();
             }
@@ -2157,8 +2198,7 @@ _InsightsData _buildInsightsData(BuildContext context, List<NoteEntry> notes) {
     }
   }
 
-  final activeDays = activeDaysSet.toList()
-    ..sort((a, b) => b.compareTo(a));
+  final activeDays = activeDaysSet.toList()..sort((a, b) => b.compareTo(a));
   var currentStreak = 0;
   if (activeDays.isNotEmpty) {
     var cursor = activeDays.first;
@@ -2217,11 +2257,13 @@ _InsightsData _buildInsightsData(BuildContext context, List<NoteEntry> notes) {
         (best, bucket) =>
             best == null || bucket.value > best.value ? bucket : best,
       );
-  final bestHour = hourBuckets.where((bucket) => bucket.value > 0).fold<
-      _InsightBucket?>(
-    null,
-    (best, bucket) => best == null || bucket.value > best.value ? bucket : best,
-  );
+  final bestHour = hourBuckets
+      .where((bucket) => bucket.value > 0)
+      .fold<_InsightBucket?>(
+        null,
+        (best, bucket) =>
+            best == null || bucket.value > best.value ? bucket : best,
+      );
   final monthlyDelta = thisMonthCount - previousMonthCount;
   final message = bestDay == null || bestDay.value == 0
       ? strings.text('home.insights.summary.empty')
@@ -2249,9 +2291,18 @@ _InsightsData _buildInsightsData(BuildContext context, List<NoteEntry> notes) {
     recentDayBuckets: List.unmodifiable(recentDayBuckets),
     weekdayHourBuckets: List.unmodifiable(weekdayHourBuckets),
     attachmentBuckets: [
-      _InsightBucket(label: strings.text('home.photo'), value: photoAttachments),
-      _InsightBucket(label: strings.text('home.video'), value: videoAttachments),
-      _InsightBucket(label: strings.text('home.audio'), value: audioAttachments),
+      _InsightBucket(
+        label: strings.text('home.photo'),
+        value: photoAttachments,
+      ),
+      _InsightBucket(
+        label: strings.text('home.video'),
+        value: videoAttachments,
+      ),
+      _InsightBucket(
+        label: strings.text('home.audio'),
+        value: audioAttachments,
+      ),
     ],
   );
   final elapsed = watch?.elapsedMicroseconds;
@@ -2807,6 +2858,7 @@ class SettingsScreen extends ConsumerWidget {
     final syncConflictWarning = ref.watch(syncConflictWarningProvider);
     final inAppUpdateState = ref.watch(inAppUpdateControllerProvider);
     final packageInfo = ref.watch(packageInfoProvider);
+    final storageUsageSummary = ref.watch(storageUsageSummaryProvider);
     const showLegacyAccessSettings = bool.fromEnvironment(
       'HIMEMO_SHOW_LEGACY_ACCESS_SETTINGS',
     );
@@ -4406,6 +4458,47 @@ class SettingsScreen extends ConsumerWidget {
               title: Text(strings.text('home.saved.notes.on.this.device')),
               subtitle: Text(strings.entriesCount(noteCount)),
             ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                strings.localized(
+                  en: 'Storage size',
+                  ja: '保存サイズ',
+                  zh: '存储大小',
+                  ko: '저장 크기',
+                  es: 'Tamaño guardado',
+                  de: 'Speichergröße',
+                ),
+              ),
+              subtitle: Text(
+                storageUsageSummary.when(
+                  data: (summary) => strings.localized(
+                    en: '${strings.byteCount(summary.totalBytes)} total / notes ${strings.byteCount(summary.notePayloadBytes)} / attachments ${strings.byteCount(summary.attachmentPayloadBytes)}',
+                    ja: '合計 ${strings.byteCount(summary.totalBytes)} / ノート ${strings.byteCount(summary.notePayloadBytes)} / 添付 ${strings.byteCount(summary.attachmentPayloadBytes)}',
+                    zh: '合计 ${strings.byteCount(summary.totalBytes)} / 笔记 ${strings.byteCount(summary.notePayloadBytes)} / 附件 ${strings.byteCount(summary.attachmentPayloadBytes)}',
+                    ko: '합계 ${strings.byteCount(summary.totalBytes)} / 노트 ${strings.byteCount(summary.notePayloadBytes)} / 첨부 ${strings.byteCount(summary.attachmentPayloadBytes)}',
+                    es: '${strings.byteCount(summary.totalBytes)} en total / notas ${strings.byteCount(summary.notePayloadBytes)} / adjuntos ${strings.byteCount(summary.attachmentPayloadBytes)}',
+                    de: '${strings.byteCount(summary.totalBytes)} gesamt / Notizen ${strings.byteCount(summary.notePayloadBytes)} / Anhänge ${strings.byteCount(summary.attachmentPayloadBytes)}',
+                  ),
+                  loading: () => strings.localized(
+                    en: 'Calculating...',
+                    ja: '計算中...',
+                    zh: '正在计算...',
+                    ko: '계산 중...',
+                    es: 'Calculando...',
+                    de: 'Wird berechnet...',
+                  ),
+                  error: (_, _) => strings.localized(
+                    en: 'Unable to calculate storage size.',
+                    ja: '保存サイズを計算できませんでした。',
+                    zh: '无法计算存储大小。',
+                    ko: '저장 크기를 계산할 수 없습니다.',
+                    es: 'No se pudo calcular el tamaño guardado.',
+                    de: 'Speichergröße konnte nicht berechnet werden.',
+                  ),
+                ),
+              ),
+            ),
             Align(
               alignment: Alignment.centerLeft,
               child: Wrap(
@@ -5743,21 +5836,20 @@ class _MobileNotesListState extends State<_MobileNotesList> {
             position: row.position,
             child: _NoteDayDivider(date: date),
           ),
-          _MobileTileRow(:final vault, :final note) =>
-            _DecoratedMobileNoteRow(
-              position: row.position,
-              child: RepaintBoundary(
-                child: _NoteListTile(
-                  note: note,
-                  vaultName: _vaultDisplayName(context, vault),
-                  showVaultName: false,
-                  density: widget.density,
-                  query: widget.query,
-                  selected: note.id == widget.selectedNoteId,
-                  onTap: () => widget.onNoteSelected(note),
-                ),
+          _MobileTileRow(:final vault, :final note) => _DecoratedMobileNoteRow(
+            position: row.position,
+            child: RepaintBoundary(
+              child: _NoteListTile(
+                note: note,
+                vaultName: _vaultDisplayName(context, vault),
+                showVaultName: false,
+                density: widget.density,
+                query: widget.query,
+                selected: note.id == widget.selectedNoteId,
+                onTap: () => widget.onNoteSelected(note),
               ),
             ),
+          ),
           _MobileDividerRow() => _DecoratedMobileNoteRow(
             position: row.position,
             child: Divider(height: 1, color: Theme.of(context).dividerColor),
@@ -5842,9 +5934,9 @@ class _VaultSectionHeader extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               _vaultDisplayDescription(context, vault),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: _mutedTextColor(context),
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
             ),
           ],
         ],
@@ -5919,7 +6011,11 @@ class _MobileDayRow extends _MobileNoteRow {
 }
 
 class _MobileTileRow extends _MobileNoteRow {
-  const _MobileTileRow({required this.vault, required this.note, super.position});
+  const _MobileTileRow({
+    required this.vault,
+    required this.note,
+    super.position,
+  });
 
   final VaultBucket vault;
   final NoteEntry note;
@@ -6288,7 +6384,6 @@ class _NoteListTile extends StatelessWidget {
       ),
     );
   }
-
 }
 
 class _NotePreviewFact {
@@ -7082,8 +7177,9 @@ class _NoteDetailPane extends StatelessWidget {
                     Expanded(
                       child: Text(
                         vaultName,
-                        style: Theme.of(context).textTheme.labelLarge
-                            ?.copyWith(color: _mutedTextColor(context)),
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: _mutedTextColor(context),
+                        ),
                       ),
                     ),
                     IconButton(
@@ -7120,9 +7216,7 @@ class _NoteDetailPane extends StatelessWidget {
                       for (final tag in tags)
                         _NoteTagChip(
                           tag: tag,
-                          onTap: onTagTap == null
-                              ? null
-                              : () => onTagTap!(tag),
+                          onTap: onTagTap == null ? null : () => onTagTap!(tag),
                         ),
                     ],
                   ),
@@ -7231,7 +7325,9 @@ class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
     var cursor = 0;
     for (final match in matches) {
       if (match.start > cursor) {
-        segments.add(_MemoTextSegment.text(text.substring(cursor, match.start)));
+        segments.add(
+          _MemoTextSegment.text(text.substring(cursor, match.start)),
+        );
       }
 
       final rawMatch = match.group(0)!;
@@ -7255,9 +7351,7 @@ class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
 }
 
 class _MemoTextSegment {
-  const _MemoTextSegment.text(this.text)
-    : recognizer = null,
-      isLink = false;
+  const _MemoTextSegment.text(this.text) : recognizer = null, isLink = false;
 
   const _MemoTextSegment.link(this.text, this.recognizer) : isLink = true;
 
@@ -7480,9 +7574,7 @@ List<_DetailContentItem> _buildDetailContentItems(NoteEntry note) {
       ? note.blocks
       : _legacyBlocksFromNote(note);
   if (blocks.isEmpty && note.location == null) {
-    return [
-      _DetailContentItem.text(note.body),
-    ];
+    return [_DetailContentItem.text(note.body)];
   }
 
   final items = <_DetailContentItem>[];
@@ -8665,12 +8757,26 @@ class _TagAutocompleteField extends StatefulWidget {
 class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
   late final TextEditingController _controller;
   late final FocusNode _focusNode;
+  late Set<String> _existingTagKeys;
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController();
     _focusNode = FocusNode();
+    _existingTagKeys = _currentExistingTagKeys();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TagAutocompleteField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final nextKeys = _currentExistingTagKeys();
+    if (_setEquals(_existingTagKeys, nextKeys)) {
+      return;
+    }
+    _existingTagKeys = nextKeys;
+    _controller.clear();
+    _focusNode.unfocus();
   }
 
   @override
@@ -8685,9 +8791,10 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
     if (normalized.isEmpty) {
       return;
     }
-    final existingKeys = widget.existingTags.map(canonicalizeNoteTag).toSet();
+    final existingKeys = _currentExistingTagKeys();
     if (existingKeys.contains(canonicalizeNoteTag(normalized))) {
       _controller.clear();
+      _focusNode.unfocus();
       return;
     }
     widget.onTagSelected(normalized);
@@ -8695,15 +8802,30 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
     _focusNode.unfocus();
   }
 
+  Set<String> _currentExistingTagKeys() {
+    return widget.existingTags
+        .map(canonicalizeNoteTag)
+        .where((tag) => tag.isNotEmpty)
+        .toSet();
+  }
+
+  bool _setEquals(Set<String> left, Set<String> right) {
+    if (left.length != right.length) {
+      return false;
+    }
+    return left.containsAll(right);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final existingTagKeys = _currentExistingTagKeys().toList(growable: false)
+      ..sort();
     return RawAutocomplete<String>(
+      key: ValueKey(existingTagKeys.join('\u0000')),
       textEditingController: _controller,
       focusNode: _focusNode,
       optionsBuilder: (value) {
-        final existingKeys = widget.existingTags
-            .map(canonicalizeNoteTag)
-            .toSet();
+        final existingKeys = existingTagKeys.toSet();
         final seenKeys = <String>{};
         final filteredSuggestions = <String>[
           for (final tag in widget.suggestions)
@@ -8737,7 +8859,14 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
             );
           },
       optionsViewBuilder: (context, onSelected, options) {
-        final matches = options.toList(growable: false);
+        final existingKeys = widget.existingTags
+            .map(canonicalizeNoteTag)
+            .where((tag) => tag.isNotEmpty)
+            .toSet();
+        final matches = [
+          for (final option in options)
+            if (!existingKeys.contains(canonicalizeNoteTag(option))) option,
+        ];
         if (matches.isEmpty) {
           return const SizedBox.shrink();
         }
@@ -12015,7 +12144,8 @@ class _QuickAttachmentSection extends StatefulWidget {
   final void Function(int index, int delta) onMove;
 
   @override
-  State<_QuickAttachmentSection> createState() => _QuickAttachmentSectionState();
+  State<_QuickAttachmentSection> createState() =>
+      _QuickAttachmentSectionState();
 }
 
 class _QuickAttachmentSectionState extends State<_QuickAttachmentSection> {
@@ -12095,18 +12225,12 @@ class _QuickAttachmentSectionState extends State<_QuickAttachmentSection> {
                             de: 'Weniger Anhaenge anzeigen',
                           )
                         : strings.localized(
-                            en:
-                                'Show all ${attachments.length} attachments',
-                            ja:
-                                '${attachments.length}件の添付をすべて表示',
-                            zh:
-                                '显示全部 ${attachments.length} 个附件',
-                            ko:
-                                '첨부 파일 ${attachments.length}개 모두 표시',
-                            es:
-                                'Mostrar los ${attachments.length} adjuntos',
-                            de:
-                                'Alle ${attachments.length} Anhaenge anzeigen',
+                            en: 'Show all ${attachments.length} attachments',
+                            ja: '${attachments.length}件の添付をすべて表示',
+                            zh: '显示全部 ${attachments.length} 个附件',
+                            ko: '첨부 파일 ${attachments.length}개 모두 표시',
+                            es: 'Mostrar los ${attachments.length} adjuntos',
+                            de: 'Alle ${attachments.length} Anhaenge anzeigen',
                           ),
                   ),
                 ),
@@ -12525,7 +12649,10 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
         if (bytes == null || bytes.isEmpty) {
           return _AttachmentIconBox(type: attachment.type, size: size);
         }
-        return _AttachmentImageBox(bytes: Uint8List.fromList(bytes), size: size);
+        return _AttachmentImageBox(
+          bytes: Uint8List.fromList(bytes),
+          size: size,
+        );
       },
     );
   }

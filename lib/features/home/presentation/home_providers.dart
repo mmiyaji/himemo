@@ -1588,6 +1588,34 @@ final encryptedAttachmentStoreProvider = Provider<EncryptedAttachmentStore>((
   );
 });
 
+class StorageUsageSummary {
+  const StorageUsageSummary({
+    required this.notePayloadBytes,
+    required this.attachmentPayloadBytes,
+  });
+
+  final int notePayloadBytes;
+  final int attachmentPayloadBytes;
+
+  int get totalBytes => notePayloadBytes + attachmentPayloadBytes;
+}
+
+final storageUsageSummaryProvider = FutureProvider<StorageUsageSummary>((
+  ref,
+) async {
+  ref.watch(notesControllerProvider);
+  final notePayloadBytes = await ref
+      .watch(encryptedNoteStoreProvider)
+      .storagePayloadSizeBytes();
+  final attachmentPayloadBytes = await ref
+      .watch(encryptedAttachmentStoreProvider)
+      .storagePayloadSizeBytes();
+  return StorageUsageSummary(
+    notePayloadBytes: notePayloadBytes,
+    attachmentPayloadBytes: attachmentPayloadBytes,
+  );
+});
+
 final syncEngineProvider = Provider<SyncEngine>((ref) {
   return SyncEngine(
     database: ref.watch(encryptedNoteDatabaseProvider),
@@ -5284,8 +5312,7 @@ List<DateTime> visibleNoteDays(Ref ref) {
 
 @riverpod
 List<NoteEntry> notesForVault(Ref ref, String vaultId) {
-  return ref.watch(visibleNotesByVaultProvider)[vaultId] ??
-      const <NoteEntry>[];
+  return ref.watch(visibleNotesByVaultProvider)[vaultId] ?? const <NoteEntry>[];
 }
 
 @riverpod
