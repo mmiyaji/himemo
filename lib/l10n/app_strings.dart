@@ -192,6 +192,8 @@ class AppStrings {
       'home.pinned.only': 'Pinned only',
       'home.with.media': 'With media',
       'home.vault': 'Vault',
+      'home.year.partition': 'Year',
+      'home.all.years': 'All years',
       'home.filter.by.tag': 'Filter by tag',
       'home.reset.filters': 'Reset filters',
       'home.select.a.note': 'Select a note',
@@ -466,6 +468,8 @@ class AppStrings {
       'home.no.remote.bundle.metadata.loaded.yet':
           'Aún no se han cargado metadatos del paquete remoto.',
       'home.lock.private.access': 'Bloquear acceso privado',
+      'home.year.partition': 'Año',
+      'home.all.years': 'Todos los años',
       'home.use.a.4.digit.pin.for.this.browser':
           'Usa un PIN de 4 dígitos para este navegador.',
       'home.pin.must.be.exactly.4.digits':
@@ -515,6 +519,8 @@ class AppStrings {
       'home.no.remote.bundle.metadata.loaded.yet':
           'Es wurden noch keine Remote-Bundle-Metadaten geladen.',
       'home.lock.private.access': 'Privaten Zugriff sperren',
+      'home.year.partition': 'Jahr',
+      'home.all.years': 'Alle Jahre',
       'home.use.a.4.digit.pin.for.this.browser':
           'Verwende eine 4-stellige PIN für diesen Browser.',
       'home.pin.must.be.exactly.4.digits':
@@ -666,6 +672,8 @@ class AppStrings {
       'home.pinned.only': '固定したノートだけ',
       'home.with.media': '添付があるノートだけ',
       'home.vault': '保存先',
+      'home.year.partition': '年',
+      'home.all.years': 'すべての年',
       'home.filter.by.tag': 'タグで絞り込み',
       'home.reset.filters': '条件をリセット',
       'home.select.a.note': 'メモを選択してください',
@@ -1032,6 +1040,8 @@ class AppStrings {
       'home.pinned.only': '仅固定',
       'home.with.media': '含媒体',
       'home.vault': '分类',
+      'home.year.partition': '年份',
+      'home.all.years': '所有年份',
       'home.filter.by.tag': '按标签筛选',
       'home.reset.filters': '重置筛选',
       'home.select.a.note': '选择笔记',
@@ -1368,6 +1378,8 @@ class AppStrings {
       'home.pinned.only': '고정만',
       'home.with.media': '미디어 포함',
       'home.vault': '분류',
+      'home.year.partition': '연도',
+      'home.all.years': '모든 연도',
       'home.filter.by.tag': '태그로 필터',
       'home.reset.filters': '필터 재설정',
       'home.select.a.note': '노트 선택',

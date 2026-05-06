@@ -486,35 +486,22 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         : visibleNotes.indexWhere((note) => note.id == effectiveSelectedNoteId);
 
     if (!useSplitView) {
-      return ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        children: [
-          if (activeIdentity.id != 'daily') ...[
-            _IdentityHeader(identity: activeIdentity),
-            const SizedBox(height: 12),
-          ],
-          if (activeIdentity.id == 'private' && !privateVaultUnlocked) ...[
-            const SizedBox(height: 12),
-            const _PrivateVaultLockedNotice(),
-          ],
-          _NotesToolbar(compact: useCompactHeader),
-          const SizedBox(height: 16),
-          if (visibleNotes.isEmpty)
-            const _EmptyNotesState()
-          else
-            for (final vault in visibleVaults) ...[
-              _VaultSectionCard(
-                vault: vault,
-                notes: ref.watch(notesForVaultProvider(vault.id)),
-                selectedNoteId: effectiveSelectedNoteId,
-                density: listDensity,
-                query: query,
-                onNoteSelected: (note) =>
-                    _openMobileNoteActions(context, note, visibleNotes),
-              ),
-              const SizedBox(height: 16),
-            ],
-        ],
+      return _MobileNotesList(
+        activeIdentity: activeIdentity,
+        showPrivateVaultNotice:
+            activeIdentity.id == 'private' && !privateVaultUnlocked,
+        compactHeader: useCompactHeader,
+        vaults: visibleVaults,
+        notesByVault: {
+          for (final vault in visibleVaults)
+            vault.id: ref.watch(notesForVaultProvider(vault.id)),
+        },
+        allVisibleNotes: visibleNotes,
+        selectedNoteId: effectiveSelectedNoteId,
+        density: listDensity,
+        query: query,
+        onNoteSelected: (note) =>
+            _openMobileNoteActions(context, note, visibleNotes),
       );
     }
 
@@ -5521,79 +5508,6 @@ class _PrivateVaultLockedNotice extends StatelessWidget {
   }
 }
 
-class _VaultSectionCard extends StatelessWidget {
-  const _VaultSectionCard({
-    required this.vault,
-    required this.notes,
-    required this.selectedNoteId,
-    required this.onNoteSelected,
-    required this.density,
-    required this.query,
-  });
-
-  final VaultBucket vault;
-  final List<NoteEntry> notes;
-  final String? selectedNoteId;
-  final ValueChanged<NoteEntry> onNoteSelected;
-  final NotesListDensity density;
-  final String query;
-
-  @override
-  Widget build(BuildContext context) {
-    final vaultLabel = _vaultDisplayName(context, vault);
-    if (notes.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Container(
-      decoration: _sectionDecoration(context),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(vaultLabel),
-                  if (vault.id != 'everyday' &&
-                      _vaultDisplayDescription(context, vault).isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      _vaultDisplayDescription(context, vault),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: _mutedTextColor(context),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            Divider(height: 1, color: Theme.of(context).dividerColor),
-            for (var i = 0; i < notes.length; i++) ...[
-              if (density != NotesListDensity.compact &&
-                  (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i])))
-                _NoteDayDivider(date: notes[i].createdAt),
-              _NoteListTile(
-                note: notes[i],
-                vaultName: vaultLabel,
-                showVaultName: false,
-                density: density,
-                query: query,
-                selected: notes[i].id == selectedNoteId,
-                onTap: () => onNoteSelected(notes[i]),
-              ),
-              if (i != notes.length - 1)
-                Divider(height: 1, color: Theme.of(context).dividerColor),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 String _vaultDisplayName(BuildContext context, VaultBucket vault) {
   if (vault.id == 'everyday') {
     return context.strings.notes;
@@ -5625,6 +5539,340 @@ bool _isSameNoteDay(NoteEntry left, NoteEntry right) {
   return left.createdAt.year == right.createdAt.year &&
       left.createdAt.month == right.createdAt.month &&
       left.createdAt.day == right.createdAt.day;
+}
+
+class _MobileNotesList extends StatefulWidget {
+  const _MobileNotesList({
+    required this.activeIdentity,
+    required this.showPrivateVaultNotice,
+    required this.compactHeader,
+    required this.vaults,
+    required this.notesByVault,
+    required this.allVisibleNotes,
+    required this.selectedNoteId,
+    required this.density,
+    required this.query,
+    required this.onNoteSelected,
+  });
+
+  final UnlockIdentity activeIdentity;
+  final bool showPrivateVaultNotice;
+  final bool compactHeader;
+  final List<VaultBucket> vaults;
+  final Map<String, List<NoteEntry>> notesByVault;
+  final List<NoteEntry> allVisibleNotes;
+  final String? selectedNoteId;
+  final NotesListDensity density;
+  final String query;
+  final ValueChanged<NoteEntry> onNoteSelected;
+
+  @override
+  State<_MobileNotesList> createState() => _MobileNotesListState();
+}
+
+class _MobileNotesListState extends State<_MobileNotesList> {
+  late List<_MobileNoteRow> _rows;
+
+  @override
+  void initState() {
+    super.initState();
+    _rows = _buildRows();
+  }
+
+  @override
+  void didUpdateWidget(covariant _MobileNotesList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.allVisibleNotes, widget.allVisibleNotes) ||
+        oldWidget.activeIdentity.id != widget.activeIdentity.id ||
+        oldWidget.showPrivateVaultNotice != widget.showPrivateVaultNotice ||
+        oldWidget.compactHeader != widget.compactHeader ||
+        oldWidget.density != widget.density ||
+        oldWidget.vaults.length != widget.vaults.length) {
+      _rows = _buildRows();
+    }
+  }
+
+  List<_MobileNoteRow> _buildRows() {
+    final watch = Stopwatch()..start();
+    final rows = _buildMobileNoteRows(
+      activeIdentity: widget.activeIdentity,
+      showPrivateVaultNotice: widget.showPrivateVaultNotice,
+      compactHeader: widget.compactHeader,
+      vaults: widget.vaults,
+      notesByVault: widget.notesByVault,
+      notesAreEmpty: widget.allVisibleNotes.isEmpty,
+      density: widget.density,
+    );
+    watch.stop();
+    _debugNotePerf(
+      'mobile list rows notes=${widget.allVisibleNotes.length} rows=${rows.length} completed ${watch.elapsedMicroseconds / 1000}ms',
+    );
+    return rows;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      itemCount: _rows.length,
+      itemBuilder: (context, index) {
+        final row = _rows[index];
+        return switch (row) {
+          _MobileIdentityRow() => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _IdentityHeader(identity: widget.activeIdentity),
+          ),
+          _MobilePrivateNoticeRow() => const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: _PrivateVaultLockedNotice(),
+          ),
+          _MobileToolbarRow() => Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: _NotesToolbar(compact: widget.compactHeader),
+          ),
+          _MobileEmptyRow() => const _EmptyNotesState(),
+          _MobileVaultHeaderRow(:final vault) => _DecoratedMobileNoteRow(
+            position: row.position,
+            child: _VaultSectionHeader(vault: vault),
+          ),
+          _MobileDayRow(:final date) => _DecoratedMobileNoteRow(
+            position: row.position,
+            child: _NoteDayDivider(date: date),
+          ),
+          _MobileTileRow(:final vault, :final note) =>
+            _DecoratedMobileNoteRow(
+              position: row.position,
+              child: _NoteListTile(
+                note: note,
+                vaultName: _vaultDisplayName(context, vault),
+                showVaultName: false,
+                density: widget.density,
+                query: widget.query,
+                selected: note.id == widget.selectedNoteId,
+                onTap: () => widget.onNoteSelected(note),
+              ),
+            ),
+          _MobileDividerRow() => _DecoratedMobileNoteRow(
+            position: row.position,
+            child: Divider(height: 1, color: Theme.of(context).dividerColor),
+          ),
+          _MobileSectionGapRow() => const SizedBox(height: 16),
+        };
+      },
+    );
+  }
+}
+
+List<_MobileNoteRow> _buildMobileNoteRows({
+  required UnlockIdentity activeIdentity,
+  required bool showPrivateVaultNotice,
+  required bool compactHeader,
+  required List<VaultBucket> vaults,
+  required Map<String, List<NoteEntry>> notesByVault,
+  required bool notesAreEmpty,
+  required NotesListDensity density,
+}) {
+  final rows = <_MobileNoteRow>[
+    if (activeIdentity.id != 'daily') const _MobileIdentityRow(),
+    if (showPrivateVaultNotice) const _MobilePrivateNoticeRow(),
+    _MobileToolbarRow(compactHeader),
+  ];
+  if (notesAreEmpty) {
+    rows.add(const _MobileEmptyRow());
+    return rows;
+  }
+
+  var addedAnyVault = false;
+  for (final vault in vaults) {
+    final notes = notesByVault[vault.id] ?? const <NoteEntry>[];
+    if (notes.isEmpty) {
+      continue;
+    }
+    if (addedAnyVault) {
+      rows.add(const _MobileSectionGapRow());
+    }
+    addedAnyVault = true;
+
+    final sectionRows = <_MobileNoteRow>[_MobileVaultHeaderRow(vault)];
+    for (var i = 0; i < notes.length; i++) {
+      if (density != NotesListDensity.compact &&
+          (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i]))) {
+        sectionRows.add(_MobileDayRow(notes[i].createdAt));
+      }
+      sectionRows.add(_MobileTileRow(vault: vault, note: notes[i]));
+      if (i != notes.length - 1) {
+        sectionRows.add(const _MobileDividerRow());
+      }
+    }
+    for (var i = 0; i < sectionRows.length; i++) {
+      rows.add(
+        sectionRows[i].withPosition(
+          _MobileNoteRowPosition(
+            first: i == 0,
+            last: i == sectionRows.length - 1,
+          ),
+        ),
+      );
+    }
+  }
+  return rows;
+}
+
+class _VaultSectionHeader extends StatelessWidget {
+  const _VaultSectionHeader({required this.vault});
+
+  final VaultBucket vault;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(_vaultDisplayName(context, vault)),
+          if (vault.id != 'everyday' &&
+              _vaultDisplayDescription(context, vault).isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              _vaultDisplayDescription(context, vault),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: _mutedTextColor(context),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileNoteRowPosition {
+  const _MobileNoteRowPosition({required this.first, required this.last});
+
+  final bool first;
+  final bool last;
+}
+
+sealed class _MobileNoteRow {
+  const _MobileNoteRow({this.position});
+
+  final _MobileNoteRowPosition? position;
+
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position);
+}
+
+class _MobileIdentityRow extends _MobileNoteRow {
+  const _MobileIdentityRow();
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
+}
+
+class _MobilePrivateNoticeRow extends _MobileNoteRow {
+  const _MobilePrivateNoticeRow();
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
+}
+
+class _MobileToolbarRow extends _MobileNoteRow {
+  const _MobileToolbarRow(this.compact);
+
+  final bool compact;
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
+}
+
+class _MobileEmptyRow extends _MobileNoteRow {
+  const _MobileEmptyRow();
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
+}
+
+class _MobileVaultHeaderRow extends _MobileNoteRow {
+  const _MobileVaultHeaderRow(this.vault, {super.position});
+
+  final VaultBucket vault;
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) =>
+      _MobileVaultHeaderRow(vault, position: position);
+}
+
+class _MobileDayRow extends _MobileNoteRow {
+  const _MobileDayRow(this.date, {super.position});
+
+  final DateTime date;
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) =>
+      _MobileDayRow(date, position: position);
+}
+
+class _MobileTileRow extends _MobileNoteRow {
+  const _MobileTileRow({required this.vault, required this.note, super.position});
+
+  final VaultBucket vault;
+  final NoteEntry note;
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) =>
+      _MobileTileRow(vault: vault, note: note, position: position);
+}
+
+class _MobileDividerRow extends _MobileNoteRow {
+  const _MobileDividerRow({super.position});
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) =>
+      _MobileDividerRow(position: position);
+}
+
+class _MobileSectionGapRow extends _MobileNoteRow {
+  const _MobileSectionGapRow();
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
+}
+
+class _DecoratedMobileNoteRow extends StatelessWidget {
+  const _DecoratedMobileNoteRow({required this.position, required this.child});
+
+  final _MobileNoteRowPosition? position;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final pos = position;
+    final borderRadius = BorderRadius.vertical(
+      top: Radius.circular(pos?.first == true ? 6 : 0),
+      bottom: Radius.circular(pos?.last == true ? 6 : 0),
+    );
+    final border = Border(
+      left: BorderSide(color: Theme.of(context).dividerColor),
+      right: BorderSide(color: Theme.of(context).dividerColor),
+      top: pos?.first == true
+          ? BorderSide(color: Theme.of(context).dividerColor)
+          : BorderSide.none,
+      bottom: pos?.last == true
+          ? BorderSide(color: Theme.of(context).dividerColor)
+          : BorderSide.none,
+    );
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: borderRadius,
+      ),
+      foregroundDecoration: BoxDecoration(
+        borderRadius: borderRadius,
+        border: border,
+      ),
+      child: child,
+    );
+  }
 }
 
 class _NoteDayDivider extends StatelessWidget {
@@ -7602,6 +7850,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     final query = ref.watch(searchQueryProvider);
     final filters = ref.watch(searchFiltersControllerProvider);
     final visibleVaults = ref.watch(visibleVaultsProvider);
+    final visibleYears = ref.watch(visibleNoteYearsProvider);
     final tagSuggestions = ref.watch(visibleTagSuggestionsProvider);
     final hasAdvancedFilters = !filters.isDefault;
     final listDensity = ref.watch(notesListDensityControllerProvider);
@@ -7612,6 +7861,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
         (filters.pinnedOnly ? 1 : 0) +
         (filters.withMediaOnly ? 1 : 0) +
         (filters.vaultId != null ? 1 : 0) +
+        (filters.year != null ? 1 : 0) +
         filters.tags.length;
 
     return Container(
@@ -7888,6 +8138,32 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                         .read(searchFiltersControllerProvider.notifier)
                         .setVault,
                   ),
+                  if (visibleYears.length > 1) ...[
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<int?>(
+                      key: ValueKey(filters.year ?? 'all-years'),
+                      initialValue: filters.year,
+                      decoration: InputDecoration(
+                        labelText: strings.text('home.year.partition'),
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        DropdownMenuItem<int?>(
+                          value: null,
+                          child: Text(strings.text('home.all.years')),
+                        ),
+                        for (final year in visibleYears)
+                          DropdownMenuItem<int?>(
+                            value: year,
+                            child: Text('$year'),
+                          ),
+                      ],
+                      onChanged: ref
+                          .read(searchFiltersControllerProvider.notifier)
+                          .setYear,
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   _TagAutocompleteField(
                     key: const Key('search-tag-input'),

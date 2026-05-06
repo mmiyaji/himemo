@@ -1063,6 +1063,65 @@ void main() {
     expect(container.read(visibleTagSuggestionsProvider), contains('Alpha'));
     expect(dedupeNoteTags([' Alpha ', '#alpha', 'HOME']), ['Alpha', 'HOME']);
   });
+
+  test('search filters can partition notes by year', () async {
+    SharedPreferences.setMockInitialValues({});
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(7));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    await container
+        .read(notesControllerProvider.notifier)
+        .upsert(
+          NoteEntry(
+            id: 'year-2025',
+            vaultId: 'everyday',
+            title: 'Older note',
+            body: 'Older body',
+            createdAt: DateTime(2025, 12, 31, 23, 0),
+          ),
+        );
+    await container
+        .read(notesControllerProvider.notifier)
+        .upsert(
+          NoteEntry(
+            id: 'year-2026',
+            vaultId: 'everyday',
+            title: 'Current note',
+            body: 'Current body',
+            createdAt: DateTime(2026, 1, 1, 8, 0),
+          ),
+        );
+
+    expect(container.read(visibleNoteYearsProvider), [2026, 2025]);
+
+    container.read(searchFiltersControllerProvider.notifier).setYear(2025);
+    expect(container.read(visibleNotesProvider).map((note) => note.id), [
+      'year-2025',
+    ]);
+  });
 }
 
 class MemoryHomeRepository implements HomeRepository {

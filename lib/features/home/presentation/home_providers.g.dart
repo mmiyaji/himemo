@@ -519,7 +519,7 @@ final class NotesControllerProvider
   }
 }
 
-String _$notesControllerHash() => r'db04c33fb0d214e4a501c736a00e8ee34db3414c';
+String _$notesControllerHash() => r'48ac148ab4c5f52bbe06ba7d649e3cff0e3807c4';
 
 abstract class _$NotesController extends $Notifier<List<NoteEntry>> {
   List<NoteEntry> build();
@@ -762,7 +762,48 @@ final class VisibleNotesProvider
   }
 }
 
-String _$visibleNotesHash() => r'70b176ccbad3e579117b9fb38db14ce414bf0413';
+String _$visibleNotesHash() => r'401c0aa4eb406175f9891deb3e0692d8310f81a7';
+
+@ProviderFor(visibleNoteYears)
+final visibleNoteYearsProvider = VisibleNoteYearsProvider._();
+
+final class VisibleNoteYearsProvider
+    extends $FunctionalProvider<List<int>, List<int>, List<int>>
+    with $Provider<List<int>> {
+  VisibleNoteYearsProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'visibleNoteYearsProvider',
+        isAutoDispose: true,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$visibleNoteYearsHash();
+
+  @$internal
+  @override
+  $ProviderElement<List<int>> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  List<int> create(Ref ref) {
+    return visibleNoteYears(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(List<int> value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<List<int>>(value),
+    );
+  }
+}
+
+String _$visibleNoteYearsHash() => r'2ab1162cd34d3256b710f8349489d10ee0cbb281';
 
 @ProviderFor(visibleTagSuggestions)
 final visibleTagSuggestionsProvider = VisibleTagSuggestionsProvider._();

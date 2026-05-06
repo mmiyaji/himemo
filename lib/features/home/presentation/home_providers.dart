@@ -238,31 +238,37 @@ class SearchFilters {
     this.pinnedOnly = false,
     this.withMediaOnly = false,
     this.vaultId,
+    this.year,
     this.tags = const <String>[],
   });
 
   final bool pinnedOnly;
   final bool withMediaOnly;
   final String? vaultId;
+  final int? year;
   final List<String> tags;
 
   bool get isDefault =>
       !pinnedOnly &&
       !withMediaOnly &&
       (vaultId == null || vaultId!.isEmpty) &&
+      year == null &&
       tags.isEmpty;
 
   SearchFilters copyWith({
     bool? pinnedOnly,
     bool? withMediaOnly,
     String? vaultId,
+    int? year,
     List<String>? tags,
     bool clearVault = false,
+    bool clearYear = false,
   }) {
     return SearchFilters(
       pinnedOnly: pinnedOnly ?? this.pinnedOnly,
       withMediaOnly: withMediaOnly ?? this.withMediaOnly,
       vaultId: clearVault ? null : (vaultId ?? this.vaultId),
+      year: clearYear ? null : (year ?? this.year),
       tags: tags ?? this.tags,
     );
   }
@@ -3912,6 +3918,14 @@ class SearchFiltersController extends Notifier<SearchFilters> {
     state = state.copyWith(vaultId: vaultId);
   }
 
+  void setYear(int? year) {
+    if (year == null) {
+      state = state.copyWith(clearYear: true);
+      return;
+    }
+    state = state.copyWith(year: year);
+  }
+
   void setTags(List<String> tags) {
     state = state.copyWith(tags: dedupeNoteTags(tags));
   }
@@ -4982,6 +4996,7 @@ List<NoteEntry> visibleNotes(Ref ref) {
   final query = ref.watch(searchQueryProvider).trim().toLowerCase();
   final filters = ref.watch(searchFiltersControllerProvider);
   final filterVaultId = filters.vaultId;
+  final filterYear = filters.year;
   final requiredTags = filters.tags
       .map(canonicalizeNoteTag)
       .where((tag) => tag.isNotEmpty)
@@ -4992,6 +5007,9 @@ List<NoteEntry> visibleNotes(Ref ref) {
       continue;
     }
     if (filterVaultId != null && note.vaultId != filterVaultId) {
+      continue;
+    }
+    if (filterYear != null && note.createdAt.year != filterYear) {
       continue;
     }
     if (filters.pinnedOnly && !note.isPinned) {
@@ -5018,6 +5036,24 @@ List<NoteEntry> visibleNotes(Ref ref) {
     results.add(note);
   }
   return List.unmodifiable(results);
+}
+
+@riverpod
+List<int> visibleNoteYears(Ref ref) {
+  final visibleIds = ref
+      .watch(visibleVaultsProvider)
+      .map((vault) => vault.id)
+      .toSet();
+  final years = <int>{};
+  for (final note in ref.watch(notesControllerProvider)) {
+    if (note.deletedAt != null || !visibleIds.contains(note.vaultId)) {
+      continue;
+    }
+    years.add(note.createdAt.year);
+  }
+  final sorted = years.toList(growable: false)
+    ..sort((left, right) => right.compareTo(left));
+  return List.unmodifiable(sorted);
 }
 
 bool _noteMatchesQuery(NoteEntry note, String query) {
