@@ -1578,7 +1578,15 @@ ThemeData _buildTheme(
   );
 }
 
-const _japaneseFontFallback = <String>[
+const _cjkSansFontFallback = <String>[
+  'Yu Gothic',
+  'YuGothic',
+  'Meiryo',
+  'MS PGothic',
+  'MS Gothic',
+  'Noto Sans JP',
+  'Noto Sans CJK JP',
+  'Source Han Sans JP',
   'Hiragino Sans',
   'Hiragino Kaku Gothic ProN',
   'Hiragino Sans GB',
@@ -1586,60 +1594,77 @@ const _japaneseFontFallback = <String>[
   'sans-serif',
 ];
 
-const _gothicFontFallback = <String>[
-  'Hiragino Sans',
-  'Hiragino Kaku Gothic ProN',
-  'Apple SD Gothic Neo',
-  'sans-serif',
-];
-
-const _uiGothicFontFallback = <String>[
-  'BIZ UDPGothic',
-  'Noto Sans JP',
-  'Meiryo',
-  'sans-serif',
-];
-
-const _kakuGothicFontFallback = <String>[
-  'Zen Kaku Gothic New',
-  'Noto Sans JP',
-  'Meiryo',
-  'sans-serif',
-];
-
-const _minchoFontFallback = <String>[
+const _cjkSerifFontFallback = <String>[
+  'Yu Mincho',
+  'YuMincho',
+  'MS PMincho',
+  'MS Mincho',
+  'Noto Serif JP',
+  'Noto Serif CJK JP',
+  'Source Han Serif JP',
   'Hiragino Mincho ProN',
   'Songti SC',
   'serif',
 ];
 
+const _cjkMonoFontFallback = <String>[
+  'BIZ UDGothic',
+  'Yu Gothic',
+  'YuGothic',
+  'Meiryo',
+  'MS Gothic',
+  'Noto Sans Mono CJK JP',
+  'Noto Sans JP',
+  'monospace',
+];
+
+const _japaneseFontFallback = <String>[..._cjkSansFontFallback];
+
+const _gothicFontFallback = <String>[
+  'Hiragino Sans',
+  'Hiragino Kaku Gothic ProN',
+  'Apple SD Gothic Neo',
+  ..._cjkSansFontFallback,
+];
+
+const _uiGothicFontFallback = <String>[
+  'BIZ UDPGothic',
+  ..._cjkSansFontFallback,
+];
+
+const _kakuGothicFontFallback = <String>[
+  'Zen Kaku Gothic New',
+  ..._cjkSansFontFallback,
+];
+
+const _minchoFontFallback = <String>[..._cjkSerifFontFallback];
+
 const _uiMinchoFontFallback = <String>[
   'BIZ UDPMincho',
-  'Noto Serif JP',
-  'Yu Mincho',
-  'serif',
+  ..._cjkSerifFontFallback,
 ];
 
 const _roundedFontFallback = <String>[
   'Hiragino Maru Gothic ProN',
-  'Hiragino Sans',
-  'sans-serif',
+  ..._cjkSansFontFallback,
 ];
 
 const _zenRoundedFontFallback = <String>[
   'Zen Maru Gothic',
   'M PLUS Rounded 1c',
-  'Noto Sans JP',
-  'sans-serif',
+  ..._cjkSansFontFallback,
 ];
 
-const _casualFontFallback = <String>['Kiwi Maru', 'Noto Sans JP', 'serif'];
+const _casualFontFallback = <String>[
+  'Kiwi Maru',
+  ..._cjkSerifFontFallback,
+];
 
 const _monospaceFontFallback = <String>[
   'Menlo',
   'Courier New',
   'Courier',
-  'monospace',
+  ..._cjkMonoFontFallback,
 ];
 
 ({String? family, List<String> fallback}) _fontStackFor(

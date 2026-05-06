@@ -876,3 +876,35 @@ Conclusion:
 
 - No new performance regression was observed in this pass.
 - The Appearance settings now preserve important helper text instead of truncating it.
+
+## Cycle 35 monkey follow-up
+
+Plan:
+
+- Run another In App Browser pass with 1000 generated notes across notes, settings, and editor entry points.
+- Look for usability failures that are only visible during real interaction, not just measured list build times.
+
+Findings:
+
+- Settings and notes opened with 1000 generated notes and no app console errors.
+- A selected app font could leave Japanese text rendered as missing-glyph boxes on Web/Windows, making Settings hard to recover from.
+- The mobile note detail path used a persistent bottom sheet, so background content could still be scrolled behind the detail sheet.
+
+Changes:
+
+- Added explicit CJK fallback stacks for sans, serif, and monospace app fonts, including Windows, iOS, Android, and common Noto/Source Han family names.
+- Reused those CJK fallback stacks across all selectable app font modes so Japanese UI remains readable even when the selected decorative/system font is missing glyphs.
+- Switched the mobile note detail sheet from a persistent `Scaffold.showBottomSheet` to `showModalBottomSheet` so the route barrier blocks background interactions.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58084` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Settings rendered readable Japanese text after the fallback change.
+  - Browser console showed no app errors.
+
+Conclusion:
+
+- The pass found a high-impact recovery/usability issue rather than a raw list-performance regression.
+- Font selection is now safer for multilingual UI, and mobile detail sheets no longer permit confusing background interaction.

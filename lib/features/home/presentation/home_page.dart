@@ -614,42 +614,51 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     List<NoteEntry> visibleNotes,
   ) async {
     _debugNotePerf('open mobile detail ${_notePerfLabel(note)}');
+    final hostContext = context;
     final initialIndex = visibleNotes.indexWhere(
       (entry) => entry.id == note.id,
     );
-    final controller = Scaffold.of(context).showBottomSheet((context) {
-      return SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.86,
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            child: _NoteDetailPager(
-              notes: visibleNotes,
-              selectedIndex: initialIndex < 0 ? 0 : initialIndex,
-              onPageChanged: (index) => ref
-                  .read(selectedNoteIdProvider.notifier)
-                  .select(visibleNotes[index].id),
-              onEdit: (selectedNote) async {
-                Navigator.of(context).pop();
-                await showNoteEditorSheet(context, ref, note: selectedNote);
-              },
-              onDelete: (selectedNote) async {
-                Navigator.of(context).pop();
-                await _deleteNote(context, selectedNote);
-              },
-              onClose: () => Navigator.of(context).pop(),
-              onTagTap: (tag) {
-                Navigator.of(context).pop();
-                _applyTagFilter(context, tag);
-              },
-            ),
-          ),
-        ),
-      );
-    }, showDragHandle: true);
     _pushNoteOverlaySheet();
     try {
-      await controller.closed;
+      await showModalBottomSheet<void>(
+        context: hostContext,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) {
+          return SizedBox(
+            height: MediaQuery.sizeOf(sheetContext).height * 0.86,
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                child: _NoteDetailPager(
+                  notes: visibleNotes,
+                  selectedIndex: initialIndex < 0 ? 0 : initialIndex,
+                  onPageChanged: (index) => ref
+                      .read(selectedNoteIdProvider.notifier)
+                      .select(visibleNotes[index].id),
+                  onEdit: (selectedNote) async {
+                    Navigator.of(sheetContext).pop();
+                    await showNoteEditorSheet(
+                      hostContext,
+                      ref,
+                      note: selectedNote,
+                    );
+                  },
+                  onDelete: (selectedNote) async {
+                    Navigator.of(sheetContext).pop();
+                    await _deleteNote(hostContext, selectedNote);
+                  },
+                  onClose: () => Navigator.of(sheetContext).pop(),
+                  onTagTap: (tag) {
+                    Navigator.of(sheetContext).pop();
+                    _applyTagFilter(hostContext, tag);
+                  },
+                ),
+              ),
+            ),
+          );
+        },
+      );
     } finally {
       _popNoteOverlaySheet();
     }
