@@ -298,3 +298,25 @@ Measurements:
 Conclusion:
 
 - This does not directly speed up release builds, but it gives the next cycles clearer measurements for 1000+ note scenarios and validates that Cycle 10 is exercising the incremental path.
+
+## Cycle 13 follow-up
+
+Plan:
+
+- Check note detail performance beyond the list itself.
+- Improve the case where a note has many blocks or many attachments.
+
+Changes:
+
+- Replaced the detail pane's eager `SingleChildScrollView` + `Column` content construction with a `CustomScrollView` and `SliverList.builder`.
+- Kept the metadata header eager, but made body blocks, location cards, and embedded attachments build lazily as they enter the viewport.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "search filters can partition notes by year"` passed.
+
+Conclusion:
+
+- Multi-attachment detail pages no longer instantiate every embedded attachment viewer during the first frame.
+- This should reduce detail-open latency and memory pressure for notes with many images, videos, audio clips, or files.

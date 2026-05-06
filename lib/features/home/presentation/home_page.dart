@@ -6860,71 +6860,81 @@ class _NoteDetailPane extends StatelessWidget {
 
     return Container(
       decoration: _sectionDecoration(context),
-      padding: const EdgeInsets.all(20),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      child: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            sliver: SliverList.list(
               children: [
-                Expanded(
-                  child: Text(
-                    vaultName,
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: _mutedTextColor(context),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        vaultName,
+                        style: Theme.of(context).textTheme.labelLarge
+                            ?.copyWith(color: _mutedTextColor(context)),
+                      ),
                     ),
-                  ),
-                ),
-                IconButton(
-                  key: const Key('edit-note-button'),
-                  onPressed: onEdit,
-                  icon: const Icon(Icons.edit_outlined),
-                  tooltip: strings.editNote,
-                ),
-                IconButton(
-                  onPressed: onDelete,
-                  icon: const Icon(Icons.delete_outline_rounded),
-                  tooltip: strings.deleteNote,
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(note.title, style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 8),
-            Text(
-              isEdited ? strings.editedAt(updatedLabel) : createdLabel,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
-            ),
-            if (tags.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final tag in tags)
-                    _NoteTagChip(
-                      tag: tag,
-                      onTap: onTagTap == null ? null : () => onTagTap!(tag),
+                    IconButton(
+                      key: const Key('edit-note-button'),
+                      onPressed: onEdit,
+                      icon: const Icon(Icons.edit_outlined),
+                      tooltip: strings.editNote,
                     ),
-                ],
-              ),
-            ],
-            if (isEdited)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  strings.createdRevision(createdLabel, note.revision),
+                    IconButton(
+                      onPressed: onDelete,
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      tooltip: strings.deleteNote,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  note.title,
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  isEdited ? strings.editedAt(updatedLabel) : createdLabel,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: _mutedTextColor(context),
                   ),
                 ),
-              ),
-            const SizedBox(height: 20),
-            ..._buildDetailBlocks(context, note, mediaActive: isActive),
-          ],
-        ),
+                if (tags.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final tag in tags)
+                        _NoteTagChip(
+                          tag: tag,
+                          onTap: onTagTap == null
+                              ? null
+                              : () => onTagTap!(tag),
+                        ),
+                    ],
+                  ),
+                ],
+                if (isEdited)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      strings.createdRevision(createdLabel, note.revision),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: _mutedTextColor(context),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            sliver: _DetailContentSliver(note: note, mediaActive: isActive),
+          ),
+        ],
       ),
     );
   }
@@ -7079,51 +7089,122 @@ Future<bool> _confirmExternalLinkOpen(BuildContext context, String url) async {
       false;
 }
 
-List<Widget> _buildDetailBlocks(
-  BuildContext context,
-  NoteEntry note, {
-  required bool mediaActive,
-}) {
-  final blocks = note.blocks.isNotEmpty
-      ? note.blocks
-      : _legacyBlocksFromNote(note);
-  final photoAttachments = blocks
-      .where((block) => block.type == NoteBlockType.photo)
-      .map((block) => block.attachment)
-      .whereType<NoteAttachment>()
-      .toList(growable: false);
-  if (blocks.isEmpty && note.location == null) {
-    return [
-      _LinkifiedMemoText(
-        text: note.body,
+class _DetailContentSliver extends StatelessWidget {
+  const _DetailContentSliver({required this.note, required this.mediaActive});
+
+  final NoteEntry note;
+  final bool mediaActive;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = _buildDetailContentItems(note);
+    final photoAttachments = items
+        .map((item) => item.attachment)
+        .whereType<NoteAttachment>()
+        .where((attachment) => attachment.type == AttachmentType.photo)
+        .toList(growable: false);
+    return SliverList.builder(
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        final child = _DetailContentItemWidget(
+          item: item,
+          mediaActive: mediaActive,
+          photoAttachments: photoAttachments,
+        );
+        return Padding(
+          padding: EdgeInsets.only(top: index == 0 ? 0 : 16),
+          child: child,
+        );
+      },
+    );
+  }
+}
+
+class _DetailContentItemWidget extends StatelessWidget {
+  const _DetailContentItemWidget({
+    required this.item,
+    required this.mediaActive,
+    required this.photoAttachments,
+  });
+
+  final _DetailContentItem item;
+  final bool mediaActive;
+  final List<NoteAttachment> photoAttachments;
+
+  @override
+  Widget build(BuildContext context) {
+    final location = item.location;
+    if (location != null) {
+      return _LocationMemoCard(
+        location: location,
+        strings: context.strings,
+        width: double.infinity,
+      );
+    }
+    final text = item.text;
+    if (text != null) {
+      return _LinkifiedMemoText(
+        text: text,
         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
           color: Theme.of(context).colorScheme.onSurface,
         ),
-      ),
+      );
+    }
+    final attachment = item.attachment;
+    if (attachment == null) {
+      return const SizedBox.shrink();
+    }
+    return _EmbeddedAttachmentBlock(
+      attachment: attachment,
+      mediaActive: mediaActive,
+      photoAttachments: photoAttachments,
+      photoIndex: attachment.type == AttachmentType.photo
+          ? photoAttachments.indexOf(attachment)
+          : null,
+    );
+  }
+}
+
+class _DetailContentItem {
+  const _DetailContentItem.text(this.text)
+    : attachment = null,
+      location = null;
+
+  const _DetailContentItem.attachment(this.attachment)
+    : text = null,
+      location = null;
+
+  const _DetailContentItem.location(this.location)
+    : text = null,
+      attachment = null;
+
+  final String? text;
+  final NoteAttachment? attachment;
+  final _LocationMemoData? location;
+}
+
+List<_DetailContentItem> _buildDetailContentItems(NoteEntry note) {
+  final blocks = note.blocks.isNotEmpty
+      ? note.blocks
+      : _legacyBlocksFromNote(note);
+  if (blocks.isEmpty && note.location == null) {
+    return [
+      _DetailContentItem.text(note.body),
     ];
   }
 
-  final widgets = <Widget>[];
-  for (var i = 0; i < blocks.length; i++) {
-    final block = blocks[i];
+  final items = <_DetailContentItem>[];
+  for (final block in blocks) {
     switch (block.type) {
       case NoteBlockType.paragraph:
         final text = block.text?.trim() ?? '';
         if (text.isNotEmpty) {
           final location = _tryParseLocationMemo(text);
-          widgets.add(
+          items.add(
             location == null
-                ? _LinkifiedMemoText(
-                    text: text,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  )
-                : _LocationMemoCard(
-                    location: location,
-                    strings: context.strings,
-                    width: double.infinity,
-                  ),
+                ? _DetailContentItem.text(text)
+                : _DetailContentItem.location(location),
           );
         }
       case NoteBlockType.photo:
@@ -7132,35 +7213,18 @@ List<Widget> _buildDetailBlocks(
       case NoteBlockType.file:
         final attachment = block.attachment;
         if (attachment != null) {
-          widgets.add(
-            _EmbeddedAttachmentBlock(
-              attachment: attachment,
-              mediaActive: mediaActive,
-              photoAttachments: photoAttachments,
-              photoIndex: attachment.type == AttachmentType.photo
-                  ? photoAttachments.indexOf(attachment)
-                  : null,
-            ),
-          );
+          items.add(_DetailContentItem.attachment(attachment));
         }
-    }
-    if (i != blocks.length - 1) {
-      widgets.add(const SizedBox(height: 16));
     }
   }
   if (note.location != null) {
-    if (widgets.isNotEmpty) {
-      widgets.add(const SizedBox(height: 16));
-    }
-    widgets.add(
-      _LocationMemoCard(
-        location: _locationMemoDataFromMetadata(note.location!),
-        strings: context.strings,
-        width: double.infinity,
+    items.add(
+      _DetailContentItem.location(
+        _locationMemoDataFromMetadata(note.location!),
       ),
     );
   }
-  return widgets;
+  return items;
 }
 
 List<NoteBlock> _legacyBlocksFromNote(NoteEntry note) {
