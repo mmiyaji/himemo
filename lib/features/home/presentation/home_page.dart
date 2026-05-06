@@ -9288,40 +9288,9 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                         onChanged: (value) =>
                             notifier.setPinnedOnly(value ?? false),
                       ),
-                      DropdownButtonFormField<SearchAttachmentFilter>(
-                        initialValue: filters.attachmentFilter,
-                        decoration: InputDecoration(
-                          labelText: strings.localized(
-                            en: 'Attachment',
-                            ja: '\u6dfb\u4ed8\u691c\u7d22',
-                            zh: '\u9644\u4ef6\u641c\u7d22',
-                            ko: '\ucca8\ubd80 \uac80\uc0c9',
-                            es: 'Adjunto',
-                            de: 'Anhang',
-                          ),
-                          border: const OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                        items: [
-                          for (final filter in const [
-                            SearchAttachmentFilter.all,
-                            SearchAttachmentFilter.photo,
-                            SearchAttachmentFilter.video,
-                            SearchAttachmentFilter.audio,
-                            SearchAttachmentFilter.location,
-                          ])
-                            DropdownMenuItem(
-                              value: filter,
-                              child: Text(
-                                _attachmentFilterLabel(strings, filter),
-                              ),
-                            ),
-                        ],
-                        onChanged: (value) {
-                          if (value != null) {
-                            notifier.setAttachmentFilter(value);
-                          }
-                        },
+                      _AttachmentSearchFilterControls(
+                        filter: filters.attachmentFilter,
+                        onChanged: notifier.setAttachmentFilter,
                       ),
                       const SizedBox(height: 12),
                       _TagAutocompleteField(
@@ -9653,6 +9622,137 @@ class _QuickTagChip extends StatelessWidget {
   }
 }
 
+class _AttachmentSearchFilterControls extends StatelessWidget {
+  const _AttachmentSearchFilterControls({
+    required this.filter,
+    required this.onChanged,
+  });
+
+  final SearchAttachmentFilter filter;
+  final ValueChanged<SearchAttachmentFilter> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final hasAttachmentFilter = filter != SearchAttachmentFilter.all;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CheckboxListTile(
+          value: hasAttachmentFilter,
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          dense: true,
+          title: Text(
+            strings.localized(
+              en: 'Has attachments',
+              ja: '\u6dfb\u4ed8\u3042\u308a',
+              zh: '\u6709\u9644\u4ef6',
+              ko: '\ucca8\ubd80 \uc788\uc74c',
+              es: 'Con adjuntos',
+              de: 'Mit Anhangen',
+            ),
+          ),
+          onChanged: (value) => onChanged(
+            value == true
+                ? SearchAttachmentFilter.any
+                : SearchAttachmentFilter.all,
+          ),
+        ),
+        if (hasAttachmentFilter) ...[
+          const SizedBox(height: 4),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SegmentedButton<SearchAttachmentFilter>(
+              showSelectedIcon: false,
+              segments: [
+                for (final option in const [
+                  SearchAttachmentFilter.any,
+                  SearchAttachmentFilter.photo,
+                  SearchAttachmentFilter.video,
+                  SearchAttachmentFilter.audio,
+                  SearchAttachmentFilter.location,
+                ])
+                  ButtonSegment(
+                    value: option,
+                    icon: Icon(_attachmentSearchFilterIcon(option)),
+                    label: Text(_attachmentSearchFilterLabel(strings, option)),
+                  ),
+              ],
+              selected: {
+                filter == SearchAttachmentFilter.all
+                    ? SearchAttachmentFilter.any
+                    : filter,
+              },
+              onSelectionChanged: (selection) => onChanged(selection.single),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+String _attachmentSearchFilterLabel(
+  AppStrings strings,
+  SearchAttachmentFilter filter,
+) {
+  return switch (filter) {
+    SearchAttachmentFilter.all => strings.localized(
+      en: 'All attachments',
+      ja: '\u3059\u3079\u3066',
+      zh: '\u5168\u90e8',
+      ko: '\ubaa8\ub450',
+      es: 'Todos',
+      de: 'Alle',
+    ),
+    SearchAttachmentFilter.any => strings.text('home.with.media'),
+    SearchAttachmentFilter.photo => strings.localized(
+      en: 'Images',
+      ja: '\u753b\u50cf',
+      zh: '\u56fe\u50cf',
+      ko: '\uc774\ubbf8\uc9c0',
+      es: 'Imagenes',
+      de: 'Bilder',
+    ),
+    SearchAttachmentFilter.video => strings.localized(
+      en: 'Videos',
+      ja: '\u52d5\u753b',
+      zh: '\u89c6\u9891',
+      ko: '\ub3d9\uc601\uc0c1',
+      es: 'Videos',
+      de: 'Videos',
+    ),
+    SearchAttachmentFilter.audio => strings.localized(
+      en: 'Audio',
+      ja: '\u97f3\u58f0',
+      zh: '\u97f3\u9891',
+      ko: '\uc624\ub514\uc624',
+      es: 'Audio',
+      de: 'Audio',
+    ),
+    SearchAttachmentFilter.location => strings.localized(
+      en: 'Location',
+      ja: '\u4f4d\u7f6e\u60c5\u5831',
+      zh: '\u4f4d\u7f6e\u4fe1\u606f',
+      ko: '\uc704\uce58 \uc815\ubcf4',
+      es: 'Ubicacion',
+      de: 'Standort',
+    ),
+  };
+}
+
+IconData _attachmentSearchFilterIcon(SearchAttachmentFilter filter) {
+  return switch (filter) {
+    SearchAttachmentFilter.all => Icons.attach_file_rounded,
+    SearchAttachmentFilter.any => Icons.attach_file_rounded,
+    SearchAttachmentFilter.photo => Icons.image_outlined,
+    SearchAttachmentFilter.video => Icons.movie_outlined,
+    SearchAttachmentFilter.audio => Icons.mic_none_rounded,
+    SearchAttachmentFilter.location => Icons.location_on_outlined,
+  };
+}
+
 class _FilterCountBadge extends StatelessWidget {
   const _FilterCountBadge({required this.count});
 
@@ -9740,6 +9840,7 @@ class _TagAutocompleteField extends StatefulWidget {
     required this.hintText,
     required this.existingTags,
     required this.onTagSelected,
+    this.showSubmitAction = false,
   });
 
   final List<String> suggestions;
@@ -9747,6 +9848,7 @@ class _TagAutocompleteField extends StatefulWidget {
   final String hintText;
   final List<String> existingTags;
   final ValueChanged<String> onTagSelected;
+  final bool showSubmitAction;
 
   @override
   State<_TagAutocompleteField> createState() => _TagAutocompleteFieldState();
@@ -9756,12 +9858,15 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
   late final TextEditingController _controller;
   late final FocusNode _focusNode;
   late Set<String> _existingTagKeys;
+  var _autocompleteRevision = 0;
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController();
     _focusNode = FocusNode();
+    _controller.addListener(_handleTextChanged);
+    _focusNode.addListener(_handleFocusChanged);
     _existingTagKeys = _currentExistingTagKeys();
   }
 
@@ -9779,9 +9884,25 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
 
   @override
   void dispose() {
+    _controller.removeListener(_handleTextChanged);
+    _focusNode.removeListener(_handleFocusChanged);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  void _handleTextChanged() {
+    if (widget.showSubmitAction) {
+      setState(() {});
+    }
+  }
+
+  void _handleFocusChanged() {
+    if (_focusNode.hasFocus) {
+      setState(() {
+        _autocompleteRevision += 1;
+      });
+    }
   }
 
   void _submitTag(String raw) {
@@ -9798,6 +9919,12 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
     widget.onTagSelected(normalized);
     _controller.clear();
     _focusNode.unfocus();
+  }
+
+  bool get _canSubmitCurrentText {
+    final normalized = normalizeNoteTag(_controller.text);
+    return normalized.isNotEmpty &&
+        !_currentExistingTagKeys().contains(canonicalizeNoteTag(normalized));
   }
 
   Set<String> _currentExistingTagKeys() {
@@ -9819,7 +9946,7 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
     final existingTagKeys = _currentExistingTagKeys().toList(growable: false)
       ..sort();
     return RawAutocomplete<String>(
-      key: ValueKey(existingTagKeys.join('\u0000')),
+      key: ValueKey('$_autocompleteRevision:${existingTagKeys.join('\u0000')}'),
       textEditingController: _controller,
       focusNode: _focusNode,
       optionsBuilder: (value) {
@@ -9852,6 +9979,16 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
                 border: const OutlineInputBorder(),
                 isDense: true,
                 prefixIcon: const Icon(Icons.sell_outlined),
+                suffixIcon: widget.showSubmitAction && _canSubmitCurrentText
+                    ? IconButton(
+                        tooltip: MaterialLocalizations.of(
+                          context,
+                        ).okButtonLabel,
+                        icon: const Icon(Icons.check_rounded),
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => _submitTag(textEditingController.text),
+                      )
+                    : null,
               ),
               onFieldSubmitted: _submitTag,
             );
@@ -10994,6 +11131,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                             'home.type.a.tag.and.press.enter',
                           ),
                           existingTags: _tags,
+                          showSubmitAction: true,
                           onTagSelected: (tag) {
                             setState(() {
                               _tags = dedupeNoteTags([..._tags, tag]);
