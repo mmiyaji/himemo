@@ -941,3 +941,35 @@ Conclusion:
 
 - The main notes list was already guarded, but the calendar expansion path had a separate eager-render risk.
 - Busy calendar days now avoid building all expanded rows at once.
+
+## Cycle 37 preview follow-up
+
+Plan:
+
+- Re-check search, list preview, and calendar preview paths after the calendar virtualization pass.
+- Look for long-text cases where the UI displays only 1-2 lines but still passes full note bodies into list text widgets.
+
+Findings:
+
+- Search already uses a 260ms debounce, so the typing path is protected from per-keystroke filtering.
+- Note list body previews and calendar note previews still passed full note bodies into text widgets before `maxLines` truncation.
+- This is cheap for the generated short notes, but long notes would increase layout/highlight work for every visible row.
+
+Changes:
+
+- Added `_normalizePreviewText` to produce bounded preview text before layout.
+- The helper keeps search context by extracting around the query match when the match appears deep in a long body.
+- Updated note list body previews and calendar note previews to use bounded text instead of raw `note.body`.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58084` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Notes list rendered normally.
+  - Searching for `performance` highlighted matches in title and preview text.
+  - Calendar rendered the selected day list without console errors.
+
+Conclusion:
+
+- This pass reduces worst-case long-note preview layout cost without changing the visible behavior for ordinary short notes.

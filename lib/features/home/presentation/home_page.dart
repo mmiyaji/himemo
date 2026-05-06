@@ -6078,13 +6078,20 @@ class _NoteListTile extends StatelessWidget {
     final dateLabel =
         '${changedAt.month}/${changedAt.day} ${changedAt.hour.toString().padLeft(2, '0')}:${changedAt.minute.toString().padLeft(2, '0')}';
     final isEdited = note.updatedAt != null && note.updatedAt != note.createdAt;
-    final bodyText = note.body.trim();
-    final compactPreview = _normalizeCompactPreview(note.body);
+    final compactPreview = _normalizePreviewText(
+      note.body,
+      query: query,
+      maxChars: 140,
+    );
+    final bodyPreview = _normalizePreviewText(
+      note.body,
+      query: query,
+      maxChars: 360,
+    );
     final tags = note.normalizedTags;
     final previewFacts = _notePreviewFacts(note);
     final hasDistinctBody =
-        bodyText.isNotEmpty &&
-        bodyText.replaceAll('\n', ' ').trim() != note.title.trim();
+        bodyPreview.isNotEmpty && bodyPreview != note.title.trim();
     final showAttachmentPreviews =
         density != NotesListDensity.compact && !isPrivateNote;
     final thumbnailSize = switch (density) {
@@ -6178,7 +6185,7 @@ class _NoteListTile extends StatelessWidget {
                 _HighlightedText(
                   text: density == NotesListDensity.compact
                       ? compactPreview
-                      : note.body,
+                      : bodyPreview,
                   query: query,
                   maxLines: bodyLines,
                   overflow: TextOverflow.ellipsis,
@@ -6279,12 +6286,6 @@ class _NoteListTile extends StatelessWidget {
     );
   }
 
-  String _normalizeCompactPreview(String value) {
-    return value
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .replaceAll(RegExp(r' {2,}'), ' ')
-        .trim();
-  }
 }
 
 class _NotePreviewFact {
@@ -6466,6 +6467,46 @@ class _HighlightedText extends StatelessWidget {
       overflow: overflow ?? TextOverflow.clip,
     );
   }
+}
+
+String _normalizePreviewText(
+  String value, {
+  String query = '',
+  int maxChars = 360,
+}) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    return '';
+  }
+
+  final normalizedQuery = query.trim().toLowerCase();
+  var source = trimmed;
+  var hasPrefix = false;
+  var hasSuffix = false;
+  if (normalizedQuery.isNotEmpty) {
+    final matchIndex = trimmed.toLowerCase().indexOf(normalizedQuery);
+    if (matchIndex > maxChars ~/ 2) {
+      final start = math.max(0, matchIndex - (maxChars ~/ 3));
+      final end = math.min(trimmed.length, start + maxChars);
+      hasPrefix = start > 0;
+      hasSuffix = end < trimmed.length;
+      source = trimmed.substring(start, end);
+    } else if (trimmed.length > maxChars) {
+      hasSuffix = true;
+      source = trimmed.substring(0, maxChars);
+    }
+  } else if (trimmed.length > maxChars) {
+    hasSuffix = true;
+    source = trimmed.substring(0, maxChars);
+  }
+
+  final normalized = source.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (normalized.isEmpty) {
+    return '';
+  }
+  final prefix = hasPrefix ? '... ' : '';
+  final suffix = hasSuffix ? ' ...' : '';
+  return '$prefix$normalized$suffix';
 }
 
 class _SplitNotesListPane extends StatefulWidget {
@@ -8738,10 +8779,9 @@ class _CalendarNoteRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bodyText = note.body.trim();
+    final bodyPreview = _normalizePreviewText(note.body, maxChars: 320);
     final hasDistinctBody =
-        bodyText.isNotEmpty &&
-        bodyText.replaceAll('\n', ' ').trim() != note.title.trim();
+        bodyPreview.isNotEmpty && bodyPreview != note.title.trim();
     return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: onTap,
@@ -8768,7 +8808,7 @@ class _CalendarNoteRow extends StatelessWidget {
             if (hasDistinctBody) ...[
               const SizedBox(height: 4),
               Text(
-                note.body,
+                bodyPreview,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
