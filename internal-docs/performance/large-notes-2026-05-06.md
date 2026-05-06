@@ -777,3 +777,37 @@ Conclusion:
 
 - Debug profiling behavior is preserved.
 - Release/profile builds avoid unnecessary `Stopwatch` allocation and post-frame callbacks in the note list/detail hot paths.
+
+## Cycle 32 monkey follow-up
+
+Plan:
+
+- Run a broad In App Browser monkey pass against the 1000-note build.
+- Capture usability issues that appear during normal navigation, detail viewing, and note creation.
+
+Findings:
+
+- The `58084` browser target was initially stale, so the local web-server had to be restarted.
+- With 1000 notes, list generation remained cheap: `mobile list rows notes=1000 rows=2009 completed 2.3ms`.
+- Detail open stayed responsive, generally around 66-138ms depending on whether the note included the location card.
+- The detail bottom sheet did not have an explicit close affordance and the app-level add FAB remained visible behind the sheet.
+- The editor sheet also left the app-level add FAB visible behind its dimmed barrier.
+
+Changes:
+
+- Added an explicit close button to `_NoteDetailPager` when it is used inside a dismissible sheet or modal.
+- Added a shared note overlay depth counter so the app-level add FAB is hidden while note detail or note editor sheets are open.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58084` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Detail sheet showed the close button and no longer showed the add FAB behind it: `detailFabCount=0`.
+  - Editor sheet opened after closing detail and no longer showed the add FAB behind it: `editorFabCount=0`.
+  - Browser console showed no app errors.
+
+Conclusion:
+
+- The large-list performance profile remains acceptable after the monkey pass.
+- The biggest actionable issue was UI clarity around overlapping note overlays; the fix removes misleading background controls and provides an explicit way back to the list.

@@ -45,6 +45,18 @@ const _buildDateIso = String.fromEnvironment('HIMEMO_BUILD_DATE');
 
 enum AppSection { notes, calendar, insights, settings }
 
+final _noteOverlaySheetDepth = ValueNotifier<int>(0);
+
+void _pushNoteOverlaySheet() {
+  _noteOverlaySheetDepth.value = _noteOverlaySheetDepth.value + 1;
+}
+
+void _popNoteOverlaySheet() {
+  if (_noteOverlaySheetDepth.value > 0) {
+    _noteOverlaySheetDepth.value = _noteOverlaySheetDepth.value - 1;
+  }
+}
+
 void _debugNotePerf(String message) {
   if (!kDebugMode) {
     return;
@@ -79,12 +91,31 @@ class _AppShellState extends ConsumerState<AppShell> {
   AppSection? _lastObservedSection;
 
   @override
+  void initState() {
+    super.initState();
+    _noteOverlaySheetDepth.addListener(_handleNoteOverlayChanged);
+  }
+
+  @override
+  void dispose() {
+    _noteOverlaySheetDepth.removeListener(_handleNoteOverlayChanged);
+    super.dispose();
+  }
+
+  void _handleNoteOverlayChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final strings = context.strings;
     final width = MediaQuery.sizeOf(context).width;
     final useRail = width >= 840;
     final section = _sectionForLocation(GoRouterState.of(context).uri.path);
     _closeNotesOverlayOnRouteSectionChange(context, ref, section);
+    final noteOverlayOpen = _noteOverlaySheetDepth.value > 0;
     final activeIdentity = ref.watch(activeIdentityDataProvider);
     final activePrivateProfileLabel = ref.watch(
       activePrivateProfileLabelProvider,
@@ -239,8 +270,9 @@ class _AppShellState extends ConsumerState<AppShell> {
               ],
             ),
       floatingActionButton:
-          (section == AppSection.notes && width < 1180) ||
-              section == AppSection.calendar
+          !noteOverlayOpen &&
+              ((section == AppSection.notes && width < 1180) ||
+                  section == AppSection.calendar)
           ? FloatingActionButton.small(
               key: AppShell.addNoteKey,
               onPressed: () => showNoteEditorSheet(context, ref),
@@ -605,6 +637,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 Navigator.of(context).pop();
                 await _deleteNote(context, selectedNote);
               },
+              onClose: () => Navigator.of(context).pop(),
               onTagTap: (tag) {
                 Navigator.of(context).pop();
                 _applyTagFilter(context, tag);
@@ -614,7 +647,12 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         ),
       );
     }, showDragHandle: true);
-    await controller.closed;
+    _pushNoteOverlaySheet();
+    try {
+      await controller.closed;
+    } finally {
+      _popNoteOverlaySheet();
+    }
   }
 
   Future<void> _deleteNote(BuildContext context, NoteEntry note) async {
@@ -1068,6 +1106,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                                   .delete(selectedNote.id);
                             }
                           },
+                          onClose: () => Navigator.of(context).pop(),
                         ),
                       ),
                     ],
@@ -6779,6 +6818,7 @@ class _NoteDetailPager extends ConsumerStatefulWidget {
     required this.onPageChanged,
     required this.onEdit,
     required this.onDelete,
+    this.onClose,
     this.onTagTap,
   });
 
@@ -6787,6 +6827,7 @@ class _NoteDetailPager extends ConsumerStatefulWidget {
   final ValueChanged<int> onPageChanged;
   final ValueChanged<NoteEntry> onEdit;
   final ValueChanged<NoteEntry> onDelete;
+  final VoidCallback? onClose;
   final ValueChanged<String>? onTagTap;
 
   @override
@@ -6887,6 +6928,13 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
                   ),
                 ),
               ),
+              if (widget.onClose != null)
+                IconButton(
+                  onPressed: widget.onClose,
+                  icon: const Icon(Icons.close_rounded),
+                  tooltip: strings.close,
+                  visualDensity: VisualDensity.compact,
+                ),
             ],
           ),
         ),
@@ -8027,24 +8075,29 @@ Future<void> showNoteEditorSheet(
   NoteEntry? note,
   DateTime? initialCreatedAt,
 }) async {
-  await showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (context) {
-      final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-      return FractionallySizedBox(
-        heightFactor: bottomInset > 0 ? 1 : 0.92,
-        child: Padding(
-          padding: EdgeInsets.only(bottom: bottomInset),
-          child: _NoteEditorSheet(
-            note: note,
-            initialCreatedAt: initialCreatedAt,
+  _pushNoteOverlaySheet();
+  try {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+        return FractionallySizedBox(
+          heightFactor: bottomInset > 0 ? 1 : 0.92,
+          child: Padding(
+            padding: EdgeInsets.only(bottom: bottomInset),
+            child: _NoteEditorSheet(
+              note: note,
+              initialCreatedAt: initialCreatedAt,
+            ),
           ),
-        ),
-      );
-    },
-  );
+        );
+      },
+    );
+  } finally {
+    _popNoteOverlaySheet();
+  }
 }
 
 class _NotesToolbar extends ConsumerStatefulWidget {
