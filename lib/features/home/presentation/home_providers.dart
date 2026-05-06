@@ -1881,7 +1881,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
         stage: SyncTransferStage.idle,
-        message: 'Select a cloud sync target before checking remote status.',
+        message: 'リモートの状態を確認するには、先にクラウド同期先を選択してください。',
       );
       return;
     }
@@ -1898,8 +1898,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       state = SyncTransferState(
         stage: SyncTransferStage.success,
         message: remoteStatus == null
-            ? 'No remote bundle is stored yet.'
-            : '${_providerLabel(provider)} bundle metadata refreshed.',
+            ? 'リモートにはまだバンドルが保存されていません。'
+            : '${_providerLabel(provider)} のバンドル情報を更新しました。',
         remoteStatus: remoteStatus,
         localBundle: state.localBundle,
       );
@@ -1918,7 +1918,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
         stage: SyncTransferStage.error,
-        message: 'Select a cloud sync target before uploading.',
+        message: 'アップロードするには、先にクラウド同期先を選択してください。',
       );
       return;
     }
@@ -1932,7 +1932,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       state = state.copyWith(
         stage: SyncTransferStage.error,
         message:
-            '${assessment.message} Download and apply the remote bundle first, or use Force upload if you intend to overwrite it.',
+            '${assessment.message} 先にリモートのバンドルをダウンロードして適用するか、上書きする場合は強制アップロードを使用してください。',
       );
       return;
     }
@@ -1960,7 +1960,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             .readEncryptedBundlePayload(bundle.reference),
       );
       if (encodedPayload == null || encodedPayload.isEmpty) {
-        throw StateError('Local sync bundle could not be prepared.');
+        throw StateError('ローカルの同期バンドルを準備できませんでした。');
       }
       final remoteStatus = await runFirebaseTrace(
         'sync_upload_remote_bundle',
@@ -1974,7 +1974,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await ref.read(notesControllerProvider.notifier).markCurrentStateSynced();
       state = SyncTransferState(
         stage: SyncTransferStage.success,
-        message: 'Encrypted bundle uploaded to ${_providerLabel(provider)}.',
+        message: '暗号化したバンドルを ${_providerLabel(provider)} にアップロードしました。',
         remoteStatus: remoteStatus,
         localBundle: bundle,
       );
@@ -2001,12 +2001,12 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         () => _buildLocalZipArchive(password: password),
       );
       if (archive.bytes.isEmpty) {
-        throw StateError('Local archive could not be prepared.');
+        throw StateError('ローカルアーカイブを準備できませんでした。');
       }
       state = SyncTransferState(
         stage: SyncTransferStage.success,
         message:
-            'ZIP archive prepared with ${archive.noteCount} notes and ${archive.attachmentCount} attachments.',
+            'ZIP アーカイブを作成しました（ノート ${archive.noteCount} 件、添付 ${archive.attachmentCount} 件）。',
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
       );
@@ -2026,7 +2026,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     String? password,
   }) async {
     if (bytes.isEmpty) {
-      throw StateError('Selected archive is empty.');
+      throw StateError('選択したアーカイブは空です。');
     }
     state = state.copyWith(
       stage: SyncTransferStage.busy,
@@ -2042,7 +2042,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       state = SyncTransferState(
         stage: SyncTransferStage.success,
-        message: 'ZIP archive loaded for review.',
+        message: '確認用の ZIP アーカイブを読み込みました。',
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
       );
@@ -2143,7 +2143,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           .mergeFromSync(importedChanges);
       state = state.copyWith(
         stage: SyncTransferStage.success,
-        message: 'ZIP archive merged into local notes.',
+        message: 'ZIP アーカイブをローカルのノートに反映しました。',
       );
     } catch (error) {
       state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
@@ -2161,7 +2161,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
         stage: SyncTransferStage.error,
-        message: 'Select a cloud sync target before downloading.',
+        message: 'ダウンロードするには、先にクラウド同期先を選択してください。',
       );
       return;
     }
@@ -2178,8 +2178,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       await _storeDownloadedBundle(
         remoteBundle,
-        emptyMessage:
-            'No remote ${_providerLabel(provider)} bundle is available.',
+        emptyMessage: '${_providerLabel(provider)} に利用できるリモートバンドルはありません。',
       );
     } catch (error) {
       state = _failureState(
@@ -2199,7 +2198,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
         stage: SyncTransferStage.error,
-        message: 'Select a cloud sync target before downloading.',
+        message: 'ダウンロードするには、先にクラウド同期先を選択してください。',
       );
       return;
     }
@@ -2218,8 +2217,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       await _storeDownloadedBundle(
         remoteBundle,
-        emptyMessage:
-            'The selected ${_providerLabel(provider)} bundle could not be downloaded.',
+        emptyMessage: '選択した ${_providerLabel(provider)} のバンドルをダウンロードできませんでした。',
       );
     } catch (error) {
       state = _failureState(
@@ -2235,9 +2233,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   ) async {
     await downloadBundle(remoteStatus);
     if (state.stage == SyncTransferStage.error) {
-      throw StateError(
-        state.message ?? 'Remote bundle could not be downloaded.',
-      );
+      throw StateError(state.message ?? 'リモートバンドルをダウンロードできませんでした。');
     }
     return previewDownloadedBundle();
   }
@@ -2247,7 +2243,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (localBundle == null) {
       state = state.copyWith(
         stage: SyncTransferStage.error,
-        message: 'Download a remote bundle before applying it.',
+        message: '適用する前にリモートバンドルをダウンロードしてください。',
       );
       return;
     }
@@ -2261,7 +2257,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             .readBundleJson(localBundle.reference),
       );
       if (decoded == null) {
-        throw StateError('Downloaded bundle could not be decrypted.');
+        throw StateError('ダウンロードしたバンドルを復号できませんでした。');
       }
       final attachmentPayloads = <String, Map<String, dynamic>>{
         for (final entry
@@ -2324,7 +2320,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           .recordApply(state.remoteStatus);
       state = state.copyWith(
         stage: SyncTransferStage.success,
-        message: 'Downloaded bundle merged into local notes.',
+        message: 'ダウンロードしたバンドルをローカルのノートに反映しました。',
       );
     } catch (error) {
       state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
@@ -2334,13 +2330,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   Future<SyncBundlePreview> previewDownloadedBundle() async {
     final localBundle = state.localBundle;
     if (localBundle == null) {
-      throw StateError('Download a remote bundle before reviewing it.');
+      throw StateError('確認する前にリモートバンドルをダウンロードしてください。');
     }
     final decoded = await ref
         .read(secureSyncBundleStoreProvider)
         .readBundleJson(localBundle.reference);
     if (decoded == null) {
-      throw StateError('Downloaded bundle could not be decrypted.');
+      throw StateError('ダウンロードしたバンドルを復号できませんでした。');
     }
     return buildSyncBundlePreview(
       decodedBundle: decoded,
@@ -2372,7 +2368,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     state = SyncTransferState(
       stage: SyncTransferStage.success,
       message:
-          'Remote ${_providerLabel(ref.read(syncProviderControllerProvider))} bundle downloaded to local secure storage.',
+          '${_providerLabel(ref.read(syncProviderControllerProvider))} のリモートバンドルをローカルの保護ストレージに保存しました。',
       remoteStatus: remoteBundle.status,
       localBundle: localBundle,
     );

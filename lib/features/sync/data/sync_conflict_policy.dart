@@ -3,10 +3,7 @@ import 'sync_bundle_state_store.dart';
 import 'sync_engine.dart';
 
 class SyncConflictAssessment {
-  const SyncConflictAssessment({
-    required this.hasConflict,
-    this.message,
-  });
+  const SyncConflictAssessment({required this.hasConflict, this.message});
 
   const SyncConflictAssessment.clear() : this(hasConflict: false);
 
@@ -41,7 +38,6 @@ SyncConflictAssessment assessSyncConflict({
 
   return const SyncConflictAssessment(
     hasConflict: true,
-    message:
-        'A newer remote bundle exists while this device still has pending local changes. Review before uploading.',
+    message: 'この端末に未同期の変更があり、リモートにはより新しいバンドルがあります。',
   );
 }
