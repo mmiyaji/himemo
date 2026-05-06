@@ -20,6 +20,7 @@ import 'package:himemo/features/security/data/encrypted_note_database.dart';
 import 'package:himemo/features/security/data/encrypted_note_store.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/master_key_service.dart';
+import 'package:himemo/features/security/data/profile_data_key_service.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
 import 'package:himemo/l10n/app_localizations.dart';
@@ -744,6 +745,72 @@ void main() {
     expect(container.read(notesControllerProvider).map((note) => note.id), [
       'older',
       'newer',
+    ]);
+  });
+
+  test('private notes are sorted before normal notes', () async {
+    SharedPreferences.setMockInitialValues({});
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(43));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final profileDataKeyService = ProfileDataKeyService(
+      secureStore: secureStore,
+      encryptionService: encryptionService,
+      normalMasterKeyService: masterKeyService,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        profileDataKeyServiceProvider.overrideWithValue(profileDataKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            profileDataKeyService: profileDataKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    final controller = container.read(notesControllerProvider.notifier);
+    await controller.restoreCompleted;
+    await profileDataKeyService.configureProfile(
+      vaultId: legacyPrivateVaultId,
+      password: 'private-pass',
+    );
+    await controller.upsert(
+      NoteEntry(
+        id: 'normal-newer',
+        vaultId: 'everyday',
+        title: 'Normal newer',
+        body: '',
+        createdAt: DateTime(2026, 5, 5, 10, 0),
+      ),
+    );
+    await controller.upsert(
+      NoteEntry(
+        id: 'private-older',
+        vaultId: legacyPrivateVaultId,
+        title: 'Private older',
+        body: '',
+        createdAt: DateTime(2026, 5, 1, 10, 0),
+      ),
+    );
+
+    expect(container.read(notesControllerProvider).map((note) => note.id), [
+      'private-older',
+      'normal-newer',
     ]);
   });
 

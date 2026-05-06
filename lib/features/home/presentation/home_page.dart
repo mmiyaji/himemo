@@ -11,12 +11,15 @@ import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:http/http.dart' as http;
 import 'package:in_app_update/in_app_update.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:latlong2/latlong.dart' show LatLng;
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:pinput/pinput.dart';
@@ -6903,18 +6906,6 @@ List<Widget> _buildDetailBlocks(
   }
 
   final widgets = <Widget>[];
-  if (note.location != null) {
-    widgets.add(
-      _LocationMemoCard(
-        location: _locationMemoDataFromMetadata(note.location!),
-        strings: context.strings,
-        width: double.infinity,
-      ),
-    );
-    if (blocks.isNotEmpty) {
-      widgets.add(const SizedBox(height: 16));
-    }
-  }
   for (var i = 0; i < blocks.length; i++) {
     final block = blocks[i];
     switch (block.type) {
@@ -6958,6 +6949,18 @@ List<Widget> _buildDetailBlocks(
     if (i != blocks.length - 1) {
       widgets.add(const SizedBox(height: 16));
     }
+  }
+  if (note.location != null) {
+    if (widgets.isNotEmpty) {
+      widgets.add(const SizedBox(height: 16));
+    }
+    widgets.add(
+      _LocationMemoCard(
+        location: _locationMemoDataFromMetadata(note.location!),
+        strings: context.strings,
+        width: double.infinity,
+      ),
+    );
   }
   return widgets;
 }
@@ -9088,6 +9091,11 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                         autofocus: widget.note == null,
                         minLines: 12,
                         maxLines: null,
+                        scrollPadding: const EdgeInsets.only(
+                          left: 20,
+                          right: 20,
+                          bottom: 180,
+                        ),
                         decoration: InputDecoration(
                           hintText: strings.memoFirstLineHint,
                           border: InputBorder.none,
@@ -9126,29 +9134,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       onRemove: _removeQuickAttachmentAt,
                       onMove: _moveQuickAttachment,
                     ),
-                  if (_location != null) ...[
-                    const SizedBox(height: 12),
-                    _EditableLocationSection(
-                      location: _location!,
-                      strings: strings,
-                      onEdit: _editLocation,
-                      onRemove: () {
-                        setState(() {
-                          _location = null;
-                          _captureLocationEnabled = false;
-                        });
-                        unawaited(
-                          ref
-                              .read(
-                                lastNoteEditorSettingsControllerProvider
-                                    .notifier,
-                              )
-                              .setCaptureLocation(false),
-                        );
-                        _scheduleDraftPersist();
-                      },
-                    ),
-                  ],
                   const SizedBox(height: 12),
                   Container(
                     decoration: _sectionDecoration(context),
@@ -9258,6 +9243,29 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                         },
                       ),
                     ),
+                  if (_location != null) ...[
+                    const SizedBox(height: 12),
+                    _EditableLocationSection(
+                      location: _location!,
+                      strings: strings,
+                      onEdit: _editLocation,
+                      onRemove: () {
+                        setState(() {
+                          _location = null;
+                          _captureLocationEnabled = false;
+                        });
+                        unawaited(
+                          ref
+                              .read(
+                                lastNoteEditorSettingsControllerProvider
+                                    .notifier,
+                              )
+                              .setCaptureLocation(false),
+                        );
+                        _scheduleDraftPersist();
+                      },
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -10106,200 +10114,556 @@ class _EditableLocationSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final data = _locationMemoDataFromMetadata(location);
-    return Container(
-      decoration: _sectionDecoration(context),
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final address = data.address?.trim();
+    final subtitle = address == null || address.isEmpty
+        ? '${strings.latitudeLabel}: ${data.latitude}, '
+              '${strings.longitudeLabel}: ${data.longitude}'
+        : address;
+
+    return Material(
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.42),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: theme.dividerColor),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onEdit,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Row(
             children: [
-              Icon(
-                Icons.my_location_rounded,
-                size: 18,
-                color: Theme.of(context).colorScheme.primary,
-              ),
+              Icon(Icons.my_location_rounded, size: 18, color: scheme.primary),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  strings.currentLocationLabel,
-                  style: Theme.of(context).textTheme.titleSmall,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      strings.currentLocationLabel,
+                      style: theme.textTheme.labelLarge,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               IconButton(
+                visualDensity: VisualDensity.compact,
                 tooltip: strings.editNote,
                 onPressed: onEdit,
                 icon: const Icon(Icons.map_outlined),
               ),
               IconButton(
+                visualDensity: VisualDensity.compact,
                 tooltip: strings.removeBlock,
                 onPressed: onRemove,
                 icon: const Icon(Icons.close_rounded),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          _LocationMemoCard(location: data, strings: strings),
-        ],
+        ),
       ),
     );
+  }
+}
+
+class _LocationSearchResult {
+  const _LocationSearchResult({
+    required this.label,
+    required this.latitude,
+    required this.longitude,
+  });
+
+  final String label;
+  final double latitude;
+  final double longitude;
+}
+
+Future<List<_LocationSearchResult>> _searchLocationCandidates(
+  String query,
+) async {
+  final trimmed = query.trim();
+  if (trimmed.isEmpty) {
+    return const [];
+  }
+  final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
+    'format': 'jsonv2',
+    'limit': '5',
+    'q': trimmed,
+  });
+  final response = await http
+      .get(
+        uri,
+        headers: const {
+          'Accept': 'application/json',
+          'User-Agent': 'HiMemo/1.0 (mail@ruhenheim.org)',
+        },
+      )
+      .timeout(const Duration(seconds: 10));
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw StateError('Location search failed: ${response.statusCode}');
+  }
+  final decoded = jsonDecode(response.body);
+  if (decoded is! List) {
+    return const [];
+  }
+  return [
+    for (final entry in decoded)
+      if (entry is Map)
+        if (double.tryParse('${entry['lat']}') case final latitude?)
+          if (double.tryParse('${entry['lon']}') case final longitude?)
+            _LocationSearchResult(
+              label: '${entry['display_name'] ?? ''}'.trim(),
+              latitude: latitude,
+              longitude: longitude,
+            ),
+  ].where((entry) => entry.label.isNotEmpty).toList(growable: false);
+}
+
+Future<String?> _reverseSearchLocationAddress(LatLng point) async {
+  try {
+    final uri = Uri.https('nominatim.openstreetmap.org', '/reverse', {
+      'format': 'jsonv2',
+      'lat': point.latitude.toStringAsFixed(7),
+      'lon': point.longitude.toStringAsFixed(7),
+      'zoom': '18',
+      'addressdetails': '1',
+    });
+    final response = await http
+        .get(
+          uri,
+          headers: const {
+            'Accept': 'application/json',
+            'User-Agent': 'HiMemo/1.0 (mail@ruhenheim.org)',
+          },
+        )
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return null;
+    }
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map) {
+      return null;
+    }
+    final displayName = '${decoded['display_name'] ?? ''}'.trim();
+    return displayName.isEmpty ? null : displayName;
+  } catch (_) {
+    return null;
   }
 }
 
 Future<NoteLocation?> _showLocationEditDialog(
   BuildContext context,
   NoteLocation location,
-) async {
-  final strings = context.strings;
-  final latitudeController = TextEditingController(
-    text: location.latitude.toStringAsFixed(6),
+) {
+  return showDialog<NoteLocation>(
+    context: context,
+    builder: (dialogContext) => _LocationEditDialog(location: location),
   );
-  final longitudeController = TextEditingController(
-    text: location.longitude.toStringAsFixed(6),
-  );
-  final accuracyController = TextEditingController(
-    text: location.accuracyMeters == null
-        ? ''
-        : location.accuracyMeters!.round().toString(),
-  );
-  final addressController = TextEditingController(text: location.address ?? '');
-  try {
-    return await showDialog<NoteLocation>(
-      context: context,
-      builder: (dialogContext) {
-        String? errorText;
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: Text(strings.currentLocationLabel),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      height: 120,
-                      decoration: BoxDecoration(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.primary.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: Theme.of(context).dividerColor,
+}
+
+class _LocationEditDialog extends StatefulWidget {
+  const _LocationEditDialog({required this.location});
+
+  final NoteLocation location;
+
+  @override
+  State<_LocationEditDialog> createState() => _LocationEditDialogState();
+}
+
+class _LocationEditDialogState extends State<_LocationEditDialog> {
+  late final TextEditingController _accuracyController;
+  late final TextEditingController _addressController;
+  late final TextEditingController _searchController;
+  late final MapController _mapController;
+  late LatLng _selectedPoint;
+  double _selectedZoom = 15;
+  bool _isSearching = false;
+  bool _isResolvingAddress = false;
+  String? _errorText;
+  Timer? _reverseAddressDebounce;
+  LatLng? _lastReverseAddressPoint;
+  int _reverseAddressRequestId = 0;
+  List<_LocationSearchResult> _searchResults = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _accuracyController = TextEditingController(
+      text: widget.location.accuracyMeters == null
+          ? ''
+          : widget.location.accuracyMeters!.round().toString(),
+    );
+    _addressController = TextEditingController(
+      text: widget.location.address ?? '',
+    );
+    _searchController = TextEditingController();
+    _mapController = MapController();
+    _selectedPoint = LatLng(
+      widget.location.latitude,
+      widget.location.longitude,
+    );
+  }
+
+  @override
+  void dispose() {
+    _reverseAddressDebounce?.cancel();
+    _accuracyController.dispose();
+    _addressController.dispose();
+    _searchController.dispose();
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _runSearch(AppStrings strings) async {
+    final query = _searchController.text.trim();
+    if (query.isEmpty) {
+      setState(() {
+        _searchResults = const [];
+        _errorText = null;
+      });
+      return;
+    }
+    setState(() {
+      _isSearching = true;
+      _errorText = null;
+    });
+    try {
+      final results = await _searchLocationCandidates(query);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _searchResults = results;
+        _isSearching = false;
+        _errorText = results.isEmpty
+            ? strings.localized(
+                en: 'No matching places were found.',
+                ja: '一致する地点が見つかりませんでした。',
+                zh: '未找到匹配的地点。',
+                ko: '일치하는 장소를 찾을 수 없습니다.',
+                es: 'No se encontraron lugares coincidentes.',
+                de: 'Keine passenden Orte gefunden.',
+              )
+            : null;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isSearching = false;
+        _errorText = strings.localized(
+          en: 'Location search failed. Try again later.',
+          ja: '地点検索に失敗しました。時間をおいて再試行してください。',
+          zh: '地点搜索失败。请稍后重试。',
+          ko: '장소 검색에 실패했습니다. 나중에 다시 시도하세요.',
+          es: 'La búsqueda de ubicación falló. Inténtalo más tarde.',
+          de: 'Standortsuche fehlgeschlagen. Versuche es später erneut.',
+        );
+      });
+    }
+  }
+
+  void _selectSearchResult(_LocationSearchResult result) {
+    final point = LatLng(result.latitude, result.longitude);
+    _reverseAddressDebounce?.cancel();
+    setState(() {
+      _selectedPoint = point;
+      _lastReverseAddressPoint = point;
+      _addressController.text = result.label;
+      _searchResults = const [];
+      _isResolvingAddress = false;
+      _errorText = null;
+    });
+    _mapController.move(point, 15);
+  }
+
+  void _scheduleReverseAddressUpdate() {
+    _reverseAddressDebounce?.cancel();
+    final point = _selectedPoint;
+    final previous = _lastReverseAddressPoint;
+    if (previous != null &&
+        (previous.latitude - point.latitude).abs() < 0.00008 &&
+        (previous.longitude - point.longitude).abs() < 0.00008) {
+      return;
+    }
+    _reverseAddressDebounce = Timer(const Duration(milliseconds: 850), () {
+      _resolveAddressForPoint(point);
+    });
+  }
+
+  Future<void> _resolveAddressForPoint(LatLng point) async {
+    final requestId = ++_reverseAddressRequestId;
+    if (mounted) {
+      setState(() {
+        _isResolvingAddress = true;
+      });
+    }
+    final address = await _reverseSearchLocationAddress(point);
+    if (!mounted || requestId != _reverseAddressRequestId) {
+      return;
+    }
+    setState(() {
+      _lastReverseAddressPoint = point;
+      _isResolvingAddress = false;
+      if (address != null) {
+        _addressController.text = address;
+      }
+    });
+  }
+
+  void _save() {
+    Navigator.of(context).pop(
+      NoteLocation(
+        latitude: _selectedPoint.latitude,
+        longitude: _selectedPoint.longitude,
+        accuracyMeters: double.tryParse(_accuracyController.text.trim()),
+        address: _addressController.text.trim().isEmpty
+            ? null
+            : _addressController.text.trim(),
+        capturedAt: widget.location.capturedAt ?? DateTime.now(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      title: Text(strings.currentLocationLabel),
+      content: SizedBox(
+        width: math.min(MediaQuery.sizeOf(context).width - 48, 620),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                strings.localized(
+                  en: 'Move the map so the pin points to the note location.',
+                  ja: 'ピンがメモの地点を指すように地図を移動してください。',
+                  zh: '移动地图，让图钉指向笔记位置。',
+                  ko: '핀이 메모 위치를 가리키도록 지도를 이동하세요.',
+                  es: 'Mueve el mapa para que el pin señale la ubicación de la nota.',
+                  de: 'Verschiebe die Karte, damit die Markierung auf den Notizort zeigt.',
+                ),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _searchController,
+                      textInputAction: TextInputAction.search,
+                      decoration: InputDecoration(
+                        labelText: strings.localized(
+                          en: 'Search place',
+                          ja: '地点を検索',
+                          zh: '搜索地点',
+                          ko: '장소 검색',
+                          es: 'Buscar lugar',
+                          de: 'Ort suchen',
+                        ),
+                        prefixIcon: const Icon(Icons.search_rounded),
+                      ),
+                      onSubmitted: (_) => _runSearch(strings),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    tooltip: strings.localized(
+                      en: 'Search',
+                      ja: '検索',
+                      zh: '搜索',
+                      ko: '검색',
+                      es: 'Buscar',
+                      de: 'Suchen',
+                    ),
+                    onPressed: _isSearching ? null : () => _runSearch(strings),
+                    icon: _isSearching
+                        ? SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: colorScheme.onSecondaryContainer,
+                            ),
+                          )
+                        : const Icon(Icons.search_rounded),
+                  ),
+                ],
+              ),
+              if (_searchResults.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Theme.of(context).dividerColor),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final result in _searchResults)
+                        ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.place_outlined),
+                          title: Text(
+                            result.label,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () => _selectSearchResult(result),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: SizedBox(
+                  height: 280,
+                  child: Stack(
+                    children: [
+                      FlutterMap(
+                        mapController: _mapController,
+                        options: MapOptions(
+                          initialCenter: _selectedPoint,
+                          initialZoom: _selectedZoom,
+                          onPositionChanged: (camera, hasGesture) {
+                            _selectedPoint = camera.center;
+                            _selectedZoom = camera.zoom;
+                            if (hasGesture) {
+                              _scheduleReverseAddressUpdate();
+                            }
+                          },
+                        ),
+                        children: [
+                          TileLayer(
+                            urlTemplate:
+                                'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+                            subdomains: const ['a', 'b', 'c', 'd'],
+                            userAgentPackageName: 'org.ruhenheim.himemo',
+                          ),
+                        ],
+                      ),
+                      IgnorePointer(
+                        child: Center(
+                          child: Icon(
+                            Icons.location_on_rounded,
+                            size: 42,
+                            color: colorScheme.primary,
+                            shadows: [
+                              Shadow(
+                                color: colorScheme.shadow.withValues(
+                                  alpha: 0.3,
+                                ),
+                                blurRadius: 6,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                      child: Center(
-                        child: Icon(
-                          Icons.location_on_rounded,
-                          size: 36,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: latitudeController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                        signed: true,
-                      ),
-                      decoration: InputDecoration(
-                        labelText: strings.latitudeLabel,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: longitudeController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                        signed: true,
-                      ),
-                      decoration: InputDecoration(
-                        labelText: strings.longitudeLabel,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: accuracyController,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                        labelText: strings.locationAccuracyLabel,
-                        suffixText: 'm',
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: addressController,
-                      decoration: InputDecoration(
-                        labelText: strings.estimatedAddressLabel,
-                      ),
-                    ),
-                    if (errorText != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        errorText!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
+                      Positioned(
+                        left: 8,
+                        bottom: 8,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: colorScheme.surface.withValues(alpha: 0.86),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 3,
+                            ),
+                            child: Text(
+                              '© OpenStreetMap © CARTO',
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                          ),
                         ),
                       ),
                     ],
-                  ],
+                  ),
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: Text(strings.cancel),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _addressController,
+                decoration: InputDecoration(
+                  labelText: strings.estimatedAddressLabel,
+                  suffixIcon: _isResolvingAddress
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : null,
                 ),
-                TextButton.icon(
-                  onPressed: () => _openLocationMap(
-                    context,
-                    _locationMemoDataFromMetadata(location),
-                  ),
-                  icon: const Icon(Icons.open_in_new_rounded),
-                  label: Text(strings.openMap),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _accuracyController,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: strings.locationAccuracyLabel,
+                  suffixText: 'm',
                 ),
-                FilledButton(
-                  onPressed: () {
-                    final latitude = double.tryParse(
-                      latitudeController.text.trim(),
-                    );
-                    final longitude = double.tryParse(
-                      longitudeController.text.trim(),
-                    );
-                    if (latitude == null || longitude == null) {
-                      setDialogState(() {
-                        errorText = strings.currentLocationUnavailable;
-                      });
-                      return;
-                    }
-                    Navigator.of(dialogContext).pop(
-                      NoteLocation(
-                        latitude: latitude,
-                        longitude: longitude,
-                        accuracyMeters: double.tryParse(
-                          accuracyController.text.trim(),
-                        ),
-                        address: addressController.text.trim().isEmpty
-                            ? null
-                            : addressController.text.trim(),
-                        capturedAt: location.capturedAt ?? DateTime.now(),
-                      ),
-                    );
-                  },
-                  child: Text(strings.save),
-                ),
+              ),
+              if (_errorText != null) ...[
+                const SizedBox(height: 8),
+                Text(_errorText!, style: TextStyle(color: colorScheme.error)),
               ],
-            );
-          },
-        );
-      },
+              const SizedBox(height: 8),
+              Text(
+                '${strings.latitudeLabel}: ${_selectedPoint.latitude.toStringAsFixed(6)}\n'
+                '${strings.longitudeLabel}: ${_selectedPoint.longitude.toStringAsFixed(6)}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(strings.cancel),
+        ),
+        TextButton.icon(
+          onPressed: () => _openLocationMap(
+            context,
+            _locationMemoDataFromMetadata(widget.location),
+          ),
+          icon: const Icon(Icons.open_in_new_rounded),
+          label: Text(strings.openMap),
+        ),
+        FilledButton(onPressed: _save, child: Text(strings.save)),
+      ],
     );
-  } finally {
-    latitudeController.dispose();
-    longitudeController.dispose();
-    accuracyController.dispose();
-    addressController.dispose();
   }
 }
 
@@ -10718,6 +11082,11 @@ class _RichBlockEditorTile extends StatelessWidget {
                 focusNode: block.focusNode,
                 minLines: 1,
                 maxLines: null,
+                scrollPadding: const EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  bottom: 180,
+                ),
                 decoration: InputDecoration(
                   semanticCounterText: '',
                   hintText: showPrompt ? strings.startWritingHere : null,
