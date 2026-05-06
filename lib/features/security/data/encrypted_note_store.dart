@@ -116,19 +116,7 @@ class EncryptedNoteStore {
       records.add(
         EncryptedNoteRecord.fromNote(note: note, encryptedPayload: payload),
       );
-      for (var i = 0; i < note.attachments.length; i++) {
-        final attachmentPayload = await _encryptionService.encryptJson(
-          payload: note.attachments[i].toJson(),
-          secretKey: key,
-        );
-        attachments.add(
-          EncryptedAttachmentRecord(
-            noteId: note.id,
-            position: i,
-            encryptedPayload: attachmentPayload,
-          ),
-        );
-      }
+      attachments.addAll(await _encryptAttachmentRecords(note, secretKey: key));
       final pendingChange = _pendingChangeFor(note);
       if (pendingChange != null) {
         pendingChanges.add(pendingChange);
@@ -157,25 +145,9 @@ class EncryptedNoteStore {
       payload: _databasePayloadFor(note),
       secretKey: key,
     );
-    final attachments = <EncryptedAttachmentRecord>[];
-    for (var i = 0; i < note.attachments.length; i++) {
-      final attachmentPayload = await _encryptionService.encryptJson(
-        payload: note.attachments[i].toJson(),
-        secretKey: key,
-      );
-      attachments.add(
-        EncryptedAttachmentRecord(
-          noteId: note.id,
-          position: i,
-          encryptedPayload: attachmentPayload,
-        ),
-      );
-    }
+    final attachments = await _encryptAttachmentRecords(note, secretKey: key);
     await database.upsertOne(
-      note: EncryptedNoteRecord.fromNote(
-        note: note,
-        encryptedPayload: payload,
-      ),
+      note: EncryptedNoteRecord.fromNote(note: note, encryptedPayload: payload),
       attachments: attachments,
       pendingChange: _pendingChangeFor(note),
     );
@@ -275,6 +247,30 @@ class EncryptedNoteStore {
       decoded.add(NoteAttachment.fromJson(payload));
     }
     return decoded;
+  }
+
+  Future<List<EncryptedAttachmentRecord>> _encryptAttachmentRecords(
+    NoteEntry note, {
+    required SecretKey secretKey,
+  }) async {
+    if (note.attachments.isEmpty) {
+      return const <EncryptedAttachmentRecord>[];
+    }
+    return Future.wait([
+      for (var i = 0; i < note.attachments.length; i++)
+        _encryptionService
+            .encryptJson(
+              payload: note.attachments[i].toJson(),
+              secretKey: secretKey,
+            )
+            .then(
+              (payload) => EncryptedAttachmentRecord(
+                noteId: note.id,
+                position: i,
+                encryptedPayload: payload,
+              ),
+            ),
+    ]);
   }
 
   Map<String, dynamic> _databasePayloadFor(NoteEntry note) {

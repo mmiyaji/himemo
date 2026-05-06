@@ -364,3 +364,27 @@ Conclusion:
 
 - Long ordinary paragraphs are cheaper to render and edit.
 - Legacy embedded location text is still supported when the paragraph starts with the expected current-location heading.
+
+## Cycle 16 follow-up
+
+Plan:
+
+- Check note creation and edit performance for notes with many attachments.
+- Reduce per-save latency from attachment metadata encryption.
+
+Changes:
+
+- Added a shared `_encryptAttachmentRecords` helper in `EncryptedNoteStore`.
+- Encrypt attachment metadata for a single note with `Future.wait` instead of awaiting each attachment sequentially.
+- Reused the helper for both full native save and incremental native `saveOne`.
+
+Measurements:
+
+- `dart format` applied to the touched store file.
+- `flutter analyze` passed.
+- `flutter test test\security_storage_test.dart --plain-name "EncryptedNoteStore persists and restores notes without plaintext leakage"` passed.
+
+Conclusion:
+
+- Notes with many attachments should save faster on native platforms because attachment metadata encryption can overlap.
+- The encrypted attachment bytes themselves remain protected by the existing attachment store path.
