@@ -11067,27 +11067,40 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                     Container(
                       decoration: _sectionDecoration(context),
                       padding: const EdgeInsets.all(12),
-                      child: TextField(
-                        key: const Key('note-content-input'),
-                        controller: _contentController,
-                        focusNode: _quickContentFocusNode,
-                        autofocus: widget.note == null,
-                        minLines: 12,
-                        maxLines: null,
-                        scrollPadding: const EdgeInsets.only(
-                          top: 96,
-                          left: 20,
-                          right: 20,
-                          bottom: 96,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: strings.memoFirstLineHint,
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          isCollapsed: true,
-                          contentPadding: EdgeInsets.zero,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            strings.memoLabel,
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            key: const Key('note-content-input'),
+                            controller: _contentController,
+                            focusNode: _quickContentFocusNode,
+                            autofocus: widget.note == null,
+                            minLines: 10,
+                            maxLines: null,
+                            scrollPadding: const EdgeInsets.only(
+                              top: 96,
+                              left: 20,
+                              right: 20,
+                              bottom: 96,
+                            ),
+                            decoration: InputDecoration(
+                              labelText: strings.memoLabel,
+                              floatingLabelBehavior:
+                                  FloatingLabelBehavior.never,
+                              hintText: strings.memoFirstLineHint,
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              isCollapsed: true,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -11098,6 +11111,11 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          Text(
+                            strings.memoLabel,
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 8),
                           _RichMemoEditor(
                             blocks: _richBlocks,
                             strings: strings,
@@ -13080,6 +13098,8 @@ class _RichBlockEditorTile extends StatelessWidget {
                 ),
                 decoration: InputDecoration(
                   semanticCounterText: '',
+                  labelText: strings.memoLabel,
+                  floatingLabelBehavior: FloatingLabelBehavior.never,
                   hintText: showPrompt ? strings.startWritingHere : null,
                   hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: _mutedTextColor(context),
