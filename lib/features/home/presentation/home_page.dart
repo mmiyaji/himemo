@@ -10405,6 +10405,11 @@ _LocationMemoData _locationMemoDataFromMetadata(NoteLocation location) {
 }
 
 _LocationMemoData? _tryParseLocationMemo(String text) {
+  final leadingText = text.trimLeft().toLowerCase();
+  if (!leadingText.startsWith('迴ｾ蝨ｨ蝨ｰ') &&
+      !leadingText.startsWith('current location')) {
+    return null;
+  }
   final normalized = text.replaceAll('\r\n', '\n').trim();
   final lines = normalized
       .split('\n')

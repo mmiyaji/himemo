@@ -342,3 +342,25 @@ Measurements:
 Conclusion:
 
 - Long notes with URLs should rebuild more cheaply, especially when theme, selection, or parent layout changes trigger a detail rebuild without changing the note text.
+
+## Cycle 15 follow-up
+
+Plan:
+
+- Check long text behavior in both note display and rich editor creation paths.
+- Avoid treating every normal paragraph as a possible legacy location memo.
+
+Changes:
+
+- Added a heading guard to `_tryParseLocationMemo`.
+- Normal text now returns before newline normalization, splitting, list allocation, and URL regex checks.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note attachments preserve media duration metadata"` passed.
+
+Conclusion:
+
+- Long ordinary paragraphs are cheaper to render and edit.
+- Legacy embedded location text is still supported when the paragraph starts with the expected current-location heading.
