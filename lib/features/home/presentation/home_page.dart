@@ -5696,14 +5696,16 @@ class _MobileNotesListState extends State<_MobileNotesList> {
           _MobileTileRow(:final vault, :final note) =>
             _DecoratedMobileNoteRow(
               position: row.position,
-              child: _NoteListTile(
-                note: note,
-                vaultName: _vaultDisplayName(context, vault),
-                showVaultName: false,
-                density: widget.density,
-                query: widget.query,
-                selected: note.id == widget.selectedNoteId,
-                onTap: () => widget.onNoteSelected(note),
+              child: RepaintBoundary(
+                child: _NoteListTile(
+                  note: note,
+                  vaultName: _vaultDisplayName(context, vault),
+                  showVaultName: false,
+                  density: widget.density,
+                  query: widget.query,
+                  selected: note.id == widget.selectedNoteId,
+                  onTap: () => widget.onNoteSelected(note),
+                ),
               ),
             ),
           _MobileDividerRow() => _DecoratedMobileNoteRow(
@@ -6506,14 +6508,17 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
               ),
               _SplitNoteTileRow(:final note) => _DecoratedSplitNoteRow(
                 position: row.position,
-                child: _NoteListTile(
-                  note: note,
-                  vaultName: widget.vaultNameById[note.vaultId] ?? note.vaultId,
-                  showVaultName: widget.showVaultName,
-                  density: widget.density,
-                  query: widget.query,
-                  selected: widget.selectedNoteId == note.id,
-                  onTap: () => widget.onNoteSelected(note),
+                child: RepaintBoundary(
+                  child: _NoteListTile(
+                    note: note,
+                    vaultName:
+                        widget.vaultNameById[note.vaultId] ?? note.vaultId,
+                    showVaultName: widget.showVaultName,
+                    density: widget.density,
+                    query: widget.query,
+                    selected: widget.selectedNoteId == note.id,
+                    onTap: () => widget.onNoteSelected(note),
+                  ),
                 ),
               ),
               _SplitNoteDividerRow() => _DecoratedSplitNoteRow(
@@ -7342,9 +7347,7 @@ class _DetailContentItemWidget extends StatelessWidget {
       attachment: attachment,
       mediaActive: mediaActive,
       photoAttachments: photoAttachments,
-      photoIndex: attachment.type == AttachmentType.photo
-          ? photoAttachments.indexOf(attachment)
-          : null,
+      photoIndex: item.photoIndex,
     );
   }
 }
@@ -7352,19 +7355,22 @@ class _DetailContentItemWidget extends StatelessWidget {
 class _DetailContentItem {
   const _DetailContentItem.text(this.text)
     : attachment = null,
-      location = null;
+      location = null,
+      photoIndex = null;
 
-  const _DetailContentItem.attachment(this.attachment)
+  const _DetailContentItem.attachment(this.attachment, {this.photoIndex})
     : text = null,
       location = null;
 
   const _DetailContentItem.location(this.location)
     : text = null,
-      attachment = null;
+      attachment = null,
+      photoIndex = null;
 
   final String? text;
   final NoteAttachment? attachment;
   final _LocationMemoData? location;
+  final int? photoIndex;
 }
 
 List<_DetailContentItem> _buildDetailContentItems(NoteEntry note) {
@@ -7378,6 +7384,7 @@ List<_DetailContentItem> _buildDetailContentItems(NoteEntry note) {
   }
 
   final items = <_DetailContentItem>[];
+  var photoIndex = 0;
   for (final block in blocks) {
     switch (block.type) {
       case NoteBlockType.paragraph:
@@ -7396,7 +7403,14 @@ List<_DetailContentItem> _buildDetailContentItems(NoteEntry note) {
       case NoteBlockType.file:
         final attachment = block.attachment;
         if (attachment != null) {
-          items.add(_DetailContentItem.attachment(attachment));
+          items.add(
+            _DetailContentItem.attachment(
+              attachment,
+              photoIndex: attachment.type == AttachmentType.photo
+                  ? photoIndex++
+                  : null,
+            ),
+          );
         }
     }
   }

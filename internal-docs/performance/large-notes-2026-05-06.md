@@ -699,3 +699,55 @@ Conclusion:
 
 - The derived list indexes are not a current bottleneck at 1000 notes.
 - The code now avoids one redundant all-notes scan for year partitions and has logs ready if these costs grow.
+
+## Cycle 29 follow-up
+
+Plan:
+
+- Reduce repaint cost while scrolling large note lists and selecting rows.
+- Keep row layout unchanged while isolating paint work for visible note tiles.
+
+Changes:
+
+- Wrapped mobile note tiles in `RepaintBoundary`.
+- Wrapped split-pane note tiles in `RepaintBoundary`.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58092` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - 1000-note row generation logged `mobile list rows notes=1000 rows=2009 completed 2.2ms`.
+  - A list scroll interaction completed and still showed performance rows.
+  - Opening a visible row completed, with `detail pane frame 86.9ms`.
+
+Conclusion:
+
+- Row repaint isolation did not regress list interaction or detail opening.
+- This should help most when rows include thumbnails or selected-state changes, where repaint work can otherwise spread across the surrounding list.
+
+## Cycle 30 follow-up
+
+Plan:
+
+- Check detail rendering paths for notes with many attachments.
+- Remove avoidable per-item work without changing the visible editor or viewer behavior.
+
+Changes:
+
+- Detail content cache now stores each photo block's index while building the cached content list.
+- Detail attachment widgets use the cached index instead of searching the full photo attachment list during each item build.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\security_storage_test.dart --plain-name "incrementally persists notes with long text and many attachments"` passed.
+- In App Browser on `127.0.0.1:58092` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - 1000-note row generation logged `mobile list rows notes=1000 rows=2009 completed 3.7ms`.
+  - Opening a visible row completed, with `detail pane frame 70.101ms`.
+  - Browser console showed no errors during scroll and detail open.
+
+Conclusion:
+
+- Normal 1000-note list/detail navigation remains stable after the attachment-index change.
+- Notes with many embedded photos avoid repeated `indexOf` scans, reducing the risk of quadratic build cost in attachment-heavy detail views.
