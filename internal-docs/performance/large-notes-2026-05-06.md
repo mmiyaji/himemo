@@ -514,3 +514,36 @@ Conclusion:
 
 - The route-close behavior is now compatible with Riverpod lifecycle rules.
 - The remaining user-visible switch time is dominated by browser/debug-mode navigation and Flutter Web paint, not list row generation.
+
+## Cycle 22 follow-up
+
+Plan:
+
+- Inspect search performance for 1000-note data.
+- Confirm whether the toolbar already debounces text input and add measurement where the expensive work actually runs.
+
+Findings:
+
+- Search input is already debounced by 260ms.
+- The missing data point was provider-side filter/index timing, especially when query text is non-empty.
+
+Changes:
+
+- Added debug-only `[home-perf]` timings to `visibleNotesProvider`.
+- Added debug-only `[home-perf]` timings to `noteSearchIndexProvider`.
+- Logs are gated to larger note sets or slower runs so normal small debug sessions stay less noisy.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "search filters can partition notes by year"` passed.
+- In App Browser on `127.0.0.1:58086` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Initial visible filtering: `visible notes source=1000 result=1000 query=0 tags=0 elapsed=0.8ms`.
+  - Search index build: `note search index source=1000 entries=1000 elapsed=5.3ms`.
+  - Query `999`: `visible notes source=1000 result=101 query=3 tags=0 elapsed=8.1ms`.
+  - Clearing search: `visible notes source=1000 result=1000 query=0 tags=0 elapsed=0.699ms`.
+
+Conclusion:
+
+- Provider-side search/filtering is currently under 10ms for the 1000-note fixture in debug web.
+- If users still feel search lag, the next target should be text input focus/paint and row rebuild cost rather than raw filtering.

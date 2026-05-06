@@ -5044,6 +5044,8 @@ List<VaultBucket> visibleVaults(Ref ref) {
 
 @riverpod
 List<NoteEntry> visibleNotes(Ref ref) {
+  final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
+  final allNotes = ref.watch(notesControllerProvider);
   final visibleIds = ref
       .watch(visibleVaultsProvider)
       .map((vault) => vault.id)
@@ -5060,7 +5062,7 @@ List<NoteEntry> visibleNotes(Ref ref) {
       .where((tag) => tag.isNotEmpty)
       .toSet();
   final results = <NoteEntry>[];
-  for (final note in ref.watch(notesControllerProvider)) {
+  for (final note in allNotes) {
     if (!visibleIds.contains(note.vaultId) || note.deletedAt != null) {
       continue;
     }
@@ -5093,6 +5095,12 @@ List<NoteEntry> visibleNotes(Ref ref) {
     }
     results.add(note);
   }
+  final elapsed = stopwatch?.elapsedMicroseconds;
+  if (elapsed != null && (allNotes.length >= 500 || elapsed >= 2000)) {
+    _debugHomePerf(
+      'visible notes source=${allNotes.length} result=${results.length} query=${query.isEmpty ? 0 : query.length} tags=${requiredTags.length} elapsed=${elapsed / 1000}ms',
+    );
+  }
   return List.unmodifiable(results);
 }
 
@@ -5116,12 +5124,20 @@ List<int> visibleNoteYears(Ref ref) {
 
 @riverpod
 Map<String, String> noteSearchIndex(Ref ref) {
+  final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
+  final notes = ref.watch(notesControllerProvider);
   final entries = <String, String>{};
-  for (final note in ref.watch(notesControllerProvider)) {
+  for (final note in notes) {
     if (note.deletedAt != null) {
       continue;
     }
     entries[note.id] = _noteSearchText(note);
+  }
+  final elapsed = stopwatch?.elapsedMicroseconds;
+  if (elapsed != null && (notes.length >= 500 || elapsed >= 2000)) {
+    _debugHomePerf(
+      'note search index source=${notes.length} entries=${entries.length} elapsed=${elapsed / 1000}ms',
+    );
   }
   return Map.unmodifiable(entries);
 }
