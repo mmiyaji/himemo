@@ -240,10 +240,22 @@ class AppPackageDetails {
   String get displayVersion => '$version ($buildNumber)';
 }
 
+enum SearchDateRange { all, last7Days, last30Days, thisMonth }
+
+enum SearchDateField { createdAt, updatedAt }
+
+enum SearchAttachmentFilter { all, any, photo, video, audio, location }
+
 class SearchFilters {
   const SearchFilters({
     this.pinnedOnly = false,
     this.withMediaOnly = false,
+    this.attachmentFilter = SearchAttachmentFilter.all,
+    this.archivedOnly = false,
+    this.includeArchived = false,
+    this.requireAllTags = false,
+    this.dateRange = SearchDateRange.all,
+    this.dateField = SearchDateField.createdAt,
     this.vaultId,
     this.year,
     this.tags = const <String>[],
@@ -251,6 +263,12 @@ class SearchFilters {
 
   final bool pinnedOnly;
   final bool withMediaOnly;
+  final SearchAttachmentFilter attachmentFilter;
+  final bool archivedOnly;
+  final bool includeArchived;
+  final bool requireAllTags;
+  final SearchDateRange dateRange;
+  final SearchDateField dateField;
   final String? vaultId;
   final int? year;
   final List<String> tags;
@@ -258,6 +276,12 @@ class SearchFilters {
   bool get isDefault =>
       !pinnedOnly &&
       !withMediaOnly &&
+      attachmentFilter == SearchAttachmentFilter.all &&
+      !archivedOnly &&
+      !includeArchived &&
+      !requireAllTags &&
+      dateRange == SearchDateRange.all &&
+      dateField == SearchDateField.createdAt &&
       (vaultId == null || vaultId!.isEmpty) &&
       year == null &&
       tags.isEmpty;
@@ -265,6 +289,12 @@ class SearchFilters {
   SearchFilters copyWith({
     bool? pinnedOnly,
     bool? withMediaOnly,
+    SearchAttachmentFilter? attachmentFilter,
+    bool? archivedOnly,
+    bool? includeArchived,
+    bool? requireAllTags,
+    SearchDateRange? dateRange,
+    SearchDateField? dateField,
     String? vaultId,
     int? year,
     List<String>? tags,
@@ -274,6 +304,12 @@ class SearchFilters {
     return SearchFilters(
       pinnedOnly: pinnedOnly ?? this.pinnedOnly,
       withMediaOnly: withMediaOnly ?? this.withMediaOnly,
+      attachmentFilter: attachmentFilter ?? this.attachmentFilter,
+      archivedOnly: archivedOnly ?? this.archivedOnly,
+      includeArchived: includeArchived ?? this.includeArchived,
+      requireAllTags: requireAllTags ?? this.requireAllTags,
+      dateRange: dateRange ?? this.dateRange,
+      dateField: dateField ?? this.dateField,
       vaultId: clearVault ? null : (vaultId ?? this.vaultId),
       year: clearYear ? null : (year ?? this.year),
       tags: tags ?? this.tags,
@@ -3942,7 +3978,41 @@ class SearchFiltersController extends Notifier<SearchFilters> {
   }
 
   void setWithMediaOnly(bool value) {
-    state = state.copyWith(withMediaOnly: value);
+    state = state.copyWith(
+      withMediaOnly: value,
+      attachmentFilter: value
+          ? SearchAttachmentFilter.any
+          : SearchAttachmentFilter.all,
+    );
+  }
+
+  void setAttachmentFilter(SearchAttachmentFilter value) {
+    state = state.copyWith(withMediaOnly: false, attachmentFilter: value);
+  }
+
+  void setArchivedOnly(bool value) {
+    state = state.copyWith(archivedOnly: value, includeArchived: false);
+  }
+
+  void setIncludeArchived(bool value) {
+    state = state.copyWith(includeArchived: value, archivedOnly: false);
+  }
+
+  void setRequireAllTags(bool value) {
+    state = state.copyWith(requireAllTags: value);
+  }
+
+  void setDateRange(SearchDateRange value) {
+    state = state.copyWith(
+      dateRange: value,
+      dateField: value == SearchDateRange.all
+          ? SearchDateField.createdAt
+          : state.dateField,
+    );
+  }
+
+  void setDateField(SearchDateField value) {
+    state = state.copyWith(dateField: value);
   }
 
   void setVault(String? vaultId) {
@@ -3962,7 +4032,11 @@ class SearchFiltersController extends Notifier<SearchFilters> {
   }
 
   void setTags(List<String> tags) {
-    state = state.copyWith(tags: dedupeNoteTags(tags));
+    final deduped = dedupeNoteTags(tags);
+    state = state.copyWith(
+      tags: deduped,
+      requireAllTags: deduped.length > 1 ? state.requireAllTags : false,
+    );
   }
 
   void addTag(String tag) {
@@ -4001,6 +4075,38 @@ final selectedNoteIdProvider =
     NotifierProvider<SelectedNoteIdController, String?>(
       SelectedNoteIdController.new,
     );
+
+final activeNoteCountProvider = Provider<int>((ref) {
+  final visibleIds = ref
+      .watch(visibleVaultsProvider)
+      .map((vault) => vault.id)
+      .toSet();
+  var count = 0;
+  for (final note in ref.watch(notesControllerProvider)) {
+    if (note.deletedAt == null &&
+        note.archivedAt == null &&
+        visibleIds.contains(note.vaultId)) {
+      count++;
+    }
+  }
+  return count;
+});
+
+final archivedNoteCountProvider = Provider<int>((ref) {
+  final visibleIds = ref
+      .watch(visibleVaultsProvider)
+      .map((vault) => vault.id)
+      .toSet();
+  var count = 0;
+  for (final note in ref.watch(notesControllerProvider)) {
+    if (note.deletedAt == null &&
+        note.archivedAt != null &&
+        visibleIds.contains(note.vaultId)) {
+      count++;
+    }
+  }
+  return count;
+});
 
 class NoteEditorDraftStore {
   static const _storageKey = 'notes.editor_draft.v1';
@@ -4204,6 +4310,103 @@ class NotesController extends _$NotesController {
     });
   }
 
+  Future<void> archive(String noteId) async {
+    await _setArchiveState(noteId, archived: true);
+  }
+
+  Future<void> unarchive(String noteId) async {
+    await _setArchiveState(noteId, archived: false);
+  }
+
+  Future<int> archiveNotesOlderThan(Duration age) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final cutoff = DateTime.now().subtract(age);
+    var changed = 0;
+    final next = <NoteEntry>[];
+    for (final note in state) {
+      if (note.deletedAt != null ||
+          note.archivedAt != null ||
+          note.isPinned ||
+          !note.createdAt.isBefore(cutoff)) {
+        next.add(note);
+        continue;
+      }
+      final now = DateTime.now();
+      final archived = note.copyWith(
+        archivedAt: now,
+        updatedAt: now,
+        revision: note.revision + 1,
+        syncState: NoteSyncState.pendingUpload,
+      );
+      next.add(archived.copyWith(contentHash: _computeContentHash(archived)));
+      changed++;
+    }
+    if (changed == 0) {
+      return 0;
+    }
+    _sort(next);
+    state = next;
+    await _persist();
+    return changed;
+  }
+
+  Future<int> unarchiveAll() async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    var changed = 0;
+    final next = <NoteEntry>[];
+    for (final note in state) {
+      if (note.deletedAt != null || note.archivedAt == null) {
+        next.add(note);
+        continue;
+      }
+      final now = DateTime.now();
+      final restored = note.copyWith(
+        archivedAt: null,
+        updatedAt: now,
+        revision: note.revision + 1,
+        syncState: NoteSyncState.pendingUpload,
+      );
+      next.add(restored.copyWith(contentHash: _computeContentHash(restored)));
+      changed++;
+    }
+    if (changed == 0) {
+      return 0;
+    }
+    _sort(next);
+    state = next;
+    await _persist();
+    return changed;
+  }
+
+  Future<void> _setArchiveState(String noteId, {required bool archived}) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final next = [...state];
+    for (var i = 0; i < next.length; i++) {
+      final note = next[i];
+      if (note.id != noteId || note.deletedAt != null) {
+        continue;
+      }
+      final now = DateTime.now();
+      final changed = note.copyWith(
+        archivedAt: archived ? now : null,
+        updatedAt: now,
+        revision: note.revision + 1,
+        syncState: NoteSyncState.pendingUpload,
+      );
+      final prepared = changed.copyWith(
+        contentHash: _computeContentHash(changed),
+      );
+      next[i] = prepared;
+      _sort(next);
+      state = next;
+      await _persistOne(prepared);
+      return;
+    }
+  }
+
   Future<void> seedIfEmpty() async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
@@ -4333,6 +4536,29 @@ class NotesController extends _$NotesController {
     await _rememberDeletedSeedNoteIds({...seedIds, ...idsToDelete});
     await _persist();
     return idsToDelete.length;
+  }
+
+  Future<int> resetLocalStorage() async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final removedNotes = state
+        .where((note) => note.deletedAt == null)
+        .toList(growable: false);
+    final removedCount = removedNotes.length;
+    await _deleteAttachments([for (final note in state) ...note.attachments]);
+    state = const <NoteEntry>[];
+    ref.read(selectedNoteIdProvider.notifier).select(null);
+    await ref.read(noteEditorDraftStoreProvider).clear();
+    await _rememberDeletedSeedNoteIds(
+      ref
+          .read(homeRepositoryProvider)
+          .seededNotes
+          .map((note) => note.id)
+          .toSet(),
+    );
+    await ref.read(encryptedNoteStoreProvider).save(const <NoteEntry>[]);
+    ref.invalidate(storageUsageSummaryProvider);
+    return removedCount;
   }
 
   Future<void> replaceFromSync(List<NoteEntry> notes) async {
@@ -4773,6 +4999,7 @@ class NotesController extends _$NotesController {
       'createdAt': note.createdAt.toIso8601String(),
       'updatedAt': note.updatedAt?.toIso8601String(),
       'deletedAt': note.deletedAt?.toIso8601String(),
+      'archivedAt': note.archivedAt?.toIso8601String(),
       'isPinned': note.isPinned,
       'revision': note.revision,
       'attachments': [
@@ -5085,6 +5312,7 @@ List<NoteEntry> visibleNotes(Ref ref) {
       : ref.watch(noteSearchIndexProvider);
   final filterVaultId = filters.vaultId;
   final filterYear = filters.year;
+  final dateRangeStart = _searchDateRangeStart(filters.dateRange);
   final requiredTags = filters.tags
       .map(canonicalizeNoteTag)
       .where((tag) => tag.isNotEmpty)
@@ -5094,26 +5322,40 @@ List<NoteEntry> visibleNotes(Ref ref) {
     if (!visibleIds.contains(note.vaultId) || note.deletedAt != null) {
       continue;
     }
+    if (filters.archivedOnly) {
+      if (note.archivedAt == null) {
+        continue;
+      }
+    } else if (!filters.includeArchived && note.archivedAt != null) {
+      continue;
+    }
     if (filterVaultId != null && note.vaultId != filterVaultId) {
       continue;
     }
     if (filterYear != null && note.createdAt.year != filterYear) {
       continue;
     }
+    if (dateRangeStart != null) {
+      final noteDate = filters.dateField == SearchDateField.updatedAt
+          ? (note.updatedAt ?? note.createdAt)
+          : note.createdAt;
+      if (noteDate.isBefore(dateRangeStart)) {
+        continue;
+      }
+    }
     if (filters.pinnedOnly && !note.isPinned) {
       continue;
     }
-    if (filters.withMediaOnly && note.attachments.isEmpty) {
+    if (!_noteMatchesAttachmentFilter(note, filters.attachmentFilter)) {
       continue;
     }
     if (requiredTags.isNotEmpty) {
-      var matchedTag = false;
-      for (final tag in note.tags) {
-        if (requiredTags.contains(canonicalizeNoteTag(tag))) {
-          matchedTag = true;
-          break;
-        }
-      }
+      final noteTagKeys = {
+        for (final tag in note.tags) canonicalizeNoteTag(tag),
+      };
+      final matchedTag = filters.requireAllTags
+          ? requiredTags.every(noteTagKeys.contains)
+          : requiredTags.any(noteTagKeys.contains);
       if (!matchedTag) {
         continue;
       }
@@ -5130,6 +5372,37 @@ List<NoteEntry> visibleNotes(Ref ref) {
     );
   }
   return List.unmodifiable(results);
+}
+
+DateTime? _searchDateRangeStart(SearchDateRange range) {
+  final now = DateTime.now();
+  return switch (range) {
+    SearchDateRange.all => null,
+    SearchDateRange.last7Days => now.subtract(const Duration(days: 7)),
+    SearchDateRange.last30Days => now.subtract(const Duration(days: 30)),
+    SearchDateRange.thisMonth => DateTime(now.year, now.month),
+  };
+}
+
+bool _noteMatchesAttachmentFilter(
+  NoteEntry note,
+  SearchAttachmentFilter filter,
+) {
+  return switch (filter) {
+    SearchAttachmentFilter.all => true,
+    SearchAttachmentFilter.any =>
+      note.attachments.isNotEmpty || note.location != null,
+    SearchAttachmentFilter.photo => note.attachments.any(
+      (attachment) => attachment.type == AttachmentType.photo,
+    ),
+    SearchAttachmentFilter.video => note.attachments.any(
+      (attachment) => attachment.type == AttachmentType.video,
+    ),
+    SearchAttachmentFilter.audio => note.attachments.any(
+      (attachment) => attachment.type == AttachmentType.audio,
+    ),
+    SearchAttachmentFilter.location => note.location != null,
+  };
 }
 
 @riverpod
@@ -5156,9 +5429,17 @@ List<int> visibleNoteYears(Ref ref) {
 Map<String, String> noteSearchIndex(Ref ref) {
   final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
   final notes = ref.watch(notesControllerProvider);
+  final filters = ref.watch(searchFiltersControllerProvider);
   final entries = <String, String>{};
   for (final note in notes) {
     if (note.deletedAt != null) {
+      continue;
+    }
+    if (filters.archivedOnly) {
+      if (note.archivedAt == null) {
+        continue;
+      }
+    } else if (!filters.includeArchived && note.archivedAt != null) {
       continue;
     }
     entries[note.id] = _noteSearchText(note);
@@ -5217,7 +5498,9 @@ List<String> visibleTagSuggestions(Ref ref) {
   final seen = <String>{};
   final tags = <String>[];
   for (final note in ref.watch(notesControllerProvider)) {
-    if (note.deletedAt != null || !visibleIds.contains(note.vaultId)) {
+    if (note.deletedAt != null ||
+        note.archivedAt != null ||
+        !visibleIds.contains(note.vaultId)) {
       continue;
     }
     for (final tag in note.tags) {
@@ -5255,7 +5538,9 @@ final visibleTagSummariesProvider = Provider<List<VisibleTagSummary>>((ref) {
       .toSet();
   final summaries = <String, ({String name, int count, DateTime latestAt})>{};
   for (final note in ref.watch(notesControllerProvider)) {
-    if (note.deletedAt != null || !visibleIds.contains(note.vaultId)) {
+    if (note.deletedAt != null ||
+        note.archivedAt != null ||
+        !visibleIds.contains(note.vaultId)) {
       continue;
     }
     final noteAt = note.updatedAt ?? note.createdAt;

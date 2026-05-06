@@ -65,6 +65,7 @@ abstract class NoteEntry with _$NoteEntry {
     required DateTime createdAt,
     DateTime? updatedAt,
     DateTime? deletedAt,
+    DateTime? archivedAt,
     String? deviceId,
     String? contentHash,
     @Default(<NoteAttachment>[]) List<NoteAttachment> attachments,

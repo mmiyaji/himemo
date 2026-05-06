@@ -86,6 +86,9 @@ _NoteEntry _$NoteEntryFromJson(Map<String, dynamic> json) => _NoteEntry(
   deletedAt: json['deletedAt'] == null
       ? null
       : DateTime.parse(json['deletedAt'] as String),
+  archivedAt: json['archivedAt'] == null
+      ? null
+      : DateTime.parse(json['archivedAt'] as String),
   deviceId: json['deviceId'] as String?,
   contentHash: json['contentHash'] as String?,
   attachments:
@@ -123,6 +126,7 @@ Map<String, dynamic> _$NoteEntryToJson(_NoteEntry instance) =>
       'createdAt': instance.createdAt.toIso8601String(),
       'updatedAt': instance.updatedAt?.toIso8601String(),
       'deletedAt': instance.deletedAt?.toIso8601String(),
+      'archivedAt': instance.archivedAt?.toIso8601String(),
       'deviceId': instance.deviceId,
       'contentHash': instance.contentHash,
       'attachments': instance.attachments.map((e) => e.toJson()).toList(),

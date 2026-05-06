@@ -1055,13 +1055,45 @@ void main() {
             createdAt: DateTime(2026, 4, 20, 11, 0),
           ),
         );
+    await container
+        .read(notesControllerProvider.notifier)
+        .upsert(
+          NoteEntry(
+            id: 'tag-3',
+            vaultId: 'everyday',
+            title: 'Shared project',
+            body: 'Third body',
+            tags: const ['Alpha', 'Home'],
+            createdAt: DateTime(2026, 4, 20, 12, 0),
+          ),
+        );
 
     container.read(searchFiltersControllerProvider.notifier).addTag('alpha');
 
     final visible = container.read(visibleNotesProvider);
-    expect(visible.map((note) => note.id), ['tag-1']);
-    expect(container.read(visibleNoteIndexByIdProvider), {'tag-1': 0});
+    expect(visible.map((note) => note.id), ['tag-3', 'tag-1']);
+    expect(container.read(visibleNoteIndexByIdProvider), {
+      'tag-3': 0,
+      'tag-1': 1,
+    });
     expect(container.read(visibleTagSuggestionsProvider), contains('Alpha'));
+
+    container.read(searchFiltersControllerProvider.notifier).setTags([
+      'alpha',
+      'home',
+    ]);
+    expect(container.read(visibleNotesProvider).map((note) => note.id), [
+      'tag-3',
+      'tag-2',
+      'tag-1',
+    ]);
+    container
+        .read(searchFiltersControllerProvider.notifier)
+        .setRequireAllTags(true);
+    expect(container.read(visibleNotesProvider).map((note) => note.id), [
+      'tag-3',
+    ]);
+
     container.read(searchFiltersControllerProvider.notifier).reset();
     container.read(searchQueryProvider.notifier).setQuery('second body');
     expect(container.read(visibleNotesProvider).map((note) => note.id), [
@@ -1134,6 +1166,85 @@ void main() {
       'year-2025',
     ]);
   });
+
+  test(
+    'archived notes stay out of normal search until archive mode is enabled',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(8));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(database),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: database,
+              directoryProvider: () async => Directory.systemTemp,
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(database.close);
+
+      final controller = container.read(notesControllerProvider.notifier);
+      await controller.upsert(
+        NoteEntry(
+          id: 'archive-old',
+          vaultId: 'everyday',
+          title: 'Old archive target',
+          body: 'Find me only in archive mode',
+          createdAt: DateTime(2020, 1, 1),
+        ),
+      );
+      await controller.upsert(
+        NoteEntry(
+          id: 'archive-current',
+          vaultId: 'everyday',
+          title: 'Current note',
+          body: 'Visible normally',
+          createdAt: DateTime.now(),
+        ),
+      );
+
+      expect(
+        await controller.archiveNotesOlderThan(const Duration(days: 365)),
+        1,
+      );
+      expect(container.read(archivedNoteCountProvider), 1);
+      expect(container.read(visibleNotesProvider).map((note) => note.id), [
+        'archive-current',
+      ]);
+
+      container.read(searchQueryProvider.notifier).setQuery('archive mode');
+      expect(container.read(visibleNotesProvider), isEmpty);
+
+      container
+          .read(searchFiltersControllerProvider.notifier)
+          .setArchivedOnly(true);
+      expect(container.read(visibleNotesProvider).map((note) => note.id), [
+        'archive-old',
+      ]);
+
+      expect(await controller.unarchiveAll(), 1);
+      container.read(searchFiltersControllerProvider.notifier).reset();
+      container.read(searchQueryProvider.notifier).setQuery('');
+      expect(container.read(visibleNotesProvider).map((note) => note.id), [
+        'archive-current',
+        'archive-old',
+      ]);
+    },
+  );
 }
 
 class MemoryHomeRepository implements HomeRepository {

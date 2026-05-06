@@ -858,7 +858,7 @@ $NoteAttachmentCopyWith<$Res>? get attachment {
 /// @nodoc
 mixin _$NoteEntry {
 
- String get id; String get vaultId; String get title; String get body; DateTime get createdAt; DateTime? get updatedAt; DateTime? get deletedAt; String? get deviceId; String? get contentHash; List<NoteAttachment> get attachments; List<NoteBlock> get blocks; List<String> get tags; bool get isPinned; int get revision; NoteSyncState get syncState; NoteEditorMode get editorMode; NoteLocation? get location;
+ String get id; String get vaultId; String get title; String get body; DateTime get createdAt; DateTime? get updatedAt; DateTime? get deletedAt; DateTime? get archivedAt; String? get deviceId; String? get contentHash; List<NoteAttachment> get attachments; List<NoteBlock> get blocks; List<String> get tags; bool get isPinned; int get revision; NoteSyncState get syncState; NoteEditorMode get editorMode; NoteLocation? get location;
 /// Create a copy of NoteEntry
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -871,16 +871,16 @@ $NoteEntryCopyWith<NoteEntry> get copyWith => _$NoteEntryCopyWithImpl<NoteEntry>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteEntry&&(identical(other.id, id) || other.id == id)&&(identical(other.vaultId, vaultId) || other.vaultId == vaultId)&&(identical(other.title, title) || other.title == title)&&(identical(other.body, body) || other.body == body)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.deletedAt, deletedAt) || other.deletedAt == deletedAt)&&(identical(other.deviceId, deviceId) || other.deviceId == deviceId)&&(identical(other.contentHash, contentHash) || other.contentHash == contentHash)&&const DeepCollectionEquality().equals(other.attachments, attachments)&&const DeepCollectionEquality().equals(other.blocks, blocks)&&const DeepCollectionEquality().equals(other.tags, tags)&&(identical(other.isPinned, isPinned) || other.isPinned == isPinned)&&(identical(other.revision, revision) || other.revision == revision)&&(identical(other.syncState, syncState) || other.syncState == syncState)&&(identical(other.editorMode, editorMode) || other.editorMode == editorMode)&&(identical(other.location, location) || other.location == location));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteEntry&&(identical(other.id, id) || other.id == id)&&(identical(other.vaultId, vaultId) || other.vaultId == vaultId)&&(identical(other.title, title) || other.title == title)&&(identical(other.body, body) || other.body == body)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.deletedAt, deletedAt) || other.deletedAt == deletedAt)&&(identical(other.archivedAt, archivedAt) || other.archivedAt == archivedAt)&&(identical(other.deviceId, deviceId) || other.deviceId == deviceId)&&(identical(other.contentHash, contentHash) || other.contentHash == contentHash)&&const DeepCollectionEquality().equals(other.attachments, attachments)&&const DeepCollectionEquality().equals(other.blocks, blocks)&&const DeepCollectionEquality().equals(other.tags, tags)&&(identical(other.isPinned, isPinned) || other.isPinned == isPinned)&&(identical(other.revision, revision) || other.revision == revision)&&(identical(other.syncState, syncState) || other.syncState == syncState)&&(identical(other.editorMode, editorMode) || other.editorMode == editorMode)&&(identical(other.location, location) || other.location == location));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,vaultId,title,body,createdAt,updatedAt,deletedAt,deviceId,contentHash,const DeepCollectionEquality().hash(attachments),const DeepCollectionEquality().hash(blocks),const DeepCollectionEquality().hash(tags),isPinned,revision,syncState,editorMode,location);
+int get hashCode => Object.hash(runtimeType,id,vaultId,title,body,createdAt,updatedAt,deletedAt,archivedAt,deviceId,contentHash,const DeepCollectionEquality().hash(attachments),const DeepCollectionEquality().hash(blocks),const DeepCollectionEquality().hash(tags),isPinned,revision,syncState,editorMode,location);
 
 @override
 String toString() {
-  return 'NoteEntry(id: $id, vaultId: $vaultId, title: $title, body: $body, createdAt: $createdAt, updatedAt: $updatedAt, deletedAt: $deletedAt, deviceId: $deviceId, contentHash: $contentHash, attachments: $attachments, blocks: $blocks, tags: $tags, isPinned: $isPinned, revision: $revision, syncState: $syncState, editorMode: $editorMode, location: $location)';
+  return 'NoteEntry(id: $id, vaultId: $vaultId, title: $title, body: $body, createdAt: $createdAt, updatedAt: $updatedAt, deletedAt: $deletedAt, archivedAt: $archivedAt, deviceId: $deviceId, contentHash: $contentHash, attachments: $attachments, blocks: $blocks, tags: $tags, isPinned: $isPinned, revision: $revision, syncState: $syncState, editorMode: $editorMode, location: $location)';
 }
 
 
@@ -891,7 +891,7 @@ abstract mixin class $NoteEntryCopyWith<$Res>  {
   factory $NoteEntryCopyWith(NoteEntry value, $Res Function(NoteEntry) _then) = _$NoteEntryCopyWithImpl;
 @useResult
 $Res call({
- String id, String vaultId, String title, String body, DateTime createdAt, DateTime? updatedAt, DateTime? deletedAt, String? deviceId, String? contentHash, List<NoteAttachment> attachments, List<NoteBlock> blocks, List<String> tags, bool isPinned, int revision, NoteSyncState syncState, NoteEditorMode editorMode, NoteLocation? location
+ String id, String vaultId, String title, String body, DateTime createdAt, DateTime? updatedAt, DateTime? deletedAt, DateTime? archivedAt, String? deviceId, String? contentHash, List<NoteAttachment> attachments, List<NoteBlock> blocks, List<String> tags, bool isPinned, int revision, NoteSyncState syncState, NoteEditorMode editorMode, NoteLocation? location
 });
 
 
@@ -908,7 +908,7 @@ class _$NoteEntryCopyWithImpl<$Res>
 
 /// Create a copy of NoteEntry
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? vaultId = null,Object? title = null,Object? body = null,Object? createdAt = null,Object? updatedAt = freezed,Object? deletedAt = freezed,Object? deviceId = freezed,Object? contentHash = freezed,Object? attachments = null,Object? blocks = null,Object? tags = null,Object? isPinned = null,Object? revision = null,Object? syncState = null,Object? editorMode = null,Object? location = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? vaultId = null,Object? title = null,Object? body = null,Object? createdAt = null,Object? updatedAt = freezed,Object? deletedAt = freezed,Object? archivedAt = freezed,Object? deviceId = freezed,Object? contentHash = freezed,Object? attachments = null,Object? blocks = null,Object? tags = null,Object? isPinned = null,Object? revision = null,Object? syncState = null,Object? editorMode = null,Object? location = freezed,}) {
   return _then(_self.copyWith(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,vaultId: null == vaultId ? _self.vaultId : vaultId // ignore: cast_nullable_to_non_nullable
@@ -917,6 +917,7 @@ as String,body: null == body ? _self.body : body // ignore: cast_nullable_to_non
 as String,createdAt: null == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
 as DateTime,updatedAt: freezed == updatedAt ? _self.updatedAt : updatedAt // ignore: cast_nullable_to_non_nullable
 as DateTime?,deletedAt: freezed == deletedAt ? _self.deletedAt : deletedAt // ignore: cast_nullable_to_non_nullable
+as DateTime?,archivedAt: freezed == archivedAt ? _self.archivedAt : archivedAt // ignore: cast_nullable_to_non_nullable
 as DateTime?,deviceId: freezed == deviceId ? _self.deviceId : deviceId // ignore: cast_nullable_to_non_nullable
 as String?,contentHash: freezed == contentHash ? _self.contentHash : contentHash // ignore: cast_nullable_to_non_nullable
 as String?,attachments: null == attachments ? _self.attachments : attachments // ignore: cast_nullable_to_non_nullable
@@ -1024,10 +1025,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String vaultId,  String title,  String body,  DateTime createdAt,  DateTime? updatedAt,  DateTime? deletedAt,  String? deviceId,  String? contentHash,  List<NoteAttachment> attachments,  List<NoteBlock> blocks,  List<String> tags,  bool isPinned,  int revision,  NoteSyncState syncState,  NoteEditorMode editorMode,  NoteLocation? location)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String vaultId,  String title,  String body,  DateTime createdAt,  DateTime? updatedAt,  DateTime? deletedAt,  DateTime? archivedAt,  String? deviceId,  String? contentHash,  List<NoteAttachment> attachments,  List<NoteBlock> blocks,  List<String> tags,  bool isPinned,  int revision,  NoteSyncState syncState,  NoteEditorMode editorMode,  NoteLocation? location)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _NoteEntry() when $default != null:
-return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_that.updatedAt,_that.deletedAt,_that.deviceId,_that.contentHash,_that.attachments,_that.blocks,_that.tags,_that.isPinned,_that.revision,_that.syncState,_that.editorMode,_that.location);case _:
+return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_that.updatedAt,_that.deletedAt,_that.archivedAt,_that.deviceId,_that.contentHash,_that.attachments,_that.blocks,_that.tags,_that.isPinned,_that.revision,_that.syncState,_that.editorMode,_that.location);case _:
   return orElse();
 
 }
@@ -1045,10 +1046,10 @@ return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_t
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String vaultId,  String title,  String body,  DateTime createdAt,  DateTime? updatedAt,  DateTime? deletedAt,  String? deviceId,  String? contentHash,  List<NoteAttachment> attachments,  List<NoteBlock> blocks,  List<String> tags,  bool isPinned,  int revision,  NoteSyncState syncState,  NoteEditorMode editorMode,  NoteLocation? location)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String vaultId,  String title,  String body,  DateTime createdAt,  DateTime? updatedAt,  DateTime? deletedAt,  DateTime? archivedAt,  String? deviceId,  String? contentHash,  List<NoteAttachment> attachments,  List<NoteBlock> blocks,  List<String> tags,  bool isPinned,  int revision,  NoteSyncState syncState,  NoteEditorMode editorMode,  NoteLocation? location)  $default,) {final _that = this;
 switch (_that) {
 case _NoteEntry():
-return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_that.updatedAt,_that.deletedAt,_that.deviceId,_that.contentHash,_that.attachments,_that.blocks,_that.tags,_that.isPinned,_that.revision,_that.syncState,_that.editorMode,_that.location);case _:
+return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_that.updatedAt,_that.deletedAt,_that.archivedAt,_that.deviceId,_that.contentHash,_that.attachments,_that.blocks,_that.tags,_that.isPinned,_that.revision,_that.syncState,_that.editorMode,_that.location);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -1065,10 +1066,10 @@ return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_t
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String vaultId,  String title,  String body,  DateTime createdAt,  DateTime? updatedAt,  DateTime? deletedAt,  String? deviceId,  String? contentHash,  List<NoteAttachment> attachments,  List<NoteBlock> blocks,  List<String> tags,  bool isPinned,  int revision,  NoteSyncState syncState,  NoteEditorMode editorMode,  NoteLocation? location)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String vaultId,  String title,  String body,  DateTime createdAt,  DateTime? updatedAt,  DateTime? deletedAt,  DateTime? archivedAt,  String? deviceId,  String? contentHash,  List<NoteAttachment> attachments,  List<NoteBlock> blocks,  List<String> tags,  bool isPinned,  int revision,  NoteSyncState syncState,  NoteEditorMode editorMode,  NoteLocation? location)?  $default,) {final _that = this;
 switch (_that) {
 case _NoteEntry() when $default != null:
-return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_that.updatedAt,_that.deletedAt,_that.deviceId,_that.contentHash,_that.attachments,_that.blocks,_that.tags,_that.isPinned,_that.revision,_that.syncState,_that.editorMode,_that.location);case _:
+return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_that.updatedAt,_that.deletedAt,_that.archivedAt,_that.deviceId,_that.contentHash,_that.attachments,_that.blocks,_that.tags,_that.isPinned,_that.revision,_that.syncState,_that.editorMode,_that.location);case _:
   return null;
 
 }
@@ -1080,7 +1081,7 @@ return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_t
 
 @JsonSerializable(explicitToJson: true)
 class _NoteEntry implements NoteEntry {
-  const _NoteEntry({required this.id, required this.vaultId, required this.title, required this.body, required this.createdAt, this.updatedAt, this.deletedAt, this.deviceId, this.contentHash, final  List<NoteAttachment> attachments = const <NoteAttachment>[], final  List<NoteBlock> blocks = const <NoteBlock>[], final  List<String> tags = const <String>[], this.isPinned = false, this.revision = 1, this.syncState = NoteSyncState.localOnly, this.editorMode = NoteEditorMode.rich, this.location}): _attachments = attachments,_blocks = blocks,_tags = tags;
+  const _NoteEntry({required this.id, required this.vaultId, required this.title, required this.body, required this.createdAt, this.updatedAt, this.deletedAt, this.archivedAt, this.deviceId, this.contentHash, final  List<NoteAttachment> attachments = const <NoteAttachment>[], final  List<NoteBlock> blocks = const <NoteBlock>[], final  List<String> tags = const <String>[], this.isPinned = false, this.revision = 1, this.syncState = NoteSyncState.localOnly, this.editorMode = NoteEditorMode.rich, this.location}): _attachments = attachments,_blocks = blocks,_tags = tags;
   factory _NoteEntry.fromJson(Map<String, dynamic> json) => _$NoteEntryFromJson(json);
 
 @override final  String id;
@@ -1090,6 +1091,7 @@ class _NoteEntry implements NoteEntry {
 @override final  DateTime createdAt;
 @override final  DateTime? updatedAt;
 @override final  DateTime? deletedAt;
+@override final  DateTime? archivedAt;
 @override final  String? deviceId;
 @override final  String? contentHash;
  final  List<NoteAttachment> _attachments;
@@ -1132,16 +1134,16 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NoteEntry&&(identical(other.id, id) || other.id == id)&&(identical(other.vaultId, vaultId) || other.vaultId == vaultId)&&(identical(other.title, title) || other.title == title)&&(identical(other.body, body) || other.body == body)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.deletedAt, deletedAt) || other.deletedAt == deletedAt)&&(identical(other.deviceId, deviceId) || other.deviceId == deviceId)&&(identical(other.contentHash, contentHash) || other.contentHash == contentHash)&&const DeepCollectionEquality().equals(other._attachments, _attachments)&&const DeepCollectionEquality().equals(other._blocks, _blocks)&&const DeepCollectionEquality().equals(other._tags, _tags)&&(identical(other.isPinned, isPinned) || other.isPinned == isPinned)&&(identical(other.revision, revision) || other.revision == revision)&&(identical(other.syncState, syncState) || other.syncState == syncState)&&(identical(other.editorMode, editorMode) || other.editorMode == editorMode)&&(identical(other.location, location) || other.location == location));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NoteEntry&&(identical(other.id, id) || other.id == id)&&(identical(other.vaultId, vaultId) || other.vaultId == vaultId)&&(identical(other.title, title) || other.title == title)&&(identical(other.body, body) || other.body == body)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.deletedAt, deletedAt) || other.deletedAt == deletedAt)&&(identical(other.archivedAt, archivedAt) || other.archivedAt == archivedAt)&&(identical(other.deviceId, deviceId) || other.deviceId == deviceId)&&(identical(other.contentHash, contentHash) || other.contentHash == contentHash)&&const DeepCollectionEquality().equals(other._attachments, _attachments)&&const DeepCollectionEquality().equals(other._blocks, _blocks)&&const DeepCollectionEquality().equals(other._tags, _tags)&&(identical(other.isPinned, isPinned) || other.isPinned == isPinned)&&(identical(other.revision, revision) || other.revision == revision)&&(identical(other.syncState, syncState) || other.syncState == syncState)&&(identical(other.editorMode, editorMode) || other.editorMode == editorMode)&&(identical(other.location, location) || other.location == location));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,vaultId,title,body,createdAt,updatedAt,deletedAt,deviceId,contentHash,const DeepCollectionEquality().hash(_attachments),const DeepCollectionEquality().hash(_blocks),const DeepCollectionEquality().hash(_tags),isPinned,revision,syncState,editorMode,location);
+int get hashCode => Object.hash(runtimeType,id,vaultId,title,body,createdAt,updatedAt,deletedAt,archivedAt,deviceId,contentHash,const DeepCollectionEquality().hash(_attachments),const DeepCollectionEquality().hash(_blocks),const DeepCollectionEquality().hash(_tags),isPinned,revision,syncState,editorMode,location);
 
 @override
 String toString() {
-  return 'NoteEntry(id: $id, vaultId: $vaultId, title: $title, body: $body, createdAt: $createdAt, updatedAt: $updatedAt, deletedAt: $deletedAt, deviceId: $deviceId, contentHash: $contentHash, attachments: $attachments, blocks: $blocks, tags: $tags, isPinned: $isPinned, revision: $revision, syncState: $syncState, editorMode: $editorMode, location: $location)';
+  return 'NoteEntry(id: $id, vaultId: $vaultId, title: $title, body: $body, createdAt: $createdAt, updatedAt: $updatedAt, deletedAt: $deletedAt, archivedAt: $archivedAt, deviceId: $deviceId, contentHash: $contentHash, attachments: $attachments, blocks: $blocks, tags: $tags, isPinned: $isPinned, revision: $revision, syncState: $syncState, editorMode: $editorMode, location: $location)';
 }
 
 
@@ -1152,7 +1154,7 @@ abstract mixin class _$NoteEntryCopyWith<$Res> implements $NoteEntryCopyWith<$Re
   factory _$NoteEntryCopyWith(_NoteEntry value, $Res Function(_NoteEntry) _then) = __$NoteEntryCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String vaultId, String title, String body, DateTime createdAt, DateTime? updatedAt, DateTime? deletedAt, String? deviceId, String? contentHash, List<NoteAttachment> attachments, List<NoteBlock> blocks, List<String> tags, bool isPinned, int revision, NoteSyncState syncState, NoteEditorMode editorMode, NoteLocation? location
+ String id, String vaultId, String title, String body, DateTime createdAt, DateTime? updatedAt, DateTime? deletedAt, DateTime? archivedAt, String? deviceId, String? contentHash, List<NoteAttachment> attachments, List<NoteBlock> blocks, List<String> tags, bool isPinned, int revision, NoteSyncState syncState, NoteEditorMode editorMode, NoteLocation? location
 });
 
 
@@ -1169,7 +1171,7 @@ class __$NoteEntryCopyWithImpl<$Res>
 
 /// Create a copy of NoteEntry
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? vaultId = null,Object? title = null,Object? body = null,Object? createdAt = null,Object? updatedAt = freezed,Object? deletedAt = freezed,Object? deviceId = freezed,Object? contentHash = freezed,Object? attachments = null,Object? blocks = null,Object? tags = null,Object? isPinned = null,Object? revision = null,Object? syncState = null,Object? editorMode = null,Object? location = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? vaultId = null,Object? title = null,Object? body = null,Object? createdAt = null,Object? updatedAt = freezed,Object? deletedAt = freezed,Object? archivedAt = freezed,Object? deviceId = freezed,Object? contentHash = freezed,Object? attachments = null,Object? blocks = null,Object? tags = null,Object? isPinned = null,Object? revision = null,Object? syncState = null,Object? editorMode = null,Object? location = freezed,}) {
   return _then(_NoteEntry(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,vaultId: null == vaultId ? _self.vaultId : vaultId // ignore: cast_nullable_to_non_nullable
@@ -1178,6 +1180,7 @@ as String,body: null == body ? _self.body : body // ignore: cast_nullable_to_non
 as String,createdAt: null == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
 as DateTime,updatedAt: freezed == updatedAt ? _self.updatedAt : updatedAt // ignore: cast_nullable_to_non_nullable
 as DateTime?,deletedAt: freezed == deletedAt ? _self.deletedAt : deletedAt // ignore: cast_nullable_to_non_nullable
+as DateTime?,archivedAt: freezed == archivedAt ? _self.archivedAt : archivedAt // ignore: cast_nullable_to_non_nullable
 as DateTime?,deviceId: freezed == deviceId ? _self.deviceId : deviceId // ignore: cast_nullable_to_non_nullable
 as String?,contentHash: freezed == contentHash ? _self.contentHash : contentHash // ignore: cast_nullable_to_non_nullable
 as String?,attachments: null == attachments ? _self._attachments : attachments // ignore: cast_nullable_to_non_nullable

@@ -4648,6 +4648,51 @@ class SettingsScreen extends ConsumerWidget {
                     icon: const Icon(Icons.delete_outline_rounded),
                     label: Text(strings.deleteDemoNotes),
                   ),
+                  OutlinedButton.icon(
+                    onPressed: noteCount == 0
+                        ? null
+                        : () async {
+                            final confirmed = await _confirmStorageReset(
+                              context,
+                              noteCount,
+                            );
+                            if (confirmed != true) {
+                              return;
+                            }
+                            final deletedCount = await ref
+                                .read(notesControllerProvider.notifier)
+                                .resetLocalStorage();
+                            if (!context.mounted) {
+                              return;
+                            }
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                showCloseIcon: true,
+                                content: Text(
+                                  strings.localized(
+                                    en: 'Initialized local storage. Deleted $deletedCount notes.',
+                                    ja: '\u30b9\u30c8\u30ec\u30fc\u30b8\u3092\u521d\u671f\u5316\u3057\u307e\u3057\u305f\u3002$deletedCount \u4ef6\u306e\u30ce\u30fc\u30c8\u3092\u524a\u9664\u3057\u307e\u3057\u305f\u3002',
+                                    zh: '\u5df2\u521d\u59cb\u5316\u672c\u5730\u5b58\u50a8\u3002\u5220\u9664\u4e86 $deletedCount \u6761\u7b14\u8bb0\u3002',
+                                    ko: '\ub85c\uceec \uc800\uc7a5\uc18c\ub97c \ucd08\uae30\ud654\ud588\uc2b5\ub2c8\ub2e4. \uba54\ubaa8 $deletedCount\uac1c\ub97c \uc0ad\uc81c\ud588\uc2b5\ub2c8\ub2e4.',
+                                    es: 'Se inicializo el almacenamiento local. Se eliminaron $deletedCount notas.',
+                                    de: 'Lokaler Speicher initialisiert. $deletedCount Notizen wurden geloescht.',
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                    icon: const Icon(Icons.restart_alt_rounded),
+                    label: Text(
+                      strings.localized(
+                        en: 'Initialize storage',
+                        ja: '\u30b9\u30c8\u30ec\u30fc\u30b8\u3092\u521d\u671f\u5316',
+                        zh: '\u521d\u59cb\u5316\u5b58\u50a8',
+                        ko: '\uc800\uc7a5\uc18c \ucd08\uae30\ud654',
+                        es: 'Inicializar almacenamiento',
+                        de: 'Speicher initialisieren',
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -5355,6 +5400,95 @@ class SettingsScreen extends ConsumerWidget {
     if (confirmed == true) {
       await ref.read(privateVaultSecretControllerProvider.notifier).clear();
     }
+  }
+
+  Future<bool?> _confirmStorageReset(BuildContext context, int noteCount) {
+    final strings = context.strings;
+    var agreed = false;
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text(
+                strings.localized(
+                  en: 'Initialize storage',
+                  ja: '\u30b9\u30c8\u30ec\u30fc\u30b8\u3092\u521d\u671f\u5316',
+                  zh: '\u521d\u59cb\u5316\u5b58\u50a8',
+                  ko: '\uc800\uc7a5\uc18c \ucd08\uae30\ud654',
+                  es: 'Inicializar almacenamiento',
+                  de: 'Speicher initialisieren',
+                ),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    strings.localized(
+                      en: 'This deletes all notes and attachments saved on this device. This action cannot be undone.',
+                      ja: '\u3053\u306e\u7aef\u672b\u306b\u4fdd\u5b58\u3055\u308c\u3066\u3044\u308b\u3059\u3079\u3066\u306e\u30ce\u30fc\u30c8\u3068\u6dfb\u4ed8\u30d5\u30a1\u30a4\u30eb\u3092\u524a\u9664\u3057\u307e\u3059\u3002\u3053\u306e\u64cd\u4f5c\u306f\u5143\u306b\u623b\u305b\u307e\u305b\u3093\u3002',
+                      zh: '\u8fd9\u5c06\u5220\u9664\u6b64\u8bbe\u5907\u4e0a\u4fdd\u5b58\u7684\u6240\u6709\u7b14\u8bb0\u548c\u9644\u4ef6\u3002\u6b64\u64cd\u4f5c\u65e0\u6cd5\u64a4\u9500\u3002',
+                      ko: '\uc774 \uae30\uae30\uc5d0 \uc800\uc7a5\ub41c \ubaa8\ub4e0 \uba54\ubaa8\uc640 \ucca8\ubd80 \ud30c\uc77c\uc744 \uc0ad\uc81c\ud569\ub2c8\ub2e4. \uc774 \uc791\uc5c5\uc740 \ub418\ub3cc\ub9b4 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.',
+                      es: 'Esto elimina todas las notas y adjuntos guardados en este dispositivo. Esta accion no se puede deshacer.',
+                      de: 'Dies loescht alle Notizen und Anhaenge auf diesem Geraet. Diese Aktion kann nicht rueckgaengig gemacht werden.',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    strings.localized(
+                      en: 'Notes to delete: $noteCount',
+                      ja: '\u524a\u9664\u5bfe\u8c61\u306e\u30ce\u30fc\u30c8: $noteCount \u4ef6',
+                      zh: '\u8981\u5220\u9664\u7684\u7b14\u8bb0\uff1a$noteCount',
+                      ko: '\uc0ad\uc81c\ud560 \uba54\ubaa8: $noteCount\uac1c',
+                      es: 'Notas a eliminar: $noteCount',
+                      de: 'Zu loeschende Notizen: $noteCount',
+                    ),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: _mutedTextColor(context),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  CheckboxListTile(
+                    value: agreed,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: Text(
+                      strings.localized(
+                        en: 'I understand that the data will be deleted.',
+                        ja: '\u30c7\u30fc\u30bf\u304c\u524a\u9664\u3055\u308c\u308b\u3053\u3068\u306b\u540c\u610f\u3057\u307e\u3059\u3002',
+                        zh: '\u6211\u7406\u89e3\u5e76\u540c\u610f\u6570\u636e\u5c06\u88ab\u5220\u9664\u3002',
+                        ko: '\ub370\uc774\ud130\uac00 \uc0ad\uc81c\ub428\uc744 \uc774\ud574\ud558\uace0 \ub3d9\uc758\ud569\ub2c8\ub2e4.',
+                        es: 'Entiendo que los datos se eliminaran.',
+                        de: 'Ich verstehe, dass die Daten geloescht werden.',
+                      ),
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        agreed = value ?? false;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: Text(strings.cancel),
+                ),
+                FilledButton(
+                  onPressed: agreed
+                      ? () => Navigator.of(dialogContext).pop(true)
+                      : null,
+                  child: Text(strings.delete),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   static const _availableFontFamilies = <AppFontFamily>[
@@ -6105,7 +6239,7 @@ class _MobileNotesListState extends State<_MobileNotesList> {
           ),
           _MobileDividerRow() => _DecoratedMobileNoteRow(
             position: row.position,
-            child: Divider(height: 1, color: Theme.of(context).dividerColor),
+            child: const _IntraDayNoteGap(),
           ),
           _MobileSectionGapRow() => const SizedBox(height: 16),
         };
@@ -6151,7 +6285,7 @@ List<_MobileNoteRow> _buildMobileNoteRows({
         sectionRows.add(_MobileDayRow(notes[i].createdAt));
       }
       sectionRows.add(_MobileTileRow(vault: vault, note: notes[i]));
-      if (i != notes.length - 1) {
+      if (i != notes.length - 1 && _isSameNoteDay(notes[i], notes[i + 1])) {
         sectionRows.add(const _MobileDividerRow());
       }
     }
@@ -6351,7 +6485,7 @@ class _NoteDayDivider extends StatelessWidget {
     final weekendColor = _noteDayWeekendColor(context, date);
     final effectiveColor = weekendColor ?? _mutedTextColor(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      padding: const EdgeInsets.fromLTRB(0, 14, 0, 10),
       child: Row(
         children: [
           Expanded(
@@ -6383,6 +6517,21 @@ class _NoteDayDivider extends StatelessWidget {
             child: Container(height: 1, color: Theme.of(context).dividerColor),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _IntraDayNoteGap extends StatelessWidget {
+  const _IntraDayNoteGap();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+      child: Container(
+        height: 1,
+        color: Theme.of(context).dividerColor.withValues(alpha: 0.62),
       ),
     );
   }
@@ -7035,10 +7184,7 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
               ),
               _SplitNoteDividerRow() => _DecoratedSplitNoteRow(
                 position: row.position,
-                child: Divider(
-                  height: 1,
-                  color: Theme.of(context).dividerColor,
-                ),
+                child: const _IntraDayNoteGap(),
               ),
             };
           },
@@ -7081,7 +7227,9 @@ List<_SplitNoteRow> _buildSplitNoteRows({
       noteRows.add(_SplitNoteDayRow(notes[i].createdAt));
     }
     noteRows.add(_SplitNoteTileRow(notes[i]));
-    if (density != NotesListDensity.compact && i != notes.length - 1) {
+    if (density != NotesListDensity.compact &&
+        i != notes.length - 1 &&
+        _isSameNoteDay(notes[i], notes[i + 1])) {
       noteRows.add(const _SplitNoteDividerRow());
     }
   }
@@ -8583,7 +8731,6 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
   late final TextEditingController _searchController;
   Timer? _searchDebounce;
   late String _lastAppliedSearchQuery;
-  bool _showAdvanced = false;
 
   @override
   void initState() {
@@ -8607,6 +8754,15 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     final filters = ref.watch(searchFiltersControllerProvider);
     final visibleVaults = ref.watch(visibleVaultsProvider);
     final tagSummaries = ref.watch(visibleTagSummariesProvider);
+    final visibleVaultIds = {for (final vault in visibleVaults) vault.id};
+    final hasArchivedNotes = ref
+        .watch(notesControllerProvider)
+        .any(
+          (note) =>
+              note.deletedAt == null &&
+              note.archivedAt != null &&
+              visibleVaultIds.contains(note.vaultId),
+        );
     final hasAdvancedFilters = !filters.isDefault;
     final listDensity = ref.watch(notesListDensityControllerProvider);
     final privateModeActive = ref.watch(privacyScreenActiveProvider);
@@ -8614,7 +8770,10 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     final compactToolbarButtons = widget.compact || availableWidth < 560;
     final activeFilterCount =
         (filters.pinnedOnly ? 1 : 0) +
-        (filters.withMediaOnly ? 1 : 0) +
+        (filters.attachmentFilter != SearchAttachmentFilter.all ? 1 : 0) +
+        (filters.archivedOnly || filters.includeArchived ? 1 : 0) +
+        (filters.requireAllTags && filters.tags.length > 1 ? 1 : 0) +
+        (filters.dateRange != SearchDateRange.all ? 1 : 0) +
         (filters.vaultId != null ? 1 : 0) +
         (filters.year != null ? 1 : 0) +
         filters.tags.length;
@@ -8688,11 +8847,10 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                 label: strings.text('home.filters'),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(12),
-                  onTap: () {
-                    setState(() {
-                      _showAdvanced = !_showAdvanced;
-                    });
-                  },
+                  onTap: () => _openAdvancedFiltersSheet(
+                    context,
+                    hasArchivedNotes: hasArchivedNotes,
+                  ),
                   child: Container(
                     height: 48,
                     width: compactToolbarButtons ? 48 : null,
@@ -8708,7 +8866,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                       horizontal: compactToolbarButtons ? 0 : 12,
                     ),
                     decoration: BoxDecoration(
-                      color: _showAdvanced || hasAdvancedFilters
+                      color: hasAdvancedFilters
                           ? Theme.of(context).colorScheme.primaryContainer
                           : null,
                       border: Border.all(color: Theme.of(context).dividerColor),
@@ -8761,170 +8919,54 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
               ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
             ),
           ],
-          if (!_showAdvanced &&
-              tagSummaries.isNotEmpty &&
-              filters.tags.isEmpty) ...[
+          if (tagSummaries.isNotEmpty) ...[
             const SizedBox(height: 10),
             _QuickTagStrip(
               summaries: tagSummaries,
               activeTags: filters.tags,
               onTagSelected: (tag) {
-                ref.read(searchFiltersControllerProvider.notifier).setTags([
-                  tag,
-                ]);
+                final notifier = ref.read(
+                  searchFiltersControllerProvider.notifier,
+                );
+                final selected = filters.tags
+                    .map(canonicalizeNoteTag)
+                    .contains(canonicalizeNoteTag(tag));
+                if (selected) {
+                  notifier.removeTag(tag);
+                } else {
+                  notifier.addTag(tag);
+                }
                 ref.read(searchQueryProvider.notifier).setQuery('');
                 ref.read(selectedNoteIdProvider.notifier).select(null);
               },
             ),
           ],
-          if (!_showAdvanced && filters.tags.isNotEmpty) ...[
+          if (filters.tags.isNotEmpty) ...[
             const SizedBox(height: 10),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                for (final tag in filters.tags)
+                if (filters.requireAllTags && filters.tags.length > 1)
                   InputChip(
-                    label: Text('#$tag'),
+                    label: Text(
+                      strings.localized(
+                        en: 'All tags',
+                        ja: 'タグ: すべて',
+                        zh: '所有标签',
+                        ko: '모든 태그',
+                        es: 'Todas las etiquetas',
+                        de: 'Alle Tags',
+                      ),
+                    ),
                     onDeleted: () => ref
                         .read(searchFiltersControllerProvider.notifier)
-                        .removeTag(tag),
+                        .setRequireAllTags(false),
                   ),
               ],
             ),
           ],
-          if (_showAdvanced) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerLowest,
-                border: Border.all(color: Theme.of(context).dividerColor),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    strings.text('home.filters'),
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  const SizedBox(height: 8),
-                  CheckboxListTile(
-                    value: filters.pinnedOnly,
-                    contentPadding: EdgeInsets.zero,
-                    controlAffinity: ListTileControlAffinity.leading,
-                    dense: true,
-                    visualDensity: VisualDensity.compact,
-                    title: Text(strings.text('home.pinned.only')),
-                    onChanged: (value) => ref
-                        .read(searchFiltersControllerProvider.notifier)
-                        .setPinnedOnly(value ?? false),
-                  ),
-                  CheckboxListTile(
-                    value: filters.withMediaOnly,
-                    contentPadding: EdgeInsets.zero,
-                    controlAffinity: ListTileControlAffinity.leading,
-                    dense: true,
-                    visualDensity: VisualDensity.compact,
-                    title: Text(strings.text('home.with.media')),
-                    onChanged: (value) => ref
-                        .read(searchFiltersControllerProvider.notifier)
-                        .setWithMediaOnly(value ?? false),
-                  ),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String?>(
-                    key: ValueKey(filters.vaultId ?? 'all-vaults'),
-                    initialValue: filters.vaultId,
-                    decoration: InputDecoration(
-                      labelText: strings.text('home.vault'),
-                      border: const OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    items: [
-                      DropdownMenuItem<String?>(
-                        value: null,
-                        child: Text(strings.text('home.all.visible.vaults')),
-                      ),
-                      for (final vault in visibleVaults)
-                        DropdownMenuItem<String?>(
-                          value: vault.id,
-                          child: Text(_vaultDisplayName(context, vault)),
-                        ),
-                    ],
-                    onChanged: ref
-                        .read(searchFiltersControllerProvider.notifier)
-                        .setVault,
-                  ),
-                  if (ref.watch(visibleNoteYearsProvider).length > 1) ...[
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<int?>(
-                      key: ValueKey(filters.year ?? 'all-years'),
-                      initialValue: filters.year,
-                      decoration: InputDecoration(
-                        labelText: strings.text('home.year.partition'),
-                        border: const OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      items: [
-                        DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text(strings.text('home.all.years')),
-                        ),
-                        for (final year in ref.watch(visibleNoteYearsProvider))
-                          DropdownMenuItem<int?>(
-                            value: year,
-                            child: Text('$year'),
-                          ),
-                      ],
-                      onChanged: ref
-                          .read(searchFiltersControllerProvider.notifier)
-                          .setYear,
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  _TagAutocompleteField(
-                    key: const Key('search-tag-input'),
-                    suggestions: ref.watch(visibleTagSuggestionsProvider),
-                    label: strings.text('home.filter.by.tag'),
-                    hintText: strings.text('home.add.tags.to.narrow.the.list'),
-                    existingTags: filters.tags,
-                    onTagSelected: ref
-                        .read(searchFiltersControllerProvider.notifier)
-                        .addTag,
-                  ),
-                  if (filters.tags.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final tag in filters.tags)
-                          InputChip(
-                            label: Text('#$tag'),
-                            onDeleted: () => ref
-                                .read(searchFiltersControllerProvider.notifier)
-                                .removeTag(tag),
-                          ),
-                      ],
-                    ),
-                  ],
-                  if (hasAdvancedFilters) ...[
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: ref
-                            .read(searchFiltersControllerProvider.notifier)
-                            .reset,
-                        child: Text(strings.text('home.reset.filters')),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
+          ..._buildDetailedFilterRows(context, strings, filters, visibleVaults),
           if (!widget.compact &&
               ref.watch(activeIdentityProvider) != 'daily') ...[
             const SizedBox(height: 12),
@@ -8974,6 +9016,588 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     _lastAppliedSearchQuery = value;
     ref.read(searchQueryProvider.notifier).setQuery(value);
   }
+
+  List<Widget> _buildDetailedFilterRows(
+    BuildContext context,
+    AppStrings strings,
+    SearchFilters filters,
+    List<VaultBucket> visibleVaults,
+  ) {
+    final notifier = ref.read(searchFiltersControllerProvider.notifier);
+    final chips = <Widget>[];
+
+    if (filters.pinnedOnly) {
+      chips.add(
+        _filterSummaryChip(
+          context,
+          label: strings.text('home.pinned.only'),
+          onDeleted: () => notifier.setPinnedOnly(false),
+        ),
+      );
+    }
+    if (filters.attachmentFilter != SearchAttachmentFilter.all) {
+      chips.add(
+        _filterSummaryChip(
+          context,
+          label: _attachmentFilterLabel(strings, filters.attachmentFilter),
+          onDeleted: () =>
+              notifier.setAttachmentFilter(SearchAttachmentFilter.all),
+        ),
+      );
+    }
+    if (filters.archivedOnly) {
+      chips.add(
+        _filterSummaryChip(
+          context,
+          label: strings.localized(
+            en: 'Archive',
+            ja: 'アーカイブ',
+            zh: '归档',
+            ko: '아카이브',
+            es: 'Archivo',
+            de: 'Archiv',
+          ),
+          onDeleted: () => notifier.setArchivedOnly(false),
+        ),
+      );
+    }
+    if (filters.includeArchived) {
+      chips.add(
+        _filterSummaryChip(
+          context,
+          label: strings.localized(
+            en: 'Normal + archive',
+            ja: '通常 + アーカイブ',
+            zh: '普通 + 归档',
+            ko: '일반 + 아카이브',
+            es: 'Normal + archivo',
+            de: 'Normal + Archiv',
+          ),
+          onDeleted: () => notifier.setIncludeArchived(false),
+        ),
+      );
+    }
+    if (filters.dateRange != SearchDateRange.all) {
+      chips.add(
+        _filterSummaryChip(
+          context,
+          label:
+              '${_dateRangeLabel(strings, filters.dateRange)} / ${_dateFieldLabel(strings, filters.dateField)}',
+          onDeleted: () => notifier.setDateRange(SearchDateRange.all),
+        ),
+      );
+    }
+    if (filters.vaultId != null) {
+      chips.add(
+        _filterSummaryChip(
+          context,
+          label: _selectedVaultLabel(context, visibleVaults, filters.vaultId!),
+          onDeleted: () => notifier.setVault(null),
+        ),
+      );
+    }
+    if (filters.year != null) {
+      chips.add(
+        _filterSummaryChip(
+          context,
+          label: '${filters.year}',
+          onDeleted: () => notifier.setYear(null),
+        ),
+      );
+    }
+
+    if (chips.isEmpty) {
+      return const [];
+    }
+    return [
+      const SizedBox(height: 10),
+      Wrap(spacing: 8, runSpacing: 8, children: chips),
+    ];
+  }
+
+  Widget _filterSummaryChip(
+    BuildContext context, {
+    required String label,
+    required VoidCallback onDeleted,
+  }) {
+    return InputChip(
+      label: Text(label),
+      avatar: const Icon(Icons.filter_alt_outlined, size: 16),
+      onDeleted: onDeleted,
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      side: BorderSide(color: Theme.of(context).dividerColor),
+    );
+  }
+
+  String _selectedVaultLabel(
+    BuildContext context,
+    List<VaultBucket> visibleVaults,
+    String vaultId,
+  ) {
+    for (final vault in visibleVaults) {
+      if (vault.id == vaultId) {
+        return _vaultDisplayName(context, vault);
+      }
+    }
+    return vaultId;
+  }
+
+  String _dateRangeLabel(AppStrings strings, SearchDateRange range) {
+    return switch (range) {
+      SearchDateRange.all => strings.localized(
+        en: 'All dates',
+        ja: '\u3059\u3079\u3066\u306e\u671f\u9593',
+        zh: '\u6240\u6709\u65e5\u671f',
+        ko: '\ubaa8\ub4e0 \uae30\uac04',
+        es: 'Todas las fechas',
+        de: 'Alle Daten',
+      ),
+      SearchDateRange.last7Days => strings.localized(
+        en: 'Last 7 days',
+        ja: '\u76f4\u8fd17\u65e5',
+        zh: '\u6700\u8fd1 7 \u5929',
+        ko: '\ucd5c\uadfc 7\uc77c',
+        es: 'Ultimos 7 dias',
+        de: 'Letzte 7 Tage',
+      ),
+      SearchDateRange.last30Days => strings.localized(
+        en: 'Last 30 days',
+        ja: '\u76f4\u8fd130\u65e5',
+        zh: '\u6700\u8fd1 30 \u5929',
+        ko: '\ucd5c\uadfc 30\uc77c',
+        es: 'Ultimos 30 dias',
+        de: 'Letzte 30 Tage',
+      ),
+      SearchDateRange.thisMonth => strings.localized(
+        en: 'This month',
+        ja: '\u4eca\u6708',
+        zh: '\u672c\u6708',
+        ko: '\uc774\ubc88 \ub2ec',
+        es: 'Este mes',
+        de: 'Dieser Monat',
+      ),
+    };
+  }
+
+  String _dateFieldLabel(AppStrings strings, SearchDateField field) {
+    return switch (field) {
+      SearchDateField.createdAt => strings.localized(
+        en: 'Created date',
+        ja: '\u4f5c\u6210\u65e5',
+        zh: '\u521b\u5efa\u65e5\u671f',
+        ko: '\uc791\uc131\uc77c',
+        es: 'Fecha de creacion',
+        de: 'Erstellt am',
+      ),
+      SearchDateField.updatedAt => strings.localized(
+        en: 'Updated date',
+        ja: '\u66f4\u65b0\u65e5',
+        zh: '\u66f4\u65b0\u65e5\u671f',
+        ko: '\uc218\uc815\uc77c',
+        es: 'Fecha de actualizacion',
+        de: 'Geandert am',
+      ),
+    };
+  }
+
+  String _attachmentFilterLabel(
+    AppStrings strings,
+    SearchAttachmentFilter filter,
+  ) {
+    return switch (filter) {
+      SearchAttachmentFilter.all => strings.localized(
+        en: 'All attachments',
+        ja: '\u3059\u3079\u3066',
+        zh: '\u5168\u90e8',
+        ko: '\ubaa8\ub450',
+        es: 'Todos',
+        de: 'Alle',
+      ),
+      SearchAttachmentFilter.any => strings.text('home.with.media'),
+      SearchAttachmentFilter.photo => strings.localized(
+        en: 'Images',
+        ja: '\u753b\u50cf',
+        zh: '\u56fe\u50cf',
+        ko: '\uc774\ubbf8\uc9c0',
+        es: 'Imagenes',
+        de: 'Bilder',
+      ),
+      SearchAttachmentFilter.video => strings.localized(
+        en: 'Videos',
+        ja: '\u52d5\u753b',
+        zh: '\u89c6\u9891',
+        ko: '\ub3d9\uc601\uc0c1',
+        es: 'Videos',
+        de: 'Videos',
+      ),
+      SearchAttachmentFilter.audio => strings.localized(
+        en: 'Audio',
+        ja: '\u97f3\u58f0',
+        zh: '\u97f3\u9891',
+        ko: '\uc624\ub514\uc624',
+        es: 'Audio',
+        de: 'Audio',
+      ),
+      SearchAttachmentFilter.location => strings.localized(
+        en: 'Location',
+        ja: '\u4f4d\u7f6e\u60c5\u5831',
+        zh: '\u4f4d\u7f6e\u4fe1\u606f',
+        ko: '\uc704\uce58 \uc815\ubcf4',
+        es: 'Ubicacion',
+        de: 'Standort',
+      ),
+    };
+  }
+
+  void _openAdvancedFiltersSheet(
+    BuildContext context, {
+    required bool hasArchivedNotes,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final strings = sheetContext.strings;
+        final bottomInset = MediaQuery.viewInsetsOf(sheetContext).bottom;
+        final maxHeight = MediaQuery.sizeOf(sheetContext).height * 0.92;
+        return Consumer(
+          builder: (context, ref, _) {
+            final filters = ref.watch(searchFiltersControllerProvider);
+            final notifier = ref.read(searchFiltersControllerProvider.notifier);
+            final visibleVaults = ref.watch(visibleVaultsProvider);
+            final years = ref.watch(visibleNoteYearsProvider);
+            final suggestions = ref.watch(visibleTagSuggestionsProvider);
+            return Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + bottomInset),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: maxHeight),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              strings.text('home.filters'),
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                          ),
+                          if (!filters.isDefault)
+                            TextButton(
+                              onPressed: notifier.reset,
+                              child: Text(strings.text('home.reset.filters')),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      CheckboxListTile(
+                        value: filters.pinnedOnly,
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        dense: true,
+                        title: Text(strings.text('home.pinned.only')),
+                        onChanged: (value) =>
+                            notifier.setPinnedOnly(value ?? false),
+                      ),
+                      DropdownButtonFormField<SearchAttachmentFilter>(
+                        initialValue: filters.attachmentFilter,
+                        decoration: InputDecoration(
+                          labelText: strings.localized(
+                            en: 'Attachment',
+                            ja: '\u6dfb\u4ed8\u691c\u7d22',
+                            zh: '\u9644\u4ef6\u641c\u7d22',
+                            ko: '\ucca8\ubd80 \uac80\uc0c9',
+                            es: 'Adjunto',
+                            de: 'Anhang',
+                          ),
+                          border: const OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: [
+                          for (final filter in const [
+                            SearchAttachmentFilter.all,
+                            SearchAttachmentFilter.photo,
+                            SearchAttachmentFilter.video,
+                            SearchAttachmentFilter.audio,
+                            SearchAttachmentFilter.location,
+                          ])
+                            DropdownMenuItem(
+                              value: filter,
+                              child: Text(
+                                _attachmentFilterLabel(strings, filter),
+                              ),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            notifier.setAttachmentFilter(value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      _TagAutocompleteField(
+                        key: const Key('search-tag-input-sheet'),
+                        suggestions: suggestions,
+                        label: strings.text('home.filter.by.tag'),
+                        hintText: strings.text(
+                          'home.add.tags.to.narrow.the.list',
+                        ),
+                        existingTags: filters.tags,
+                        onTagSelected: notifier.addTag,
+                      ),
+                      if (filters.tags.length > 1) ...[
+                        const SizedBox(height: 10),
+                        SegmentedButton<bool>(
+                          segments: [
+                            ButtonSegment(
+                              value: false,
+                              label: Text(
+                                strings.localized(
+                                  en: 'Any tag',
+                                  ja: 'いずれかのタグ',
+                                  zh: '任一标签',
+                                  ko: '태그 중 하나',
+                                  es: 'Cualquier etiqueta',
+                                  de: 'Ein beliebiger Tag',
+                                ),
+                              ),
+                            ),
+                            ButtonSegment(
+                              value: true,
+                              label: Text(
+                                strings.localized(
+                                  en: 'All tags',
+                                  ja: 'すべてのタグ',
+                                  zh: '所有标签',
+                                  ko: '모든 태그',
+                                  es: 'Todas las etiquetas',
+                                  de: 'Alle Tags',
+                                ),
+                              ),
+                            ),
+                          ],
+                          selected: {filters.requireAllTags},
+                          onSelectionChanged: (selection) =>
+                              notifier.setRequireAllTags(selection.single),
+                        ),
+                      ],
+                      if (filters.tags.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final tag in filters.tags)
+                              InputChip(
+                                label: Text('#$tag'),
+                                onDeleted: () => notifier.removeTag(tag),
+                              ),
+                          ],
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<SearchDateRange>(
+                        initialValue: filters.dateRange,
+                        decoration: InputDecoration(
+                          labelText: strings.localized(
+                            en: 'Period',
+                            ja: '\u671f\u9593',
+                            zh: '\u671f\u95f4',
+                            ko: '\uae30\uac04',
+                            es: 'Periodo',
+                            de: 'Zeitraum',
+                          ),
+                          border: const OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: [
+                          for (final range in SearchDateRange.values)
+                            DropdownMenuItem(
+                              value: range,
+                              child: Text(_dateRangeLabel(strings, range)),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            notifier.setDateRange(value);
+                          }
+                        },
+                      ),
+                      if (filters.dateRange != SearchDateRange.all) ...[
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<SearchDateField>(
+                          initialValue: filters.dateField,
+                          decoration: InputDecoration(
+                            labelText: strings.localized(
+                              en: 'Date target',
+                              ja: '\u65e5\u4ed8\u5bfe\u8c61',
+                              zh: '\u65e5\u671f\u5bf9\u8c61',
+                              ko: '\ub0a0\uc9dc \uae30\uc900',
+                              es: 'Fecha objetivo',
+                              de: 'Datumsfeld',
+                            ),
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          items: [
+                            for (final field in SearchDateField.values)
+                              DropdownMenuItem(
+                                value: field,
+                                child: Text(_dateFieldLabel(strings, field)),
+                              ),
+                          ],
+                          onChanged: (value) {
+                            if (value != null) {
+                              notifier.setDateField(value);
+                            }
+                          },
+                        ),
+                      ],
+                      if (hasArchivedNotes ||
+                          filters.archivedOnly ||
+                          filters.includeArchived) ...[
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<int>(
+                          initialValue: filters.archivedOnly
+                              ? 1
+                              : (filters.includeArchived ? 2 : 0),
+                          decoration: InputDecoration(
+                            labelText: strings.localized(
+                              en: 'Target',
+                              ja: '\u5bfe\u8c61',
+                              zh: '\u5bf9\u8c61',
+                              ko: '\ub300\uc0c1',
+                              es: 'Objetivo',
+                              de: 'Ziel',
+                            ),
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          items: [
+                            DropdownMenuItem(
+                              value: 0,
+                              child: Text(
+                                strings.localized(
+                                  en: 'Normal notes',
+                                  ja: '\u901a\u5e38\u30ce\u30fc\u30c8',
+                                  zh: '\u666e\u901a\u7b14\u8bb0',
+                                  ko: '\uc77c\ubc18 \uba54\ubaa8',
+                                  es: 'Notas normales',
+                                  de: 'Normale Notizen',
+                                ),
+                              ),
+                            ),
+                            DropdownMenuItem(
+                              value: 1,
+                              child: Text(
+                                strings.localized(
+                                  en: 'Archive only',
+                                  ja: '\u30a2\u30fc\u30ab\u30a4\u30d6\u306e\u307f',
+                                  zh: '\u4ec5\u5f52\u6863',
+                                  ko: '\uc544\uce74\uc774\ube0c\ub9cc',
+                                  es: 'Solo archivo',
+                                  de: 'Nur Archiv',
+                                ),
+                              ),
+                            ),
+                            DropdownMenuItem(
+                              value: 2,
+                              child: Text(
+                                strings.localized(
+                                  en: 'Normal + archive',
+                                  ja: '\u901a\u5e38 + \u30a2\u30fc\u30ab\u30a4\u30d6',
+                                  zh: '\u666e\u901a + \u5f52\u6863',
+                                  ko: '\uc77c\ubc18 + \uc544\uce74\uc774\ube0c',
+                                  es: 'Normal + archivo',
+                                  de: 'Normal + Archiv',
+                                ),
+                              ),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value == 1) {
+                              notifier.setArchivedOnly(true);
+                            } else if (value == 2) {
+                              notifier.setIncludeArchived(true);
+                            } else {
+                              notifier
+                                ..setArchivedOnly(false)
+                                ..setIncludeArchived(false);
+                            }
+                          },
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String?>(
+                        key: ValueKey(filters.vaultId ?? 'all-vaults-sheet'),
+                        initialValue: filters.vaultId,
+                        decoration: InputDecoration(
+                          labelText: strings.text('home.vault'),
+                          border: const OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: [
+                          DropdownMenuItem<String?>(
+                            value: null,
+                            child: Text(
+                              strings.text('home.all.visible.vaults'),
+                            ),
+                          ),
+                          for (final vault in visibleVaults)
+                            DropdownMenuItem<String?>(
+                              value: vault.id,
+                              child: Text(_vaultDisplayName(context, vault)),
+                            ),
+                        ],
+                        onChanged: notifier.setVault,
+                      ),
+                      if (years.length > 1) ...[
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<int?>(
+                          key: ValueKey(filters.year ?? 'all-years-sheet'),
+                          initialValue: filters.year,
+                          decoration: InputDecoration(
+                            labelText: strings.text('home.year.partition'),
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                          items: [
+                            DropdownMenuItem<int?>(
+                              value: null,
+                              child: Text(strings.text('home.all.years')),
+                            ),
+                            for (final year in years)
+                              DropdownMenuItem<int?>(
+                                value: year,
+                                child: Text('$year'),
+                              ),
+                          ],
+                          onChanged: notifier.setYear,
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: FilledButton(
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                          child: Text(strings.close),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }
 
 class _QuickTagStrip extends StatelessWidget {
@@ -8991,20 +9615,17 @@ class _QuickTagStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final activeKeys = activeTags.map(canonicalizeNoteTag).toSet();
     final visibleSummaries = summaries.take(10).toList(growable: false);
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (final summary in visibleSummaries) ...[
-            _QuickTagChip(
-              summary: summary,
-              selected: activeKeys.contains(canonicalizeNoteTag(summary.name)),
-              onTap: () => onTagSelected(summary.name),
-            ),
-            const SizedBox(width: 8),
-          ],
-        ],
-      ),
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final summary in visibleSummaries)
+          _QuickTagChip(
+            summary: summary,
+            selected: activeKeys.contains(canonicalizeNoteTag(summary.name)),
+            onTap: () => onTagSelected(summary.name),
+          ),
+      ],
     );
   }
 }
@@ -10112,6 +10733,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       _selectedVaultId = widget.note!.vaultId;
     }
     final isPrivateSelection = _selectedVaultId != 'everyday';
+    final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return SafeArea(
       child: Padding(
@@ -10308,7 +10930,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             const SizedBox(height: 10),
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.only(bottom: 96),
+                padding: EdgeInsets.only(
+                  top: keyboardVisible ? 12 : 0,
+                  bottom: keyboardVisible ? 120 : 96,
+                ),
                 children: [
                   if (_editorMode == NoteEditorMode.quick) ...[
                     Container(
@@ -10322,9 +10947,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                         minLines: 12,
                         maxLines: null,
                         scrollPadding: const EdgeInsets.only(
+                          top: 96,
                           left: 20,
                           right: 20,
-                          bottom: 180,
+                          bottom: 96,
                         ),
                         decoration: InputDecoration(
                           hintText: strings.memoFirstLineHint,
@@ -12318,9 +12944,10 @@ class _RichBlockEditorTile extends StatelessWidget {
                 minLines: 1,
                 maxLines: null,
                 scrollPadding: const EdgeInsets.only(
+                  top: 96,
                   left: 20,
                   right: 20,
-                  bottom: 180,
+                  bottom: 96,
                 ),
                 decoration: InputDecoration(
                   semanticCounterText: '',

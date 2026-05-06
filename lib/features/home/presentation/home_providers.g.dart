@@ -519,7 +519,7 @@ final class NotesControllerProvider
   }
 }
 
-String _$notesControllerHash() => r'48ac148ab4c5f52bbe06ba7d649e3cff0e3807c4';
+String _$notesControllerHash() => r'cfac0c4e5dcb4fc9330565c0450e04931b67b27f';
 
 abstract class _$NotesController extends $Notifier<List<NoteEntry>> {
   List<NoteEntry> build();
@@ -762,7 +762,7 @@ final class VisibleNotesProvider
   }
 }
 
-String _$visibleNotesHash() => r'5797341ec5bd05ef4b4f538e7860f2c699e2f1f1';
+String _$visibleNotesHash() => r'4e004825463389e793458c3c9f6f0f7df7ca3e43';
 
 @ProviderFor(visibleNoteYears)
 final visibleNoteYearsProvider = VisibleNoteYearsProvider._();
@@ -803,7 +803,7 @@ final class VisibleNoteYearsProvider
   }
 }
 
-String _$visibleNoteYearsHash() => r'2ab1162cd34d3256b710f8349489d10ee0cbb281';
+String _$visibleNoteYearsHash() => r'f0f19d9300e4a6536e289b1368d5cafbb1b78dd9';
 
 @ProviderFor(noteSearchIndex)
 final noteSearchIndexProvider = NoteSearchIndexProvider._();
@@ -850,7 +850,7 @@ final class NoteSearchIndexProvider
   }
 }
 
-String _$noteSearchIndexHash() => r'0393413857bce3a37cc97acf8401fd7a051d7039';
+String _$noteSearchIndexHash() => r'fb4ef05c09aeafc00c62da4dfdfe89ed05d7cbd4';
 
 @ProviderFor(visibleTagSuggestions)
 final visibleTagSuggestionsProvider = VisibleTagSuggestionsProvider._();
@@ -892,7 +892,7 @@ final class VisibleTagSuggestionsProvider
 }
 
 String _$visibleTagSuggestionsHash() =>
-    r'15b64988aa47e406fe48e5bfb8311f54f880cd38';
+    r'370a3f322fe6496edec62f04707eb699b4ba75c8';
 
 @ProviderFor(visibleNotesByVault)
 final visibleNotesByVaultProvider = VisibleNotesByVaultProvider._();
@@ -940,7 +940,7 @@ final class VisibleNotesByVaultProvider
 }
 
 String _$visibleNotesByVaultHash() =>
-    r'a3e1b575e8ac67aa93388d295fb38308e92a47a2';
+    r'881041395ffe42092370531f0a2a98fd5b8dda24';
 
 @ProviderFor(visibleNoteIndexById)
 final visibleNoteIndexByIdProvider = VisibleNoteIndexByIdProvider._();
@@ -987,7 +987,7 @@ final class VisibleNoteIndexByIdProvider
 }
 
 String _$visibleNoteIndexByIdHash() =>
-    r'f1be6edb42f05cf323c834548ec86a5b39d2a2d3';
+    r'aaa067a43784e2bdd7bb5c956325706ae1b3ad4e';
 
 @ProviderFor(visibleNotesByDay)
 final visibleNotesByDayProvider = VisibleNotesByDayProvider._();
@@ -1036,7 +1036,7 @@ final class VisibleNotesByDayProvider
   }
 }
 
-String _$visibleNotesByDayHash() => r'9f5aa4a79eb2ace6058d56c74927161da12a2358';
+String _$visibleNotesByDayHash() => r'7411fb3d1da028b625cb0dd0ee8bcce0095696fe';
 
 @ProviderFor(visibleNoteDays)
 final visibleNoteDaysProvider = VisibleNoteDaysProvider._();
