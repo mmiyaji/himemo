@@ -670,3 +670,32 @@ Conclusion:
 
 - Calendar grouping is currently cheap at 1000 notes.
 - The higher-risk path was same-day row rendering, which Cycle 26 capped.
+
+## Cycle 28 follow-up
+
+Plan:
+
+- Inspect lightweight derived providers that still run during list/detail navigation.
+- Reduce duplicate filtering work and add timing so future growth can be diagnosed.
+
+Changes:
+
+- `visibleNoteYearsProvider` now derives from `visibleNotesProvider` instead of scanning all notes and rechecking visible vaults.
+- Added debug-only timings for:
+  - visible note years
+  - visible notes by vault
+  - visible note ID index
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "search filters can partition notes by year"` passed.
+- In App Browser on `127.0.0.1:58091` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - `visible notes source=1000 result=1000 query=0 tags=0 elapsed=0.701ms`.
+  - `visible notes by vault source=1000 vaults=1 elapsed=0.301ms`.
+  - `visible note index source=1000 entries=1000 elapsed=0.5ms`.
+
+Conclusion:
+
+- The derived list indexes are not a current bottleneck at 1000 notes.
+- The code now avoids one redundant all-notes scan for year partitions and has logs ready if these costs grow.

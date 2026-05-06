@@ -5106,20 +5106,22 @@ List<NoteEntry> visibleNotes(Ref ref) {
 
 @riverpod
 List<int> visibleNoteYears(Ref ref) {
-  final visibleIds = ref
-      .watch(visibleVaultsProvider)
-      .map((vault) => vault.id)
-      .toSet();
+  final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
+  final notes = ref.watch(visibleNotesProvider);
   final years = <int>{};
-  for (final note in ref.watch(notesControllerProvider)) {
-    if (note.deletedAt != null || !visibleIds.contains(note.vaultId)) {
-      continue;
-    }
+  for (final note in notes) {
     years.add(note.createdAt.year);
   }
   final sorted = years.toList(growable: false)
     ..sort((left, right) => right.compareTo(left));
-  return List.unmodifiable(sorted);
+  final result = List<int>.unmodifiable(sorted);
+  final elapsed = stopwatch?.elapsedMicroseconds;
+  if (elapsed != null && (notes.length >= 500 || elapsed >= 2000)) {
+    _debugHomePerf(
+      'visible note years source=${notes.length} years=${result.length} elapsed=${elapsed / 1000}ms',
+    );
+  }
+  return result;
 }
 
 @riverpod
@@ -5212,22 +5214,39 @@ final noteEditorDraftStoreProvider = Provider<NoteEditorDraftStore>(
 
 @riverpod
 Map<String, List<NoteEntry>> visibleNotesByVault(Ref ref) {
+  final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
+  final notes = ref.watch(visibleNotesProvider);
   final grouped = <String, List<NoteEntry>>{};
-  for (final note in ref.watch(visibleNotesProvider)) {
+  for (final note in notes) {
     (grouped[note.vaultId] ??= <NoteEntry>[]).add(note);
   }
-  return Map.unmodifiable({
+  final result = Map<String, List<NoteEntry>>.unmodifiable({
     for (final entry in grouped.entries)
       entry.key: List<NoteEntry>.unmodifiable(entry.value),
   });
+  final elapsed = stopwatch?.elapsedMicroseconds;
+  if (elapsed != null && (notes.length >= 500 || elapsed >= 2000)) {
+    _debugHomePerf(
+      'visible notes by vault source=${notes.length} vaults=${result.length} elapsed=${elapsed / 1000}ms',
+    );
+  }
+  return result;
 }
 
 @riverpod
 Map<String, int> visibleNoteIndexById(Ref ref) {
+  final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
   final notes = ref.watch(visibleNotesProvider);
-  return Map.unmodifiable({
+  final result = Map<String, int>.unmodifiable({
     for (var index = 0; index < notes.length; index++) notes[index].id: index,
   });
+  final elapsed = stopwatch?.elapsedMicroseconds;
+  if (elapsed != null && (notes.length >= 500 || elapsed >= 2000)) {
+    _debugHomePerf(
+      'visible note index source=${notes.length} entries=${result.length} elapsed=${elapsed / 1000}ms',
+    );
+  }
+  return result;
 }
 
 @riverpod
