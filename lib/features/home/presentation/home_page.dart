@@ -9661,31 +9661,31 @@ class _AttachmentSearchFilterControls extends StatelessWidget {
         ),
         if (hasAttachmentFilter) ...[
           const SizedBox(height: 4),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SegmentedButton<SearchAttachmentFilter>(
-              showSelectedIcon: false,
-              segments: [
-                for (final option in const [
-                  SearchAttachmentFilter.any,
-                  SearchAttachmentFilter.photo,
-                  SearchAttachmentFilter.video,
-                  SearchAttachmentFilter.audio,
-                  SearchAttachmentFilter.location,
-                ])
-                  ButtonSegment(
-                    value: option,
-                    icon: Icon(_attachmentSearchFilterIcon(option)),
-                    label: Text(_attachmentSearchFilterLabel(strings, option)),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final option in const [
+                SearchAttachmentFilter.any,
+                SearchAttachmentFilter.photo,
+                SearchAttachmentFilter.video,
+                SearchAttachmentFilter.audio,
+                SearchAttachmentFilter.location,
+              ])
+                ChoiceChip(
+                  avatar: Icon(_attachmentSearchFilterIcon(option), size: 18),
+                  label: Text(_attachmentSearchFilterLabel(strings, option)),
+                  selected:
+                      filter == option ||
+                      (filter == SearchAttachmentFilter.all &&
+                          option == SearchAttachmentFilter.any),
+                  onSelected: (_) => onChanged(option),
+                  labelStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
                   ),
-              ],
-              selected: {
-                filter == SearchAttachmentFilter.all
-                    ? SearchAttachmentFilter.any
-                    : filter,
-              },
-              onSelectionChanged: (selection) => onChanged(selection.single),
-            ),
+                  visualDensity: VisualDensity.compact,
+                ),
+            ],
           ),
         ],
       ],
@@ -9706,7 +9706,14 @@ String _attachmentSearchFilterLabel(
       es: 'Todos',
       de: 'Alle',
     ),
-    SearchAttachmentFilter.any => strings.text('home.with.media'),
+    SearchAttachmentFilter.any => strings.localized(
+      en: 'Any',
+      ja: '\u3059\u3079\u3066',
+      zh: '\u5168\u90e8',
+      ko: '\ubaa8\ub450',
+      es: 'Cualquiera',
+      de: 'Alle',
+    ),
     SearchAttachmentFilter.photo => strings.localized(
       en: 'Images',
       ja: '\u753b\u50cf',
