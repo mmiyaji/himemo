@@ -468,6 +468,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     );
     final visibleNotes = ref.watch(visibleNotesProvider);
     final visibleVaults = ref.watch(visibleVaultsProvider);
+    final visibleNotesByVault = ref.watch(visibleNotesByVaultProvider);
     final vaultNameById = {
       for (final vault in visibleVaults)
         vault.id: _vaultDisplayName(context, vault),
@@ -492,10 +493,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             activeIdentity.id == 'private' && !privateVaultUnlocked,
         compactHeader: useCompactHeader,
         vaults: visibleVaults,
-        notesByVault: {
-          for (final vault in visibleVaults)
-            vault.id: ref.watch(notesForVaultProvider(vault.id)),
-        },
+        notesByVault: visibleNotesByVault,
         allVisibleNotes: visibleNotes,
         selectedNoteId: effectiveSelectedNoteId,
         density: listDensity,
@@ -7851,7 +7849,6 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     final filters = ref.watch(searchFiltersControllerProvider);
     final visibleVaults = ref.watch(visibleVaultsProvider);
     final visibleYears = ref.watch(visibleNoteYearsProvider);
-    final tagSuggestions = ref.watch(visibleTagSuggestionsProvider);
     final hasAdvancedFilters = !filters.isDefault;
     final listDensity = ref.watch(notesListDensityControllerProvider);
     final privateModeActive = ref.watch(privacyScreenActiveProvider);
@@ -8167,7 +8164,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                   const SizedBox(height: 12),
                   _TagAutocompleteField(
                     key: const Key('search-tag-input'),
-                    suggestions: tagSuggestions,
+                    suggestions: ref.watch(visibleTagSuggestionsProvider),
                     label: strings.text('home.filter.by.tag'),
                     hintText: strings.text('home.add.tags.to.narrow.the.list'),
                     existingTags: filters.tags,

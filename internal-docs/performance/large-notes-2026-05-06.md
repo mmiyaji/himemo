@@ -34,3 +34,26 @@
 - Web debug reload time is not representative of production builds.
 - The web note store still restores the full encrypted note payload before the list appears.
 - True storage-level paging requires a queryable encrypted-note index per vault/year. Native already uses a database, but web currently uses a single encrypted payload.
+
+## Cycle 1 follow-up
+
+Plan:
+
+- Avoid repeated visible-note scans when grouping by vault.
+- Avoid building tag suggestions until the advanced filter panel is visible.
+
+Changes:
+
+- Added `visibleNotesByVaultProvider` and routed mobile list grouping through it.
+- Kept `notesForVaultProvider` as a compatibility wrapper over the grouped map.
+- Moved `visibleTagSuggestionsProvider` watch into the advanced filter UI branch.
+
+Measurements:
+
+- Mobile row model after this cycle: 1000 notes, 2010 rows, 2.2ms.
+- In-app browser navigation on an already-loaded debug session showed the list content immediately; cold debug reload remains dominated by Flutter web bootstrap and encrypted payload restore.
+
+Conclusion:
+
+- This cycle reduces redundant provider work during normal note-list rendering.
+- The next high-impact cycle is storage/index work: split web note restore into lightweight metadata plus lazy note payloads.

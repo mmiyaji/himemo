@@ -5107,11 +5107,21 @@ final noteEditorDraftStoreProvider = Provider<NoteEditorDraftStore>(
 );
 
 @riverpod
+Map<String, List<NoteEntry>> visibleNotesByVault(Ref ref) {
+  final grouped = <String, List<NoteEntry>>{};
+  for (final note in ref.watch(visibleNotesProvider)) {
+    (grouped[note.vaultId] ??= <NoteEntry>[]).add(note);
+  }
+  return Map.unmodifiable({
+    for (final entry in grouped.entries)
+      entry.key: List<NoteEntry>.unmodifiable(entry.value),
+  });
+}
+
+@riverpod
 List<NoteEntry> notesForVault(Ref ref, String vaultId) {
-  return ref
-      .watch(visibleNotesProvider)
-      .where((note) => note.vaultId == vaultId)
-      .toList(growable: false);
+  return ref.watch(visibleNotesByVaultProvider)[vaultId] ??
+      const <NoteEntry>[];
 }
 
 @riverpod
