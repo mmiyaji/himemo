@@ -410,3 +410,24 @@ Measurements:
 Conclusion:
 
 - The multi-attachment incremental persistence path is now covered by a targeted regression test.
+
+## Cycle 18 follow-up
+
+Plan:
+
+- Re-run browser E2E after the detail and persistence changes.
+- Confirm that the 1000-note development seed still starts, persists, and opens detail without runtime errors.
+
+Measurements:
+
+- Started a fresh `web-server` session on `127.0.0.1:58082` with `HIMEMO_PERF_NOTE_COUNT=1000`.
+- Headless Chromium completed onboarding bypass, loaded the notes route, and clicked note rows.
+- Captured logs:
+  - `[home-perf] notes restore count=0 changed=false elapsed=468ms`
+  - `[home-perf] notes persist full count=1000 elapsed=135ms`
+  - `[note-perf] detail pane frame 160.5ms ... attachments=0 blocks=1 tags=3`
+
+Conclusion:
+
+- The 1000-note seeded route is still functional after the latest cycles.
+- The measured detail row was text-only, so it validates the list/detail path rather than the many-attachment lazy-detail path. Multi-attachment correctness is covered by the new storage test; a future UI fixture with many attachments would make the browser measurement stronger.
