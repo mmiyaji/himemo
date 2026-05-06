@@ -154,6 +154,61 @@ void main() {
     });
 
     test(
+      'incrementally persists notes with long text and many attachments',
+      () async {
+        final body = List.generate(
+          220,
+          (index) => 'Long paragraph line ${index + 1} with plain memo text.',
+        ).join('\n');
+        final attachments = [
+          for (var i = 0; i < 40; i++)
+            NoteAttachment(
+              type: i.isEven ? AttachmentType.photo : AttachmentType.file,
+              label: 'attachment-$i.dat',
+              filePath: 'secure-attachment://attachment-$i',
+            ),
+        ];
+        final note = NoteEntry(
+          id: 'large-note',
+          vaultId: 'everyday',
+          title: 'Large note',
+          body: body,
+          createdAt: DateTime(2026, 5, 6, 12, 0),
+          updatedAt: DateTime(2026, 5, 6, 12, 5),
+          attachments: attachments,
+          blocks: [
+            NoteBlock(type: NoteBlockType.paragraph, text: body),
+            for (final attachment in attachments)
+              NoteBlock(
+                type: attachment.type == AttachmentType.photo
+                    ? NoteBlockType.photo
+                    : NoteBlockType.file,
+                attachment: attachment,
+              ),
+          ],
+          syncState: NoteSyncState.pendingUpload,
+        );
+
+        await noteStore.saveOne(note);
+        final restored = await noteStore.load(fallbackNotes: const []);
+
+        expect(restored.single, note);
+        final records = await database.loadAll();
+        expect(records.single.attachments, hasLength(40));
+        expect(
+          records.single.note.encryptedPayload.contains('Long paragraph'),
+          isFalse,
+        );
+        expect(
+          records.single.attachments.first.encryptedPayload.contains(
+            'attachment-0',
+          ),
+          isFalse,
+        );
+      },
+    );
+
+    test(
       'migrates native encrypted blob into drift and removes legacy file',
       () async {
         final notes = [

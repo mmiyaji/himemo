@@ -388,3 +388,25 @@ Conclusion:
 
 - Notes with many attachments should save faster on native platforms because attachment metadata encryption can overlap.
 - The encrypted attachment bytes themselves remain protected by the existing attachment store path.
+
+## Cycle 17 follow-up
+
+Plan:
+
+- Add coverage for the long-text and many-attachment case so future performance work does not regress correctness.
+- Validate the incremental native save path with a heavier note shape than normal unit fixtures.
+
+Changes:
+
+- Added a storage test that saves one note with 220 text lines, 40 attachments, and matching rich blocks through `EncryptedNoteStore.saveOne`.
+- Verified restore equality, encrypted attachment metadata count, and absence of plaintext in encrypted note/attachment payloads.
+
+Measurements:
+
+- `dart format` applied to the touched test file.
+- `flutter analyze` passed.
+- `flutter test test\security_storage_test.dart --plain-name "incrementally persists notes with long text and many attachments"` passed.
+
+Conclusion:
+
+- The multi-attachment incremental persistence path is now covered by a targeted regression test.
