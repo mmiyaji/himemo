@@ -276,3 +276,25 @@ Conclusion:
 
 - Full replacements still encrypt each note individually, but database writes are now grouped rather than awaited one row at a time.
 - This complements Cycle 10: routine edits use incremental persistence, while unavoidable full replacements have lower database write overhead.
+
+## Cycle 12 follow-up
+
+Plan:
+
+- Make future performance cycles easier to measure without adding external profilers.
+- Separate restore, full persist, and single-note persist timings in debug logs.
+
+Changes:
+
+- Added debug-only `[home-perf]` logs for note restore, full persistence, and incremental one-note persistence.
+- Included note counts, note IDs, attachment counts, and elapsed milliseconds where relevant.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\security_storage_test.dart --plain-name "NotesController writes sync metadata and tombstones deletes"` passed.
+- The targeted test emitted restore and single-note persistence timings, confirming the instrumentation path works.
+
+Conclusion:
+
+- This does not directly speed up release builds, but it gives the next cycles clearer measurements for 1000+ note scenarios and validates that Cycle 10 is exercising the incremental path.

@@ -50,6 +50,13 @@ import 'media_duration_stub.dart' if (dart.library.io) 'media_duration_io.dart';
 
 part 'home_providers.g.dart';
 
+void _debugHomePerf(String message) {
+  if (!kDebugMode) {
+    return;
+  }
+  debugPrint('[home-perf] ${DateTime.now().toIso8601String()} $message');
+}
+
 enum AppColorTheme {
   konjyo,
   moegi,
@@ -4491,6 +4498,7 @@ class NotesController extends _$NotesController {
   }
 
   Future<void> _restore() async {
+    final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
       final deletedSeedNoteIds = await _deletedSeedNoteIds();
       final restored = [
@@ -4517,10 +4525,18 @@ class NotesController extends _$NotesController {
       _sort(next);
       state = next;
       _restoreFailed = false;
+      stopwatch?.stop();
+      _debugHomePerf(
+        'notes restore count=${state.length} changed=$changed elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms',
+      );
       if (changed) {
         await _persist();
       }
     } catch (error, stackTrace) {
+      stopwatch?.stop();
+      _debugHomePerf(
+        'notes restore failed elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms error=$error',
+      );
       if (!ref.mounted) {
         return;
       }
@@ -4581,9 +4597,18 @@ class NotesController extends _$NotesController {
     if (_restoreFailed) {
       return;
     }
+    final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
       await ref.read(encryptedNoteStoreProvider).save(state);
+      stopwatch?.stop();
+      _debugHomePerf(
+        'notes persist full count=${state.length} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms',
+      );
     } catch (error, stackTrace) {
+      stopwatch?.stop();
+      _debugHomePerf(
+        'notes persist full failed count=${state.length} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms error=$error',
+      );
       await recordNonFatalError(
         error,
         stackTrace,
@@ -4600,9 +4625,18 @@ class NotesController extends _$NotesController {
       await _persist();
       return;
     }
+    final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
       await ref.read(encryptedNoteStoreProvider).saveOne(note);
+      stopwatch?.stop();
+      _debugHomePerf(
+        'notes persist one id=${note.id} attachments=${note.attachments.length} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms',
+      );
     } catch (error, stackTrace) {
+      stopwatch?.stop();
+      _debugHomePerf(
+        'notes persist one failed id=${note.id} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms error=$error',
+      );
       await recordNonFatalError(
         error,
         stackTrace,
