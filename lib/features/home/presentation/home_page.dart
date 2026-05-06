@@ -4680,6 +4680,7 @@ class SettingsScreen extends ConsumerWidget {
           decoration: InputDecoration(
             border: const OutlineInputBorder(),
             helperText: strings.languageSystemDesc,
+            helperMaxLines: 2,
             prefixIcon: const Icon(Icons.translate_rounded),
           ),
           items: [
@@ -4741,6 +4742,7 @@ class SettingsScreen extends ConsumerWidget {
           decoration: InputDecoration(
             border: const OutlineInputBorder(),
             helperText: strings.appFontDesc,
+            helperMaxLines: 3,
             prefixIcon: const Icon(Icons.text_fields_rounded),
           ),
           items: _availableFontFamilies

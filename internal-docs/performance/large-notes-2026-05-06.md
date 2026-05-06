@@ -844,3 +844,35 @@ Conclusion:
 
 - The editor no longer leaves a dead snackbar action behind after it closes.
 - The sampled large-list performance stayed stable during the monkey pass.
+
+## Cycle 34 monkey follow-up
+
+Plan:
+
+- Run a settings/navigation-focused In App Browser pass.
+- Check for text clipping and usability issues in the appearance controls after repeated theme/font changes.
+
+Findings:
+
+- The 1000-note list generation stayed low: `mobile list rows notes=1000 rows=2009 completed 2ms`.
+- Calendar grouping stayed low: `visible notes by day source=1000 days=8 elapsed=2ms`.
+- Settings opened without console errors.
+- The app font warning in Appearance was visually clipped to one line, making the "font may not be available on this device" caveat harder to read.
+
+Changes:
+
+- Allowed the language dropdown helper text to wrap to 2 lines.
+- Allowed the app font dropdown helper text to wrap to 3 lines.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58084` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Appearance opened and the full Japanese font warning was present in the visible DOM.
+  - Browser console showed no app errors.
+
+Conclusion:
+
+- No new performance regression was observed in this pass.
+- The Appearance settings now preserve important helper text instead of truncating it.
