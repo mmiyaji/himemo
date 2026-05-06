@@ -3251,6 +3251,7 @@ class AppLaunchController extends Notifier<AppLaunchSurface> {
   static const _versionStorageKey = 'app.onboarding_completed_version';
   static const _currentOnboardingVersion = 2;
   bool _restored = false;
+  bool _completedInSession = false;
 
   @override
   AppLaunchSurface build() {
@@ -3262,6 +3263,7 @@ class AppLaunchController extends Notifier<AppLaunchSurface> {
   }
 
   Future<void> completeOnboarding() async {
+    _completedInSession = true;
     state = AppLaunchSurface.ready;
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -3273,6 +3275,9 @@ class AppLaunchController extends Notifier<AppLaunchSurface> {
   Future<void> _restore() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (_completedInSession) {
+        return;
+      }
       final completed = prefs.getBool(_storageKey) ?? false;
       final completedVersion = prefs.getInt(_versionStorageKey) ?? 0;
       final hasCompletedCurrentOnboarding =
@@ -3281,6 +3286,9 @@ class AppLaunchController extends Notifier<AppLaunchSurface> {
           ? AppLaunchSurface.ready
           : AppLaunchSurface.onboarding;
     } catch (_) {
+      if (_completedInSession) {
+        return;
+      }
       state = AppLaunchSurface.onboarding;
     }
   }
@@ -4174,6 +4182,63 @@ class NotesController extends _$NotesController {
     }
     state = [...state, ...notesToAdd];
     _sort(state);
+    await _persist();
+    return notesToAdd.length;
+  }
+
+  Future<int> createPerformanceTestNotes({required int count}) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    if (count <= 0) {
+      return 0;
+    }
+    final now = DateTime.now();
+    final existingIds = state.map((note) => note.id).toSet();
+    final notesToAdd = <NoteEntry>[];
+    for (var index = 0; index < count; index++) {
+      final id = 'perf-${index.toString().padLeft(4, '0')}';
+      if (existingIds.contains(id)) {
+        continue;
+      }
+      final createdAt = now.subtract(Duration(minutes: index * 11));
+      final title = 'Performance note ${index + 1}';
+      final body =
+          'Performance test memo ${index + 1}\n'
+          'This generated note is used to measure list, search, calendar, and detail switching performance.';
+      notesToAdd.add(
+        NoteEntry(
+          id: id,
+          vaultId: 'everyday',
+          title: title,
+          body: body,
+          createdAt: createdAt,
+          updatedAt: createdAt,
+          deviceId: 'performance-seed',
+          contentHash: 'performance-seed-$id',
+          blocks: [NoteBlock(type: NoteBlockType.paragraph, text: body)],
+          tags: [
+            'performance',
+            if (index.isEven) 'batch-a' else 'batch-b',
+            'day-${index % 30 + 1}',
+          ],
+          editorMode: NoteEditorMode.rich,
+          location: index % 5 == 0
+              ? NoteLocation(
+                  latitude: 35.681236 + (index % 20) * 0.001,
+                  longitude: 139.767125 + (index % 20) * 0.001,
+                  address: 'Performance location ${index + 1}',
+                  capturedAt: createdAt,
+                )
+              : null,
+        ),
+      );
+    }
+    if (notesToAdd.isEmpty) {
+      return 0;
+    }
+    final next = [...state, ...notesToAdd];
+    _sort(next);
+    state = next;
     await _persist();
     return notesToAdd.length;
   }

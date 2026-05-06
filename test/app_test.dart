@@ -826,6 +826,23 @@ void main() {
     expect(container.read(privacyScreenActiveProvider), isFalse);
   });
 
+  test('onboarding completion is not reverted by restore race', () async {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    expect(
+      container.read(appLaunchControllerProvider),
+      AppLaunchSurface.onboarding,
+    );
+    await container
+        .read(appLaunchControllerProvider.notifier)
+        .completeOnboarding();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(container.read(appLaunchControllerProvider), AppLaunchSurface.ready);
+  });
+
   test('app lock policy providers expose secure defaults', () {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();

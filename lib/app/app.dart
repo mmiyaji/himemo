@@ -18,6 +18,7 @@ import 'app_router.dart';
 
 const _termsUrl = 'https://mmiyaji.github.io/himemo/terms.html';
 const _privacyUrl = 'https://mmiyaji.github.io/himemo/privacy.html';
+const _performanceSeedNoteCount = int.fromEnvironment('HIMEMO_PERF_NOTE_COUNT');
 
 class HiMemoApp extends ConsumerWidget {
   const HiMemoApp({super.key, required this.flavor});
@@ -80,16 +81,75 @@ class HiMemoApp extends ConsumerWidget {
         theme: _buildTheme(Brightness.light, colorTheme, fontFamily),
         darkTheme: _buildTheme(Brightness.dark, colorTheme, fontFamily),
         builder: (context, child) {
-          return _LaunchSurfaceGate(
+          return _DevelopmentPerformanceSeedGate(
             flavor: flavor,
             launchSurface: launchSurface,
-            currentLocation: currentLocation,
-            child: child,
+            child: _LaunchSurfaceGate(
+              flavor: flavor,
+              launchSurface: launchSurface,
+              currentLocation: currentLocation,
+              child: child,
+            ),
           );
         },
       ),
     );
   }
+}
+
+class _DevelopmentPerformanceSeedGate extends ConsumerStatefulWidget {
+  const _DevelopmentPerformanceSeedGate({
+    required this.flavor,
+    required this.launchSurface,
+    required this.child,
+  });
+
+  final AppFlavor flavor;
+  final AppLaunchSurface launchSurface;
+  final Widget child;
+
+  @override
+  ConsumerState<_DevelopmentPerformanceSeedGate> createState() =>
+      _DevelopmentPerformanceSeedGateState();
+}
+
+class _DevelopmentPerformanceSeedGateState
+    extends ConsumerState<_DevelopmentPerformanceSeedGate> {
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _maybeStartSeeding();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DevelopmentPerformanceSeedGate oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _maybeStartSeeding();
+  }
+
+  void _maybeStartSeeding() {
+    if (_started ||
+        kReleaseMode ||
+        widget.flavor != AppFlavor.development ||
+        widget.launchSurface != AppLaunchSurface.ready ||
+        _performanceSeedNoteCount <= 0) {
+      return;
+    }
+    _started = true;
+    unawaited(_seedPerformanceNotes());
+  }
+
+  Future<void> _seedPerformanceNotes() async {
+    final added = await ref
+        .read(notesControllerProvider.notifier)
+        .createPerformanceTestNotes(count: _performanceSeedNoteCount);
+    debugPrint('[perf-seed] requested=$_performanceSeedNoteCount added=$added');
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class _LaunchSurfaceGate extends StatefulWidget {
