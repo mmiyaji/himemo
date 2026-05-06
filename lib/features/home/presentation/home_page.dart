@@ -322,8 +322,7 @@ class _AppShellState extends ConsumerState<AppShell> {
             ),
       floatingActionButton:
           !noteOverlayOpen &&
-              ((section == AppSection.notes && width < 1180) ||
-                  section == AppSection.calendar)
+              (section == AppSection.notes || section == AppSection.calendar)
           ? FloatingActionButton.small(
               key: AppShell.addNoteKey,
               onPressed: () => showNoteEditorSheet(context, ref),
@@ -7142,64 +7141,49 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        ListView.builder(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
-          itemCount: _rows.length,
-          itemBuilder: (context, index) {
-            final row = _rows[index];
-            return switch (row) {
-              _SplitNoteIdentityRow() => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _IdentityHeader(identity: widget.activeIdentity),
-              ),
-              _SplitNotePrivateNoticeRow() => const Padding(
-                padding: EdgeInsets.only(bottom: 12),
-                child: _PrivateVaultLockedNotice(),
-              ),
-              _SplitNoteToolbarRow() => const Padding(
-                padding: EdgeInsets.only(bottom: 16),
-                child: _NotesToolbar(),
-              ),
-              _SplitNoteEmptyRow() => const _EmptyNotesState(),
-              _SplitNoteDayRow(:final date) => _DecoratedSplitNoteRow(
-                position: row.position,
-                child: _NoteDayDivider(date: date),
-              ),
-              _SplitNoteTileRow(:final note) => _DecoratedSplitNoteRow(
-                position: row.position,
-                child: RepaintBoundary(
-                  child: _NoteListTile(
-                    note: note,
-                    vaultName:
-                        widget.vaultNameById[note.vaultId] ?? note.vaultId,
-                    showVaultName: widget.showVaultName,
-                    density: widget.density,
-                    query: widget.query,
-                    selected: widget.selectedNoteId == note.id,
-                    onTap: () => widget.onNoteSelected(note),
-                  ),
-                ),
-              ),
-              _SplitNoteDividerRow() => _DecoratedSplitNoteRow(
-                position: row.position,
-                child: const _IntraDayNoteGap(),
-              ),
-            };
-          },
-        ),
-        PositionedDirectional(
-          end: 16,
-          bottom: 16,
-          child: FloatingActionButton.small(
-            key: AppShell.addNoteKey,
-            onPressed: widget.onAddNote,
-            tooltip: context.strings.addNote,
-            child: const Icon(Icons.add),
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
+      itemCount: _rows.length,
+      itemBuilder: (context, index) {
+        final row = _rows[index];
+        return switch (row) {
+          _SplitNoteIdentityRow() => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _IdentityHeader(identity: widget.activeIdentity),
           ),
-        ),
-      ],
+          _SplitNotePrivateNoticeRow() => const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: _PrivateVaultLockedNotice(),
+          ),
+          _SplitNoteToolbarRow() => const Padding(
+            padding: EdgeInsets.only(bottom: 16),
+            child: _NotesToolbar(),
+          ),
+          _SplitNoteEmptyRow() => const _EmptyNotesState(),
+          _SplitNoteDayRow(:final date) => _DecoratedSplitNoteRow(
+            position: row.position,
+            child: _NoteDayDivider(date: date),
+          ),
+          _SplitNoteTileRow(:final note) => _DecoratedSplitNoteRow(
+            position: row.position,
+            child: RepaintBoundary(
+              child: _NoteListTile(
+                note: note,
+                vaultName: widget.vaultNameById[note.vaultId] ?? note.vaultId,
+                showVaultName: widget.showVaultName,
+                density: widget.density,
+                query: widget.query,
+                selected: widget.selectedNoteId == note.id,
+                onTap: () => widget.onNoteSelected(note),
+              ),
+            ),
+          ),
+          _SplitNoteDividerRow() => _DecoratedSplitNoteRow(
+            position: row.position,
+            child: const _IntraDayNoteGap(),
+          ),
+        };
+      },
     );
   }
 }
