@@ -79,3 +79,25 @@ Conclusion:
 
 - This cycle reduces repeated O(n) search scans during typing without changing the visible search UI.
 - The next practical improvement is either cached calendar/insights summaries or the larger web storage split.
+
+## Cycle 3 follow-up
+
+Plan:
+
+- Avoid rebuilding calendar day lists and selected-day note lists from scratch in the calendar screen.
+
+Changes:
+
+- Added `visibleNotesByDayProvider`.
+- Added `visibleNoteDaysProvider`.
+- Updated the calendar screen and calendar detail sheet to reuse the cached day grouping.
+
+Measurements:
+
+- Browser E2E opened the calendar route with 1000 seeded notes and confirmed generated notes were rendered for the selected day.
+- Static validation remained clean with `flutter analyze`.
+
+Conclusion:
+
+- This cycle moves calendar grouping cost out of the widget build path and makes day navigation reuse the same grouped data.
+- Insights summaries still compute several aggregates from the full visible note list and remain a future optimization target.

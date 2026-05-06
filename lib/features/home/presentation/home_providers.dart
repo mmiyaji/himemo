@@ -5119,6 +5119,30 @@ Map<String, List<NoteEntry>> visibleNotesByVault(Ref ref) {
 }
 
 @riverpod
+Map<DateTime, List<NoteEntry>> visibleNotesByDay(Ref ref) {
+  final grouped = <DateTime, List<NoteEntry>>{};
+  for (final note in ref.watch(visibleNotesProvider)) {
+    final day = DateTime(
+      note.createdAt.year,
+      note.createdAt.month,
+      note.createdAt.day,
+    );
+    (grouped[day] ??= <NoteEntry>[]).add(note);
+  }
+  return Map.unmodifiable({
+    for (final entry in grouped.entries)
+      entry.key: List<NoteEntry>.unmodifiable(entry.value),
+  });
+}
+
+@riverpod
+List<DateTime> visibleNoteDays(Ref ref) {
+  final days = ref.watch(visibleNotesByDayProvider).keys.toList(growable: false)
+    ..sort();
+  return List.unmodifiable(days);
+}
+
+@riverpod
 List<NoteEntry> notesForVault(Ref ref, String vaultId) {
   return ref.watch(visibleNotesByVaultProvider)[vaultId] ??
       const <NoteEntry>[];

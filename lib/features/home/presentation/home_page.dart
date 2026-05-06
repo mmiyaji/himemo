@@ -679,12 +679,11 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final notes = ref.watch(visibleNotesProvider);
-    final noteDays = _sortedNoteDays(notes);
+    final noteDays = ref.watch(visibleNoteDaysProvider);
+    final notesByDay = ref.watch(visibleNotesByDayProvider);
     final markedDays = noteDays.toSet();
-    final sameDayNotes = notes
-        .where((note) => _isSameDay(note.createdAt, _selectedDay))
-        .toList(growable: false);
+    final sameDayNotes =
+        notesByDay[_calendarDayKey(_selectedDay)] ?? const <NoteEntry>[];
     final previousDay = _adjacentNoteDay(
       noteDays,
       _selectedDay,
@@ -794,7 +793,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                         .name,
                     onTap: () => _openCalendarNoteDetails(
                       context,
-                      notes,
+                      noteDays,
+                      notesByDay,
                       _selectedDay,
                       i,
                     ),
@@ -809,10 +809,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     );
   }
 
-  bool _isSameDay(DateTime left, DateTime right) {
-    return left.year == right.year &&
-        left.month == right.month &&
-        left.day == right.day;
+  DateTime _calendarDayKey(DateTime value) {
+    return DateTime(value.year, value.month, value.day);
   }
 
   DateTime _selectedDateWithCurrentTime() {
@@ -824,22 +822,6 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       now.hour,
       now.minute,
     );
-  }
-
-  List<DateTime> _sortedNoteDays(List<NoteEntry> notes) {
-    final days =
-        notes
-            .map(
-              (note) => DateTime(
-                note.createdAt.year,
-                note.createdAt.month,
-                note.createdAt.day,
-              ),
-            )
-            .toSet()
-            .toList()
-          ..sort();
-    return days;
   }
 
   DateTime? _adjacentNoteDay(
@@ -875,7 +857,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
 
   Future<void> _openCalendarNoteDetails(
     BuildContext context,
-    List<NoteEntry> allNotes,
+    List<DateTime> noteDays,
+    Map<DateTime, List<NoteEntry>> notesByDay,
     DateTime initialDay,
     int initialIndex,
   ) async {
@@ -894,10 +877,9 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
         var selectedIndex = initialIndex;
         return StatefulBuilder(
           builder: (context, setModalState) {
-            final noteDays = _sortedNoteDays(allNotes);
-            final dayNotes = allNotes
-                .where((note) => _isSameDay(note.createdAt, selectedDay))
-                .toList(growable: false);
+            final dayNotes =
+                notesByDay[_calendarDayKey(selectedDay)] ??
+                const <NoteEntry>[];
             if (dayNotes.isEmpty) {
               return const SizedBox.shrink();
             }

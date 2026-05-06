@@ -1116,6 +1116,12 @@ void main() {
         );
 
     expect(container.read(visibleNoteYearsProvider), [2026, 2025]);
+    expect(
+      container
+          .read(visibleNotesByDayProvider)[DateTime(2026, 1, 1)]
+          ?.map((note) => note.id),
+      ['year-2026'],
+    );
 
     container.read(searchFiltersControllerProvider.notifier).setYear(2025);
     expect(container.read(visibleNotesProvider).map((note) => note.id), [
