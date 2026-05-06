@@ -129,27 +129,55 @@ class EncryptedNoteStore {
           ),
         );
       }
-      if (note.syncState == NoteSyncState.pendingUpload ||
-          note.syncState == NoteSyncState.pendingDelete) {
-        pendingChanges.add(
-          PendingNoteChangeRecord(
-            noteId: note.id,
-            vaultId: note.vaultId,
-            revision: note.revision,
-            action: note.deletedAt == null
-                ? PendingNoteChangeAction.upsert
-                : PendingNoteChangeAction.delete,
-            queuedAt: note.updatedAt ?? note.createdAt,
-            contentHash: note.contentHash,
-            deletedAt: note.deletedAt,
-          ),
-        );
+      final pendingChange = _pendingChangeFor(note);
+      if (pendingChange != null) {
+        pendingChanges.add(pendingChange);
       }
     }
     await database.replaceAll(
       notes: records,
       attachments: attachments,
       pendingChanges: pendingChanges,
+    );
+  }
+
+  Future<void> saveOne(NoteEntry note) async {
+    if (kIsWeb) {
+      throw UnsupportedError('Incremental note save is not supported on web.');
+    }
+    if (_isLockedPlaceholder(note)) {
+      return;
+    }
+    final key = await _keyForVault(note.vaultId);
+    if (key == null) {
+      return;
+    }
+    final database = _database ?? EncryptedNoteDatabase();
+    final payload = await _encryptionService.encryptJson(
+      payload: _databasePayloadFor(note),
+      secretKey: key,
+    );
+    final attachments = <EncryptedAttachmentRecord>[];
+    for (var i = 0; i < note.attachments.length; i++) {
+      final attachmentPayload = await _encryptionService.encryptJson(
+        payload: note.attachments[i].toJson(),
+        secretKey: key,
+      );
+      attachments.add(
+        EncryptedAttachmentRecord(
+          noteId: note.id,
+          position: i,
+          encryptedPayload: attachmentPayload,
+        ),
+      );
+    }
+    await database.upsertOne(
+      note: EncryptedNoteRecord.fromNote(
+        note: note,
+        encryptedPayload: payload,
+      ),
+      attachments: attachments,
+      pendingChange: _pendingChangeFor(note),
     );
   }
 
@@ -253,6 +281,24 @@ class EncryptedNoteStore {
     final payload = Map<String, dynamic>.from(note.toJson());
     payload['attachments'] = const <Map<String, dynamic>>[];
     return payload;
+  }
+
+  PendingNoteChangeRecord? _pendingChangeFor(NoteEntry note) {
+    if (note.syncState != NoteSyncState.pendingUpload &&
+        note.syncState != NoteSyncState.pendingDelete) {
+      return null;
+    }
+    return PendingNoteChangeRecord(
+      noteId: note.id,
+      vaultId: note.vaultId,
+      revision: note.revision,
+      action: note.deletedAt == null
+          ? PendingNoteChangeAction.upsert
+          : PendingNoteChangeAction.delete,
+      queuedAt: note.updatedAt ?? note.createdAt,
+      contentHash: note.contentHash,
+      deletedAt: note.deletedAt,
+    );
   }
 
   Future<void> deleteById(String noteId) async {

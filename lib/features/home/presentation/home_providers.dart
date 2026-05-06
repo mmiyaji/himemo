@@ -4124,7 +4124,7 @@ class NotesController extends _$NotesController {
         _sort(next);
         state = next;
         await _cleanupRemovedAttachments(existing, prepared);
-        await _persist();
+        await _persistOne(prepared);
       },
       attributes: {
         'editor_mode': note.editorMode.name,
@@ -4157,14 +4157,15 @@ class NotesController extends _$NotesController {
           revision: note.revision + 1,
           syncState: NoteSyncState.pendingDelete,
         );
-        next[i] = tombstone.copyWith(
+        final prepared = tombstone.copyWith(
           contentHash: _computeContentHash(tombstone),
         );
-        break;
+        next[i] = prepared;
+        _sort(next);
+        state = next;
+        await _persistOne(prepared);
+        return;
       }
-      _sort(next);
-      state = next;
-      await _persist();
     });
   }
 
@@ -4588,6 +4589,26 @@ class NotesController extends _$NotesController {
         stackTrace,
         reason: 'notes_persist_failed',
       );
+    }
+  }
+
+  Future<void> _persistOne(NoteEntry note) async {
+    if (_restoreFailed) {
+      return;
+    }
+    if (kIsWeb) {
+      await _persist();
+      return;
+    }
+    try {
+      await ref.read(encryptedNoteStoreProvider).saveOne(note);
+    } catch (error, stackTrace) {
+      await recordNonFatalError(
+        error,
+        stackTrace,
+        reason: 'note_persist_one_failed',
+      );
+      await _persist();
     }
   }
 

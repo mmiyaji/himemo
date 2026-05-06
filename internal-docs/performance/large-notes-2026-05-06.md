@@ -230,3 +230,27 @@ Measurements:
 Conclusion:
 
 - This is a targeted attachment-heavy improvement. It should reduce repeated decrypt/read work when photo attachments are visible in multiple surfaces during the same app session.
+
+## Cycle 10 follow-up
+
+Plan:
+
+- Reduce save latency for large local databases on iOS/Android/desktop.
+- Avoid full-database re-encryption when a single note is created, edited, or tombstoned.
+
+Changes:
+
+- Added `EncryptedNoteDatabase.upsertOne` to update one encrypted note record, its attachment metadata, and its pending sync queue entry in one transaction.
+- Added `EncryptedNoteStore.saveOne` for native incremental persistence.
+- Updated `NotesController.upsert` and normal delete/tombstone handling to call the incremental path on native platforms.
+- Kept Web on the existing full-save path because Web storage is still a single encrypted payload.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\security_storage_test.dart` passed, including attachment cleanup, sync metadata, tombstone delete, and sync merge tests.
+
+Conclusion:
+
+- This is a high-impact native-path improvement for large note sets. Editing one note no longer requires encrypting and replacing every note in the local SQLite database.
+- Remaining large-data bottleneck is Web storage, which still stores all notes in one encrypted blob.

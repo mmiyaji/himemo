@@ -223,6 +223,63 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
     });
   }
 
+  Future<void> upsertOne({
+    required EncryptedNoteRecord note,
+    required List<EncryptedAttachmentRecord> attachments,
+    PendingNoteChangeRecord? pendingChange,
+  }) async {
+    await transaction(() async {
+      await into(encryptedNotes).insertOnConflictUpdate(
+        EncryptedNotesCompanion.insert(
+          id: note.id,
+          vaultId: note.vaultId,
+          encryptedPayload: note.encryptedPayload,
+          createdAtEpochMs: note.createdAt.millisecondsSinceEpoch,
+          updatedAtEpochMs: Value(note.updatedAt?.millisecondsSinceEpoch),
+          deletedAtEpochMs: Value(note.deletedAt?.millisecondsSinceEpoch),
+          isPinned: Value(note.isPinned),
+          revision: Value(note.revision),
+          syncState: note.syncState.name,
+          deviceId: Value(note.deviceId),
+          contentHash: Value(note.contentHash),
+        ),
+      );
+
+      await (delete(
+        encryptedNoteAttachments,
+      )..where((table) => table.noteId.equals(note.id))).go();
+      for (final attachment in attachments) {
+        await into(encryptedNoteAttachments).insertOnConflictUpdate(
+          EncryptedNoteAttachmentsCompanion.insert(
+            noteId: attachment.noteId,
+            position: attachment.position,
+            encryptedPayload: attachment.encryptedPayload,
+          ),
+        );
+      }
+
+      if (pendingChange == null) {
+        await (delete(
+          pendingNoteChanges,
+        )..where((table) => table.noteId.equals(note.id))).go();
+      } else {
+        await into(pendingNoteChanges).insertOnConflictUpdate(
+          PendingNoteChangesCompanion.insert(
+            noteId: pendingChange.noteId,
+            vaultId: pendingChange.vaultId,
+            revision: pendingChange.revision,
+            syncAction: pendingChange.action.name,
+            queuedAtEpochMs: pendingChange.queuedAt.millisecondsSinceEpoch,
+            contentHash: Value(pendingChange.contentHash),
+            deletedAtEpochMs: Value(
+              pendingChange.deletedAt?.millisecondsSinceEpoch,
+            ),
+          ),
+        );
+      }
+    });
+  }
+
   Future<void> deleteNoteById(String noteId) async {
     await transaction(() async {
       await (delete(
