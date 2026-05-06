@@ -7840,12 +7840,30 @@ class _NotesToolbar extends ConsumerStatefulWidget {
 }
 
 class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
+  late final TextEditingController _searchController;
+  Timer? _searchDebounce;
+  late String _lastAppliedSearchQuery;
   bool _showAdvanced = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastAppliedSearchQuery = ref.read(searchQueryProvider);
+    _searchController = TextEditingController(text: _lastAppliedSearchQuery);
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
     final query = ref.watch(searchQueryProvider);
+    _syncExternalSearchQuery(query);
     final filters = ref.watch(searchFiltersControllerProvider);
     final visibleVaults = ref.watch(visibleVaultsProvider);
     final visibleYears = ref.watch(visibleNoteYearsProvider);
@@ -7873,7 +7891,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
               Expanded(
                 child: TextFormField(
                   key: const Key('notes-search-input'),
-                  initialValue: query,
+                  controller: _searchController,
                   decoration: InputDecoration(
                     labelText: strings.search,
                     hintText: strings.text(
@@ -7883,7 +7901,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                     border: const OutlineInputBorder(),
                     isDense: true,
                   ),
-                  onChanged: ref.read(searchQueryProvider.notifier).setQuery,
+                  onChanged: _scheduleSearchQuery,
                 ),
               ),
               const SizedBox(width: 8),
@@ -8215,6 +8233,43 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
         ],
       ),
     );
+  }
+
+  void _syncExternalSearchQuery(String query) {
+    if (query == _lastAppliedSearchQuery || query == _searchController.text) {
+      return;
+    }
+    _searchDebounce?.cancel();
+    _lastAppliedSearchQuery = query;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _searchController.text == query) {
+        return;
+      }
+      _searchController.value = TextEditingValue(
+        text: query,
+        selection: TextSelection.collapsed(offset: query.length),
+      );
+    });
+  }
+
+  void _scheduleSearchQuery(String value) {
+    _searchDebounce?.cancel();
+    if (value.isEmpty) {
+      _applySearchQuery(value);
+      return;
+    }
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 260),
+      () => _applySearchQuery(_searchController.text),
+    );
+  }
+
+  void _applySearchQuery(String value) {
+    if (!mounted || value == _lastAppliedSearchQuery) {
+      return;
+    }
+    _lastAppliedSearchQuery = value;
+    ref.read(searchQueryProvider.notifier).setQuery(value);
   }
 }
 

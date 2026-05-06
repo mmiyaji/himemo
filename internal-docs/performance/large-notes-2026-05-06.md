@@ -57,3 +57,25 @@ Conclusion:
 
 - This cycle reduces redundant provider work during normal note-list rendering.
 - The next high-impact cycle is storage/index work: split web note restore into lightweight metadata plus lazy note payloads.
+
+## Cycle 2 follow-up
+
+Plan:
+
+- Reduce full-list filtering while the user is typing in the note search field.
+
+Changes:
+
+- Replaced immediate search-provider updates with a 260ms debounce in the notes toolbar.
+- Kept clearing immediate so removing a search term still restores the list without waiting.
+- Synced external search resets back into the text field so private-mode cleanup and tag-filter actions still update the UI.
+
+Measurements:
+
+- Browser E2E with 1000 notes confirmed that typing in the search box does not immediately filter the list, then applies the result after the debounce delay.
+- Static validation remained clean with `flutter analyze`.
+
+Conclusion:
+
+- This cycle reduces repeated O(n) search scans during typing without changing the visible search UI.
+- The next practical improvement is either cached calendar/insights summaries or the larger web storage split.
