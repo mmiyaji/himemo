@@ -6953,6 +6953,22 @@ class _LinkifiedMemoText extends StatefulWidget {
 class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
   static final _urlPattern = RegExp(r'((?:https?:\/\/|www\.)[^\s<>()]+)');
   final List<TapGestureRecognizer> _recognizers = [];
+  late List<_MemoTextSegment> _segments;
+
+  @override
+  void initState() {
+    super.initState();
+    _segments = _parseSegments(widget.text);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LinkifiedMemoText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) {
+      _disposeRecognizers();
+      _segments = _parseSegments(widget.text);
+    }
+  }
 
   @override
   void dispose() {
@@ -6969,25 +6985,42 @@ class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
 
   @override
   Widget build(BuildContext context) {
-    _disposeRecognizers();
-    final text = widget.text;
     final style = widget.style;
-    final matches = _urlPattern.allMatches(text).toList(growable: false);
-    if (matches.isEmpty) {
-      return SelectableText(text, style: style);
+    if (_segments.length == 1 && !_segments.single.isLink) {
+      return SelectableText(_segments.single.text, style: style);
     }
 
-    final spans = <InlineSpan>[];
-    var cursor = 0;
     final linkStyle = style?.copyWith(
       color: Theme.of(context).colorScheme.primary,
       decoration: TextDecoration.underline,
       decorationColor: Theme.of(context).colorScheme.primary,
     );
+    return SelectableText.rich(
+      TextSpan(
+        style: style,
+        children: [
+          for (final segment in _segments)
+            TextSpan(
+              text: segment.text,
+              style: segment.isLink ? linkStyle : null,
+              recognizer: segment.recognizer,
+            ),
+        ],
+      ),
+    );
+  }
 
+  List<_MemoTextSegment> _parseSegments(String text) {
+    final matches = _urlPattern.allMatches(text).toList(growable: false);
+    if (matches.isEmpty) {
+      return [_MemoTextSegment.text(text)];
+    }
+
+    final segments = <_MemoTextSegment>[];
+    var cursor = 0;
     for (final match in matches) {
       if (match.start > cursor) {
-        spans.add(TextSpan(text: text.substring(cursor, match.start)));
+        segments.add(_MemoTextSegment.text(text.substring(cursor, match.start)));
       }
 
       final rawMatch = match.group(0)!;
@@ -6996,21 +7029,30 @@ class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
       final recognizer = TapGestureRecognizer()
         ..onTap = () => _openMemoLink(context, trimmed);
       _recognizers.add(recognizer);
-      spans.add(
-        TextSpan(text: trimmed, style: linkStyle, recognizer: recognizer),
-      );
+      segments.add(_MemoTextSegment.link(trimmed, recognizer));
       if (trailing.isNotEmpty) {
-        spans.add(TextSpan(text: trailing));
+        segments.add(_MemoTextSegment.text(trailing));
       }
       cursor = match.end;
     }
 
     if (cursor < text.length) {
-      spans.add(TextSpan(text: text.substring(cursor)));
+      segments.add(_MemoTextSegment.text(text.substring(cursor)));
     }
-
-    return SelectableText.rich(TextSpan(style: style, children: spans));
+    return segments;
   }
+}
+
+class _MemoTextSegment {
+  const _MemoTextSegment.text(this.text)
+    : recognizer = null,
+      isLink = false;
+
+  const _MemoTextSegment.link(this.text, this.recognizer) : isLink = true;
+
+  final String text;
+  final TapGestureRecognizer? recognizer;
+  final bool isLink;
 }
 
 String _trimTrailingUrlPunctuation(String value) {

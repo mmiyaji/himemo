@@ -320,3 +320,25 @@ Conclusion:
 
 - Multi-attachment detail pages no longer instantiate every embedded attachment viewer during the first frame.
 - This should reduce detail-open latency and memory pressure for notes with many images, videos, audio clips, or files.
+
+## Cycle 14 follow-up
+
+Plan:
+
+- Check long text display performance in note details.
+- Avoid repeating URL regex scans and tap recognizer allocation on every rebuild.
+
+Changes:
+
+- Cached parsed memo text segments inside `_LinkifiedMemoTextState`.
+- Re-parse and recreate recognizers only when the source text changes.
+- Kept theme-dependent link styling in `build` so color changes still apply without re-parsing text.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "widget quick capture stores first line only as title"` passed.
+
+Conclusion:
+
+- Long notes with URLs should rebuild more cheaply, especially when theme, selection, or parent layout changes trigger a detail rebuild without changing the note text.
