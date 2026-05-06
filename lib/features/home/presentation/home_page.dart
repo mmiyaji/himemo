@@ -535,14 +535,6 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final listDensity = ref.watch(notesListDensityControllerProvider);
     final query = ref.watch(searchQueryProvider).trim();
     final selectedNoteId = ref.watch(selectedNoteIdProvider);
-    final visibleNoteIndexById = ref.watch(visibleNoteIndexByIdProvider);
-    final selectedIndex = selectedNoteId == null
-        ? -1
-        : (visibleNoteIndexById[selectedNoteId] ?? -1);
-    final effectiveSelectedNoteId =
-        selectedNoteId != null && selectedIndex >= 0
-        ? selectedNoteId
-        : null;
 
     if (!useSplitView) {
       return _MobileNotesList(
@@ -553,13 +545,22 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         vaults: visibleVaults,
         notesByVault: visibleNotesByVault,
         allVisibleNotes: visibleNotes,
-        selectedNoteId: effectiveSelectedNoteId,
+        selectedNoteId: selectedNoteId,
         density: listDensity,
         query: query,
         onNoteSelected: (note) =>
             _openMobileNoteActions(context, note, visibleNotes),
       );
     }
+
+    final visibleNoteIndexById = ref.watch(visibleNoteIndexByIdProvider);
+    final selectedIndex = selectedNoteId == null
+        ? -1
+        : (visibleNoteIndexById[selectedNoteId] ?? -1);
+    final effectiveSelectedNoteId =
+        selectedNoteId != null && selectedIndex >= 0
+        ? selectedNoteId
+        : null;
 
     return Row(
       children: [

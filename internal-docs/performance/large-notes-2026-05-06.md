@@ -973,3 +973,34 @@ Measurements:
 Conclusion:
 
 - This pass reduces worst-case long-note preview layout cost without changing the visible behavior for ordinary short notes.
+
+## Cycle 38 non-split index follow-up
+
+Plan:
+
+- Re-check the 1000-note notes screen at tablet/non-split width.
+- Look for providers that still compute split-detail data even when the detail pane is not visible.
+
+Findings:
+
+- The non-split notes screen still watched `visibleNoteIndexByIdProvider`.
+- That provider builds a note-id-to-index map for the full visible list, but the map is only needed to resolve the selected detail index in split view.
+- In non-split mode the selected note id can be passed through directly; if the selected id is not visible, no row will match it anyway.
+
+Changes:
+
+- Moved the `visibleNoteIndexByIdProvider` watch below the non-split early return.
+- Non-split notes now avoids building the full index map during normal list, search, and scroll interactions.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58084` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Notes list rendered normally.
+  - Searching for `location 9` returned the expected location-tagged notes.
+  - Clearing search and scrolling the list worked without app console errors.
+
+Conclusion:
+
+- This is a small but direct reduction in derived-provider work for the common non-split layout.
