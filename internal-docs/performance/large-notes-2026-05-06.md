@@ -463,3 +463,54 @@ Measurements:
 Conclusion:
 
 - Mobile detail overlays now close consistently on route changes, not only through the app's own navigation callbacks.
+
+## Cycle 20 follow-up
+
+Plan:
+
+- Check note creation usability when a draft already has many attachments.
+- Avoid building every quick-attachment tile before the user needs to reorder or remove deep items.
+
+Changes:
+
+- Converted the quick attachment section to local state.
+- Quick drafts now show the first 8 attachments by default and expose an expand/collapse button for the full attachment list.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+
+Conclusion:
+
+- The editor keeps the attachment controls available but reduces initial widget work for unusually large quick drafts.
+
+## Cycle 21 follow-up
+
+Plan:
+
+- Re-run In App Browser monkey navigation after the route-close fix.
+- Specifically verify leaving Notes while a detail route is active.
+
+Findings:
+
+- The previous route-section observer cleared `selectedNoteIdProvider` synchronously from `build()`.
+- Flutter/Riverpod raised `Tried to modify a provider while the widget tree was building` during browser monkey navigation.
+
+Changes:
+
+- Moved the selected-note clear into the same post-frame callback that closes the root modal route.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58085` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - 1000-note list generation logged `mobile list rows notes=1000 rows=2009 completed 6.701ms`.
+  - Opening `Performance note 3` logged `detail pane frame 77.399ms`.
+  - Notes -> Settings -> Notes navigation completed without the provider-build error.
+
+Conclusion:
+
+- The route-close behavior is now compatible with Riverpod lifecycle rules.
+- The remaining user-visible switch time is dominated by browser/debug-mode navigation and Flutter Web paint, not list row generation.

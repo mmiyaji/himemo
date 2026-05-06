@@ -287,11 +287,11 @@ class _AppShellState extends ConsumerState<AppShell> {
         section == AppSection.notes) {
       return;
     }
-    ref.read(selectedNoteIdProvider.notifier).select(null);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         return;
       }
+      ref.read(selectedNoteIdProvider.notifier).select(null);
       final rootNavigator = Navigator.of(context, rootNavigator: true);
       if (rootNavigator.canPop()) {
         rootNavigator.pop();
@@ -11705,7 +11705,7 @@ class _CompactMediaIconButton extends StatelessWidget {
   }
 }
 
-class _QuickAttachmentSection extends StatelessWidget {
+class _QuickAttachmentSection extends StatefulWidget {
   const _QuickAttachmentSection({
     required this.strings,
     required this.attachments,
@@ -11719,7 +11719,23 @@ class _QuickAttachmentSection extends StatelessWidget {
   final void Function(int index, int delta) onMove;
 
   @override
+  State<_QuickAttachmentSection> createState() => _QuickAttachmentSectionState();
+}
+
+class _QuickAttachmentSectionState extends State<_QuickAttachmentSection> {
+  static const _collapsedAttachmentLimit = 8;
+
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
+    final strings = widget.strings;
+    final attachments = widget.attachments;
+    final shouldCollapse = attachments.length > _collapsedAttachmentLimit;
+    final visibleCount = shouldCollapse && !_expanded
+        ? _collapsedAttachmentLimit
+        : attachments.length;
+
     return Container(
       decoration: _sectionDecoration(context),
       padding: const EdgeInsets.all(12),
@@ -11746,16 +11762,57 @@ class _QuickAttachmentSection extends StatelessWidget {
           ),
           if (attachments.isNotEmpty) ...[
             const SizedBox(height: 10),
-            for (var i = 0; i < attachments.length; i++)
+            for (var i = 0; i < visibleCount; i++)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: _EditableAttachmentTile(
                   attachment: attachments[i],
-                  onRemove: () => onRemove(i),
-                  onMovePrevious: i > 0 ? () => onMove(i, -1) : null,
+                  onRemove: () => widget.onRemove(i),
+                  onMovePrevious: i > 0 ? () => widget.onMove(i, -1) : null,
                   onMoveNext: i < attachments.length - 1
-                      ? () => onMove(i, 1)
+                      ? () => widget.onMove(i, 1)
                       : null,
+                ),
+              ),
+            if (shouldCollapse)
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _expanded = !_expanded;
+                    });
+                  },
+                  icon: Icon(
+                    _expanded
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                  ),
+                  label: Text(
+                    _expanded
+                        ? strings.localized(
+                            en: 'Show fewer attachments',
+                            ja: '添付を少なく表示',
+                            zh: '显示较少附件',
+                            ko: '첨부 파일 적게 표시',
+                            es: 'Mostrar menos adjuntos',
+                            de: 'Weniger Anhaenge anzeigen',
+                          )
+                        : strings.localized(
+                            en:
+                                'Show all ${attachments.length} attachments',
+                            ja:
+                                '${attachments.length}件の添付をすべて表示',
+                            zh:
+                                '显示全部 ${attachments.length} 个附件',
+                            ko:
+                                '첨부 파일 ${attachments.length}개 모두 표시',
+                            es:
+                                'Mostrar los ${attachments.length} adjuntos',
+                            de:
+                                'Alle ${attachments.length} Anhaenge anzeigen',
+                          ),
+                  ),
                 ),
               ),
           ],
