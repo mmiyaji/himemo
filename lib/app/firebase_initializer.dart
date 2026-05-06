@@ -14,8 +14,10 @@ Future<void> initializeFirebaseForFlavor(AppFlavor flavor) async {
   switch (defaultTargetPlatform) {
     case TargetPlatform.android:
       final options = switch (flavor) {
-        AppFlavor.development => development.DefaultFirebaseOptions.currentPlatform,
-        AppFlavor.production => production.DefaultFirebaseOptions.currentPlatform,
+        AppFlavor.development =>
+          development.DefaultFirebaseOptions.currentPlatform,
+        AppFlavor.production =>
+          production.DefaultFirebaseOptions.currentPlatform,
       };
       await Firebase.initializeApp(options: options);
       await FirebaseAppCheck.instance.activate(
@@ -23,6 +25,18 @@ Future<void> initializeFirebaseForFlavor(AppFlavor flavor) async {
             ? const AndroidDebugProvider()
             : const AndroidPlayIntegrityProvider(),
       );
+      return;
+    case TargetPlatform.iOS:
+      try {
+        await Firebase.initializeApp();
+      } on FirebaseException catch (error) {
+        if (error.code == 'duplicate-app') {
+          return;
+        }
+        debugPrint(
+          'Firebase initialization skipped on iOS: ${error.code} ${error.message ?? ''}',
+        );
+      }
       return;
     default:
       return;

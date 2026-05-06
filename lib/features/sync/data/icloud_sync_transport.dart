@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
+import '../../../app/firebase_observability.dart';
 import 'google_drive_sync_transport.dart';
 
 enum ICloudAccountAvailability {
@@ -76,6 +77,7 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
 
   @override
   Future<ICloudAccountStatusResult> checkAccountStatus() async {
+    await logFirebaseBreadcrumb('icloud cloudKitAccountStatus start');
     try {
       final result = Map<String, dynamic>.from(
         await _channel.invokeMapMethod<String, dynamic>(
@@ -83,18 +85,42 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
             ) ??
             const <String, dynamic>{},
       );
-      return ICloudAccountStatusResult(
+      final status = ICloudAccountStatusResult(
         availability: _availabilityFromString(result['status'] as String?),
         message:
             result['message'] as String? ??
             'Unable to determine this device\'s iCloud availability.',
       );
+      await logFirebaseBreadcrumb(
+        'icloud cloudKitAccountStatus ${status.availability.name}',
+      );
+      return status;
     } on MissingPluginException {
+      unawaited(
+        recordNonFatalError(
+          const ICloudSyncException(
+            'CloudKit is not available in this runtime.',
+          ),
+          StackTrace.current,
+          reason: 'CloudKit account status missing',
+        ),
+      );
       return const ICloudAccountStatusResult(
         availability: ICloudAccountAvailability.unsupported,
         message: 'CloudKit is not available in this runtime.',
       );
     } on PlatformException catch (error) {
+      unawaited(
+        recordNonFatalError(
+          error,
+          StackTrace.current,
+          reason: 'CloudKit account status failed',
+          information: [
+            'code=${error.code}',
+            'message=${_messageForPlatformException(error)}',
+          ],
+        ),
+      );
       return ICloudAccountStatusResult(
         availability: ICloudAccountAvailability.unknown,
         message: _messageForPlatformException(error),
@@ -169,6 +195,7 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
     Map<String, dynamic>? arguments,
   ]) async {
     final result = await _withCloudKitRetry(
+      method,
       () => _channel.invokeMapMethod<String, dynamic>(method, arguments),
     );
     if (result == null) {
@@ -182,25 +209,54 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
     Map<String, dynamic>? arguments,
   ]) async {
     final result = await _withCloudKitRetry(
+      method,
       () => _channel.invokeListMethod<dynamic>(method, arguments),
     );
     return result ?? const <dynamic>[];
   }
 
-  Future<T> _withCloudKitRetry<T>(Future<T> Function() operation) async {
+  Future<T> _withCloudKitRetry<T>(
+    String method,
+    Future<T> Function() operation,
+  ) async {
+    await logFirebaseBreadcrumb('icloud $method start');
     for (var attempt = 0; attempt <= _retryDelays.length; attempt += 1) {
       try {
-        return await operation();
+        final result = await operation();
+        await logFirebaseBreadcrumb('icloud $method success');
+        return result;
       } on PlatformException catch (error) {
         final mapped = _mapPlatformException(error);
         if (attempt >= _retryDelays.length || !mapped.isTemporary) {
+          unawaited(
+            recordNonFatalError(
+              mapped,
+              StackTrace.current,
+              reason: 'CloudKit method failed: $method',
+              information: [
+                'method=$method',
+                'attempt=$attempt',
+                'code=${error.code}',
+                'message=${mapped.message}',
+              ],
+            ),
+          );
           throw mapped;
         }
+        await logFirebaseBreadcrumb('icloud $method retry ${attempt + 1}');
         await Future<void>.delayed(_retryDelays[attempt]);
       } on MissingPluginException {
-        throw const ICloudSyncException(
+        const mapped = ICloudSyncException(
           'CloudKit is not available in this runtime.',
         );
+        unawaited(
+          recordNonFatalError(
+            mapped,
+            StackTrace.current,
+            reason: 'CloudKit method missing: $method',
+          ),
+        );
+        throw mapped;
       }
     }
     throw const ICloudSyncException('CloudKit request failed.');

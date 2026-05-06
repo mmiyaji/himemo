@@ -7,7 +7,8 @@ import 'package:flutter/foundation.dart';
 
 bool get _supportsFirebaseObservability =>
     !kIsWeb &&
-    defaultTargetPlatform == TargetPlatform.android &&
+    (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS) &&
     Firebase.apps.isNotEmpty;
 
 Future<void> configureFirebaseObservability({
@@ -85,11 +86,7 @@ Future<T> runFirebaseTrace<T>(
     return result;
   } catch (error, stackTrace) {
     unawaited(
-      recordNonFatalError(
-        error,
-        stackTrace,
-        reason: 'Trace failure: $name',
-      ),
+      recordNonFatalError(error, stackTrace, reason: 'Trace failure: $name'),
     );
     rethrow;
   } finally {
