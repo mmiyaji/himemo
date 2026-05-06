@@ -869,23 +869,18 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   ),
                 )
               else
-                for (var i = 0; i < visibleDayNoteCount; i++) ...[
-                  _CalendarNoteRow(
-                    note: sameDayNotes[i],
-                    vaultName: ref
-                        .watch(vaultByIdProvider(sameDayNotes[i].vaultId))
-                        .name,
-                    onTap: () => _openCalendarNoteDetails(
-                      context,
-                      noteDays,
-                      notesByDay,
-                      _selectedDay,
-                      i,
-                    ),
+                _CalendarDayNotesList(
+                  notes: sameDayNotes,
+                  itemCount: visibleDayNoteCount,
+                  expanded: _dayNotesExpanded,
+                  onTap: (index) => _openCalendarNoteDetails(
+                    context,
+                    noteDays,
+                    notesByDay,
+                    _selectedDay,
+                    index,
                   ),
-                  if (i != sameDayNotes.length - 1)
-                    Divider(height: 24, color: Theme.of(context).dividerColor),
-                ],
+                ),
               if (shouldCollapseDayNotes) ...[
                 const SizedBox(height: 8),
                 Align(
@@ -8832,6 +8827,60 @@ class _CalendarNoteRow extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _CalendarDayNotesList extends ConsumerWidget {
+  const _CalendarDayNotesList({
+    required this.notes,
+    required this.itemCount,
+    required this.expanded,
+    required this.onTap,
+  });
+
+  final List<NoteEntry> notes;
+  final int itemCount;
+  final bool expanded;
+  final ValueChanged<int> onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final dividerColor = Theme.of(context).dividerColor;
+    final cappedItemCount = itemCount.clamp(0, notes.length);
+
+    Widget buildRow(int index) {
+      final note = notes[index];
+      return _CalendarNoteRow(
+        note: note,
+        vaultName: ref.watch(vaultByIdProvider(note.vaultId)).name,
+        onTap: () => onTap(index),
+      );
+    }
+
+    if (!expanded) {
+      return Column(
+        children: [
+          for (var index = 0; index < cappedItemCount; index++) ...[
+            buildRow(index),
+            if (index != cappedItemCount - 1)
+              Divider(height: 24, color: dividerColor),
+          ],
+        ],
+      );
+    }
+
+    final viewportHeight = MediaQuery.sizeOf(context).height;
+    final listHeight = math.min(560.0, math.max(280.0, viewportHeight * 0.55));
+    return SizedBox(
+      height: listHeight,
+      child: ListView.separated(
+        primary: false,
+        itemCount: cappedItemCount,
+        separatorBuilder: (context, index) =>
+            Divider(height: 24, color: dividerColor),
+        itemBuilder: (context, index) => buildRow(index),
       ),
     );
   }

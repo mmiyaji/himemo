@@ -908,3 +908,36 @@ Conclusion:
 
 - The pass found a high-impact recovery/usability issue rather than a raw list-performance regression.
 - Font selection is now safer for multilingual UI, and mobile detail sheets no longer permit confusing background interaction.
+
+## Cycle 36 monkey follow-up
+
+Plan:
+
+- Run an In App Browser pass through search, editor cancel, calendar, and settings with 1000 generated notes.
+- Focus on list expansion paths that are not part of the main notes list virtualization work.
+
+Findings:
+
+- The app reached the notes screen after the Web debug boot and 1000-note restore, but the initial loading wait remained noticeable in debug mode.
+- Search, editor open/cancel, calendar navigation, and settings navigation did not produce app console errors.
+- Calendar day notes were collapsed to 24 entries by default, but expanding a busy day still used eager row construction inside the parent scroll view.
+
+Changes:
+
+- Replaced the expanded calendar day-note rendering path with `_CalendarDayNotesList`.
+- Kept the collapsed path simple and limited.
+- Used a fixed-height `ListView.separated` for expanded day-note lists so large days are rendered lazily and scroll independently.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58084` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Calendar selected-day list opened with 85 notes for the sampled day.
+  - Expanding the list showed a bounded inner scroll area.
+  - Scrolling the expanded list moved from Performance note 1 to Performance note 8 without console errors.
+
+Conclusion:
+
+- The main notes list was already guarded, but the calendar expansion path had a separate eager-render risk.
+- Busy calendar days now avoid building all expanded rows at once.
