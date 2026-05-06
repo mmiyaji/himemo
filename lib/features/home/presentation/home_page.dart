@@ -1203,14 +1203,32 @@ class _MarkedCalendar extends StatelessWidget {
   }
 }
 
-class InsightsScreen extends ConsumerWidget {
+class InsightsScreen extends ConsumerStatefulWidget {
   const InsightsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<InsightsScreen> createState() => _InsightsScreenState();
+}
+
+class _InsightsScreenState extends ConsumerState<InsightsScreen> {
+  List<NoteEntry>? _cachedNotes;
+  Locale? _cachedLocale;
+  _InsightsData? _cachedInsights;
+
+  @override
+  Widget build(BuildContext context) {
     final strings = context.strings;
     final notes = ref.watch(visibleNotesProvider);
-    final insights = _buildInsightsData(context, notes);
+    final locale = Localizations.localeOf(context);
+    var insights = _cachedInsights;
+    if (insights == null ||
+        !identical(_cachedNotes, notes) ||
+        _cachedLocale != locale) {
+      insights = _buildInsightsData(context, notes);
+      _cachedNotes = notes;
+      _cachedLocale = locale;
+      _cachedInsights = insights;
+    }
     final summary = insights.summary;
 
     return ListView(
@@ -1988,6 +2006,7 @@ class _InsightsData {
 }
 
 _InsightsData _buildInsightsData(BuildContext context, List<NoteEntry> notes) {
+  final watch = kDebugMode ? (Stopwatch()..start()) : null;
   final strings = context.strings;
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
@@ -2113,7 +2132,7 @@ _InsightsData _buildInsightsData(BuildContext context, List<NoteEntry> notes) {
           'thisMonthCount': thisMonthCount,
           'bestDayLabel': bestDay.label,
         });
-  return _InsightsData(
+  final data = _InsightsData(
     summary: _InsightsSummary(
       currentStreak: currentStreak,
       thisMonthCount: thisMonthCount,
@@ -2138,6 +2157,13 @@ _InsightsData _buildInsightsData(BuildContext context, List<NoteEntry> notes) {
       _InsightBucket(label: strings.text('home.audio'), value: audioAttachments),
     ],
   );
+  final elapsed = watch?.elapsedMicroseconds;
+  if (elapsed != null && (notes.length >= 500 || elapsed >= 2000)) {
+    _debugNotePerf(
+      'insights build notes=${notes.length} attachments=$totalAttachments completed ${elapsed / 1000}ms',
+    );
+  }
+  return data;
 }
 
 bool _isSameCalendarDay(DateTime left, DateTime right) {

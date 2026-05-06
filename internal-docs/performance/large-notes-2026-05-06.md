@@ -594,3 +594,29 @@ Measurements:
 Conclusion:
 
 - Thumbnail previews should avoid decoding large images at full resolution when the UI only needs a small preview.
+
+## Cycle 25 follow-up
+
+Plan:
+
+- Check the Insights tab because it scans the visible notes to build charts and summary counters.
+- Avoid recalculating the same aggregate data on unrelated rebuilds, such as theme/layout changes.
+
+Changes:
+
+- Converted `InsightsScreen` to a stateful consumer widget.
+- Cached `_InsightsData` while the visible note list identity and locale remain unchanged.
+- Added debug-only timing for insights aggregation.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "search filters can partition notes by year"` passed.
+- In App Browser on `127.0.0.1:58088` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - 1000-note row generation logged `mobile list rows notes=1000 rows=2009 completed 2.9ms`.
+  - Insights aggregation logged `insights build notes=1000 attachments=0 completed 13ms`.
+  - The Insights screen rendered the Japanese summary and charts correctly.
+
+Conclusion:
+
+- Insights aggregation is acceptable at 1000 notes in debug web, but caching prevents paying the same aggregation cost on unrelated rebuilds.
