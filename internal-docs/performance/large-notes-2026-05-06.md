@@ -145,3 +145,24 @@ Conclusion:
 
 - This removes repeated O(n) scans from note selection rebuilds.
 - The improvement is smaller than storage/index work, but it compounds with the previous list virtualization work.
+
+## Cycle 6 follow-up
+
+Plan:
+
+- Reduce repeated scans in the Insights tab.
+
+Changes:
+
+- Replaced separate summary/month/day/hour/attachment aggregation passes with a single `_buildInsightsData` pass.
+- Reused the single aggregate result for all KPI and chart sections.
+
+Measurements:
+
+- Browser E2E opened the Insights route with 1000 seeded notes and confirmed the summary and chart text rendered.
+- Static validation remained clean with `flutter analyze`.
+
+Conclusion:
+
+- Insights no longer performs several independent full-list scans for the same visible note set.
+- Remaining high-impact work is still Web storage restore and lazy payload loading.

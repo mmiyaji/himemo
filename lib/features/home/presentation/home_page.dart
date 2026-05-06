@@ -1183,7 +1183,8 @@ class InsightsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
     final notes = ref.watch(visibleNotesProvider);
-    final summary = _buildInsightsSummary(context, notes);
+    final insights = _buildInsightsData(context, notes);
+    final summary = insights.summary;
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -1217,7 +1218,7 @@ class InsightsScreen extends ConsumerWidget {
             'home.notes.created.over.the.last.6.months',
           ),
           child: _InsightLineChart(
-            buckets: _buildMonthlyBuckets(context, notes),
+            buckets: insights.monthlyBuckets,
             valueSuffix: strings.text('home.notes'),
           ),
         ),
@@ -1228,7 +1229,7 @@ class InsightsScreen extends ConsumerWidget {
             'home.daily.note.count.over.the.last.14.days',
           ),
           child: _InsightBarChart(
-            buckets: _buildRecentDayBuckets(context, notes),
+            buckets: insights.recentDayBuckets,
             valueSuffix: strings.text('home.notes'),
           ),
         ),
@@ -1239,7 +1240,7 @@ class InsightsScreen extends ConsumerWidget {
             'home.notes.by.weekday.and.3.hour.time.block',
           ),
           child: _WeekdayHourHistogram(
-            buckets: _buildWeekdayHourBuckets(notes),
+            buckets: insights.weekdayHourBuckets,
             valueSuffix: strings.text('home.notes'),
           ),
         ),
@@ -1250,7 +1251,7 @@ class InsightsScreen extends ConsumerWidget {
             'home.how.often.photos.videos.and.audio.are.used',
           ),
           child: _InsightHorizontalBarChart(
-            buckets: _buildAttachmentBuckets(context, notes),
+            buckets: insights.attachmentBuckets,
             valueSuffix: strings.text('home.items'),
           ),
         ),
@@ -1943,39 +1944,78 @@ class _InsightsSummary {
   final String message;
 }
 
-_InsightsSummary _buildInsightsSummary(
-  BuildContext context,
-  List<NoteEntry> notes,
-) {
+class _InsightsData {
+  const _InsightsData({
+    required this.summary,
+    required this.monthlyBuckets,
+    required this.recentDayBuckets,
+    required this.weekdayHourBuckets,
+    required this.attachmentBuckets,
+  });
+
+  final _InsightsSummary summary;
+  final List<_InsightBucket> monthlyBuckets;
+  final List<_InsightBucket> recentDayBuckets;
+  final List<_WeekdayHourBucket> weekdayHourBuckets;
+  final List<_InsightBucket> attachmentBuckets;
+}
+
+_InsightsData _buildInsightsData(BuildContext context, List<NoteEntry> notes) {
   final strings = context.strings;
   final now = DateTime.now();
-  final thisMonthCount = notes
-      .where(
-        (note) =>
-            note.createdAt.year == now.year &&
-            note.createdAt.month == now.month,
-      )
-      .length;
-  final totalCharacters = notes.fold<int>(
-    0,
-    (sum, note) => sum + note.body.trim().length,
-  );
-  final totalAttachments = notes.fold<int>(
-    0,
-    (sum, note) => sum + note.attachments.length,
-  );
-  final activeDays =
-      notes
-          .map(
-            (note) => DateTime(
-              note.createdAt.year,
-              note.createdAt.month,
-              note.createdAt.day,
-            ),
-          )
-          .toSet()
-          .toList()
-        ..sort((a, b) => b.compareTo(a));
+  final today = DateTime(now.year, now.month, now.day);
+  final previousMonth = DateTime(now.year, now.month - 1);
+  var thisMonthCount = 0;
+  var previousMonthCount = 0;
+  var totalCharacters = 0;
+  var totalAttachments = 0;
+  final activeDaysSet = <DateTime>{};
+  final monthCounts = <int, int>{};
+  final dayCounts = <DateTime, int>{};
+  final weekdayHourCounts = <String, int>{};
+  final hourCounts = <int, int>{};
+  var photoAttachments = 0;
+  var videoAttachments = 0;
+  var audioAttachments = 0;
+
+  for (final note in notes) {
+    final createdAt = note.createdAt;
+    totalCharacters += note.body.trim().length;
+    totalAttachments += note.attachments.length;
+    if (createdAt.year == now.year && createdAt.month == now.month) {
+      thisMonthCount += 1;
+    }
+    if (createdAt.year == previousMonth.year &&
+        createdAt.month == previousMonth.month) {
+      previousMonthCount += 1;
+    }
+    final monthKey = createdAt.year * 12 + createdAt.month;
+    monthCounts[monthKey] = (monthCounts[monthKey] ?? 0) + 1;
+    final day = DateTime(createdAt.year, createdAt.month, createdAt.day);
+    activeDaysSet.add(day);
+    dayCounts[day] = (dayCounts[day] ?? 0) + 1;
+    final weekdayStartHour = (createdAt.hour ~/ 3) * 3;
+    final weekdayHourKey = '${createdAt.weekday}:$weekdayStartHour';
+    weekdayHourCounts[weekdayHourKey] =
+        (weekdayHourCounts[weekdayHourKey] ?? 0) + 1;
+    final hourStart = (createdAt.hour ~/ 4) * 4;
+    hourCounts[hourStart] = (hourCounts[hourStart] ?? 0) + 1;
+    for (final attachment in note.attachments) {
+      switch (attachment.type) {
+        case AttachmentType.photo:
+          photoAttachments += 1;
+        case AttachmentType.video:
+          videoAttachments += 1;
+        case AttachmentType.audio:
+          audioAttachments += 1;
+        case AttachmentType.file:
+          break;
+      }
+    }
+  }
+
+  final activeDays = activeDaysSet.toList()
+    ..sort((a, b) => b.compareTo(a));
   var currentStreak = 0;
   if (activeDays.isNotEmpty) {
     var cursor = activeDays.first;
@@ -1986,28 +2026,59 @@ _InsightsSummary _buildInsightsSummary(
       }
     }
   }
-  final bestDay = _buildRecentDayBuckets(context, notes, count: 31)
+
+  final recentDayBuckets = <_InsightBucket>[];
+  final recent31DayBuckets = <_InsightBucket>[];
+  for (var i = 30; i >= 0; i--) {
+    final day = today.subtract(Duration(days: i));
+    final bucket = _InsightBucket(
+      label: '${day.month}/${day.day}',
+      value: dayCounts[day] ?? 0,
+    );
+    recent31DayBuckets.add(bucket);
+    if (i < 14) {
+      recentDayBuckets.add(bucket);
+    }
+  }
+  final monthlyBuckets = <_InsightBucket>[];
+  for (var i = 5; i >= 0; i--) {
+    final month = DateTime(now.year, now.month - i);
+    monthlyBuckets.add(
+      _InsightBucket(
+        label: strings.monthBucketLabel(month.month),
+        value: monthCounts[month.year * 12 + month.month] ?? 0,
+      ),
+    );
+  }
+  final weekdayHourBuckets = [
+    for (var startHour = 0; startHour < 24; startHour += 3)
+      for (var weekday = 1; weekday <= 7; weekday++)
+        _WeekdayHourBucket(
+          weekday: weekday,
+          startHour: startHour,
+          value: weekdayHourCounts['$weekday:$startHour'] ?? 0,
+        ),
+  ];
+  final hourBuckets = [
+    for (var hour = 0; hour < 24; hour += 4)
+      _InsightBucket(
+        label:
+            '${hour.toString().padLeft(2, '0')}-${(hour + 3).toString().padLeft(2, '0')}',
+        value: hourCounts[hour] ?? 0,
+      ),
+  ];
+  final bestDay = recent31DayBuckets
       .where((bucket) => bucket.value > 0)
       .fold<_InsightBucket?>(
         null,
         (best, bucket) =>
             best == null || bucket.value > best.value ? bucket : best,
       );
-  final bestHour = _buildHourBuckets(notes)
-      .where((bucket) => bucket.value > 0)
-      .fold<_InsightBucket?>(
-        null,
-        (best, bucket) =>
-            best == null || bucket.value > best.value ? bucket : best,
-      );
-  final previousMonth = DateTime(now.year, now.month - 1);
-  final previousMonthCount = notes
-      .where(
-        (note) =>
-            note.createdAt.year == previousMonth.year &&
-            note.createdAt.month == previousMonth.month,
-      )
-      .length;
+  final bestHour = hourBuckets.where((bucket) => bucket.value > 0).fold<
+      _InsightBucket?>(
+    null,
+    (best, bucket) => best == null || bucket.value > best.value ? bucket : best,
+  );
   final monthlyDelta = thisMonthCount - previousMonthCount;
   final message = bestDay == null || bestDay.value == 0
       ? strings.text('home.insights.summary.empty')
@@ -2015,131 +2086,31 @@ _InsightsSummary _buildInsightsSummary(
           'thisMonthCount': thisMonthCount,
           'bestDayLabel': bestDay.label,
         });
-  return _InsightsSummary(
-    currentStreak: currentStreak,
-    thisMonthCount: thisMonthCount,
-    totalCharacters: totalCharacters,
-    totalAttachments: totalAttachments,
-    bestDayLabel: bestDay?.label ?? '-',
-    bestDayValue: bestDay?.value ?? 0,
-    bestHourLabel: bestHour?.label ?? '-',
-    monthlyDeltaLabel: monthlyDelta == 0
-        ? '0'
-        : monthlyDelta > 0
-        ? '+$monthlyDelta'
-        : '$monthlyDelta',
-    message: message,
+  return _InsightsData(
+    summary: _InsightsSummary(
+      currentStreak: currentStreak,
+      thisMonthCount: thisMonthCount,
+      totalCharacters: totalCharacters,
+      totalAttachments: totalAttachments,
+      bestDayLabel: bestDay?.label ?? '-',
+      bestDayValue: bestDay?.value ?? 0,
+      bestHourLabel: bestHour?.label ?? '-',
+      monthlyDeltaLabel: monthlyDelta == 0
+          ? '0'
+          : monthlyDelta > 0
+          ? '+$monthlyDelta'
+          : '$monthlyDelta',
+      message: message,
+    ),
+    monthlyBuckets: List.unmodifiable(monthlyBuckets),
+    recentDayBuckets: List.unmodifiable(recentDayBuckets),
+    weekdayHourBuckets: List.unmodifiable(weekdayHourBuckets),
+    attachmentBuckets: [
+      _InsightBucket(label: strings.text('home.photo'), value: photoAttachments),
+      _InsightBucket(label: strings.text('home.video'), value: videoAttachments),
+      _InsightBucket(label: strings.text('home.audio'), value: audioAttachments),
+    ],
   );
-}
-
-List<_InsightBucket> _buildMonthlyBuckets(
-  BuildContext context,
-  List<NoteEntry> notes, {
-  int count = 6,
-}) {
-  final strings = context.strings;
-  final now = DateTime.now();
-  final buckets = <_InsightBucket>[];
-  for (var i = count - 1; i >= 0; i--) {
-    final month = DateTime(now.year, now.month - i);
-    final value = notes
-        .where(
-          (note) =>
-              note.createdAt.year == month.year &&
-              note.createdAt.month == month.month,
-        )
-        .length;
-    buckets.add(
-      _InsightBucket(
-        label: strings.monthBucketLabel(month.month),
-        value: value,
-      ),
-    );
-  }
-  return buckets;
-}
-
-List<_InsightBucket> _buildRecentDayBuckets(
-  BuildContext context,
-  List<NoteEntry> notes, {
-  int count = 14,
-}) {
-  final now = DateTime.now();
-  final buckets = <_InsightBucket>[];
-  for (var i = count - 1; i >= 0; i--) {
-    final day = DateTime(
-      now.year,
-      now.month,
-      now.day,
-    ).subtract(Duration(days: i));
-    final value = notes
-        .where((note) => _isSameCalendarDay(note.createdAt, day))
-        .length;
-    buckets.add(_InsightBucket(label: '${day.month}/${day.day}', value: value));
-  }
-  return buckets;
-}
-
-List<_WeekdayHourBucket> _buildWeekdayHourBuckets(List<NoteEntry> notes) {
-  return [
-    for (var startHour = 0; startHour < 24; startHour += 3)
-      for (var weekday = 1; weekday <= 7; weekday++)
-        _WeekdayHourBucket(
-          weekday: weekday,
-          startHour: startHour,
-          value: notes
-              .where(
-                (note) =>
-                    note.createdAt.weekday == weekday &&
-                    note.createdAt.hour >= startHour &&
-                    note.createdAt.hour < startHour + 3,
-              )
-              .length,
-        ),
-  ];
-}
-
-List<_InsightBucket> _buildAttachmentBuckets(
-  BuildContext context,
-  List<NoteEntry> notes,
-) {
-  final strings = context.strings;
-  int countFor(AttachmentType type) => notes.fold<int>(
-    0,
-    (sum, note) =>
-        sum +
-        note.attachments.where((attachment) => attachment.type == type).length,
-  );
-  return [
-    _InsightBucket(
-      label: strings.text('home.photo'),
-      value: countFor(AttachmentType.photo),
-    ),
-    _InsightBucket(
-      label: strings.text('home.video'),
-      value: countFor(AttachmentType.video),
-    ),
-    _InsightBucket(
-      label: strings.text('home.audio'),
-      value: countFor(AttachmentType.audio),
-    ),
-  ];
-}
-
-List<_InsightBucket> _buildHourBuckets(List<NoteEntry> notes) {
-  return [
-    for (var hour = 0; hour < 24; hour += 4)
-      _InsightBucket(
-        label:
-            '${hour.toString().padLeft(2, '0')}-${(hour + 3).toString().padLeft(2, '0')}',
-        value: notes
-            .where(
-              (note) =>
-                  note.createdAt.hour >= hour && note.createdAt.hour < hour + 4,
-            )
-            .length,
-      ),
-  ];
 }
 
 bool _isSameCalendarDay(DateTime left, DateTime right) {
