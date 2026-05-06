@@ -11980,6 +11980,8 @@ class _AttachmentPreview extends ConsumerStatefulWidget {
 class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
   Future<List<int>?>? _bytesFuture;
   String? _futureFilePath;
+  Uint8List? _previewBytes;
+  String? _previewBytesBase64;
 
   @override
   void didUpdateWidget(covariant _AttachmentPreview oldWidget) {
@@ -11990,6 +11992,8 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
             widget.attachment.previewBytesBase64) {
       _bytesFuture = null;
       _futureFilePath = null;
+      _previewBytes = null;
+      _previewBytesBase64 = null;
     }
   }
 
@@ -12013,10 +12017,7 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
 
     final previewBytesBase64 = attachment.previewBytesBase64;
     if (previewBytesBase64 != null && previewBytesBase64.isNotEmpty) {
-      return _AttachmentImageBox(
-        bytes: base64Decode(previewBytesBase64),
-        size: size,
-      );
+      return _AttachmentImageBox(bytes: _decodePreviewBytes(), size: size);
     }
 
     final filePath = attachment.filePath;
@@ -12031,16 +12032,25 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
         if (bytes == null || bytes.isEmpty) {
           return _AttachmentIconBox(type: attachment.type, size: size);
         }
-        return _AttachmentImageBox(bytes: bytes, size: size);
+        return _AttachmentImageBox(bytes: Uint8List.fromList(bytes), size: size);
       },
     );
+  }
+
+  Uint8List _decodePreviewBytes() {
+    final encoded = widget.attachment.previewBytesBase64!;
+    if (_previewBytes != null && _previewBytesBase64 == encoded) {
+      return _previewBytes!;
+    }
+    _previewBytesBase64 = encoded;
+    return _previewBytes = base64Decode(encoded);
   }
 }
 
 class _AttachmentImageBox extends StatelessWidget {
   const _AttachmentImageBox({required this.bytes, this.size = 72});
 
-  final List<int> bytes;
+  final Uint8List bytes;
   final double size;
 
   @override
@@ -12048,7 +12058,7 @@ class _AttachmentImageBox extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: Image.memory(
-        Uint8List.fromList(bytes),
+        bytes,
         width: size,
         height: size,
         fit: BoxFit.cover,

@@ -186,3 +186,24 @@ Measurements:
 Conclusion:
 
 - This mirrors the previous lazy tag-suggestion change and keeps the common note-list path lighter.
+
+## Cycle 8 follow-up
+
+Plan:
+
+- Reduce repeated thumbnail decode work when notes with image attachments are rebuilt while scrolling.
+
+Changes:
+
+- Cached decoded `previewBytesBase64` inside `_AttachmentPreviewState`.
+- Changed `_AttachmentImageBox` to accept `Uint8List` directly so build no longer copies bytes with `Uint8List.fromList` for already-decoded previews.
+- Kept encrypted attachment fallback behavior unchanged.
+
+Measurements:
+
+- Static validation remained clean with `flutter analyze`.
+- Existing provider/search test remained green.
+
+Conclusion:
+
+- This cycle targets attachment-heavy note lists. The 1000 generated note set is mostly text, so the improvement is preventive for real user datasets with many photos.
