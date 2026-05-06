@@ -7158,28 +7158,65 @@ Future<bool> _confirmExternalLinkOpen(BuildContext context, String url) async {
       false;
 }
 
-class _DetailContentSliver extends StatelessWidget {
+class _DetailContentSliver extends StatefulWidget {
   const _DetailContentSliver({required this.note, required this.mediaActive});
 
   final NoteEntry note;
   final bool mediaActive;
 
   @override
-  Widget build(BuildContext context) {
-    final items = _buildDetailContentItems(note);
+  State<_DetailContentSliver> createState() => _DetailContentSliverState();
+}
+
+class _DetailContentSliverState extends State<_DetailContentSliver> {
+  late List<_DetailContentItem> _items;
+  late List<NoteAttachment> _photoAttachments;
+
+  @override
+  void initState() {
+    super.initState();
+    _rebuildContentCache();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DetailContentSliver oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.note != widget.note) {
+      _rebuildContentCache();
+    }
+  }
+
+  void _rebuildContentCache() {
+    final watch = kDebugMode ? (Stopwatch()..start()) : null;
+    final items = _buildDetailContentItems(widget.note);
     final photoAttachments = items
         .map((item) => item.attachment)
         .whereType<NoteAttachment>()
         .where((attachment) => attachment.type == AttachmentType.photo)
         .toList(growable: false);
+    _items = items;
+    _photoAttachments = photoAttachments;
+    final elapsed = watch?.elapsedMicroseconds;
+    if (elapsed != null &&
+        (widget.note.blocks.length >= 20 ||
+            widget.note.attachments.length >= 10 ||
+            elapsed >= 2000)) {
+      _debugNotePerf(
+        'detail content cache items=${items.length} photos=${photoAttachments.length} ${_notePerfLabel(widget.note)} completed ${elapsed / 1000}ms',
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return SliverList.builder(
-      itemCount: items.length,
+      itemCount: _items.length,
       itemBuilder: (context, index) {
-        final item = items[index];
+        final item = _items[index];
         final child = _DetailContentItemWidget(
           item: item,
-          mediaActive: mediaActive,
-          photoAttachments: photoAttachments,
+          mediaActive: widget.mediaActive,
+          photoAttachments: _photoAttachments,
         );
         return Padding(
           padding: EdgeInsets.only(top: index == 0 ? 0 : 16),
@@ -12252,6 +12289,9 @@ class _AttachmentImageBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final imageCacheSize = (size * MediaQuery.devicePixelRatioOf(context))
+        .round()
+        .clamp(1, 4096);
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: Image.memory(
@@ -12260,6 +12300,8 @@ class _AttachmentImageBox extends StatelessWidget {
         height: size,
         fit: BoxFit.cover,
         gaplessPlayback: true,
+        cacheWidth: imageCacheSize,
+        cacheHeight: imageCacheSize,
       ),
     );
   }

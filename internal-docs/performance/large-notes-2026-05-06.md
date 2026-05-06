@@ -547,3 +547,50 @@ Conclusion:
 
 - Provider-side search/filtering is currently under 10ms for the 1000-note fixture in debug web.
 - If users still feel search lag, the next target should be text input focus/paint and row rebuild cost rather than raw filtering.
+
+## Cycle 23 follow-up
+
+Plan:
+
+- Reduce repeated work in note detail rendering, especially for long notes or notes with many attachments.
+- Keep the current lazy sliver behavior while avoiding content-item reconstruction on every parent rebuild.
+
+Changes:
+
+- Converted `_DetailContentSliver` to a stateful widget.
+- Cached detail content items and the photo attachment list until the `NoteEntry` changes.
+- Added debug-only timing for detail content cache rebuilds when notes are large or slow.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note attachments preserve media duration metadata"` passed.
+- In App Browser on `127.0.0.1:58087` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - 1000-note row generation logged `mobile list rows notes=1000 rows=2009 completed 2.4ms`.
+  - `Performance note 3` opened with `detail pane frame 75.6ms`.
+  - `Performance note 4` opened with `detail pane frame 69.7ms`.
+
+Conclusion:
+
+- The text-only 1000-note fixture remains stable after caching.
+- The main benefit is expected for long rich notes and attachment-heavy notes where the content item list is larger than this fixture.
+
+## Cycle 24 follow-up
+
+Plan:
+
+- Check attachment-heavy list/editor paths for avoidable image decode work.
+- Keep thumbnail visual behavior unchanged while reducing memory and paint cost for large original images.
+
+Changes:
+
+- `_AttachmentImageBox` now passes `cacheWidth` and `cacheHeight` based on the displayed thumbnail size and device pixel ratio.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note attachments preserve media duration metadata"` passed.
+
+Conclusion:
+
+- Thumbnail previews should avoid decoding large images at full resolution when the UI only needs a small preview.
