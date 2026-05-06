@@ -207,3 +207,26 @@ Measurements:
 Conclusion:
 
 - This cycle targets attachment-heavy note lists. The 1000 generated note set is mostly text, so the improvement is preventive for real user datasets with many photos.
+
+## Cycle 9 follow-up
+
+Plan:
+
+- Reuse the existing photo attachment bytes cache across list previews and the lightbox viewer.
+- Avoid re-reading the same encrypted image file when users move between note detail, list preview, and image viewer surfaces.
+
+Changes:
+
+- Routed `_AttachmentPreview` file-backed photo reads through `_readPhotoAttachmentBytesWithPerf`.
+- Routed `_PhotoAttachmentViewer` reads through the same cached path.
+- Kept inline preview decoding local to the preview widget because it is already cached as `Uint8List` after Cycle 8.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "search filters can narrow notes by tags"` passed.
+- A headless browser session opened the 1000-note route and captured note selection frame logs, but the reused `web-server` debug session later stayed on Splash during reconnect. The code path was therefore validated by static tests and cache-aware debug instrumentation rather than a second full browser replay in the same server session.
+
+Conclusion:
+
+- This is a targeted attachment-heavy improvement. It should reduce repeated decrypt/read work when photo attachments are visible in multiple surfaces during the same app session.

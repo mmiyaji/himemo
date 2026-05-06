@@ -12002,9 +12002,11 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
       return _bytesFuture!;
     }
     _futureFilePath = filePath;
-    return _bytesFuture = ref
-        .read(encryptedAttachmentStoreProvider)
-        .readAttachment(filePath, type: widget.attachment.type);
+    return _bytesFuture = _readPhotoAttachmentBytesWithPerf(
+      ref,
+      widget.attachment,
+      source: 'attachment preview',
+    );
   }
 
   @override
@@ -14030,7 +14032,11 @@ class _PhotoAttachmentViewer extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return FutureBuilder<List<int>?>(
-      future: _readPhotoAttachmentBytes(ref, attachment),
+      future: _readPhotoAttachmentBytesWithPerf(
+        ref,
+        attachment,
+        source: 'viewer',
+      ),
       builder: (context, snapshot) {
         final bytes = snapshot.data;
         if (snapshot.connectionState == ConnectionState.waiting) {
