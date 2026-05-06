@@ -5647,7 +5647,7 @@ class _MobileNotesListState extends State<_MobileNotesList> {
   }
 
   List<_MobileNoteRow> _buildRows() {
-    final watch = Stopwatch()..start();
+    final watch = kDebugMode ? (Stopwatch()..start()) : null;
     final rows = _buildMobileNoteRows(
       activeIdentity: widget.activeIdentity,
       showPrivateVaultNotice: widget.showPrivateVaultNotice,
@@ -5657,10 +5657,12 @@ class _MobileNotesListState extends State<_MobileNotesList> {
       notesAreEmpty: widget.allVisibleNotes.isEmpty,
       density: widget.density,
     );
-    watch.stop();
-    _debugNotePerf(
-      'mobile list rows notes=${widget.allVisibleNotes.length} rows=${rows.length} completed ${watch.elapsedMicroseconds / 1000}ms',
-    );
+    if (watch != null) {
+      watch.stop();
+      _debugNotePerf(
+        'mobile list rows notes=${widget.allVisibleNotes.length} rows=${rows.length} completed ${watch.elapsedMicroseconds / 1000}ms',
+      );
+    }
     return rows;
   }
 
@@ -6952,7 +6954,6 @@ class _NoteDetailPane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final buildWatch = Stopwatch()..start();
     final createdLabel =
         '${note.createdAt.year}/${note.createdAt.month}/${note.createdAt.day} ${note.createdAt.hour.toString().padLeft(2, '0')}:${note.createdAt.minute.toString().padLeft(2, '0')}';
     final changedAt = note.updatedAt ?? note.createdAt;
@@ -6960,12 +6961,15 @@ class _NoteDetailPane extends StatelessWidget {
         '${changedAt.year}/${changedAt.month}/${changedAt.day} ${changedAt.hour.toString().padLeft(2, '0')}:${changedAt.minute.toString().padLeft(2, '0')}';
     final isEdited = note.updatedAt != null && note.updatedAt != note.createdAt;
     final tags = note.normalizedTags;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      buildWatch.stop();
-      _debugNotePerf(
-        'detail pane frame ${buildWatch.elapsedMicroseconds / 1000}ms ${_notePerfLabel(note)} tags=${tags.length}',
-      );
-    });
+    final buildWatch = kDebugMode ? (Stopwatch()..start()) : null;
+    if (buildWatch != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        buildWatch.stop();
+        _debugNotePerf(
+          'detail pane frame ${buildWatch.elapsedMicroseconds / 1000}ms ${_notePerfLabel(note)} tags=${tags.length}',
+        );
+      });
+    }
 
     return Container(
       decoration: _sectionDecoration(context),

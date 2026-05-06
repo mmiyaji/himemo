@@ -751,3 +751,29 @@ Conclusion:
 
 - Normal 1000-note list/detail navigation remains stable after the attachment-index change.
 - Notes with many embedded photos avoid repeated `indexOf` scans, reducing the risk of quadratic build cost in attachment-heavy detail views.
+
+## Cycle 31 follow-up
+
+Plan:
+
+- Remove measurement-only overhead from non-debug builds.
+- Keep debug instrumentation available for future browser and emulator profiling.
+
+Changes:
+
+- Mobile list row timing now allocates `Stopwatch` only in debug mode.
+- Detail pane frame timing now registers the post-frame callback only in debug mode.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "note entry defaults sync metadata safely"` passed.
+- In App Browser on `127.0.0.1:58093` with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - 1000-note row generation still logged in debug: `mobile list rows notes=1000 rows=2009 completed 2.101ms`.
+  - Opening a visible row completed, with `detail pane frame 127.299ms`.
+  - Browser console showed no errors.
+
+Conclusion:
+
+- Debug profiling behavior is preserved.
+- Release/profile builds avoid unnecessary `Stopwatch` allocation and post-frame callbacks in the note list/detail hot paths.
