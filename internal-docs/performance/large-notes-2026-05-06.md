@@ -166,3 +166,23 @@ Conclusion:
 
 - Insights no longer performs several independent full-list scans for the same visible note set.
 - Remaining high-impact work is still Web storage restore and lazy payload loading.
+
+## Cycle 7 follow-up
+
+Plan:
+
+- Avoid year-list aggregation while the advanced filter UI is closed.
+
+Changes:
+
+- Moved `visibleNoteYearsProvider` reads into the advanced filter branch.
+- Normal list rendering no longer computes the year list unless the user opens detailed filters.
+
+Measurements:
+
+- Static validation remained clean with `flutter analyze`.
+- Year partition provider test remained green.
+
+Conclusion:
+
+- This mirrors the previous lazy tag-suggestion change and keeps the common note-list path lighter.

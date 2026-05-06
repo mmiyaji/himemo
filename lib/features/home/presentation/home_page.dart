@@ -7818,7 +7818,6 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     _syncExternalSearchQuery(query);
     final filters = ref.watch(searchFiltersControllerProvider);
     final visibleVaults = ref.watch(visibleVaultsProvider);
-    final visibleYears = ref.watch(visibleNoteYearsProvider);
     final hasAdvancedFilters = !filters.isDefault;
     final listDensity = ref.watch(notesListDensityControllerProvider);
     final privateModeActive = ref.watch(privacyScreenActiveProvider);
@@ -8105,7 +8104,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                         .read(searchFiltersControllerProvider.notifier)
                         .setVault,
                   ),
-                  if (visibleYears.length > 1) ...[
+                  if (ref.watch(visibleNoteYearsProvider).length > 1) ...[
                     const SizedBox(height: 12),
                     DropdownButtonFormField<int?>(
                       key: ValueKey(filters.year ?? 'all-years'),
@@ -8120,7 +8119,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                           value: null,
                           child: Text(strings.text('home.all.years')),
                         ),
-                        for (final year in visibleYears)
+                        for (final year in ref.watch(visibleNoteYearsProvider))
                           DropdownMenuItem<int?>(
                             value: year,
                             child: Text('$year'),
