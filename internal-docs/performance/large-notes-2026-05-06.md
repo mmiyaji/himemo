@@ -431,3 +431,35 @@ Conclusion:
 
 - The 1000-note seeded route is still functional after the latest cycles.
 - The measured detail row was text-only, so it validates the list/detail path rather than the many-attachment lazy-detail path. Multi-attachment correctness is covered by the new storage test; a future UI fixture with many attachments would make the browser measurement stronger.
+
+## Cycle 19 follow-up
+
+Plan:
+
+- Run the app in the Codex In App Browser and perform monkey-style navigation.
+- Cover notes list, note creation, long text input, mobile note detail, and route switching while a detail modal is open.
+
+Findings:
+
+- Flutter Web semantics made some text locators unstable for note rows and bottom navigation, so the browser run used DOM node IDs and direct route navigation where needed.
+- Opening a mobile note detail and then navigating directly to another route, such as `#/settings`, left the note detail modal visible above the new route.
+- This contradicted the existing expected behavior where leaving the notes tab should close the note detail.
+
+Changes:
+
+- Added route-section change handling in `AppShell`.
+- When the observed route moves from Notes to another section, the selected note is cleared and any root modal route is closed after the frame.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\app_test.dart --plain-name "search filters can partition notes by year"` passed.
+- In App Browser verification on a fresh web-server session with `HIMEMO_PERF_NOTE_COUNT=1000`:
+  - Opened Notes and skipped onboarding.
+  - Opened `Performance note 1` mobile detail via DOM node click.
+  - Navigated directly to `#/settings`.
+  - Confirmed detail controls were no longer visible and Settings content was visible.
+
+Conclusion:
+
+- Mobile detail overlays now close consistently on route changes, not only through the app's own navigation callbacks.

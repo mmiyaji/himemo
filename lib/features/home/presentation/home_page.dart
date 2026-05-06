@@ -76,6 +76,7 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   bool _sidebarCollapsed = false;
+  AppSection? _lastObservedSection;
 
   @override
   Widget build(BuildContext context) {
@@ -83,6 +84,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     final width = MediaQuery.sizeOf(context).width;
     final useRail = width >= 840;
     final section = _sectionForLocation(GoRouterState.of(context).uri.path);
+    _closeNotesOverlayOnRouteSectionChange(context, ref, section);
     final activeIdentity = ref.watch(activeIdentityDataProvider);
     final activePrivateProfileLabel = ref.watch(
       activePrivateProfileLabelProvider,
@@ -270,6 +272,31 @@ class _AppShellState extends ConsumerState<AppShell> {
       case AppSection.settings:
         context.go('/settings');
     }
+  }
+
+  void _closeNotesOverlayOnRouteSectionChange(
+    BuildContext context,
+    WidgetRef ref,
+    AppSection section,
+  ) {
+    final previous = _lastObservedSection;
+    _lastObservedSection = section;
+    if (previous == null ||
+        previous == section ||
+        previous != AppSection.notes ||
+        section == AppSection.notes) {
+      return;
+    }
+    ref.read(selectedNoteIdProvider.notifier).select(null);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      final rootNavigator = Navigator.of(context, rootNavigator: true);
+      if (rootNavigator.canPop()) {
+        rootNavigator.pop();
+      }
+    });
   }
 
   AppSection _sectionForLocation(String location) {
