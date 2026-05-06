@@ -5265,34 +5265,49 @@ List<VaultBucket> visibleVaults(Ref ref) {
   final baseVault = ref
       .watch(vaultsProvider)
       .firstWhere((vault) => vault.id == 'everyday');
+  final adminMode = ref.watch(adminModeSessionControllerProvider);
+  final unlockedVaultId = ref.watch(unlockedPrivateProfileVaultIdProvider);
   final accessiblePrivateVaultIds = ref.watch(
     accessiblePrivateVaultIdsProvider,
   );
   final profiles = ref.watch(privateMemoProfilesControllerProvider);
-  final visible = <VaultBucket>[baseVault];
-  for (final vaultId in accessiblePrivateVaultIds) {
+  VaultBucket? privateVaultFor(String vaultId) {
     if (vaultId == legacyPrivateVaultId) {
-      visible.add(
-        const VaultBucket(
-          id: legacyPrivateVaultId,
-          name: 'Private profile',
-          description: '__unlocked_private_notes__',
-        ),
+      return const VaultBucket(
+        id: legacyPrivateVaultId,
+        name: 'Private profile',
+        description: '__unlocked_private_notes__',
       );
-      continue;
     }
     final match = profiles.where((profile) => profile.vaultId == vaultId);
     if (match.isEmpty) {
-      continue;
+      return null;
     }
     final profile = match.first;
-    visible.add(
-      VaultBucket(
-        id: profile.vaultId,
-        name: profile.name,
-        description: '__unlocked_private_notes__',
-      ),
+    return VaultBucket(
+      id: profile.vaultId,
+      name: profile.name,
+      description: '__unlocked_private_notes__',
     );
+  }
+
+  final visible = <VaultBucket>[];
+  if (!adminMode && unlockedVaultId != null) {
+    final activePrivateVault = privateVaultFor(unlockedVaultId);
+    if (activePrivateVault != null) {
+      visible.add(activePrivateVault);
+    }
+  }
+  visible.add(baseVault);
+  for (final vaultId in accessiblePrivateVaultIds) {
+    if (vaultId == unlockedVaultId && !adminMode) {
+      continue;
+    }
+    final privateVault = privateVaultFor(vaultId);
+    if (privateVault == null) {
+      continue;
+    }
+    visible.add(privateVault);
   }
   return visible;
 }

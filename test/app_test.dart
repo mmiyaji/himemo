@@ -508,6 +508,10 @@ void main() {
           .any((vault) => vault.id == unlocked!.vaultId),
       isTrue,
     );
+    expect(container.read(visibleVaultsProvider).map((vault) => vault.id), [
+      unlocked!.vaultId,
+      'everyday',
+    ]);
   });
 
   test('private profile notes remain visible immediately after save', () async {
