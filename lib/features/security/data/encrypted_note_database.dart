@@ -177,49 +177,65 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
       await delete(encryptedNoteAttachments).go();
       await delete(pendingNoteChanges).go();
 
-      for (final record in notes) {
-        await into(encryptedNotes).insertOnConflictUpdate(
-          EncryptedNotesCompanion.insert(
-            id: record.id,
-            vaultId: record.vaultId,
-            encryptedPayload: record.encryptedPayload,
-            createdAtEpochMs: record.createdAt.millisecondsSinceEpoch,
-            updatedAtEpochMs: Value(record.updatedAt?.millisecondsSinceEpoch),
-            deletedAtEpochMs: Value(record.deletedAt?.millisecondsSinceEpoch),
-            isPinned: Value(record.isPinned),
-            revision: Value(record.revision),
-            syncState: record.syncState.name,
-            deviceId: Value(record.deviceId),
-            contentHash: Value(record.contentHash),
-          ),
-        );
-      }
-
-      for (final attachment in attachments) {
-        await into(encryptedNoteAttachments).insertOnConflictUpdate(
-          EncryptedNoteAttachmentsCompanion.insert(
-            noteId: attachment.noteId,
-            position: attachment.position,
-            encryptedPayload: attachment.encryptedPayload,
-          ),
-        );
-      }
-
-      if (pendingChanges.isNotEmpty) {
-        for (final change in pendingChanges) {
-          await into(pendingNoteChanges).insertOnConflictUpdate(
-            PendingNoteChangesCompanion.insert(
-              noteId: change.noteId,
-              vaultId: change.vaultId,
-              revision: change.revision,
-              syncAction: change.action.name,
-              queuedAtEpochMs: change.queuedAt.millisecondsSinceEpoch,
-              contentHash: Value(change.contentHash),
-              deletedAtEpochMs: Value(change.deletedAt?.millisecondsSinceEpoch),
-            ),
+      await batch((batch) {
+        if (notes.isNotEmpty) {
+          batch.insertAllOnConflictUpdate(
+            encryptedNotes,
+            [
+              for (final record in notes)
+                EncryptedNotesCompanion.insert(
+                  id: record.id,
+                  vaultId: record.vaultId,
+                  encryptedPayload: record.encryptedPayload,
+                  createdAtEpochMs: record.createdAt.millisecondsSinceEpoch,
+                  updatedAtEpochMs: Value(
+                    record.updatedAt?.millisecondsSinceEpoch,
+                  ),
+                  deletedAtEpochMs: Value(
+                    record.deletedAt?.millisecondsSinceEpoch,
+                  ),
+                  isPinned: Value(record.isPinned),
+                  revision: Value(record.revision),
+                  syncState: record.syncState.name,
+                  deviceId: Value(record.deviceId),
+                  contentHash: Value(record.contentHash),
+                ),
+            ],
           );
         }
-      }
+        if (attachments.isNotEmpty) {
+          batch.insertAllOnConflictUpdate(
+            encryptedNoteAttachments,
+            [
+              for (final attachment in attachments)
+                EncryptedNoteAttachmentsCompanion.insert(
+                  noteId: attachment.noteId,
+                  position: attachment.position,
+                  encryptedPayload: attachment.encryptedPayload,
+                ),
+            ],
+          );
+        }
+        if (pendingChanges.isNotEmpty) {
+          batch.insertAllOnConflictUpdate(
+            pendingNoteChanges,
+            [
+              for (final change in pendingChanges)
+                PendingNoteChangesCompanion.insert(
+                  noteId: change.noteId,
+                  vaultId: change.vaultId,
+                  revision: change.revision,
+                  syncAction: change.action.name,
+                  queuedAtEpochMs: change.queuedAt.millisecondsSinceEpoch,
+                  contentHash: Value(change.contentHash),
+                  deletedAtEpochMs: Value(
+                    change.deletedAt?.millisecondsSinceEpoch,
+                  ),
+                ),
+            ],
+          );
+        }
+      });
     });
   }
 

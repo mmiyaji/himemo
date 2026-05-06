@@ -254,3 +254,25 @@ Conclusion:
 
 - This is a high-impact native-path improvement for large note sets. Editing one note no longer requires encrypting and replacing every note in the local SQLite database.
 - Remaining large-data bottleneck is Web storage, which still stores all notes in one encrypted blob.
+
+## Cycle 11 follow-up
+
+Plan:
+
+- Reduce one-time bulk persistence cost for native local databases.
+- Improve initial demo/performance seed insertion, sync restore, and full replacement paths.
+
+Changes:
+
+- Replaced per-row awaited inserts in `EncryptedNoteDatabase.replaceAll` with Drift batch inserts.
+- Batched note records, attachment metadata records, and pending sync queue records inside the existing transaction.
+
+Measurements:
+
+- `flutter analyze` passed.
+- `flutter test test\security_storage_test.dart` passed.
+
+Conclusion:
+
+- Full replacements still encrypt each note individually, but database writes are now grouped rather than awaited one row at a time.
+- This complements Cycle 10: routine edits use incremental persistence, while unavoidable full replacements have lower database write overhead.
