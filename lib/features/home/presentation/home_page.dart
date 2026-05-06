@@ -265,6 +265,8 @@ class _AppShellState extends ConsumerState<AppShell> {
                     section: section,
                     activeIdentity: activeIdentity,
                     collapsed: _sidebarCollapsed,
+                    tagSummaries: ref.watch(visibleTagSummariesProvider),
+                    activeTags: ref.watch(searchFiltersControllerProvider).tags,
                     onToggleCollapsed: () {
                       setState(() {
                         _sidebarCollapsed = !_sidebarCollapsed;
@@ -272,6 +274,8 @@ class _AppShellState extends ConsumerState<AppShell> {
                     },
                     onSectionSelected: (target) =>
                         _goToSection(context, ref, target),
+                    onShowAllNotes: () => _showAllNotes(context, ref),
+                    onTagSelected: (tag) => _openTagFilter(context, ref, tag),
                   ),
                   VerticalDivider(
                     width: 1,
@@ -351,6 +355,20 @@ class _AppShellState extends ConsumerState<AppShell> {
       case AppSection.settings:
         context.go('/settings');
     }
+  }
+
+  void _showAllNotes(BuildContext context, WidgetRef ref) {
+    ref.read(searchFiltersControllerProvider.notifier).setTags(const []);
+    ref.read(searchQueryProvider.notifier).setQuery('');
+    ref.read(selectedNoteIdProvider.notifier).select(null);
+    context.go('/notes');
+  }
+
+  void _openTagFilter(BuildContext context, WidgetRef ref, String tag) {
+    ref.read(searchFiltersControllerProvider.notifier).setTags([tag]);
+    ref.read(searchQueryProvider.notifier).setQuery('');
+    ref.read(selectedNoteIdProvider.notifier).select(null);
+    context.go('/notes');
   }
 
   void _closeNotesOverlayOnRouteSectionChange(
@@ -5507,15 +5525,23 @@ class _Sidebar extends StatelessWidget {
     required this.section,
     required this.activeIdentity,
     required this.collapsed,
+    required this.tagSummaries,
+    required this.activeTags,
     required this.onToggleCollapsed,
     required this.onSectionSelected,
+    required this.onShowAllNotes,
+    required this.onTagSelected,
   });
 
   final AppSection section;
   final UnlockIdentity activeIdentity;
   final bool collapsed;
+  final List<VisibleTagSummary> tagSummaries;
+  final List<String> activeTags;
   final VoidCallback onToggleCollapsed;
   final ValueChanged<AppSection> onSectionSelected;
+  final VoidCallback onShowAllNotes;
+  final ValueChanged<String> onTagSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -5579,8 +5605,16 @@ class _Sidebar extends StatelessWidget {
                   label: strings.notes,
                   showLabel: !collapsed,
                   selected: section == AppSection.notes,
-                  onTap: () => onSectionSelected(AppSection.notes),
+                  onTap: activeTags.isEmpty
+                      ? () => onSectionSelected(AppSection.notes)
+                      : onShowAllNotes,
                 ),
+                if (!collapsed && tagSummaries.isNotEmpty)
+                  _SidebarTagSection(
+                    summaries: tagSummaries,
+                    activeTags: activeTags,
+                    onTagSelected: onTagSelected,
+                  ),
                 _SidebarItem(
                   icon: Icons.calendar_month_outlined,
                   selectedIcon: Icons.calendar_month_rounded,
@@ -5685,6 +5719,173 @@ class _SidebarItem extends StatelessWidget {
         selected: selected,
         selectedTileColor: _selectedSurfaceColor(context),
         onTap: onTap,
+      ),
+    );
+  }
+}
+
+class _SidebarTagSection extends StatefulWidget {
+  const _SidebarTagSection({
+    required this.summaries,
+    required this.activeTags,
+    required this.onTagSelected,
+  });
+
+  final List<VisibleTagSummary> summaries;
+  final List<String> activeTags;
+  final ValueChanged<String> onTagSelected;
+
+  @override
+  State<_SidebarTagSection> createState() => _SidebarTagSectionState();
+}
+
+class _SidebarTagSectionState extends State<_SidebarTagSection> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final theme = Theme.of(context);
+    final activeKeys = widget.activeTags.map(canonicalizeNoteTag).toSet();
+    final selectedSummaries = activeKeys.isEmpty
+        ? const <VisibleTagSummary>[]
+        : widget.summaries
+              .where(
+                (summary) =>
+                    activeKeys.contains(canonicalizeNoteTag(summary.name)),
+              )
+              .toList(growable: false);
+    final baseSummaries = widget.summaries
+        .take(_expanded ? 14 : 5)
+        .toList(growable: true);
+    for (final selected in selectedSummaries) {
+      final selectedKey = canonicalizeNoteTag(selected.name);
+      if (!baseSummaries.any(
+        (summary) => canonicalizeNoteTag(summary.name) == selectedKey,
+      )) {
+        baseSummaries.add(selected);
+      }
+    }
+    final visibleSummaries = List<VisibleTagSummary>.unmodifiable(
+      baseSummaries,
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerLowest.withValues(
+            alpha: 0.66,
+          ),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: theme.dividerColor),
+        ),
+        child: Column(
+          children: [
+            InkWell(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(8),
+              ),
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 8, 6),
+                child: Row(
+                  children: [
+                    const Icon(Icons.sell_outlined, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        strings.text('home.tags'),
+                        style: theme.textTheme.labelLarge,
+                      ),
+                    ),
+                    Icon(
+                      _expanded
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                      size: 18,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (_expanded || activeKeys.isNotEmpty)
+              ...visibleSummaries.map((summary) {
+                final selected = activeKeys.contains(
+                  canonicalizeNoteTag(summary.name),
+                );
+                return _SidebarTagTile(
+                  summary: summary,
+                  selected: selected,
+                  onTap: () => widget.onTagSelected(summary.name),
+                );
+              }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarTagTile extends StatelessWidget {
+  const _SidebarTagTile({
+    required this.summary,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final VisibleTagSummary summary;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      child: Material(
+        color: selected ? _selectedSurfaceColor(context) : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(6, 7, 4, 7),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.tag_rounded,
+                  size: 16,
+                  color: selected
+                      ? colorScheme.primary
+                      : _mutedTextColor(context),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    summary.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: selected ? colorScheme.primary : null,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${summary.count}',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: selected
+                        ? colorScheme.primary
+                        : _mutedTextColor(context),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -8405,6 +8606,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     _syncExternalSearchQuery(query);
     final filters = ref.watch(searchFiltersControllerProvider);
     final visibleVaults = ref.watch(visibleVaultsProvider);
+    final tagSummaries = ref.watch(visibleTagSummariesProvider);
     final hasAdvancedFilters = !filters.isDefault;
     final listDensity = ref.watch(notesListDensityControllerProvider);
     final privateModeActive = ref.watch(privacyScreenActiveProvider);
@@ -8557,6 +8759,22 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+            ),
+          ],
+          if (!_showAdvanced &&
+              tagSummaries.isNotEmpty &&
+              filters.tags.isEmpty) ...[
+            const SizedBox(height: 10),
+            _QuickTagStrip(
+              summaries: tagSummaries,
+              activeTags: filters.tags,
+              onTagSelected: (tag) {
+                ref.read(searchFiltersControllerProvider.notifier).setTags([
+                  tag,
+                ]);
+                ref.read(searchQueryProvider.notifier).setQuery('');
+                ref.read(selectedNoteIdProvider.notifier).select(null);
+              },
             ),
           ],
           if (!_showAdvanced && filters.tags.isNotEmpty) ...[
@@ -8755,6 +8973,78 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     }
     _lastAppliedSearchQuery = value;
     ref.read(searchQueryProvider.notifier).setQuery(value);
+  }
+}
+
+class _QuickTagStrip extends StatelessWidget {
+  const _QuickTagStrip({
+    required this.summaries,
+    required this.activeTags,
+    required this.onTagSelected,
+  });
+
+  final List<VisibleTagSummary> summaries;
+  final List<String> activeTags;
+  final ValueChanged<String> onTagSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final activeKeys = activeTags.map(canonicalizeNoteTag).toSet();
+    final visibleSummaries = summaries.take(10).toList(growable: false);
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final summary in visibleSummaries) ...[
+            _QuickTagChip(
+              summary: summary,
+              selected: activeKeys.contains(canonicalizeNoteTag(summary.name)),
+              onTap: () => onTagSelected(summary.name),
+            ),
+            const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickTagChip extends StatelessWidget {
+  const _QuickTagChip({
+    required this.summary,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final VisibleTagSummary summary;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return ActionChip(
+      avatar: Icon(
+        Icons.tag_rounded,
+        size: 15,
+        color: selected ? colorScheme.onPrimaryContainer : colorScheme.primary,
+      ),
+      label: Text('${summary.name} (${summary.count})'),
+      tooltip: '#${summary.name}',
+      onPressed: onTap,
+      visualDensity: VisualDensity.compact,
+      side: BorderSide(
+        color: selected ? colorScheme.primary : theme.dividerColor,
+      ),
+      backgroundColor: selected
+          ? colorScheme.primaryContainer
+          : colorScheme.surfaceContainerLowest,
+      labelStyle: theme.textTheme.labelMedium?.copyWith(
+        color: selected ? colorScheme.onPrimaryContainer : null,
+        fontWeight: FontWeight.w600,
+      ),
+    );
   }
 }
 

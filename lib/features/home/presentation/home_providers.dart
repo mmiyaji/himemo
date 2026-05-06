@@ -5236,6 +5236,72 @@ List<String> visibleTagSuggestions(Ref ref) {
   return List.unmodifiable(tags);
 }
 
+class VisibleTagSummary {
+  const VisibleTagSummary({
+    required this.name,
+    required this.count,
+    required this.latestAt,
+  });
+
+  final String name;
+  final int count;
+  final DateTime latestAt;
+}
+
+final visibleTagSummariesProvider = Provider<List<VisibleTagSummary>>((ref) {
+  final visibleIds = ref
+      .watch(visibleVaultsProvider)
+      .map((vault) => vault.id)
+      .toSet();
+  final summaries = <String, ({String name, int count, DateTime latestAt})>{};
+  for (final note in ref.watch(notesControllerProvider)) {
+    if (note.deletedAt != null || !visibleIds.contains(note.vaultId)) {
+      continue;
+    }
+    final noteAt = note.updatedAt ?? note.createdAt;
+    for (final tag in note.tags) {
+      final normalized = normalizeNoteTag(tag);
+      if (normalized.isEmpty) {
+        continue;
+      }
+      final key = canonicalizeNoteTag(normalized);
+      final current = summaries[key];
+      if (current == null) {
+        summaries[key] = (name: normalized, count: 1, latestAt: noteAt);
+      } else {
+        summaries[key] = (
+          name: current.name,
+          count: current.count + 1,
+          latestAt: noteAt.isAfter(current.latestAt)
+              ? noteAt
+              : current.latestAt,
+        );
+      }
+    }
+  }
+  final result = summaries.values
+      .map(
+        (entry) => VisibleTagSummary(
+          name: entry.name,
+          count: entry.count,
+          latestAt: entry.latestAt,
+        ),
+      )
+      .toList();
+  result.sort((left, right) {
+    final countOrder = right.count.compareTo(left.count);
+    if (countOrder != 0) {
+      return countOrder;
+    }
+    final dateOrder = right.latestAt.compareTo(left.latestAt);
+    if (dateOrder != 0) {
+      return dateOrder;
+    }
+    return left.name.toLowerCase().compareTo(right.name.toLowerCase());
+  });
+  return List.unmodifiable(result);
+});
+
 final noteEditorDraftStoreProvider = Provider<NoteEditorDraftStore>(
   (ref) => NoteEditorDraftStore(),
 );
