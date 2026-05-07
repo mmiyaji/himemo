@@ -518,12 +518,25 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                           ),
                         ),
                         const Spacer(),
-                        Icon(
-                          kIsWeb
-                              ? Icons.pin_outlined
-                              : Icons.fingerprint_rounded,
-                          size: 56,
-                          color: colorScheme.primary,
+                        Container(
+                          width: 88,
+                          height: 88,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(24),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.12),
+                                blurRadius: 24,
+                                offset: const Offset(0, 12),
+                              ),
+                            ],
+                          ),
+                          child: Image.asset(
+                            'assets/app-icon.png',
+                            filterQuality: FilterQuality.medium,
+                          ),
                         ),
                         const SizedBox(height: 20),
                         Text(
@@ -587,24 +600,26 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                                 icon: const Icon(Icons.lock_open_rounded),
                                 label: Text(strings.authenticate),
                               ),
-                            const SizedBox(height: 12),
-                            TextButton(
-                              onPressed: () async {
-                                await ref
-                                    .read(
-                                      appLockSettingsControllerProvider
-                                          .notifier,
-                                    )
-                                    .setEnabled(false);
-                                ref
-                                    .read(
-                                      appSessionUnlockControllerProvider
-                                          .notifier,
-                                    )
-                                    .unlock();
-                              },
-                              child: Text(strings.disableUnlockForNow),
-                            ),
+                            if (kDebugMode) ...[
+                              const SizedBox(height: 12),
+                              TextButton(
+                                onPressed: () async {
+                                  await ref
+                                      .read(
+                                        appLockSettingsControllerProvider
+                                            .notifier,
+                                      )
+                                      .setEnabled(false);
+                                  ref
+                                      .read(
+                                        appSessionUnlockControllerProvider
+                                            .notifier,
+                                      )
+                                      .unlock();
+                                },
+                                child: Text(strings.disableUnlockForNow),
+                              ),
+                            ],
                           ],
                         ),
                       ),
