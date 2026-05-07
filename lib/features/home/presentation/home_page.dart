@@ -919,8 +919,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final noteDays = ref.watch(visibleNoteDaysProvider);
-    final notesByDay = ref.watch(visibleNotesByDayProvider);
+    final noteDays = ref.watch(unfilteredVisibleNoteDaysProvider);
+    final notesByDay = ref.watch(unfilteredVisibleNotesByDayProvider);
     final markedDays = noteDays.toSet();
     final sameDayNotes =
         notesByDay[_calendarDayKey(_selectedDay)] ?? const <NoteEntry>[];
@@ -1471,7 +1471,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final notes = ref.watch(visibleNotesProvider);
+    final notes = ref.watch(unfilteredVisibleNotesProvider);
     final locale = Localizations.localeOf(context);
     var insights = _cachedInsights;
     if (insights == null ||

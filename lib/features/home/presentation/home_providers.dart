@@ -5519,6 +5519,21 @@ List<int> visibleNoteYears(Ref ref) {
   return result;
 }
 
+final unfilteredVisibleNotesProvider = Provider<List<NoteEntry>>((ref) {
+  final visibleIds = ref
+      .watch(visibleVaultsProvider)
+      .map((vault) => vault.id)
+      .toSet();
+  final notes = [
+    for (final note in ref.watch(notesControllerProvider))
+      if (note.deletedAt == null &&
+          note.archivedAt == null &&
+          visibleIds.contains(note.vaultId))
+        note,
+  ];
+  return List<NoteEntry>.unmodifiable(notes);
+});
+
 @riverpod
 Map<String, String> noteSearchIndex(Ref ref) {
   final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
@@ -5685,6 +5700,22 @@ final noteEditorDraftStoreProvider = Provider<NoteEditorDraftStore>(
   (ref) => NoteEditorDraftStore(),
 );
 
+Map<DateTime, List<NoteEntry>> _notesByCreatedDay(List<NoteEntry> notes) {
+  final grouped = <DateTime, List<NoteEntry>>{};
+  for (final note in notes) {
+    final day = DateTime(
+      note.createdAt.year,
+      note.createdAt.month,
+      note.createdAt.day,
+    );
+    (grouped[day] ??= <NoteEntry>[]).add(note);
+  }
+  return Map<DateTime, List<NoteEntry>>.unmodifiable({
+    for (final entry in grouped.entries)
+      entry.key: List<NoteEntry>.unmodifiable(entry.value),
+  });
+}
+
 @riverpod
 Map<String, List<NoteEntry>> visibleNotesByVault(Ref ref) {
   final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
@@ -5726,19 +5757,7 @@ Map<String, int> visibleNoteIndexById(Ref ref) {
 Map<DateTime, List<NoteEntry>> visibleNotesByDay(Ref ref) {
   final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
   final notes = ref.watch(visibleNotesProvider);
-  final grouped = <DateTime, List<NoteEntry>>{};
-  for (final note in notes) {
-    final day = DateTime(
-      note.createdAt.year,
-      note.createdAt.month,
-      note.createdAt.day,
-    );
-    (grouped[day] ??= <NoteEntry>[]).add(note);
-  }
-  final result = Map<DateTime, List<NoteEntry>>.unmodifiable({
-    for (final entry in grouped.entries)
-      entry.key: List<NoteEntry>.unmodifiable(entry.value),
-  });
+  final result = _notesByCreatedDay(notes);
   final elapsed = stopwatch?.elapsedMicroseconds;
   if (elapsed != null && (notes.length >= 500 || elapsed >= 2000)) {
     _debugHomePerf(
@@ -5747,6 +5766,21 @@ Map<DateTime, List<NoteEntry>> visibleNotesByDay(Ref ref) {
   }
   return result;
 }
+
+final unfilteredVisibleNotesByDayProvider =
+    Provider<Map<DateTime, List<NoteEntry>>>(
+      (ref) => _notesByCreatedDay(ref.watch(unfilteredVisibleNotesProvider)),
+    );
+
+final unfilteredVisibleNoteDaysProvider = Provider<List<DateTime>>((ref) {
+  final days =
+      ref
+          .watch(unfilteredVisibleNotesByDayProvider)
+          .keys
+          .toList(growable: false)
+        ..sort();
+  return List<DateTime>.unmodifiable(days);
+});
 
 @riverpod
 List<DateTime> visibleNoteDays(Ref ref) {
