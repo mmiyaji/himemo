@@ -2936,14 +2936,20 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
     final activeIdentity = ref.watch(activeIdentityProvider);
-    final themeMode = ref.watch(themeModeControllerProvider);
+    final activeThemeMode = ref.watch(effectiveThemeModeProvider);
     final activeColorTheme = ref.watch(effectiveAppColorThemeProvider);
     final activeColorThemeScope = ref.watch(activeColorThemeScopeProvider);
     final colorThemeSettingsScope = ref.watch(colorThemeSettingsScopeProvider);
+    final defaultThemeMode = ref.watch(themeModeControllerProvider);
     final defaultColorTheme = ref.watch(appColorThemeControllerProvider);
+    final profileThemeModes = ref.watch(profileThemeModeControllerProvider);
     final profileColorThemes = ref.watch(profileColorThemeControllerProvider);
-    final fontFamily = ref.watch(appFontFamilyControllerProvider);
-    final localeSetting = ref.watch(appLocaleControllerProvider);
+    final defaultFontFamily = ref.watch(appFontFamilyControllerProvider);
+    final profileFontFamilies = ref.watch(profileFontFamilyControllerProvider);
+    final defaultLocaleSetting = ref.watch(appLocaleControllerProvider);
+    final profileLocales = ref.watch(profileLocaleControllerProvider);
+    final activeFontFamily = ref.watch(effectiveAppFontFamilyProvider);
+    final activeLocaleSetting = ref.watch(effectiveAppLocaleProvider);
     final appLockEnabled = ref.watch(appLockSettingsControllerProvider);
     final appLockRelockDelay = ref.watch(appLockRelockDelayControllerProvider);
     final appSessionUnlocked = ref.watch(appSessionUnlockControllerProvider);
@@ -3044,12 +3050,13 @@ class SettingsScreen extends ConsumerWidget {
       es: '$memoEditorModeLabel / $memoListDensityLabel / Ubicación: $memoLocationLabel',
       de: '$memoEditorModeLabel / $memoListDensityLabel / Standort: $memoLocationLabel',
     );
-    final effectiveFontFamily = _availableFontFamilies.contains(fontFamily)
-        ? fontFamily
+    final effectiveFontFamily =
+        _availableFontFamilies.contains(activeFontFamily)
+        ? activeFontFamily
         : AppFontFamily.system;
     final appearanceSummary = strings.appearanceSummary(
-      language: _localeSettingLabel(context, localeSetting),
-      theme: _themeModeLabel(context, themeMode),
+      language: _localeSettingLabel(context, activeLocaleSetting),
+      theme: _themeModeLabel(context, activeThemeMode),
       font: _fontFamilyLabel(context, effectiveFontFamily),
       color: _colorThemeLabel(context, activeColorTheme),
     );
@@ -3085,6 +3092,16 @@ class SettingsScreen extends ConsumerWidget {
     final selectedColorTheme = resolvedColorThemeScope == defaultColorThemeScope
         ? defaultColorTheme
         : (profileColorThemes[resolvedColorThemeScope] ?? defaultColorTheme);
+    final selectedThemeMode = resolvedColorThemeScope == defaultColorThemeScope
+        ? defaultThemeMode
+        : (profileThemeModes[resolvedColorThemeScope] ?? defaultThemeMode);
+    final selectedFontFamily = resolvedColorThemeScope == defaultColorThemeScope
+        ? defaultFontFamily
+        : (profileFontFamilies[resolvedColorThemeScope] ?? defaultFontFamily);
+    final selectedLocaleSetting =
+        resolvedColorThemeScope == defaultColorThemeScope
+        ? defaultLocaleSetting
+        : (profileLocales[resolvedColorThemeScope] ?? defaultLocaleSetting);
     final aboutVersion = packageInfo.when(
       data: (info) => info.displayVersion,
       loading: strings.readingVersion,
@@ -3137,7 +3154,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             _SettingsOverviewItem(
               label: strings.text('home.theme'),
-              value: _themeModeLabel(context, themeMode),
+              value: _themeModeLabel(context, activeThemeMode),
               assetPath: 'assets/settings/appearance.svg',
             ),
           ],
@@ -3147,13 +3164,13 @@ class SettingsScreen extends ConsumerWidget {
           context: context,
           ref: ref,
           strings: strings,
-          localeSetting: localeSetting,
-          themeMode: themeMode,
-          fontFamily: fontFamily,
+          localeSetting: selectedLocaleSetting,
+          themeMode: selectedThemeMode,
+          fontFamily: selectedFontFamily,
           colorTheme: selectedColorTheme,
-          colorThemeScope: resolvedColorThemeScope,
-          colorThemeTargets: colorThemeTargets,
-          colorThemeTargetLabel: colorThemeTargetLabel,
+          appearanceScope: resolvedColorThemeScope,
+          appearanceScopeTargets: colorThemeTargets,
+          appearanceScopeLabel: colorThemeTargetLabel,
           appearanceSummary: appearanceSummary,
         ),
         const SizedBox(height: 16),
@@ -5077,9 +5094,9 @@ class SettingsScreen extends ConsumerWidget {
     required ThemeMode themeMode,
     required AppFontFamily fontFamily,
     required AppColorTheme colorTheme,
-    required String colorThemeScope,
-    required List<_ColorThemeScopeOption> colorThemeTargets,
-    required String colorThemeTargetLabel,
+    required String appearanceScope,
+    required List<_ColorThemeScopeOption> appearanceScopeTargets,
+    required String appearanceScopeLabel,
     required String appearanceSummary,
   }) {
     final effectiveFontFamily = _availableFontFamilies.contains(fontFamily)
@@ -5149,7 +5166,7 @@ class SettingsScreen extends ConsumerWidget {
             if (value == null || value == localeSetting) {
               return;
             }
-            ref.read(appLocaleControllerProvider.notifier).setLocale(value);
+            _setLocaleForScope(ref, appearanceScope, value);
           },
         ),
         const Divider(height: 24),
@@ -5182,7 +5199,7 @@ class SettingsScreen extends ConsumerWidget {
             if (value == null || value == effectiveFontFamily) {
               return;
             }
-            ref.read(appFontFamilyControllerProvider.notifier).setFont(value);
+            _setFontForScope(ref, appearanceScope, value);
           },
         ),
         const Divider(height: 24),
@@ -5191,47 +5208,51 @@ class SettingsScreen extends ConsumerWidget {
           title: strings.themeLight,
           subtitle: strings.lightDesc,
           selected: themeMode == ThemeMode.light,
-          onTap: () => ref
-              .read(themeModeControllerProvider.notifier)
-              .setMode(ThemeMode.light),
+          onTap: () =>
+              _setThemeModeForScope(ref, appearanceScope, ThemeMode.light),
         ),
         _ThemeOptionTile(
           tileKey: systemThemeKey,
           title: strings.themeSystem,
           subtitle: strings.systemDesc,
           selected: themeMode == ThemeMode.system,
-          onTap: () => ref
-              .read(themeModeControllerProvider.notifier)
-              .setMode(ThemeMode.system),
+          onTap: () =>
+              _setThemeModeForScope(ref, appearanceScope, ThemeMode.system),
         ),
         _ThemeOptionTile(
           tileKey: darkThemeKey,
           title: strings.themeDark,
           subtitle: strings.darkDesc,
           selected: themeMode == ThemeMode.dark,
-          onTap: () => ref
-              .read(themeModeControllerProvider.notifier)
-              .setMode(ThemeMode.dark),
+          onTap: () =>
+              _setThemeModeForScope(ref, appearanceScope, ThemeMode.dark),
         ),
         const Divider(height: 24),
-        if (colorThemeTargets.length > 1) ...[
+        if (appearanceScopeTargets.length > 1) ...[
           DropdownButtonFormField<String>(
-            initialValue: colorThemeScope,
+            initialValue: appearanceScope,
             isExpanded: true,
             decoration: InputDecoration(
               border: const OutlineInputBorder(),
-              labelText: strings.accentColor,
+              labelText: strings.localized(
+                en: 'Settings target',
+                ja: '設定先',
+                zh: '设置目标',
+                ko: '설정 대상',
+                es: 'Destino de ajustes',
+                de: 'Einstellungsziel',
+              ),
               prefixIcon: const Icon(Icons.palette_outlined),
             ),
             items: [
-              for (final target in colorThemeTargets)
+              for (final target in appearanceScopeTargets)
                 DropdownMenuItem(
                   value: target.scope,
                   child: Text(target.label),
                 ),
             ],
             onChanged: (value) {
-              if (value == null || value == colorThemeScope) {
+              if (value == null || value == appearanceScope) {
                 return;
               }
               ref.read(colorThemeSettingsScopeProvider.notifier).select(value);
@@ -5245,7 +5266,7 @@ class SettingsScreen extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '${strings.accentColor} ($colorThemeTargetLabel)',
+                '${strings.accentColor} ($appearanceScopeLabel)',
                 style: Theme.of(context).textTheme.labelLarge,
               ),
               const SizedBox(height: 4),
@@ -5303,7 +5324,7 @@ class SettingsScreen extends ConsumerWidget {
           subtitleFor: (theme) => _colorThemeDescription(context, theme),
           sampleColorFor: _themeSampleColor,
           onSelect: (theme) =>
-              _setColorThemeForScope(ref, colorThemeScope, theme),
+              _setColorThemeForScope(ref, appearanceScope, theme),
         ),
       ],
     );
@@ -5826,6 +5847,45 @@ class SettingsScreen extends ConsumerWidget {
     return ref
         .read(profileColorThemeControllerProvider.notifier)
         .setTheme(scope, theme);
+  }
+
+  Future<void> _setThemeModeForScope(
+    WidgetRef ref,
+    String scope,
+    ThemeMode mode,
+  ) {
+    if (scope == defaultColorThemeScope) {
+      return ref.read(themeModeControllerProvider.notifier).setMode(mode);
+    }
+    return ref
+        .read(profileThemeModeControllerProvider.notifier)
+        .setMode(scope, mode);
+  }
+
+  Future<void> _setLocaleForScope(
+    WidgetRef ref,
+    String scope,
+    AppLocaleSetting locale,
+  ) {
+    if (scope == defaultColorThemeScope) {
+      return ref.read(appLocaleControllerProvider.notifier).setLocale(locale);
+    }
+    return ref
+        .read(profileLocaleControllerProvider.notifier)
+        .setLocale(scope, locale);
+  }
+
+  Future<void> _setFontForScope(
+    WidgetRef ref,
+    String scope,
+    AppFontFamily font,
+  ) {
+    if (scope == defaultColorThemeScope) {
+      return ref.read(appFontFamilyControllerProvider.notifier).setFont(font);
+    }
+    return ref
+        .read(profileFontFamilyControllerProvider.notifier)
+        .setFont(scope, font);
   }
 
   Color _themeSampleColor(AppColorTheme theme) {
@@ -15530,6 +15590,7 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
   final TransformationController _transformationController =
       TransformationController();
   bool _edgeToEdge = false;
+  bool _backgroundPanStartedOnImage = false;
   late int _selectedIndex;
 
   NoteAttachment get _attachment => widget.attachments[_selectedIndex];
@@ -15671,13 +15732,43 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                     final displayedHeight = imageSize.height * displayScale;
                     final maxScale = displayScale < 1 ? 1 / displayScale : 1.0;
                     final minScale = math.min(0.25, maxScale);
+                    final imageBaseRect = Rect.fromLTWH(
+                      horizontalPadding + (viewportWidth - displayedWidth) / 2,
+                      verticalTopPadding +
+                          (viewportHeight - displayedHeight) / 2,
+                      displayedWidth,
+                      displayedHeight,
+                    );
 
                     return Stack(
                       children: [
                         Positioned.fill(
                           child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
-                            onTap: () => Navigator.of(context).pop(),
+                            onPanStart: (details) {
+                              _backgroundPanStartedOnImage =
+                                  _transformedImageRect(
+                                    imageBaseRect,
+                                  ).contains(details.localPosition);
+                            },
+                            onPanUpdate: (details) {
+                              if (_backgroundPanStartedOnImage) {
+                                _panImageBy(details.delta);
+                              }
+                            },
+                            onPanEnd: (_) {
+                              _backgroundPanStartedOnImage = false;
+                            },
+                            onPanCancel: () {
+                              _backgroundPanStartedOnImage = false;
+                            },
+                            onTapUp: (details) {
+                              if (!_transformedImageRect(
+                                imageBaseRect,
+                              ).contains(details.localPosition)) {
+                                Navigator.of(context).pop();
+                              }
+                            },
                           ),
                         ),
                         Positioned.fill(
@@ -15692,23 +15783,24 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                               child: SizedBox(
                                 width: displayedWidth,
                                 height: displayedHeight,
-                                child: GestureDetector(
-                                  onTap: () {},
-                                  onDoubleTap: () =>
-                                      _toggleActualSize(maxScale),
-                                  child: InteractiveViewer(
-                                    transformationController:
-                                        _transformationController,
-                                    minScale: minScale,
-                                    maxScale: math.max(maxScale, minScale),
-                                    panEnabled: true,
-                                    boundaryMargin: EdgeInsets.all(
-                                      math.max(
-                                        constraints.maxWidth,
-                                        constraints.maxHeight,
-                                      ),
+                                child: InteractiveViewer(
+                                  transformationController:
+                                      _transformationController,
+                                  minScale: minScale,
+                                  maxScale: math.max(maxScale, minScale),
+                                  panEnabled: true,
+                                  boundaryMargin: EdgeInsets.all(
+                                    math.max(
+                                      constraints.maxWidth,
+                                      constraints.maxHeight,
                                     ),
-                                    clipBehavior: Clip.none,
+                                  ),
+                                  clipBehavior: Clip.none,
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () {},
+                                    onDoubleTap: () =>
+                                        _toggleActualSize(maxScale),
                                     child: SizedBox(
                                       width: displayedWidth,
                                       height: displayedHeight,
@@ -15802,6 +15894,41 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
 
   void _resetTransform() {
     _transformationController.value = Matrix4.identity();
+  }
+
+  void _panImageBy(Offset delta) {
+    final matrix = _transformationController.value.clone();
+    matrix.storage[12] += delta.dx;
+    matrix.storage[13] += delta.dy;
+    _transformationController.value = matrix;
+  }
+
+  Rect _transformedImageRect(Rect baseRect) {
+    final matrix = _transformationController.value;
+    final transformedTopLeft = MatrixUtils.transformPoint(matrix, Offset.zero);
+    final transformedTopRight = MatrixUtils.transformPoint(
+      matrix,
+      Offset(baseRect.width, 0),
+    );
+    final transformedBottomLeft = MatrixUtils.transformPoint(
+      matrix,
+      Offset(0, baseRect.height),
+    );
+    final transformedBottomRight = MatrixUtils.transformPoint(
+      matrix,
+      Offset(baseRect.width, baseRect.height),
+    );
+    final transformedPoints = [
+      transformedTopLeft,
+      transformedTopRight,
+      transformedBottomLeft,
+      transformedBottomRight,
+    ].map((point) => point + baseRect.topLeft);
+    return transformedPoints.fold<Rect>(
+      Rect.fromPoints(transformedPoints.first, transformedPoints.first),
+      (rect, point) =>
+          rect.expandToInclude(Rect.fromLTWH(point.dx, point.dy, 0, 0)),
+    );
   }
 
   void _scaleBy(double factor, double maxScale) {

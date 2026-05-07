@@ -3411,6 +3411,71 @@ class ThemeModeController extends _$ThemeModeController {
   }
 }
 
+final effectiveThemeModeProvider = Provider<ThemeMode>((ref) {
+  final defaultMode = ref.watch(themeModeControllerProvider);
+  final activeScope = ref.watch(activeColorThemeScopeProvider);
+  if (activeScope == defaultColorThemeScope) {
+    return defaultMode;
+  }
+  return ref.watch(profileThemeModeControllerProvider)[activeScope] ??
+      defaultMode;
+});
+
+final profileThemeModeControllerProvider =
+    NotifierProvider<ProfileThemeModeController, Map<String, ThemeMode>>(
+      ProfileThemeModeController.new,
+    );
+
+class ProfileThemeModeController extends Notifier<Map<String, ThemeMode>> {
+  static const _storageKey = 'settings.profile_theme_modes';
+  bool _restored = false;
+
+  @override
+  Map<String, ThemeMode> build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return const <String, ThemeMode>{};
+  }
+
+  Future<void> setMode(String scope, ThemeMode mode) async {
+    if (scope == defaultColorThemeScope) {
+      return;
+    }
+    state = {...state, scope: mode};
+    await _persist();
+  }
+
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_storageKey);
+      if (stored == null || stored.isEmpty) {
+        return;
+      }
+      final decoded = Map<String, dynamic>.from(
+        jsonDecode(stored) as Map<String, dynamic>,
+      );
+      state = {
+        for (final entry in decoded.entries)
+          if (_themeModeFromName(entry.value as String?) != null)
+            entry.key: _themeModeFromName(entry.value as String?)!,
+      };
+    } catch (_) {}
+  }
+
+  Future<void> _persist() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode({
+        for (final entry in state.entries) entry.key: entry.value.name,
+      });
+      await prefs.setString(_storageKey, encoded);
+    } catch (_) {}
+  }
+}
+
 final appColorThemeControllerProvider =
     NotifierProvider<AppColorThemeController, AppColorTheme>(
       AppColorThemeController.new,
@@ -3457,6 +3522,71 @@ class AppFontFamilyController extends Notifier<AppFontFamily> {
       state = iOSFriendlyAppFontFamilies.contains(restored)
           ? restored
           : AppFontFamily.system;
+    } catch (_) {}
+  }
+}
+
+final effectiveAppFontFamilyProvider = Provider<AppFontFamily>((ref) {
+  final defaultFont = ref.watch(appFontFamilyControllerProvider);
+  final activeScope = ref.watch(activeColorThemeScopeProvider);
+  if (activeScope == defaultColorThemeScope) {
+    return defaultFont;
+  }
+  return ref.watch(profileFontFamilyControllerProvider)[activeScope] ??
+      defaultFont;
+});
+
+final profileFontFamilyControllerProvider =
+    NotifierProvider<ProfileFontFamilyController, Map<String, AppFontFamily>>(
+      ProfileFontFamilyController.new,
+    );
+
+class ProfileFontFamilyController extends Notifier<Map<String, AppFontFamily>> {
+  static const _storageKey = 'settings.profile_font_families';
+  bool _restored = false;
+
+  @override
+  Map<String, AppFontFamily> build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return const <String, AppFontFamily>{};
+  }
+
+  Future<void> setFont(String scope, AppFontFamily font) async {
+    if (scope == defaultColorThemeScope) {
+      return;
+    }
+    state = {...state, scope: font};
+    await _persist();
+  }
+
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_storageKey);
+      if (stored == null || stored.isEmpty) {
+        return;
+      }
+      final decoded = Map<String, dynamic>.from(
+        jsonDecode(stored) as Map<String, dynamic>,
+      );
+      state = {
+        for (final entry in decoded.entries)
+          if (_fontFamilyFromName(entry.value as String?) != null)
+            entry.key: _fontFamilyFromName(entry.value as String?)!,
+      };
+    } catch (_) {}
+  }
+
+  Future<void> _persist() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode({
+        for (final entry in state.entries) entry.key: entry.value.name,
+      });
+      await prefs.setString(_storageKey, encoded);
     } catch (_) {}
   }
 }
@@ -3641,6 +3771,107 @@ class AppLocaleController extends Notifier<AppLocaleSetting> {
         ? AppLocaleSetting.japanese
         : AppLocaleSetting.english;
   }
+}
+
+final effectiveAppLocaleProvider = Provider<AppLocaleSetting>((ref) {
+  final defaultLocale = ref.watch(appLocaleControllerProvider);
+  final activeScope = ref.watch(activeColorThemeScopeProvider);
+  if (activeScope == defaultColorThemeScope) {
+    return defaultLocale;
+  }
+  return ref.watch(profileLocaleControllerProvider)[activeScope] ??
+      defaultLocale;
+});
+
+final profileLocaleControllerProvider =
+    NotifierProvider<ProfileLocaleController, Map<String, AppLocaleSetting>>(
+      ProfileLocaleController.new,
+    );
+
+class ProfileLocaleController extends Notifier<Map<String, AppLocaleSetting>> {
+  static const _storageKey = 'settings.profile_locales';
+  bool _restored = false;
+
+  @override
+  Map<String, AppLocaleSetting> build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return const <String, AppLocaleSetting>{};
+  }
+
+  Future<void> setLocale(String scope, AppLocaleSetting locale) async {
+    if (scope == defaultColorThemeScope) {
+      return;
+    }
+    state = {...state, scope: locale};
+    await _persist();
+  }
+
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_storageKey);
+      if (stored == null || stored.isEmpty) {
+        return;
+      }
+      final decoded = Map<String, dynamic>.from(
+        jsonDecode(stored) as Map<String, dynamic>,
+      );
+      state = {
+        for (final entry in decoded.entries)
+          if (_localeSettingFromName(entry.value as String?) != null)
+            entry.key: _localeSettingFromName(entry.value as String?)!,
+      };
+    } catch (_) {}
+  }
+
+  Future<void> _persist() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode({
+        for (final entry in state.entries) entry.key: entry.value.name,
+      });
+      await prefs.setString(_storageKey, encoded);
+    } catch (_) {}
+  }
+}
+
+ThemeMode? _themeModeFromName(String? value) {
+  if (value == null) {
+    return null;
+  }
+  for (final mode in ThemeMode.values) {
+    if (mode.name == value) {
+      return mode;
+    }
+  }
+  return null;
+}
+
+AppFontFamily? _fontFamilyFromName(String? value) {
+  if (value == null) {
+    return null;
+  }
+  for (final font in AppFontFamily.values) {
+    if (font.name == value && iOSFriendlyAppFontFamilies.contains(font)) {
+      return font;
+    }
+  }
+  return null;
+}
+
+AppLocaleSetting? _localeSettingFromName(String? value) {
+  if (value == null) {
+    return null;
+  }
+  for (final locale in AppLocaleSetting.values) {
+    if (locale.name == value) {
+      return locale;
+    }
+  }
+  return null;
 }
 
 final appLockSettingsControllerProvider =

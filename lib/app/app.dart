@@ -8,6 +8,7 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:pinput/pinput.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../features/home/presentation/home_providers.dart';
@@ -27,10 +28,10 @@ class HiMemoApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final themeMode = ref.watch(themeModeControllerProvider);
+    final themeMode = ref.watch(effectiveThemeModeProvider);
     final colorTheme = ref.watch(effectiveAppColorThemeProvider);
-    final fontFamily = ref.watch(appFontFamilyControllerProvider);
-    final localeSetting = ref.watch(appLocaleControllerProvider);
+    final fontFamily = ref.watch(effectiveAppFontFamilyProvider);
+    final localeSetting = ref.watch(effectiveAppLocaleProvider);
     final launchSurface = ref.watch(appLaunchControllerProvider);
     final router = ref.watch(appRouterProvider);
     final currentLocation = router.routeInformationProvider.value.uri.path;
@@ -222,6 +223,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     with WidgetsBindingObserver {
   static const _privateSessionTimeout = Duration(minutes: 5);
   static const _privacyChannel = MethodChannel('org.ruhenheim.himemo/privacy');
+  static const _backgroundedAtStorageKey = 'runtime.app_lock_backgrounded_at';
 
   bool _privacyScreenEnabled = false;
   bool _autoPrompted = false;
@@ -250,35 +252,75 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _syncLockState(triggerPrompt: true);
-      _refreshPrivateSessionTimer();
+      unawaited(_handleAppResumed());
       return;
     }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
-      _backgroundedAt = DateTime.now();
+      unawaited(_markAppBackgrounded());
       if (ref.read(appLockSettingsControllerProvider) &&
           ref.read(appLockRelockDelayControllerProvider) ==
               AppLockRelockDelay.immediate) {
-        _lockAppSessionOnly();
+        _lockProtectedSessions(lockAppSession: true);
       }
     }
+  }
+
+  Future<void> _handleAppResumed() async {
+    await _restoreBackgroundedAt();
+    if (_shouldLockPrivateAfterBackground()) {
+      _lockProtectedSessions(lockAppSession: false);
+    }
+    await _syncLockState(triggerPrompt: true);
+    _refreshPrivateSessionTimer();
+  }
+
+  Future<void> _markAppBackgrounded() async {
+    final now = DateTime.now();
+    _backgroundedAt = now;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_backgroundedAtStorageKey, now.millisecondsSinceEpoch);
+    } catch (_) {}
+  }
+
+  Future<void> _restoreBackgroundedAt() async {
+    if (_backgroundedAt != null) {
+      return;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getInt(_backgroundedAtStorageKey);
+      if (stored != null) {
+        _backgroundedAt = DateTime.fromMillisecondsSinceEpoch(stored);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _clearBackgroundedAt() async {
+    _backgroundedAt = null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_backgroundedAtStorageKey);
+    } catch (_) {}
   }
 
   Future<void> _syncLockState({required bool triggerPrompt}) async {
     final enabled = ref.read(appLockSettingsControllerProvider);
     if (!enabled) {
       ref.read(appSessionUnlockControllerProvider.notifier).unlock();
+      unawaited(_clearBackgroundedAt());
       _refreshPrivateSessionTimer();
       return;
     }
 
     if (_shouldRelockAfterBackground()) {
-      _lockAppSessionOnly();
+      _lockProtectedSessions(lockAppSession: true);
     }
 
     if (ref.read(appSessionUnlockControllerProvider)) {
+      unawaited(_clearBackgroundedAt());
       _refreshPrivateSessionTimer();
       return;
     }
@@ -294,6 +336,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         .read(deviceAuthControllerProvider.notifier)
         .authenticate(reason: 'Unlock HiMemo with device authentication');
     if (mounted && ref.read(appSessionUnlockControllerProvider)) {
+      unawaited(_clearBackgroundedAt());
       setState(() {
         _autoPrompted = true;
       });
@@ -313,6 +356,15 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     return elapsed >= _durationForDelay(delay);
   }
 
+  bool _shouldLockPrivateAfterBackground() {
+    final backgroundedAt = _backgroundedAt;
+    if (backgroundedAt == null || !_isPrivateOrAdminActive()) {
+      return false;
+    }
+    final elapsed = DateTime.now().difference(backgroundedAt);
+    return elapsed >= _privateSessionTimeout;
+  }
+
   Duration _durationForDelay(AppLockRelockDelay delay) {
     return switch (delay) {
       AppLockRelockDelay.immediate => Duration.zero,
@@ -320,14 +372,6 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       AppLockRelockDelay.minutes2 => const Duration(minutes: 2),
       AppLockRelockDelay.minutes10 => const Duration(minutes: 10),
     };
-  }
-
-  void _lockAppSessionOnly() {
-    ref.read(appSessionUnlockControllerProvider.notifier).lock();
-    if (ref.read(privateVaultLockOnAppLockControllerProvider)) {
-      _lockPrivateSessions();
-    }
-    _autoPrompted = false;
   }
 
   void _lockProtectedSessions({required bool lockAppSession}) {
@@ -1655,10 +1699,7 @@ const _zenRoundedFontFallback = <String>[
   ..._cjkSansFontFallback,
 ];
 
-const _casualFontFallback = <String>[
-  'Kiwi Maru',
-  ..._cjkSerifFontFallback,
-];
+const _casualFontFallback = <String>['Kiwi Maru', ..._cjkSerifFontFallback];
 
 const _monospaceFontFallback = <String>[
   'Menlo',
