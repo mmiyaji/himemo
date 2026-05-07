@@ -9627,13 +9627,14 @@ class _QuickTagChip extends StatelessWidget {
         color: selected
             ? colorScheme.primaryContainer
             : colorScheme.surfaceContainerLowest,
-        shape: StadiumBorder(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(6),
           side: BorderSide(
             color: selected ? colorScheme.primary : theme.dividerColor,
           ),
         ),
         child: InkWell(
-          customBorder: const StadiumBorder(),
+          borderRadius: BorderRadius.circular(6),
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
