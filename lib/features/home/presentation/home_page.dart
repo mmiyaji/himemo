@@ -9621,31 +9621,51 @@ class _QuickTagChip extends StatelessWidget {
       fontWeight: FontWeight.w600,
       height: 1.25,
     );
-    return ActionChip(
-      avatar: Icon(
-        Icons.tag_rounded,
-        size: 15,
-        color: selected ? colorScheme.onPrimaryContainer : colorScheme.primary,
+    return Tooltip(
+      message: '#${summary.name}',
+      child: Material(
+        color: selected
+            ? colorScheme.primaryContainer
+            : colorScheme.surfaceContainerLowest,
+        shape: StadiumBorder(
+          side: BorderSide(
+            color: selected ? colorScheme.primary : theme.dividerColor,
+          ),
+        ),
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.tag_rounded,
+                  size: 15,
+                  color: selected
+                      ? colorScheme.onPrimaryContainer
+                      : colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${summary.name} (${summary.count})',
+                  maxLines: 1,
+                  overflow: TextOverflow.visible,
+                  softWrap: false,
+                  style: labelStyle,
+                  strutStyle: labelStyle == null
+                      ? null
+                      : StrutStyle.fromTextStyle(
+                          labelStyle,
+                          forceStrutHeight: true,
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
-      label: Text(
-        '${summary.name} (${summary.count})',
-        strutStyle: labelStyle == null
-            ? null
-            : StrutStyle.fromTextStyle(labelStyle, forceStrutHeight: true),
-      ),
-      tooltip: '#${summary.name}',
-      onPressed: onTap,
-      visualDensity: const VisualDensity(horizontal: -1, vertical: 0),
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      labelPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-      side: BorderSide(
-        color: selected ? colorScheme.primary : theme.dividerColor,
-      ),
-      backgroundColor: selected
-          ? colorScheme.primaryContainer
-          : colorScheme.surfaceContainerLowest,
-      labelStyle: labelStyle,
     );
   }
 }
