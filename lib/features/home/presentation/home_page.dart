@@ -8753,7 +8753,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     final compactToolbarButtons = widget.compact || availableWidth < 560;
     final activeFilterCount =
         (filters.pinnedOnly ? 1 : 0) +
-        (filters.attachmentFilter != SearchAttachmentFilter.all ? 1 : 0) +
+        (filters.attachmentFilters.isNotEmpty ? 1 : 0) +
         (filters.archivedOnly || filters.includeArchived ? 1 : 0) +
         (filters.requireAllTags && filters.tags.length > 1 ? 1 : 0) +
         (filters.dateRange != SearchDateRange.all ? 1 : 0) +
@@ -9018,11 +9018,14 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
         ),
       );
     }
-    if (filters.attachmentFilter != SearchAttachmentFilter.all) {
+    if (filters.attachmentFilters.isNotEmpty) {
       chips.add(
         _filterSummaryChip(
           context,
-          label: _attachmentFilterLabel(strings, filters.attachmentFilter),
+          label: _attachmentFilterSummaryLabel(
+            strings,
+            filters.attachmentFilters,
+          ),
           onDeleted: () =>
               notifier.setAttachmentFilter(SearchAttachmentFilter.all),
         ),
@@ -9233,6 +9236,21 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     };
   }
 
+  String _attachmentFilterSummaryLabel(
+    AppStrings strings,
+    List<SearchAttachmentFilter> filters,
+  ) {
+    if (filters.isEmpty) {
+      return _attachmentFilterLabel(strings, SearchAttachmentFilter.all);
+    }
+    if (filters.contains(SearchAttachmentFilter.any)) {
+      return _attachmentFilterLabel(strings, SearchAttachmentFilter.any);
+    }
+    return filters
+        .map((filter) => _attachmentFilterLabel(strings, filter))
+        .join(' / ');
+  }
+
   void _openAdvancedFiltersSheet(
     BuildContext context, {
     required bool hasArchivedNotes,
@@ -9297,8 +9315,14 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                             notifier.setPinnedOnly(value ?? false),
                       ),
                       _AttachmentSearchFilterControls(
-                        filter: filters.attachmentFilter,
-                        onChanged: notifier.setAttachmentFilter,
+                        filters: filters.attachmentFilters,
+                        onHasAttachmentsChanged: (enabled) =>
+                            notifier.setAttachmentFilter(
+                              enabled
+                                  ? SearchAttachmentFilter.any
+                                  : SearchAttachmentFilter.all,
+                            ),
+                        onFilterToggled: notifier.toggleAttachmentFilter,
                       ),
                       const SizedBox(height: 12),
                       _TagAutocompleteField(
@@ -9689,17 +9713,22 @@ class _QuickTagChip extends StatelessWidget {
 
 class _AttachmentSearchFilterControls extends StatelessWidget {
   const _AttachmentSearchFilterControls({
-    required this.filter,
-    required this.onChanged,
+    required this.filters,
+    required this.onHasAttachmentsChanged,
+    required this.onFilterToggled,
   });
 
-  final SearchAttachmentFilter filter;
-  final ValueChanged<SearchAttachmentFilter> onChanged;
+  final List<SearchAttachmentFilter> filters;
+  final ValueChanged<bool> onHasAttachmentsChanged;
+  final ValueChanged<SearchAttachmentFilter> onFilterToggled;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final hasAttachmentFilter = filter != SearchAttachmentFilter.all;
+    final hasAttachmentFilter = filters.isNotEmpty;
+    final selectedFilters = filters.isEmpty
+        ? const <SearchAttachmentFilter>[SearchAttachmentFilter.any]
+        : filters;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -9718,11 +9747,7 @@ class _AttachmentSearchFilterControls extends StatelessWidget {
               de: 'Mit Anhangen',
             ),
           ),
-          onChanged: (value) => onChanged(
-            value == true
-                ? SearchAttachmentFilter.any
-                : SearchAttachmentFilter.all,
-          ),
+          onChanged: (value) => onHasAttachmentsChanged(value == true),
         ),
         if (hasAttachmentFilter) ...[
           const SizedBox(height: 4),
@@ -9740,11 +9765,8 @@ class _AttachmentSearchFilterControls extends StatelessWidget {
                 ChoiceChip(
                   avatar: Icon(_attachmentSearchFilterIcon(option), size: 18),
                   label: Text(_attachmentSearchFilterLabel(strings, option)),
-                  selected:
-                      filter == option ||
-                      (filter == SearchAttachmentFilter.all &&
-                          option == SearchAttachmentFilter.any),
-                  onSelected: (_) => onChanged(option),
+                  selected: selectedFilters.contains(option),
+                  onSelected: (_) => onFilterToggled(option),
                   labelStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),

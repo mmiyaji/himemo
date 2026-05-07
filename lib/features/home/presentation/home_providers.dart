@@ -250,7 +250,7 @@ class SearchFilters {
   const SearchFilters({
     this.pinnedOnly = false,
     this.withMediaOnly = false,
-    this.attachmentFilter = SearchAttachmentFilter.all,
+    this.attachmentFilters = const <SearchAttachmentFilter>[],
     this.archivedOnly = false,
     this.includeArchived = false,
     this.requireAllTags = false,
@@ -263,7 +263,10 @@ class SearchFilters {
 
   final bool pinnedOnly;
   final bool withMediaOnly;
-  final SearchAttachmentFilter attachmentFilter;
+  final List<SearchAttachmentFilter> attachmentFilters;
+  SearchAttachmentFilter get attachmentFilter => attachmentFilters.isEmpty
+      ? SearchAttachmentFilter.all
+      : attachmentFilters.first;
   final bool archivedOnly;
   final bool includeArchived;
   final bool requireAllTags;
@@ -276,7 +279,7 @@ class SearchFilters {
   bool get isDefault =>
       !pinnedOnly &&
       !withMediaOnly &&
-      attachmentFilter == SearchAttachmentFilter.all &&
+      attachmentFilters.isEmpty &&
       !archivedOnly &&
       !includeArchived &&
       !requireAllTags &&
@@ -289,7 +292,7 @@ class SearchFilters {
   SearchFilters copyWith({
     bool? pinnedOnly,
     bool? withMediaOnly,
-    SearchAttachmentFilter? attachmentFilter,
+    List<SearchAttachmentFilter>? attachmentFilters,
     bool? archivedOnly,
     bool? includeArchived,
     bool? requireAllTags,
@@ -304,7 +307,7 @@ class SearchFilters {
     return SearchFilters(
       pinnedOnly: pinnedOnly ?? this.pinnedOnly,
       withMediaOnly: withMediaOnly ?? this.withMediaOnly,
-      attachmentFilter: attachmentFilter ?? this.attachmentFilter,
+      attachmentFilters: attachmentFilters ?? this.attachmentFilters,
       archivedOnly: archivedOnly ?? this.archivedOnly,
       includeArchived: includeArchived ?? this.includeArchived,
       requireAllTags: requireAllTags ?? this.requireAllTags,
@@ -3979,14 +3982,50 @@ class SearchFiltersController extends Notifier<SearchFilters> {
   void setWithMediaOnly(bool value) {
     state = state.copyWith(
       withMediaOnly: value,
-      attachmentFilter: value
-          ? SearchAttachmentFilter.any
-          : SearchAttachmentFilter.all,
+      attachmentFilters: value
+          ? const <SearchAttachmentFilter>[SearchAttachmentFilter.any]
+          : const <SearchAttachmentFilter>[],
     );
   }
 
   void setAttachmentFilter(SearchAttachmentFilter value) {
-    state = state.copyWith(withMediaOnly: false, attachmentFilter: value);
+    state = state.copyWith(
+      withMediaOnly: false,
+      attachmentFilters: value == SearchAttachmentFilter.all
+          ? const <SearchAttachmentFilter>[]
+          : [value],
+    );
+  }
+
+  void setAttachmentFilters(List<SearchAttachmentFilter> values) {
+    final normalized = _normalizeAttachmentFilters(values);
+    state = state.copyWith(withMediaOnly: false, attachmentFilters: normalized);
+  }
+
+  void toggleAttachmentFilter(SearchAttachmentFilter value) {
+    if (value == SearchAttachmentFilter.all) {
+      setAttachmentFilters(const <SearchAttachmentFilter>[]);
+      return;
+    }
+    if (value == SearchAttachmentFilter.any) {
+      setAttachmentFilters(const <SearchAttachmentFilter>[
+        SearchAttachmentFilter.any,
+      ]);
+      return;
+    }
+    final next = state.attachmentFilters
+        .where((filter) => filter != SearchAttachmentFilter.any)
+        .toList(growable: true);
+    if (next.contains(value)) {
+      next.remove(value);
+    } else {
+      next.add(value);
+    }
+    setAttachmentFilters(
+      next.isEmpty
+          ? const <SearchAttachmentFilter>[SearchAttachmentFilter.any]
+          : next,
+    );
   }
 
   void setArchivedOnly(bool value) {
@@ -4054,6 +4093,24 @@ class SearchFiltersController extends Notifier<SearchFilters> {
   void reset() {
     state = const SearchFilters();
   }
+}
+
+List<SearchAttachmentFilter> _normalizeAttachmentFilters(
+  Iterable<SearchAttachmentFilter> values,
+) {
+  final selected = <SearchAttachmentFilter>[];
+  for (final value in values) {
+    if (value == SearchAttachmentFilter.all) {
+      continue;
+    }
+    if (value == SearchAttachmentFilter.any) {
+      return const <SearchAttachmentFilter>[SearchAttachmentFilter.any];
+    }
+    if (!selected.contains(value)) {
+      selected.add(value);
+    }
+  }
+  return List<SearchAttachmentFilter>.unmodifiable(selected);
 }
 
 final searchFiltersControllerProvider =
@@ -5375,7 +5432,7 @@ List<NoteEntry> visibleNotes(Ref ref) {
     if (filters.pinnedOnly && !note.isPinned) {
       continue;
     }
-    if (!_noteMatchesAttachmentFilter(note, filters.attachmentFilter)) {
+    if (!_noteMatchesAttachmentFilter(note, filters.attachmentFilters)) {
       continue;
     }
     if (requiredTags.isNotEmpty) {
@@ -5415,23 +5472,31 @@ DateTime? _searchDateRangeStart(SearchDateRange range) {
 
 bool _noteMatchesAttachmentFilter(
   NoteEntry note,
-  SearchAttachmentFilter filter,
+  List<SearchAttachmentFilter> filters,
 ) {
-  return switch (filter) {
-    SearchAttachmentFilter.all => true,
-    SearchAttachmentFilter.any =>
-      note.attachments.isNotEmpty || note.location != null,
-    SearchAttachmentFilter.photo => note.attachments.any(
-      (attachment) => attachment.type == AttachmentType.photo,
-    ),
-    SearchAttachmentFilter.video => note.attachments.any(
-      (attachment) => attachment.type == AttachmentType.video,
-    ),
-    SearchAttachmentFilter.audio => note.attachments.any(
-      (attachment) => attachment.type == AttachmentType.audio,
-    ),
-    SearchAttachmentFilter.location => note.location != null,
-  };
+  if (filters.isEmpty) {
+    return true;
+  }
+  if (filters.contains(SearchAttachmentFilter.any)) {
+    return note.attachments.isNotEmpty || note.location != null;
+  }
+  return filters.any((filter) {
+    return switch (filter) {
+      SearchAttachmentFilter.all => true,
+      SearchAttachmentFilter.any =>
+        note.attachments.isNotEmpty || note.location != null,
+      SearchAttachmentFilter.photo => note.attachments.any(
+        (attachment) => attachment.type == AttachmentType.photo,
+      ),
+      SearchAttachmentFilter.video => note.attachments.any(
+        (attachment) => attachment.type == AttachmentType.video,
+      ),
+      SearchAttachmentFilter.audio => note.attachments.any(
+        (attachment) => attachment.type == AttachmentType.audio,
+      ),
+      SearchAttachmentFilter.location => note.location != null,
+    };
+  });
 }
 
 @riverpod
