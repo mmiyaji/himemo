@@ -9598,26 +9598,36 @@ class _QuickTagChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final labelStyle = theme.textTheme.labelMedium?.copyWith(
+      color: selected ? colorScheme.onPrimaryContainer : null,
+      fontWeight: FontWeight.w600,
+      height: 1.25,
+    );
     return ActionChip(
       avatar: Icon(
         Icons.tag_rounded,
         size: 15,
         color: selected ? colorScheme.onPrimaryContainer : colorScheme.primary,
       ),
-      label: Text('${summary.name} (${summary.count})'),
+      label: Text(
+        '${summary.name} (${summary.count})',
+        strutStyle: labelStyle == null
+            ? null
+            : StrutStyle.fromTextStyle(labelStyle, forceStrutHeight: true),
+      ),
       tooltip: '#${summary.name}',
       onPressed: onTap,
-      visualDensity: VisualDensity.compact,
+      visualDensity: const VisualDensity(horizontal: -1, vertical: 0),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      labelPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       side: BorderSide(
         color: selected ? colorScheme.primary : theme.dividerColor,
       ),
       backgroundColor: selected
           ? colorScheme.primaryContainer
           : colorScheme.surfaceContainerLowest,
-      labelStyle: theme.textTheme.labelMedium?.copyWith(
-        color: selected ? colorScheme.onPrimaryContainer : null,
-        fontWeight: FontWeight.w600,
-      ),
+      labelStyle: labelStyle,
     );
   }
 }
