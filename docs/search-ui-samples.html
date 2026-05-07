@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HiMemo Search UI Samples</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f4f6;
+        --panel: #fff;
+        --ink: #252126;
+        --muted: #746a72;
+        --line: #dec8d1;
+        --accent: #cf4267;
+        --accent-soft: #f7dce5;
+        --blue: #315f9d;
+        --green: #2f7458;
+        --shadow: 0 18px 50px rgba(48, 31, 39, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.55;
+      }
+
+      main {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 32px 0 48px;
+      }
+
+      header {
+        margin-bottom: 24px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        margin-bottom: 8px;
+        font-size: clamp(28px, 4vw, 44px);
+        letter-spacing: 0;
+      }
+
+      .lead {
+        max-width: 760px;
+        color: var(--muted);
+      }
+
+      .refs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 16px;
+      }
+
+      .ref {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 6px 10px;
+        background: rgba(255, 255, 255, 0.7);
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+      }
+
+      .sample {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .sample-head {
+        padding: 18px 20px 14px;
+        border-bottom: 1px solid var(--line);
+        background: linear-gradient(#fff, #fbf7f9);
+      }
+
+      .sample-head h2 {
+        margin-bottom: 4px;
+        font-size: 19px;
+      }
+
+      .sample-head p {
+        margin-bottom: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .phone {
+        width: min(420px, 100%);
+        min-height: 560px;
+        margin: 20px auto;
+        overflow: hidden;
+        border: 1px solid #dac2cd;
+        border-radius: 24px;
+        background: #fff;
+      }
+
+      .appbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .brand-dot {
+        width: 26px;
+        height: 26px;
+        border-radius: 8px;
+        background: linear-gradient(135deg, #fff0f4, var(--accent-soft));
+        border: 1px solid var(--line);
+      }
+
+      .appbar strong {
+        flex: 1;
+        font-size: 18px;
+      }
+
+      .icon-btn {
+        display: inline-grid;
+        width: 38px;
+        height: 38px;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+        color: var(--ink);
+        font-weight: 700;
+      }
+
+      .search-shell {
+        padding: 14px;
+        border-bottom: 1px solid var(--line);
+        background: #fffafd;
+      }
+
+      .search-row {
+        display: flex;
+        gap: 8px;
+      }
+
+      .search-input {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        min-height: 44px;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+        color: var(--muted);
+      }
+
+      .chips {
+        display: flex;
+        gap: 8px;
+        overflow: auto;
+        padding-top: 10px;
+      }
+
+      .chip {
+        flex: 0 0 auto;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 6px 10px;
+        background: #fff;
+        color: #5e4e58;
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      .chip.strong {
+        border-color: #d789a0;
+        background: var(--accent-soft);
+        color: #8f2441;
+        font-weight: 700;
+      }
+
+      .note-list {
+        padding: 14px;
+      }
+
+      .note {
+        padding: 14px 0;
+        border-bottom: 1px solid #eadce2;
+      }
+
+      .note:last-child {
+        border-bottom: 0;
+      }
+
+      .note h3 {
+        margin-bottom: 5px;
+        font-size: 16px;
+      }
+
+      .note p {
+        margin-bottom: 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .meta {
+        display: flex;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .filter-panel {
+        margin-top: 10px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+      }
+
+      .filter-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .field {
+        padding: 10px;
+        border: 1px solid #e5d3db;
+        border-radius: 10px;
+      }
+
+      .field label {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .field strong {
+        display: block;
+        margin-top: 2px;
+        font-size: 13px;
+      }
+
+      .sheet {
+        margin: 26px 12px 12px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: #fff;
+        box-shadow: 0 -8px 28px rgba(48, 31, 39, 0.12);
+      }
+
+      .grab {
+        width: 42px;
+        height: 4px;
+        margin: 0 auto 14px;
+        border-radius: 999px;
+        background: #8a7b84;
+      }
+
+      .sheet-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      .btn {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 9px 14px;
+        background: #fff;
+        color: var(--ink);
+        font-weight: 700;
+      }
+
+      .btn.primary {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #fff;
+      }
+
+      .views {
+        display: flex;
+        gap: 8px;
+        padding: 12px 14px 0;
+        overflow: auto;
+      }
+
+      .view {
+        flex: 0 0 auto;
+        padding: 8px 11px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #fff;
+        font-size: 13px;
+      }
+
+      .view.active {
+        background: var(--accent-soft);
+        color: #8f2441;
+        font-weight: 700;
+      }
+
+      .timeline {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 6px;
+        padding: 12px 14px;
+      }
+
+      .day {
+        min-height: 52px;
+        border: 1px solid #eadce2;
+        border-radius: 12px;
+        padding: 7px;
+        background: #fff;
+        font-size: 12px;
+      }
+
+      .day.active {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+      }
+
+      .syntax {
+        margin-top: 10px;
+        padding: 10px 12px;
+        border: 1px dashed #cda8b7;
+        border-radius: 12px;
+        background: #fff;
+        color: #5e4e58;
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 13px;
+      }
+
+      .pros {
+        padding: 0 20px 18px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .pros strong {
+        color: var(--ink);
+      }
+
+      @media (max-width: 900px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        main {
+          width: min(720px, calc(100% - 20px));
+          padding-top: 20px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>検索UIサンプル</h1>
+        <p class="lead">
+          HiMemo の詳細検索を省スペースにしつつ、期間検索・タグ・添付・アーカイブ検索を扱いやすくするための比較案です。実装反映前の検討用です。
+        </p>
+        <div class="refs">
+          <span class="ref">Evernote: 検索後の提案フィルタ・作成日フィルタ</span>
+          <span class="ref">Notion: ビューとフィルタグループ</span>
+          <span class="ref">Apple Notes: 検索欄中心・添付名も検索</span>
+        </div>
+      </header>
+
+      <section class="grid">
+        <article class="sample">
+          <div class="sample-head">
+            <h2>A. 1行検索 + 条件チップ</h2>
+            <p>普段は検索欄とチップだけ。詳細条件はチップ追加として見せる案。</p>
+          </div>
+          <div class="phone">
+            <div class="appbar">
+              <span class="brand-dot"></span>
+              <strong>HiMemo</strong>
+              <span class="icon-btn">⌕</span>
+            </div>
+            <div class="search-shell">
+              <div class="search-row">
+                <div class="search-input">🔍 議事録 / 添付 / 場所を検索</div>
+                <span class="icon-btn">⚙</span>
+              </div>
+              <div class="chips">
+                <span class="chip strong">期間: 直近30日 ×</span>
+                <span class="chip">タグ: 仕事</span>
+                <span class="chip">添付あり</span>
+                <span class="chip">アーカイブ</span>
+              </div>
+            </div>
+            <div class="note-list">
+              <div class="note">
+                <h3>共有会の準備</h3>
+                <p>資料の見せ方を先に整理すると...</p>
+                <div class="meta"><span>#仕事</span><span>5/6</span><span>写真 1</span></div>
+              </div>
+              <div class="note">
+                <h3>出張メモ</h3>
+                <p>駅から会場までの移動時間...</p>
+                <div class="meta"><span>#移動</span><span>4/28</span><span>地点あり</span></div>
+              </div>
+            </div>
+          </div>
+          <p class="pros">
+            <strong>向いている用途:</strong>
+            省スペース重視。今のUIからの移行が最も軽く、モバイルで縦幅を取りにくい。
+          </p>
+        </article>
+
+        <article class="sample">
+          <div class="sample-head">
+            <h2>B. フィルタは下シートへ退避</h2>
+            <p>一覧上部は検索とタグだけ。期間・添付・アーカイブは必要時だけ下から開く案。</p>
+          </div>
+          <div class="phone">
+            <div class="appbar">
+              <span class="brand-dot"></span>
+              <strong>HiMemo</strong>
+              <span class="icon-btn">☰</span>
+            </div>
+            <div class="search-shell">
+              <div class="search-row">
+                <div class="search-input">🔍 キーワード</div>
+                <span class="icon-btn">3</span>
+              </div>
+              <div class="chips">
+                <span class="chip strong">#日記</span>
+                <span class="chip">#仕事</span>
+                <span class="chip">#買い物</span>
+                <span class="chip">#予定</span>
+                <span class="chip">タグを追加</span>
+              </div>
+              <div class="chips">
+                <span class="chip strong">期間: 直近7日 ×</span>
+                <span class="chip">添付あり ×</span>
+                <span class="chip">タグ条件: すべて ×</span>
+                <span class="chip">アーカイブ含む ×</span>
+              </div>
+            </div>
+            <div class="sheet">
+              <div class="grab"></div>
+              <h3>検索条件</h3>
+              <div class="filter-grid">
+                <div class="field">
+                  <label>期間</label>
+                  <strong>直近7日</strong>
+                </div>
+                <div class="field">
+                  <label>日付対象</label>
+                  <strong>作成日</strong>
+                </div>
+                <div class="field">
+                  <label>タグ</label>
+                  <strong>上部のタグ列で選択</strong>
+                </div>
+                <div class="field">
+                  <label>タグ条件</label>
+                  <strong>すべて含む（AND）</strong>
+                </div>
+                <div class="field">
+                  <label>対象</label>
+                  <strong>通常 + アーカイブ</strong>
+                </div>
+              </div>
+              <div class="sheet-actions">
+                <button class="btn">リセット</button>
+                <button class="btn primary">適用</button>
+              </div>
+            </div>
+          </div>
+          <p class="pros">
+            <strong>向いている用途:</strong>
+            探す入口としてタグを残しつつ、期間検索、保存済み条件、アーカイブなどを詰め込んでも一覧を圧迫しない。
+          </p>
+        </article>
+
+        <article class="sample">
+          <div class="sample-head">
+            <h2>C. ビュー + 日付レール</h2>
+            <p>よく使う条件をビュー化し、期間は横スクロールの日付レールで選ぶ案。</p>
+          </div>
+          <div class="phone">
+            <div class="appbar">
+              <span class="brand-dot"></span>
+              <strong>HiMemo</strong>
+              <span class="icon-btn">＋</span>
+            </div>
+            <div class="search-shell">
+              <div class="search-input">🔍 このビュー内で検索</div>
+            </div>
+            <div class="views">
+              <span class="view active">すべて</span>
+              <span class="view">仕事</span>
+              <span class="view">添付あり</span>
+              <span class="view">地点あり</span>
+              <span class="view">アーカイブ</span>
+            </div>
+            <div class="timeline">
+              <div class="day">5/2<br />12件</div>
+              <div class="day">5/3<br />8件</div>
+              <div class="day active">5/4<br />21件</div>
+              <div class="day">5/5<br />14件</div>
+              <div class="day">5/6<br />9件</div>
+            </div>
+            <div class="note-list">
+              <div class="note">
+                <h3>5/4 のノート</h3>
+                <p>選択した日付のノートだけに絞り込み...</p>
+                <div class="meta"><span>日付レール</span><span>作成日</span></div>
+              </div>
+            </div>
+          </div>
+          <p class="pros">
+            <strong>向いている用途:</strong>
+            日記・記録系。日付移動が強い一方、複雑な AND/OR 検索は別UIが必要。
+          </p>
+        </article>
+
+        <article class="sample">
+          <div class="sample-head">
+            <h2>D. 自然入力 + 詳細構文</h2>
+            <p>UIは最小。上級者向けに検索欄へ条件を書ける案。</p>
+          </div>
+          <div class="phone">
+            <div class="appbar">
+              <span class="brand-dot"></span>
+              <strong>HiMemo</strong>
+              <span class="icon-btn">?</span>
+            </div>
+            <div class="search-shell">
+              <div class="search-input">🔍 tag:仕事 after:2026-05-01 has:file</div>
+              <div class="syntax">
+                tag:仕事 after:2026-05-01 before:2026-05-06 has:audio archived:true
+              </div>
+              <div class="chips">
+                <span class="chip strong">#仕事</span>
+                <span class="chip">5/1以降</span>
+                <span class="chip">音声あり</span>
+              </div>
+            </div>
+            <div class="note-list">
+              <div class="note">
+                <h3>音声メモ</h3>
+                <p>構文はチップへ変換して確認可能...</p>
+                <div class="meta"><span>audio</span><span>archive</span></div>
+              </div>
+            </div>
+          </div>
+          <p class="pros">
+            <strong>向いている用途:</strong>
+            大量メモのパワーユーザー。ヘルプや入力補完がないと一般ユーザーには難しい。
+          </p>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>
