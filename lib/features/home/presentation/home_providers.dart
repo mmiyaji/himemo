@@ -5061,11 +5061,6 @@ class NotesController extends _$NotesController {
       if (left.isPinned != right.isPinned) {
         return right.isPinned ? 1 : -1;
       }
-      final leftPrivate = isPrivateVaultId(left.vaultId);
-      final rightPrivate = isPrivateVaultId(right.vaultId);
-      if (leftPrivate != rightPrivate) {
-        return leftPrivate ? -1 : 1;
-      }
       final dateOrder = right.createdAt.compareTo(left.createdAt);
       if (dateOrder != 0) {
         return dateOrder;
