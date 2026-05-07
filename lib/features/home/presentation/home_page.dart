@@ -375,12 +375,11 @@ class _AppShellState extends ConsumerState<AppShell> {
     final currentSection = _sectionForLocation(
       GoRouterState.of(context).uri.path,
     );
+    if (currentSection != section) {
+      _dismissOpenSheet(context, force: true);
+    }
     if (currentSection == AppSection.notes && section != AppSection.notes) {
       ref.read(selectedNoteIdProvider.notifier).select(null);
-      final rootNavigator = Navigator.of(context, rootNavigator: true);
-      if (rootNavigator.canPop()) {
-        rootNavigator.pop();
-      }
     }
     switch (section) {
       case AppSection.notes:
@@ -426,11 +425,23 @@ class _AppShellState extends ConsumerState<AppShell> {
         return;
       }
       ref.read(selectedNoteIdProvider.notifier).select(null);
-      final rootNavigator = Navigator.of(context, rootNavigator: true);
-      if (rootNavigator.canPop()) {
-        rootNavigator.pop();
-      }
+      _dismissOpenSheet(context, force: true);
     });
+  }
+
+  void _dismissOpenSheet(BuildContext context, {bool force = false}) {
+    if (!force && _noteOverlaySheetDepth.value <= 0) {
+      return;
+    }
+    final rootNavigator = Navigator.of(context, rootNavigator: true);
+    if (rootNavigator.canPop()) {
+      rootNavigator.pop();
+      return;
+    }
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    }
   }
 
   AppSection _sectionForLocation(String location) {
@@ -674,16 +685,13 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final selectedNoteId = ref.watch(selectedNoteIdProvider);
 
     if (!useSplitView) {
-      final visibleNotesByVault = visibleVaults.length == 1
-          ? <String, List<NoteEntry>>{visibleVaults.first.id: visibleNotes}
-          : ref.watch(visibleNotesByVaultProvider);
       return _MobileNotesList(
         activeIdentity: activeIdentity,
         showPrivateVaultNotice:
             activeIdentity.id == 'private' && !privateVaultUnlocked,
         compactHeader: useCompactHeader,
-        vaults: visibleVaults,
-        notesByVault: visibleNotesByVault,
+        vaultNameById: vaultNameById,
+        showVaultName: visibleVaults.length > 1,
         allVisibleNotes: visibleNotes,
         selectedNoteId: selectedNoteId,
         density: listDensity,
@@ -911,8 +919,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final noteDays = ref.watch(visibleNoteDaysProvider);
-    final notesByDay = ref.watch(visibleNotesByDayProvider);
+    final noteDays = ref.watch(unfilteredVisibleNoteDaysProvider);
+    final notesByDay = ref.watch(unfilteredVisibleNotesByDayProvider);
     final markedDays = noteDays.toSet();
     final sameDayNotes =
         notesByDay[_calendarDayKey(_selectedDay)] ?? const <NoteEntry>[];
@@ -1463,7 +1471,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final notes = ref.watch(visibleNotesProvider);
+    final notes = ref.watch(unfilteredVisibleNotesProvider);
     final locale = Localizations.localeOf(context);
     var insights = _cachedInsights;
     if (insights == null ||
@@ -2589,6 +2597,11 @@ class SettingsScreen extends ConsumerWidget {
   static const localeKoreanKey = Key('locale-korean-option');
   static const localeSpanishKey = Key('locale-spanish-option');
   static const localeGermanKey = Key('locale-german-option');
+  static const memoQuickDefaultKey = Key('memo-default-quick-option');
+  static const memoRichDefaultKey = Key('memo-default-rich-option');
+  static const memoStandardListKey = Key('memo-standard-list-option');
+  static const memoCompactListKey = Key('memo-compact-list-option');
+  static const memoAutoLocationKey = Key('memo-auto-location-toggle');
   static const konjyoColorThemeKey = Key('color-theme-konjyo-option');
   static const moegiColorThemeKey = Key('color-theme-moegi-option');
   static const yamabukiColorThemeKey = Key('color-theme-yamabuki-option');
@@ -2934,6 +2947,10 @@ class SettingsScreen extends ConsumerWidget {
     final appLockEnabled = ref.watch(appLockSettingsControllerProvider);
     final appLockRelockDelay = ref.watch(appLockRelockDelayControllerProvider);
     final appSessionUnlocked = ref.watch(appSessionUnlockControllerProvider);
+    final lastNoteEditorSettings = ref.watch(
+      lastNoteEditorSettingsControllerProvider,
+    );
+    final notesListDensity = ref.watch(notesListDensityControllerProvider);
     final widgetQuickCaptureEnabled = ref.watch(
       widgetQuickCaptureSettingsControllerProvider,
     );
@@ -3009,6 +3026,24 @@ class SettingsScreen extends ConsumerWidget {
     final syncSummary = syncProvider == SyncProvider.off
         ? (strings.text('home.device.only.storage'))
         : _syncAuthSummary(context, syncProvider, syncAuthState);
+    final memoEditorModeLabel =
+        lastNoteEditorSettings.mode == NoteEditorMode.quick
+        ? strings.quickMemo
+        : strings.richMemo;
+    final memoListDensityLabel = notesListDensity == NotesListDensity.compact
+        ? strings.text('home.compact.list')
+        : strings.text('home.standard.list');
+    final memoLocationLabel = lastNoteEditorSettings.captureLocation
+        ? strings.text('home.enabled')
+        : strings.text('home.disabled');
+    final memoSettingsSummary = strings.localized(
+      en: '$memoEditorModeLabel / $memoListDensityLabel / Location: $memoLocationLabel',
+      ja: '$memoEditorModeLabel / $memoListDensityLabel / 現在地: $memoLocationLabel',
+      zh: '$memoEditorModeLabel / $memoListDensityLabel / 位置：$memoLocationLabel',
+      ko: '$memoEditorModeLabel / $memoListDensityLabel / 위치: $memoLocationLabel',
+      es: '$memoEditorModeLabel / $memoListDensityLabel / Ubicación: $memoLocationLabel',
+      de: '$memoEditorModeLabel / $memoListDensityLabel / Standort: $memoLocationLabel',
+    );
     final effectiveFontFamily = _availableFontFamilies.contains(fontFamily)
         ? fontFamily
         : AppFontFamily.system;
@@ -3120,6 +3155,144 @@ class SettingsScreen extends ConsumerWidget {
           colorThemeTargets: colorThemeTargets,
           colorThemeTargetLabel: colorThemeTargetLabel,
           appearanceSummary: appearanceSummary,
+        ),
+        const SizedBox(height: 16),
+        _SettingsGroup(
+          title: strings.localized(
+            en: 'Memo settings',
+            ja: 'メモ設定',
+            zh: '备忘录设置',
+            ko: '메모 설정',
+            es: 'Ajustes de notas',
+            de: 'Notiz-Einstellungen',
+          ),
+          summary: memoSettingsSummary,
+          assetPath: 'assets/settings/appearance.svg',
+          semanticLabel: 'settings-memo',
+          children: [
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Default input',
+                ja: '入力の既定',
+                zh: '默认输入',
+                ko: '기본 입력',
+                es: 'Entrada predeterminada',
+                de: 'Standardeingabe',
+              ),
+            ),
+            _ThemeOptionTile(
+              tileKey: memoQuickDefaultKey,
+              title: strings.quickMemo,
+              subtitle: strings.localized(
+                en: 'Start new notes with the simple first-line memo editor.',
+                ja: '新規メモを1行目タイトルのシンプル入力で開始します。',
+                zh: '新建备忘录时使用首行作为标题的简单输入。',
+                ko: '새 메모를 첫 줄 제목 방식의 간단 입력으로 시작합니다.',
+                es: 'Inicia las notas nuevas con el editor simple de primera línea.',
+                de: 'Neue Notizen starten mit dem einfachen Editor, bei dem die erste Zeile der Titel ist.',
+              ),
+              selected: lastNoteEditorSettings.mode == NoteEditorMode.quick,
+              onTap: () => ref
+                  .read(lastNoteEditorSettingsControllerProvider.notifier)
+                  .remember(
+                    mode: NoteEditorMode.quick,
+                    vaultId: lastNoteEditorSettings.vaultId,
+                    captureLocation: lastNoteEditorSettings.captureLocation,
+                  ),
+            ),
+            _ThemeOptionTile(
+              tileKey: memoRichDefaultKey,
+              title: strings.richMemo,
+              subtitle: strings.localized(
+                en: 'Start new notes with block-style text and media editing.',
+                ja: '新規メモを本文ブロックとメディアを扱える入力で開始します。',
+                zh: '新建备忘录时使用支持文本块和媒体的编辑器。',
+                ko: '새 메모를 텍스트 블록과 미디어 편집으로 시작합니다.',
+                es: 'Inicia las notas nuevas con edición por bloques de texto y medios.',
+                de: 'Neue Notizen starten mit blockbasierter Text- und Medienbearbeitung.',
+              ),
+              selected: lastNoteEditorSettings.mode == NoteEditorMode.rich,
+              onTap: () => ref
+                  .read(lastNoteEditorSettingsControllerProvider.notifier)
+                  .remember(
+                    mode: NoteEditorMode.rich,
+                    vaultId: lastNoteEditorSettings.vaultId,
+                    captureLocation: lastNoteEditorSettings.captureLocation,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'List display',
+                ja: '一覧表示',
+                zh: '列表显示',
+                ko: '목록 표시',
+                es: 'Vista de lista',
+                de: 'Listenansicht',
+              ),
+            ),
+            _ThemeOptionTile(
+              tileKey: memoStandardListKey,
+              title: strings.text('home.standard.list'),
+              subtitle: strings.localized(
+                en: 'Show two-line previews and more context in the note list.',
+                ja: 'ノート一覧に2行プレビューを表示し、内容を把握しやすくします。',
+                zh: '在列表中显示两行预览，便于查看内容。',
+                ko: '목록에 두 줄 미리보기를 표시해 내용을 더 쉽게 확인합니다.',
+                es: 'Muestra vistas previas de dos líneas y más contexto en la lista.',
+                de: 'Zeigt zweizeilige Vorschauen und mehr Kontext in der Notizliste.',
+              ),
+              selected: notesListDensity == NotesListDensity.standard,
+              onTap: () => ref
+                  .read(notesListDensityControllerProvider.notifier)
+                  .setDensity(NotesListDensity.standard),
+            ),
+            _ThemeOptionTile(
+              tileKey: memoCompactListKey,
+              title: strings.text('home.compact.list'),
+              subtitle: strings.localized(
+                en: 'Fit more notes on screen with a denser one-line list.',
+                ja: '1行中心の密な一覧にして、画面に多くのメモを表示します。',
+                zh: '使用更紧凑的单行列表，在屏幕上显示更多备忘录。',
+                ko: '한 줄 중심의 촘촘한 목록으로 더 많은 메모를 표시합니다.',
+                es: 'Muestra más notas en pantalla con una lista densa de una línea.',
+                de: 'Zeigt mehr Notizen auf dem Bildschirm mit einer dichteren einzeiligen Liste.',
+              ),
+              selected: notesListDensity == NotesListDensity.compact,
+              onTap: () => ref
+                  .read(notesListDensityControllerProvider.notifier)
+                  .setDensity(NotesListDensity.compact),
+            ),
+            const SizedBox(height: 8),
+            SwitchListTile.adaptive(
+              key: memoAutoLocationKey,
+              value: lastNoteEditorSettings.captureLocation,
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                strings.localized(
+                  en: 'Add current location to new notes',
+                  ja: '新規メモに現在地を自動付与',
+                  zh: '为新建备忘录自动添加当前位置',
+                  ko: '새 메모에 현재 위치 자동 추가',
+                  es: 'Añadir ubicación actual a notas nuevas',
+                  de: 'Aktuellen Standort zu neuen Notizen hinzufügen',
+                ),
+              ),
+              subtitle: Text(
+                strings.localized(
+                  en: 'When enabled, new notes try to capture location metadata when the editor opens.',
+                  ja: 'オンにすると、新規メモ作成画面を開いたときに位置情報を取得します。',
+                  zh: '开启后，打开新建编辑器时会尝试获取位置元数据。',
+                  ko: '켜면 새 메모 편집기를 열 때 위치 메타데이터를 가져옵니다.',
+                  es: 'Al activarlo, las notas nuevas intentan capturar metadatos de ubicación al abrir el editor.',
+                  de: 'Wenn aktiviert, erfassen neue Notizen beim Öffnen des Editors Standortmetadaten.',
+                ),
+              ),
+              onChanged: (enabled) => ref
+                  .read(lastNoteEditorSettingsControllerProvider.notifier)
+                  .setCaptureLocation(enabled),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         _SettingsGroup(
@@ -6142,18 +6315,6 @@ String _vaultDisplayName(BuildContext context, VaultBucket vault) {
   return vault.name;
 }
 
-String _vaultDisplayDescription(BuildContext context, VaultBucket vault) {
-  if (vault.description == 'Unlocked private notes' ||
-      vault.description == '__unlocked_private_notes__') {
-    return context.strings.unlockedPrivateNotes;
-  }
-  if (vault.description == 'Unlocked notes' ||
-      vault.description == '__unlocked_notes__') {
-    return context.strings.unlockedNotes;
-  }
-  return vault.description;
-}
-
 bool _isSameNoteDay(NoteEntry left, NoteEntry right) {
   return left.createdAt.year == right.createdAt.year &&
       left.createdAt.month == right.createdAt.month &&
@@ -6165,8 +6326,8 @@ class _MobileNotesList extends StatefulWidget {
     required this.activeIdentity,
     required this.showPrivateVaultNotice,
     required this.compactHeader,
-    required this.vaults,
-    required this.notesByVault,
+    required this.vaultNameById,
+    required this.showVaultName,
     required this.allVisibleNotes,
     required this.selectedNoteId,
     required this.density,
@@ -6177,8 +6338,8 @@ class _MobileNotesList extends StatefulWidget {
   final UnlockIdentity activeIdentity;
   final bool showPrivateVaultNotice;
   final bool compactHeader;
-  final List<VaultBucket> vaults;
-  final Map<String, List<NoteEntry>> notesByVault;
+  final Map<String, String> vaultNameById;
+  final bool showVaultName;
   final List<NoteEntry> allVisibleNotes;
   final String? selectedNoteId;
   final NotesListDensity density;
@@ -6206,7 +6367,8 @@ class _MobileNotesListState extends State<_MobileNotesList> {
         oldWidget.showPrivateVaultNotice != widget.showPrivateVaultNotice ||
         oldWidget.compactHeader != widget.compactHeader ||
         oldWidget.density != widget.density ||
-        oldWidget.vaults.length != widget.vaults.length) {
+        oldWidget.showVaultName != widget.showVaultName ||
+        oldWidget.vaultNameById.length != widget.vaultNameById.length) {
       _rows = _buildRows();
     }
   }
@@ -6217,9 +6379,7 @@ class _MobileNotesListState extends State<_MobileNotesList> {
       activeIdentity: widget.activeIdentity,
       showPrivateVaultNotice: widget.showPrivateVaultNotice,
       compactHeader: widget.compactHeader,
-      vaults: widget.vaults,
-      notesByVault: widget.notesByVault,
-      notesAreEmpty: widget.allVisibleNotes.isEmpty,
+      notes: widget.allVisibleNotes,
       density: widget.density,
     );
     if (watch != null) {
@@ -6252,21 +6412,17 @@ class _MobileNotesListState extends State<_MobileNotesList> {
             child: _NotesToolbar(compact: widget.compactHeader),
           ),
           _MobileEmptyRow() => const _EmptyNotesState(),
-          _MobileVaultHeaderRow(:final vault) => _DecoratedMobileNoteRow(
-            position: row.position,
-            child: _VaultSectionHeader(vault: vault),
-          ),
           _MobileDayRow(:final date) => _DecoratedMobileNoteRow(
             position: row.position,
             child: _NoteDayDivider(date: date),
           ),
-          _MobileTileRow(:final vault, :final note) => _DecoratedMobileNoteRow(
+          _MobileTileRow(:final note) => _DecoratedMobileNoteRow(
             position: row.position,
             child: RepaintBoundary(
               child: _NoteListTile(
                 note: note,
-                vaultName: _vaultDisplayName(context, vault),
-                showVaultName: false,
+                vaultName: widget.vaultNameById[note.vaultId] ?? note.vaultId,
+                showVaultName: widget.showVaultName,
                 density: widget.density,
                 query: widget.query,
                 selected: note.id == widget.selectedNoteId,
@@ -6278,7 +6434,6 @@ class _MobileNotesListState extends State<_MobileNotesList> {
             position: row.position,
             child: const _IntraDayNoteGap(),
           ),
-          _MobileSectionGapRow() => const SizedBox(height: 16),
         };
       },
     );
@@ -6289,9 +6444,7 @@ List<_MobileNoteRow> _buildMobileNoteRows({
   required UnlockIdentity activeIdentity,
   required bool showPrivateVaultNotice,
   required bool compactHeader,
-  required List<VaultBucket> vaults,
-  required Map<String, List<NoteEntry>> notesByVault,
-  required bool notesAreEmpty,
+  required List<NoteEntry> notes,
   required NotesListDensity density,
 }) {
   final rows = <_MobileNoteRow>[
@@ -6299,74 +6452,32 @@ List<_MobileNoteRow> _buildMobileNoteRows({
     if (showPrivateVaultNotice) const _MobilePrivateNoticeRow(),
     _MobileToolbarRow(compactHeader),
   ];
-  if (notesAreEmpty) {
+  if (notes.isEmpty) {
     rows.add(const _MobileEmptyRow());
     return rows;
   }
 
-  var addedAnyVault = false;
-  for (final vault in vaults) {
-    final notes = notesByVault[vault.id] ?? const <NoteEntry>[];
-    if (notes.isEmpty) {
-      continue;
+  final noteRows = <_MobileNoteRow>[];
+  for (var i = 0; i < notes.length; i++) {
+    if (density != NotesListDensity.compact &&
+        (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i]))) {
+      noteRows.add(_MobileDayRow(notes[i].createdAt));
     }
-    if (addedAnyVault) {
-      rows.add(const _MobileSectionGapRow());
-    }
-    addedAnyVault = true;
-
-    final sectionRows = <_MobileNoteRow>[_MobileVaultHeaderRow(vault)];
-    for (var i = 0; i < notes.length; i++) {
-      if (density != NotesListDensity.compact &&
-          (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i]))) {
-        sectionRows.add(_MobileDayRow(notes[i].createdAt));
-      }
-      sectionRows.add(_MobileTileRow(vault: vault, note: notes[i]));
-      if (i != notes.length - 1 && _isSameNoteDay(notes[i], notes[i + 1])) {
-        sectionRows.add(const _MobileDividerRow());
-      }
-    }
-    for (var i = 0; i < sectionRows.length; i++) {
-      rows.add(
-        sectionRows[i].withPosition(
-          _MobileNoteRowPosition(
-            first: i == 0,
-            last: i == sectionRows.length - 1,
-          ),
-        ),
-      );
+    noteRows.add(_MobileTileRow(notes[i]));
+    if (density != NotesListDensity.compact &&
+        i != notes.length - 1 &&
+        _isSameNoteDay(notes[i], notes[i + 1])) {
+      noteRows.add(const _MobileDividerRow());
     }
   }
-  return rows;
-}
-
-class _VaultSectionHeader extends StatelessWidget {
-  const _VaultSectionHeader({required this.vault});
-
-  final VaultBucket vault;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(_vaultDisplayName(context, vault)),
-          if (vault.id != 'everyday' &&
-              _vaultDisplayDescription(context, vault).isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              _vaultDisplayDescription(context, vault),
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
-            ),
-          ],
-        ],
+  for (var i = 0; i < noteRows.length; i++) {
+    rows.add(
+      noteRows[i].withPosition(
+        _MobileNoteRowPosition(first: i == 0, last: i == noteRows.length - 1),
       ),
     );
   }
+  return rows;
 }
 
 class _MobileNoteRowPosition {
@@ -6414,16 +6525,6 @@ class _MobileEmptyRow extends _MobileNoteRow {
   _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
 }
 
-class _MobileVaultHeaderRow extends _MobileNoteRow {
-  const _MobileVaultHeaderRow(this.vault, {super.position});
-
-  final VaultBucket vault;
-
-  @override
-  _MobileNoteRow withPosition(_MobileNoteRowPosition position) =>
-      _MobileVaultHeaderRow(vault, position: position);
-}
-
 class _MobileDayRow extends _MobileNoteRow {
   const _MobileDayRow(this.date, {super.position});
 
@@ -6435,18 +6536,13 @@ class _MobileDayRow extends _MobileNoteRow {
 }
 
 class _MobileTileRow extends _MobileNoteRow {
-  const _MobileTileRow({
-    required this.vault,
-    required this.note,
-    super.position,
-  });
+  const _MobileTileRow(this.note, {super.position});
 
-  final VaultBucket vault;
   final NoteEntry note;
 
   @override
   _MobileNoteRow withPosition(_MobileNoteRowPosition position) =>
-      _MobileTileRow(vault: vault, note: note, position: position);
+      _MobileTileRow(note, position: position);
 }
 
 class _MobileDividerRow extends _MobileNoteRow {
@@ -6455,13 +6551,6 @@ class _MobileDividerRow extends _MobileNoteRow {
   @override
   _MobileNoteRow withPosition(_MobileNoteRowPosition position) =>
       _MobileDividerRow(position: position);
-}
-
-class _MobileSectionGapRow extends _MobileNoteRow {
-  const _MobileSectionGapRow();
-
-  @override
-  _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
 }
 
 class _DecoratedMobileNoteRow extends StatelessWidget {
@@ -6651,7 +6740,7 @@ class _NoteListTile extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 SizedBox(
                   width: 78,
@@ -6663,6 +6752,10 @@ class _NoteListTile extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
+                if (isPrivateNote) ...[
+                  const _PrivateNoteMarker(compact: true),
+                  const SizedBox(width: 8),
+                ],
                 Expanded(
                   child: _HighlightedText(
                     text: compactPreview.isEmpty ? note.title : compactPreview,
@@ -6701,6 +6794,10 @@ class _NoteListTile extends StatelessWidget {
             children: [
               Row(
                 children: [
+                  if (isPrivateNote) ...[
+                    const _PrivateNoteMarker(),
+                    const SizedBox(width: 8),
+                  ],
                   Expanded(
                     child: _HighlightedText(
                       text: note.title,
@@ -6801,11 +6898,14 @@ class _NoteListTile extends StatelessWidget {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  if (showVaultName && !isPrivateNote)
+                  if (showVaultName)
                     Text(
                       vaultName,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: _mutedTextColor(context),
+                        color: isPrivateNote
+                            ? Theme.of(context).colorScheme.primary
+                            : _mutedTextColor(context),
+                        fontWeight: isPrivateNote ? FontWeight.w600 : null,
                       ),
                     ),
                   const Spacer(),
@@ -6830,6 +6930,39 @@ class _NotePreviewFact {
 
   final IconData icon;
   final String label;
+}
+
+class _PrivateNoteMarker extends StatelessWidget {
+  const _PrivateNoteMarker({this.compact = false});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final size = compact ? 22.0 : 24.0;
+    final iconSize = compact ? 13.0 : 14.0;
+    return Tooltip(
+      message: context.strings.text('home.private.profile'),
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: colorScheme.primary.withValues(alpha: 0.08),
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: colorScheme.primary.withValues(alpha: 0.28),
+          ),
+        ),
+        alignment: Alignment.center,
+        child: Icon(
+          Icons.lock_outline_rounded,
+          size: iconSize,
+          color: colorScheme.primary,
+        ),
+      ),
+    );
+  }
 }
 
 List<_NotePreviewFact> _notePreviewFacts(NoteEntry note) {
@@ -8796,7 +8929,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     final compactToolbarButtons = widget.compact || availableWidth < 560;
     final activeFilterCount =
         (filters.pinnedOnly ? 1 : 0) +
-        (filters.attachmentFilter != SearchAttachmentFilter.all ? 1 : 0) +
+        (filters.attachmentFilters.isNotEmpty ? 1 : 0) +
         (filters.archivedOnly || filters.includeArchived ? 1 : 0) +
         (filters.requireAllTags && filters.tags.length > 1 ? 1 : 0) +
         (filters.dateRange != SearchDateRange.all ? 1 : 0) +
@@ -9061,11 +9194,14 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
         ),
       );
     }
-    if (filters.attachmentFilter != SearchAttachmentFilter.all) {
+    if (filters.attachmentFilters.isNotEmpty) {
       chips.add(
         _filterSummaryChip(
           context,
-          label: _attachmentFilterLabel(strings, filters.attachmentFilter),
+          label: _attachmentFilterSummaryLabel(
+            strings,
+            filters.attachmentFilters,
+          ),
           onDeleted: () =>
               notifier.setAttachmentFilter(SearchAttachmentFilter.all),
         ),
@@ -9276,14 +9412,31 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     };
   }
 
+  String _attachmentFilterSummaryLabel(
+    AppStrings strings,
+    List<SearchAttachmentFilter> filters,
+  ) {
+    if (filters.isEmpty) {
+      return _attachmentFilterLabel(strings, SearchAttachmentFilter.all);
+    }
+    if (filters.contains(SearchAttachmentFilter.any)) {
+      return _attachmentFilterLabel(strings, SearchAttachmentFilter.any);
+    }
+    return filters
+        .map((filter) => _attachmentFilterLabel(strings, filter))
+        .join(' / ');
+  }
+
   void _openAdvancedFiltersSheet(
     BuildContext context, {
     required bool hasArchivedNotes,
   }) {
+    _pushNoteOverlaySheet();
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
+      useRootNavigator: true,
       showDragHandle: true,
       builder: (sheetContext) {
         final strings = sheetContext.strings;
@@ -9339,8 +9492,14 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                             notifier.setPinnedOnly(value ?? false),
                       ),
                       _AttachmentSearchFilterControls(
-                        filter: filters.attachmentFilter,
-                        onChanged: notifier.setAttachmentFilter,
+                        filters: filters.attachmentFilters,
+                        onHasAttachmentsChanged: (enabled) =>
+                            notifier.setAttachmentFilter(
+                              enabled
+                                  ? SearchAttachmentFilter.any
+                                  : SearchAttachmentFilter.all,
+                            ),
+                        onFilterToggled: notifier.toggleAttachmentFilter,
                       ),
                       const SizedBox(height: 12),
                       _TagAutocompleteField(
@@ -9602,7 +9761,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
           },
         );
       },
-    );
+    ).whenComplete(_popNoteOverlaySheet);
   }
 }
 
@@ -9621,19 +9780,42 @@ class _QuickTagStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final activeKeys = activeTags.map(canonicalizeNoteTag).toSet();
     final visibleSummaries = summaries.take(10).toList(growable: false);
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final summary in visibleSummaries)
-          _QuickTagChip(
-            summary: summary,
-            selected: activeKeys.contains(canonicalizeNoteTag(summary.name)),
-            onTap: () => onTagSelected(summary.name),
-          ),
-      ],
+    return SizedBox(
+      height: 44,
+      width: double.infinity,
+      child: ScrollConfiguration(
+        behavior: const _HorizontalMouseDragScrollBehavior(),
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          clipBehavior: Clip.hardEdge,
+          itemCount: visibleSummaries.length,
+          separatorBuilder: (context, index) => const SizedBox(width: 8),
+          itemBuilder: (context, index) {
+            final summary = visibleSummaries[index];
+            return Center(
+              child: _QuickTagChip(
+                summary: summary,
+                selected: activeKeys.contains(
+                  canonicalizeNoteTag(summary.name),
+                ),
+                onTap: () => onTagSelected(summary.name),
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
+}
+
+class _HorizontalMouseDragScrollBehavior extends MaterialScrollBehavior {
+  const _HorizontalMouseDragScrollBehavior();
+
+  @override
+  Set<ui.PointerDeviceKind> get dragDevices => {
+    ...super.dragDevices,
+    ui.PointerDeviceKind.mouse,
+  };
 }
 
 class _QuickTagChip extends StatelessWidget {
@@ -9656,48 +9838,74 @@ class _QuickTagChip extends StatelessWidget {
       fontWeight: FontWeight.w600,
       height: 1.25,
     );
-    return ActionChip(
-      avatar: Icon(
-        Icons.tag_rounded,
-        size: 15,
-        color: selected ? colorScheme.onPrimaryContainer : colorScheme.primary,
+    return Tooltip(
+      message: '#${summary.name}',
+      child: Material(
+        color: selected
+            ? colorScheme.primaryContainer
+            : colorScheme.surfaceContainerLowest,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(6),
+          side: BorderSide(
+            color: selected ? colorScheme.primary : theme.dividerColor,
+          ),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(6),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.tag_rounded,
+                  size: 15,
+                  color: selected
+                      ? colorScheme.onPrimaryContainer
+                      : colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${summary.name} (${summary.count})',
+                  maxLines: 1,
+                  overflow: TextOverflow.visible,
+                  softWrap: false,
+                  style: labelStyle,
+                  strutStyle: labelStyle == null
+                      ? null
+                      : StrutStyle.fromTextStyle(
+                          labelStyle,
+                          forceStrutHeight: true,
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
-      label: Text(
-        '${summary.name} (${summary.count})',
-        strutStyle: labelStyle == null
-            ? null
-            : StrutStyle.fromTextStyle(labelStyle, forceStrutHeight: true),
-      ),
-      tooltip: '#${summary.name}',
-      onPressed: onTap,
-      visualDensity: const VisualDensity(horizontal: -1, vertical: 0),
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      labelPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-      side: BorderSide(
-        color: selected ? colorScheme.primary : theme.dividerColor,
-      ),
-      backgroundColor: selected
-          ? colorScheme.primaryContainer
-          : colorScheme.surfaceContainerLowest,
-      labelStyle: labelStyle,
     );
   }
 }
 
 class _AttachmentSearchFilterControls extends StatelessWidget {
   const _AttachmentSearchFilterControls({
-    required this.filter,
-    required this.onChanged,
+    required this.filters,
+    required this.onHasAttachmentsChanged,
+    required this.onFilterToggled,
   });
 
-  final SearchAttachmentFilter filter;
-  final ValueChanged<SearchAttachmentFilter> onChanged;
+  final List<SearchAttachmentFilter> filters;
+  final ValueChanged<bool> onHasAttachmentsChanged;
+  final ValueChanged<SearchAttachmentFilter> onFilterToggled;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final hasAttachmentFilter = filter != SearchAttachmentFilter.all;
+    final hasAttachmentFilter = filters.isNotEmpty;
+    final selectedFilters = filters.isEmpty
+        ? const <SearchAttachmentFilter>[SearchAttachmentFilter.any]
+        : filters;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -9716,11 +9924,7 @@ class _AttachmentSearchFilterControls extends StatelessWidget {
               de: 'Mit Anhangen',
             ),
           ),
-          onChanged: (value) => onChanged(
-            value == true
-                ? SearchAttachmentFilter.any
-                : SearchAttachmentFilter.all,
-          ),
+          onChanged: (value) => onHasAttachmentsChanged(value == true),
         ),
         if (hasAttachmentFilter) ...[
           const SizedBox(height: 4),
@@ -9738,11 +9942,8 @@ class _AttachmentSearchFilterControls extends StatelessWidget {
                 ChoiceChip(
                   avatar: Icon(_attachmentSearchFilterIcon(option), size: 18),
                   label: Text(_attachmentSearchFilterLabel(strings, option)),
-                  selected:
-                      filter == option ||
-                      (filter == SearchAttachmentFilter.all &&
-                          option == SearchAttachmentFilter.any),
-                  onSelected: (_) => onChanged(option),
+                  selected: selectedFilters.contains(option),
+                  onSelected: (_) => onFilterToggled(option),
                   labelStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
@@ -10926,12 +11127,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (_selectedVaultId != 'everyday' &&
         !privateTargets.any((vault) => vault.id == _selectedVaultId)) {
       _selectedVaultId = 'everyday';
-    }
-    if (_selectedVaultId == 'everyday' &&
-        widget.note != null &&
-        widget.note!.vaultId != 'everyday' &&
-        privateTargets.any((vault) => vault.id == widget.note!.vaultId)) {
-      _selectedVaultId = widget.note!.vaultId;
     }
     final isPrivateSelection = _selectedVaultId != 'everyday';
     final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;

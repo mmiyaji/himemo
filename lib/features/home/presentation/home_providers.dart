@@ -250,7 +250,7 @@ class SearchFilters {
   const SearchFilters({
     this.pinnedOnly = false,
     this.withMediaOnly = false,
-    this.attachmentFilter = SearchAttachmentFilter.all,
+    this.attachmentFilters = const <SearchAttachmentFilter>[],
     this.archivedOnly = false,
     this.includeArchived = false,
     this.requireAllTags = false,
@@ -263,7 +263,10 @@ class SearchFilters {
 
   final bool pinnedOnly;
   final bool withMediaOnly;
-  final SearchAttachmentFilter attachmentFilter;
+  final List<SearchAttachmentFilter> attachmentFilters;
+  SearchAttachmentFilter get attachmentFilter => attachmentFilters.isEmpty
+      ? SearchAttachmentFilter.all
+      : attachmentFilters.first;
   final bool archivedOnly;
   final bool includeArchived;
   final bool requireAllTags;
@@ -276,7 +279,7 @@ class SearchFilters {
   bool get isDefault =>
       !pinnedOnly &&
       !withMediaOnly &&
-      attachmentFilter == SearchAttachmentFilter.all &&
+      attachmentFilters.isEmpty &&
       !archivedOnly &&
       !includeArchived &&
       !requireAllTags &&
@@ -289,7 +292,7 @@ class SearchFilters {
   SearchFilters copyWith({
     bool? pinnedOnly,
     bool? withMediaOnly,
-    SearchAttachmentFilter? attachmentFilter,
+    List<SearchAttachmentFilter>? attachmentFilters,
     bool? archivedOnly,
     bool? includeArchived,
     bool? requireAllTags,
@@ -304,7 +307,7 @@ class SearchFilters {
     return SearchFilters(
       pinnedOnly: pinnedOnly ?? this.pinnedOnly,
       withMediaOnly: withMediaOnly ?? this.withMediaOnly,
-      attachmentFilter: attachmentFilter ?? this.attachmentFilter,
+      attachmentFilters: attachmentFilters ?? this.attachmentFilters,
       archivedOnly: archivedOnly ?? this.archivedOnly,
       includeArchived: includeArchived ?? this.includeArchived,
       requireAllTags: requireAllTags ?? this.requireAllTags,
@@ -3979,14 +3982,50 @@ class SearchFiltersController extends Notifier<SearchFilters> {
   void setWithMediaOnly(bool value) {
     state = state.copyWith(
       withMediaOnly: value,
-      attachmentFilter: value
-          ? SearchAttachmentFilter.any
-          : SearchAttachmentFilter.all,
+      attachmentFilters: value
+          ? const <SearchAttachmentFilter>[SearchAttachmentFilter.any]
+          : const <SearchAttachmentFilter>[],
     );
   }
 
   void setAttachmentFilter(SearchAttachmentFilter value) {
-    state = state.copyWith(withMediaOnly: false, attachmentFilter: value);
+    state = state.copyWith(
+      withMediaOnly: false,
+      attachmentFilters: value == SearchAttachmentFilter.all
+          ? const <SearchAttachmentFilter>[]
+          : [value],
+    );
+  }
+
+  void setAttachmentFilters(List<SearchAttachmentFilter> values) {
+    final normalized = _normalizeAttachmentFilters(values);
+    state = state.copyWith(withMediaOnly: false, attachmentFilters: normalized);
+  }
+
+  void toggleAttachmentFilter(SearchAttachmentFilter value) {
+    if (value == SearchAttachmentFilter.all) {
+      setAttachmentFilters(const <SearchAttachmentFilter>[]);
+      return;
+    }
+    if (value == SearchAttachmentFilter.any) {
+      setAttachmentFilters(const <SearchAttachmentFilter>[
+        SearchAttachmentFilter.any,
+      ]);
+      return;
+    }
+    final next = state.attachmentFilters
+        .where((filter) => filter != SearchAttachmentFilter.any)
+        .toList(growable: true);
+    if (next.contains(value)) {
+      next.remove(value);
+    } else {
+      next.add(value);
+    }
+    setAttachmentFilters(
+      next.isEmpty
+          ? const <SearchAttachmentFilter>[SearchAttachmentFilter.any]
+          : next,
+    );
   }
 
   void setArchivedOnly(bool value) {
@@ -4054,6 +4093,24 @@ class SearchFiltersController extends Notifier<SearchFilters> {
   void reset() {
     state = const SearchFilters();
   }
+}
+
+List<SearchAttachmentFilter> _normalizeAttachmentFilters(
+  Iterable<SearchAttachmentFilter> values,
+) {
+  final selected = <SearchAttachmentFilter>[];
+  for (final value in values) {
+    if (value == SearchAttachmentFilter.all) {
+      continue;
+    }
+    if (value == SearchAttachmentFilter.any) {
+      return const <SearchAttachmentFilter>[SearchAttachmentFilter.any];
+    }
+    if (!selected.contains(value)) {
+      selected.add(value);
+    }
+  }
+  return List<SearchAttachmentFilter>.unmodifiable(selected);
 }
 
 final searchFiltersControllerProvider =
@@ -5061,11 +5118,6 @@ class NotesController extends _$NotesController {
       if (left.isPinned != right.isPinned) {
         return right.isPinned ? 1 : -1;
       }
-      final leftPrivate = isPrivateVaultId(left.vaultId);
-      final rightPrivate = isPrivateVaultId(right.vaultId);
-      if (leftPrivate != rightPrivate) {
-        return leftPrivate ? -1 : 1;
-      }
       final dateOrder = right.createdAt.compareTo(left.createdAt);
       if (dateOrder != 0) {
         return dateOrder;
@@ -5380,7 +5432,7 @@ List<NoteEntry> visibleNotes(Ref ref) {
     if (filters.pinnedOnly && !note.isPinned) {
       continue;
     }
-    if (!_noteMatchesAttachmentFilter(note, filters.attachmentFilter)) {
+    if (!_noteMatchesAttachmentFilter(note, filters.attachmentFilters)) {
       continue;
     }
     if (requiredTags.isNotEmpty) {
@@ -5420,23 +5472,31 @@ DateTime? _searchDateRangeStart(SearchDateRange range) {
 
 bool _noteMatchesAttachmentFilter(
   NoteEntry note,
-  SearchAttachmentFilter filter,
+  List<SearchAttachmentFilter> filters,
 ) {
-  return switch (filter) {
-    SearchAttachmentFilter.all => true,
-    SearchAttachmentFilter.any =>
-      note.attachments.isNotEmpty || note.location != null,
-    SearchAttachmentFilter.photo => note.attachments.any(
-      (attachment) => attachment.type == AttachmentType.photo,
-    ),
-    SearchAttachmentFilter.video => note.attachments.any(
-      (attachment) => attachment.type == AttachmentType.video,
-    ),
-    SearchAttachmentFilter.audio => note.attachments.any(
-      (attachment) => attachment.type == AttachmentType.audio,
-    ),
-    SearchAttachmentFilter.location => note.location != null,
-  };
+  if (filters.isEmpty) {
+    return true;
+  }
+  if (filters.contains(SearchAttachmentFilter.any)) {
+    return note.attachments.isNotEmpty || note.location != null;
+  }
+  return filters.any((filter) {
+    return switch (filter) {
+      SearchAttachmentFilter.all => true,
+      SearchAttachmentFilter.any =>
+        note.attachments.isNotEmpty || note.location != null,
+      SearchAttachmentFilter.photo => note.attachments.any(
+        (attachment) => attachment.type == AttachmentType.photo,
+      ),
+      SearchAttachmentFilter.video => note.attachments.any(
+        (attachment) => attachment.type == AttachmentType.video,
+      ),
+      SearchAttachmentFilter.audio => note.attachments.any(
+        (attachment) => attachment.type == AttachmentType.audio,
+      ),
+      SearchAttachmentFilter.location => note.location != null,
+    };
+  });
 }
 
 @riverpod
@@ -5458,6 +5518,21 @@ List<int> visibleNoteYears(Ref ref) {
   }
   return result;
 }
+
+final unfilteredVisibleNotesProvider = Provider<List<NoteEntry>>((ref) {
+  final visibleIds = ref
+      .watch(visibleVaultsProvider)
+      .map((vault) => vault.id)
+      .toSet();
+  final notes = [
+    for (final note in ref.watch(notesControllerProvider))
+      if (note.deletedAt == null &&
+          note.archivedAt == null &&
+          visibleIds.contains(note.vaultId))
+        note,
+  ];
+  return List<NoteEntry>.unmodifiable(notes);
+});
 
 @riverpod
 Map<String, String> noteSearchIndex(Ref ref) {
@@ -5625,6 +5700,22 @@ final noteEditorDraftStoreProvider = Provider<NoteEditorDraftStore>(
   (ref) => NoteEditorDraftStore(),
 );
 
+Map<DateTime, List<NoteEntry>> _notesByCreatedDay(List<NoteEntry> notes) {
+  final grouped = <DateTime, List<NoteEntry>>{};
+  for (final note in notes) {
+    final day = DateTime(
+      note.createdAt.year,
+      note.createdAt.month,
+      note.createdAt.day,
+    );
+    (grouped[day] ??= <NoteEntry>[]).add(note);
+  }
+  return Map<DateTime, List<NoteEntry>>.unmodifiable({
+    for (final entry in grouped.entries)
+      entry.key: List<NoteEntry>.unmodifiable(entry.value),
+  });
+}
+
 @riverpod
 Map<String, List<NoteEntry>> visibleNotesByVault(Ref ref) {
   final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
@@ -5666,19 +5757,7 @@ Map<String, int> visibleNoteIndexById(Ref ref) {
 Map<DateTime, List<NoteEntry>> visibleNotesByDay(Ref ref) {
   final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
   final notes = ref.watch(visibleNotesProvider);
-  final grouped = <DateTime, List<NoteEntry>>{};
-  for (final note in notes) {
-    final day = DateTime(
-      note.createdAt.year,
-      note.createdAt.month,
-      note.createdAt.day,
-    );
-    (grouped[day] ??= <NoteEntry>[]).add(note);
-  }
-  final result = Map<DateTime, List<NoteEntry>>.unmodifiable({
-    for (final entry in grouped.entries)
-      entry.key: List<NoteEntry>.unmodifiable(entry.value),
-  });
+  final result = _notesByCreatedDay(notes);
   final elapsed = stopwatch?.elapsedMicroseconds;
   if (elapsed != null && (notes.length >= 500 || elapsed >= 2000)) {
     _debugHomePerf(
@@ -5687,6 +5766,21 @@ Map<DateTime, List<NoteEntry>> visibleNotesByDay(Ref ref) {
   }
   return result;
 }
+
+final unfilteredVisibleNotesByDayProvider =
+    Provider<Map<DateTime, List<NoteEntry>>>(
+      (ref) => _notesByCreatedDay(ref.watch(unfilteredVisibleNotesProvider)),
+    );
+
+final unfilteredVisibleNoteDaysProvider = Provider<List<DateTime>>((ref) {
+  final days =
+      ref
+          .watch(unfilteredVisibleNotesByDayProvider)
+          .keys
+          .toList(growable: false)
+        ..sort();
+  return List<DateTime>.unmodifiable(days);
+});
 
 @riverpod
 List<DateTime> visibleNoteDays(Ref ref) {
