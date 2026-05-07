@@ -9237,6 +9237,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     BuildContext context, {
     required bool hasArchivedNotes,
   }) {
+    _pushNoteOverlaySheet();
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -9559,7 +9560,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
           },
         );
       },
-    );
+    ).whenComplete(_popNoteOverlaySheet);
   }
 }
 
