@@ -9436,6 +9436,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
+      useRootNavigator: true,
       showDragHandle: true,
       builder: (sheetContext) {
         final strings = sheetContext.strings;
