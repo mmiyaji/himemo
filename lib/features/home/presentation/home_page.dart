@@ -9252,6 +9252,14 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
             final filters = ref.watch(searchFiltersControllerProvider);
             final notifier = ref.read(searchFiltersControllerProvider.notifier);
             final visibleVaults = ref.watch(visibleVaultsProvider);
+            final canFilterVaults = visibleVaults.length > 1;
+            if (!canFilterVaults && filters.vaultId != null) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (context.mounted) {
+                  notifier.setVault(null);
+                }
+              });
+            }
             final years = ref.watch(visibleNoteYearsProvider);
             final suggestions = ref.watch(visibleTagSuggestionsProvider);
             return Padding(
@@ -9486,30 +9494,32 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                           },
                         ),
                       ],
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String?>(
-                        key: ValueKey(filters.vaultId ?? 'all-vaults-sheet'),
-                        initialValue: filters.vaultId,
-                        decoration: InputDecoration(
-                          labelText: strings.text('home.vault'),
-                          border: const OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                        items: [
-                          DropdownMenuItem<String?>(
-                            value: null,
-                            child: Text(
-                              strings.text('home.all.visible.vaults'),
-                            ),
+                      if (canFilterVaults) ...[
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String?>(
+                          key: ValueKey(filters.vaultId ?? 'all-vaults-sheet'),
+                          initialValue: filters.vaultId,
+                          decoration: InputDecoration(
+                            labelText: strings.text('home.vault'),
+                            border: const OutlineInputBorder(),
+                            isDense: true,
                           ),
-                          for (final vault in visibleVaults)
+                          items: [
                             DropdownMenuItem<String?>(
-                              value: vault.id,
-                              child: Text(_vaultDisplayName(context, vault)),
+                              value: null,
+                              child: Text(
+                                strings.text('home.all.visible.vaults'),
+                              ),
                             ),
-                        ],
-                        onChanged: notifier.setVault,
-                      ),
+                            for (final vault in visibleVaults)
+                              DropdownMenuItem<String?>(
+                                value: vault.id,
+                                child: Text(_vaultDisplayName(context, vault)),
+                              ),
+                          ],
+                          onChanged: notifier.setVault,
+                        ),
+                      ],
                       if (years.length > 1) ...[
                         const SizedBox(height: 12),
                         DropdownButtonFormField<int?>(
