@@ -376,7 +376,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       GoRouterState.of(context).uri.path,
     );
     if (currentSection != section) {
-      _dismissOpenSheet(context);
+      _dismissOpenSheet(context, force: true);
     }
     if (currentSection == AppSection.notes && section != AppSection.notes) {
       ref.read(selectedNoteIdProvider.notifier).select(null);
@@ -425,12 +425,12 @@ class _AppShellState extends ConsumerState<AppShell> {
         return;
       }
       ref.read(selectedNoteIdProvider.notifier).select(null);
-      _dismissOpenSheet(context);
+      _dismissOpenSheet(context, force: true);
     });
   }
 
-  void _dismissOpenSheet(BuildContext context) {
-    if (_noteOverlaySheetDepth.value <= 0) {
+  void _dismissOpenSheet(BuildContext context, {bool force = false}) {
+    if (!force && _noteOverlaySheetDepth.value <= 0) {
       return;
     }
     final rootNavigator = Navigator.of(context, rootNavigator: true);
