@@ -8715,6 +8715,9 @@ Future<void> showNoteEditorSheet(
 }) async {
   _pushNoteOverlaySheet();
   final scaffoldMessenger = ScaffoldMessenger.maybeOf(context);
+  final initialTags = note == null
+      ? ref.read(searchFiltersControllerProvider).tags
+      : const <String>[];
   try {
     await showModalBottomSheet<void>(
       context: context,
@@ -8729,6 +8732,7 @@ Future<void> showNoteEditorSheet(
             child: _NoteEditorSheet(
               note: note,
               initialCreatedAt: initialCreatedAt,
+              initialTags: initialTags,
             ),
           ),
         );
@@ -10332,10 +10336,15 @@ class _RichBlockDraft {
 }
 
 class _NoteEditorSheet extends ConsumerStatefulWidget {
-  const _NoteEditorSheet({this.note, this.initialCreatedAt});
+  const _NoteEditorSheet({
+    this.note,
+    this.initialCreatedAt,
+    this.initialTags = const <String>[],
+  });
 
   final NoteEntry? note;
   final DateTime? initialCreatedAt;
+  final List<String> initialTags;
 
   @override
   ConsumerState<_NoteEditorSheet> createState() => _NoteEditorSheetState();
@@ -10389,7 +10398,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         widget.note == null && lastSettings.captureLocation;
     _location = widget.note?.location;
     _attachments = [...?widget.note?.attachments];
-    _tags = [...?widget.note?.tags];
+    _tags = widget.note == null
+        ? dedupeNoteTags(widget.initialTags).toList(growable: true)
+        : [...?widget.note?.tags];
     _richBlocks = _buildInitialRichBlocks();
     for (final block in _richBlocks) {
       _attachRichBlockListener(block);
@@ -10618,6 +10629,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (!mounted || draft == null) {
       return;
     }
+    if (!_draftHasContent(draft)) {
+      await ref.read(noteEditorDraftStoreProvider).clear();
+      return;
+    }
     setState(() {
       _createdAt = draft.createdAt;
       _isPinned = draft.isPinned;
@@ -10704,22 +10719,36 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       if (vaultId == null) {
         return;
       }
-      ref
-          .read(noteEditorDraftStoreProvider)
-          .save(
-            NoteEditorDraftSnapshot(
-              createdAt: _createdAt,
-              isPinned: _isPinned,
-              editorMode: _editorMode,
-              vaultId: vaultId,
-              tags: _tags,
-              quickContent: _contentController.text,
-              quickAttachments: _attachments,
-              richBlocks: _richBlocksToNoteBlocks(),
-              location: _location,
-            ),
-          );
+      final snapshot = NoteEditorDraftSnapshot(
+        createdAt: _createdAt,
+        isPinned: _isPinned,
+        editorMode: _editorMode,
+        vaultId: vaultId,
+        tags: _tags,
+        quickContent: _contentController.text,
+        quickAttachments: _attachments,
+        richBlocks: _richBlocksToNoteBlocks(),
+        location: _location,
+      );
+      if (!_draftHasContent(snapshot)) {
+        unawaited(ref.read(noteEditorDraftStoreProvider).clear());
+        return;
+      }
+      ref.read(noteEditorDraftStoreProvider).save(snapshot);
     });
+  }
+
+  bool _draftHasContent(NoteEditorDraftSnapshot draft) {
+    if (draft.quickContent.trim().isNotEmpty ||
+        draft.quickAttachments.isNotEmpty) {
+      return true;
+    }
+    for (final block in draft.richBlocks) {
+      if ((block.text ?? '').trim().isNotEmpty || block.attachment != null) {
+        return true;
+      }
+    }
+    return false;
   }
 
   int _resolveRichInsertionIndex() {
