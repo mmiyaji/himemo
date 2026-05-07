@@ -6576,6 +6576,13 @@ class _NoteListTile extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
+                if (isPrivateNote) ...[
+                  const Padding(
+                    padding: EdgeInsets.only(top: 2),
+                    child: _PrivateNoteMarker(compact: true),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 Expanded(
                   child: _HighlightedText(
                     text: compactPreview.isEmpty ? note.title : compactPreview,
@@ -6614,6 +6621,10 @@ class _NoteListTile extends StatelessWidget {
             children: [
               Row(
                 children: [
+                  if (isPrivateNote) ...[
+                    const _PrivateNoteMarker(),
+                    const SizedBox(width: 8),
+                  ],
                   Expanded(
                     child: _HighlightedText(
                       text: note.title,
@@ -6721,6 +6732,16 @@ class _NoteListTile extends StatelessWidget {
                         color: _mutedTextColor(context),
                       ),
                     ),
+                  if (isPrivateNote) ...[
+                    if (showVaultName) const SizedBox(width: 8),
+                    Text(
+                      strings.text('home.private.profile'),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                   const Spacer(),
                   Text(
                     isEdited ? strings.editedAt(dateLabel) : dateLabel,
@@ -6743,6 +6764,39 @@ class _NotePreviewFact {
 
   final IconData icon;
   final String label;
+}
+
+class _PrivateNoteMarker extends StatelessWidget {
+  const _PrivateNoteMarker({this.compact = false});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final size = compact ? 22.0 : 24.0;
+    final iconSize = compact ? 13.0 : 14.0;
+    return Tooltip(
+      message: context.strings.text('home.private.profile'),
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: colorScheme.primary.withValues(alpha: 0.08),
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: colorScheme.primary.withValues(alpha: 0.28),
+          ),
+        ),
+        alignment: Alignment.center,
+        child: Icon(
+          Icons.lock_outline_rounded,
+          size: iconSize,
+          color: colorScheme.primary,
+        ),
+      ),
+    );
+  }
 }
 
 List<_NotePreviewFact> _notePreviewFacts(NoteEntry note) {
