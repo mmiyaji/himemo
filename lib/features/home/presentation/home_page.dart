@@ -375,12 +375,11 @@ class _AppShellState extends ConsumerState<AppShell> {
     final currentSection = _sectionForLocation(
       GoRouterState.of(context).uri.path,
     );
+    if (currentSection != section) {
+      _dismissOpenSheet(context);
+    }
     if (currentSection == AppSection.notes && section != AppSection.notes) {
       ref.read(selectedNoteIdProvider.notifier).select(null);
-      final rootNavigator = Navigator.of(context, rootNavigator: true);
-      if (rootNavigator.canPop()) {
-        rootNavigator.pop();
-      }
     }
     switch (section) {
       case AppSection.notes:
@@ -426,11 +425,23 @@ class _AppShellState extends ConsumerState<AppShell> {
         return;
       }
       ref.read(selectedNoteIdProvider.notifier).select(null);
-      final rootNavigator = Navigator.of(context, rootNavigator: true);
-      if (rootNavigator.canPop()) {
-        rootNavigator.pop();
-      }
+      _dismissOpenSheet(context);
     });
+  }
+
+  void _dismissOpenSheet(BuildContext context) {
+    if (_noteOverlaySheetDepth.value <= 0) {
+      return;
+    }
+    final rootNavigator = Navigator.of(context, rootNavigator: true);
+    if (rootNavigator.canPop()) {
+      rootNavigator.pop();
+      return;
+    }
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    }
   }
 
   AppSection _sectionForLocation(String location) {
