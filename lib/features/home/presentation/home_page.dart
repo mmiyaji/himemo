@@ -127,6 +127,9 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (_profileAccessBlocked) {
       return;
     }
+    if (ref.read(privateProfileUnlockControllerProvider).isLoading) {
+      return;
+    }
     _showProfileAccessDialog(context, ref);
   }
 
@@ -143,14 +146,28 @@ class _AppShellState extends ConsumerState<AppShell> {
       activePrivateProfileLabelProvider,
     );
     final adminMode = ref.watch(adminModeSessionControllerProvider);
+    final profileUnlocking = ref.watch(
+      privateProfileUnlockControllerProvider.select((value) => value.isLoading),
+    );
     final privateProfileActive =
         !adminMode && activePrivateProfileLabel != null;
     final privateProfileActiveColor = Theme.of(context).colorScheme.primary;
+    final profileAccessBusyTooltip = strings.localized(
+      en: 'Opening private profile...',
+      ja: 'プライベートプロファイルを開いています...',
+      zh: '正在打开私密档案...',
+      ko: '비공개 프로필을 여는 중...',
+      es: 'Abriendo perfil privado...',
+      de: 'Privates Profil wird geöffnet...',
+    );
     final profileAccessTooltip = adminMode
         ? (context.strings.text('home.admin.mode.active'))
         : (activePrivateProfileLabel != null
               ? context.strings.viewingPrivateProfile(activePrivateProfileLabel)
               : (context.strings.text('home.unlock.private.profile')));
+    final effectiveProfileAccessTooltip = profileUnlocking
+        ? profileAccessBusyTooltip
+        : profileAccessTooltip;
 
     return Scaffold(
       appBar: AppBar(
@@ -164,16 +181,18 @@ class _AppShellState extends ConsumerState<AppShell> {
                   maxWidth: math.min(220, width * 0.42),
                 ),
                 child: Tooltip(
-                  message: context.strings.viewingPrivateProfile(
-                    activePrivateProfileLabel,
-                  ),
+                  message: profileUnlocking
+                      ? profileAccessBusyTooltip
+                      : context.strings.viewingPrivateProfile(
+                          activePrivateProfileLabel,
+                        ),
                   child: Material(
                     color: privateProfileActiveColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(999),
                     child: InkWell(
                       key: AppShell.privateProfileAccessKey,
                       borderRadius: BorderRadius.circular(999),
-                      onTap: noteOverlayOpen
+                      onTap: noteOverlayOpen || profileUnlocking
                           ? null
                           : () => _handleProfileAccessTap(context, ref),
                       child: Padding(
@@ -186,11 +205,20 @@ class _AppShellState extends ConsumerState<AppShell> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
-                              Icons.lock_open_rounded,
-                              size: 20,
-                              color: privateProfileActiveColor,
-                            ),
+                            if (profileUnlocking)
+                              SizedBox.square(
+                                dimension: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.2,
+                                  color: privateProfileActiveColor,
+                                ),
+                              )
+                            else
+                              Icon(
+                                Icons.lock_open_rounded,
+                                size: 20,
+                                color: privateProfileActiveColor,
+                              ),
                             const SizedBox(width: 6),
                             Flexible(
                               child: Text(
@@ -218,13 +246,14 @@ class _AppShellState extends ConsumerState<AppShell> {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Tooltip(
-                  message: profileAccessTooltip,
+                  message: effectiveProfileAccessTooltip,
                   child: SizedBox.square(
                     dimension: 40,
                     child: Semantics(
                       button: true,
-                      label: profileAccessTooltip,
-                      onTap: noteOverlayOpen
+                      enabled: !noteOverlayOpen && !profileUnlocking,
+                      label: effectiveProfileAccessTooltip,
+                      onTap: noteOverlayOpen || profileUnlocking
                           ? null
                           : () => _handleProfileAccessTap(context, ref),
                       child: Material(
@@ -234,15 +263,24 @@ class _AppShellState extends ConsumerState<AppShell> {
                         child: InkWell(
                           key: AppShell.privateProfileAccessKey,
                           customBorder: const CircleBorder(),
-                          onTap: noteOverlayOpen
+                          onTap: noteOverlayOpen || profileUnlocking
                               ? null
                               : () => _handleProfileAccessTap(context, ref),
-                          child: Icon(
-                            adminMode
-                                ? Icons.admin_panel_settings_rounded
-                                : activePrivateProfileLabel != null
-                                ? Icons.lock_open_rounded
-                                : Icons.lock_rounded,
+                          child: Center(
+                            child: profileUnlocking
+                                ? const SizedBox.square(
+                                    dimension: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.3,
+                                    ),
+                                  )
+                                : Icon(
+                                    adminMode
+                                        ? Icons.admin_panel_settings_rounded
+                                        : activePrivateProfileLabel != null
+                                        ? Icons.lock_open_rounded
+                                        : Icons.lock_rounded,
+                                  ),
                           ),
                         ),
                       ),
