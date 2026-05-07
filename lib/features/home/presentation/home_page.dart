@@ -10887,12 +10887,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         !privateTargets.any((vault) => vault.id == _selectedVaultId)) {
       _selectedVaultId = 'everyday';
     }
-    if (_selectedVaultId == 'everyday' &&
-        widget.note != null &&
-        widget.note!.vaultId != 'everyday' &&
-        privateTargets.any((vault) => vault.id == widget.note!.vaultId)) {
-      _selectedVaultId = widget.note!.vaultId;
-    }
     final isPrivateSelection = _selectedVaultId != 'everyday';
     final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
 
