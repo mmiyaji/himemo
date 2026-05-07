@@ -9581,24 +9581,39 @@ class _QuickTagStrip extends StatelessWidget {
     return SizedBox(
       height: 44,
       width: double.infinity,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        clipBehavior: Clip.hardEdge,
-        itemCount: visibleSummaries.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final summary = visibleSummaries[index];
-          return Center(
-            child: _QuickTagChip(
-              summary: summary,
-              selected: activeKeys.contains(canonicalizeNoteTag(summary.name)),
-              onTap: () => onTagSelected(summary.name),
-            ),
-          );
-        },
+      child: ScrollConfiguration(
+        behavior: const _HorizontalMouseDragScrollBehavior(),
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          clipBehavior: Clip.hardEdge,
+          itemCount: visibleSummaries.length,
+          separatorBuilder: (context, index) => const SizedBox(width: 8),
+          itemBuilder: (context, index) {
+            final summary = visibleSummaries[index];
+            return Center(
+              child: _QuickTagChip(
+                summary: summary,
+                selected: activeKeys.contains(
+                  canonicalizeNoteTag(summary.name),
+                ),
+                onTap: () => onTagSelected(summary.name),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
+}
+
+class _HorizontalMouseDragScrollBehavior extends MaterialScrollBehavior {
+  const _HorizontalMouseDragScrollBehavior();
+
+  @override
+  Set<ui.PointerDeviceKind> get dragDevices => {
+    ...super.dragDevices,
+    ui.PointerDeviceKind.mouse,
+  };
 }
 
 class _QuickTagChip extends StatelessWidget {
