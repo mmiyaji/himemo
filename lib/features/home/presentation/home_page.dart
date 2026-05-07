@@ -6729,19 +6729,12 @@ class _NoteListTile extends StatelessWidget {
                     Text(
                       vaultName,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: _mutedTextColor(context),
+                        color: isPrivateNote
+                            ? Theme.of(context).colorScheme.primary
+                            : _mutedTextColor(context),
+                        fontWeight: isPrivateNote ? FontWeight.w600 : null,
                       ),
                     ),
-                  if (isPrivateNote) ...[
-                    if (showVaultName) const SizedBox(width: 8),
-                    Text(
-                      strings.text('home.private.profile'),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
                   const Spacer(),
                   Text(
                     isEdited ? strings.editedAt(dateLabel) : dateLabel,
