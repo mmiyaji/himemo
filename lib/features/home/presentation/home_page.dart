@@ -9580,9 +9580,10 @@ class _QuickTagStrip extends StatelessWidget {
     final visibleSummaries = summaries.take(10).toList(growable: false);
     return SizedBox(
       height: 36,
+      width: double.infinity,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
-        clipBehavior: Clip.none,
+        clipBehavior: Clip.hardEdge,
         itemCount: visibleSummaries.length,
         separatorBuilder: (context, index) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
