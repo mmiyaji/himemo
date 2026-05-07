@@ -416,6 +416,7 @@ void main() {
     late MemorySecureKeyValueStore secureStore;
     late EncryptionService encryptionService;
     late SharedPreferences prefs;
+    late MasterKeyService masterKeyService;
     late EncryptedAttachmentStore attachmentStore;
 
     setUp(() async {
@@ -426,12 +427,13 @@ void main() {
       );
       secureStore = MemorySecureKeyValueStore();
       encryptionService = EncryptionService(random: Random(13));
+      masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
       attachmentStore = EncryptedAttachmentStore(
         encryptionService: encryptionService,
-        masterKeyService: MasterKeyService(
-          secureStore: secureStore,
-          keyFactory: encryptionService.generateKeyBytes,
-        ),
+        masterKeyService: masterKeyService,
         directoryProvider: () async => tempDirectory,
         sharedPreferencesProvider: () async => prefs,
       );
@@ -490,6 +492,94 @@ void main() {
       );
 
       expect(restored, const [7, 8, 9]);
+    });
+
+    test(
+      'reads private attachments when vault metadata uses stale path',
+      () async {
+        const vaultId = '$customPrivateVaultPrefix photos';
+        final profileDataKeyService = ProfileDataKeyService(
+          secureStore: secureStore,
+          encryptionService: encryptionService,
+          normalMasterKeyService: masterKeyService,
+        );
+        await profileDataKeyService.configureProfile(
+          vaultId: vaultId,
+          password: 'secret',
+        );
+        final privateAttachmentStore = EncryptedAttachmentStore(
+          encryptionService: encryptionService,
+          masterKeyService: masterKeyService,
+          profileDataKeyService: profileDataKeyService,
+          directoryProvider: () async => tempDirectory,
+          sharedPreferencesProvider: () async => prefs,
+        );
+        final encrypted = await privateAttachmentStore.encryptAttachmentBytes(
+          bytes: const [10, 11, 12],
+          type: AttachmentType.photo,
+          vaultId: vaultId,
+        );
+        final storedReference = await privateAttachmentStore
+            .storeEncryptedPayload(
+              encodedPayload: encrypted,
+              type: AttachmentType.photo,
+              fileNameHint: 'camera.jpg',
+              vaultId: vaultId,
+            );
+        expect(storedReference, isNotNull);
+        final staleReference = path.join(
+          tempDirectory.path,
+          'previous-container',
+          'attachments',
+          path.basename(storedReference!),
+        );
+        await prefs.remove('attachments.vault.$storedReference');
+        await prefs.setString('attachments.vault.$staleReference', vaultId);
+
+        final restored = await privateAttachmentStore.readAttachment(
+          storedReference,
+          type: AttachmentType.photo,
+        );
+
+        expect(restored, const [10, 11, 12]);
+      },
+    );
+
+    test('recovers attachments that are mislabeled as private', () async {
+      const vaultId = '$customPrivateVaultPrefix camera';
+      final profileDataKeyService = ProfileDataKeyService(
+        secureStore: secureStore,
+        encryptionService: encryptionService,
+        normalMasterKeyService: masterKeyService,
+      );
+      await profileDataKeyService.configureProfile(
+        vaultId: vaultId,
+        password: 'secret',
+      );
+      final privateAttachmentStore = EncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        profileDataKeyService: profileDataKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: () async => prefs,
+      );
+      final source = File(
+        '${tempDirectory.path}${Platform.pathSeparator}camera.jpg',
+      );
+      await source.writeAsBytes(const [13, 14, 15], flush: true);
+      final storedReference = await privateAttachmentStore.storeAttachment(
+        XFile(source.path, name: 'camera.jpg'),
+        type: AttachmentType.photo,
+      );
+      expect(storedReference, isNotNull);
+      await prefs.setString('attachments.vault.$storedReference', vaultId);
+
+      final restored = await privateAttachmentStore.readAttachment(
+        storedReference!,
+        type: AttachmentType.photo,
+      );
+
+      expect(restored, const [13, 14, 15]);
     });
 
     test('deletes unreferenced attachment payloads from storage', () async {
