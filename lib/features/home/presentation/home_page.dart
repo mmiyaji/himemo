@@ -9925,7 +9925,21 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
       return;
     }
     widget.onTagSelected(normalized);
+    _clearInputAndRefreshOptions();
+  }
+
+  void _clearInputAndRefreshOptions() {
     _controller.clear();
+    if (!_focusNode.hasFocus) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_focusNode.hasFocus) {
+        return;
+      }
+      _controller.value = const TextEditingValue(text: ' ');
+      _controller.clear();
+    });
   }
 
   bool get _canSubmitCurrentText {
