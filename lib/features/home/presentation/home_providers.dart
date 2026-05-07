@@ -1640,6 +1640,9 @@ final storageUsageSummaryProvider = FutureProvider<StorageUsageSummary>((
   ref,
 ) async {
   ref.watch(notesControllerProvider);
+  await ref
+      .read(notesControllerProvider.notifier)
+      .cleanupUnreferencedAttachments();
   final notePayloadBytes = await ref
       .watch(encryptedNoteStoreProvider)
       .storagePayloadSizeBytes();
@@ -4555,6 +4558,26 @@ class NotesController extends _$NotesController {
     await ref.read(encryptedNoteStoreProvider).save(const <NoteEntry>[]);
     ref.invalidate(storageUsageSummaryProvider);
     return removedCount;
+  }
+
+  Future<int> cleanupUnreferencedAttachments() async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final retainedAttachmentReferences = <String>{
+      for (final note in state)
+        if (note.deletedAt == null) ...[
+          for (final attachment in note.attachments)
+            if (attachment.filePath != null && attachment.filePath!.isNotEmpty)
+              attachment.filePath!,
+          for (final block in note.blocks)
+            if (block.attachment?.filePath != null &&
+                block.attachment!.filePath!.isNotEmpty)
+              block.attachment!.filePath!,
+        ],
+    };
+    return ref
+        .read(encryptedAttachmentStoreProvider)
+        .deleteUnreferencedAttachments(retainedAttachmentReferences);
   }
 
   Future<void> replaceFromSync(List<NoteEntry> notes) async {

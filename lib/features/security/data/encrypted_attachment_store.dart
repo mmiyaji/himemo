@@ -245,6 +245,60 @@ class EncryptedAttachmentStore {
     return total;
   }
 
+  Future<int> deleteUnreferencedAttachments(
+    Set<String> retainedReferences,
+  ) async {
+    var deletedCount = 0;
+    if (kIsWeb) {
+      final prefs = await _sharedPreferencesProvider();
+      final references = <String>[];
+      for (final key in prefs.getKeys()) {
+        if (!key.startsWith(webStoragePrefix)) {
+          continue;
+        }
+        final id = key.substring(webStoragePrefix.length);
+        final reference = '$webPrefix$id';
+        if (!retainedReferences.contains(reference)) {
+          references.add(reference);
+        }
+      }
+      for (final reference in references) {
+        await deleteAttachment(reference);
+        deletedCount += 1;
+      }
+      return deletedCount;
+    }
+
+    final directory = await _directoryProvider();
+    final attachmentsDirectory = Directory(
+      path.join(directory.path, 'attachments'),
+    );
+    if (!await attachmentsDirectory.exists()) {
+      return 0;
+    }
+    await for (final entity in attachmentsDirectory.list(recursive: true)) {
+      if (entity is! File) {
+        continue;
+      }
+      if (path.split(entity.path).contains('tmp')) {
+        continue;
+      }
+      if (retainedReferences.contains(entity.path)) {
+        continue;
+      }
+      if (retainedReferences.any(
+        (reference) => path.basename(reference) == path.basename(entity.path),
+      )) {
+        continue;
+      }
+      await entity.delete();
+      final prefs = await _sharedPreferencesProvider();
+      await prefs.remove('$vaultStoragePrefix${entity.path}');
+      deletedCount += 1;
+    }
+    return deletedCount;
+  }
+
   Future<String?> _readPayload(String storedReference) async {
     if (storedReference.startsWith(webPrefix)) {
       final id = storedReference.substring(webPrefix.length);

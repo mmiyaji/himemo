@@ -491,6 +491,34 @@ void main() {
 
       expect(restored, const [7, 8, 9]);
     });
+
+    test('deletes unreferenced attachment payloads from storage', () async {
+      final keptSource = File(
+        '${tempDirectory.path}${Platform.pathSeparator}kept.jpg',
+      );
+      final orphanSource = File(
+        '${tempDirectory.path}${Platform.pathSeparator}orphan.jpg',
+      );
+      await keptSource.writeAsBytes(const [1, 2, 3], flush: true);
+      await orphanSource.writeAsBytes(const [4, 5, 6], flush: true);
+
+      final keptReference = await attachmentStore.storeAttachment(
+        XFile(keptSource.path, name: 'kept.jpg'),
+        type: AttachmentType.photo,
+      );
+      final orphanReference = await attachmentStore.storeAttachment(
+        XFile(orphanSource.path, name: 'orphan.jpg'),
+        type: AttachmentType.photo,
+      );
+
+      final deletedCount = await attachmentStore.deleteUnreferencedAttachments({
+        keptReference!,
+      });
+
+      expect(deletedCount, 1);
+      expect(await File(keptReference).exists(), isTrue);
+      expect(await File(orphanReference!).exists(), isFalse);
+    });
   });
 
   test('NotesController deletes attachments removed during edit', () async {
@@ -563,6 +591,73 @@ void main() {
 
     expect(fakeAttachmentStore.deletedReferences, ['secure-attachment://old']);
   });
+
+  test(
+    'NotesController cleanup removes orphaned attachment payloads',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-storage-cleanup-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(22));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final attachmentStore = EncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+
+      final orphanSource = File(path.join(tempDirectory.path, 'orphan.jpg'));
+      await orphanSource.writeAsBytes(List<int>.filled(128, 7), flush: true);
+      final orphanReference = await attachmentStore.storeAttachment(
+        XFile(orphanSource.path, name: 'orphan.jpg'),
+        type: AttachmentType.photo,
+      );
+
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: noteDatabase,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+          homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+
+      final controller = container.read(notesControllerProvider.notifier);
+      final deletedCount = await controller.cleanupUnreferencedAttachments();
+      final attachmentBytes = await attachmentStore.storagePayloadSizeBytes();
+
+      expect(deletedCount, 1);
+      expect(attachmentBytes, 0);
+      expect(await File(orphanReference!).exists(), isFalse);
+    },
+  );
 
   test('NotesController writes sync metadata and tombstones deletes', () async {
     SharedPreferences.setMockInitialValues({});
