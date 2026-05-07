@@ -9875,7 +9875,6 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
   late final TextEditingController _controller;
   late final FocusNode _focusNode;
   late Set<String> _existingTagKeys;
-  var _autocompleteRevision = 0;
 
   @override
   void initState() {
@@ -9883,7 +9882,6 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
     _controller = TextEditingController();
     _focusNode = FocusNode();
     _controller.addListener(_handleTextChanged);
-    _focusNode.addListener(_handleFocusChanged);
     _existingTagKeys = _currentExistingTagKeys();
   }
 
@@ -9895,14 +9893,15 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
       return;
     }
     _existingTagKeys = nextKeys;
-    _controller.clear();
-    _focusNode.unfocus();
+    final currentTag = canonicalizeNoteTag(_controller.text);
+    if (currentTag.isNotEmpty && nextKeys.contains(currentTag)) {
+      _controller.clear();
+    }
   }
 
   @override
   void dispose() {
     _controller.removeListener(_handleTextChanged);
-    _focusNode.removeListener(_handleFocusChanged);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -9914,14 +9913,6 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
     }
   }
 
-  void _handleFocusChanged() {
-    if (_focusNode.hasFocus) {
-      setState(() {
-        _autocompleteRevision += 1;
-      });
-    }
-  }
-
   void _submitTag(String raw) {
     final normalized = normalizeNoteTag(raw);
     if (normalized.isEmpty) {
@@ -9930,12 +9921,10 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
     final existingKeys = _currentExistingTagKeys();
     if (existingKeys.contains(canonicalizeNoteTag(normalized))) {
       _controller.clear();
-      _focusNode.unfocus();
       return;
     }
     widget.onTagSelected(normalized);
     _controller.clear();
-    _focusNode.unfocus();
   }
 
   bool get _canSubmitCurrentText {
@@ -9963,7 +9952,6 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
     final existingTagKeys = _currentExistingTagKeys().toList(growable: false)
       ..sort();
     return RawAutocomplete<String>(
-      key: ValueKey('$_autocompleteRevision:${existingTagKeys.join('\u0000')}'),
       textEditingController: _controller,
       focusNode: _focusNode,
       optionsBuilder: (value) {
