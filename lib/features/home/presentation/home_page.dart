@@ -6564,7 +6564,7 @@ class _NoteListTile extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 SizedBox(
                   width: 78,
@@ -6577,10 +6577,7 @@ class _NoteListTile extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 if (isPrivateNote) ...[
-                  const Padding(
-                    padding: EdgeInsets.only(top: 2),
-                    child: _PrivateNoteMarker(compact: true),
-                  ),
+                  const _PrivateNoteMarker(compact: true),
                   const SizedBox(width: 8),
                 ],
                 Expanded(
