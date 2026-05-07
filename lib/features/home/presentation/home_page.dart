@@ -9302,6 +9302,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                         ),
                         existingTags: filters.tags,
                         onTagSelected: notifier.addTag,
+                        showSubmitAction: true,
                       ),
                       if (filters.tags.length > 1) ...[
                         const SizedBox(height: 10),
