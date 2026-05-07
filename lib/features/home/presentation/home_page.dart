@@ -674,16 +674,13 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final selectedNoteId = ref.watch(selectedNoteIdProvider);
 
     if (!useSplitView) {
-      final visibleNotesByVault = visibleVaults.length == 1
-          ? <String, List<NoteEntry>>{visibleVaults.first.id: visibleNotes}
-          : ref.watch(visibleNotesByVaultProvider);
       return _MobileNotesList(
         activeIdentity: activeIdentity,
         showPrivateVaultNotice:
             activeIdentity.id == 'private' && !privateVaultUnlocked,
         compactHeader: useCompactHeader,
-        vaults: visibleVaults,
-        notesByVault: visibleNotesByVault,
+        vaultNameById: vaultNameById,
+        showVaultName: visibleVaults.length > 1,
         allVisibleNotes: visibleNotes,
         selectedNoteId: selectedNoteId,
         density: listDensity,
@@ -6142,18 +6139,6 @@ String _vaultDisplayName(BuildContext context, VaultBucket vault) {
   return vault.name;
 }
 
-String _vaultDisplayDescription(BuildContext context, VaultBucket vault) {
-  if (vault.description == 'Unlocked private notes' ||
-      vault.description == '__unlocked_private_notes__') {
-    return context.strings.unlockedPrivateNotes;
-  }
-  if (vault.description == 'Unlocked notes' ||
-      vault.description == '__unlocked_notes__') {
-    return context.strings.unlockedNotes;
-  }
-  return vault.description;
-}
-
 bool _isSameNoteDay(NoteEntry left, NoteEntry right) {
   return left.createdAt.year == right.createdAt.year &&
       left.createdAt.month == right.createdAt.month &&
@@ -6165,8 +6150,8 @@ class _MobileNotesList extends StatefulWidget {
     required this.activeIdentity,
     required this.showPrivateVaultNotice,
     required this.compactHeader,
-    required this.vaults,
-    required this.notesByVault,
+    required this.vaultNameById,
+    required this.showVaultName,
     required this.allVisibleNotes,
     required this.selectedNoteId,
     required this.density,
@@ -6177,8 +6162,8 @@ class _MobileNotesList extends StatefulWidget {
   final UnlockIdentity activeIdentity;
   final bool showPrivateVaultNotice;
   final bool compactHeader;
-  final List<VaultBucket> vaults;
-  final Map<String, List<NoteEntry>> notesByVault;
+  final Map<String, String> vaultNameById;
+  final bool showVaultName;
   final List<NoteEntry> allVisibleNotes;
   final String? selectedNoteId;
   final NotesListDensity density;
@@ -6206,7 +6191,8 @@ class _MobileNotesListState extends State<_MobileNotesList> {
         oldWidget.showPrivateVaultNotice != widget.showPrivateVaultNotice ||
         oldWidget.compactHeader != widget.compactHeader ||
         oldWidget.density != widget.density ||
-        oldWidget.vaults.length != widget.vaults.length) {
+        oldWidget.showVaultName != widget.showVaultName ||
+        oldWidget.vaultNameById.length != widget.vaultNameById.length) {
       _rows = _buildRows();
     }
   }
@@ -6217,9 +6203,7 @@ class _MobileNotesListState extends State<_MobileNotesList> {
       activeIdentity: widget.activeIdentity,
       showPrivateVaultNotice: widget.showPrivateVaultNotice,
       compactHeader: widget.compactHeader,
-      vaults: widget.vaults,
-      notesByVault: widget.notesByVault,
-      notesAreEmpty: widget.allVisibleNotes.isEmpty,
+      notes: widget.allVisibleNotes,
       density: widget.density,
     );
     if (watch != null) {
@@ -6252,21 +6236,17 @@ class _MobileNotesListState extends State<_MobileNotesList> {
             child: _NotesToolbar(compact: widget.compactHeader),
           ),
           _MobileEmptyRow() => const _EmptyNotesState(),
-          _MobileVaultHeaderRow(:final vault) => _DecoratedMobileNoteRow(
-            position: row.position,
-            child: _VaultSectionHeader(vault: vault),
-          ),
           _MobileDayRow(:final date) => _DecoratedMobileNoteRow(
             position: row.position,
             child: _NoteDayDivider(date: date),
           ),
-          _MobileTileRow(:final vault, :final note) => _DecoratedMobileNoteRow(
+          _MobileTileRow(:final note) => _DecoratedMobileNoteRow(
             position: row.position,
             child: RepaintBoundary(
               child: _NoteListTile(
                 note: note,
-                vaultName: _vaultDisplayName(context, vault),
-                showVaultName: false,
+                vaultName: widget.vaultNameById[note.vaultId] ?? note.vaultId,
+                showVaultName: widget.showVaultName,
                 density: widget.density,
                 query: widget.query,
                 selected: note.id == widget.selectedNoteId,
@@ -6278,7 +6258,6 @@ class _MobileNotesListState extends State<_MobileNotesList> {
             position: row.position,
             child: const _IntraDayNoteGap(),
           ),
-          _MobileSectionGapRow() => const SizedBox(height: 16),
         };
       },
     );
@@ -6289,9 +6268,7 @@ List<_MobileNoteRow> _buildMobileNoteRows({
   required UnlockIdentity activeIdentity,
   required bool showPrivateVaultNotice,
   required bool compactHeader,
-  required List<VaultBucket> vaults,
-  required Map<String, List<NoteEntry>> notesByVault,
-  required bool notesAreEmpty,
+  required List<NoteEntry> notes,
   required NotesListDensity density,
 }) {
   final rows = <_MobileNoteRow>[
@@ -6299,74 +6276,32 @@ List<_MobileNoteRow> _buildMobileNoteRows({
     if (showPrivateVaultNotice) const _MobilePrivateNoticeRow(),
     _MobileToolbarRow(compactHeader),
   ];
-  if (notesAreEmpty) {
+  if (notes.isEmpty) {
     rows.add(const _MobileEmptyRow());
     return rows;
   }
 
-  var addedAnyVault = false;
-  for (final vault in vaults) {
-    final notes = notesByVault[vault.id] ?? const <NoteEntry>[];
-    if (notes.isEmpty) {
-      continue;
+  final noteRows = <_MobileNoteRow>[];
+  for (var i = 0; i < notes.length; i++) {
+    if (density != NotesListDensity.compact &&
+        (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i]))) {
+      noteRows.add(_MobileDayRow(notes[i].createdAt));
     }
-    if (addedAnyVault) {
-      rows.add(const _MobileSectionGapRow());
-    }
-    addedAnyVault = true;
-
-    final sectionRows = <_MobileNoteRow>[_MobileVaultHeaderRow(vault)];
-    for (var i = 0; i < notes.length; i++) {
-      if (density != NotesListDensity.compact &&
-          (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i]))) {
-        sectionRows.add(_MobileDayRow(notes[i].createdAt));
-      }
-      sectionRows.add(_MobileTileRow(vault: vault, note: notes[i]));
-      if (i != notes.length - 1 && _isSameNoteDay(notes[i], notes[i + 1])) {
-        sectionRows.add(const _MobileDividerRow());
-      }
-    }
-    for (var i = 0; i < sectionRows.length; i++) {
-      rows.add(
-        sectionRows[i].withPosition(
-          _MobileNoteRowPosition(
-            first: i == 0,
-            last: i == sectionRows.length - 1,
-          ),
-        ),
-      );
+    noteRows.add(_MobileTileRow(notes[i]));
+    if (density != NotesListDensity.compact &&
+        i != notes.length - 1 &&
+        _isSameNoteDay(notes[i], notes[i + 1])) {
+      noteRows.add(const _MobileDividerRow());
     }
   }
-  return rows;
-}
-
-class _VaultSectionHeader extends StatelessWidget {
-  const _VaultSectionHeader({required this.vault});
-
-  final VaultBucket vault;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(_vaultDisplayName(context, vault)),
-          if (vault.id != 'everyday' &&
-              _vaultDisplayDescription(context, vault).isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              _vaultDisplayDescription(context, vault),
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
-            ),
-          ],
-        ],
+  for (var i = 0; i < noteRows.length; i++) {
+    rows.add(
+      noteRows[i].withPosition(
+        _MobileNoteRowPosition(first: i == 0, last: i == noteRows.length - 1),
       ),
     );
   }
+  return rows;
 }
 
 class _MobileNoteRowPosition {
@@ -6414,16 +6349,6 @@ class _MobileEmptyRow extends _MobileNoteRow {
   _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
 }
 
-class _MobileVaultHeaderRow extends _MobileNoteRow {
-  const _MobileVaultHeaderRow(this.vault, {super.position});
-
-  final VaultBucket vault;
-
-  @override
-  _MobileNoteRow withPosition(_MobileNoteRowPosition position) =>
-      _MobileVaultHeaderRow(vault, position: position);
-}
-
 class _MobileDayRow extends _MobileNoteRow {
   const _MobileDayRow(this.date, {super.position});
 
@@ -6435,18 +6360,13 @@ class _MobileDayRow extends _MobileNoteRow {
 }
 
 class _MobileTileRow extends _MobileNoteRow {
-  const _MobileTileRow({
-    required this.vault,
-    required this.note,
-    super.position,
-  });
+  const _MobileTileRow(this.note, {super.position});
 
-  final VaultBucket vault;
   final NoteEntry note;
 
   @override
   _MobileNoteRow withPosition(_MobileNoteRowPosition position) =>
-      _MobileTileRow(vault: vault, note: note, position: position);
+      _MobileTileRow(note, position: position);
 }
 
 class _MobileDividerRow extends _MobileNoteRow {
@@ -6455,13 +6375,6 @@ class _MobileDividerRow extends _MobileNoteRow {
   @override
   _MobileNoteRow withPosition(_MobileNoteRowPosition position) =>
       _MobileDividerRow(position: position);
-}
-
-class _MobileSectionGapRow extends _MobileNoteRow {
-  const _MobileSectionGapRow();
-
-  @override
-  _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
 }
 
 class _DecoratedMobileNoteRow extends StatelessWidget {
@@ -6801,7 +6714,7 @@ class _NoteListTile extends StatelessWidget {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  if (showVaultName && !isPrivateNote)
+                  if (showVaultName)
                     Text(
                       vaultName,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
