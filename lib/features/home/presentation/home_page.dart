@@ -9883,6 +9883,7 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
     _controller = TextEditingController();
     _focusNode = FocusNode();
     _controller.addListener(_handleTextChanged);
+    _focusNode.addListener(_handleFocusChanged);
     _existingTagKeys = _currentExistingTagKeys();
   }
 
@@ -9903,13 +9904,18 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
   @override
   void dispose() {
     _controller.removeListener(_handleTextChanged);
+    _focusNode.removeListener(_handleFocusChanged);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
   void _handleTextChanged() {
-    if (widget.showSubmitAction) {
+    setState(() {});
+  }
+
+  void _handleFocusChanged() {
+    if (mounted) {
       setState(() {});
     }
   }
@@ -9925,21 +9931,7 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
       return;
     }
     widget.onTagSelected(normalized);
-    _clearInputAndRefreshOptions();
-  }
-
-  void _clearInputAndRefreshOptions() {
     _controller.clear();
-    if (!_focusNode.hasFocus) {
-      return;
-    }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_focusNode.hasFocus) {
-        return;
-      }
-      _controller.value = const TextEditingValue(text: ' ');
-      _controller.clear();
-    });
   }
 
   bool get _canSubmitCurrentText {
@@ -9962,93 +9954,84 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
     return left.containsAll(right);
   }
 
+  List<String> _matchingSuggestions() {
+    final existingKeys = _currentExistingTagKeys();
+    final seenKeys = <String>{};
+    final input = canonicalizeNoteTag(_controller.text);
+    final matches = <String>[];
+    for (final tag in widget.suggestions) {
+      final key = canonicalizeNoteTag(tag);
+      if (key.isEmpty || existingKeys.contains(key) || !seenKeys.add(key)) {
+        continue;
+      }
+      if (input.isNotEmpty && !key.contains(input)) {
+        continue;
+      }
+      matches.add(tag);
+      if (matches.length == 8) {
+        break;
+      }
+    }
+    return matches;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final existingTagKeys = _currentExistingTagKeys().toList(growable: false)
-      ..sort();
-    return RawAutocomplete<String>(
-      textEditingController: _controller,
-      focusNode: _focusNode,
-      optionsBuilder: (value) {
-        final existingKeys = existingTagKeys.toSet();
-        final seenKeys = <String>{};
-        final filteredSuggestions = <String>[
-          for (final tag in widget.suggestions)
-            if (!existingKeys.contains(canonicalizeNoteTag(tag)) &&
-                seenKeys.add(canonicalizeNoteTag(tag)))
-              tag,
-        ];
-        final input = canonicalizeNoteTag(value.text);
-        if (input.isEmpty) {
-          return filteredSuggestions.take(8);
-        }
-        return filteredSuggestions
-            .where((tag) => canonicalizeNoteTag(tag).contains(input))
-            .take(8);
-      },
-      displayStringForOption: (option) => option,
-      onSelected: _submitTag,
-      fieldViewBuilder:
-          (context, textEditingController, focusNode, onSubmitted) {
-            return TextFormField(
-              controller: textEditingController,
-              focusNode: focusNode,
-              decoration: InputDecoration(
-                labelText: widget.label,
-                hintText: widget.hintText,
-                border: const OutlineInputBorder(),
-                isDense: true,
-                prefixIcon: const Icon(Icons.sell_outlined),
-                suffixIcon: widget.showSubmitAction && _canSubmitCurrentText
-                    ? IconButton(
-                        tooltip: MaterialLocalizations.of(
-                          context,
-                        ).okButtonLabel,
-                        icon: const Icon(Icons.check_rounded),
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => _submitTag(textEditingController.text),
-                      )
-                    : null,
-              ),
-              onFieldSubmitted: _submitTag,
-            );
-          },
-      optionsViewBuilder: (context, onSelected, options) {
-        final existingKeys = widget.existingTags
-            .map(canonicalizeNoteTag)
-            .where((tag) => tag.isNotEmpty)
-            .toSet();
-        final matches = [
-          for (final option in options)
-            if (!existingKeys.contains(canonicalizeNoteTag(option))) option,
-        ];
-        if (matches.isEmpty) {
-          return const SizedBox.shrink();
-        }
-        return Align(
-          alignment: Alignment.topLeft,
-          child: Material(
-            elevation: 4,
-            borderRadius: BorderRadius.circular(12),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 320, maxHeight: 240),
-              child: ListView(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                shrinkWrap: true,
-                children: [
-                  for (final option in matches)
-                    ListTile(
-                      dense: true,
-                      leading: const Icon(Icons.sell_outlined, size: 18),
-                      title: Text(option),
-                      onTap: () => onSelected(option),
-                    ),
-                ],
+    final matches = _focusNode.hasFocus
+        ? _matchingSuggestions()
+        : const <String>[];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextFormField(
+          controller: _controller,
+          focusNode: _focusNode,
+          decoration: InputDecoration(
+            labelText: widget.label,
+            hintText: widget.hintText,
+            border: const OutlineInputBorder(),
+            isDense: true,
+            prefixIcon: const Icon(Icons.sell_outlined),
+            suffixIcon: widget.showSubmitAction && _canSubmitCurrentText
+                ? IconButton(
+                    tooltip: MaterialLocalizations.of(context).okButtonLabel,
+                    icon: const Icon(Icons.check_rounded),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _submitTag(_controller.text),
+                  )
+                : null,
+          ),
+          onFieldSubmitted: _submitTag,
+        ),
+        if (matches.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Material(
+              elevation: 2,
+              borderRadius: BorderRadius.circular(12),
+              color: Theme.of(context).colorScheme.surfaceContainerLowest,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 220),
+                child: ListView(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  shrinkWrap: true,
+                  children: [
+                    for (final option in matches)
+                      ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.sell_outlined, size: 18),
+                        title: Text(option),
+                        onTap: () {
+                          _submitTag(option);
+                          _focusNode.requestFocus();
+                        },
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
-        );
-      },
+      ],
     );
   }
 }
