@@ -9579,7 +9579,7 @@ class _QuickTagStrip extends StatelessWidget {
     final activeKeys = activeTags.map(canonicalizeNoteTag).toSet();
     final visibleSummaries = summaries.take(10).toList(growable: false);
     return SizedBox(
-      height: 36,
+      height: 44,
       width: double.infinity,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
@@ -9588,10 +9588,12 @@ class _QuickTagStrip extends StatelessWidget {
         separatorBuilder: (context, index) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final summary = visibleSummaries[index];
-          return _QuickTagChip(
-            summary: summary,
-            selected: activeKeys.contains(canonicalizeNoteTag(summary.name)),
-            onTap: () => onTagSelected(summary.name),
+          return Center(
+            child: _QuickTagChip(
+              summary: summary,
+              selected: activeKeys.contains(canonicalizeNoteTag(summary.name)),
+              onTap: () => onTagSelected(summary.name),
+            ),
           );
         },
       ),
