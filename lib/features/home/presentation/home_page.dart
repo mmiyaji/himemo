@@ -2597,6 +2597,11 @@ class SettingsScreen extends ConsumerWidget {
   static const localeKoreanKey = Key('locale-korean-option');
   static const localeSpanishKey = Key('locale-spanish-option');
   static const localeGermanKey = Key('locale-german-option');
+  static const memoQuickDefaultKey = Key('memo-default-quick-option');
+  static const memoRichDefaultKey = Key('memo-default-rich-option');
+  static const memoStandardListKey = Key('memo-standard-list-option');
+  static const memoCompactListKey = Key('memo-compact-list-option');
+  static const memoAutoLocationKey = Key('memo-auto-location-toggle');
   static const konjyoColorThemeKey = Key('color-theme-konjyo-option');
   static const moegiColorThemeKey = Key('color-theme-moegi-option');
   static const yamabukiColorThemeKey = Key('color-theme-yamabuki-option');
@@ -2942,6 +2947,10 @@ class SettingsScreen extends ConsumerWidget {
     final appLockEnabled = ref.watch(appLockSettingsControllerProvider);
     final appLockRelockDelay = ref.watch(appLockRelockDelayControllerProvider);
     final appSessionUnlocked = ref.watch(appSessionUnlockControllerProvider);
+    final lastNoteEditorSettings = ref.watch(
+      lastNoteEditorSettingsControllerProvider,
+    );
+    final notesListDensity = ref.watch(notesListDensityControllerProvider);
     final widgetQuickCaptureEnabled = ref.watch(
       widgetQuickCaptureSettingsControllerProvider,
     );
@@ -3017,6 +3026,24 @@ class SettingsScreen extends ConsumerWidget {
     final syncSummary = syncProvider == SyncProvider.off
         ? (strings.text('home.device.only.storage'))
         : _syncAuthSummary(context, syncProvider, syncAuthState);
+    final memoEditorModeLabel =
+        lastNoteEditorSettings.mode == NoteEditorMode.quick
+        ? strings.quickMemo
+        : strings.richMemo;
+    final memoListDensityLabel = notesListDensity == NotesListDensity.compact
+        ? strings.text('home.compact.list')
+        : strings.text('home.standard.list');
+    final memoLocationLabel = lastNoteEditorSettings.captureLocation
+        ? strings.text('home.enabled')
+        : strings.text('home.disabled');
+    final memoSettingsSummary = strings.localized(
+      en: '$memoEditorModeLabel / $memoListDensityLabel / Location: $memoLocationLabel',
+      ja: '$memoEditorModeLabel / $memoListDensityLabel / 現在地: $memoLocationLabel',
+      zh: '$memoEditorModeLabel / $memoListDensityLabel / 位置：$memoLocationLabel',
+      ko: '$memoEditorModeLabel / $memoListDensityLabel / 위치: $memoLocationLabel',
+      es: '$memoEditorModeLabel / $memoListDensityLabel / Ubicación: $memoLocationLabel',
+      de: '$memoEditorModeLabel / $memoListDensityLabel / Standort: $memoLocationLabel',
+    );
     final effectiveFontFamily = _availableFontFamilies.contains(fontFamily)
         ? fontFamily
         : AppFontFamily.system;
@@ -3128,6 +3155,144 @@ class SettingsScreen extends ConsumerWidget {
           colorThemeTargets: colorThemeTargets,
           colorThemeTargetLabel: colorThemeTargetLabel,
           appearanceSummary: appearanceSummary,
+        ),
+        const SizedBox(height: 16),
+        _SettingsGroup(
+          title: strings.localized(
+            en: 'Memo settings',
+            ja: 'メモ設定',
+            zh: '备忘录设置',
+            ko: '메모 설정',
+            es: 'Ajustes de notas',
+            de: 'Notiz-Einstellungen',
+          ),
+          summary: memoSettingsSummary,
+          assetPath: 'assets/settings/appearance.svg',
+          semanticLabel: 'settings-memo',
+          children: [
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Default input',
+                ja: '入力の既定',
+                zh: '默认输入',
+                ko: '기본 입력',
+                es: 'Entrada predeterminada',
+                de: 'Standardeingabe',
+              ),
+            ),
+            _ThemeOptionTile(
+              tileKey: memoQuickDefaultKey,
+              title: strings.quickMemo,
+              subtitle: strings.localized(
+                en: 'Start new notes with the simple first-line memo editor.',
+                ja: '新規メモを1行目タイトルのシンプル入力で開始します。',
+                zh: '新建备忘录时使用首行作为标题的简单输入。',
+                ko: '새 메모를 첫 줄 제목 방식의 간단 입력으로 시작합니다.',
+                es: 'Inicia las notas nuevas con el editor simple de primera línea.',
+                de: 'Neue Notizen starten mit dem einfachen Editor, bei dem die erste Zeile der Titel ist.',
+              ),
+              selected: lastNoteEditorSettings.mode == NoteEditorMode.quick,
+              onTap: () => ref
+                  .read(lastNoteEditorSettingsControllerProvider.notifier)
+                  .remember(
+                    mode: NoteEditorMode.quick,
+                    vaultId: lastNoteEditorSettings.vaultId,
+                    captureLocation: lastNoteEditorSettings.captureLocation,
+                  ),
+            ),
+            _ThemeOptionTile(
+              tileKey: memoRichDefaultKey,
+              title: strings.richMemo,
+              subtitle: strings.localized(
+                en: 'Start new notes with block-style text and media editing.',
+                ja: '新規メモを本文ブロックとメディアを扱える入力で開始します。',
+                zh: '新建备忘录时使用支持文本块和媒体的编辑器。',
+                ko: '새 메모를 텍스트 블록과 미디어 편집으로 시작합니다.',
+                es: 'Inicia las notas nuevas con edición por bloques de texto y medios.',
+                de: 'Neue Notizen starten mit blockbasierter Text- und Medienbearbeitung.',
+              ),
+              selected: lastNoteEditorSettings.mode == NoteEditorMode.rich,
+              onTap: () => ref
+                  .read(lastNoteEditorSettingsControllerProvider.notifier)
+                  .remember(
+                    mode: NoteEditorMode.rich,
+                    vaultId: lastNoteEditorSettings.vaultId,
+                    captureLocation: lastNoteEditorSettings.captureLocation,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'List display',
+                ja: '一覧表示',
+                zh: '列表显示',
+                ko: '목록 표시',
+                es: 'Vista de lista',
+                de: 'Listenansicht',
+              ),
+            ),
+            _ThemeOptionTile(
+              tileKey: memoStandardListKey,
+              title: strings.text('home.standard.list'),
+              subtitle: strings.localized(
+                en: 'Show two-line previews and more context in the note list.',
+                ja: 'ノート一覧に2行プレビューを表示し、内容を把握しやすくします。',
+                zh: '在列表中显示两行预览，便于查看内容。',
+                ko: '목록에 두 줄 미리보기를 표시해 내용을 더 쉽게 확인합니다.',
+                es: 'Muestra vistas previas de dos líneas y más contexto en la lista.',
+                de: 'Zeigt zweizeilige Vorschauen und mehr Kontext in der Notizliste.',
+              ),
+              selected: notesListDensity == NotesListDensity.standard,
+              onTap: () => ref
+                  .read(notesListDensityControllerProvider.notifier)
+                  .setDensity(NotesListDensity.standard),
+            ),
+            _ThemeOptionTile(
+              tileKey: memoCompactListKey,
+              title: strings.text('home.compact.list'),
+              subtitle: strings.localized(
+                en: 'Fit more notes on screen with a denser one-line list.',
+                ja: '1行中心の密な一覧にして、画面に多くのメモを表示します。',
+                zh: '使用更紧凑的单行列表，在屏幕上显示更多备忘录。',
+                ko: '한 줄 중심의 촘촘한 목록으로 더 많은 메모를 표시합니다.',
+                es: 'Muestra más notas en pantalla con una lista densa de una línea.',
+                de: 'Zeigt mehr Notizen auf dem Bildschirm mit einer dichteren einzeiligen Liste.',
+              ),
+              selected: notesListDensity == NotesListDensity.compact,
+              onTap: () => ref
+                  .read(notesListDensityControllerProvider.notifier)
+                  .setDensity(NotesListDensity.compact),
+            ),
+            const SizedBox(height: 8),
+            SwitchListTile.adaptive(
+              key: memoAutoLocationKey,
+              value: lastNoteEditorSettings.captureLocation,
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                strings.localized(
+                  en: 'Add current location to new notes',
+                  ja: '新規メモに現在地を自動付与',
+                  zh: '为新建备忘录自动添加当前位置',
+                  ko: '새 메모에 현재 위치 자동 추가',
+                  es: 'Añadir ubicación actual a notas nuevas',
+                  de: 'Aktuellen Standort zu neuen Notizen hinzufügen',
+                ),
+              ),
+              subtitle: Text(
+                strings.localized(
+                  en: 'When enabled, new notes try to capture location metadata when the editor opens.',
+                  ja: 'オンにすると、新規メモ作成画面を開いたときに位置情報を取得します。',
+                  zh: '开启后，打开新建编辑器时会尝试获取位置元数据。',
+                  ko: '켜면 새 메모 편집기를 열 때 위치 메타데이터를 가져옵니다.',
+                  es: 'Al activarlo, las notas nuevas intentan capturar metadatos de ubicación al abrir el editor.',
+                  de: 'Wenn aktiviert, erfassen neue Notizen beim Öffnen des Editors Standortmetadaten.',
+                ),
+              ),
+              onChanged: (enabled) => ref
+                  .read(lastNoteEditorSettingsControllerProvider.notifier)
+                  .setCaptureLocation(enabled),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         _SettingsGroup(
