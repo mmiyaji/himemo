@@ -46,7 +46,10 @@ class SecureSyncBundleStore {
   final String webStorageKey;
   final String fileName;
 
-  Future<StoredSyncBundle> writeBundle(PreparedSyncSnapshot snapshot) async {
+  Future<StoredSyncBundle> writeBundle(
+    PreparedSyncSnapshot snapshot, {
+    List<Map<String, dynamic>> privateProfiles = const <Map<String, dynamic>>[],
+  }) async {
     final key = await _syncBundleKeyService.obtainOrCreate();
     final payload = await _encryptionService.encryptJson(
       payload: {
@@ -64,6 +67,7 @@ class SecureSyncBundleStore {
           for (final entry in snapshot.notes)
             {'action': entry.action.name, 'note': entry.note.toJson()},
         ],
+        'privateProfiles': privateProfiles,
         'attachments': [
           for (final attachment in snapshot.attachments)
             {

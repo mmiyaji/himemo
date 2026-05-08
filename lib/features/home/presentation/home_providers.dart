@@ -1962,9 +1962,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             .read(syncEngineProvider)
             .prepareSnapshot(ref.read(notesControllerProvider)),
       );
+      final privateProfiles = await ref
+          .read(privateMemoProfileStoreProvider)
+          .exportSyncPayload();
       final bundle = await runFirebaseTrace(
         'sync_write_local_bundle',
-        () => ref.read(secureSyncBundleStoreProvider).writeBundle(snapshot),
+        () => ref
+            .read(secureSyncBundleStoreProvider)
+            .writeBundle(snapshot, privateProfiles: [privateProfiles]),
       );
       final encodedPayload = await runFirebaseTrace(
         'sync_read_local_bundle_payload',
@@ -1992,6 +1997,86 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         localBundle: bundle,
       );
       await ref.read(syncBundleStateStoreProvider).recordUpload(remoteStatus);
+    } catch (error) {
+      state = _failureState(
+        error,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
+    }
+  }
+
+  Future<void> syncNow({bool forceUpload = false}) async {
+    final provider = ref.read(syncProviderControllerProvider);
+    if (!_supportsRemoteTransport(provider)) {
+      return;
+    }
+    if (state.isBusy) {
+      return;
+    }
+    state = state.copyWith(
+      stage: SyncTransferStage.busy,
+      clearMessage: true,
+      clearCooldown: true,
+    );
+    try {
+      await logFirebaseBreadcrumb('sync now requested');
+      final remoteStatus = await runFirebaseTrace(
+        'sync_refresh_remote_status',
+        _fetchLatestRemoteStatus,
+      );
+      final bundleState = await ref.read(syncBundleStateProvider.future);
+      if (remoteStatus != null) {
+        await ref
+            .read(syncBundleStateStoreProvider)
+            .recordRemoteStatus(remoteStatus);
+      }
+      state = state.copyWith(remoteStatus: remoteStatus);
+
+      final queue = await ref.read(syncQueueSummaryProvider.future);
+      if (remoteStatus != null &&
+          _remoteBundleNeedsApply(remoteStatus, bundleState)) {
+        final assessment = assessSyncConflict(
+          googleDriveSelected: true,
+          queue: queue,
+          remoteStatus: remoteStatus,
+          bundleState: bundleState,
+        );
+        if (assessment.hasConflict && !forceUpload) {
+          state = state.copyWith(
+            stage: SyncTransferStage.error,
+            message: '${assessment.message} リモートの変更を確認してから同期してください。',
+          );
+          return;
+        }
+        final remoteBundle = await runFirebaseTrace(
+          'sync_download_latest_bundle',
+          _downloadLatestRemoteBundle,
+        );
+        await _storeDownloadedBundle(
+          remoteBundle,
+          emptyMessage: '${_providerLabel(provider)} に同期できるバンドルはありません。',
+        );
+        if (remoteBundle != null) {
+          await applyDownloadedBundle();
+          if (state.stage == SyncTransferStage.error) {
+            return;
+          }
+        }
+      }
+
+      ref.invalidate(syncQueueSummaryProvider);
+      final refreshedQueue = await ref.read(syncQueueSummaryProvider.future);
+      if (refreshedQueue.hasPendingChanges) {
+        await uploadCurrentBundle(force: forceUpload);
+        return;
+      }
+      state = SyncTransferState(
+        stage: SyncTransferStage.success,
+        message: '${_providerLabel(provider)} と同期済みです。',
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
     } catch (error) {
       state = _failureState(
         error,
@@ -2272,14 +2357,40 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       if (decoded == null) {
         throw StateError('ダウンロードしたバンドルを復号できませんでした。');
       }
+      for (final rawProfiles
+          in (decoded['privateProfiles'] as List<dynamic>? ??
+              const <dynamic>[])) {
+        await ref
+            .read(privateMemoProfileStoreProvider)
+            .importSyncPayload(rawProfiles);
+      }
+      final rawNoteEntries =
+          decoded['notes'] as List<dynamic>? ?? const <dynamic>[];
+      final lockedPrivateVaultIds = <String>{};
+      for (final rawEntry in rawNoteEntries) {
+        final entry = Map<String, dynamic>.from(rawEntry as Map);
+        final note = NoteEntry.fromJson(
+          Map<String, dynamic>.from(entry['note'] as Map),
+        );
+        if (isPrivateVaultId(note.vaultId) &&
+            !ref
+                .read(profileDataKeyServiceProvider)
+                .isProfileUnlocked(note.vaultId)) {
+          lockedPrivateVaultIds.add(note.vaultId);
+        }
+      }
+      if (lockedPrivateVaultIds.isNotEmpty) {
+        throw StateError(
+          'プライベートプロファイルのメモが含まれています。同期先端末で同じプロファイルパスワードを入力して開いてから、もう一度適用してください。',
+        );
+      }
       final attachmentPayloads = <String, Map<String, dynamic>>{
         for (final entry
             in (decoded['attachments'] as List<dynamic>? ?? const <dynamic>[]))
           (entry as Map)['id'] as String: Map<String, dynamic>.from(entry),
       };
       final importedChanges = <PreparedSyncNote>[];
-      for (final rawEntry
-          in (decoded['notes'] as List<dynamic>? ?? const <dynamic>[])) {
+      for (final rawEntry in rawNoteEntries) {
         final entry = Map<String, dynamic>.from(rawEntry as Map);
         final note = NoteEntry.fromJson(
           Map<String, dynamic>.from(entry['note'] as Map),
@@ -2393,6 +2504,34 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   bool _supportsRemoteTransport(SyncProvider provider) {
     return provider == SyncProvider.googleDrive ||
         provider == SyncProvider.iCloud;
+  }
+
+  bool _remoteBundleNeedsApply(
+    RemoteSyncBundleStatus remoteStatus,
+    SyncBundleState bundleState,
+  ) {
+    final lastAppliedAt = bundleState.lastAppliedAt;
+    final lastUploadedAt = bundleState.lastUploadedAt;
+    final knownActionAt = _latestDateTime(lastAppliedAt, lastUploadedAt);
+    if (knownActionAt == null) {
+      return true;
+    }
+    final remoteModifiedAt = remoteStatus.modifiedAt;
+    if (remoteModifiedAt == null) {
+      return bundleState.lastRemoteFileId != remoteStatus.fileId &&
+          lastAppliedAt == null;
+    }
+    return remoteModifiedAt.isAfter(knownActionAt);
+  }
+
+  DateTime? _latestDateTime(DateTime? left, DateTime? right) {
+    if (left == null) {
+      return right;
+    }
+    if (right == null) {
+      return left;
+    }
+    return left.isAfter(right) ? left : right;
   }
 
   String _providerLabel(SyncProvider provider) {
@@ -2786,6 +2925,98 @@ class PrivateMemoProfileStore {
   }
 
   Future<bool> hasProfiles() async => (await listProfiles()).isNotEmpty;
+
+  Future<Map<String, dynamic>> exportSyncPayload() async {
+    final profiles = await listProfiles();
+    final verifiers = <Map<String, dynamic>>[];
+    for (final profile in profiles) {
+      final stored = await _secureStore.read(
+        '$verifierStoragePrefix${profile.id}',
+      );
+      if (stored == null || stored.isEmpty) {
+        continue;
+      }
+      try {
+        final decoded = Map<String, dynamic>.from(jsonDecode(stored) as Map);
+        if (decoded['salt'] is String && decoded['verifier'] is String) {
+          verifiers.add(<String, dynamic>{'profileId': profile.id, ...decoded});
+        }
+      } catch (_) {}
+    }
+    final dataKeys = await _profileDataKeyService.exportWrappedProfileKeys(
+      profiles.map((profile) => profile.vaultId),
+    );
+    return <String, dynamic>{
+      'version': 1,
+      'profiles': [for (final profile in profiles) profile.toJson()],
+      'verifiers': verifiers,
+      'dataKeys': dataKeys,
+    };
+  }
+
+  Future<int> importSyncPayload(Object? payload) async {
+    if (payload is! Map) {
+      return 0;
+    }
+    final decoded = Map<String, dynamic>.from(payload);
+    if (decoded['version'] != 1) {
+      return 0;
+    }
+
+    var imported = 0;
+    final existing = await listProfiles();
+    final profilesById = <String, PrivateMemoProfile>{
+      for (final profile in existing) profile.id: profile,
+    };
+    for (final rawProfile
+        in (decoded['profiles'] as List<dynamic>? ?? const <dynamic>[])) {
+      if (rawProfile is! Map) {
+        continue;
+      }
+      try {
+        final profile = PrivateMemoProfile.fromJson(
+          Map<String, dynamic>.from(rawProfile),
+        );
+        profilesById[profile.id] = profile;
+        imported += 1;
+      } catch (_) {}
+    }
+    if (imported > 0) {
+      final profiles = profilesById.values.toList(growable: false)
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      await _saveProfiles(profiles);
+    }
+
+    for (final rawVerifier
+        in (decoded['verifiers'] as List<dynamic>? ?? const <dynamic>[])) {
+      if (rawVerifier is! Map) {
+        continue;
+      }
+      final verifier = Map<String, dynamic>.from(rawVerifier);
+      final profileId = verifier['profileId'] as String?;
+      final salt = verifier['salt'];
+      final secretVerifier = verifier['verifier'];
+      if (profileId == null ||
+          !profilesById.containsKey(profileId) ||
+          salt is! String ||
+          salt.isEmpty ||
+          secretVerifier is! String ||
+          secretVerifier.isEmpty) {
+        continue;
+      }
+      await _secureStore.write(
+        '$verifierStoragePrefix$profileId',
+        jsonEncode({'salt': salt, 'verifier': secretVerifier}),
+      );
+      imported += 1;
+    }
+
+    imported += await _profileDataKeyService.importWrappedProfileKeys(
+      decoded['dataKeys'] as List<dynamic>? ?? const <dynamic>[],
+      overwrite: true,
+    );
+    return imported;
+  }
 
   Future<String?> addProfile({
     required String name,

@@ -228,6 +228,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   bool _privacyScreenEnabled = false;
   bool _autoPrompted = false;
   bool _updateChecked = false;
+  bool _cloudSyncScheduled = false;
   DateTime? _backgroundedAt;
   Timer? _privateSessionTimer;
 
@@ -238,6 +239,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncLockState(triggerPrompt: true);
       _checkForInAppUpdate();
+      _scheduleSeamlessCloudSync();
     });
   }
 
@@ -274,6 +276,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     }
     await _syncLockState(triggerPrompt: true);
     _refreshPrivateSessionTimer();
+    _scheduleSeamlessCloudSync();
   }
 
   Future<void> _markAppBackgrounded() async {
@@ -450,6 +453,34 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     await controller.startPreferredUpdate();
   }
 
+  void _scheduleSeamlessCloudSync() {
+    if (_cloudSyncScheduled) {
+      return;
+    }
+    _cloudSyncScheduled = true;
+    unawaited(_runSeamlessCloudSync());
+  }
+
+  Future<void> _runSeamlessCloudSync() async {
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      if (!mounted) {
+        return;
+      }
+      final provider = ref.read(syncProviderControllerProvider);
+      if (provider == SyncProvider.off) {
+        return;
+      }
+      final transferState = ref.read(syncTransferControllerProvider);
+      if (transferState.isBusy) {
+        return;
+      }
+      await ref.read(syncTransferControllerProvider.notifier).syncNow();
+    } finally {
+      _cloudSyncScheduled = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
@@ -464,6 +495,11 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
 
     ref.listen<bool>(privacyScreenActiveProvider, (previous, next) {
       unawaited(_setPrivacyScreenEnabled(next));
+    });
+    ref.listen<SyncProvider>(syncProviderControllerProvider, (previous, next) {
+      if (next != SyncProvider.off && next != previous) {
+        _scheduleSeamlessCloudSync();
+      }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_setPrivacyScreenEnabled(privacyScreenActive));

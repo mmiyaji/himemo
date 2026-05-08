@@ -118,6 +118,71 @@ class ProfileDataKeyService {
     return true;
   }
 
+  Future<Map<String, dynamic>?> exportWrappedProfileKey(String vaultId) async {
+    if (!isProfileDataKeyPrivateVaultId(vaultId)) {
+      return null;
+    }
+    final stored = await _secureStore.read('$storagePrefix$vaultId');
+    if (stored == null || stored.isEmpty) {
+      return null;
+    }
+    try {
+      final decoded = Map<String, dynamic>.from(jsonDecode(stored) as Map);
+      if (!_isValidWrappedKey(decoded)) {
+        return null;
+      }
+      return <String, dynamic>{'vaultId': vaultId, ...decoded};
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> exportWrappedProfileKeys(
+    Iterable<String> vaultIds,
+  ) async {
+    final exported = <Map<String, dynamic>>[];
+    final seen = <String>{};
+    for (final vaultId in vaultIds) {
+      if (!seen.add(vaultId)) {
+        continue;
+      }
+      final wrapped = await exportWrappedProfileKey(vaultId);
+      if (wrapped != null) {
+        exported.add(wrapped);
+      }
+    }
+    return exported;
+  }
+
+  Future<int> importWrappedProfileKeys(
+    Iterable<dynamic> entries, {
+    bool overwrite = false,
+  }) async {
+    var imported = 0;
+    for (final raw in entries) {
+      if (raw is! Map) {
+        continue;
+      }
+      final decoded = Map<String, dynamic>.from(raw);
+      final vaultId = decoded['vaultId'] as String?;
+      if (vaultId == null || !isProfileDataKeyPrivateVaultId(vaultId)) {
+        continue;
+      }
+      final payload = Map<String, dynamic>.from(decoded)..remove('vaultId');
+      if (!_isValidWrappedKey(payload)) {
+        continue;
+      }
+      final storageKey = '$storagePrefix$vaultId';
+      final existing = await _secureStore.read(storageKey);
+      if (!overwrite && existing != null && existing.isNotEmpty) {
+        continue;
+      }
+      await _secureStore.write(storageKey, jsonEncode(payload));
+      imported += 1;
+    }
+    return imported;
+  }
+
   bool isProfileUnlocked(String vaultId) {
     return _unlockedProfileKeys.containsKey(vaultId);
   }
@@ -145,4 +210,13 @@ class ProfileDataKeyService {
 
   List<int> _profileKeyAad(String vaultId) =>
       utf8.encode('profile-data-key:$vaultId');
+
+  bool _isValidWrappedKey(Map<String, dynamic> decoded) {
+    return decoded['version'] == 1 &&
+        decoded['kdf'] == 'pbkdf2-sha256' &&
+        decoded['salt'] is String &&
+        (decoded['salt'] as String).isNotEmpty &&
+        decoded['wrappedDataKey'] is String &&
+        (decoded['wrappedDataKey'] as String).isNotEmpty;
+  }
 }

@@ -1066,7 +1066,23 @@ void main() {
         ],
       );
 
-      final stored = await bundleStore.writeBundle(snapshot);
+      final stored = await bundleStore.writeBundle(
+        snapshot,
+        privateProfiles: const [
+          {
+            'version': 1,
+            'profiles': [
+              {
+                'id': 'profile_sync',
+                'name': 'Private',
+                'createdAt': '2026-04-12T17:00:00.000',
+              },
+            ],
+            'verifiers': [],
+            'dataKeys': [],
+          },
+        ],
+      );
       final file = File(stored.reference);
       final rawPayload = await file.readAsString();
 
@@ -1077,6 +1093,7 @@ void main() {
       final decoded = await bundleStore.readBundleJson(stored.reference);
       expect(decoded?['deviceId'], 'device-export');
       expect((decoded?['notes'] as List<dynamic>).length, 1);
+      expect((decoded?['privateProfiles'] as List<dynamic>).length, 1);
       final encryptedPayload = await bundleStore.readEncryptedBundlePayload(
         stored.reference,
       );
@@ -1094,6 +1111,49 @@ void main() {
       if (await tempDirectory.exists()) {
         await tempDirectory.delete(recursive: true);
       }
+    },
+  );
+
+  test(
+    'ProfileDataKeyService exports and imports wrapped profile keys',
+    () async {
+      final encryptionService = EncryptionService(random: Random(71));
+      final sourceStore = MemorySecureKeyValueStore();
+      final targetStore = MemorySecureKeyValueStore();
+      final sourceMasterKey = MasterKeyService(
+        secureStore: sourceStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final targetMasterKey = MasterKeyService(
+        secureStore: targetStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final source = ProfileDataKeyService(
+        secureStore: sourceStore,
+        encryptionService: encryptionService,
+        normalMasterKeyService: sourceMasterKey,
+      );
+      final target = ProfileDataKeyService(
+        secureStore: targetStore,
+        encryptionService: encryptionService,
+        normalMasterKeyService: targetMasterKey,
+      );
+      const vaultId = 'private_profile:sync-profile';
+
+      await source.configureProfile(vaultId: vaultId, password: 'profile-pass');
+      final exported = await source.exportWrappedProfileKeys([vaultId]);
+      final imported = await target.importWrappedProfileKeys(exported);
+
+      expect(imported, 1);
+      expect(
+        await target.unlockProfile(vaultId: vaultId, password: 'wrong'),
+        isFalse,
+      );
+      expect(
+        await target.unlockProfile(vaultId: vaultId, password: 'profile-pass'),
+        isTrue,
+      );
+      expect(target.isProfileUnlocked(vaultId), isTrue);
     },
   );
 
