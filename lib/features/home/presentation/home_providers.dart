@@ -928,12 +928,13 @@ class SyncTransferState {
     DateTime? cooldownUntil,
     bool clearMessage = false,
     bool clearCooldown = false,
+    bool clearLocalBundle = false,
   }) {
     return SyncTransferState(
       stage: stage ?? this.stage,
       message: clearMessage ? null : (message ?? this.message),
       remoteStatus: remoteStatus ?? this.remoteStatus,
-      localBundle: localBundle ?? this.localBundle,
+      localBundle: clearLocalBundle ? null : (localBundle ?? this.localBundle),
       cooldownUntil: clearCooldown
           ? null
           : (cooldownUntil ?? this.cooldownUntil),
@@ -1882,6 +1883,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   SyncTransferState build() {
     ref.onDispose(() => _cooldownTimer?.cancel());
     return const SyncTransferState.idle();
+  }
+
+  void clearLocalBundleCache() {
+    state = state.copyWith(clearLocalBundle: true);
   }
 
   Future<void> refreshRemoteStatus() async {

@@ -4156,6 +4156,11 @@ class SettingsScreen extends ConsumerWidget {
                                     .read(syncBundleKeyServiceProvider)
                                     .importBackupCode(backupCode);
                                 ref.invalidate(syncBundleFingerprintProvider);
+                                ref
+                                    .read(
+                                      syncTransferControllerProvider.notifier,
+                                    )
+                                    .clearLocalBundleCache();
                                 if (!context.mounted) {
                                   return;
                                 }
