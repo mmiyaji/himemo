@@ -2610,6 +2610,7 @@ class SettingsScreen extends ConsumerWidget {
   static const syncGoogleDriveKey = Key('sync-google-drive-option');
   static const syncConnectKey = Key('sync-connect-button');
   static const syncDisconnectKey = Key('sync-disconnect-button');
+  static const syncNowKey = Key('sync-now-button');
   static const syncRefreshRemoteKey = Key('sync-refresh-remote-button');
   static const syncUploadBundleKey = Key('sync-upload-bundle-button');
   static const syncDownloadBundleKey = Key('sync-download-bundle-button');
@@ -2930,6 +2931,30 @@ class SettingsScreen extends ConsumerWidget {
         content: Text(strings.text('home.profile.password.updated')),
       ),
     );
+  }
+
+  Future<void> _syncNow(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(syncTransferControllerProvider.notifier).syncNow();
+      if (!context.mounted) {
+        return;
+      }
+      final message = ref.read(syncTransferControllerProvider).message;
+      if (message == null || message.isEmpty) {
+        return;
+      }
+      messenger.showSnackBar(
+        SnackBar(showCloseIcon: true, content: Text(message)),
+      );
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      messenger.showSnackBar(
+        SnackBar(showCloseIcon: true, content: Text('$error')),
+      );
+    }
   }
 
   @override
@@ -3995,6 +4020,45 @@ class SettingsScreen extends ConsumerWidget {
                 _syncAuthSummary(context, syncProvider, syncAuthState),
               ),
             ),
+            if (syncProvider != SyncProvider.off)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  key: syncNowKey,
+                  onPressed:
+                      syncTransferState.isBusy || !syncAuthState.isAuthenticated
+                      ? null
+                      : () => _syncNow(context, ref),
+                  icon: syncTransferState.isBusy
+                      ? SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Theme.of(context).colorScheme.onPrimary,
+                          ),
+                        )
+                      : const Icon(Icons.sync_rounded),
+                  label: Text(
+                    syncTransferState.isBusy
+                        ? strings.localized(
+                            en: 'Syncing',
+                            ja: '同期中',
+                            zh: '同步中',
+                            ko: '동기화 중',
+                            es: 'Sincronizando',
+                            de: 'Synchronisierung',
+                          )
+                        : strings.localized(
+                            en: 'Sync',
+                            ja: '同期',
+                            zh: '同步',
+                            ko: '동기화',
+                            es: 'Sincronizar',
+                            de: 'Synchronisieren',
+                          ),
+                  ),
+                ),
+              ),
             Container(
               margin: const EdgeInsets.symmetric(vertical: 8),
               decoration: BoxDecoration(
@@ -4250,6 +4314,181 @@ class SettingsScreen extends ConsumerWidget {
                         spacing: 8,
                         runSpacing: 8,
                         children: [
+                          if (syncProvider != SyncProvider.off)
+                            OutlinedButton(
+                              key: syncRefreshRemoteKey,
+                              onPressed: syncTransferState.isBusy
+                                  ? null
+                                  : () async {
+                                      final messenger = ScaffoldMessenger.of(
+                                        context,
+                                      );
+                                      try {
+                                        await ref
+                                            .read(
+                                              syncTransferControllerProvider
+                                                  .notifier,
+                                            )
+                                            .refreshRemoteStatus();
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        final message = ref
+                                            .read(
+                                              syncTransferControllerProvider,
+                                            )
+                                            .message;
+                                        if (message == null ||
+                                            message.isEmpty) {
+                                          return;
+                                        }
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            showCloseIcon: true,
+                                            content: Text(message),
+                                          ),
+                                        );
+                                      } catch (error) {
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            showCloseIcon: true,
+                                            content: Text('$error'),
+                                          ),
+                                        );
+                                      }
+                                    },
+                              child: Text(strings.text('home.refresh.remote')),
+                            ),
+                          if (syncProvider != SyncProvider.off &&
+                              syncAuthState.isAuthenticated)
+                            OutlinedButton(
+                              key: syncUploadBundleKey,
+                              onPressed:
+                                  syncTransferState.isBusy ||
+                                      syncConflictWarning != null
+                                  ? null
+                                  : () async {
+                                      final messenger = ScaffoldMessenger.of(
+                                        context,
+                                      );
+                                      try {
+                                        await ref
+                                            .read(
+                                              syncTransferControllerProvider
+                                                  .notifier,
+                                            )
+                                            .uploadCurrentBundle();
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        final message = ref
+                                            .read(
+                                              syncTransferControllerProvider,
+                                            )
+                                            .message;
+                                        if (message == null ||
+                                            message.isEmpty) {
+                                          return;
+                                        }
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            showCloseIcon: true,
+                                            content: Text(message),
+                                          ),
+                                        );
+                                      } catch (error) {
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            showCloseIcon: true,
+                                            content: Text('$error'),
+                                          ),
+                                        );
+                                      }
+                                    },
+                              child: Text(strings.text('home.upload.bundle')),
+                            ),
+                          if (syncProvider != SyncProvider.off &&
+                              syncAuthState.isAuthenticated &&
+                              syncConflictWarning != null)
+                            FilledButton.tonal(
+                              onPressed: syncTransferState.isBusy
+                                  ? null
+                                  : () async {
+                                      final messenger = ScaffoldMessenger.of(
+                                        context,
+                                      );
+                                      final shouldForce =
+                                          await showDialog<bool>(
+                                            context: context,
+                                            builder: (context) {
+                                              return AlertDialog(
+                                                title: Text(
+                                                  strings.text(
+                                                    'home.force.upload.2',
+                                                  ),
+                                                ),
+                                                content: Text(
+                                                  strings.text(
+                                                    'home.a.newer.remote.bundle.was.found.while.this.device.still',
+                                                  ),
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.of(
+                                                          context,
+                                                        ).pop(false),
+                                                    child: Text(strings.cancel),
+                                                  ),
+                                                  FilledButton(
+                                                    onPressed: () =>
+                                                        Navigator.of(
+                                                          context,
+                                                        ).pop(true),
+                                                    child: Text(
+                                                      strings.text(
+                                                        'home.force.upload',
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              );
+                                            },
+                                          ) ??
+                                          false;
+                                      if (!shouldForce) {
+                                        return;
+                                      }
+                                      await ref
+                                          .read(
+                                            syncTransferControllerProvider
+                                                .notifier,
+                                          )
+                                          .uploadCurrentBundle(force: true);
+                                      if (!context.mounted) {
+                                        return;
+                                      }
+                                      final message = ref
+                                          .read(syncTransferControllerProvider)
+                                          .message;
+                                      if (message == null || message.isEmpty) {
+                                        return;
+                                      }
+                                      messenger.showSnackBar(
+                                        SnackBar(
+                                          showCloseIcon: true,
+                                          content: Text(message),
+                                        ),
+                                      );
+                                    },
+                              child: Text(strings.text('home.force.upload')),
+                            ),
                           if (syncProvider != SyncProvider.off &&
                               syncAuthState.isAuthenticated)
                             OutlinedButton(
@@ -4593,150 +4832,6 @@ class SettingsScreen extends ConsumerWidget {
                         .read(syncAuthControllerProvider.notifier)
                         .disconnectSelected(),
                     child: Text(_syncDisconnectLabel(context, syncProvider)),
-                  ),
-                OutlinedButton(
-                  key: syncRefreshRemoteKey,
-                  onPressed: syncTransferState.isBusy
-                      ? null
-                      : () async {
-                          final messenger = ScaffoldMessenger.of(context);
-                          try {
-                            await ref
-                                .read(syncTransferControllerProvider.notifier)
-                                .refreshRemoteStatus();
-                            if (!context.mounted) {
-                              return;
-                            }
-                            final message = ref
-                                .read(syncTransferControllerProvider)
-                                .message;
-                            if (message == null || message.isEmpty) {
-                              return;
-                            }
-                            messenger.showSnackBar(
-                              SnackBar(
-                                showCloseIcon: true,
-                                content: Text(message),
-                              ),
-                            );
-                          } catch (error) {
-                            if (!context.mounted) {
-                              return;
-                            }
-                            messenger.showSnackBar(
-                              SnackBar(
-                                showCloseIcon: true,
-                                content: Text('$error'),
-                              ),
-                            );
-                          }
-                        },
-                  child: Text(strings.text('home.refresh.remote')),
-                ),
-                if (syncProvider != SyncProvider.off &&
-                    syncAuthState.isAuthenticated)
-                  OutlinedButton(
-                    key: syncUploadBundleKey,
-                    onPressed:
-                        syncTransferState.isBusy || syncConflictWarning != null
-                        ? null
-                        : () async {
-                            final messenger = ScaffoldMessenger.of(context);
-                            try {
-                              await ref
-                                  .read(syncTransferControllerProvider.notifier)
-                                  .uploadCurrentBundle();
-                              if (!context.mounted) {
-                                return;
-                              }
-                              final message = ref
-                                  .read(syncTransferControllerProvider)
-                                  .message;
-                              if (message == null || message.isEmpty) {
-                                return;
-                              }
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  showCloseIcon: true,
-                                  content: Text(message),
-                                ),
-                              );
-                            } catch (error) {
-                              if (!context.mounted) {
-                                return;
-                              }
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  showCloseIcon: true,
-                                  content: Text('$error'),
-                                ),
-                              );
-                            }
-                          },
-                    child: Text(strings.text('home.upload.bundle')),
-                  ),
-                if (syncProvider != SyncProvider.off &&
-                    syncAuthState.isAuthenticated &&
-                    syncConflictWarning != null)
-                  FilledButton.tonal(
-                    onPressed: syncTransferState.isBusy
-                        ? null
-                        : () async {
-                            final messenger = ScaffoldMessenger.of(context);
-                            final shouldForce =
-                                await showDialog<bool>(
-                                  context: context,
-                                  builder: (context) {
-                                    return AlertDialog(
-                                      title: Text(
-                                        strings.text('home.force.upload.2'),
-                                      ),
-                                      content: Text(
-                                        strings.text(
-                                          'home.a.newer.remote.bundle.was.found.while.this.device.still',
-                                        ),
-                                      ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () =>
-                                              Navigator.of(context).pop(false),
-                                          child: Text(strings.cancel),
-                                        ),
-                                        FilledButton(
-                                          onPressed: () =>
-                                              Navigator.of(context).pop(true),
-                                          child: Text(
-                                            strings.text('home.force.upload'),
-                                          ),
-                                        ),
-                                      ],
-                                    );
-                                  },
-                                ) ??
-                                false;
-                            if (!shouldForce) {
-                              return;
-                            }
-                            await ref
-                                .read(syncTransferControllerProvider.notifier)
-                                .uploadCurrentBundle(force: true);
-                            if (!context.mounted) {
-                              return;
-                            }
-                            final message = ref
-                                .read(syncTransferControllerProvider)
-                                .message;
-                            if (message == null || message.isEmpty) {
-                              return;
-                            }
-                            messenger.showSnackBar(
-                              SnackBar(
-                                showCloseIcon: true,
-                                content: Text(message),
-                              ),
-                            );
-                          },
-                    child: Text(strings.text('home.force.upload')),
                   ),
               ],
             ),
