@@ -72,6 +72,19 @@ workflows:
             --dart-define=HIMEMO_BUILD_DATE="$(date -u +%Y-%m-%d)" \
             --build-number=$PROJECT_BUILD_NUMBER \
             --export-options-plist=/Users/builder/export_options.plist
+      - name: Verify production IPA entitlements
+        script: |
+          IPA_PATH="$(find build/ios/ipa -name '*.ipa' | head -n 1)"
+          if [ -z "$IPA_PATH" ]; then
+            echo "No IPA was produced."
+            exit 1
+          fi
+          VERIFY_DIR="$(mktemp -d)"
+          unzip -q "$IPA_PATH" -d "$VERIFY_DIR"
+          codesign -d --entitlements :- "$VERIFY_DIR/Payload/Runner.app" > "$VERIFY_DIR/entitlements.plist"
+          /usr/libexec/PlistBuddy -c "Print :com.apple.developer.icloud-services" "$VERIFY_DIR/entitlements.plist" | grep -q CloudKit
+          /usr/libexec/PlistBuddy -c "Print :com.apple.developer.icloud-container-identifiers" "$VERIFY_DIR/entitlements.plist" | grep -q iCloud.org.ruhenheim.himemo
+          rm -rf "$VERIFY_DIR"
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
@@ -152,6 +165,19 @@ workflows:
             --dart-define=HIMEMO_BUILD_DATE="$(date -u +%Y-%m-%d)" \
             --build-number=$PROJECT_BUILD_NUMBER \
             --export-options-plist=/Users/builder/export_options.plist
+      - name: Verify internal IPA entitlements
+        script: |
+          IPA_PATH="$(find build/ios/ipa -name '*.ipa' | head -n 1)"
+          if [ -z "$IPA_PATH" ]; then
+            echo "No IPA was produced."
+            exit 1
+          fi
+          VERIFY_DIR="$(mktemp -d)"
+          unzip -q "$IPA_PATH" -d "$VERIFY_DIR"
+          codesign -d --entitlements :- "$VERIFY_DIR/Payload/Runner.app" > "$VERIFY_DIR/entitlements.plist"
+          /usr/libexec/PlistBuddy -c "Print :com.apple.developer.icloud-services" "$VERIFY_DIR/entitlements.plist" | grep -q CloudKit
+          /usr/libexec/PlistBuddy -c "Print :com.apple.developer.icloud-container-identifiers" "$VERIFY_DIR/entitlements.plist" | grep -q iCloud.org.ruhenheim.himemo
+          rm -rf "$VERIFY_DIR"
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log

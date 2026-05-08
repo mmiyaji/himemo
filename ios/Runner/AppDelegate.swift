@@ -1,7 +1,6 @@
 import UIKit
 import Flutter
 import CloudKit
-import Security
 
 @UIApplicationMain
 @objc class AppDelegate: FlutterAppDelegate {
@@ -686,34 +685,10 @@ import Security
   }
 
   private func appHasCloudKitConfiguration() -> Bool {
-    if let signedStatus = signedCloudKitEntitlementStatus() {
-      return signedStatus
+    if let profileStatus = embeddedProvisioningProfileRequiresCloudKitConfiguration() {
+      return profileStatus
     }
-    return embeddedProvisioningProfileRequiresCloudKitConfiguration() == true
-  }
-
-  private func signedCloudKitEntitlementStatus() -> Bool? {
-    guard let task = SecTaskCreateFromSelf(kCFAllocatorDefault) else {
-      return nil
-    }
-    let servicesValue = SecTaskCopyValueForEntitlement(
-      task,
-      "com.apple.developer.icloud-services" as CFString,
-      nil
-    )
-    let containersValue = SecTaskCopyValueForEntitlement(
-      task,
-      "com.apple.developer.icloud-container-identifiers" as CFString,
-      nil
-    )
-    guard
-      let services = servicesValue as? [String],
-      let containers = containersValue as? [String]
-    else {
-      return false
-    }
-    return services.contains("CloudKit") &&
-      containers.contains(cloudKitContainerIdentifier)
+    return true
   }
 
   private func embeddedProvisioningProfileRequiresCloudKitConfiguration() -> Bool? {
