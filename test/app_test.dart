@@ -752,7 +752,7 @@ void main() {
     ]);
   });
 
-  test('private notes are sorted before normal notes', () async {
+  test('private notes do not override chronological sorting', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();
     final encryptionService = EncryptionService(random: Random(43));
@@ -800,6 +800,7 @@ void main() {
         title: 'Normal newer',
         body: '',
         createdAt: DateTime(2026, 5, 5, 10, 0),
+        updatedAt: DateTime(2026, 5, 5, 10, 0),
       ),
     );
     await controller.upsert(
@@ -809,12 +810,13 @@ void main() {
         title: 'Private older',
         body: '',
         createdAt: DateTime(2026, 5, 1, 10, 0),
+        updatedAt: DateTime(2026, 5, 1, 10, 0),
       ),
     );
 
     expect(container.read(notesControllerProvider).map((note) => note.id), [
-      'private-older',
       'normal-newer',
+      'private-older',
     ]);
   });
 

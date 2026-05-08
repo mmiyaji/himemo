@@ -5644,21 +5644,13 @@ class NotesController extends _$NotesController {
 
   void _sort(List<NoteEntry> notes) {
     notes.sort((left, right) {
-      final leftPrivate = isPrivateVaultId(left.vaultId);
-      final rightPrivate = isPrivateVaultId(right.vaultId);
-      if (leftPrivate != rightPrivate) {
-        return rightPrivate ? 1 : -1;
-      }
-      if (left.isPinned != right.isPinned) {
-        return right.isPinned ? 1 : -1;
-      }
-      final dateOrder = right.createdAt.compareTo(left.createdAt);
+      final leftMoment = left.updatedAt ?? left.createdAt;
+      final rightMoment = right.updatedAt ?? right.createdAt;
+      final dateOrder = rightMoment.compareTo(leftMoment);
       if (dateOrder != 0) {
         return dateOrder;
       }
-      return (right.updatedAt ?? right.createdAt).compareTo(
-        left.updatedAt ?? left.createdAt,
-      );
+      return right.createdAt.compareTo(left.createdAt);
     });
   }
 }
@@ -5923,10 +5915,6 @@ List<NoteEntry> visibleNotes(Ref ref) {
   final allNotes = ref.watch(notesControllerProvider);
   final visibleVaults = ref.watch(visibleVaultsProvider);
   final visibleIds = visibleVaults.map((vault) => vault.id).toSet();
-  final vaultOrder = <String, int>{
-    for (var index = 0; index < visibleVaults.length; index++)
-      visibleVaults[index].id: index,
-  };
   final query = ref.watch(searchQueryProvider).trim().toLowerCase();
   final filters = ref.watch(searchFiltersControllerProvider);
   final sortField = ref.watch(notesListSortControllerProvider);
@@ -5994,28 +5982,15 @@ List<NoteEntry> visibleNotes(Ref ref) {
       'visible notes source=${allNotes.length} result=${results.length} query=${query.isEmpty ? 0 : query.length} tags=${requiredTags.length} elapsed=${elapsed / 1000}ms',
     );
   }
-  results.sort(
-    (left, right) =>
-        _compareVisibleNotes(left, right, sortField, vaultOrder: vaultOrder),
-  );
+  results.sort((left, right) => _compareVisibleNotes(left, right, sortField));
   return List.unmodifiable(results);
 }
 
 int _compareVisibleNotes(
   NoteEntry left,
   NoteEntry right,
-  NotesListSortField sortField, {
-  required Map<String, int> vaultOrder,
-}) {
-  final vaultComparison = (vaultOrder[left.vaultId] ?? 0).compareTo(
-    vaultOrder[right.vaultId] ?? 0,
-  );
-  if (vaultComparison != 0) {
-    return vaultComparison;
-  }
-  if (left.isPinned != right.isPinned) {
-    return right.isPinned ? 1 : -1;
-  }
+  NotesListSortField sortField,
+) {
   final leftMoment = switch (sortField) {
     NotesListSortField.updatedAt => left.updatedAt ?? left.createdAt,
     NotesListSortField.createdAt => left.createdAt,
