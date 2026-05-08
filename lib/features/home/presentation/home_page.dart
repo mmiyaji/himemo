@@ -1175,10 +1175,10 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               backwards: false,
             );
             return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                child: FractionallySizedBox(
-                  heightFactor: 0.9,
+              child: SizedBox(
+                height: MediaQuery.sizeOf(context).height * 0.92,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -7879,7 +7879,68 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
   }
 }
 
-class _NoteDetailPane extends StatelessWidget {
+enum _NoteDetailAction { copy, share }
+
+Future<void> _handleNoteDetailAction(
+  BuildContext context,
+  NoteEntry note,
+  _NoteDetailAction action,
+) async {
+  final text = _shareTextForNote(note);
+  switch (action) {
+    case _NoteDetailAction.copy:
+      await Clipboard.setData(ClipboardData(text: text));
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(
+            context.strings.localized(
+              en: 'Note text copied.',
+              ja: 'メモのテキストをコピーしました。',
+              zh: '已复制笔记文本。',
+              ko: '메모 텍스트를 복사했습니다.',
+              es: 'Texto de la nota copiado.',
+              de: 'Notiztext kopiert.',
+            ),
+          ),
+        ),
+      );
+    case _NoteDetailAction.share:
+      await Share.share(text, subject: note.title);
+  }
+}
+
+String _shareTextForNote(NoteEntry note) {
+  final buffer = StringBuffer(note.title.trim());
+  final body = note.body.trim();
+  if (body.isNotEmpty && body != note.title.trim()) {
+    buffer
+      ..writeln()
+      ..writeln()
+      ..write(body);
+  }
+  if (note.tags.isNotEmpty) {
+    buffer
+      ..writeln()
+      ..writeln(note.tags.map((tag) => '#$tag').join(' '));
+  }
+  if (note.location != null) {
+    final location = note.location!;
+    buffer
+      ..writeln()
+      ..writeln(
+        location.address?.trim().isNotEmpty == true
+            ? location.address!.trim()
+            : '${location.latitude}, ${location.longitude}',
+      );
+  }
+  return buffer.toString().trim();
+}
+
+class _NoteDetailPane extends ConsumerWidget {
   const _NoteDetailPane({
     required this.note,
     required this.isActive,
@@ -7897,8 +7958,18 @@ class _NoteDetailPane extends StatelessWidget {
   final ValueChanged<String>? onTagTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
+    final note = ref.watch(
+      notesControllerProvider.select((notes) {
+        for (final candidate in notes) {
+          if (candidate.id == this.note.id) {
+            return candidate;
+          }
+        }
+        return this.note;
+      }),
+    );
     final createdLabel =
         '${note.createdAt.year}/${note.createdAt.month}/${note.createdAt.day} ${note.createdAt.hour.toString().padLeft(2, '0')}:${note.createdAt.minute.toString().padLeft(2, '0')}';
     final changedAt = note.updatedAt ?? note.createdAt;
@@ -7933,6 +8004,69 @@ class _NoteDetailPane extends StatelessWidget {
                           color: _mutedTextColor(context),
                         ),
                       ),
+                    ),
+                    IconButton(
+                      onPressed: () => ref
+                          .read(notesControllerProvider.notifier)
+                          .togglePinned(note.id),
+                      icon: Icon(
+                        note.isPinned
+                            ? Icons.push_pin_rounded
+                            : Icons.push_pin_outlined,
+                      ),
+                      tooltip: note.isPinned
+                          ? strings.localized(
+                              en: 'Unpin note',
+                              ja: 'ピン留めを解除',
+                              zh: '取消置顶',
+                              ko: '고정 해제',
+                              es: 'Desfijar nota',
+                              de: 'Notiz lösen',
+                            )
+                          : strings.pinThisNote,
+                    ),
+                    PopupMenuButton<_NoteDetailAction>(
+                      tooltip: strings.localized(
+                        en: 'Note actions',
+                        ja: 'メモ操作',
+                        zh: '笔记操作',
+                        ko: '메모 작업',
+                        es: 'Acciones de nota',
+                        de: 'Notizaktionen',
+                      ),
+                      icon: const Icon(Icons.more_horiz_rounded),
+                      onSelected: (action) =>
+                          _handleNoteDetailAction(context, note, action),
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: _NoteDetailAction.copy,
+                          child: _MediaMenuEntry(
+                            icon: Icons.content_copy_rounded,
+                            label: strings.localized(
+                              en: 'Copy text',
+                              ja: 'テキストをコピー',
+                              zh: '复制文本',
+                              ko: '텍스트 복사',
+                              es: 'Copiar texto',
+                              de: 'Text kopieren',
+                            ),
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: _NoteDetailAction.share,
+                          child: _MediaMenuEntry(
+                            icon: Icons.ios_share_rounded,
+                            label: strings.localized(
+                              en: 'Share',
+                              ja: '共有',
+                              zh: '分享',
+                              ko: '공유',
+                              es: 'Compartir',
+                              de: 'Teilen',
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     IconButton(
                       key: const Key('edit-note-button'),
@@ -9602,6 +9736,11 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                               onPressed: notifier.reset,
                               child: Text(strings.text('home.reset.filters')),
                             ),
+                          IconButton(
+                            onPressed: () => Navigator.of(sheetContext).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                            tooltip: strings.close,
+                          ),
                         ],
                       ),
                       const SizedBox(height: 8),
@@ -9869,13 +10008,6 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                         ),
                       ],
                       const SizedBox(height: 16),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: FilledButton(
-                          onPressed: () => Navigator.of(sheetContext).pop(),
-                          child: Text(strings.close),
-                        ),
-                      ),
                     ],
                   ),
                 ),

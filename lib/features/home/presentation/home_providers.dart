@@ -4640,6 +4640,33 @@ class NotesController extends _$NotesController {
     await _setArchiveState(noteId, archived: false);
   }
 
+  Future<void> togglePinned(String noteId) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final next = [...state];
+    for (var i = 0; i < next.length; i++) {
+      final note = next[i];
+      if (note.id != noteId || note.deletedAt != null) {
+        continue;
+      }
+      final now = DateTime.now();
+      final changed = note.copyWith(
+        isPinned: !note.isPinned,
+        updatedAt: now,
+        revision: note.revision + 1,
+        syncState: NoteSyncState.pendingUpload,
+      );
+      final prepared = changed.copyWith(
+        contentHash: _computeContentHash(changed),
+      );
+      next[i] = prepared;
+      _sort(next);
+      state = next;
+      await _persistOne(prepared);
+      return;
+    }
+  }
+
   Future<int> archiveNotesOlderThan(Duration age) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
