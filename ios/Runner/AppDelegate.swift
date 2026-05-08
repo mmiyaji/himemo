@@ -681,7 +681,7 @@ import CloudKit
     if embeddedProvisioningProfileRequiresCloudKitConfiguration() == false {
       return nil
     }
-    return CKContainer(identifier: cloudKitContainerIdentifier)
+    return CKContainer.default()
   }
 
   private func embeddedProvisioningProfileRequiresCloudKitConfiguration() -> Bool? {
