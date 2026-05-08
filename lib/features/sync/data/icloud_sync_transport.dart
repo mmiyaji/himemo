@@ -79,10 +79,8 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
   Future<ICloudAccountStatusResult> checkAccountStatus() async {
     await logFirebaseBreadcrumb('icloud cloudKitAccountStatus start');
     try {
-      final result = Map<String, dynamic>.from(
-        await _channel.invokeMapMethod<String, dynamic>(
-              'cloudKitAccountStatus',
-            ) ??
+      final result = _stringMapFrom(
+        await _channel.invokeMethod<dynamic>('cloudKitAccountStatus') ??
             const <String, dynamic>{},
       );
       final status = ICloudAccountStatusResult(
@@ -145,7 +143,7 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
       'limit': limit,
     });
     return result
-        .map((entry) => _statusFromMap(Map<String, dynamic>.from(entry as Map)))
+        .map((entry) => _statusFromMap(_stringMapFrom(entry)))
         .toList(growable: false);
   }
 
@@ -196,12 +194,12 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
   ]) async {
     final result = await _withCloudKitRetry(
       method,
-      () => _channel.invokeMapMethod<String, dynamic>(method, arguments),
+      () => _channel.invokeMethod<dynamic>(method, arguments),
     );
     if (result == null) {
       return null;
     }
-    return Map<String, dynamic>.from(result);
+    return _stringMapFrom(result);
   }
 
   Future<List<dynamic>> _invokeList(
@@ -308,9 +306,7 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
     Map<String, dynamic> map,
   ) {
     return DownloadedRemoteSyncBundle(
-      status: _statusFromMap(
-        Map<String, dynamic>.from(map['status'] as Map<String, dynamic>),
-      ),
+      status: _statusFromMap(_stringMapFrom(map['status'])),
       encodedPayload: map['encodedPayload'] as String? ?? '',
     );
   }
@@ -332,6 +328,13 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
       return null;
     }
     return DateTime.tryParse(value);
+  }
+
+  Map<String, dynamic> _stringMapFrom(Object? value) {
+    if (value is! Map) {
+      throw FormatException('Expected a CloudKit map response, got $value.');
+    }
+    return value.map((key, value) => MapEntry(key.toString(), value));
   }
 
   ICloudAccountAvailability _availabilityFromString(String? value) {
