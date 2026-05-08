@@ -2957,6 +2957,7 @@ class SettingsScreen extends ConsumerWidget {
       lastNoteEditorSettingsControllerProvider,
     );
     final notesListDensity = ref.watch(notesListDensityControllerProvider);
+    final notesListSortField = ref.watch(notesListSortControllerProvider);
     final widgetQuickCaptureEnabled = ref.watch(
       widgetQuickCaptureSettingsControllerProvider,
     );
@@ -3279,6 +3280,47 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () => ref
                   .read(notesListDensityControllerProvider.notifier)
                   .setDensity(NotesListDensity.compact),
+            ),
+            const SizedBox(height: 8),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Sort order',
+                ja: '表示順',
+                zh: '排序',
+                ko: '정렬',
+                es: 'Orden',
+                de: 'Sortierung',
+              ),
+            ),
+            _ThemeOptionTile(
+              title: _notesListSortLabel(strings, NotesListSortField.updatedAt),
+              subtitle: strings.localized(
+                en: 'Show recently edited notes first.',
+                ja: '最近変更したメモを上に表示します。',
+                zh: '优先显示最近编辑的笔记。',
+                ko: '최근 수정한 메모를 먼저 표시합니다.',
+                es: 'Muestra primero las notas editadas recientemente.',
+                de: 'Zeigt zuletzt bearbeitete Notizen zuerst.',
+              ),
+              selected: notesListSortField == NotesListSortField.updatedAt,
+              onTap: () => ref
+                  .read(notesListSortControllerProvider.notifier)
+                  .setSortField(NotesListSortField.updatedAt),
+            ),
+            _ThemeOptionTile(
+              title: _notesListSortLabel(strings, NotesListSortField.createdAt),
+              subtitle: strings.localized(
+                en: 'Keep the list ordered by when each note was created.',
+                ja: 'メモを作成日時の新しい順に表示します。',
+                zh: '按笔记创建时间排序。',
+                ko: '메모 생성 시각 기준으로 표시합니다.',
+                es: 'Ordena la lista por fecha de creación.',
+                de: 'Sortiert die Liste nach Erstellungszeit.',
+              ),
+              selected: notesListSortField == NotesListSortField.createdAt,
+              onTap: () => ref
+                  .read(notesListSortControllerProvider.notifier)
+                  .setSortField(NotesListSortField.createdAt),
             ),
             const SizedBox(height: 8),
             SwitchListTile.adaptive(
@@ -5920,6 +5962,27 @@ class SettingsScreen extends ConsumerWidget {
       AppColorTheme.edomurasaki => const Color(0xFF77428D),
       AppColorTheme.shion => const Color(0xFF8F77B5),
       AppColorTheme.rikyucha => const Color(0xFF897D55),
+    };
+  }
+
+  String _notesListSortLabel(AppStrings strings, NotesListSortField sortField) {
+    return switch (sortField) {
+      NotesListSortField.updatedAt => strings.localized(
+        en: 'Updated first',
+        ja: '更新順',
+        zh: '按更新时间',
+        ko: '수정순',
+        es: 'Actualizadas primero',
+        de: 'Zuletzt bearbeitet',
+      ),
+      NotesListSortField.createdAt => strings.localized(
+        en: 'Created first',
+        ja: '作成順',
+        zh: '按创建时间',
+        ko: '생성순',
+        es: 'Creadas primero',
+        de: 'Zuletzt erstellt',
+      ),
     };
   }
 }

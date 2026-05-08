@@ -163,6 +163,8 @@ const iOSFriendlyAppFontFamilies = <AppFontFamily>{
 
 enum NotesListDensity { standard, compact }
 
+enum NotesListSortField { updatedAt, createdAt }
+
 enum SyncProvider { off, iCloud, googleDrive }
 
 bool get isICloudSyncSupported =>
@@ -4458,6 +4460,39 @@ class NotesListDensityController extends _$NotesListDensityController {
 }
 
 @Riverpod(keepAlive: true)
+class NotesListSortController extends _$NotesListSortController {
+  static const _storageKey = 'notes.list_sort_field';
+  bool _restored = false;
+
+  @override
+  NotesListSortField build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return NotesListSortField.updatedAt;
+  }
+
+  Future<void> setSortField(NotesListSortField field) async {
+    state = field;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_storageKey, field.name);
+  }
+
+  Future<void> _restore() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_storageKey);
+    if (stored == null || stored.isEmpty) {
+      return;
+    }
+    state = NotesListSortField.values.firstWhere(
+      (field) => field.name == stored,
+      orElse: () => NotesListSortField.updatedAt,
+    );
+  }
+}
+
+@Riverpod(keepAlive: true)
 class LastNoteEditorSettingsController
     extends _$LastNoteEditorSettingsController {
   static const _modeKey = 'notes.last_editor_mode';
@@ -5346,6 +5381,11 @@ class NotesController extends _$NotesController {
 
   void _sort(List<NoteEntry> notes) {
     notes.sort((left, right) {
+      final leftPrivate = isPrivateVaultId(left.vaultId);
+      final rightPrivate = isPrivateVaultId(right.vaultId);
+      if (leftPrivate != rightPrivate) {
+        return rightPrivate ? 1 : -1;
+      }
       if (left.isPinned != right.isPinned) {
         return right.isPinned ? 1 : -1;
       }
@@ -5618,12 +5658,15 @@ List<VaultBucket> visibleVaults(Ref ref) {
 List<NoteEntry> visibleNotes(Ref ref) {
   final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
   final allNotes = ref.watch(notesControllerProvider);
-  final visibleIds = ref
-      .watch(visibleVaultsProvider)
-      .map((vault) => vault.id)
-      .toSet();
+  final visibleVaults = ref.watch(visibleVaultsProvider);
+  final visibleIds = visibleVaults.map((vault) => vault.id).toSet();
+  final vaultOrder = <String, int>{
+    for (var index = 0; index < visibleVaults.length; index++)
+      visibleVaults[index].id: index,
+  };
   final query = ref.watch(searchQueryProvider).trim().toLowerCase();
   final filters = ref.watch(searchFiltersControllerProvider);
+  final sortField = ref.watch(notesListSortControllerProvider);
   final searchIndex = query.isEmpty
       ? const <String, String>{}
       : ref.watch(noteSearchIndexProvider);
@@ -5688,7 +5731,41 @@ List<NoteEntry> visibleNotes(Ref ref) {
       'visible notes source=${allNotes.length} result=${results.length} query=${query.isEmpty ? 0 : query.length} tags=${requiredTags.length} elapsed=${elapsed / 1000}ms',
     );
   }
+  results.sort(
+    (left, right) =>
+        _compareVisibleNotes(left, right, sortField, vaultOrder: vaultOrder),
+  );
   return List.unmodifiable(results);
+}
+
+int _compareVisibleNotes(
+  NoteEntry left,
+  NoteEntry right,
+  NotesListSortField sortField, {
+  required Map<String, int> vaultOrder,
+}) {
+  final vaultComparison = (vaultOrder[left.vaultId] ?? 0).compareTo(
+    vaultOrder[right.vaultId] ?? 0,
+  );
+  if (vaultComparison != 0) {
+    return vaultComparison;
+  }
+  if (left.isPinned != right.isPinned) {
+    return right.isPinned ? 1 : -1;
+  }
+  final leftMoment = switch (sortField) {
+    NotesListSortField.updatedAt => left.updatedAt ?? left.createdAt,
+    NotesListSortField.createdAt => left.createdAt,
+  };
+  final rightMoment = switch (sortField) {
+    NotesListSortField.updatedAt => right.updatedAt ?? right.createdAt,
+    NotesListSortField.createdAt => right.createdAt,
+  };
+  final dateOrder = rightMoment.compareTo(leftMoment);
+  if (dateOrder != 0) {
+    return dateOrder;
+  }
+  return right.createdAt.compareTo(left.createdAt);
 }
 
 DateTime? _searchDateRangeStart(SearchDateRange range) {
