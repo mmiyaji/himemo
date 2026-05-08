@@ -681,7 +681,7 @@ import CloudKit
     if appHasCloudKitConfiguration() == false {
       return nil
     }
-    return CKContainer.default()
+    return CKContainer(identifier: cloudKitContainerIdentifier)
   }
 
   private func appHasCloudKitConfiguration() -> Bool {

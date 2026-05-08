@@ -82,8 +82,10 @@ workflows:
           VERIFY_DIR="$(mktemp -d)"
           unzip -q "$IPA_PATH" -d "$VERIFY_DIR"
           codesign -d --entitlements :- "$VERIFY_DIR/Payload/Runner.app" > "$VERIFY_DIR/entitlements.plist"
+          cat "$VERIFY_DIR/entitlements.plist"
           /usr/libexec/PlistBuddy -c "Print :com.apple.developer.icloud-services" "$VERIFY_DIR/entitlements.plist" | grep -q CloudKit
           /usr/libexec/PlistBuddy -c "Print :com.apple.developer.icloud-container-identifiers" "$VERIFY_DIR/entitlements.plist" | grep -q iCloud.org.ruhenheim.himemo
+          /usr/libexec/PlistBuddy -c "Print :com.apple.developer.icloud-container-environment" "$VERIFY_DIR/entitlements.plist" || true
           rm -rf "$VERIFY_DIR"
     artifacts:
       - build/ios/ipa/*.ipa
@@ -175,8 +177,10 @@ workflows:
           VERIFY_DIR="$(mktemp -d)"
           unzip -q "$IPA_PATH" -d "$VERIFY_DIR"
           codesign -d --entitlements :- "$VERIFY_DIR/Payload/Runner.app" > "$VERIFY_DIR/entitlements.plist"
+          cat "$VERIFY_DIR/entitlements.plist"
           /usr/libexec/PlistBuddy -c "Print :com.apple.developer.icloud-services" "$VERIFY_DIR/entitlements.plist" | grep -q CloudKit
           /usr/libexec/PlistBuddy -c "Print :com.apple.developer.icloud-container-identifiers" "$VERIFY_DIR/entitlements.plist" | grep -q iCloud.org.ruhenheim.himemo
+          /usr/libexec/PlistBuddy -c "Print :com.apple.developer.icloud-container-environment" "$VERIFY_DIR/entitlements.plist" || true
           rm -rf "$VERIFY_DIR"
     artifacts:
       - build/ios/ipa/*.ipa
