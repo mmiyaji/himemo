@@ -1,7 +1,6 @@
 import UIKit
 import Flutter
 import CloudKit
-import Security
 
 @UIApplicationMain
 @objc class AppDelegate: FlutterAppDelegate {
@@ -679,29 +678,42 @@ import Security
   }
 
   private func makeCloudKitContainer() -> CKContainer? {
-    guard
-      entitlementValues(for: "com.apple.developer.icloud-services")?.contains("CloudKit") == true,
-      entitlementValues(for: "com.apple.developer.icloud-container-identifiers")?.contains(cloudKitContainerIdentifier) == true
-    else {
+    if embeddedProvisioningProfileRequiresCloudKitConfiguration() == false {
       return nil
     }
     return CKContainer(identifier: cloudKitContainerIdentifier)
   }
 
-  private func entitlementValues(for key: String) -> [String]? {
+  private func embeddedProvisioningProfileRequiresCloudKitConfiguration() -> Bool? {
     guard
-      let task = SecTaskCreateFromSelf(nil),
-      let value = SecTaskCopyValueForEntitlement(task, key as CFString, nil)
+      let profileURL = Bundle.main.url(
+        forResource: "embedded",
+        withExtension: "mobileprovision"
+      ),
+      let profileData = try? Data(contentsOf: profileURL),
+      let profileText = String(data: profileData, encoding: .isoLatin1),
+      let plistStart = profileText.range(of: "<?xml"),
+      let plistEnd = profileText.range(of: "</plist>")
     else {
       return nil
     }
-    if let values = value as? [String] {
-      return values
+    let plistRange = plistStart.lowerBound..<plistEnd.upperBound
+    let plistString = String(profileText[plistRange])
+    guard
+      let plistData = plistString.data(using: .utf8),
+      let plist = try? PropertyListSerialization.propertyList(
+        from: plistData,
+        options: [],
+        format: nil
+      ) as? [String: Any],
+      let entitlements = plist["Entitlements"] as? [String: Any],
+      let services = entitlements["com.apple.developer.icloud-services"] as? [String],
+      let containers = entitlements["com.apple.developer.icloud-container-identifiers"] as? [String]
+    else {
+      return false
     }
-    if let value = value as? String {
-      return [value]
-    }
-    return nil
+    return services.contains("CloudKit") &&
+      containers.contains(cloudKitContainerIdentifier)
   }
 
   private func cloudKitConfigurationError() -> FlutterError {
