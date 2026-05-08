@@ -426,6 +426,59 @@ abstract class _$NotesListDensityController
   }
 }
 
+@ProviderFor(NotesListSortController)
+final notesListSortControllerProvider = NotesListSortControllerProvider._();
+
+final class NotesListSortControllerProvider
+    extends $NotifierProvider<NotesListSortController, NotesListSortField> {
+  NotesListSortControllerProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'notesListSortControllerProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$notesListSortControllerHash();
+
+  @$internal
+  @override
+  NotesListSortController create() => NotesListSortController();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(NotesListSortField value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<NotesListSortField>(value),
+    );
+  }
+}
+
+String _$notesListSortControllerHash() =>
+    r'58a4857acfee0c928f1f59a523f3c059e8db6f04';
+
+abstract class _$NotesListSortController extends $Notifier<NotesListSortField> {
+  NotesListSortField build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<NotesListSortField, NotesListSortField>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<NotesListSortField, NotesListSortField>,
+              NotesListSortField,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
 @ProviderFor(LastNoteEditorSettingsController)
 final lastNoteEditorSettingsControllerProvider =
     LastNoteEditorSettingsControllerProvider._();
@@ -519,7 +572,7 @@ final class NotesControllerProvider
   }
 }
 
-String _$notesControllerHash() => r'cfac0c4e5dcb4fc9330565c0450e04931b67b27f';
+String _$notesControllerHash() => r'c981a9d26da02d8ff25833b028caadeb715cfe5b';
 
 abstract class _$NotesController extends $Notifier<List<NoteEntry>> {
   List<NoteEntry> build();
@@ -720,7 +773,7 @@ final class VisibleVaultsProvider
   }
 }
 
-String _$visibleVaultsHash() => r'dffeea854922d6a79def2f972b41fbc8532d4392';
+String _$visibleVaultsHash() => r'9f89f1c3e27882cb99cb05b472b52014115ca5b2';
 
 @ProviderFor(visibleNotes)
 final visibleNotesProvider = VisibleNotesProvider._();
@@ -762,7 +815,7 @@ final class VisibleNotesProvider
   }
 }
 
-String _$visibleNotesHash() => r'4e004825463389e793458c3c9f6f0f7df7ca3e43';
+String _$visibleNotesHash() => r'35852faa825d271ff73ea00b3d339ae0d024bea0';
 
 @ProviderFor(visibleNoteYears)
 final visibleNoteYearsProvider = VisibleNoteYearsProvider._();
@@ -850,7 +903,7 @@ final class NoteSearchIndexProvider
   }
 }
 
-String _$noteSearchIndexHash() => r'fb4ef05c09aeafc00c62da4dfdfe89ed05d7cbd4';
+String _$noteSearchIndexHash() => r'301a44c758c248de44d84b54dd8e486fcbd51380';
 
 @ProviderFor(visibleTagSuggestions)
 final visibleTagSuggestionsProvider = VisibleTagSuggestionsProvider._();
@@ -1036,7 +1089,7 @@ final class VisibleNotesByDayProvider
   }
 }
 
-String _$visibleNotesByDayHash() => r'7411fb3d1da028b625cb0dd0ee8bcce0095696fe';
+String _$visibleNotesByDayHash() => r'fe52c8564c6fcf40ee305b44463002a4f5c17f60';
 
 @ProviderFor(visibleNoteDays)
 final visibleNoteDaysProvider = VisibleNoteDaysProvider._();

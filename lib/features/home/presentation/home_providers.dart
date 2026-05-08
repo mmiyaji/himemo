@@ -163,6 +163,8 @@ const iOSFriendlyAppFontFamilies = <AppFontFamily>{
 
 enum NotesListDensity { standard, compact }
 
+enum NotesListSortField { updatedAt, createdAt }
+
 enum SyncProvider { off, iCloud, googleDrive }
 
 bool get isICloudSyncSupported =>
@@ -3411,6 +3413,71 @@ class ThemeModeController extends _$ThemeModeController {
   }
 }
 
+final effectiveThemeModeProvider = Provider<ThemeMode>((ref) {
+  final defaultMode = ref.watch(themeModeControllerProvider);
+  final activeScope = ref.watch(activeColorThemeScopeProvider);
+  if (activeScope == defaultColorThemeScope) {
+    return defaultMode;
+  }
+  return ref.watch(profileThemeModeControllerProvider)[activeScope] ??
+      defaultMode;
+});
+
+final profileThemeModeControllerProvider =
+    NotifierProvider<ProfileThemeModeController, Map<String, ThemeMode>>(
+      ProfileThemeModeController.new,
+    );
+
+class ProfileThemeModeController extends Notifier<Map<String, ThemeMode>> {
+  static const _storageKey = 'settings.profile_theme_modes';
+  bool _restored = false;
+
+  @override
+  Map<String, ThemeMode> build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return const <String, ThemeMode>{};
+  }
+
+  Future<void> setMode(String scope, ThemeMode mode) async {
+    if (scope == defaultColorThemeScope) {
+      return;
+    }
+    state = {...state, scope: mode};
+    await _persist();
+  }
+
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_storageKey);
+      if (stored == null || stored.isEmpty) {
+        return;
+      }
+      final decoded = Map<String, dynamic>.from(
+        jsonDecode(stored) as Map<String, dynamic>,
+      );
+      state = {
+        for (final entry in decoded.entries)
+          if (_themeModeFromName(entry.value as String?) != null)
+            entry.key: _themeModeFromName(entry.value as String?)!,
+      };
+    } catch (_) {}
+  }
+
+  Future<void> _persist() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode({
+        for (final entry in state.entries) entry.key: entry.value.name,
+      });
+      await prefs.setString(_storageKey, encoded);
+    } catch (_) {}
+  }
+}
+
 final appColorThemeControllerProvider =
     NotifierProvider<AppColorThemeController, AppColorTheme>(
       AppColorThemeController.new,
@@ -3457,6 +3524,71 @@ class AppFontFamilyController extends Notifier<AppFontFamily> {
       state = iOSFriendlyAppFontFamilies.contains(restored)
           ? restored
           : AppFontFamily.system;
+    } catch (_) {}
+  }
+}
+
+final effectiveAppFontFamilyProvider = Provider<AppFontFamily>((ref) {
+  final defaultFont = ref.watch(appFontFamilyControllerProvider);
+  final activeScope = ref.watch(activeColorThemeScopeProvider);
+  if (activeScope == defaultColorThemeScope) {
+    return defaultFont;
+  }
+  return ref.watch(profileFontFamilyControllerProvider)[activeScope] ??
+      defaultFont;
+});
+
+final profileFontFamilyControllerProvider =
+    NotifierProvider<ProfileFontFamilyController, Map<String, AppFontFamily>>(
+      ProfileFontFamilyController.new,
+    );
+
+class ProfileFontFamilyController extends Notifier<Map<String, AppFontFamily>> {
+  static const _storageKey = 'settings.profile_font_families';
+  bool _restored = false;
+
+  @override
+  Map<String, AppFontFamily> build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return const <String, AppFontFamily>{};
+  }
+
+  Future<void> setFont(String scope, AppFontFamily font) async {
+    if (scope == defaultColorThemeScope) {
+      return;
+    }
+    state = {...state, scope: font};
+    await _persist();
+  }
+
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_storageKey);
+      if (stored == null || stored.isEmpty) {
+        return;
+      }
+      final decoded = Map<String, dynamic>.from(
+        jsonDecode(stored) as Map<String, dynamic>,
+      );
+      state = {
+        for (final entry in decoded.entries)
+          if (_fontFamilyFromName(entry.value as String?) != null)
+            entry.key: _fontFamilyFromName(entry.value as String?)!,
+      };
+    } catch (_) {}
+  }
+
+  Future<void> _persist() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode({
+        for (final entry in state.entries) entry.key: entry.value.name,
+      });
+      await prefs.setString(_storageKey, encoded);
     } catch (_) {}
   }
 }
@@ -3641,6 +3773,107 @@ class AppLocaleController extends Notifier<AppLocaleSetting> {
         ? AppLocaleSetting.japanese
         : AppLocaleSetting.english;
   }
+}
+
+final effectiveAppLocaleProvider = Provider<AppLocaleSetting>((ref) {
+  final defaultLocale = ref.watch(appLocaleControllerProvider);
+  final activeScope = ref.watch(activeColorThemeScopeProvider);
+  if (activeScope == defaultColorThemeScope) {
+    return defaultLocale;
+  }
+  return ref.watch(profileLocaleControllerProvider)[activeScope] ??
+      defaultLocale;
+});
+
+final profileLocaleControllerProvider =
+    NotifierProvider<ProfileLocaleController, Map<String, AppLocaleSetting>>(
+      ProfileLocaleController.new,
+    );
+
+class ProfileLocaleController extends Notifier<Map<String, AppLocaleSetting>> {
+  static const _storageKey = 'settings.profile_locales';
+  bool _restored = false;
+
+  @override
+  Map<String, AppLocaleSetting> build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return const <String, AppLocaleSetting>{};
+  }
+
+  Future<void> setLocale(String scope, AppLocaleSetting locale) async {
+    if (scope == defaultColorThemeScope) {
+      return;
+    }
+    state = {...state, scope: locale};
+    await _persist();
+  }
+
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_storageKey);
+      if (stored == null || stored.isEmpty) {
+        return;
+      }
+      final decoded = Map<String, dynamic>.from(
+        jsonDecode(stored) as Map<String, dynamic>,
+      );
+      state = {
+        for (final entry in decoded.entries)
+          if (_localeSettingFromName(entry.value as String?) != null)
+            entry.key: _localeSettingFromName(entry.value as String?)!,
+      };
+    } catch (_) {}
+  }
+
+  Future<void> _persist() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode({
+        for (final entry in state.entries) entry.key: entry.value.name,
+      });
+      await prefs.setString(_storageKey, encoded);
+    } catch (_) {}
+  }
+}
+
+ThemeMode? _themeModeFromName(String? value) {
+  if (value == null) {
+    return null;
+  }
+  for (final mode in ThemeMode.values) {
+    if (mode.name == value) {
+      return mode;
+    }
+  }
+  return null;
+}
+
+AppFontFamily? _fontFamilyFromName(String? value) {
+  if (value == null) {
+    return null;
+  }
+  for (final font in AppFontFamily.values) {
+    if (font.name == value && iOSFriendlyAppFontFamilies.contains(font)) {
+      return font;
+    }
+  }
+  return null;
+}
+
+AppLocaleSetting? _localeSettingFromName(String? value) {
+  if (value == null) {
+    return null;
+  }
+  for (final locale in AppLocaleSetting.values) {
+    if (locale.name == value) {
+      return locale;
+    }
+  }
+  return null;
 }
 
 final appLockSettingsControllerProvider =
@@ -4227,6 +4460,39 @@ class NotesListDensityController extends _$NotesListDensityController {
 }
 
 @Riverpod(keepAlive: true)
+class NotesListSortController extends _$NotesListSortController {
+  static const _storageKey = 'notes.list_sort_field';
+  bool _restored = false;
+
+  @override
+  NotesListSortField build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return NotesListSortField.updatedAt;
+  }
+
+  Future<void> setSortField(NotesListSortField field) async {
+    state = field;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_storageKey, field.name);
+  }
+
+  Future<void> _restore() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_storageKey);
+    if (stored == null || stored.isEmpty) {
+      return;
+    }
+    state = NotesListSortField.values.firstWhere(
+      (field) => field.name == stored,
+      orElse: () => NotesListSortField.updatedAt,
+    );
+  }
+}
+
+@Riverpod(keepAlive: true)
 class LastNoteEditorSettingsController
     extends _$LastNoteEditorSettingsController {
   static const _modeKey = 'notes.last_editor_mode';
@@ -4372,6 +4638,33 @@ class NotesController extends _$NotesController {
 
   Future<void> unarchive(String noteId) async {
     await _setArchiveState(noteId, archived: false);
+  }
+
+  Future<void> togglePinned(String noteId) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final next = [...state];
+    for (var i = 0; i < next.length; i++) {
+      final note = next[i];
+      if (note.id != noteId || note.deletedAt != null) {
+        continue;
+      }
+      final now = DateTime.now();
+      final changed = note.copyWith(
+        isPinned: !note.isPinned,
+        updatedAt: now,
+        revision: note.revision + 1,
+        syncState: NoteSyncState.pendingUpload,
+      );
+      final prepared = changed.copyWith(
+        contentHash: _computeContentHash(changed),
+      );
+      next[i] = prepared;
+      _sort(next);
+      state = next;
+      await _persistOne(prepared);
+      return;
+    }
   }
 
   Future<int> archiveNotesOlderThan(Duration age) async {
@@ -5115,6 +5408,11 @@ class NotesController extends _$NotesController {
 
   void _sort(List<NoteEntry> notes) {
     notes.sort((left, right) {
+      final leftPrivate = isPrivateVaultId(left.vaultId);
+      final rightPrivate = isPrivateVaultId(right.vaultId);
+      if (leftPrivate != rightPrivate) {
+        return rightPrivate ? 1 : -1;
+      }
       if (left.isPinned != right.isPinned) {
         return right.isPinned ? 1 : -1;
       }
@@ -5387,12 +5685,15 @@ List<VaultBucket> visibleVaults(Ref ref) {
 List<NoteEntry> visibleNotes(Ref ref) {
   final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
   final allNotes = ref.watch(notesControllerProvider);
-  final visibleIds = ref
-      .watch(visibleVaultsProvider)
-      .map((vault) => vault.id)
-      .toSet();
+  final visibleVaults = ref.watch(visibleVaultsProvider);
+  final visibleIds = visibleVaults.map((vault) => vault.id).toSet();
+  final vaultOrder = <String, int>{
+    for (var index = 0; index < visibleVaults.length; index++)
+      visibleVaults[index].id: index,
+  };
   final query = ref.watch(searchQueryProvider).trim().toLowerCase();
   final filters = ref.watch(searchFiltersControllerProvider);
+  final sortField = ref.watch(notesListSortControllerProvider);
   final searchIndex = query.isEmpty
       ? const <String, String>{}
       : ref.watch(noteSearchIndexProvider);
@@ -5457,7 +5758,41 @@ List<NoteEntry> visibleNotes(Ref ref) {
       'visible notes source=${allNotes.length} result=${results.length} query=${query.isEmpty ? 0 : query.length} tags=${requiredTags.length} elapsed=${elapsed / 1000}ms',
     );
   }
+  results.sort(
+    (left, right) =>
+        _compareVisibleNotes(left, right, sortField, vaultOrder: vaultOrder),
+  );
   return List.unmodifiable(results);
+}
+
+int _compareVisibleNotes(
+  NoteEntry left,
+  NoteEntry right,
+  NotesListSortField sortField, {
+  required Map<String, int> vaultOrder,
+}) {
+  final vaultComparison = (vaultOrder[left.vaultId] ?? 0).compareTo(
+    vaultOrder[right.vaultId] ?? 0,
+  );
+  if (vaultComparison != 0) {
+    return vaultComparison;
+  }
+  if (left.isPinned != right.isPinned) {
+    return right.isPinned ? 1 : -1;
+  }
+  final leftMoment = switch (sortField) {
+    NotesListSortField.updatedAt => left.updatedAt ?? left.createdAt,
+    NotesListSortField.createdAt => left.createdAt,
+  };
+  final rightMoment = switch (sortField) {
+    NotesListSortField.updatedAt => right.updatedAt ?? right.createdAt,
+    NotesListSortField.createdAt => right.createdAt,
+  };
+  final dateOrder = rightMoment.compareTo(leftMoment);
+  if (dateOrder != 0) {
+    return dateOrder;
+  }
+  return right.createdAt.compareTo(left.createdAt);
 }
 
 DateTime? _searchDateRangeStart(SearchDateRange range) {

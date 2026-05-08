@@ -1175,10 +1175,10 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               backwards: false,
             );
             return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                child: FractionallySizedBox(
-                  heightFactor: 0.9,
+              child: SizedBox(
+                height: MediaQuery.sizeOf(context).height * 0.92,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -2936,14 +2936,20 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
     final activeIdentity = ref.watch(activeIdentityProvider);
-    final themeMode = ref.watch(themeModeControllerProvider);
+    final activeThemeMode = ref.watch(effectiveThemeModeProvider);
     final activeColorTheme = ref.watch(effectiveAppColorThemeProvider);
     final activeColorThemeScope = ref.watch(activeColorThemeScopeProvider);
     final colorThemeSettingsScope = ref.watch(colorThemeSettingsScopeProvider);
+    final defaultThemeMode = ref.watch(themeModeControllerProvider);
     final defaultColorTheme = ref.watch(appColorThemeControllerProvider);
+    final profileThemeModes = ref.watch(profileThemeModeControllerProvider);
     final profileColorThemes = ref.watch(profileColorThemeControllerProvider);
-    final fontFamily = ref.watch(appFontFamilyControllerProvider);
-    final localeSetting = ref.watch(appLocaleControllerProvider);
+    final defaultFontFamily = ref.watch(appFontFamilyControllerProvider);
+    final profileFontFamilies = ref.watch(profileFontFamilyControllerProvider);
+    final defaultLocaleSetting = ref.watch(appLocaleControllerProvider);
+    final profileLocales = ref.watch(profileLocaleControllerProvider);
+    final activeFontFamily = ref.watch(effectiveAppFontFamilyProvider);
+    final activeLocaleSetting = ref.watch(effectiveAppLocaleProvider);
     final appLockEnabled = ref.watch(appLockSettingsControllerProvider);
     final appLockRelockDelay = ref.watch(appLockRelockDelayControllerProvider);
     final appSessionUnlocked = ref.watch(appSessionUnlockControllerProvider);
@@ -2951,6 +2957,7 @@ class SettingsScreen extends ConsumerWidget {
       lastNoteEditorSettingsControllerProvider,
     );
     final notesListDensity = ref.watch(notesListDensityControllerProvider);
+    final notesListSortField = ref.watch(notesListSortControllerProvider);
     final widgetQuickCaptureEnabled = ref.watch(
       widgetQuickCaptureSettingsControllerProvider,
     );
@@ -3044,12 +3051,13 @@ class SettingsScreen extends ConsumerWidget {
       es: '$memoEditorModeLabel / $memoListDensityLabel / Ubicación: $memoLocationLabel',
       de: '$memoEditorModeLabel / $memoListDensityLabel / Standort: $memoLocationLabel',
     );
-    final effectiveFontFamily = _availableFontFamilies.contains(fontFamily)
-        ? fontFamily
+    final effectiveFontFamily =
+        _availableFontFamilies.contains(activeFontFamily)
+        ? activeFontFamily
         : AppFontFamily.system;
     final appearanceSummary = strings.appearanceSummary(
-      language: _localeSettingLabel(context, localeSetting),
-      theme: _themeModeLabel(context, themeMode),
+      language: _localeSettingLabel(context, activeLocaleSetting),
+      theme: _themeModeLabel(context, activeThemeMode),
       font: _fontFamilyLabel(context, effectiveFontFamily),
       color: _colorThemeLabel(context, activeColorTheme),
     );
@@ -3085,6 +3093,16 @@ class SettingsScreen extends ConsumerWidget {
     final selectedColorTheme = resolvedColorThemeScope == defaultColorThemeScope
         ? defaultColorTheme
         : (profileColorThemes[resolvedColorThemeScope] ?? defaultColorTheme);
+    final selectedThemeMode = resolvedColorThemeScope == defaultColorThemeScope
+        ? defaultThemeMode
+        : (profileThemeModes[resolvedColorThemeScope] ?? defaultThemeMode);
+    final selectedFontFamily = resolvedColorThemeScope == defaultColorThemeScope
+        ? defaultFontFamily
+        : (profileFontFamilies[resolvedColorThemeScope] ?? defaultFontFamily);
+    final selectedLocaleSetting =
+        resolvedColorThemeScope == defaultColorThemeScope
+        ? defaultLocaleSetting
+        : (profileLocales[resolvedColorThemeScope] ?? defaultLocaleSetting);
     final aboutVersion = packageInfo.when(
       data: (info) => info.displayVersion,
       loading: strings.readingVersion,
@@ -3137,7 +3155,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             _SettingsOverviewItem(
               label: strings.text('home.theme'),
-              value: _themeModeLabel(context, themeMode),
+              value: _themeModeLabel(context, activeThemeMode),
               assetPath: 'assets/settings/appearance.svg',
             ),
           ],
@@ -3147,13 +3165,13 @@ class SettingsScreen extends ConsumerWidget {
           context: context,
           ref: ref,
           strings: strings,
-          localeSetting: localeSetting,
-          themeMode: themeMode,
-          fontFamily: fontFamily,
+          localeSetting: selectedLocaleSetting,
+          themeMode: selectedThemeMode,
+          fontFamily: selectedFontFamily,
           colorTheme: selectedColorTheme,
-          colorThemeScope: resolvedColorThemeScope,
-          colorThemeTargets: colorThemeTargets,
-          colorThemeTargetLabel: colorThemeTargetLabel,
+          appearanceScope: resolvedColorThemeScope,
+          appearanceScopeTargets: colorThemeTargets,
+          appearanceScopeLabel: colorThemeTargetLabel,
           appearanceSummary: appearanceSummary,
         ),
         const SizedBox(height: 16),
@@ -3262,6 +3280,47 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () => ref
                   .read(notesListDensityControllerProvider.notifier)
                   .setDensity(NotesListDensity.compact),
+            ),
+            const SizedBox(height: 8),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Sort order',
+                ja: '表示順',
+                zh: '排序',
+                ko: '정렬',
+                es: 'Orden',
+                de: 'Sortierung',
+              ),
+            ),
+            _ThemeOptionTile(
+              title: _notesListSortLabel(strings, NotesListSortField.updatedAt),
+              subtitle: strings.localized(
+                en: 'Show recently edited notes first.',
+                ja: '最近変更したメモを上に表示します。',
+                zh: '优先显示最近编辑的笔记。',
+                ko: '최근 수정한 메모를 먼저 표시합니다.',
+                es: 'Muestra primero las notas editadas recientemente.',
+                de: 'Zeigt zuletzt bearbeitete Notizen zuerst.',
+              ),
+              selected: notesListSortField == NotesListSortField.updatedAt,
+              onTap: () => ref
+                  .read(notesListSortControllerProvider.notifier)
+                  .setSortField(NotesListSortField.updatedAt),
+            ),
+            _ThemeOptionTile(
+              title: _notesListSortLabel(strings, NotesListSortField.createdAt),
+              subtitle: strings.localized(
+                en: 'Keep the list ordered by when each note was created.',
+                ja: 'メモを作成日時の新しい順に表示します。',
+                zh: '按笔记创建时间排序。',
+                ko: '메모 생성 시각 기준으로 표시합니다.',
+                es: 'Ordena la lista por fecha de creación.',
+                de: 'Sortiert die Liste nach Erstellungszeit.',
+              ),
+              selected: notesListSortField == NotesListSortField.createdAt,
+              onTap: () => ref
+                  .read(notesListSortControllerProvider.notifier)
+                  .setSortField(NotesListSortField.createdAt),
             ),
             const SizedBox(height: 8),
             SwitchListTile.adaptive(
@@ -5077,9 +5136,9 @@ class SettingsScreen extends ConsumerWidget {
     required ThemeMode themeMode,
     required AppFontFamily fontFamily,
     required AppColorTheme colorTheme,
-    required String colorThemeScope,
-    required List<_ColorThemeScopeOption> colorThemeTargets,
-    required String colorThemeTargetLabel,
+    required String appearanceScope,
+    required List<_ColorThemeScopeOption> appearanceScopeTargets,
+    required String appearanceScopeLabel,
     required String appearanceSummary,
   }) {
     final effectiveFontFamily = _availableFontFamilies.contains(fontFamily)
@@ -5149,7 +5208,7 @@ class SettingsScreen extends ConsumerWidget {
             if (value == null || value == localeSetting) {
               return;
             }
-            ref.read(appLocaleControllerProvider.notifier).setLocale(value);
+            _setLocaleForScope(ref, appearanceScope, value);
           },
         ),
         const Divider(height: 24),
@@ -5182,7 +5241,7 @@ class SettingsScreen extends ConsumerWidget {
             if (value == null || value == effectiveFontFamily) {
               return;
             }
-            ref.read(appFontFamilyControllerProvider.notifier).setFont(value);
+            _setFontForScope(ref, appearanceScope, value);
           },
         ),
         const Divider(height: 24),
@@ -5191,47 +5250,51 @@ class SettingsScreen extends ConsumerWidget {
           title: strings.themeLight,
           subtitle: strings.lightDesc,
           selected: themeMode == ThemeMode.light,
-          onTap: () => ref
-              .read(themeModeControllerProvider.notifier)
-              .setMode(ThemeMode.light),
+          onTap: () =>
+              _setThemeModeForScope(ref, appearanceScope, ThemeMode.light),
         ),
         _ThemeOptionTile(
           tileKey: systemThemeKey,
           title: strings.themeSystem,
           subtitle: strings.systemDesc,
           selected: themeMode == ThemeMode.system,
-          onTap: () => ref
-              .read(themeModeControllerProvider.notifier)
-              .setMode(ThemeMode.system),
+          onTap: () =>
+              _setThemeModeForScope(ref, appearanceScope, ThemeMode.system),
         ),
         _ThemeOptionTile(
           tileKey: darkThemeKey,
           title: strings.themeDark,
           subtitle: strings.darkDesc,
           selected: themeMode == ThemeMode.dark,
-          onTap: () => ref
-              .read(themeModeControllerProvider.notifier)
-              .setMode(ThemeMode.dark),
+          onTap: () =>
+              _setThemeModeForScope(ref, appearanceScope, ThemeMode.dark),
         ),
         const Divider(height: 24),
-        if (colorThemeTargets.length > 1) ...[
+        if (appearanceScopeTargets.length > 1) ...[
           DropdownButtonFormField<String>(
-            initialValue: colorThemeScope,
+            initialValue: appearanceScope,
             isExpanded: true,
             decoration: InputDecoration(
               border: const OutlineInputBorder(),
-              labelText: strings.accentColor,
+              labelText: strings.localized(
+                en: 'Settings target',
+                ja: '設定先',
+                zh: '设置目标',
+                ko: '설정 대상',
+                es: 'Destino de ajustes',
+                de: 'Einstellungsziel',
+              ),
               prefixIcon: const Icon(Icons.palette_outlined),
             ),
             items: [
-              for (final target in colorThemeTargets)
+              for (final target in appearanceScopeTargets)
                 DropdownMenuItem(
                   value: target.scope,
                   child: Text(target.label),
                 ),
             ],
             onChanged: (value) {
-              if (value == null || value == colorThemeScope) {
+              if (value == null || value == appearanceScope) {
                 return;
               }
               ref.read(colorThemeSettingsScopeProvider.notifier).select(value);
@@ -5245,7 +5308,7 @@ class SettingsScreen extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '${strings.accentColor} ($colorThemeTargetLabel)',
+                '${strings.accentColor} ($appearanceScopeLabel)',
                 style: Theme.of(context).textTheme.labelLarge,
               ),
               const SizedBox(height: 4),
@@ -5303,7 +5366,7 @@ class SettingsScreen extends ConsumerWidget {
           subtitleFor: (theme) => _colorThemeDescription(context, theme),
           sampleColorFor: _themeSampleColor,
           onSelect: (theme) =>
-              _setColorThemeForScope(ref, colorThemeScope, theme),
+              _setColorThemeForScope(ref, appearanceScope, theme),
         ),
       ],
     );
@@ -5828,6 +5891,45 @@ class SettingsScreen extends ConsumerWidget {
         .setTheme(scope, theme);
   }
 
+  Future<void> _setThemeModeForScope(
+    WidgetRef ref,
+    String scope,
+    ThemeMode mode,
+  ) {
+    if (scope == defaultColorThemeScope) {
+      return ref.read(themeModeControllerProvider.notifier).setMode(mode);
+    }
+    return ref
+        .read(profileThemeModeControllerProvider.notifier)
+        .setMode(scope, mode);
+  }
+
+  Future<void> _setLocaleForScope(
+    WidgetRef ref,
+    String scope,
+    AppLocaleSetting locale,
+  ) {
+    if (scope == defaultColorThemeScope) {
+      return ref.read(appLocaleControllerProvider.notifier).setLocale(locale);
+    }
+    return ref
+        .read(profileLocaleControllerProvider.notifier)
+        .setLocale(scope, locale);
+  }
+
+  Future<void> _setFontForScope(
+    WidgetRef ref,
+    String scope,
+    AppFontFamily font,
+  ) {
+    if (scope == defaultColorThemeScope) {
+      return ref.read(appFontFamilyControllerProvider.notifier).setFont(font);
+    }
+    return ref
+        .read(profileFontFamilyControllerProvider.notifier)
+        .setFont(scope, font);
+  }
+
   Color _themeSampleColor(AppColorTheme theme) {
     return switch (theme) {
       AppColorTheme.konjyo => const Color(0xFF113285),
@@ -5860,6 +5962,27 @@ class SettingsScreen extends ConsumerWidget {
       AppColorTheme.edomurasaki => const Color(0xFF77428D),
       AppColorTheme.shion => const Color(0xFF8F77B5),
       AppColorTheme.rikyucha => const Color(0xFF897D55),
+    };
+  }
+
+  String _notesListSortLabel(AppStrings strings, NotesListSortField sortField) {
+    return switch (sortField) {
+      NotesListSortField.updatedAt => strings.localized(
+        en: 'Updated first',
+        ja: '更新順',
+        zh: '按更新时间',
+        ko: '수정순',
+        es: 'Actualizadas primero',
+        de: 'Zuletzt bearbeitet',
+      ),
+      NotesListSortField.createdAt => strings.localized(
+        en: 'Created first',
+        ja: '作成順',
+        zh: '按创建时间',
+        ko: '생성순',
+        es: 'Creadas primero',
+        de: 'Zuletzt erstellt',
+      ),
     };
   }
 }
@@ -7756,7 +7879,68 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
   }
 }
 
-class _NoteDetailPane extends StatelessWidget {
+enum _NoteDetailAction { copy, share }
+
+Future<void> _handleNoteDetailAction(
+  BuildContext context,
+  NoteEntry note,
+  _NoteDetailAction action,
+) async {
+  final text = _shareTextForNote(note);
+  switch (action) {
+    case _NoteDetailAction.copy:
+      await Clipboard.setData(ClipboardData(text: text));
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(
+            context.strings.localized(
+              en: 'Note text copied.',
+              ja: 'メモのテキストをコピーしました。',
+              zh: '已复制笔记文本。',
+              ko: '메모 텍스트를 복사했습니다.',
+              es: 'Texto de la nota copiado.',
+              de: 'Notiztext kopiert.',
+            ),
+          ),
+        ),
+      );
+    case _NoteDetailAction.share:
+      await Share.share(text, subject: note.title);
+  }
+}
+
+String _shareTextForNote(NoteEntry note) {
+  final buffer = StringBuffer(note.title.trim());
+  final body = note.body.trim();
+  if (body.isNotEmpty && body != note.title.trim()) {
+    buffer
+      ..writeln()
+      ..writeln()
+      ..write(body);
+  }
+  if (note.tags.isNotEmpty) {
+    buffer
+      ..writeln()
+      ..writeln(note.tags.map((tag) => '#$tag').join(' '));
+  }
+  if (note.location != null) {
+    final location = note.location!;
+    buffer
+      ..writeln()
+      ..writeln(
+        location.address?.trim().isNotEmpty == true
+            ? location.address!.trim()
+            : '${location.latitude}, ${location.longitude}',
+      );
+  }
+  return buffer.toString().trim();
+}
+
+class _NoteDetailPane extends ConsumerWidget {
   const _NoteDetailPane({
     required this.note,
     required this.isActive,
@@ -7774,8 +7958,18 @@ class _NoteDetailPane extends StatelessWidget {
   final ValueChanged<String>? onTagTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
+    final note = ref.watch(
+      notesControllerProvider.select((notes) {
+        for (final candidate in notes) {
+          if (candidate.id == this.note.id) {
+            return candidate;
+          }
+        }
+        return this.note;
+      }),
+    );
     final createdLabel =
         '${note.createdAt.year}/${note.createdAt.month}/${note.createdAt.day} ${note.createdAt.hour.toString().padLeft(2, '0')}:${note.createdAt.minute.toString().padLeft(2, '0')}';
     final changedAt = note.updatedAt ?? note.createdAt;
@@ -7810,6 +8004,69 @@ class _NoteDetailPane extends StatelessWidget {
                           color: _mutedTextColor(context),
                         ),
                       ),
+                    ),
+                    IconButton(
+                      onPressed: () => ref
+                          .read(notesControllerProvider.notifier)
+                          .togglePinned(note.id),
+                      icon: Icon(
+                        note.isPinned
+                            ? Icons.push_pin_rounded
+                            : Icons.push_pin_outlined,
+                      ),
+                      tooltip: note.isPinned
+                          ? strings.localized(
+                              en: 'Unpin note',
+                              ja: 'ピン留めを解除',
+                              zh: '取消置顶',
+                              ko: '고정 해제',
+                              es: 'Desfijar nota',
+                              de: 'Notiz lösen',
+                            )
+                          : strings.pinThisNote,
+                    ),
+                    PopupMenuButton<_NoteDetailAction>(
+                      tooltip: strings.localized(
+                        en: 'Note actions',
+                        ja: 'メモ操作',
+                        zh: '笔记操作',
+                        ko: '메모 작업',
+                        es: 'Acciones de nota',
+                        de: 'Notizaktionen',
+                      ),
+                      icon: const Icon(Icons.more_horiz_rounded),
+                      onSelected: (action) =>
+                          _handleNoteDetailAction(context, note, action),
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: _NoteDetailAction.copy,
+                          child: _MediaMenuEntry(
+                            icon: Icons.content_copy_rounded,
+                            label: strings.localized(
+                              en: 'Copy text',
+                              ja: 'テキストをコピー',
+                              zh: '复制文本',
+                              ko: '텍스트 복사',
+                              es: 'Copiar texto',
+                              de: 'Text kopieren',
+                            ),
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: _NoteDetailAction.share,
+                          child: _MediaMenuEntry(
+                            icon: Icons.ios_share_rounded,
+                            label: strings.localized(
+                              en: 'Share',
+                              ja: '共有',
+                              zh: '分享',
+                              ko: '공유',
+                              es: 'Compartir',
+                              de: 'Teilen',
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     IconButton(
                       key: const Key('edit-note-button'),
@@ -9479,6 +9736,11 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                               onPressed: notifier.reset,
                               child: Text(strings.text('home.reset.filters')),
                             ),
+                          IconButton(
+                            onPressed: () => Navigator.of(sheetContext).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                            tooltip: strings.close,
+                          ),
                         ],
                       ),
                       const SizedBox(height: 8),
@@ -9746,13 +10008,6 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                         ),
                       ],
                       const SizedBox(height: 16),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: FilledButton(
-                          onPressed: () => Navigator.of(sheetContext).pop(),
-                          child: Text(strings.close),
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -10106,6 +10361,7 @@ class _NoteTagChip extends StatelessWidget {
 class _TagAutocompleteField extends StatefulWidget {
   const _TagAutocompleteField({
     super.key,
+    this.inputKey,
     required this.suggestions,
     required this.label,
     required this.hintText,
@@ -10114,6 +10370,7 @@ class _TagAutocompleteField extends StatefulWidget {
     this.showSubmitAction = false,
   });
 
+  final Key? inputKey;
   final List<String> suggestions;
   final String label;
   final String hintText;
@@ -10187,6 +10444,19 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
     _controller.clear();
   }
 
+  String? consumePendingTag() {
+    final normalized = normalizeNoteTag(_controller.text);
+    if (normalized.isEmpty) {
+      return null;
+    }
+    _controller.clear();
+    final existingKeys = _currentExistingTagKeys();
+    if (existingKeys.contains(canonicalizeNoteTag(normalized))) {
+      return null;
+    }
+    return normalized;
+  }
+
   bool get _canSubmitCurrentText {
     final normalized = normalizeNoteTag(_controller.text);
     return normalized.isNotEmpty &&
@@ -10237,6 +10507,7 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TextFormField(
+          key: widget.inputKey,
           controller: _controller,
           focusNode: _focusNode,
           decoration: InputDecoration(
@@ -10556,6 +10827,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late final FocusNode _quickContentFocusNode;
   late final NoteEditorDraftStore _draftStore;
   late final EncryptedAttachmentStore _attachmentStore;
+  final GlobalKey<_TagAutocompleteFieldState> _tagFieldKey =
+      GlobalKey<_TagAutocompleteFieldState>();
   late DateTime _createdAt;
   late bool _isPinned;
   late NoteEditorMode _editorMode;
@@ -11335,40 +11608,27 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                     Container(
                       decoration: _sectionDecoration(context),
                       padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            strings.memoLabel,
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            key: const Key('note-content-input'),
-                            controller: _contentController,
-                            focusNode: _quickContentFocusNode,
-                            autofocus: widget.note == null,
-                            minLines: 10,
-                            maxLines: null,
-                            scrollPadding: const EdgeInsets.only(
-                              top: 96,
-                              left: 20,
-                              right: 20,
-                              bottom: 96,
-                            ),
-                            decoration: InputDecoration(
-                              labelText: strings.memoLabel,
-                              floatingLabelBehavior:
-                                  FloatingLabelBehavior.never,
-                              hintText: strings.memoFirstLineHint,
-                              border: InputBorder.none,
-                              enabledBorder: InputBorder.none,
-                              focusedBorder: InputBorder.none,
-                              isCollapsed: true,
-                              contentPadding: EdgeInsets.zero,
-                            ),
-                          ),
-                        ],
+                      child: TextField(
+                        key: const Key('note-content-input'),
+                        controller: _contentController,
+                        focusNode: _quickContentFocusNode,
+                        autofocus: widget.note == null,
+                        minLines: 10,
+                        maxLines: null,
+                        scrollPadding: const EdgeInsets.only(
+                          top: 96,
+                          left: 20,
+                          right: 20,
+                          bottom: 96,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: strings.memoFirstLineHint,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          isCollapsed: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -11376,23 +11636,13 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                     Container(
                       decoration: _sectionDecoration(context),
                       padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            strings.memoLabel,
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                          const SizedBox(height: 8),
-                          _RichMemoEditor(
-                            blocks: _richBlocks,
-                            strings: strings,
-                            onRemoveBlock: _removeRichBlock,
-                            onBackspaceAtParagraphStart:
-                                _removeMediaBeforeParagraph,
-                            onMoveBlock: _moveRichBlock,
-                          ),
-                        ],
+                      child: _RichMemoEditor(
+                        blocks: _richBlocks,
+                        strings: strings,
+                        onRemoveBlock: _removeRichBlock,
+                        onBackspaceAtParagraphStart:
+                            _removeMediaBeforeParagraph,
+                        onMoveBlock: _moveRichBlock,
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -11417,7 +11667,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                         ),
                         const SizedBox(height: 8),
                         _TagAutocompleteField(
-                          key: const Key('note-tag-input'),
+                          key: _tagFieldKey,
+                          inputKey: const Key('note-tag-input'),
                           suggestions: ref.watch(visibleTagSuggestionsProvider),
                           label: strings.text('home.add.a.tag'),
                           hintText: strings.text(
@@ -11877,6 +12128,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (!_canSave) {
       return;
     }
+    final pendingTag = _tagFieldKey.currentState?.consumePendingTag();
+    final saveTags = pendingTag == null
+        ? dedupeNoteTags(_tags)
+        : dedupeNoteTags([..._tags, pendingTag]);
     final content = _editorMode == NoteEditorMode.quick
         ? _splitMemoContent(_contentController.text)
         : (title: _deriveRichTitle(), body: _deriveRichBody());
@@ -11897,7 +12152,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                 .whereType<NoteAttachment>()
                 .toList(growable: false),
       blocks: blocks,
-      tags: dedupeNoteTags(_tags),
+      tags: saveTags,
       isPinned: _isPinned,
       revision: widget.note?.revision ?? 1,
       deviceId: widget.note?.deviceId,
@@ -15530,6 +15785,7 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
   final TransformationController _transformationController =
       TransformationController();
   bool _edgeToEdge = false;
+  bool _backgroundPanStartedOnImage = false;
   late int _selectedIndex;
 
   NoteAttachment get _attachment => widget.attachments[_selectedIndex];
@@ -15671,13 +15927,43 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                     final displayedHeight = imageSize.height * displayScale;
                     final maxScale = displayScale < 1 ? 1 / displayScale : 1.0;
                     final minScale = math.min(0.25, maxScale);
+                    final imageBaseRect = Rect.fromLTWH(
+                      horizontalPadding + (viewportWidth - displayedWidth) / 2,
+                      verticalTopPadding +
+                          (viewportHeight - displayedHeight) / 2,
+                      displayedWidth,
+                      displayedHeight,
+                    );
 
                     return Stack(
                       children: [
                         Positioned.fill(
                           child: GestureDetector(
                             behavior: HitTestBehavior.opaque,
-                            onTap: () => Navigator.of(context).pop(),
+                            onPanStart: (details) {
+                              _backgroundPanStartedOnImage =
+                                  _transformedImageRect(
+                                    imageBaseRect,
+                                  ).contains(details.localPosition);
+                            },
+                            onPanUpdate: (details) {
+                              if (_backgroundPanStartedOnImage) {
+                                _panImageBy(details.delta);
+                              }
+                            },
+                            onPanEnd: (_) {
+                              _backgroundPanStartedOnImage = false;
+                            },
+                            onPanCancel: () {
+                              _backgroundPanStartedOnImage = false;
+                            },
+                            onTapUp: (details) {
+                              if (!_transformedImageRect(
+                                imageBaseRect,
+                              ).contains(details.localPosition)) {
+                                Navigator.of(context).pop();
+                              }
+                            },
                           ),
                         ),
                         Positioned.fill(
@@ -15692,23 +15978,24 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                               child: SizedBox(
                                 width: displayedWidth,
                                 height: displayedHeight,
-                                child: GestureDetector(
-                                  onTap: () {},
-                                  onDoubleTap: () =>
-                                      _toggleActualSize(maxScale),
-                                  child: InteractiveViewer(
-                                    transformationController:
-                                        _transformationController,
-                                    minScale: minScale,
-                                    maxScale: math.max(maxScale, minScale),
-                                    panEnabled: true,
-                                    boundaryMargin: EdgeInsets.all(
-                                      math.max(
-                                        constraints.maxWidth,
-                                        constraints.maxHeight,
-                                      ),
+                                child: InteractiveViewer(
+                                  transformationController:
+                                      _transformationController,
+                                  minScale: minScale,
+                                  maxScale: math.max(maxScale, minScale),
+                                  panEnabled: true,
+                                  boundaryMargin: EdgeInsets.all(
+                                    math.max(
+                                      constraints.maxWidth,
+                                      constraints.maxHeight,
                                     ),
-                                    clipBehavior: Clip.none,
+                                  ),
+                                  clipBehavior: Clip.none,
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () {},
+                                    onDoubleTap: () =>
+                                        _toggleActualSize(maxScale),
                                     child: SizedBox(
                                       width: displayedWidth,
                                       height: displayedHeight,
@@ -15802,6 +16089,41 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
 
   void _resetTransform() {
     _transformationController.value = Matrix4.identity();
+  }
+
+  void _panImageBy(Offset delta) {
+    final matrix = _transformationController.value.clone();
+    matrix.storage[12] += delta.dx;
+    matrix.storage[13] += delta.dy;
+    _transformationController.value = matrix;
+  }
+
+  Rect _transformedImageRect(Rect baseRect) {
+    final matrix = _transformationController.value;
+    final transformedTopLeft = MatrixUtils.transformPoint(matrix, Offset.zero);
+    final transformedTopRight = MatrixUtils.transformPoint(
+      matrix,
+      Offset(baseRect.width, 0),
+    );
+    final transformedBottomLeft = MatrixUtils.transformPoint(
+      matrix,
+      Offset(0, baseRect.height),
+    );
+    final transformedBottomRight = MatrixUtils.transformPoint(
+      matrix,
+      Offset(baseRect.width, baseRect.height),
+    );
+    final transformedPoints = [
+      transformedTopLeft,
+      transformedTopRight,
+      transformedBottomLeft,
+      transformedBottomRight,
+    ].map((point) => point + baseRect.topLeft);
+    return transformedPoints.fold<Rect>(
+      Rect.fromPoints(transformedPoints.first, transformedPoints.first),
+      (rect, point) =>
+          rect.expandToInclude(Rect.fromLTWH(point.dx, point.dy, 0, 0)),
+    );
   }
 
   void _scaleBy(double factor, double maxScale) {

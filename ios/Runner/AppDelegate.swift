@@ -1,6 +1,7 @@
 import UIKit
 import Flutter
 import CloudKit
+import Security
 
 @UIApplicationMain
 @objc class AppDelegate: FlutterAppDelegate {
@@ -122,14 +123,6 @@ import CloudKit
   override func applicationDidBecomeActive(_ application: UIApplication) {
     super.applicationDidBecomeActive(application)
     setPrivacyOverlayVisible(false)
-  }
-
-  private var cloudKitContainer: CKContainer {
-    CKContainer(identifier: cloudKitContainerIdentifier)
-  }
-
-  private var privateDatabase: CKDatabase {
-    cloudKitContainer.privateCloudDatabase
   }
 
   private func handlePrivacyMethod(call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -387,7 +380,11 @@ import CloudKit
   }
 
   private func checkCloudKitAccountStatus(result: @escaping FlutterResult) {
-    cloudKitContainer.accountStatus { status, error in
+    guard let container = makeCloudKitContainer() else {
+      result(cloudKitConfigurationError())
+      return
+    }
+    container.accountStatus { status, error in
       DispatchQueue.main.async {
         if let error {
           result(self.flutterError(from: error))
@@ -433,8 +430,8 @@ import CloudKit
   }
 
   private func fetchLatestCloudKitBundleStatus(result: @escaping FlutterResult) {
-    withAvailableCloudKit(result: result) {
-      self.fetchCloudKitRecords(limit: 1) { records, error in
+    withAvailableCloudKit(result: result) { database in
+      self.fetchCloudKitRecords(database: database, limit: 1) { records, error in
         DispatchQueue.main.async {
           if let error {
             result(self.flutterError(from: error))
@@ -447,8 +444,8 @@ import CloudKit
   }
 
   private func listCloudKitBundleHistory(limit: Int, result: @escaping FlutterResult) {
-    withAvailableCloudKit(result: result) {
-      self.fetchCloudKitRecords(limit: max(limit, 1)) { records, error in
+    withAvailableCloudKit(result: result) { database in
+      self.fetchCloudKitRecords(database: database, limit: max(limit, 1)) { records, error in
         DispatchQueue.main.async {
           if let error {
             result(self.flutterError(from: error))
@@ -467,7 +464,7 @@ import CloudKit
     attachmentCount: Int,
     result: @escaping FlutterResult
   ) {
-    withAvailableCloudKit(result: result) {
+    withAvailableCloudKit(result: result) { database in
       let recordID = CKRecord.ID(recordName: "sync-\(UUID().uuidString)")
       let record = CKRecord(recordType: self.cloudKitRecordType, recordID: recordID)
       let temporaryURL = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -492,7 +489,7 @@ import CloudKit
       record[self.cloudKitExportedAtField] = Date() as CKRecordValue
       record[self.cloudKitAssetField] = CKAsset(fileURL: temporaryURL)
 
-      self.privateDatabase.save(record) { savedRecord, error in
+      database.save(record) { savedRecord, error in
         try? FileManager.default.removeItem(at: temporaryURL)
         DispatchQueue.main.async {
           if let error {
@@ -516,8 +513,8 @@ import CloudKit
   }
 
   private func downloadLatestCloudKitBundle(result: @escaping FlutterResult) {
-    withAvailableCloudKit(result: result) {
-      self.fetchCloudKitRecords(limit: 1) { records, error in
+    withAvailableCloudKit(result: result) { database in
+      self.fetchCloudKitRecords(database: database, limit: 1) { records, error in
         if let error {
           DispatchQueue.main.async {
             result(self.flutterError(from: error))
@@ -536,8 +533,8 @@ import CloudKit
   }
 
   private func downloadCloudKitBundle(recordName: String, result: @escaping FlutterResult) {
-    withAvailableCloudKit(result: result) {
-      self.privateDatabase.fetch(withRecordID: CKRecord.ID(recordName: recordName)) { record, error in
+    withAvailableCloudKit(result: result) { database in
+      database.fetch(withRecordID: CKRecord.ID(recordName: recordName)) { record, error in
         if let error {
           DispatchQueue.main.async {
             result(self.flutterError(from: error))
@@ -557,9 +554,13 @@ import CloudKit
 
   private func withAvailableCloudKit(
     result: @escaping FlutterResult,
-    action: @escaping () -> Void
+    action: @escaping (CKDatabase) -> Void
   ) {
-    cloudKitContainer.accountStatus { status, error in
+    guard let container = makeCloudKitContainer() else {
+      result(cloudKitConfigurationError())
+      return
+    }
+    container.accountStatus { status, error in
       if let error {
         DispatchQueue.main.async {
           result(self.flutterError(from: error))
@@ -572,11 +573,12 @@ import CloudKit
         }
         return
       }
-      action()
+      action(container.privateCloudDatabase)
     }
   }
 
   private func fetchCloudKitRecords(
+    database: CKDatabase,
     limit: Int,
     completion: @escaping ([CKRecord], Error?) -> Void
   ) {
@@ -595,7 +597,7 @@ import CloudKit
     operation.queryCompletionBlock = { _, error in
       completion(records, error)
     }
-    privateDatabase.add(operation)
+    database.add(operation)
   }
 
   private func readBundlePayload(from record: CKRecord, result: @escaping FlutterResult) {
@@ -674,6 +676,40 @@ import CloudKit
       return nil
     }
     return values.fileSize
+  }
+
+  private func makeCloudKitContainer() -> CKContainer? {
+    guard
+      entitlementValues(for: "com.apple.developer.icloud-services")?.contains("CloudKit") == true,
+      entitlementValues(for: "com.apple.developer.icloud-container-identifiers")?.contains(cloudKitContainerIdentifier) == true
+    else {
+      return nil
+    }
+    return CKContainer(identifier: cloudKitContainerIdentifier)
+  }
+
+  private func entitlementValues(for key: String) -> [String]? {
+    guard
+      let task = SecTaskCreateFromSelf(nil),
+      let value = SecTaskCopyValueForEntitlement(task, key as CFString, nil)
+    else {
+      return nil
+    }
+    if let values = value as? [String] {
+      return values
+    }
+    if let value = value as? String {
+      return [value]
+    }
+    return nil
+  }
+
+  private func cloudKitConfigurationError() -> FlutterError {
+    FlutterError(
+      code: "missingEntitlement",
+      message: "This build is missing the CloudKit entitlement or container configuration.",
+      details: ["message": "This build is missing the CloudKit entitlement or container configuration."]
+    )
   }
 
   private func flutterErrorForAccountStatus(_ status: CKAccountStatus) -> FlutterError {

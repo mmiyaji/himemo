@@ -55,7 +55,9 @@ class EncryptedAttachmentStore {
       final id = _attachmentId(type, sourceFile.name);
       final prefs = await _sharedPreferencesProvider();
       await prefs.setString('$webStoragePrefix$id', encrypted);
-      return '$webPrefix$id';
+      final reference = '$webPrefix$id';
+      await prefs.setString('$vaultStoragePrefix$reference', 'everyday');
+      return reference;
     }
 
     final directory = await _directoryProvider();
@@ -63,6 +65,8 @@ class EncryptedAttachmentStore {
     final file = File(path.join(directory.path, 'attachments', fileName));
     await file.create(recursive: true);
     await file.writeAsString(encrypted, flush: true);
+    final prefs = await _sharedPreferencesProvider();
+    await prefs.setString('$vaultStoragePrefix${file.path}', 'everyday');
     return file.path;
   }
 
@@ -120,11 +124,23 @@ class EncryptedAttachmentStore {
     if (key == null) {
       throw StateError('Attachment key is unavailable for $vaultId.');
     }
-    return _encryptionService.decryptBytes(
-      encodedPayload: encrypted,
-      secretKey: key,
-      additionalData: _aad(type),
-    );
+    try {
+      return await _encryptionService.decryptBytes(
+        encodedPayload: encrypted,
+        secretKey: key,
+        additionalData: _aad(type),
+      );
+    } catch (_) {
+      if (vaultId == 'everyday') {
+        rethrow;
+      }
+      final normalKey = await _masterKeyService.obtainOrCreate();
+      return _encryptionService.decryptBytes(
+        encodedPayload: encrypted,
+        secretKey: normalKey,
+        additionalData: _aad(type),
+      );
+    }
   }
 
   Future<String?> materializeDecryptedFile(
@@ -340,7 +356,24 @@ class EncryptedAttachmentStore {
 
   Future<String> _attachmentVaultId(String storedReference) async {
     final prefs = await _sharedPreferencesProvider();
-    return prefs.getString('$vaultStoragePrefix$storedReference') ?? 'everyday';
+    final exact = prefs.getString('$vaultStoragePrefix$storedReference');
+    if (exact != null && exact.isNotEmpty) {
+      return exact;
+    }
+    final fileName = path.basename(storedReference);
+    if (fileName.isEmpty || fileName == storedReference) {
+      return 'everyday';
+    }
+    for (final key in prefs.getKeys()) {
+      if (!key.startsWith(vaultStoragePrefix)) {
+        continue;
+      }
+      final reference = key.substring(vaultStoragePrefix.length);
+      if (path.basename(reference) == fileName) {
+        return prefs.getString(key) ?? 'everyday';
+      }
+    }
+    return 'everyday';
   }
 
   Future<SecretKey?> _keyForVault(String vaultId) {
