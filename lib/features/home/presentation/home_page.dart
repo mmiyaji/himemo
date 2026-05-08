@@ -10229,6 +10229,7 @@ class _NoteTagChip extends StatelessWidget {
 class _TagAutocompleteField extends StatefulWidget {
   const _TagAutocompleteField({
     super.key,
+    this.inputKey,
     required this.suggestions,
     required this.label,
     required this.hintText,
@@ -10237,6 +10238,7 @@ class _TagAutocompleteField extends StatefulWidget {
     this.showSubmitAction = false,
   });
 
+  final Key? inputKey;
   final List<String> suggestions;
   final String label;
   final String hintText;
@@ -10310,6 +10312,19 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
     _controller.clear();
   }
 
+  String? consumePendingTag() {
+    final normalized = normalizeNoteTag(_controller.text);
+    if (normalized.isEmpty) {
+      return null;
+    }
+    _controller.clear();
+    final existingKeys = _currentExistingTagKeys();
+    if (existingKeys.contains(canonicalizeNoteTag(normalized))) {
+      return null;
+    }
+    return normalized;
+  }
+
   bool get _canSubmitCurrentText {
     final normalized = normalizeNoteTag(_controller.text);
     return normalized.isNotEmpty &&
@@ -10360,6 +10375,7 @@ class _TagAutocompleteFieldState extends State<_TagAutocompleteField> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TextFormField(
+          key: widget.inputKey,
           controller: _controller,
           focusNode: _focusNode,
           decoration: InputDecoration(
@@ -10679,6 +10695,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late final FocusNode _quickContentFocusNode;
   late final NoteEditorDraftStore _draftStore;
   late final EncryptedAttachmentStore _attachmentStore;
+  final GlobalKey<_TagAutocompleteFieldState> _tagFieldKey =
+      GlobalKey<_TagAutocompleteFieldState>();
   late DateTime _createdAt;
   late bool _isPinned;
   late NoteEditorMode _editorMode;
@@ -11458,40 +11476,27 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                     Container(
                       decoration: _sectionDecoration(context),
                       padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            strings.memoLabel,
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                          const SizedBox(height: 8),
-                          TextField(
-                            key: const Key('note-content-input'),
-                            controller: _contentController,
-                            focusNode: _quickContentFocusNode,
-                            autofocus: widget.note == null,
-                            minLines: 10,
-                            maxLines: null,
-                            scrollPadding: const EdgeInsets.only(
-                              top: 96,
-                              left: 20,
-                              right: 20,
-                              bottom: 96,
-                            ),
-                            decoration: InputDecoration(
-                              labelText: strings.memoLabel,
-                              floatingLabelBehavior:
-                                  FloatingLabelBehavior.never,
-                              hintText: strings.memoFirstLineHint,
-                              border: InputBorder.none,
-                              enabledBorder: InputBorder.none,
-                              focusedBorder: InputBorder.none,
-                              isCollapsed: true,
-                              contentPadding: EdgeInsets.zero,
-                            ),
-                          ),
-                        ],
+                      child: TextField(
+                        key: const Key('note-content-input'),
+                        controller: _contentController,
+                        focusNode: _quickContentFocusNode,
+                        autofocus: widget.note == null,
+                        minLines: 10,
+                        maxLines: null,
+                        scrollPadding: const EdgeInsets.only(
+                          top: 96,
+                          left: 20,
+                          right: 20,
+                          bottom: 96,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: strings.memoFirstLineHint,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          isCollapsed: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -11499,23 +11504,13 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                     Container(
                       decoration: _sectionDecoration(context),
                       padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            strings.memoLabel,
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                          const SizedBox(height: 8),
-                          _RichMemoEditor(
-                            blocks: _richBlocks,
-                            strings: strings,
-                            onRemoveBlock: _removeRichBlock,
-                            onBackspaceAtParagraphStart:
-                                _removeMediaBeforeParagraph,
-                            onMoveBlock: _moveRichBlock,
-                          ),
-                        ],
+                      child: _RichMemoEditor(
+                        blocks: _richBlocks,
+                        strings: strings,
+                        onRemoveBlock: _removeRichBlock,
+                        onBackspaceAtParagraphStart:
+                            _removeMediaBeforeParagraph,
+                        onMoveBlock: _moveRichBlock,
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -11540,7 +11535,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                         ),
                         const SizedBox(height: 8),
                         _TagAutocompleteField(
-                          key: const Key('note-tag-input'),
+                          key: _tagFieldKey,
+                          inputKey: const Key('note-tag-input'),
                           suggestions: ref.watch(visibleTagSuggestionsProvider),
                           label: strings.text('home.add.a.tag'),
                           hintText: strings.text(
@@ -12000,6 +11996,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (!_canSave) {
       return;
     }
+    final pendingTag = _tagFieldKey.currentState?.consumePendingTag();
+    final saveTags = pendingTag == null
+        ? dedupeNoteTags(_tags)
+        : dedupeNoteTags([..._tags, pendingTag]);
     final content = _editorMode == NoteEditorMode.quick
         ? _splitMemoContent(_contentController.text)
         : (title: _deriveRichTitle(), body: _deriveRichBody());
@@ -12020,7 +12020,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                 .whereType<NoteAttachment>()
                 .toList(growable: false),
       blocks: blocks,
-      tags: dedupeNoteTags(_tags),
+      tags: saveTags,
       isPinned: _isPinned,
       revision: widget.note?.revision ?? 1,
       deviceId: widget.note?.deviceId,
