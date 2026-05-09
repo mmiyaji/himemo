@@ -226,7 +226,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   static const _privacyChannel = MethodChannel('org.ruhenheim.himemo/privacy');
   static const _backgroundedAtStorageKey = 'runtime.app_lock_backgrounded_at';
   static const _cloudSyncDebounceDelay = Duration(seconds: 2);
-  static const _cloudSyncPollInterval = Duration(seconds: 45);
+  static const _cloudSyncForegroundMinInterval = Duration(seconds: 30);
 
   bool _privacyScreenEnabled = false;
   bool _autoPrompted = false;
@@ -234,9 +234,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   bool _cloudSyncScheduled = false;
   bool _cloudSyncRescheduleRequested = false;
   DateTime? _backgroundedAt;
+  DateTime? _lastAutomaticCloudSyncAt;
   Timer? _privateSessionTimer;
   Timer? _cloudSyncDebounceTimer;
-  Timer? _cloudSyncPollTimer;
 
   @override
   void initState() {
@@ -245,8 +245,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncLockState(triggerPrompt: true);
       _checkForInAppUpdate();
-      _scheduleSeamlessCloudSync();
-      _refreshCloudSyncPolling();
+      _scheduleSeamlessCloudSync(respectForegroundBurst: true);
     });
   }
 
@@ -255,7 +254,6 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     WidgetsBinding.instance.removeObserver(this);
     _privateSessionTimer?.cancel();
     _cloudSyncDebounceTimer?.cancel();
-    _cloudSyncPollTimer?.cancel();
     unawaited(_setPrivacyScreenEnabled(false));
     super.dispose();
   }
@@ -285,8 +283,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     }
     await _syncLockState(triggerPrompt: true);
     _refreshPrivateSessionTimer();
-    _scheduleSeamlessCloudSync();
-    _refreshCloudSyncPolling();
+    _scheduleSeamlessCloudSync(respectForegroundBurst: true);
   }
 
   Future<void> _markAppBackgrounded() async {
@@ -465,7 +462,11 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
 
   void _scheduleSeamlessCloudSync({
     Duration delay = const Duration(milliseconds: 500),
+    bool respectForegroundBurst = false,
   }) {
+    if (respectForegroundBurst && !_canRunForegroundCloudSync()) {
+      return;
+    }
     if (_cloudSyncScheduled) {
       _cloudSyncRescheduleRequested = true;
       return;
@@ -490,6 +491,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       if (transferState.isBusy) {
         return;
       }
+      _lastAutomaticCloudSyncAt = DateTime.now();
       await ref.read(syncTransferControllerProvider.notifier).syncNow();
     } finally {
       _cloudSyncScheduled = false;
@@ -500,17 +502,12 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     }
   }
 
-  void _refreshCloudSyncPolling() {
-    _cloudSyncPollTimer?.cancel();
-    if (ref.read(syncProviderControllerProvider) == SyncProvider.off) {
-      return;
+  bool _canRunForegroundCloudSync() {
+    final last = _lastAutomaticCloudSyncAt;
+    if (last == null) {
+      return true;
     }
-    _cloudSyncPollTimer = Timer.periodic(_cloudSyncPollInterval, (_) {
-      if (!mounted) {
-        return;
-      }
-      _scheduleSeamlessCloudSync();
-    });
+    return DateTime.now().difference(last) >= _cloudSyncForegroundMinInterval;
   }
 
   @override
@@ -529,9 +526,8 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       unawaited(_setPrivacyScreenEnabled(next));
     });
     ref.listen<SyncProvider>(syncProviderControllerProvider, (previous, next) {
-      _refreshCloudSyncPolling();
       if (next != SyncProvider.off && next != previous) {
-        _scheduleSeamlessCloudSync();
+        _scheduleSeamlessCloudSync(respectForegroundBurst: true);
       }
     });
     ref.listen<AsyncValue<SyncQueueSummary>>(syncQueueSummaryProvider, (
