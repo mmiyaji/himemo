@@ -796,6 +796,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         context: hostContext,
         isScrollControlled: true,
         showDragHandle: false,
+        useRootNavigator: true,
         useSafeArea: true,
         builder: (sheetContext) {
           final mediaQuery = MediaQuery.of(sheetContext);
@@ -1176,6 +1177,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       context: hostContext,
       isScrollControlled: true,
       showDragHandle: false,
+      useRootNavigator: true,
       useSafeArea: true,
       builder: (context) {
         final mediaQuery = MediaQuery.of(context);
@@ -9282,6 +9284,7 @@ Future<void> showNoteEditorSheet(
       context: context,
       isScrollControlled: true,
       showDragHandle: false,
+      useRootNavigator: true,
       useSafeArea: true,
       builder: (context) {
         final mediaQuery = MediaQuery.of(context);
