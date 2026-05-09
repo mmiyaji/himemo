@@ -17159,6 +17159,7 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
       TransformationController();
   bool _edgeToEdge = false;
   bool _backgroundPanStartedOnImage = false;
+  Offset? _lastLightboxTapDownPosition;
   late int _selectedIndex;
 
   NoteAttachment get _attachment => widget.attachments[_selectedIndex];
@@ -17311,32 +17312,34 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                     return Stack(
                       children: [
                         Positioned.fill(
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onPanStart: (details) {
-                              _backgroundPanStartedOnImage =
-                                  _transformedImageRect(
-                                    imageBaseRect,
-                                  ).contains(details.localPosition);
-                            },
-                            onPanUpdate: (details) {
-                              if (_backgroundPanStartedOnImage) {
-                                _panImageBy(details.delta);
-                              }
-                            },
-                            onPanEnd: (_) {
-                              _backgroundPanStartedOnImage = false;
-                            },
-                            onPanCancel: () {
-                              _backgroundPanStartedOnImage = false;
-                            },
-                            onTapUp: (details) {
-                              if (!_transformedImageRect(
-                                imageBaseRect,
-                              ).contains(details.localPosition)) {
-                                Navigator.of(context).pop();
-                              }
-                            },
+                          child: ExcludeSemantics(
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onPanStart: (details) {
+                                _backgroundPanStartedOnImage =
+                                    _transformedImageRect(
+                                      imageBaseRect,
+                                    ).contains(details.localPosition);
+                              },
+                              onPanUpdate: (details) {
+                                if (_backgroundPanStartedOnImage) {
+                                  _panImageBy(details.delta);
+                                }
+                              },
+                              onPanEnd: (_) {
+                                _backgroundPanStartedOnImage = false;
+                              },
+                              onPanCancel: () {
+                                _backgroundPanStartedOnImage = false;
+                              },
+                              onTapUp: (details) {
+                                if (!_transformedImageRect(
+                                  imageBaseRect,
+                                ).contains(details.localPosition)) {
+                                  Navigator.of(context).pop();
+                                }
+                              },
+                            ),
                           ),
                         ),
                         Positioned.fill(
@@ -17380,22 +17383,32 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                           ),
                         ),
                         Positioned.fill(
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.translucent,
-                            onDoubleTapDown: (details) {
-                              if (_transformedImageRect(
-                                imageBaseRect,
-                              ).contains(details.localPosition)) {
-                                _toggleActualSize(maxScale);
-                              }
-                            },
-                            onTapUp: (details) {
-                              if (!_transformedImageRect(
-                                imageBaseRect,
-                              ).contains(details.localPosition)) {
-                                Navigator.of(context).pop();
-                              }
-                            },
+                          child: ExcludeSemantics(
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.translucent,
+                              onTapDown: (details) {
+                                _lastLightboxTapDownPosition =
+                                    details.localPosition;
+                              },
+                              onTap: () {
+                                final position = _lastLightboxTapDownPosition;
+                                _lastLightboxTapDownPosition = null;
+                                if (position == null ||
+                                    !_transformedImageRect(
+                                      imageBaseRect,
+                                    ).contains(position)) {
+                                  Navigator.of(context).pop();
+                                }
+                              },
+                              onDoubleTapDown: (details) {
+                                _lastLightboxTapDownPosition = null;
+                                if (_transformedImageRect(
+                                  imageBaseRect,
+                                ).contains(details.localPosition)) {
+                                  _toggleActualSize(maxScale);
+                                }
+                              },
+                            ),
                           ),
                         ),
                         if (_selectedIndex > 0)
