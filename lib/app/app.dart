@@ -283,6 +283,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   }
 
   Future<void> _markAppBackgrounded() async {
+    if (_backgroundedAt != null) {
+      return;
+    }
     final now = DateTime.now();
     _backgroundedAt = now;
     try {
