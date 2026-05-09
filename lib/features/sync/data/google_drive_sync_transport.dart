@@ -7,6 +7,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 
 import 'google_sign_in_initializer.dart';
+import 'sync_bundle_key_service.dart';
 
 class RemoteSyncBundleStatus {
   const RemoteSyncBundleStatus({
@@ -53,6 +54,24 @@ abstract class GoogleDriveSyncTransport {
   Future<DownloadedRemoteSyncBundle?> downloadLatestBundle();
 
   Future<DownloadedRemoteSyncBundle?> downloadBundleByFileId(String fileId);
+
+  Future<String?> fetchSyncKeyBackupCode();
+
+  Future<void> uploadSyncKeyBackupCode(String backupCode);
+}
+
+class GoogleDriveCloudSyncBundleKeyStore implements CloudSyncBundleKeyStore {
+  GoogleDriveCloudSyncBundleKeyStore(this.transport);
+
+  final GoogleDriveSyncTransport transport;
+
+  @override
+  Future<String?> readBackupCode() => transport.fetchSyncKeyBackupCode();
+
+  @override
+  Future<void> writeBackupCode(String backupCode) {
+    return transport.uploadSyncKeyBackupCode(backupCode);
+  }
 }
 
 class GoogleDriveAuthConfig {
@@ -115,6 +134,7 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   static const scope = 'https://www.googleapis.com/auth/drive.appdata';
   static const _bundleFileName = 'himemo_sync_bundle.enc';
   static const _bundleFilePrefix = 'himemo_sync_bundle_';
+  static const _syncKeyFileName = 'himemo_sync_key_v1.json';
   static const _spaces = 'appDataFolder';
   static const _retryDelays = <Duration>[
     Duration(seconds: 1),
@@ -204,6 +224,62 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
       return null;
     }
     return _downloadFile(api, response);
+  }
+
+  @override
+  Future<String?> fetchSyncKeyBackupCode() async {
+    final api = await _openDriveApi(interactive: false);
+    final file = await _findSyncKeyFile(api);
+    if (file == null || file.id == null || file.id!.isEmpty) {
+      return null;
+    }
+    final downloaded = await _downloadFile(api, file);
+    final decoded = jsonDecode(downloaded.encodedPayload);
+    if (decoded is! Map) {
+      return null;
+    }
+    final version = decoded['version'];
+    final backupCode = decoded['backupCode'];
+    if (version != 1 || backupCode is! String || backupCode.isEmpty) {
+      return null;
+    }
+    return backupCode;
+  }
+
+  @override
+  Future<void> uploadSyncKeyBackupCode(String backupCode) async {
+    final api = await _openDriveApi(interactive: false);
+    final existing = await _findSyncKeyFile(api);
+    final payload = jsonEncode({
+      'version': 1,
+      'backupCode': backupCode,
+      'updatedAt': DateTime.now().toUtc().toIso8601String(),
+    });
+    final bytes = utf8.encode(payload);
+    final media = drive.Media(Stream<List<int>>.value(bytes), bytes.length);
+    final metadata = drive.File()
+      ..name = _syncKeyFileName
+      ..parents = ['appDataFolder'];
+
+    if (existing?.id != null && existing!.id!.isNotEmpty) {
+      await _withDriveRetry(
+        () => api.files.update(
+          metadata,
+          existing.id!,
+          uploadMedia: media,
+          $fields: 'id,name,modifiedTime,size',
+        ),
+      );
+      return;
+    }
+
+    await _withDriveRetry(
+      () => api.files.create(
+        metadata,
+        uploadMedia: media,
+        $fields: 'id,name,modifiedTime,size',
+      ),
+    );
   }
 
   Future<DownloadedRemoteSyncBundle> _downloadFile(
@@ -341,6 +417,23 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   Future<drive.File?> _findLatestBundle(drive.DriveApi api) async {
     final files = await _findBundleHistory(api, limit: 1);
     if (files.isEmpty) {
+      return null;
+    }
+    return files.first;
+  }
+
+  Future<drive.File?> _findSyncKeyFile(drive.DriveApi api) async {
+    final response = await _withDriveRetry(
+      () => api.files.list(
+        spaces: _spaces,
+        q: "name = '$_syncKeyFileName' and trashed = false",
+        orderBy: 'modifiedTime desc',
+        pageSize: 1,
+        $fields: 'files(id,name,modifiedTime,size,appProperties)',
+      ),
+    );
+    final files = response.files;
+    if (files == null || files.isEmpty) {
       return null;
     }
     return files.first;

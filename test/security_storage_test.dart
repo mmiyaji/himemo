@@ -1225,6 +1225,49 @@ void main() {
   });
 
   test(
+    'SyncBundleKeyService adopts cloud backup code before local key',
+    () async {
+      final localStore = MemorySecureKeyValueStore();
+      final localService = SyncBundleKeyService(
+        secureStore: localStore,
+        keyFactory: () => List<int>.filled(32, 1),
+      );
+      await localService.obtainOrCreate();
+
+      final cloudSource = SyncBundleKeyService(
+        secureStore: MemorySecureKeyValueStore(),
+        keyFactory: () => List<int>.filled(32, 2),
+      );
+      final cloudBackupCode = await cloudSource.exportBackupCode();
+      final cloudFingerprint = await cloudSource.fingerprint();
+
+      final service = SyncBundleKeyService(
+        secureStore: localStore,
+        cloudStore: _MemoryCloudSyncBundleKeyStore(cloudBackupCode),
+        keyFactory: () => List<int>.filled(32, 3),
+      );
+
+      expect(await service.fingerprint(), cloudFingerprint);
+    },
+  );
+
+  test(
+    'SyncBundleKeyService publishes local key when cloud is empty',
+    () async {
+      final cloudStore = _MemoryCloudSyncBundleKeyStore();
+      final service = SyncBundleKeyService(
+        secureStore: MemorySecureKeyValueStore(),
+        cloudStore: cloudStore,
+        keyFactory: () => List<int>.generate(32, (index) => index + 7),
+      );
+
+      final backupCode = await service.exportBackupCode();
+
+      expect(cloudStore.backupCode, backupCode);
+    },
+  );
+
+  test(
     'local archive export excludes generated notes and hidden vaults',
     () async {
       SharedPreferences.setMockInitialValues({});
@@ -1844,5 +1887,19 @@ class _TrackingEncryptedAttachmentStore extends EncryptedAttachmentStore {
   @override
   Future<void> deleteAttachment(String storedReference) async {
     deletedReferences.add(storedReference);
+  }
+}
+
+class _MemoryCloudSyncBundleKeyStore implements CloudSyncBundleKeyStore {
+  _MemoryCloudSyncBundleKeyStore([this.backupCode]);
+
+  String? backupCode;
+
+  @override
+  Future<String?> readBackupCode() async => backupCode;
+
+  @override
+  Future<void> writeBackupCode(String backupCode) async {
+    this.backupCode = backupCode;
   }
 }

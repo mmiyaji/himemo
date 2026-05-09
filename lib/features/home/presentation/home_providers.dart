@@ -1737,6 +1737,9 @@ final syncBundleKeyServiceProvider = Provider<SyncBundleKeyService>((ref) {
     fallbackStore: usesICloudSharedKey
         ? ref.watch(secureKeyValueStoreProvider)
         : null,
+    cloudStore: provider == SyncProvider.googleDrive
+        ? ref.watch(googleDriveCloudSyncBundleKeyStoreProvider)
+        : null,
     keyFactory: encryption.generateKeyBytes,
   );
 });
@@ -1769,6 +1772,13 @@ final googleDriveSyncTransportProvider = Provider<GoogleDriveSyncTransport>((
     authConfig: ref.watch(googleDriveAuthConfigProvider),
   );
 });
+
+final googleDriveCloudSyncBundleKeyStoreProvider =
+    Provider<CloudSyncBundleKeyStore>((ref) {
+      return GoogleDriveCloudSyncBundleKeyStore(
+        ref.watch(googleDriveSyncTransportProvider),
+      );
+    });
 
 final iCloudSyncTransportProvider = Provider<ICloudSyncTransport>((ref) {
   return MethodChannelICloudSyncTransport();
@@ -4395,10 +4405,49 @@ class SyncProviderController extends Notifier<SyncProvider> {
     if (provider == SyncProvider.iCloud && !isICloudSyncSupported) {
       provider = SyncProvider.off;
     }
+    final previous = state;
+    String? carriedBackupCode;
+    if (provider == SyncProvider.googleDrive &&
+        previous != SyncProvider.googleDrive) {
+      try {
+        carriedBackupCode = await ref
+            .read(syncBundleKeyServiceProvider)
+            .exportBackupCode();
+      } catch (_) {}
+    }
     state = provider;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_storageKey, provider.name);
+    } catch (_) {}
+    if (provider == SyncProvider.googleDrive) {
+      await _prepareGoogleDriveSyncKey(carriedBackupCode);
+    }
+  }
+
+  Future<void> _prepareGoogleDriveSyncKey(String? carriedBackupCode) async {
+    try {
+      final cloudStore = ref.read(googleDriveCloudSyncBundleKeyStoreProvider);
+      final remoteBackupCode = await cloudStore.readBackupCode();
+      if (remoteBackupCode != null && remoteBackupCode.isNotEmpty) {
+        await ref
+            .read(syncBundleKeyServiceProvider)
+            .importBackupCode(remoteBackupCode);
+        return;
+      }
+    } catch (_) {}
+
+    if (carriedBackupCode != null && carriedBackupCode.isNotEmpty) {
+      try {
+        await ref
+            .read(syncBundleKeyServiceProvider)
+            .importBackupCode(carriedBackupCode);
+        return;
+      } catch (_) {}
+    }
+
+    try {
+      await ref.read(syncBundleKeyServiceProvider).obtainOrCreate();
     } catch (_) {}
   }
 
