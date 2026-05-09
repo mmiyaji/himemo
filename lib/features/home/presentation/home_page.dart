@@ -16422,25 +16422,38 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                                     ),
                                   ),
                                   clipBehavior: Clip.none,
-                                  child: GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTap: () {},
-                                    onDoubleTap: () =>
-                                        _toggleActualSize(maxScale),
-                                    child: SizedBox(
+                                  child: SizedBox(
+                                    width: displayedWidth,
+                                    height: displayedHeight,
+                                    child: Image.memory(
+                                      Uint8List.fromList(bytes),
                                       width: displayedWidth,
                                       height: displayedHeight,
-                                      child: Image.memory(
-                                        Uint8List.fromList(bytes),
-                                        width: displayedWidth,
-                                        height: displayedHeight,
-                                        fit: BoxFit.fill,
-                                      ),
+                                      fit: BoxFit.fill,
                                     ),
                                   ),
                                 ),
                               ),
                             ),
+                          ),
+                        ),
+                        Positioned.fill(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onDoubleTapDown: (details) {
+                              if (_transformedImageRect(
+                                imageBaseRect,
+                              ).contains(details.localPosition)) {
+                                _toggleActualSize(maxScale);
+                              }
+                            },
+                            onTapUp: (details) {
+                              if (!_transformedImageRect(
+                                imageBaseRect,
+                              ).contains(details.localPosition)) {
+                                Navigator.of(context).pop();
+                              }
+                            },
                           ),
                         ),
                         if (_selectedIndex > 0)
