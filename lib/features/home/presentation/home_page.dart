@@ -1175,8 +1175,10 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     await showModalBottomSheet<void>(
       context: hostContext,
       isScrollControlled: true,
-      showDragHandle: true,
+      showDragHandle: false,
+      useSafeArea: true,
       builder: (context) {
+        final mediaQuery = MediaQuery.of(context);
         var selectedDay = DateTime(
           initialDay.year,
           initialDay.month,
@@ -1203,106 +1205,103 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               selectedDay,
               backwards: false,
             );
-            return SafeArea(
-              child: SizedBox(
-                height: MediaQuery.sizeOf(context).height * 0.92,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          IconButton(
-                            onPressed: previousDay == null
-                                ? null
-                                : () {
-                                    setModalState(() {
-                                      selectedDay = previousDay;
-                                      selectedIndex = 0;
-                                    });
-                                  },
-                            icon: const Icon(Icons.chevron_left_rounded),
-                            tooltip: strings.text(
-                              'home.previous.day.with.notes.2',
-                            ),
-                            visualDensity: VisualDensity.compact,
+            return SizedBox(
+              height: mediaQuery.size.height - mediaQuery.padding.top,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 6, 10, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        IconButton(
+                          onPressed: previousDay == null
+                              ? null
+                              : () {
+                                  setModalState(() {
+                                    selectedDay = previousDay;
+                                    selectedIndex = 0;
+                                  });
+                                },
+                          icon: const Icon(Icons.chevron_left_rounded),
+                          tooltip: strings.text(
+                            'home.previous.day.with.notes.2',
                           ),
-                          Expanded(
-                            child: Text(
-                              '${selectedDay.year}/${selectedDay.month.toString().padLeft(2, '0')}/${selectedDay.day.toString().padLeft(2, '0')}',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: nextDay == null
-                                ? null
-                                : () {
-                                    setModalState(() {
-                                      selectedDay = nextDay;
-                                      selectedIndex = 0;
-                                    });
-                                  },
-                            icon: const Icon(Icons.chevron_right_rounded),
-                            tooltip: strings.text('home.next.day.with.notes.2'),
-                            visualDensity: VisualDensity.compact,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Expanded(
-                        child: _NoteDetailPager(
-                          notes: dayNotes,
-                          selectedIndex: selectedIndex,
-                          onPageChanged: (index) {
-                            setModalState(() {
-                              selectedIndex = index;
-                            });
-                          },
-                          onEdit: (selectedNote) async {
-                            Navigator.of(context).pop();
-                            await showNoteEditorSheet(
-                              hostContext,
-                              ref,
-                              note: selectedNote,
-                            );
-                          },
-                          onDelete: (selectedNote) async {
-                            Navigator.of(context).pop();
-                            final confirmed = await showDialog<bool>(
-                              context: hostContext,
-                              builder: (context) => AlertDialog(
-                                title: Text(strings.text('home.delete.note')),
-                                content: Text(
-                                  strings.deleteNoteConfirmation(
-                                    selectedNote.title,
-                                  ),
-                                ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () =>
-                                        Navigator.of(context).pop(false),
-                                    child: Text(strings.cancel),
-                                  ),
-                                  FilledButton(
-                                    onPressed: () =>
-                                        Navigator.of(context).pop(true),
-                                    child: Text(strings.text('home.delete')),
-                                  ),
-                                ],
-                              ),
-                            );
-                            if (confirmed == true) {
-                              await ref
-                                  .read(notesControllerProvider.notifier)
-                                  .delete(selectedNote.id);
-                            }
-                          },
-                          onClose: () => Navigator.of(context).pop(),
+                          visualDensity: VisualDensity.compact,
                         ),
+                        Expanded(
+                          child: Text(
+                            '${selectedDay.year}/${selectedDay.month.toString().padLeft(2, '0')}/${selectedDay.day.toString().padLeft(2, '0')}',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: nextDay == null
+                              ? null
+                              : () {
+                                  setModalState(() {
+                                    selectedDay = nextDay;
+                                    selectedIndex = 0;
+                                  });
+                                },
+                          icon: const Icon(Icons.chevron_right_rounded),
+                          tooltip: strings.text('home.next.day.with.notes.2'),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ],
+                    ),
+                    Expanded(
+                      child: _NoteDetailPager(
+                        notes: dayNotes,
+                        selectedIndex: selectedIndex,
+                        onPageChanged: (index) {
+                          setModalState(() {
+                            selectedIndex = index;
+                          });
+                        },
+                        onEdit: (selectedNote) async {
+                          Navigator.of(context).pop();
+                          await showNoteEditorSheet(
+                            hostContext,
+                            ref,
+                            note: selectedNote,
+                          );
+                        },
+                        onDelete: (selectedNote) async {
+                          Navigator.of(context).pop();
+                          final confirmed = await showDialog<bool>(
+                            context: hostContext,
+                            builder: (context) => AlertDialog(
+                              title: Text(strings.text('home.delete.note')),
+                              content: Text(
+                                strings.deleteNoteConfirmation(
+                                  selectedNote.title,
+                                ),
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.of(context).pop(false),
+                                  child: Text(strings.cancel),
+                                ),
+                                FilledButton(
+                                  onPressed: () =>
+                                      Navigator.of(context).pop(true),
+                                  child: Text(strings.text('home.delete')),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirmed == true) {
+                            await ref
+                                .read(notesControllerProvider.notifier)
+                                .delete(selectedNote.id);
+                          }
+                        },
+                        onClose: () => Navigator.of(context).pop(),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             );
@@ -9282,11 +9281,13 @@ Future<void> showNoteEditorSheet(
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
+      showDragHandle: false,
+      useSafeArea: true,
       builder: (context) {
-        final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-        return FractionallySizedBox(
-          heightFactor: bottomInset > 0 ? 1 : 0.92,
+        final mediaQuery = MediaQuery.of(context);
+        final bottomInset = mediaQuery.viewInsets.bottom;
+        return SizedBox(
+          height: mediaQuery.size.height - mediaQuery.padding.top,
           child: Padding(
             padding: EdgeInsets.only(bottom: bottomInset),
             child: _NoteEditorSheet(
@@ -11578,8 +11579,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         : (_editorMode == NoteEditorMode.rich ? 16.0 : 96.0);
 
     return SafeArea(
+      top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -11780,7 +11782,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                   if (_editorMode == NoteEditorMode.quick) ...[
                     Container(
                       decoration: _sectionDecoration(context),
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                       child: TextField(
                         key: const Key('note-content-input'),
                         controller: _contentController,
@@ -11788,6 +11790,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                         autofocus: widget.note == null,
                         minLines: 10,
                         maxLines: null,
+                        textAlignVertical: TextAlignVertical.top,
                         scrollPadding: const EdgeInsets.only(
                           top: 96,
                           left: 20,
