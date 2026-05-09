@@ -327,7 +327,7 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
     if (value == null || value.isEmpty) {
       return null;
     }
-    return DateTime.tryParse(value);
+    return DateTime.tryParse(value)?.toUtc();
   }
 
   Map<String, dynamic> _stringMapFrom(Object? value) {

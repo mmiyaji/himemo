@@ -3077,6 +3077,14 @@ class AppStrings {
     es: 'Versión de la app',
     de: 'App-Version',
   );
+  String get appAuthor => localized(
+    en: 'Author',
+    ja: '作者',
+    zh: '作者',
+    ko: '작성자',
+    es: 'Autor',
+    de: 'Autor',
+  );
   String buildDateLabel(String date) => localized(
     en: 'Built $date',
     ja: 'ビルド日 $date',
@@ -3416,7 +3424,39 @@ class AppStrings {
       : 'Enable iCloud or Google Drive later in Settings. You can start as an offline-first memo app.';
 
   String get termsOfUse => localized(en: 'Terms of Use', ja: '利用規約');
+  String get termsOfUseDesc => localized(
+    en: 'Open the current terms for using HiMemo.',
+    ja: 'HiMemo の利用条件を確認します。',
+    zh: '查看 HiMemo 的当前使用条款。',
+    ko: 'HiMemo 이용 약관을 엽니다.',
+    es: 'Abre las condiciones actuales de uso de HiMemo.',
+    de: 'Öffnet die aktuellen Nutzungsbedingungen für HiMemo.',
+  );
   String get privacyPolicy => localized(en: 'Privacy Policy', ja: 'プライバシーポリシー');
+  String get privacyPolicyDesc => localized(
+    en: 'Open how HiMemo handles local data, cloud sync, and diagnostics.',
+    ja: 'ローカルデータ、クラウド同期、診断情報の扱いを確認します。',
+    zh: '查看 HiMemo 如何处理本地数据、云同步和诊断信息。',
+    ko: '로컬 데이터, 클라우드 동기화, 진단 정보 처리 방식을 엽니다.',
+    es: 'Abre cómo HiMemo gestiona datos locales, sincronización en la nube y diagnósticos.',
+    de: 'Öffnet, wie HiMemo lokale Daten, Cloud-Synchronisierung und Diagnosen handhabt.',
+  );
+  String get contact => localized(
+    en: 'Contact',
+    ja: 'お問い合わせ',
+    zh: '联系',
+    ko: '문의',
+    es: 'Contacto',
+    de: 'Kontakt',
+  );
+  String get contactDesc => localized(
+    en: 'Open the support and feedback form.',
+    ja: '不具合報告やご意見の送信フォームを開きます。',
+    zh: '打开支持和反馈表单。',
+    ko: '지원 및 피드백 양식을 엽니다.',
+    es: 'Abre el formulario de soporte y comentarios.',
+    de: 'Öffnet das Formular für Support und Feedback.',
+  );
   String get onboardingLegalPrefix =>
       localized(en: 'By continuing, you agree to the', ja: '続行することで');
   String get onboardingLegalSeparator => localized(en: 'and', ja: 'および');

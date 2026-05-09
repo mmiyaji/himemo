@@ -27,7 +27,10 @@ SyncConflictAssessment assessSyncConflict({
   }
 
   final knownMoment = bundleState.lastAppliedAt ?? bundleState.lastUploadedAt;
-  if (knownMoment == null || !remoteStatus.modifiedAt!.isAfter(knownMoment)) {
+  final remoteModifiedAt = remoteStatus.modifiedAt?.toUtc();
+  if (knownMoment == null ||
+      remoteModifiedAt == null ||
+      !remoteModifiedAt.isAfter(knownMoment.toUtc())) {
     return const SyncConflictAssessment.clear();
   }
   if (remoteStatus.deviceId != null &&

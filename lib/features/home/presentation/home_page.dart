@@ -43,6 +43,12 @@ import 'home_providers.dart';
 const _appStoreId = String.fromEnvironment('HIMEMO_APP_STORE_ID');
 const _androidStorePackageName = 'org.ruhenheim.himemo';
 const _buildDateIso = String.fromEnvironment('HIMEMO_BUILD_DATE');
+const _termsUrl = 'https://mmiyaji.github.io/himemo/terms.html';
+const _privacyUrl = 'https://mmiyaji.github.io/himemo/privacy.html';
+const _contactUrl = 'https://mmiyaji.github.io/himemo/contact.html';
+const _httpUserAgent = 'HiMemo/1.0 (+$_contactUrl)';
+const _appAuthor = '@mmiyaji';
+const _appAuthorUrl = 'https://ruhenheim.org/';
 
 enum AppSection { notes, calendar, insights, settings }
 
@@ -2308,7 +2314,7 @@ _InsightsData _buildInsightsData(BuildContext context, List<NoteEntry> notes) {
   var audioAttachments = 0;
 
   for (final note in notes) {
-    final createdAt = note.createdAt;
+    final createdAt = note.createdAt.toLocal();
     totalCharacters += note.body.trim().length;
     totalAttachments += note.attachments.length;
     if (createdAt.year == now.year && createdAt.month == now.month) {
@@ -3165,6 +3171,9 @@ class SettingsScreen extends ConsumerWidget {
       loading: strings.readingVersion,
       error: (_, _) => '1.0.0 (1)',
     );
+    final aboutSummary = showFlavorInfo
+        ? '$aboutVersion / $_appAuthor / $displayName'
+        : '$aboutVersion / $_appAuthor';
     final appUpdatesSupported =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final appUpdatesDescription = appUpdatesSupported
@@ -4147,7 +4156,7 @@ class SettingsScreen extends ConsumerWidget {
                             final stampText = timestamp == null
                                 ? (strings.text('home.queue.ready'))
                                 : strings.lastQueuedAt(
-                                    _formatDateTime(timestamp),
+                                    _formatDateTime(timestamp, strings),
                                   );
                             return strings.pendingSyncSummary(
                               total: summary.totalChanges,
@@ -4312,21 +4321,30 @@ class SettingsScreen extends ConsumerWidget {
                             if (value.lastUploadedAt != null) {
                               entries.add(
                                 strings.lastUploadAt(
-                                  _formatDateTime(value.lastUploadedAt!),
+                                  _formatDateTime(
+                                    value.lastUploadedAt!,
+                                    strings,
+                                  ),
                                 ),
                               );
                             }
                             if (value.lastAppliedAt != null) {
                               entries.add(
                                 strings.lastApplyAt(
-                                  _formatDateTime(value.lastAppliedAt!),
+                                  _formatDateTime(
+                                    value.lastAppliedAt!,
+                                    strings,
+                                  ),
                                 ),
                               );
                             }
                             if (value.lastRemoteModifiedAt != null) {
                               entries.add(
                                 strings.remoteBundleAt(
-                                  _formatDateTime(value.lastRemoteModifiedAt!),
+                                  _formatDateTime(
+                                    value.lastRemoteModifiedAt!,
+                                    strings,
+                                  ),
                                 ),
                               );
                             }
@@ -5132,9 +5150,7 @@ class SettingsScreen extends ConsumerWidget {
         const SizedBox(height: 16),
         _SettingsGroup(
           title: strings.about,
-          summary: showFlavorInfo
-              ? '$aboutVersion / $displayName'
-              : aboutVersion,
+          summary: aboutSummary,
           assetPath: 'assets/settings/about.svg',
           children: [
             if (showFlavorInfo)
@@ -5154,6 +5170,14 @@ class SettingsScreen extends ConsumerWidget {
                   error: (_, _) => _versionWithBuildDate(strings, '1.0.0 (1)'),
                 ),
               ),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(strings.appAuthor),
+              subtitle: const Text(_appAuthor),
+              trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+              onTap: () =>
+                  _openExternalLink(context, Uri.parse(_appAuthorUrl), strings),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -5272,6 +5296,34 @@ class SettingsScreen extends ConsumerWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.description_outlined),
+              title: Text(strings.termsOfUse),
+              subtitle: Text(strings.termsOfUseDesc),
+              trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+              onTap: () =>
+                  _openExternalLink(context, Uri.parse(_termsUrl), strings),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.privacy_tip_outlined),
+              title: Text(strings.privacyPolicy),
+              subtitle: Text(strings.privacyPolicyDesc),
+              trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+              onTap: () =>
+                  _openExternalLink(context, Uri.parse(_privacyUrl), strings),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.contact_support_outlined),
+              title: Text(strings.contact),
+              subtitle: Text(strings.contactDesc),
+              trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+              onTap: () =>
+                  _openExternalLink(context, Uri.parse(_contactUrl), strings),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.article_outlined),
               title: Text(strings.ossLicenses),
               subtitle: Text(strings.ossLicensesDesc),
               trailing: const Icon(Icons.open_in_new_rounded, size: 18),
@@ -6601,9 +6653,11 @@ String _vaultDisplayName(BuildContext context, VaultBucket vault) {
 }
 
 bool _isSameNoteDay(NoteEntry left, NoteEntry right) {
-  return left.createdAt.year == right.createdAt.year &&
-      left.createdAt.month == right.createdAt.month &&
-      left.createdAt.day == right.createdAt.day;
+  final leftCreatedAt = left.createdAt.toLocal();
+  final rightCreatedAt = right.createdAt.toLocal();
+  return leftCreatedAt.year == rightCreatedAt.year &&
+      leftCreatedAt.month == rightCreatedAt.month &&
+      leftCreatedAt.day == rightCreatedAt.day;
 }
 
 class _MobileNotesList extends StatefulWidget {
@@ -6996,7 +7050,7 @@ class _NoteListTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final isPrivateNote = isPrivateVaultId(note.vaultId);
-    final changedAt = note.updatedAt ?? note.createdAt;
+    final changedAt = (note.updatedAt ?? note.createdAt).toLocal();
     final dateLabel =
         '${changedAt.month}/${changedAt.day} ${changedAt.hour.toString().padLeft(2, '0')}:${changedAt.minute.toString().padLeft(2, '0')}';
     final isEdited = note.updatedAt != null && note.updatedAt != note.createdAt;
@@ -8143,9 +8197,10 @@ class _NoteDetailPane extends ConsumerWidget {
         return this.note;
       }),
     );
+    final createdAt = note.createdAt.toLocal();
     final createdLabel =
-        '${note.createdAt.year}/${note.createdAt.month}/${note.createdAt.day} ${note.createdAt.hour.toString().padLeft(2, '0')}:${note.createdAt.minute.toString().padLeft(2, '0')}';
-    final changedAt = note.updatedAt ?? note.createdAt;
+        '${createdAt.year}/${createdAt.month}/${createdAt.day} ${createdAt.hour.toString().padLeft(2, '0')}:${createdAt.minute.toString().padLeft(2, '0')}';
+    final changedAt = (note.updatedAt ?? note.createdAt).toLocal();
     final updatedLabel =
         '${changedAt.year}/${changedAt.month}/${changedAt.day} ${changedAt.hour.toString().padLeft(2, '0')}:${changedAt.minute.toString().padLeft(2, '0')}';
     final isEdited = note.updatedAt != null && note.updatedAt != note.createdAt;
@@ -8822,8 +8877,6 @@ class _SettingsGroup extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
                     summary,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: _mutedTextColor(context),
                     ),
@@ -11037,7 +11090,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _quickContentFocusNode = FocusNode();
     _contentController.addListener(_handleTextChanged);
     _createdAt =
-        widget.note?.createdAt ?? widget.initialCreatedAt ?? DateTime.now();
+        (widget.note?.createdAt ?? widget.initialCreatedAt ?? DateTime.now())
+            .toLocal();
     _isPinned = widget.note?.isPinned ?? false;
     _editorMode =
         widget.note?.editorMode ??
@@ -11284,7 +11338,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       return;
     }
     setState(() {
-      _createdAt = draft.createdAt;
+      _createdAt = draft.createdAt.toLocal();
       _isPinned = draft.isPinned;
       _editorMode = draft.editorMode;
       _selectedVaultId = draft.vaultId;
@@ -12314,12 +12368,15 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     final saveTags = pendingTag == null
         ? dedupeNoteTags(_tags)
         : dedupeNoteTags([..._tags, pendingTag]);
+    final richContent = _editorMode == NoteEditorMode.rich
+        ? _deriveRichSaveContent()
+        : null;
     final content = _editorMode == NoteEditorMode.quick
         ? _splitMemoContent(_contentController.text)
-        : (title: _deriveRichTitle(), body: _deriveRichBody());
+        : (title: richContent!.title, body: richContent.body);
     final blocks = _editorMode == NoteEditorMode.quick
         ? const <NoteBlock>[]
-        : _richBlocksToNoteBlocks();
+        : richContent!.blocks;
     final note = NoteEntry(
       id: widget.note?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
       vaultId: _selectedVaultId!,
@@ -12603,11 +12660,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   String _deriveRichBody() {
-    return _richBlocks
-        .map((block) => block.controller?.text.trim())
-        .whereType<String>()
-        .where((text) => text.isNotEmpty)
-        .join('\n\n');
+    return _deriveRichSaveContent().body;
   }
 
   List<NoteBlock> _richBlocksToNoteBlocks() {
@@ -12622,6 +12675,59 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
           NoteBlock(type: block.type, attachment: block.attachment),
     ];
   }
+
+  _RichSaveContent _deriveRichSaveContent() {
+    var title = '';
+    var consumedTitle = false;
+    final bodyParts = <String>[];
+    final blocks = <NoteBlock>[];
+
+    for (final block in _richBlocks) {
+      if (block.type != NoteBlockType.paragraph) {
+        if (block.attachment != null) {
+          blocks.add(NoteBlock(type: block.type, attachment: block.attachment));
+        }
+        continue;
+      }
+
+      final text = block.controller?.text.trim() ?? '';
+      if (text.isEmpty) {
+        continue;
+      }
+
+      var bodyText = text;
+      if (!consumedTitle) {
+        final content = _splitMemoContent(text);
+        title = content.title;
+        bodyText = content.body;
+        consumedTitle = true;
+      }
+
+      if (bodyText.isEmpty) {
+        continue;
+      }
+      bodyParts.add(bodyText);
+      blocks.add(NoteBlock(type: NoteBlockType.paragraph, text: bodyText));
+    }
+
+    return _RichSaveContent(
+      title: title,
+      body: bodyParts.join('\n\n'),
+      blocks: blocks,
+    );
+  }
+}
+
+class _RichSaveContent {
+  const _RichSaveContent({
+    required this.title,
+    required this.body,
+    required this.blocks,
+  });
+
+  final String title;
+  final String body;
+  final List<NoteBlock> blocks;
 }
 
 ({String title, String body}) _splitMemoContent(String raw) {
@@ -12920,7 +13026,7 @@ Future<List<_LocationSearchResult>> _searchLocationCandidates(
         uri,
         headers: const {
           'Accept': 'application/json',
-          'User-Agent': 'HiMemo/1.0 (mail@ruhenheim.org)',
+          'User-Agent': _httpUserAgent,
         },
       )
       .timeout(const Duration(seconds: 10));
@@ -12958,7 +13064,7 @@ Future<String?> _reverseSearchLocationAddress(LatLng point) async {
           uri,
           headers: const {
             'Accept': 'application/json',
-            'User-Agent': 'HiMemo/1.0 (mail@ruhenheim.org)',
+            'User-Agent': _httpUserAgent,
           },
         )
         .timeout(const Duration(seconds: 10));
@@ -14635,13 +14741,17 @@ String _attachmentDescription(BuildContext context, NoteAttachment attachment) {
   }
 }
 
-String _formatDateTime(DateTime value) {
-  final year = value.year.toString().padLeft(4, '0');
-  final month = value.month.toString().padLeft(2, '0');
-  final day = value.day.toString().padLeft(2, '0');
-  final hour = value.hour.toString().padLeft(2, '0');
-  final minute = value.minute.toString().padLeft(2, '0');
-  return '$year/$month/$day $hour:$minute';
+String _formatDateTime(DateTime value, AppStrings strings) {
+  final normalized = strings.isJapanese
+      ? value.toUtc().add(const Duration(hours: 9))
+      : value.toUtc();
+  final year = normalized.year.toString().padLeft(4, '0');
+  final month = normalized.month.toString().padLeft(2, '0');
+  final day = normalized.day.toString().padLeft(2, '0');
+  final hour = normalized.hour.toString().padLeft(2, '0');
+  final minute = normalized.minute.toString().padLeft(2, '0');
+  final zone = strings.isJapanese ? 'JST' : 'UTC';
+  return '$year/$month/$day $hour:$minute $zone';
 }
 
 String _remoteBundleSummary(
@@ -14675,7 +14785,7 @@ String _remoteBundleSummary(
   }
   final modifiedAt = remote.modifiedAt == null
       ? (strings.text('home.unknown.time'))
-      : _formatDateTime(remote.modifiedAt!);
+      : _formatDateTime(remote.modifiedAt!, strings);
   final sizeLabel = remote.sizeBytes == null
       ? (strings.text('home.size.unknown'))
       : strings.byteCount(remote.sizeBytes!);
@@ -14958,6 +15068,22 @@ Future<bool> _launchFirstExternal(List<Uri> uris) async {
     }
   }
   return false;
+}
+
+Future<void> _openExternalLink(
+  BuildContext context,
+  Uri uri,
+  AppStrings strings,
+) async {
+  final shouldOpen = await _confirmExternalLinkOpen(context, uri.toString());
+  if (!shouldOpen || !context.mounted) {
+    return;
+  }
+  final opened = await _launchFirstExternal([uri]);
+  if (!context.mounted || opened) {
+    return;
+  }
+  _showStoreFeedback(context, strings.linkOpenFailed);
 }
 
 void _showStoreFeedback(BuildContext context, String message) {
@@ -15516,7 +15642,7 @@ Future<bool?> _showBundlePreviewDialog(
                 if (preview.exportedAt != null)
                   Text(
                     strings.bundleExportedAt(
-                      _formatDateTime(preview.exportedAt!),
+                      _formatDateTime(preview.exportedAt!, strings),
                     ),
                   ),
                 if (preview.sampleTitles.isNotEmpty) ...[
@@ -15603,7 +15729,7 @@ Future<RemoteSyncBundleStatus?> _showBundleHistoryDialog(
               final entry = history[index];
               final modifiedAt = entry.modifiedAt == null
                   ? (strings.text('home.unknown.time.2'))
-                  : _formatDateTime(entry.modifiedAt!);
+                  : _formatDateTime(entry.modifiedAt!, strings);
               final counts = strings.bundleHistoryCounts(
                 notes: entry.noteCount,
                 attachments: entry.attachmentCount,

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Contact HiMemo</title>
+    <link rel="stylesheet" href="./legal.css" />
+    <script src="./legal.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <nav>
+        <a class="brand" href="./index.html">HiMemo</a>
+        <a href="./privacy.html">Privacy Policy</a>
+        <a href="./terms.html">Terms of Use</a>
+        <a href="./contact.html">Contact</a>
+        <button class="theme-toggle" type="button" data-theme-toggle>Dark</button>
+      </nav>
+      <section class="card">
+        <h1>Contact HiMemo</h1>
+        <p class="meta">Last updated: May 9, 2026</p>
+        <p>
+          For bug reports, sync issues, feature requests, and privacy questions,
+          use the contact form below.
+        </p>
+        <p>
+          Please do not include passwords, recovery phrases, private notes, or
+          other sensitive content in the form.
+        </p>
+        <p>
+          HiMemo cannot respond to requests to recover data from private
+          profiles. This is also stated in the Terms of Use.
+        </p>
+        <div class="language-grid">
+          <a class="language-card" data-contact-form>
+            <strong>Contact form</strong>
+            <span>Preparing form link</span>
+          </a>
+        </div>
+      </section>
+      <footer>&copy; HiMemo</footer>
+    </main>
+    <script>
+      const formUrl = 'https://forms.gle/LoqaZrjwMgx2RhbX6';
+      const formLink = document.querySelector('[data-contact-form]');
+      if (formUrl) {
+        formLink.href = formUrl;
+        formLink.target = '_blank';
+        formLink.rel = 'noopener noreferrer';
+        formLink.querySelector('span').textContent = 'Open Google Form';
+      } else {
+        formLink.removeAttribute('href');
+        formLink.setAttribute('aria-disabled', 'true');
+        formLink.querySelector('span').textContent =
+          'The contact form link will be added here.';
+      }
+    </script>
+  </body>
+</html>

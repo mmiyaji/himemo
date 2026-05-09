@@ -944,6 +944,83 @@ void main() {
   );
 
   test(
+    'NotesController can requeue synced notes when sync target changes',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-requeue-sync-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(36));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: noteDatabase,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          deviceIdentityStoreProvider.overrideWithValue(
+            DeviceIdentityStore(
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+              random: Random(7),
+            ),
+          ),
+          homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+
+      final controller = container.read(notesControllerProvider.notifier);
+      container.read(notesControllerProvider);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await controller.upsert(
+        NoteEntry(
+          id: 'synced-existing',
+          vaultId: 'everyday',
+          title: 'Synced existing',
+          body: 'Should upload to a new provider',
+          createdAt: DateTime(2026, 5, 9, 12),
+        ),
+      );
+      await controller.markCurrentStateSynced();
+
+      expect(await noteDatabase.loadPendingChanges(), isEmpty);
+
+      await controller.queueCurrentStateForSync();
+
+      final note = container
+          .read(notesControllerProvider)
+          .singleWhere((entry) => entry.id == 'synced-existing');
+      expect(note.syncState, NoteSyncState.pendingUpload);
+      final pendingChanges = await noteDatabase.loadPendingChanges();
+      expect(pendingChanges, hasLength(1));
+      expect(pendingChanges.single.noteId, 'synced-existing');
+      expect(pendingChanges.single.action, PendingNoteChangeAction.upsert);
+    },
+  );
+
+  test(
     'SyncEngine prepares sanitized snapshot without local attachment paths',
     () async {
       SharedPreferences.setMockInitialValues({});
@@ -1613,7 +1690,7 @@ void main() {
     final remote = RemoteSyncBundleStatus(
       fileId: 'file-1',
       fileName: 'himemo_sync_bundle.enc',
-      modifiedAt: DateTime(2026, 4, 12, 19, 0),
+      modifiedAt: DateTime.parse('2026-04-12T19:00:00+09:00'),
       deviceId: 'remote-device',
     );
 
@@ -1623,8 +1700,29 @@ void main() {
 
     expect(restored.lastRemoteFileId, 'file-1');
     expect(restored.lastRemoteDeviceId, 'remote-device');
-    expect(restored.lastRemoteModifiedAt, DateTime(2026, 4, 12, 19, 0));
+    expect(restored.lastRemoteModifiedAt, DateTime.utc(2026, 4, 12, 10));
     expect(restored.lastAppliedAt, isNotNull);
+  });
+
+  test('SyncBundleStateStore normalizes persisted timestamps to UTC', () async {
+    SharedPreferences.setMockInitialValues({
+      'sync.bundle_state.v1': jsonEncode({
+        'lastRemoteFileId': 'file-utc',
+        'lastRemoteModifiedAt': '2026-05-09T22:00:00+09:00',
+        'lastRemoteDeviceId': 'remote-device',
+        'lastUploadedAt': '2026-05-09T13:05:00Z',
+        'lastAppliedAt': '2026-05-09T22:10:00+09:00',
+      }),
+    });
+    final store = SyncBundleStateStore(
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+
+    final restored = await store.read();
+
+    expect(restored.lastRemoteModifiedAt, DateTime.utc(2026, 5, 9, 13));
+    expect(restored.lastUploadedAt, DateTime.utc(2026, 5, 9, 13, 5));
+    expect(restored.lastAppliedAt, DateTime.utc(2026, 5, 9, 13, 10));
   });
 
   test(
@@ -1659,6 +1757,30 @@ void main() {
         ),
         isFalse,
       );
+    },
+  );
+
+  test(
+    'sync conflict assessment compares equivalent time zones as instants',
+    () {
+      final assessment = assessSyncConflict(
+        googleDriveSelected: true,
+        queue: const SyncQueueSummary(totalChanges: 1, upserts: 1, deletes: 0),
+        remoteStatus: RemoteSyncBundleStatus(
+          fileId: 'remote-1',
+          fileName: 'himemo_sync_bundle.enc',
+          modifiedAt: DateTime.parse('2026-05-09T22:00:00+09:00'),
+          deviceId: 'other-device',
+        ),
+        bundleState: SyncBundleState(
+          lastRemoteFileId: 'remote-0',
+          lastRemoteModifiedAt: DateTime.utc(2026, 5, 9, 12, 30),
+          lastRemoteDeviceId: 'device-a',
+          lastUploadedAt: DateTime.utc(2026, 5, 9, 13),
+        ),
+      );
+
+      expect(assessment.hasConflict, isFalse);
     },
   );
 

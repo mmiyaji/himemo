@@ -464,7 +464,7 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     return RemoteSyncBundleStatus(
       fileId: file.id ?? '',
       fileName: file.name ?? _bundleFileName,
-      modifiedAt: file.modifiedTime,
+      modifiedAt: file.modifiedTime?.toUtc(),
       sizeBytes: file.size == null ? null : int.tryParse(file.size!),
       noteCount: int.tryParse(appProperties['noteCount'] ?? ''),
       attachmentCount: int.tryParse(appProperties['attachmentCount'] ?? ''),

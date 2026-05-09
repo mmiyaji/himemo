@@ -34,6 +34,7 @@ migrate_working_dir/
 .flutter-*.err
 .flutter-*.out
 .flutter-*.log
+devtools_options.yaml
 .playwright-*.err
 .playwright-*.out
 playwright-debug.png

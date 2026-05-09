@@ -215,7 +215,7 @@ bool remoteBundleNeedsApplyForSync(
   if (knownActionAt == null) {
     return true;
   }
-  final remoteModifiedAt = remoteStatus.modifiedAt;
+  final remoteModifiedAt = remoteStatus.modifiedAt?.toUtc();
   if (remoteModifiedAt == null) {
     return bundleState.lastRemoteFileId != remoteStatus.fileId &&
         lastAppliedAt == null;
@@ -225,12 +225,14 @@ bool remoteBundleNeedsApplyForSync(
 
 DateTime? _latestDateTime(DateTime? left, DateTime? right) {
   if (left == null) {
-    return right;
+    return right?.toUtc();
   }
   if (right == null) {
-    return left;
+    return left.toUtc();
   }
-  return left.isAfter(right) ? left : right;
+  final leftUtc = left.toUtc();
+  final rightUtc = right.toUtc();
+  return leftUtc.isAfter(rightUtc) ? leftUtc : rightUtc;
 }
 
 class PrivateMemoProfile {
@@ -4418,6 +4420,12 @@ class SyncProviderController extends Notifier<SyncProvider> {
     if (provider == SyncProvider.googleDrive) {
       await _prepareGoogleDriveSyncKey(carriedBackupCode);
     }
+    if (provider != SyncProvider.off && provider != previous) {
+      await ref
+          .read(notesControllerProvider.notifier)
+          .queueCurrentStateForSync();
+      ref.invalidate(syncQueueSummaryProvider);
+    }
   }
 
   Future<void> _prepareGoogleDriveSyncKey(String? carriedBackupCode) async {
@@ -5413,6 +5421,39 @@ class NotesController extends _$NotesController {
     await _persist();
   }
 
+  Future<void> queueCurrentStateForSync() async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    var changed = false;
+    final next = <NoteEntry>[];
+    for (final note in state) {
+      if (_isLockedPrivatePlaceholder(note) || isGeneratedSampleNote(note)) {
+        next.add(note);
+        continue;
+      }
+      final syncState = note.deletedAt == null
+          ? NoteSyncState.pendingUpload
+          : NoteSyncState.pendingDelete;
+      if (note.syncState == syncState && note.contentHash != null) {
+        next.add(note);
+        continue;
+      }
+      final queued = note.copyWith(syncState: syncState);
+      next.add(
+        queued.contentHash == null
+            ? queued.copyWith(contentHash: _computeContentHash(queued))
+            : queued,
+      );
+      changed = true;
+    }
+    if (!changed) {
+      return;
+    }
+    _sort(next);
+    state = next;
+    await _persist();
+  }
+
   Future<void> createWidgetQuickCapture(String rawText) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
@@ -6086,7 +6127,7 @@ List<NoteEntry> visibleNotes(Ref ref) {
     if (filterVaultId != null && note.vaultId != filterVaultId) {
       continue;
     }
-    if (filterYear != null && note.createdAt.year != filterYear) {
+    if (filterYear != null && note.createdAt.toLocal().year != filterYear) {
       continue;
     }
     if (dateRangeStart != null) {
@@ -6194,7 +6235,7 @@ List<int> visibleNoteYears(Ref ref) {
   final notes = ref.watch(visibleNotesProvider);
   final years = <int>{};
   for (final note in notes) {
-    years.add(note.createdAt.year);
+    years.add(note.createdAt.toLocal().year);
   }
   final sorted = years.toList(growable: false)
     ..sort((left, right) => right.compareTo(left));
@@ -6392,11 +6433,8 @@ final noteEditorDraftStoreProvider = Provider<NoteEditorDraftStore>(
 Map<DateTime, List<NoteEntry>> _notesByCreatedDay(List<NoteEntry> notes) {
   final grouped = <DateTime, List<NoteEntry>>{};
   for (final note in notes) {
-    final day = DateTime(
-      note.createdAt.year,
-      note.createdAt.month,
-      note.createdAt.day,
-    );
+    final createdAt = note.createdAt.toLocal();
+    final day = DateTime(createdAt.year, createdAt.month, createdAt.day);
     (grouped[day] ??= <NoteEntry>[]).add(note);
   }
   return Map<DateTime, List<NoteEntry>>.unmodifiable({

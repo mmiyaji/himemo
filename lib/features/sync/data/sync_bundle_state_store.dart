@@ -38,26 +38,20 @@ class SyncBundleState {
   Map<String, dynamic> toJson() {
     return {
       'lastRemoteFileId': lastRemoteFileId,
-      'lastRemoteModifiedAt': lastRemoteModifiedAt?.toIso8601String(),
+      'lastRemoteModifiedAt': _toUtcIso8601String(lastRemoteModifiedAt),
       'lastRemoteDeviceId': lastRemoteDeviceId,
-      'lastUploadedAt': lastUploadedAt?.toIso8601String(),
-      'lastAppliedAt': lastAppliedAt?.toIso8601String(),
+      'lastUploadedAt': _toUtcIso8601String(lastUploadedAt),
+      'lastAppliedAt': _toUtcIso8601String(lastAppliedAt),
     };
   }
 
   static SyncBundleState fromJson(Map<String, dynamic> json) {
     return SyncBundleState(
       lastRemoteFileId: json['lastRemoteFileId'] as String?,
-      lastRemoteModifiedAt: json['lastRemoteModifiedAt'] == null
-          ? null
-          : DateTime.parse(json['lastRemoteModifiedAt'] as String),
+      lastRemoteModifiedAt: _parseUtc(json['lastRemoteModifiedAt'] as String?),
       lastRemoteDeviceId: json['lastRemoteDeviceId'] as String?,
-      lastUploadedAt: json['lastUploadedAt'] == null
-          ? null
-          : DateTime.parse(json['lastUploadedAt'] as String),
-      lastAppliedAt: json['lastAppliedAt'] == null
-          ? null
-          : DateTime.parse(json['lastAppliedAt'] as String),
+      lastUploadedAt: _parseUtc(json['lastUploadedAt'] as String?),
+      lastAppliedAt: _parseUtc(json['lastAppliedAt'] as String?),
     );
   }
 }
@@ -93,7 +87,7 @@ class SyncBundleStateStore {
     await write(
       current.copyWith(
         lastRemoteFileId: remoteStatus.fileId,
-        lastRemoteModifiedAt: remoteStatus.modifiedAt,
+        lastRemoteModifiedAt: remoteStatus.modifiedAt?.toUtc(),
         lastRemoteDeviceId: remoteStatus.deviceId,
       ),
     );
@@ -104,9 +98,9 @@ class SyncBundleStateStore {
     await write(
       current.copyWith(
         lastRemoteFileId: remoteStatus.fileId,
-        lastRemoteModifiedAt: remoteStatus.modifiedAt,
+        lastRemoteModifiedAt: remoteStatus.modifiedAt?.toUtc(),
         lastRemoteDeviceId: remoteStatus.deviceId,
-        lastUploadedAt: DateTime.now(),
+        lastUploadedAt: DateTime.now().toUtc(),
       ),
     );
   }
@@ -117,11 +111,21 @@ class SyncBundleStateStore {
       current.copyWith(
         lastRemoteFileId: remoteStatus?.fileId ?? current.lastRemoteFileId,
         lastRemoteModifiedAt:
-            remoteStatus?.modifiedAt ?? current.lastRemoteModifiedAt,
+            remoteStatus?.modifiedAt?.toUtc() ?? current.lastRemoteModifiedAt,
         lastRemoteDeviceId:
             remoteStatus?.deviceId ?? current.lastRemoteDeviceId,
-        lastAppliedAt: DateTime.now(),
+        lastAppliedAt: DateTime.now().toUtc(),
       ),
     );
   }
+}
+
+String? _toUtcIso8601String(DateTime? value) =>
+    value?.toUtc().toIso8601String();
+
+DateTime? _parseUtc(String? value) {
+  if (value == null || value.isEmpty) {
+    return null;
+  }
+  return DateTime.parse(value).toUtc();
 }
