@@ -16893,6 +16893,7 @@ class _VideoAttachmentViewerState
     extends ConsumerState<_VideoAttachmentViewer> {
   VideoPlayerController? _controller;
   String? _tempFilePath;
+  String? _errorMessage;
   bool _wasPlaying = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -16922,29 +16923,80 @@ class _VideoAttachmentViewerState
 
   Future<void> _load() async {
     final filePath = widget.attachment.filePath;
-    if (filePath == null || filePath.isEmpty || kIsWeb) {
+    if (filePath == null || filePath.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = context.strings.videoPreviewUnavailableWeb;
+        });
+      }
       return;
     }
-    final tempFilePath = await ref
-        .read(encryptedAttachmentStoreProvider)
-        .materializeDecryptedFile(
+    try {
+      final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+      final VideoPlayerController controller;
+      String? tempFilePath;
+      if (kIsWeb) {
+        final bytes = await attachmentStore.readAttachment(
+          filePath,
+          type: widget.attachment.type,
+        );
+        if (!mounted) {
+          return;
+        }
+        if (bytes == null || bytes.isEmpty) {
+          setState(() {
+            _errorMessage = context.strings.videoPreviewUnavailableWeb;
+          });
+          return;
+        }
+        controller = VideoPlayerController.networkUrl(
+          Uri.dataFromBytes(
+            Uint8List.fromList(bytes),
+            mimeType: _mimeTypeForVideoAttachment(widget.attachment),
+          ),
+        );
+      } else {
+        tempFilePath = await attachmentStore.materializeDecryptedFile(
           filePath,
           type: widget.attachment.type,
           preferredFileName: widget.attachment.label,
         );
-    if (!mounted || tempFilePath == null) {
-      return;
+        if (!mounted) {
+          return;
+        }
+        if (tempFilePath == null) {
+          setState(() {
+            _errorMessage = context.strings.videoPreviewUnavailableWeb;
+          });
+          return;
+        }
+        controller = VideoPlayerController.networkUrl(Uri.file(tempFilePath));
+      }
+      await controller.initialize();
+      controller.addListener(_handleControllerChanged);
+      if (!mounted) {
+        await controller.dispose();
+        if (tempFilePath != null) {
+          await attachmentStore.deleteMaterializedFile(tempFilePath);
+        }
+        return;
+      }
+      setState(() {
+        _tempFilePath = tempFilePath;
+        _controller = controller;
+        _wasPlaying = controller.value.isPlaying;
+        _position = controller.value.position;
+        _duration = controller.value.duration;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('Video playback load failed: $error\n$stackTrace');
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _errorMessage = context.strings.videoPreviewUnavailableWeb;
+      });
     }
-    final controller = VideoPlayerController.networkUrl(Uri.file(tempFilePath));
-    await controller.initialize();
-    controller.addListener(_handleControllerChanged);
-    setState(() {
-      _tempFilePath = tempFilePath;
-      _controller = controller;
-      _wasPlaying = controller.value.isPlaying;
-      _position = controller.value.position;
-      _duration = controller.value.duration;
-    });
   }
 
   void _handleControllerChanged() {
@@ -16969,8 +17021,9 @@ class _VideoAttachmentViewerState
 
   @override
   Widget build(BuildContext context) {
-    if (kIsWeb) {
-      return Center(child: Text(context.strings.videoPreviewUnavailableWeb));
+    final errorMessage = _errorMessage;
+    if (errorMessage != null) {
+      return Center(child: Text(errorMessage));
     }
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
@@ -17154,6 +17207,23 @@ Duration _clampMediaPosition(Duration value, Duration duration) {
     return duration;
   }
   return value;
+}
+
+String _mimeTypeForVideoAttachment(NoteAttachment attachment) {
+  final label = attachment.label.toLowerCase();
+  if (label.endsWith('.webm')) {
+    return 'video/webm';
+  }
+  if (label.endsWith('.ogv') || label.endsWith('.ogg')) {
+    return 'video/ogg';
+  }
+  if (label.endsWith('.mov')) {
+    return 'video/quicktime';
+  }
+  if (label.endsWith('.m4v')) {
+    return 'video/x-m4v';
+  }
+  return 'video/mp4';
 }
 
 Future<MediaImportResult> _showAudioRecordingDialog(
