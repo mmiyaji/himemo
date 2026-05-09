@@ -2936,15 +2936,18 @@ class SettingsScreen extends ConsumerWidget {
 
   Future<void> _syncNow(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
+    final strings = context.strings;
     try {
       await ref.read(syncTransferControllerProvider.notifier).syncNow();
       if (!context.mounted) {
         return;
       }
-      final message = ref.read(syncTransferControllerProvider).message;
-      if (message == null || message.isEmpty) {
-        return;
-      }
+      final message = _cloudSyncSnackBarMessage(
+        strings,
+        ref.read(syncTransferControllerProvider),
+        _CloudSyncSnackBarAction.syncNow,
+        ref.read(syncProviderControllerProvider),
+      );
       messenger.showSnackBar(
         SnackBar(showCloseIcon: true, content: Text(message)),
       );
@@ -4331,15 +4334,16 @@ class SettingsScreen extends ConsumerWidget {
                                         if (!context.mounted) {
                                           return;
                                         }
-                                        final message = ref
-                                            .read(
-                                              syncTransferControllerProvider,
-                                            )
-                                            .message;
-                                        if (message == null ||
-                                            message.isEmpty) {
-                                          return;
-                                        }
+                                        final message =
+                                            _cloudSyncSnackBarMessage(
+                                              strings,
+                                              ref.read(
+                                                syncTransferControllerProvider,
+                                              ),
+                                              _CloudSyncSnackBarAction
+                                                  .refreshRemote,
+                                              syncProvider,
+                                            );
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
@@ -4382,15 +4386,15 @@ class SettingsScreen extends ConsumerWidget {
                                         if (!context.mounted) {
                                           return;
                                         }
-                                        final message = ref
-                                            .read(
-                                              syncTransferControllerProvider,
-                                            )
-                                            .message;
-                                        if (message == null ||
-                                            message.isEmpty) {
-                                          return;
-                                        }
+                                        final message =
+                                            _cloudSyncSnackBarMessage(
+                                              strings,
+                                              ref.read(
+                                                syncTransferControllerProvider,
+                                              ),
+                                              _CloudSyncSnackBarAction.upload,
+                                              syncProvider,
+                                            );
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
@@ -4472,12 +4476,14 @@ class SettingsScreen extends ConsumerWidget {
                                       if (!context.mounted) {
                                         return;
                                       }
-                                      final message = ref
-                                          .read(syncTransferControllerProvider)
-                                          .message;
-                                      if (message == null || message.isEmpty) {
-                                        return;
-                                      }
+                                      final message = _cloudSyncSnackBarMessage(
+                                        strings,
+                                        ref.read(
+                                          syncTransferControllerProvider,
+                                        ),
+                                        _CloudSyncSnackBarAction.upload,
+                                        syncProvider,
+                                      );
                                       messenger.showSnackBar(
                                         SnackBar(
                                           showCloseIcon: true,
@@ -4557,20 +4563,21 @@ class SettingsScreen extends ConsumerWidget {
                                         if (!context.mounted) {
                                           return;
                                         }
-                                        final message = ref
-                                            .read(
-                                              syncTransferControllerProvider,
-                                            )
-                                            .message;
-                                        if (message != null &&
-                                            message.isNotEmpty) {
-                                          messenger.showSnackBar(
-                                            SnackBar(
-                                              showCloseIcon: true,
-                                              content: Text(message),
-                                            ),
-                                          );
-                                        }
+                                        final message =
+                                            _cloudSyncSnackBarMessage(
+                                              strings,
+                                              ref.read(
+                                                syncTransferControllerProvider,
+                                              ),
+                                              _CloudSyncSnackBarAction.download,
+                                              syncProvider,
+                                            );
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            showCloseIcon: true,
+                                            content: Text(message),
+                                          ),
+                                        );
                                       } catch (error) {
                                         if (!context.mounted) {
                                           return;
@@ -4662,20 +4669,21 @@ class SettingsScreen extends ConsumerWidget {
                                         if (!context.mounted) {
                                           return;
                                         }
-                                        final message = ref
-                                            .read(
-                                              syncTransferControllerProvider,
-                                            )
-                                            .message;
-                                        if (message != null &&
-                                            message.isNotEmpty) {
-                                          messenger.showSnackBar(
-                                            SnackBar(
-                                              showCloseIcon: true,
-                                              content: Text(message),
-                                            ),
-                                          );
-                                        }
+                                        final message =
+                                            _cloudSyncSnackBarMessage(
+                                              strings,
+                                              ref.read(
+                                                syncTransferControllerProvider,
+                                              ),
+                                              _CloudSyncSnackBarAction.apply,
+                                              syncProvider,
+                                            );
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            showCloseIcon: true,
+                                            content: Text(message),
+                                          ),
+                                        );
                                       } catch (error) {
                                         if (!context.mounted) {
                                           return;
@@ -4796,11 +4804,17 @@ class SettingsScreen extends ConsumerWidget {
                                     syncAuthControllerProvider,
                                   )[syncProvider]
                                   ?.message;
-                              if (message != null && message.isNotEmpty) {
+                              final localizedMessage =
+                                  _cloudSyncAuthSnackBarMessage(
+                                    strings,
+                                    message,
+                                  );
+                              if (localizedMessage != null &&
+                                  localizedMessage.isNotEmpty) {
                                 messenger.showSnackBar(
                                   SnackBar(
                                     showCloseIcon: true,
-                                    content: Text(message),
+                                    content: Text(localizedMessage),
                                   ),
                                 );
                               }
@@ -14562,8 +14576,7 @@ String _remoteBundleSummary(
     return strings.text('home.remote.bundle.storage.is.not.configured.yet');
   }
   if (provider == SyncProvider.iCloud && transferState.remoteStatus == null) {
-    return transferState.message ??
-        (strings.text('home.no.icloud.bundle.metadata.loaded.yet'));
+    return strings.text('home.no.icloud.bundle.metadata.loaded.yet');
   }
   if (provider != SyncProvider.googleDrive && provider != SyncProvider.iCloud) {
     return strings.text('home.remote.bundle.transport.is.not.available.yet');
@@ -14572,8 +14585,7 @@ String _remoteBundleSummary(
     return strings.text('home.remote.bundle.storage.is.not.configured.yet.2');
   }
   if (provider == SyncProvider.iCloud && transferState.remoteStatus == null) {
-    return transferState.message ??
-        (strings.text('home.no.icloud.bundle.metadata.loaded.yet.2'));
+    return strings.text('home.no.icloud.bundle.metadata.loaded.yet.2');
   }
   if (provider != SyncProvider.googleDrive && provider != SyncProvider.iCloud) {
     return strings.text(
@@ -14582,8 +14594,7 @@ String _remoteBundleSummary(
   }
   final remote = transferState.remoteStatus;
   if (remote == null) {
-    return transferState.message ??
-        (strings.text('home.no.remote.bundle.metadata.loaded.yet'));
+    return strings.text('home.no.remote.bundle.metadata.loaded.yet');
   }
   final modifiedAt = remote.modifiedAt == null
       ? (strings.text('home.unknown.time'))
@@ -14601,6 +14612,161 @@ String _remoteBundleSummary(
     noteCount: noteCount,
     attachmentCount: attachmentCount,
   );
+}
+
+enum _CloudSyncSnackBarAction {
+  syncNow,
+  refreshRemote,
+  upload,
+  download,
+  apply,
+}
+
+String _cloudSyncSnackBarMessage(
+  AppStrings strings,
+  SyncTransferState state,
+  _CloudSyncSnackBarAction action,
+  SyncProvider provider,
+) {
+  final providerName = _syncProviderName(provider);
+  if (state.stage == SyncTransferStage.error) {
+    return switch (action) {
+      _CloudSyncSnackBarAction.refreshRemote => strings.localized(
+        en: 'Could not refresh remote sync status.',
+        ja: 'リモート同期状態を更新できませんでした。',
+        zh: '无法刷新远程同步状态。',
+        ko: '원격 동기화 상태를 새로 고칠 수 없습니다.',
+        es: 'No se pudo actualizar el estado de sincronizacion remota.',
+        de: 'Der Remote-Synchronisierungsstatus konnte nicht aktualisiert werden.',
+      ),
+      _CloudSyncSnackBarAction.upload => strings.localized(
+        en: 'Could not upload the sync bundle.',
+        ja: '同期バンドルをアップロードできませんでした。',
+        zh: '无法上传同步包。',
+        ko: '동기화 번들을 업로드할 수 없습니다.',
+        es: 'No se pudo subir el paquete de sincronizacion.',
+        de: 'Das Synchronisierungspaket konnte nicht hochgeladen werden.',
+      ),
+      _CloudSyncSnackBarAction.download => strings.localized(
+        en: 'Could not download the remote sync bundle.',
+        ja: 'リモート同期バンドルをダウンロードできませんでした。',
+        zh: '无法下载远程同步包。',
+        ko: '원격 동기화 번들을 다운로드할 수 없습니다.',
+        es: 'No se pudo descargar el paquete de sincronizacion remoto.',
+        de: 'Das Remote-Synchronisierungspaket konnte nicht heruntergeladen werden.',
+      ),
+      _CloudSyncSnackBarAction.apply => strings.localized(
+        en: 'Could not apply the downloaded sync bundle.',
+        ja: 'ダウンロードした同期バンドルを適用できませんでした。',
+        zh: '无法应用已下载的同步包。',
+        ko: '다운로드한 동기화 번들을 적용할 수 없습니다.',
+        es: 'No se pudo aplicar el paquete de sincronizacion descargado.',
+        de: 'Das heruntergeladene Synchronisierungspaket konnte nicht angewendet werden.',
+      ),
+      _CloudSyncSnackBarAction.syncNow => strings.localized(
+        en: 'Cloud sync could not be completed.',
+        ja: 'クラウド同期を完了できませんでした。',
+        zh: '无法完成云同步。',
+        ko: '클라우드 동기화를 완료할 수 없습니다.',
+        es: 'No se pudo completar la sincronizacion en la nube.',
+        de: 'Die Cloud-Synchronisierung konnte nicht abgeschlossen werden.',
+      ),
+    };
+  }
+  return switch (action) {
+    _CloudSyncSnackBarAction.refreshRemote =>
+      state.remoteStatus == null
+          ? strings.localized(
+              en: 'No remote sync bundle has been saved yet.',
+              ja: 'リモートにはまだ同期バンドルが保存されていません。',
+              zh: '远程还没有保存同步包。',
+              ko: '원격에 저장된 동기화 번들이 아직 없습니다.',
+              es: 'Todavia no se ha guardado ningun paquete de sincronizacion remoto.',
+              de: 'Es wurde noch kein Remote-Synchronisierungspaket gespeichert.',
+            )
+          : strings.localized(
+              en: '$providerName bundle information was refreshed.',
+              ja: '$providerName のバンドル情報を更新しました。',
+              zh: '$providerName 的同步包信息已更新。',
+              ko: '$providerName 번들 정보를 새로 고쳤습니다.',
+              es: 'Se actualizo la informacion del paquete de $providerName.',
+              de: 'Die Paketinformationen von $providerName wurden aktualisiert.',
+            ),
+    _CloudSyncSnackBarAction.upload => strings.localized(
+      en: 'Encrypted bundle uploaded to $providerName.',
+      ja: '暗号化したバンドルを $providerName にアップロードしました。',
+      zh: '已将加密同步包上传到 $providerName。',
+      ko: '암호화된 번들을 $providerName에 업로드했습니다.',
+      es: 'Paquete cifrado subido a $providerName.',
+      de: 'Verschlusseltes Paket wurde zu $providerName hochgeladen.',
+    ),
+    _CloudSyncSnackBarAction.download => strings.localized(
+      en: 'Remote bundle download check completed for $providerName.',
+      ja: '$providerName のリモートバンドル確認が完了しました。',
+      zh: '$providerName 的远程包检查已完成。',
+      ko: '$providerName 원격 번들 확인이 완료되었습니다.',
+      es: 'Comprobacion de descarga del paquete remoto completada para $providerName.',
+      de: 'Prufung des Remote-Paketdownloads fur $providerName abgeschlossen.',
+    ),
+    _CloudSyncSnackBarAction.apply => strings.localized(
+      en: 'Downloaded bundle applied to local notes.',
+      ja: 'ダウンロードしたバンドルをローカルのノートに反映しました。',
+      zh: '已将下载的同步包应用到本地笔记。',
+      ko: '다운로드한 번들을 로컬 노트에 적용했습니다.',
+      es: 'Paquete descargado aplicado a las notas locales.',
+      de: 'Heruntergeladenes Paket wurde auf lokale Notizen angewendet.',
+    ),
+    _CloudSyncSnackBarAction.syncNow => strings.localized(
+      en: 'Synced with $providerName.',
+      ja: '$providerName と同期済みです。',
+      zh: '已与 $providerName 同步。',
+      ko: '$providerName와 동기화되었습니다.',
+      es: 'Sincronizado con $providerName.',
+      de: 'Mit $providerName synchronisiert.',
+    ),
+  };
+}
+
+String? _cloudSyncAuthSnackBarMessage(AppStrings strings, String? message) {
+  if (message == null || message.isEmpty) {
+    return message;
+  }
+  return switch (message) {
+    'Google Drive app-data access is authorized.' => strings.localized(
+      en: 'Google Drive app-data access is authorized.',
+      ja: 'Google Drive のアプリ専用領域へのアクセスを許可しました。',
+      zh: '已授权访问 Google Drive 应用数据。',
+      ko: 'Google Drive 앱 데이터 접근 권한이 승인되었습니다.',
+      es: 'Se autorizo el acceso a los datos de la app en Google Drive.',
+      de: 'Der Zugriff auf Google Drive-App-Daten wurde autorisiert.',
+    ),
+    'iCloud is selected as this device sync target.' => strings.localized(
+      en: 'iCloud is selected as this device sync target.',
+      ja: 'この端末の同期先として iCloud を選択しました。',
+      zh: '已选择 iCloud 作为此设备的同步目标。',
+      ko: '이 기기의 동기화 대상으로 iCloud를 선택했습니다.',
+      es: 'iCloud esta seleccionado como destino de sincronizacion de este dispositivo.',
+      de: 'iCloud ist als Synchronisierungsziel dieses Gerats ausgewahlt.',
+    ),
+    'iCloud sync is currently available on iPhone and iPad only.' =>
+      strings.localized(
+        en: 'iCloud sync is currently available on iPhone and iPad only.',
+        ja: 'iCloud 同期は現在 iPhone と iPad でのみ利用できます。',
+        zh: 'iCloud 同步目前仅可在 iPhone 和 iPad 上使用。',
+        ko: 'iCloud 동기화는 현재 iPhone 및 iPad에서만 사용할 수 있습니다.',
+        es: 'La sincronizacion con iCloud solo esta disponible en iPhone y iPad.',
+        de: 'iCloud-Synchronisierung ist derzeit nur auf iPhone und iPad verfugbar.',
+      ),
+    _ => message,
+  };
+}
+
+String _syncProviderName(SyncProvider provider) {
+  return switch (provider) {
+    SyncProvider.iCloud => 'iCloud',
+    SyncProvider.googleDrive => 'Google Drive',
+    SyncProvider.off => 'Cloud',
+  };
 }
 
 String _appUpdatesUnavailableDescription(AppStrings strings) {
