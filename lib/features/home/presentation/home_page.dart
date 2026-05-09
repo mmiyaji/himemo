@@ -14328,7 +14328,11 @@ class _EmbeddedAttachmentBlock extends ConsumerWidget {
       case AttachmentType.video:
         return SizedBox(
           height: 260,
-          child: _VideoAttachmentViewer(attachment: attachment),
+          child: _VideoAttachmentViewer(
+            attachment: attachment,
+            onOpenFullScreen: () =>
+                _openAttachmentViewer(context, ref, attachment),
+          ),
         );
       case AttachmentType.audio:
         return SizedBox(
@@ -15877,6 +15881,21 @@ Future<void> _openAttachmentViewer(
     );
     return;
   }
+  if (attachment.type == AttachmentType.video) {
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      barrierColor: Colors.black.withValues(alpha: 0.88),
+      pageBuilder: (context, _, __) =>
+          _VideoLightboxDialog(attachment: attachment),
+      transitionBuilder: (context, animation, _, child) => FadeTransition(
+        opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+        child: child,
+      ),
+    );
+    return;
+  }
   await showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
@@ -16106,6 +16125,71 @@ class _FileAttachmentViewer extends ConsumerWidget {
               onPressed: () => _shareAttachment(context, ref, attachment),
               icon: const Icon(Icons.ios_share_outlined),
               label: Text(context.strings.share),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _VideoLightboxDialog extends ConsumerWidget {
+  const _VideoLightboxDialog({required this.attachment});
+
+  final NoteAttachment attachment;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = context.strings;
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).closeButtonTooltip,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      attachment.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => _shareAttachment(context, ref, attachment),
+                    icon: const Icon(
+                      Icons.ios_share_outlined,
+                      color: Colors.white,
+                    ),
+                    tooltip: strings.share,
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                child: _VideoAttachmentViewer(
+                  attachment: attachment,
+                  fillAvailableHeight: true,
+                  showFullScreenAction: false,
+                  showShareAction: false,
+                ),
+              ),
             ),
           ],
         ),
@@ -16786,9 +16870,19 @@ class _PhotoAttachmentViewer extends ConsumerWidget {
 }
 
 class _VideoAttachmentViewer extends ConsumerStatefulWidget {
-  const _VideoAttachmentViewer({required this.attachment});
+  const _VideoAttachmentViewer({
+    required this.attachment,
+    this.fillAvailableHeight = false,
+    this.onOpenFullScreen,
+    this.showFullScreenAction = true,
+    this.showShareAction = true,
+  });
 
   final NoteAttachment attachment;
+  final bool fillAvailableHeight;
+  final VoidCallback? onOpenFullScreen;
+  final bool showFullScreenAction;
+  final bool showShareAction;
 
   @override
   ConsumerState<_VideoAttachmentViewer> createState() =>
@@ -16800,6 +16894,9 @@ class _VideoAttachmentViewerState
   VideoPlayerController? _controller;
   String? _tempFilePath;
   bool _wasPlaying = false;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+  Duration? _dragPosition;
 
   @override
   void initState() {
@@ -16845,6 +16942,8 @@ class _VideoAttachmentViewerState
       _tempFilePath = tempFilePath;
       _controller = controller;
       _wasPlaying = controller.value.isPlaying;
+      _position = controller.value.position;
+      _duration = controller.value.duration;
     });
   }
 
@@ -16854,11 +16953,17 @@ class _VideoAttachmentViewerState
       return;
     }
     final isPlaying = controller.value.isPlaying;
-    if (isPlaying == _wasPlaying) {
+    final position = controller.value.position;
+    final duration = controller.value.duration;
+    if (isPlaying == _wasPlaying &&
+        (position - _position).abs() < const Duration(milliseconds: 250) &&
+        duration == _duration) {
       return;
     }
     setState(() {
       _wasPlaying = isPlaying;
+      _position = position;
+      _duration = duration;
     });
   }
 
@@ -16879,68 +16984,119 @@ class _VideoAttachmentViewerState
         final availableHeight = constraints.hasBoundedHeight
             ? constraints.maxHeight
             : 420.0;
-        const controlsHeight = 60.0;
+        const controlsHeight = 96.0;
         final maxVideoHeight = math.max(96.0, availableHeight - controlsHeight);
         final aspectRatio = controller.value.aspectRatio <= 0
             ? 16 / 9
             : controller.value.aspectRatio;
-
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              height: maxVideoHeight,
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: maxWidth,
-                    maxHeight: maxVideoHeight,
-                  ),
-                  child: AspectRatio(
-                    aspectRatio: aspectRatio,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: GestureDetector(
-                        onTap: () {
-                          if (controller.value.isPlaying) {
-                            controller.pause();
-                          } else {
-                            controller.play();
-                          }
-                          setState(() {});
-                        },
-                        child: VideoPlayer(controller),
-                      ),
-                    ),
+        final duration = _duration <= Duration.zero
+            ? controller.value.duration
+            : _duration;
+        final boundedPosition = _clampMediaPosition(_position, duration);
+        final displayPosition = _dragPosition == null
+            ? boundedPosition
+            : _clampMediaPosition(_dragPosition!, duration);
+        final controlsOnDark = widget.fillAvailableHeight;
+        final controlColor = controlsOnDark ? Colors.white : null;
+        final secondaryControlColor = controlsOnDark
+            ? Colors.white70
+            : _mutedTextColor(context);
+        final videoPane = SizedBox(
+          height: maxVideoHeight,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: maxWidth,
+                maxHeight: maxVideoHeight,
+              ),
+              child: AspectRatio(
+                aspectRatio: aspectRatio,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: GestureDetector(
+                    onTap: widget.onOpenFullScreen,
+                    child: VideoPlayer(controller),
                   ),
                 ),
               ),
             ),
+          ),
+        );
+
+        return Column(
+          mainAxisSize: widget.fillAvailableHeight
+              ? MainAxisSize.max
+              : MainAxisSize.min,
+          children: [
+            if (widget.fillAvailableHeight)
+              Expanded(child: videoPane)
+            else
+              videoPane,
             const SizedBox(height: 8),
             Row(
               children: [
                 IconButton(
-                  onPressed: () {
-                    if (controller.value.isPlaying) {
-                      controller.pause();
-                    } else {
-                      controller.play();
-                    }
-                    setState(() {});
-                  },
+                  onPressed: () => _togglePlayback(controller),
                   icon: Icon(
                     controller.value.isPlaying
                         ? Icons.pause_circle_outline
                         : Icons.play_circle_outline,
+                    color: controlColor,
                   ),
                 ),
                 Expanded(
-                  child: VideoProgressIndicator(
-                    controller,
-                    allowScrubbing: true,
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Slider(
+                    value: duration <= Duration.zero
+                        ? 0
+                        : displayPosition.inMilliseconds
+                              .clamp(0, duration.inMilliseconds)
+                              .toDouble(),
+                    max: duration <= Duration.zero
+                        ? 1
+                        : duration.inMilliseconds.toDouble(),
+                    onChanged: duration <= Duration.zero
+                        ? null
+                        : (value) {
+                            setState(() {
+                              _dragPosition = Duration(
+                                milliseconds: value.round(),
+                              );
+                            });
+                          },
+                    onChangeEnd: duration <= Duration.zero
+                        ? null
+                        : (value) {
+                            unawaited(
+                              _seekFromSlider(controller, value, duration),
+                            );
+                          },
                   ),
                 ),
+              ],
+            ),
+            Row(
+              children: [
+                Text(
+                  '${_formatAudioDuration(displayPosition)} / '
+                  '${_formatAudioDuration(duration)}',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: secondaryControlColor,
+                  ),
+                ),
+                const Spacer(),
+                if (widget.showFullScreenAction &&
+                    widget.onOpenFullScreen != null)
+                  IconButton(
+                    onPressed: widget.onOpenFullScreen,
+                    icon: Icon(Icons.open_in_full_rounded, color: controlColor),
+                  ),
+                if (widget.showShareAction)
+                  IconButton(
+                    onPressed: () =>
+                        _shareAttachment(context, ref, widget.attachment),
+                    icon: Icon(Icons.ios_share_outlined, color: controlColor),
+                    tooltip: context.strings.share,
+                  ),
               ],
             ),
           ],
@@ -16948,6 +17104,56 @@ class _VideoAttachmentViewerState
       },
     );
   }
+
+  void _togglePlayback(VideoPlayerController controller) {
+    if (controller.value.isPlaying) {
+      unawaited(controller.pause());
+    } else {
+      final duration = controller.value.duration;
+      if (duration > Duration.zero &&
+          controller.value.position >=
+              duration - const Duration(milliseconds: 250)) {
+        unawaited(
+          controller.seekTo(Duration.zero).then((_) => controller.play()),
+        );
+      } else {
+        unawaited(controller.play());
+      }
+    }
+    setState(() {});
+  }
+
+  Future<void> _seekFromSlider(
+    VideoPlayerController controller,
+    double value,
+    Duration duration,
+  ) async {
+    final target = _clampMediaPosition(
+      Duration(milliseconds: value.round()),
+      duration,
+    );
+    await controller.seekTo(target);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _position = target;
+      _dragPosition = null;
+    });
+  }
+}
+
+Duration _clampMediaPosition(Duration value, Duration duration) {
+  if (duration <= Duration.zero) {
+    return Duration.zero;
+  }
+  if (value < Duration.zero) {
+    return Duration.zero;
+  }
+  if (value > duration) {
+    return duration;
+  }
+  return value;
 }
 
 Future<MediaImportResult> _showAudioRecordingDialog(
