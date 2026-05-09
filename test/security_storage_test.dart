@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:archive/archive.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1222,6 +1223,97 @@ void main() {
     expect(importedFingerprint, expectedFingerprint);
     expect(await targetService.fingerprint(), expectedFingerprint);
   });
+
+  test(
+    'local archive export excludes generated notes and hidden vaults',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(82));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final profileDataKeyService = ProfileDataKeyService(
+        secureStore: secureStore,
+        encryptionService: encryptionService,
+        normalMasterKeyService: masterKeyService,
+      );
+      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          profileDataKeyServiceProvider.overrideWithValue(
+            profileDataKeyService,
+          ),
+          encryptedNoteDatabaseProvider.overrideWithValue(database),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              profileDataKeyService: profileDataKeyService,
+              database: database,
+              directoryProvider: () async => Directory.systemTemp,
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(database.close);
+
+      final notesController = container.read(notesControllerProvider.notifier);
+      await notesController.restoreCompleted;
+      await profileDataKeyService.configureProfile(
+        vaultId: legacyPrivateVaultId,
+        password: 'private-pass',
+      );
+      await notesController.upsert(
+        NoteEntry(
+          id: 'user-note',
+          vaultId: 'everyday',
+          title: 'User note',
+          body: '',
+          createdAt: DateTime(2026, 5, 9, 9, 0),
+        ),
+      );
+      await notesController.upsert(
+        NoteEntry(
+          id: 'seed-demo',
+          vaultId: 'everyday',
+          title: 'Demo note',
+          body: '',
+          createdAt: DateTime(2026, 5, 9, 8, 0),
+          deviceId: 'seeded-device',
+        ),
+      );
+      await notesController.upsert(
+        NoteEntry(
+          id: 'private-note',
+          vaultId: legacyPrivateVaultId,
+          title: 'Private note',
+          body: '',
+          createdAt: DateTime(2026, 5, 9, 7, 0),
+        ),
+      );
+
+      final archive = await container
+          .read(syncTransferControllerProvider.notifier)
+          .exportLocalArchive(vaultIds: {'everyday'});
+      final decoded = ZipDecoder().decodeBytes(archive.bytes);
+      final notesJson =
+          decoded.files.firstWhere((file) => file.name == 'notes.json').content
+              as List<int>;
+      final notes = (jsonDecode(utf8.decode(notesJson))['notes'] as List)
+          .cast<Map>()
+          .map((entry) => entry['id'])
+          .toList(growable: false);
+
+      expect(archive.noteCount, 1);
+      expect(notes, ['user-note']);
+    },
+  );
 
   test(
     'SyncBundleKeyService previews imported backup code fingerprint',

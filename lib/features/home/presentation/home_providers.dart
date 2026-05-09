@@ -188,6 +188,14 @@ bool isPrivateVaultId(String vaultId) {
       vaultId.startsWith(customPrivateVaultPrefix);
 }
 
+bool isGeneratedSampleNote(NoteEntry note) {
+  return note.deviceId == 'seeded-device' ||
+      note.id.startsWith('seed-') ||
+      note.deviceId == 'performance-seed' ||
+      note.id.startsWith('perf-') ||
+      (note.contentHash?.startsWith('performance-seed-') ?? false);
+}
+
 class PrivateMemoProfile {
   const PrivateMemoProfile({
     required this.id,
@@ -2089,7 +2097,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  Future<LocalNoteArchive> exportLocalArchive({String? password}) async {
+  Future<LocalNoteArchive> exportLocalArchive({
+    String? password,
+    Set<String>? vaultIds,
+    bool includeSampleNotes = false,
+  }) async {
     state = state.copyWith(
       stage: SyncTransferStage.busy,
       clearMessage: true,
@@ -2099,7 +2111,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await logFirebaseBreadcrumb('local zip archive export requested');
       final archive = await runFirebaseTrace(
         'notes_prepare_local_zip_archive',
-        () => _buildLocalZipArchive(password: password),
+        () => _buildLocalZipArchive(
+          password: password,
+          vaultIds: vaultIds,
+          includeSampleNotes: includeSampleNotes,
+        ),
       );
       if (archive.bytes.isEmpty) {
         throw StateError('ローカルアーカイブを準備できませんでした。');
@@ -2558,11 +2574,22 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     };
   }
 
-  Future<LocalNoteArchive> _buildLocalZipArchive({String? password}) async {
+  Future<LocalNoteArchive> _buildLocalZipArchive({
+    String? password,
+    Set<String>? vaultIds,
+    bool includeSampleNotes = false,
+  }) async {
     final exportedAt = DateTime.now();
     final notes = ref
         .read(notesControllerProvider)
         .where((entry) => entry.deletedAt == null)
+        .where(
+          (entry) =>
+              vaultIds == null ||
+              vaultIds.isEmpty ||
+              vaultIds.contains(entry.vaultId),
+        )
+        .where((entry) => includeSampleNotes || !isGeneratedSampleNote(entry))
         .toList(growable: false);
     final archive = Archive();
     final exportedNotes = <Map<String, dynamic>>[];

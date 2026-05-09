@@ -3027,24 +3027,21 @@ class SettingsScreen extends ConsumerWidget {
     final showFlavorInfo = flavorName != 'production';
     final displayName =
         FlavorConfig.instance.variables['displayName'] as String? ?? 'HiMemo';
+    final visibleVaults = ref.watch(visibleVaultsProvider);
     final visibleStorageVaultIds = {
-      'everyday',
-      if (unlockedPrivateProfileVaultId != null) unlockedPrivateProfileVaultId,
+      for (final vault in visibleVaults) vault.id,
     };
     final currentNotes = ref.watch(notesControllerProvider);
     final noteCount = currentNotes
         .where(
           (note) =>
               note.deletedAt == null &&
-              visibleStorageVaultIds.contains(note.vaultId),
+              visibleStorageVaultIds.contains(note.vaultId) &&
+              !isGeneratedSampleNote(note),
         )
         .length;
     final demoNoteCount = currentNotes
-        .where(
-          (note) =>
-              note.deletedAt == null &&
-              (note.deviceId == 'seeded-device' || note.id.startsWith('seed-')),
-        )
+        .where((note) => note.deletedAt == null && isGeneratedSampleNote(note))
         .length;
     final currentModeLabel = activeIdentity == 'daily'
         ? (strings.text('home.normal.memo.mode'))
@@ -4855,7 +4852,11 @@ class SettingsScreen extends ConsumerWidget {
                   OutlinedButton.icon(
                     onPressed: noteCount == 0
                         ? null
-                        : () => _exportLocalArchive(context, ref),
+                        : () => _exportLocalArchive(
+                            context,
+                            ref,
+                            vaultIds: visibleStorageVaultIds,
+                          ),
                     icon: const Icon(Icons.upload_file_outlined),
                     label: Text(
                       strings.localized(
@@ -14734,7 +14735,11 @@ class _LocalArchiveExportOptions {
   final String? password;
 }
 
-Future<void> _exportLocalArchive(BuildContext context, WidgetRef ref) async {
+Future<void> _exportLocalArchive(
+  BuildContext context,
+  WidgetRef ref, {
+  required Set<String> vaultIds,
+}) async {
   final strings = context.strings;
   final messenger = ScaffoldMessenger.of(context);
   try {
@@ -14744,7 +14749,7 @@ Future<void> _exportLocalArchive(BuildContext context, WidgetRef ref) async {
     }
     final archive = await ref
         .read(syncTransferControllerProvider.notifier)
-        .exportLocalArchive(password: options.password);
+        .exportLocalArchive(password: options.password, vaultIds: vaultIds);
     if (!context.mounted) {
       return;
     }
