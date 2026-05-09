@@ -423,7 +423,7 @@ class AppStrings {
       'home.removed.locally.after.apply': 'Removed locally after apply',
       'home.paste.himemo.sync.key.v1': 'Paste himemo-sync-key-v1:...',
       'home.use.a.4.digit.pin.for.this.browser':
-          'Use a 4 digit PIN for this browser.',
+          'Use a 4 digit PIN for this app.',
       'home.pin.must.be.exactly.4.digits': 'PIN must be exactly 4 digits.',
       'home.pin.must.contain.digits.only': 'PIN must contain digits only.',
       'home.pin.confirmation.did.not.match': 'PIN confirmation did not match.',
@@ -471,7 +471,7 @@ class AppStrings {
       'home.year.partition': 'Año',
       'home.all.years': 'Todos los años',
       'home.use.a.4.digit.pin.for.this.browser':
-          'Usa un PIN de 4 dígitos para este navegador.',
+          'Usa un PIN de 4 dígitos para esta app.',
       'home.pin.must.be.exactly.4.digits':
           'El PIN debe tener exactamente 4 dígitos.',
       'home.pin.must.contain.digits.only': 'El PIN solo debe contener dígitos.',
@@ -522,7 +522,7 @@ class AppStrings {
       'home.year.partition': 'Jahr',
       'home.all.years': 'Alle Jahre',
       'home.use.a.4.digit.pin.for.this.browser':
-          'Verwende eine 4-stellige PIN für diesen Browser.',
+          'Verwende eine 4-stellige PIN für diese App.',
       'home.pin.must.be.exactly.4.digits':
           'Die PIN muss genau 4 Ziffern haben.',
       'home.pin.must.contain.digits.only':
@@ -878,7 +878,7 @@ class AppStrings {
           'まだリモートバンドルのメタデータは読み込まれていません。',
       'home.removed.locally.after.apply': '適用後にこの端末で消えるノート',
       'home.paste.himemo.sync.key.v1': 'himemo-sync-key-v1:... を貼り付け',
-      'home.use.a.4.digit.pin.for.this.browser': 'このブラウザで使う 4 桁の PIN を設定します。',
+      'home.use.a.4.digit.pin.for.this.browser': 'このアプリで使う 4 桁の PIN を設定します。',
       'home.pin.must.be.exactly.4.digits': 'PIN は 4 桁ちょうどで入力してください。',
       'home.pin.must.contain.digits.only': 'PIN は数字だけで入力してください。',
       'home.pin.confirmation.did.not.match': '確認用 PIN が一致しません。',
@@ -1225,7 +1225,7 @@ class AppStrings {
       'home.no.remote.bundle.metadata.loaded.yet': '尚未加载远程包元数据。',
       'home.removed.locally.after.apply': '应用后会从此设备移除的笔记',
       'home.paste.himemo.sync.key.v1': '粘贴 himemo-sync-key-v1:...',
-      'home.use.a.4.digit.pin.for.this.browser': '为此浏览器设置 4 位 PIN。',
+      'home.use.a.4.digit.pin.for.this.browser': '为此应用设置 4 位 PIN。',
       'home.reset.private.key': '重置私密密钥',
       'home.pin.must.be.exactly.4.digits': 'PIN 必须正好为 4 位。',
       'home.pin.must.contain.digits.only': 'PIN 只能包含数字。',
@@ -1585,7 +1585,7 @@ class AppStrings {
           '원격 번들 메타데이터를 아직 불러오지 않았습니다.',
       'home.removed.locally.after.apply': '적용 후 이 기기에서 제거될 노트',
       'home.paste.himemo.sync.key.v1': 'himemo-sync-key-v1:... 붙여넣기',
-      'home.use.a.4.digit.pin.for.this.browser': '이 브라우저에서 사용할 4자리 PIN을 설정합니다.',
+      'home.use.a.4.digit.pin.for.this.browser': '이 앱에서 사용할 4자리 PIN을 설정합니다.',
       'home.reset.private.key': '비공개 키 재설정',
       'home.pin.must.be.exactly.4.digits': 'PIN은 정확히 4자리여야 합니다.',
       'home.pin.must.contain.digits.only': 'PIN은 숫자만 포함해야 합니다.',
@@ -3317,24 +3317,24 @@ class AppStrings {
   String pinLockSummary({required bool isConfigured, String? lastError}) {
     if (isConfigured) {
       return localized(
-        en: 'A web-only unlock PIN is configured for this browser session.',
-        ja: 'このブラウザでは解除用 PIN が設定されています。',
-        zh: '此浏览器会话已设置仅限 Web 的解锁 PIN。',
-        ko: '이 브라우저 세션에는 웹 전용 잠금 해제 PIN이 설정되어 있습니다.',
-        es: 'Hay un PIN de desbloqueo web configurado para esta sesión del navegador.',
-        de: 'Für diese Browsersitzung ist eine Web-Entsperr-PIN eingerichtet.',
+        en: 'An unlock PIN is configured for this app.',
+        ja: 'アプリ解除用の PIN が設定されています。',
+        zh: '已为此应用设置解锁 PIN。',
+        ko: '이 앱의 잠금 해제 PIN이 설정되어 있습니다.',
+        es: 'Hay un PIN de desbloqueo configurado para esta app.',
+        de: 'Für diese App ist eine Entsperr-PIN eingerichtet.',
       );
     }
     if (lastError != null && lastError.isNotEmpty) {
       return lastError;
     }
     return localized(
-      en: 'No unlock PIN is configured for this browser yet.',
-      ja: 'このブラウザでは解除用 PIN はまだ設定されていません。',
-      zh: '此浏览器尚未设置解锁 PIN。',
-      ko: '이 브라우저에는 아직 잠금 해제 PIN이 설정되어 있지 않습니다.',
-      es: 'Todavía no hay un PIN de desbloqueo configurado para este navegador.',
-      de: 'Für diesen Browser ist noch keine Entsperr-PIN eingerichtet.',
+      en: 'No unlock PIN is configured yet.',
+      ja: '解除用 PIN はまだ設定されていません。',
+      zh: '尚未设置解锁 PIN。',
+      ko: '잠금 해제 PIN이 아직 설정되어 있지 않습니다.',
+      es: 'Todavía no hay un PIN de desbloqueo configurado.',
+      de: 'Es ist noch keine Entsperr-PIN eingerichtet.',
     );
   }
 

@@ -540,6 +540,8 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     final privacyScreenActive = ref.watch(privacyScreenActiveProvider);
     final authState = ref.watch(deviceAuthControllerProvider);
     final pinState = ref.watch(appPinLockControllerProvider);
+    final canUseDeviceAuth = !kIsWeb && authState.isAvailable;
+    final usePinUnlock = kIsWeb || (!canUseDeviceAuth && pinState.isConfigured);
     final bypassForQuickCapture = widget.currentLocation.startsWith(
       '/widget-capture',
     );
@@ -642,8 +644,15 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          kIsWeb
-                              ? strings.browserPinGate
+                          usePinUnlock
+                              ? strings.localized(
+                                  en: 'Enter your PIN to unlock this session.',
+                                  ja: 'PIN を入力してこのセッションを解除します。',
+                                  zh: '輸入 PIN 以解鎖此工作階段。',
+                                  ko: 'PIN을 입력해 이 세션의 잠금을 해제하세요.',
+                                  es: 'Introduce tu PIN para desbloquear esta sesión.',
+                                  de: 'Gib deine PIN ein, um diese Sitzung zu entsperren.',
+                                )
                               : strings.deviceAuthGate,
                           style: Theme.of(context).textTheme.bodyLarge
                               ?.copyWith(color: colorScheme.onSurfaceVariant),
@@ -672,7 +681,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              kIsWeb ? pinState.summary : authState.summary,
+                              usePinUnlock
+                                  ? pinState.summary
+                                  : authState.summary,
                               textAlign: TextAlign.center,
                               style: Theme.of(context).textTheme.bodyMedium
                                   ?.copyWith(
@@ -680,9 +691,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                                   ),
                             ),
                             const SizedBox(height: 24),
-                            if (kIsWeb)
-                              const _WebPinUnlockPanel()
-                            else
+                            if (usePinUnlock)
+                              const _PinUnlockPanel()
+                            else if (canUseDeviceAuth)
                               FilledButton.icon(
                                 onPressed: () async {
                                   await ref
@@ -696,6 +707,22 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                                 },
                                 icon: const Icon(Icons.lock_open_rounded),
                                 label: Text(strings.authenticate),
+                              )
+                            else
+                              Text(
+                                strings.localized(
+                                  en: 'No unlock method is configured. Set a PIN from App security.',
+                                  ja: '解除方法が設定されていません。アプリ保護で PIN を設定してください。',
+                                  zh: '尚未設定解鎖方式。請在應用程式安全性中設定 PIN。',
+                                  ko: '잠금 해제 방법이 설정되어 있지 않습니다. 앱 보안에서 PIN을 설정하세요.',
+                                  es: 'No hay un método de desbloqueo configurado. Define un PIN en Seguridad de la app.',
+                                  de: 'Es ist keine Entsperrmethode eingerichtet. Lege unter App-Sicherheit eine PIN fest.',
+                                ),
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context).textTheme.bodyMedium
+                                    ?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
                               ),
                             if (kDebugMode) ...[
                               const SizedBox(height: 12),
@@ -742,14 +769,14 @@ class _ResolvedAppLockPolicy {
   final AppLockRelockDelay relockDelay;
 }
 
-class _WebPinUnlockPanel extends ConsumerStatefulWidget {
-  const _WebPinUnlockPanel();
+class _PinUnlockPanel extends ConsumerStatefulWidget {
+  const _PinUnlockPanel();
 
   @override
-  ConsumerState<_WebPinUnlockPanel> createState() => _WebPinUnlockPanelState();
+  ConsumerState<_PinUnlockPanel> createState() => _PinUnlockPanelState();
 }
 
-class _WebPinUnlockPanelState extends ConsumerState<_WebPinUnlockPanel> {
+class _PinUnlockPanelState extends ConsumerState<_PinUnlockPanel> {
   final TextEditingController _pinController = TextEditingController();
 
   @override

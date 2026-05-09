@@ -3020,6 +3020,8 @@ class SettingsScreen extends ConsumerWidget {
     );
     final deviceAuthState = ref.watch(deviceAuthControllerProvider);
     final pinLockState = ref.watch(appPinLockControllerProvider);
+    final canUseDeviceAuth = !kIsWeb && deviceAuthState.isAvailable;
+    final usePinAppLock = kIsWeb || !canUseDeviceAuth;
     final privateVaultConfigured = ref.watch(
       privateVaultSecretControllerProvider,
     );
@@ -3547,22 +3549,22 @@ class SettingsScreen extends ConsumerWidget {
               key: appLockToggleKey,
               value: appLockEnabled,
               contentPadding: EdgeInsets.zero,
-              title: kIsWeb
+              title: usePinAppLock
                   ? Text(strings.text('home.require.pin.on.launch'))
                   : Text(strings.text('home.require.device.auth.on.launch')),
               subtitle: Text(
-                kIsWeb
-                    ? strings.webPinProtectionSummary(
-                        strings.pinLockSummary(
-                          isConfigured: pinLockState.isConfigured,
-                          lastError: pinLockState.lastError,
-                        ),
+                usePinAppLock
+                    ? strings.localized(
+                        en: 'Protect the app with a 4 digit PIN. ${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
+                        ja: '4 桁の PIN でアプリを保護します。${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
+                        zh: '使用 4 位數 PIN 保護應用程式。${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
+                        ko: '4자리 PIN으로 앱을 보호합니다. ${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
+                        es: 'Protege la app con un PIN de 4 dígitos. ${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
+                        de: 'Schütze die App mit einer 4-stelligen PIN. ${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
                       )
-                    : (deviceAuthState.isAvailable
-                          ? strings.deviceAuthProtectionSummary(
-                              deviceAuthState.summary,
-                            )
-                          : deviceAuthState.summary),
+                    : strings.deviceAuthProtectionSummary(
+                        deviceAuthState.summary,
+                      ),
               ),
               onChanged: (value) async {
                 if (!value) {
@@ -3575,7 +3577,7 @@ class SettingsScreen extends ConsumerWidget {
                   return;
                 }
 
-                if (kIsWeb) {
+                if (usePinAppLock) {
                   if (!pinLockState.isConfigured) {
                     final configured = await _showPinSetupDialog(
                       context,
@@ -3631,16 +3633,21 @@ class SettingsScreen extends ConsumerWidget {
               subtitle: Text(
                 appSessionUnlocked
                     ? (strings.text('home.this.session.is.currently.unlocked'))
-                    : (kIsWeb
-                          ? (strings.text(
-                              'home.this.browser.stays.locked.until.the.correct.pin.is.enter',
-                            ))
+                    : (usePinAppLock
+                          ? strings.localized(
+                              en: 'This session stays locked until the correct PIN is entered.',
+                              ja: '正しい PIN を入力するまで、このセッションはロックされます。',
+                              zh: '輸入正確的 PIN 前，此工作階段會保持鎖定。',
+                              ko: '올바른 PIN을 입력할 때까지 이 세션은 잠긴 상태로 유지됩니다.',
+                              es: 'Esta sesión permanece bloqueada hasta introducir el PIN correcto.',
+                              de: 'Diese Sitzung bleibt gesperrt, bis die richtige PIN eingegeben wurde.',
+                            )
                           : (strings.text(
                               'home.this.session.stays.locked.until.device.authentication.su',
                             ))),
               ),
             ),
-            if (kIsWeb) ...[
+            if (usePinAppLock) ...[
               Align(
                 alignment: Alignment.centerLeft,
                 child: Wrap(
@@ -3695,9 +3702,18 @@ class SettingsScreen extends ConsumerWidget {
                                     strings.text('home.remove.unlock.pin'),
                                   ),
                                   content: Text(
-                                    strings.text(
-                                      'home.remove.the.web.unlock.pin.for.this.browser.and.turn.off',
-                                    ),
+                                    kIsWeb
+                                        ? strings.text(
+                                            'home.remove.the.web.unlock.pin.for.this.browser.and.turn.off',
+                                          )
+                                        : strings.localized(
+                                            en: 'Remove the unlock PIN from this device and turn off launch PIN protection?',
+                                            ja: 'この端末の解除用 PIN を削除し、起動時の PIN 保護をオフにしますか？',
+                                            zh: '要从此装置移除解锁 PIN，并关闭启动 PIN 保护吗？',
+                                            ko: '이 기기의 잠금 해제 PIN을 제거하고 실행 시 PIN 보호를 끄시겠습니까?',
+                                            es: '¿Eliminar el PIN de desbloqueo de este dispositivo y desactivar la protección al iniciar?',
+                                            de: 'Entsperr-PIN von diesem Gerät entfernen und PIN-Schutz beim Start deaktivieren?',
+                                          ),
                                   ),
                                   actions: [
                                     TextButton(
@@ -3733,9 +3749,18 @@ class SettingsScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                strings.text(
-                  'home.web.pin.is.a.browser.level.access.gate.it.does.not.repla',
-                ),
+                kIsWeb
+                    ? strings.text(
+                        'home.web.pin.is.a.browser.level.access.gate.it.does.not.repla',
+                      )
+                    : strings.localized(
+                        en: 'This PIN is stored on this device and is used when OS device authentication is unavailable.',
+                        ja: 'この PIN はこの端末に保存され、OS の端末認証が利用できない場合の解除に使われます。',
+                        zh: '此 PIN 會儲存在本裝置，並在無法使用系統裝置認證時用於解鎖。',
+                        ko: '이 PIN은 이 기기에 저장되며 OS 기기 인증을 사용할 수 없을 때 잠금 해제에 사용됩니다.',
+                        es: 'Este PIN se guarda en este dispositivo y se usa cuando la autenticación del sistema no está disponible.',
+                        de: 'Diese PIN wird auf diesem Gerät gespeichert und genutzt, wenn die Geräteauthentifizierung des Systems nicht verfügbar ist.',
+                      ),
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: _mutedTextColor(context),
                 ),
@@ -3846,21 +3871,16 @@ class SettingsScreen extends ConsumerWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  FilledButton.tonal(
-                    key: appLockAuthenticateKey,
-                    onPressed: kIsWeb
-                        ? null
-                        : deviceAuthState.isAvailable
-                        ? () => ref
-                              .read(deviceAuthControllerProvider.notifier)
-                              .authenticate(
-                                reason: strings.unlockWithDeviceAuthReason,
-                              )
-                        : null,
-                    child: kIsWeb
-                        ? Text(strings.text('home.pin.unlock.on.lock.screen'))
-                        : Text(strings.text('home.authenticate.now')),
-                  ),
+                  if (!usePinAppLock)
+                    FilledButton.tonal(
+                      key: appLockAuthenticateKey,
+                      onPressed: () => ref
+                          .read(deviceAuthControllerProvider.notifier)
+                          .authenticate(
+                            reason: strings.unlockWithDeviceAuthReason,
+                          ),
+                      child: Text(strings.text('home.authenticate.now')),
+                    ),
                   OutlinedButton(
                     key: appLockLockNowKey,
                     onPressed: appLockEnabled
@@ -3891,16 +3911,13 @@ class SettingsScreen extends ConsumerWidget {
                         : null,
                     child: Text(strings.text('home.lock.session.now')),
                   ),
-                  OutlinedButton(
-                    onPressed: kIsWeb
-                        ? null
-                        : () => ref
-                              .read(deviceAuthControllerProvider.notifier)
-                              .refresh(),
-                    child: kIsWeb
-                        ? Text(strings.text('home.web.pin.active'))
-                        : Text(strings.text('home.refresh.availability')),
-                  ),
+                  if (!kIsWeb)
+                    OutlinedButton(
+                      onPressed: () => ref
+                          .read(deviceAuthControllerProvider.notifier)
+                          .refresh(),
+                      child: Text(strings.text('home.refresh.availability')),
+                    ),
                 ],
               ),
             ),

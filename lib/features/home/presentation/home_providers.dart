@@ -713,9 +713,9 @@ class AppPinLockState {
 
   String get summary {
     if (isConfigured) {
-      return 'A web-only unlock PIN is configured for this browser session.';
+      return 'An unlock PIN is configured for this app.';
     }
-    return lastError ?? 'No unlock PIN is configured for this browser yet.';
+    return lastError ?? 'No unlock PIN is configured yet.';
   }
 
   AppPinLockState copyWith({
