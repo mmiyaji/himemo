@@ -741,6 +741,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 density: listDensity,
                 query: query,
                 onAddNote: () => showNoteEditorSheet(context, ref),
+                onRefresh: syncProvider == SyncProvider.off
+                    ? null
+                    : () => _refreshNotesFromCloud(context),
                 onNoteSelected: (note) {
                   _debugNotePerf('select split-list ${_notePerfLabel(note)}');
                   ref.read(selectedNoteIdProvider.notifier).select(note.id);
@@ -7537,6 +7540,7 @@ class _SplitNotesListPane extends StatefulWidget {
     required this.density,
     required this.query,
     required this.onAddNote,
+    required this.onRefresh,
     required this.onNoteSelected,
   });
 
@@ -7549,6 +7553,7 @@ class _SplitNotesListPane extends StatefulWidget {
   final NotesListDensity density;
   final String query;
   final VoidCallback onAddNote;
+  final Future<void> Function()? onRefresh;
   final ValueChanged<NoteEntry> onNoteSelected;
 
   @override
@@ -7586,7 +7591,10 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
 
   @override
   Widget build(BuildContext context) {
-    return ListView.builder(
+    final list = ListView.builder(
+      physics: widget.onRefresh == null
+          ? null
+          : const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
       itemCount: _rows.length,
       itemBuilder: (context, index) {
@@ -7630,6 +7638,11 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
         };
       },
     );
+    final onRefresh = widget.onRefresh;
+    if (onRefresh == null) {
+      return list;
+    }
+    return RefreshIndicator(onRefresh: onRefresh, child: list);
   }
 }
 
