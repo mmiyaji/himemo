@@ -150,7 +150,7 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     required int noteCount,
     required int attachmentCount,
   }) async {
-    final api = await _openDriveApi(interactive: true);
+    final api = await _openDriveApi(interactive: false);
     final bytes = utf8.encode(encodedPayload);
     final media = drive.Media(Stream<List<int>>.value(bytes), bytes.length);
     final stamp = DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');
@@ -176,7 +176,7 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
 
   @override
   Future<DownloadedRemoteSyncBundle?> downloadLatestBundle() async {
-    final api = await _openDriveApi(interactive: true);
+    final api = await _openDriveApi(interactive: false);
     final existing = await _findLatestBundle(api);
     if (existing == null || existing.id == null || existing.id!.isEmpty) {
       return null;
@@ -188,7 +188,7 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   Future<DownloadedRemoteSyncBundle?> downloadBundleByFileId(
     String fileId,
   ) async {
-    final api = await _openDriveApi(interactive: true);
+    final api = await _openDriveApi(interactive: false);
     if (fileId.isEmpty) {
       return null;
     }
@@ -228,6 +228,19 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   Future<drive.DriveApi> _openDriveApi({required bool interactive}) async {
     try {
       await GoogleSignInInitializer.ensureInitialized(authConfig);
+      final cachedAuthorization = await GoogleSignIn
+          .instance
+          .authorizationClient
+          .authorizationForScopes(const [scope]);
+      if (cachedAuthorization != null) {
+        return drive.DriveApi(
+          cachedAuthorization.authClient(scopes: const [scope]),
+        );
+      }
+      if (!interactive) {
+        return _authorizationUnavailable();
+      }
+
       GoogleSignInAccount? account;
       final lightweight = GoogleSignIn.instance
           .attemptLightweightAuthentication();
@@ -249,9 +262,13 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
       }
 
       final authorizationClient = account.authorizationClient;
-      final authorization = interactive
-          ? await authorizationClient.authorizeScopes(const [scope])
-          : await authorizationClient.authorizationForScopes(const [scope]);
+      final existingAuthorization = await authorizationClient
+          .authorizationForScopes(const [scope]);
+      final authorization =
+          existingAuthorization ??
+          (interactive
+              ? await authorizationClient.authorizeScopes(const [scope])
+              : null);
       if (authorization == null) {
         return _authorizationUnavailable();
       }

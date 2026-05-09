@@ -2819,8 +2819,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     return switch (provider) {
       SyncProvider.iCloud =>
         ref.read(iCloudSyncTransportProvider).fetchLatestBundleStatus(),
-      SyncProvider.googleDrive =>
-        ref.read(googleDriveSyncTransportProvider).fetchLatestBundleStatus(),
+      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
+        () => ref
+            .read(googleDriveSyncTransportProvider)
+            .fetchLatestBundleStatus(),
+      ),
       SyncProvider.off => Future.value(null),
     };
   }
@@ -2830,8 +2833,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     return switch (provider) {
       SyncProvider.iCloud =>
         ref.read(iCloudSyncTransportProvider).listBundleHistory(),
-      SyncProvider.googleDrive =>
-        ref.read(googleDriveSyncTransportProvider).listBundleHistory(),
+      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
+        () => ref.read(googleDriveSyncTransportProvider).listBundleHistory(),
+      ),
       SyncProvider.off => Future.value(const <RemoteSyncBundleStatus>[]),
     };
   }
@@ -2853,8 +2857,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               noteCount: noteCount,
               attachmentCount: attachmentCount,
             ),
-      SyncProvider.googleDrive =>
-        ref
+      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
+        () => ref
             .read(googleDriveSyncTransportProvider)
             .uploadBundle(
               encodedPayload: encodedPayload,
@@ -2862,6 +2866,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               noteCount: noteCount,
               attachmentCount: attachmentCount,
             ),
+      ),
       SyncProvider.off => Future.error(
         StateError('Remote sync is not enabled.'),
       ),
@@ -2873,8 +2878,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     return switch (provider) {
       SyncProvider.iCloud =>
         ref.read(iCloudSyncTransportProvider).downloadLatestBundle(),
-      SyncProvider.googleDrive =>
-        ref.read(googleDriveSyncTransportProvider).downloadLatestBundle(),
+      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
+        () => ref.read(googleDriveSyncTransportProvider).downloadLatestBundle(),
+      ),
       SyncProvider.off => Future.value(null),
     };
   }
@@ -2884,10 +2890,36 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     return switch (provider) {
       SyncProvider.iCloud =>
         ref.read(iCloudSyncTransportProvider).downloadBundleByRecordName(id),
-      SyncProvider.googleDrive =>
-        ref.read(googleDriveSyncTransportProvider).downloadBundleByFileId(id),
+      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
+        () => ref
+            .read(googleDriveSyncTransportProvider)
+            .downloadBundleByFileId(id),
+      ),
       SyncProvider.off => Future.value(null),
     };
+  }
+
+  Future<T> _withGoogleDriveAuthRecovery<T>(
+    Future<T> Function() operation,
+  ) async {
+    try {
+      return await operation();
+    } catch (error, stackTrace) {
+      if (!_isRecoverableGoogleDriveAuthorizationError(error)) {
+        rethrow;
+      }
+      final authController = ref.read(syncAuthControllerProvider.notifier);
+      await authController.connect(SyncProvider.googleDrive);
+      if (!authController.stateFor(SyncProvider.googleDrive).isAuthenticated) {
+        Error.throwWithStackTrace(error, stackTrace);
+      }
+      return await operation();
+    }
+  }
+
+  bool _isRecoverableGoogleDriveAuthorizationError(Object error) {
+    return error is GoogleDriveAuthConfigurationException &&
+        error.message.contains('Google Drive authorization is not available');
   }
 
   SyncTransferState _failureState(
