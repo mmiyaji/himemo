@@ -11573,6 +11573,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     }
     final isPrivateSelection = _selectedVaultId != 'everyday';
     final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final editorListBottomPadding = keyboardVisible
+        ? 120.0
+        : (_editorMode == NoteEditorMode.rich ? 16.0 : 96.0);
 
     return SafeArea(
       child: Padding(
@@ -11771,7 +11774,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
               child: ListView(
                 padding: EdgeInsets.only(
                   top: keyboardVisible ? 12 : 0,
-                  bottom: keyboardVisible ? 120 : 96,
+                  bottom: editorListBottomPadding,
                 ),
                 children: [
                   if (_editorMode == NoteEditorMode.quick) ...[
@@ -11961,7 +11964,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                 ],
               ),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: _editorMode == NoteEditorMode.rich ? 8 : 16),
             Row(
               children: [
                 TextButton(
