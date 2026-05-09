@@ -1124,10 +1124,8 @@ class LocalDeviceAuthGateway implements DeviceAuthGateway {
     try {
       return await _localAuth.authenticate(
         localizedReason: reason,
-        options: AuthenticationOptions(
-          biometricOnly: biometricOnly,
-          stickyAuth: true,
-        ),
+        biometricOnly: biometricOnly,
+        persistAcrossBackgrounding: true,
       );
     } on MissingPluginException {
       return false;
@@ -1425,7 +1423,7 @@ class DefaultMediaImportService implements MediaImportService {
         'flac',
         'ogg',
       ];
-      result = await FilePicker.platform.pickFiles(
+      result = await FilePicker.pickFiles(
         type: defaultTargetPlatform == TargetPlatform.iOS
             ? FileType.custom
             : FileType.audio,
@@ -1485,10 +1483,7 @@ class DefaultMediaImportService implements MediaImportService {
   Future<MediaImportResult> _pickFile() async {
     FilePickerResult? result;
     try {
-      result = await FilePicker.platform.pickFiles(
-        type: FileType.any,
-        withData: kIsWeb,
-      );
+      result = await FilePicker.pickFiles(type: FileType.any, withData: kIsWeb);
     } on MissingPluginException {
       return const MediaImportResult.failure(
         'File import is not configured in this runtime.',
@@ -5958,7 +5953,7 @@ final accessiblePrivateVaultIdsProvider = Provider<List<String>>((ref) {
       for (final profile in profiles) profile.vaultId,
     ];
   }
-  return [if (unlockedVaultId != null) unlockedVaultId];
+  return [?unlockedVaultId];
 });
 
 final activePrivateProfileLabelProvider = Provider<String?>((ref) {

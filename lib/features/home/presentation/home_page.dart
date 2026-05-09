@@ -8080,7 +8080,9 @@ Future<void> _handleNoteDetailAction(
         ),
       );
     case _NoteDetailAction.share:
-      await Share.share(text, subject: note.title);
+      await SharePlus.instance.share(
+        ShareParams(text: text, subject: note.title),
+      );
   }
 }
 
@@ -14263,9 +14265,14 @@ Future<void> _shareAttachment(
         }
         return;
       }
-      await Share.shareXFiles([
-        XFile.fromData(Uint8List.fromList(bytes), name: attachment.label),
-      ], text: attachment.label);
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [
+            XFile.fromData(Uint8List.fromList(bytes), name: attachment.label),
+          ],
+          text: attachment.label,
+        ),
+      );
       return;
     }
 
@@ -14286,7 +14293,9 @@ Future<void> _shareAttachment(
       return;
     }
     try {
-      await Share.shareXFiles([XFile(tempFilePath)], text: attachment.label);
+      await SharePlus.instance.share(
+        ShareParams(files: [XFile(tempFilePath)], text: attachment.label),
+      );
     } finally {
       await attachmentStore.deleteMaterializedFile(tempFilePath);
     }
@@ -14987,7 +14996,7 @@ Future<void> _exportLocalArchive(
     if (!context.mounted) {
       return;
     }
-    final savedPath = await FilePicker.platform.saveFile(
+    final savedPath = await FilePicker.saveFile(
       dialogTitle: strings.localized(
         en: 'File export',
         ja: 'ファイルエクスポート',
@@ -15005,13 +15014,18 @@ Future<void> _exportLocalArchive(
       return;
     }
     if (savedPath == null || savedPath.isEmpty) {
-      await Share.shareXFiles([
-        XFile.fromData(
-          archive.bytes,
-          name: archive.fileName,
-          mimeType: 'application/zip',
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [
+            XFile.fromData(
+              archive.bytes,
+              name: archive.fileName,
+              mimeType: 'application/zip',
+            ),
+          ],
+          text: 'HiMemo ZIP archive',
         ),
-      ], text: 'HiMemo ZIP archive');
+      );
       return;
     }
     messenger.showSnackBar(
@@ -15043,7 +15057,7 @@ Future<void> _importLocalArchive(BuildContext context, WidgetRef ref) async {
   final strings = context.strings;
   final messenger = ScaffoldMessenger.of(context);
   try {
-    final picked = await FilePicker.platform.pickFiles(
+    final picked = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: const ['zip'],
       withData: true,
@@ -15870,7 +15884,7 @@ Future<void> _openAttachmentViewer(
       barrierDismissible: true,
       barrierLabel: context.strings.closeImageViewer,
       barrierColor: Colors.black.withValues(alpha: 0.88),
-      pageBuilder: (context, _, __) => _PhotoLightboxDialog(
+      pageBuilder: (context, _, _) => _PhotoLightboxDialog(
         attachments: attachments,
         initialIndex: resolvedIndex,
       ),
@@ -15887,7 +15901,7 @@ Future<void> _openAttachmentViewer(
       barrierDismissible: true,
       barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
       barrierColor: Colors.black.withValues(alpha: 0.88),
-      pageBuilder: (context, _, __) =>
+      pageBuilder: (context, _, _) =>
           _VideoLightboxDialog(attachment: attachment),
       transitionBuilder: (context, animation, _, child) => FadeTransition(
         opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
@@ -16601,18 +16615,20 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
 
   Future<void> _shareImage(List<int> bytes) async {
     final box = context.findRenderObject() as RenderBox?;
-    await Share.shareXFiles(
-      [
-        XFile.fromData(
-          Uint8List.fromList(bytes),
-          name: _attachment.label,
-          mimeType: 'image/*',
-        ),
-      ],
-      subject: _attachment.label,
-      sharePositionOrigin: box == null
-          ? null
-          : box.localToGlobal(Offset.zero) & box.size,
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [
+          XFile.fromData(
+            Uint8List.fromList(bytes),
+            name: _attachment.label,
+            mimeType: 'image/*',
+          ),
+        ],
+        subject: _attachment.label,
+        sharePositionOrigin: box == null
+            ? null
+            : box.localToGlobal(Offset.zero) & box.size,
+      ),
     );
   }
 }

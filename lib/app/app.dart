@@ -572,7 +572,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       _refreshPrivateSessionTimer();
       return Focus(
         canRequestFocus: false,
-        onKeyEvent: (_, __) {
+        onKeyEvent: (_, _) {
           _refreshPrivateSessionTimer();
           return KeyEventResult.ignored;
         },
