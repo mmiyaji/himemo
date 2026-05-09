@@ -196,6 +196,43 @@ bool isGeneratedSampleNote(NoteEntry note) {
       (note.contentHash?.startsWith('performance-seed-') ?? false);
 }
 
+@visibleForTesting
+bool remoteBundleNeedsApplyForSync(
+  RemoteSyncBundleStatus remoteStatus,
+  SyncBundleState bundleState,
+) {
+  if (bundleState.lastRemoteFileId != null &&
+      bundleState.lastRemoteFileId == remoteStatus.fileId) {
+    return false;
+  }
+  if (remoteStatus.fileId.isNotEmpty &&
+      bundleState.lastRemoteFileId != remoteStatus.fileId) {
+    return true;
+  }
+  final lastAppliedAt = bundleState.lastAppliedAt;
+  final lastUploadedAt = bundleState.lastUploadedAt;
+  final knownActionAt = _latestDateTime(lastAppliedAt, lastUploadedAt);
+  if (knownActionAt == null) {
+    return true;
+  }
+  final remoteModifiedAt = remoteStatus.modifiedAt;
+  if (remoteModifiedAt == null) {
+    return bundleState.lastRemoteFileId != remoteStatus.fileId &&
+        lastAppliedAt == null;
+  }
+  return remoteModifiedAt.isAfter(knownActionAt);
+}
+
+DateTime? _latestDateTime(DateTime? left, DateTime? right) {
+  if (left == null) {
+    return right;
+  }
+  if (right == null) {
+    return left;
+  }
+  return left.isAfter(right) ? left : right;
+}
+
 class PrivateMemoProfile {
   const PrivateMemoProfile({
     required this.id,
@@ -2542,28 +2579,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     RemoteSyncBundleStatus remoteStatus,
     SyncBundleState bundleState,
   ) {
-    final lastAppliedAt = bundleState.lastAppliedAt;
-    final lastUploadedAt = bundleState.lastUploadedAt;
-    final knownActionAt = _latestDateTime(lastAppliedAt, lastUploadedAt);
-    if (knownActionAt == null) {
-      return true;
-    }
-    final remoteModifiedAt = remoteStatus.modifiedAt;
-    if (remoteModifiedAt == null) {
-      return bundleState.lastRemoteFileId != remoteStatus.fileId &&
-          lastAppliedAt == null;
-    }
-    return remoteModifiedAt.isAfter(knownActionAt);
-  }
-
-  DateTime? _latestDateTime(DateTime? left, DateTime? right) {
-    if (left == null) {
-      return right;
-    }
-    if (right == null) {
-      return left;
-    }
-    return left.isAfter(right) ? left : right;
+    return remoteBundleNeedsApplyForSync(remoteStatus, bundleState);
   }
 
   String _providerLabel(SyncProvider provider) {

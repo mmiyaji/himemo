@@ -1585,6 +1585,41 @@ void main() {
   });
 
   test(
+    'remote bundle apply check detects changed file id despite clock time',
+    () {
+      final bundleState = SyncBundleState(
+        lastRemoteFileId: 'remote-old',
+        lastRemoteModifiedAt: DateTime(2026, 5, 9, 10, 0),
+        lastAppliedAt: DateTime(2026, 5, 9, 10, 5),
+        lastUploadedAt: DateTime(2026, 5, 9, 10, 6),
+      );
+
+      expect(
+        remoteBundleNeedsApplyForSync(
+          RemoteSyncBundleStatus(
+            fileId: 'remote-new',
+            fileName: 'latest_sync_bundle.enc',
+            modifiedAt: DateTime(2026, 5, 9, 10, 0),
+          ),
+          bundleState,
+        ),
+        isTrue,
+      );
+      expect(
+        remoteBundleNeedsApplyForSync(
+          RemoteSyncBundleStatus(
+            fileId: 'remote-old',
+            fileName: 'latest_sync_bundle.enc',
+            modifiedAt: DateTime(2026, 5, 9, 10, 10),
+          ),
+          bundleState,
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test(
     'assessSyncConflict reports newer remote bundle against pending local queue',
     () {
       final assessment = assessSyncConflict(
