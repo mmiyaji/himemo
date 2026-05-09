@@ -268,11 +268,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
       unawaited(_markAppBackgrounded());
-      if (ref.read(appLockSettingsControllerProvider) &&
-          ref.read(appLockRelockDelayControllerProvider) ==
-              AppLockRelockDelay.immediate) {
-        _lockProtectedSessions(lockAppSession: true);
-      }
+      unawaited(_lockImmediatelyIfConfigured());
     }
   }
 
@@ -317,15 +313,15 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   }
 
   Future<void> _syncLockState({required bool triggerPrompt}) async {
-    final enabled = ref.read(appLockSettingsControllerProvider);
-    if (!enabled) {
+    final policy = await _resolveAppLockPolicy();
+    if (!policy.enabled) {
       ref.read(appSessionUnlockControllerProvider.notifier).unlock();
       unawaited(_clearBackgroundedAt());
       _refreshPrivateSessionTimer();
       return;
     }
 
-    if (_shouldRelockAfterBackground()) {
+    if (_shouldRelockAfterBackground(policy.relockDelay)) {
       _lockProtectedSessions(lockAppSession: true);
     }
 
@@ -353,12 +349,38 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     }
   }
 
-  bool _shouldRelockAfterBackground() {
+  Future<void> _lockImmediatelyIfConfigured() async {
+    final policy = await _resolveAppLockPolicy();
+    if (!mounted ||
+        !policy.enabled ||
+        policy.relockDelay != AppLockRelockDelay.immediate) {
+      return;
+    }
+    _lockProtectedSessions(lockAppSession: true);
+  }
+
+  Future<_ResolvedAppLockPolicy> _resolveAppLockPolicy() async {
+    var enabled = ref.read(appLockSettingsControllerProvider);
+    var delay = ref.read(appLockRelockDelayControllerProvider);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      enabled = prefs.getBool('settings.app_lock_enabled') ?? enabled;
+      final storedDelay = prefs.getString('settings.app_lock_relock_delay');
+      if (storedDelay != null) {
+        delay = AppLockRelockDelay.values.firstWhere(
+          (candidate) => candidate.name == storedDelay,
+          orElse: () => delay,
+        );
+      }
+    } catch (_) {}
+    return _ResolvedAppLockPolicy(enabled: enabled, relockDelay: delay);
+  }
+
+  bool _shouldRelockAfterBackground(AppLockRelockDelay delay) {
     final backgroundedAt = _backgroundedAt;
     if (backgroundedAt == null) {
       return false;
     }
-    final delay = ref.read(appLockRelockDelayControllerProvider);
     if (delay == AppLockRelockDelay.immediate) {
       return false;
     }
@@ -708,6 +730,16 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       ),
     );
   }
+}
+
+class _ResolvedAppLockPolicy {
+  const _ResolvedAppLockPolicy({
+    required this.enabled,
+    required this.relockDelay,
+  });
+
+  final bool enabled;
+  final AppLockRelockDelay relockDelay;
 }
 
 class _WebPinUnlockPanel extends ConsumerStatefulWidget {
