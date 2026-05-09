@@ -795,37 +795,37 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
       await showModalBottomSheet<void>(
         context: hostContext,
         isScrollControlled: true,
-        showDragHandle: true,
+        showDragHandle: false,
+        useSafeArea: true,
         builder: (sheetContext) {
+          final mediaQuery = MediaQuery.of(sheetContext);
           return SizedBox(
-            height: MediaQuery.sizeOf(sheetContext).height * 0.86,
-            child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                child: _NoteDetailPager(
-                  notes: visibleNotes,
-                  selectedIndex: initialIndex < 0 ? 0 : initialIndex,
-                  onPageChanged: (index) => ref
-                      .read(selectedNoteIdProvider.notifier)
-                      .select(visibleNotes[index].id),
-                  onEdit: (selectedNote) async {
-                    Navigator.of(sheetContext).pop();
-                    await showNoteEditorSheet(
-                      hostContext,
-                      ref,
-                      note: selectedNote,
-                    );
-                  },
-                  onDelete: (selectedNote) async {
-                    Navigator.of(sheetContext).pop();
-                    await _deleteNote(hostContext, selectedNote);
-                  },
-                  onClose: () => Navigator.of(sheetContext).pop(),
-                  onTagTap: (tag) {
-                    Navigator.of(sheetContext).pop();
-                    _applyTagFilter(hostContext, tag);
-                  },
-                ),
+            height: mediaQuery.size.height - mediaQuery.padding.top,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 12),
+              child: _NoteDetailPager(
+                notes: visibleNotes,
+                selectedIndex: initialIndex < 0 ? 0 : initialIndex,
+                onPageChanged: (index) => ref
+                    .read(selectedNoteIdProvider.notifier)
+                    .select(visibleNotes[index].id),
+                onEdit: (selectedNote) async {
+                  Navigator.of(sheetContext).pop();
+                  await showNoteEditorSheet(
+                    hostContext,
+                    ref,
+                    note: selectedNote,
+                  );
+                },
+                onDelete: (selectedNote) async {
+                  Navigator.of(sheetContext).pop();
+                  await _deleteNote(hostContext, selectedNote);
+                },
+                onClose: () => Navigator.of(sheetContext).pop(),
+                onTagTap: (tag) {
+                  Navigator.of(sheetContext).pop();
+                  _applyTagFilter(hostContext, tag);
+                },
               ),
             ),
           );
@@ -7963,9 +7963,17 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.only(bottom: 6),
           child: Row(
             children: [
+              if (widget.onClose != null)
+                IconButton(
+                  onPressed: widget.onClose,
+                  icon: const Icon(Icons.close_rounded),
+                  tooltip: strings.close,
+                  visualDensity: VisualDensity.compact,
+                ),
+              const Spacer(),
               IconButton(
                 onPressed: canMovePrevious
                     ? () => _pageController.previousPage(
@@ -7988,31 +7996,12 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
                 tooltip: strings.text('home.next.note'),
                 visualDensity: VisualDensity.compact,
               ),
-              const SizedBox(width: 8),
               Text(
                 '${widget.selectedIndex + 1} / ${widget.notes.length}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: _mutedTextColor(context),
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  strings.text(
-                    'home.swipe.left.or.right.to.move.between.notes',
-                  ),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: _mutedTextColor(context),
-                  ),
-                ),
-              ),
-              if (widget.onClose != null)
-                IconButton(
-                  onPressed: widget.onClose,
-                  icon: const Icon(Icons.close_rounded),
-                  tooltip: strings.close,
-                  visualDensity: VisualDensity.compact,
-                ),
             ],
           ),
         ),
