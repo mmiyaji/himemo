@@ -11584,7 +11584,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
