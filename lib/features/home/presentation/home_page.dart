@@ -684,6 +684,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final listDensity = ref.watch(notesListDensityControllerProvider);
     final query = ref.watch(searchQueryProvider).trim();
     final selectedNoteId = ref.watch(selectedNoteIdProvider);
+    final syncProvider = ref.watch(syncProviderControllerProvider);
 
     if (!useSplitView) {
       return _MobileNotesList(
@@ -697,7 +698,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         selectedNoteId: selectedNoteId,
         density: listDensity,
         query: query,
-        onRefresh: () => _refreshNotesFromCloud(context),
+        onRefresh: syncProvider == SyncProvider.off
+            ? null
+            : () => _refreshNotesFromCloud(context),
         onNoteSelected: (note) =>
             _openMobileNoteActions(context, note, visibleNotes),
       );
@@ -6606,7 +6609,7 @@ class _MobileNotesList extends StatefulWidget {
   final String? selectedNoteId;
   final NotesListDensity density;
   final String query;
-  final Future<void> Function() onRefresh;
+  final Future<void> Function()? onRefresh;
   final ValueChanged<NoteEntry> onNoteSelected;
 
   @override
@@ -6656,54 +6659,58 @@ class _MobileNotesListState extends State<_MobileNotesList> {
 
   @override
   Widget build(BuildContext context) {
-    return RefreshIndicator(
-      onRefresh: widget.onRefresh,
-      child: ListView.builder(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        itemCount: _rows.length,
-        itemBuilder: (context, index) {
-          final row = _rows[index];
-          return switch (row) {
-            _MobileIdentityRow() => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _IdentityHeader(identity: widget.activeIdentity),
-            ),
-            _MobilePrivateNoticeRow() => const Padding(
-              padding: EdgeInsets.only(bottom: 12),
-              child: _PrivateVaultLockedNotice(),
-            ),
-            _MobileToolbarRow() => Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: _NotesToolbar(compact: widget.compactHeader),
-            ),
-            _MobileEmptyRow() => const _EmptyNotesState(),
-            _MobileDayRow(:final date) => _DecoratedMobileNoteRow(
-              position: row.position,
-              child: _NoteDayDivider(date: date),
-            ),
-            _MobileTileRow(:final note) => _DecoratedMobileNoteRow(
-              position: row.position,
-              child: RepaintBoundary(
-                child: _NoteListTile(
-                  note: note,
-                  vaultName: widget.vaultNameById[note.vaultId] ?? note.vaultId,
-                  showVaultName: widget.showVaultName,
-                  density: widget.density,
-                  query: widget.query,
-                  selected: note.id == widget.selectedNoteId,
-                  onTap: () => widget.onNoteSelected(note),
-                ),
+    final list = ListView.builder(
+      physics: widget.onRefresh == null
+          ? null
+          : const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      itemCount: _rows.length,
+      itemBuilder: (context, index) {
+        final row = _rows[index];
+        return switch (row) {
+          _MobileIdentityRow() => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _IdentityHeader(identity: widget.activeIdentity),
+          ),
+          _MobilePrivateNoticeRow() => const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: _PrivateVaultLockedNotice(),
+          ),
+          _MobileToolbarRow() => Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: _NotesToolbar(compact: widget.compactHeader),
+          ),
+          _MobileEmptyRow() => const _EmptyNotesState(),
+          _MobileDayRow(:final date) => _DecoratedMobileNoteRow(
+            position: row.position,
+            child: _NoteDayDivider(date: date),
+          ),
+          _MobileTileRow(:final note) => _DecoratedMobileNoteRow(
+            position: row.position,
+            child: RepaintBoundary(
+              child: _NoteListTile(
+                note: note,
+                vaultName: widget.vaultNameById[note.vaultId] ?? note.vaultId,
+                showVaultName: widget.showVaultName,
+                density: widget.density,
+                query: widget.query,
+                selected: note.id == widget.selectedNoteId,
+                onTap: () => widget.onNoteSelected(note),
               ),
             ),
-            _MobileDividerRow() => _DecoratedMobileNoteRow(
-              position: row.position,
-              child: const _IntraDayNoteGap(),
-            ),
-          };
-        },
-      ),
+          ),
+          _MobileDividerRow() => _DecoratedMobileNoteRow(
+            position: row.position,
+            child: const _IntraDayNoteGap(),
+          ),
+        };
+      },
     );
+    final onRefresh = widget.onRefresh;
+    if (onRefresh == null) {
+      return list;
+    }
+    return RefreshIndicator(onRefresh: onRefresh, child: list);
   }
 }
 
