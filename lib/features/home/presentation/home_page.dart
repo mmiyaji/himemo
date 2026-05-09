@@ -13803,7 +13803,7 @@ class _RichBlockEditorTile extends StatelessWidget {
                   semanticCounterText: '',
                   labelText: strings.memoLabel,
                   floatingLabelBehavior: FloatingLabelBehavior.never,
-                  hintText: showPrompt ? strings.startWritingHere : null,
+                  hintText: showPrompt ? strings.memoFirstLineHint : null,
                   hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: _mutedTextColor(context),
                   ),
