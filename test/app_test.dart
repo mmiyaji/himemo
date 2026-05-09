@@ -927,6 +927,82 @@ void main() {
     expect(find.text('Settings'), findsOneWidget);
   });
 
+  testWidgets('private profile create dialog can be cancelled safely', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(23));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(database),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: database,
+              directoryProvider: () async => Directory.systemTemp,
+            ),
+          ),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: [
+            AppLocalizations.delegate,
+            AppStrings.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: SettingsScreen()),
+        ),
+      ),
+    );
+    addTearDown(database.close);
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Private profiles'));
+    await tester.tap(find.text('Private profiles'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(SettingsScreen.privateProfileAddKey, skipOffstage: false),
+    );
+    await tester.tap(find.byKey(SettingsScreen.privateProfileAddKey));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(SettingsScreen.privateProfileNameInputKey),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Cancel').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(SettingsScreen.privateProfileNameInputKey),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('mobile tab switch closes open note detail sheet', (
     tester,
   ) async {
