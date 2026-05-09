@@ -1949,14 +1949,11 @@ final syncTransferControllerProvider =
 
 class SyncTransferController extends Notifier<SyncTransferState> {
   static const _syncBundleDecryptionMessage =
-      '同期データを復号できませんでした。\n'
-      '・クラウド復元キーが違う可能性があります。元端末でクラウド復元キーをコピーし、この端末へ読み込んでください。\n'
-      '・元端末で添付やメモを修復した場合は、元端末で全メモを再アップロードしてから同期してください。\n'
-      '・プライベートプロファイルのメモが含まれる場合は、同期先端末で対象プロファイルを開いてから、もう一度適用してください。';
+      'sync.error.bundle_decryption_failed';
   static const _syncBundleKeyMissingMessage =
-      '同期バンドルを読むためのクラウド復元キーがこの端末にありません。元端末でクラウド復元キーをコピーし、この端末へ読み込んでから、もう一度同期してください。';
+      'sync.error.bundle_key_missing';
   static const _iCloudSyncBundleKeyWaitingMessage =
-      '同期バンドルを読むためのクラウド復元キーがまだこの端末にありません。iCloud Keychain の同期待ちの可能性があります。しばらく待ってから再試行するか、元端末でクラウド復元キーをコピーしてこの端末へ読み込んでください。';
+      'sync.error.icloud_keychain_waiting';
 
   Timer? _cooldownTimer;
 
@@ -1992,7 +1989,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
         stage: SyncTransferStage.idle,
-        message: 'リモートの状態を確認するには、先にクラウド同期先を選択してください。',
+        message: 'sync.info.select_target_for_remote_status',
       );
       return;
     }
@@ -2005,8 +2002,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       state = SyncTransferState(
         stage: SyncTransferStage.success,
         message: remoteStatus == null
-            ? 'リモートにはまだバンドルが保存されていません。'
-            : '${_providerLabel(provider)} のバンドル情報を更新しました。',
+            ? 'sync.info.no_remote_bundle'
+            : 'sync.info.remote_bundle_refreshed',
         remoteStatus: remoteStatus,
         localBundle: state.localBundle,
       );
@@ -2025,7 +2022,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
         stage: SyncTransferStage.error,
-        message: 'アップロードするには、先にクラウド同期先を選択してください。',
+        message: 'sync.error.select_target_for_upload',
       );
       return;
     }
@@ -2038,8 +2035,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (assessment.hasConflict && !force) {
       state = state.copyWith(
         stage: SyncTransferStage.error,
-        message:
-            '${assessment.message} 先にリモートのバンドルをダウンロードして適用するか、上書きする場合は強制アップロードを使用してください。',
+        message: 'sync.error.conflict_download_first_or_force_upload',
       );
       return;
     }
@@ -2068,7 +2064,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             .readEncryptedBundlePayload(bundle.reference),
       );
       if (encodedPayload == null || encodedPayload.isEmpty) {
-        throw StateError('ローカルの同期バンドルを準備できませんでした。');
+        throw StateError('sync.error.local_bundle_prepare_failed');
       }
       _setProgress(SyncTransferProgress.uploadingBundle);
       final remoteStatus = await runFirebaseTrace(
@@ -2084,7 +2080,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await ref.read(notesControllerProvider.notifier).markCurrentStateSynced();
       state = SyncTransferState(
         stage: SyncTransferStage.success,
-        message: '暗号化したバンドルを ${_providerLabel(provider)} にアップロードしました。',
+        message: 'sync.info.upload_success',
         remoteStatus: remoteStatus,
         localBundle: bundle,
       );
@@ -2103,7 +2099,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
         stage: SyncTransferStage.error,
-        message: '再アップロードするには、先にクラウド同期先を選択してください。',
+        message: 'sync.error.select_target_for_reupload',
       );
       return;
     }
@@ -2150,7 +2146,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         if (assessment.hasConflict && !forceUpload) {
           state = state.copyWith(
             stage: SyncTransferStage.error,
-            message: '${assessment.message} リモートの変更を確認してから同期してください。',
+            message: 'sync.error.conflict_review_remote',
           );
           return;
         }
@@ -2161,7 +2157,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         );
         await _storeDownloadedBundle(
           remoteBundle,
-          emptyMessage: '${_providerLabel(provider)} に同期できるバンドルはありません。',
+          emptyMessage: 'sync.info.no_bundle_to_sync',
         );
         if (remoteBundle != null) {
           _setProgress(SyncTransferProgress.applyingBundle);
@@ -2182,7 +2178,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       _setProgress(SyncTransferProgress.finalizing);
       state = SyncTransferState(
         stage: SyncTransferStage.success,
-        message: '${_providerLabel(provider)} と同期済みです。',
+        message: 'sync.info.sync_success',
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
       );
@@ -2368,7 +2364,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
         stage: SyncTransferStage.error,
-        message: 'ダウンロードするには、先にクラウド同期先を選択してください。',
+        message: 'sync.error.select_target_for_download',
       );
       return;
     }
@@ -2381,7 +2377,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       await _storeDownloadedBundle(
         remoteBundle,
-        emptyMessage: '${_providerLabel(provider)} に利用できるリモートバンドルはありません。',
+        emptyMessage: 'sync.info.no_usable_remote_bundle',
       );
     } catch (error) {
       state = _failureState(
@@ -2401,7 +2397,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
         stage: SyncTransferStage.error,
-        message: 'ダウンロードするには、先にクラウド同期先を選択してください。',
+        message: 'sync.error.select_target_for_download',
       );
       return;
     }
@@ -2416,7 +2412,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       await _storeDownloadedBundle(
         remoteBundle,
-        emptyMessage: '選択した ${_providerLabel(provider)} のバンドルをダウンロードできませんでした。',
+        emptyMessage: 'sync.error.selected_bundle_download_failed',
       );
     } catch (error) {
       state = _failureState(
@@ -2432,7 +2428,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   ) async {
     await downloadBundle(remoteStatus);
     if (state.stage == SyncTransferStage.error) {
-      throw StateError(state.message ?? 'リモートバンドルをダウンロードできませんでした。');
+      throw StateError(state.message ?? 'sync.error.remote_bundle_download_failed');
     }
     return previewDownloadedBundle();
   }
@@ -2442,7 +2438,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (localBundle == null) {
       state = state.copyWith(
         stage: SyncTransferStage.error,
-        message: '適用する前にリモートバンドルをダウンロードしてください。',
+        message: 'sync.error.download_before_apply',
       );
       return;
     }
@@ -2456,7 +2452,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             .readBundleJson(localBundle.reference),
       );
       if (decoded == null) {
-        throw StateError('ダウンロードしたバンドルを復号できませんでした。');
+        throw StateError('sync.error.downloaded_bundle_decryption_failed');
       }
       for (final rawProfiles
           in (decoded['privateProfiles'] as List<dynamic>? ??
@@ -2482,7 +2478,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       }
       if (lockedPrivateVaultIds.isNotEmpty) {
         throw StateError(
-          'プライベートプロファイルのメモが含まれています。同期先端末で同じプロファイルパスワードを入力して開いてから、もう一度適用してください。',
+          'sync.error.private_profile_locked',
         );
       }
       final attachmentPayloads = <String, Map<String, dynamic>>{
@@ -2595,7 +2591,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           .recordApply(state.remoteStatus);
       state = state.copyWith(
         stage: SyncTransferStage.success,
-        message: 'ダウンロードしたバンドルをローカルのノートに反映しました。',
+        message: 'sync.info.apply_success',
       );
     } on HimemoDecryptionException {
       state = state.copyWith(
@@ -2610,14 +2606,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   Future<SyncBundlePreview> previewDownloadedBundle() async {
     final localBundle = state.localBundle;
     if (localBundle == null) {
-      throw StateError('確認する前にリモートバンドルをダウンロードしてください。');
+      throw StateError('sync.error.download_before_review');
     }
     try {
       final decoded = await ref
           .read(secureSyncBundleStoreProvider)
           .readBundleJson(localBundle.reference);
       if (decoded == null) {
-        throw StateError('ダウンロードしたバンドルを復号できませんでした。');
+        throw StateError('sync.error.downloaded_bundle_decryption_failed');
       }
       return buildSyncBundlePreview(
         decodedBundle: decoded,
@@ -2655,8 +2651,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         );
     state = SyncTransferState(
       stage: SyncTransferStage.success,
-      message:
-          '${_providerLabel(ref.read(syncProviderControllerProvider))} のリモートバンドルをローカルの保護ストレージに保存しました。',
+      message: 'sync.info.remote_bundle_saved_locally',
       remoteStatus: remoteBundle.status,
       localBundle: localBundle,
     );
@@ -2675,14 +2670,6 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     SyncBundleState bundleState,
   ) {
     return remoteBundleNeedsApplyForSync(remoteStatus, bundleState);
-  }
-
-  String _providerLabel(SyncProvider provider) {
-    return switch (provider) {
-      SyncProvider.iCloud => 'iCloud',
-      SyncProvider.googleDrive => 'Google Drive',
-      SyncProvider.off => 'remote storage',
-    };
   }
 
   Future<LocalNoteArchive> _buildLocalZipArchive({

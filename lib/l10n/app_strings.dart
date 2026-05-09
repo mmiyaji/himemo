@@ -468,6 +468,85 @@ class AppStrings {
       'home.no.remote.bundle.metadata.loaded.yet':
           'Aún no se han cargado metadatos del paquete remoto.',
       'home.lock.private.access': 'Bloquear acceso privado',
+      'home.unlock': 'Desbloquear',
+      'home.normal.memo.mode': 'Modo de notas normal',
+      'home.device.only.storage': 'Solo en este dispositivo',
+      'home.mode': 'Modo',
+      'home.enabled': 'Activado',
+      'home.disabled': 'Desactivado',
+      'home.off': 'Desactivado',
+      'home.configured': 'Configurado',
+      'home.theme': 'Tema',
+      'home.app.security': 'Protección de la app',
+      'home.external.quick.memo': 'Nota rápida externa',
+      'home.backup.and.sync': 'Copia de seguridad y sincronización',
+      'home.storage': 'Almacenamiento',
+      'home.standard.list': 'Lista estándar',
+      'home.compact.list': 'Lista compacta',
+      'home.off.turning.this.on.asks.for.a.password.or.device.authen':
+          'Desactivado. Al activarlo se pedirá una contraseña o autenticación del dispositivo.',
+      'home.widget.quick.writes.are.off':
+          'Las escrituras rápidas del widget están desactivadas.',
+      'home.selected.target': 'Destino seleccionado',
+      'home.authentication': 'Autenticación',
+      'home.sync.is.disabled': 'La sincronización está desactivada.',
+      'home.no.account.connected.yet': 'Aún no hay ninguna cuenta conectada.',
+      'home.no.account.connected.yet.2':
+          'Aún no hay ninguna cuenta conectada.',
+      'home.no.cloud.account.is.connected':
+          'No hay ninguna cuenta en la nube conectada.',
+      'home.no.cloud.account.is.connected.2':
+          'No hay ninguna cuenta en la nube conectada.',
+      'home.google.drive.app.data.sync.target':
+          'Destino de sincronización app-data de Google Drive.',
+      'home.keep.data.on.this.device.only':
+          'Mantener los datos solo en este dispositivo.',
+      'home.icloud.availability': 'Disponibilidad de iCloud',
+      'home.connect': 'Conectar',
+      'home.reconnect': 'Reconectar',
+      'home.disconnect': 'Desconectar',
+      'home.check.icloud': 'Comprobar iCloud',
+      'home.check.again': 'Comprobar de nuevo',
+      'home.stop.using.icloud': 'Dejar de usar iCloud',
+      'home.no.icloud.bundle.metadata.loaded.yet':
+          'Aún no se han cargado metadatos del paquete de iCloud.',
+      'home.no.icloud.bundle.metadata.loaded.yet.2':
+          'Aún no se han cargado metadatos del paquete de iCloud.',
+      'home.pending.sync.queue': 'Cola de sincronización pendiente',
+      'home.remote.bundle': 'Paquete remoto',
+      'home.copy.recovery.key': 'Copiar clave de recuperación',
+      'home.import.recovery.key': 'Importar clave de recuperación',
+      'home.last.sync.activity': 'Última actividad de sincronización',
+      'home.local.bundle.cache': 'Caché local del paquete',
+      'home.refresh.remote': 'Actualizar remoto',
+      'home.upload.bundle': 'Subir paquete',
+      'home.force.upload': 'Forzar subida',
+      'home.bundle.history': 'Historial de paquetes',
+      'home.download.bundle': 'Descargar paquete',
+      'home.review.bundle': 'Revisar paquete',
+      'home.apply.bundle': 'Aplicar paquete',
+      'home.inspect.snapshot': 'Inspeccionar instantánea',
+      'home.queue.ready': 'cola lista',
+      'home.no.pending.device.changes':
+          'No hay cambios pendientes en este dispositivo.',
+      'home.checking.pending.changes':
+          'Comprobando cambios pendientes...',
+      'home.unable.to.inspect.the.local.sync.queue':
+          'No se pudo inspeccionar la cola de sincronización local.',
+      'home.cloud.recovery.key.fingerprint':
+          'Huella de la clave de recuperación',
+      'home.preparing.cloud.recovery.key':
+          'Preparando la clave de recuperación...',
+      'home.unable.to.read.the.cloud.recovery.key.fingerprint':
+          'No se pudo leer la huella de la clave de recuperación.',
+      'home.no.sync.activity.has.been.recorded.on.this.device.yet':
+          'Aún no se ha registrado actividad de sincronización en este dispositivo.',
+      'home.reading.sync.activity':
+          'Leyendo actividad de sincronización...',
+      'home.unable.to.read.local.sync.activity':
+          'No se pudo leer la actividad de sincronización local.',
+      'home.no.remote.bundle.history.is.available':
+          'No hay historial de paquetes remotos disponible.',
       'home.year.partition': 'Año',
       'home.all.years': 'Todos los años',
       'home.use.a.4.digit.pin.for.this.browser':
@@ -519,6 +598,82 @@ class AppStrings {
       'home.no.remote.bundle.metadata.loaded.yet':
           'Es wurden noch keine Remote-Bundle-Metadaten geladen.',
       'home.lock.private.access': 'Privaten Zugriff sperren',
+      'home.unlock': 'Entsperren',
+      'home.normal.memo.mode': 'Normaler Notizmodus',
+      'home.device.only.storage': 'Nur auf diesem Gerät',
+      'home.mode': 'Modus',
+      'home.enabled': 'Aktiviert',
+      'home.disabled': 'Deaktiviert',
+      'home.off': 'Aus',
+      'home.configured': 'Konfiguriert',
+      'home.theme': 'Design',
+      'home.app.security': 'App-Schutz',
+      'home.external.quick.memo': 'Externe Schnellnotiz',
+      'home.backup.and.sync': 'Backup und Synchronisierung',
+      'home.storage': 'Speicher',
+      'home.standard.list': 'Standardliste',
+      'home.compact.list': 'Kompakte Liste',
+      'home.off.turning.this.on.asks.for.a.password.or.device.authen':
+          'Aus. Beim Aktivieren wird ein Passwort oder Geräteauthentifizierung verlangt.',
+      'home.widget.quick.writes.are.off':
+          'Schnellnotizen über das Widget sind deaktiviert.',
+      'home.selected.target': 'Ausgewähltes Ziel',
+      'home.authentication': 'Authentifizierung',
+      'home.sync.is.disabled': 'Synchronisierung ist deaktiviert.',
+      'home.no.account.connected.yet': 'Noch kein Konto verbunden.',
+      'home.no.account.connected.yet.2': 'Noch kein Konto verbunden.',
+      'home.no.cloud.account.is.connected': 'Kein Cloud-Konto verbunden.',
+      'home.no.cloud.account.is.connected.2': 'Kein Cloud-Konto verbunden.',
+      'home.google.drive.app.data.sync.target':
+          'Google Drive App-Daten-Synchronisierungsziel.',
+      'home.keep.data.on.this.device.only':
+          'Daten nur auf diesem Gerät behalten.',
+      'home.icloud.availability': 'iCloud-Verfügbarkeit',
+      'home.connect': 'Verbinden',
+      'home.reconnect': 'Erneut verbinden',
+      'home.disconnect': 'Trennen',
+      'home.check.icloud': 'iCloud prüfen',
+      'home.check.again': 'Erneut prüfen',
+      'home.stop.using.icloud': 'iCloud nicht mehr verwenden',
+      'home.no.icloud.bundle.metadata.loaded.yet':
+          'Noch keine iCloud-Paketmetadaten geladen.',
+      'home.no.icloud.bundle.metadata.loaded.yet.2':
+          'Noch keine iCloud-Paketmetadaten geladen.',
+      'home.pending.sync.queue': 'Ausstehende Synchronisierungswarteschlange',
+      'home.remote.bundle': 'Remote-Paket',
+      'home.copy.recovery.key': 'Wiederherstellungsschlüssel kopieren',
+      'home.import.recovery.key': 'Wiederherstellungsschlüssel importieren',
+      'home.last.sync.activity': 'Letzte Synchronisierungsaktivität',
+      'home.local.bundle.cache': 'Lokaler Paketcache',
+      'home.refresh.remote': 'Remote aktualisieren',
+      'home.upload.bundle': 'Paket hochladen',
+      'home.force.upload': 'Hochladen erzwingen',
+      'home.bundle.history': 'Paketverlauf',
+      'home.download.bundle': 'Paket herunterladen',
+      'home.review.bundle': 'Paket prüfen',
+      'home.apply.bundle': 'Paket anwenden',
+      'home.inspect.snapshot': 'Snapshot prüfen',
+      'home.queue.ready': 'Warteschlange bereit',
+      'home.no.pending.device.changes':
+          'Keine ausstehenden Änderungen auf diesem Gerät.',
+      'home.checking.pending.changes':
+          'Ausstehende Änderungen werden geprüft...',
+      'home.unable.to.inspect.the.local.sync.queue':
+          'Die lokale Synchronisierungswarteschlange konnte nicht geprüft werden.',
+      'home.cloud.recovery.key.fingerprint':
+          'Fingerabdruck des Wiederherstellungsschlüssels',
+      'home.preparing.cloud.recovery.key':
+          'Wiederherstellungsschlüssel wird vorbereitet...',
+      'home.unable.to.read.the.cloud.recovery.key.fingerprint':
+          'Der Fingerabdruck des Wiederherstellungsschlüssels konnte nicht gelesen werden.',
+      'home.no.sync.activity.has.been.recorded.on.this.device.yet':
+          'Auf diesem Gerät wurde noch keine Synchronisierungsaktivität aufgezeichnet.',
+      'home.reading.sync.activity':
+          'Synchronisierungsaktivität wird gelesen...',
+      'home.unable.to.read.local.sync.activity':
+          'Lokale Synchronisierungsaktivität konnte nicht gelesen werden.',
+      'home.no.remote.bundle.history.is.available':
+          'Kein Remote-Paketverlauf verfügbar.',
       'home.year.partition': 'Jahr',
       'home.all.years': 'Alle Jahre',
       'home.use.a.4.digit.pin.for.this.browser':
@@ -1958,15 +2113,40 @@ class AppStrings {
     de: 'HiMemo mit Geräteauthentifizierung entsperren',
   );
   String notesCount(int count, {bool spacedEnglish = true}) =>
-      isJapanese ? '$count件' : '$count${spacedEnglish ? ' ' : ''}notes';
-  String entriesCount(int count) => isJapanese ? '$count 件' : '$count entries';
-  String noteCountSummary(int count) => isJapanese
-      ? 'この端末に $count 件のノートを保存しています。'
-      : '$count notes saved on this device.';
-  String monthBucketLabel(int month) => isJapanese ? '$month月' : '$month';
-  String accessModeSummary(String modeLabel) => isJapanese
-      ? '$modeLabel。別の表示が必要なときだけ特別キーを使います。'
-      : '$modeLabel. Special keys are used only when another view is needed.';
+      localized(
+        en: '$count${spacedEnglish ? ' ' : ''}notes',
+        ja: '$count件',
+        zh: '$count 条笔记',
+        ko: '$count개 노트',
+        es: '$count notas',
+        de: '$count Notizen',
+      );
+  String entriesCount(int count) => localized(
+    en: '$count entries',
+    ja: '$count 件',
+    zh: '$count 项',
+    ko: '$count개 항목',
+    es: '$count entradas',
+    de: '$count Einträge',
+  );
+  String noteCountSummary(int count) => localized(
+    en: '$count notes saved on this device.',
+    ja: 'この端末に $count 件のノートを保存しています。',
+    zh: '此设备上保存了 $count 条笔记。',
+    ko: '이 기기에 $count개 노트가 저장되어 있습니다.',
+    es: '$count notas guardadas en este dispositivo.',
+    de: '$count Notizen auf diesem Gerät gespeichert.',
+  );
+  String monthBucketLabel(int month) =>
+      isJapanese || isChinese || isKorean ? '$month月' : '$month';
+  String accessModeSummary(String modeLabel) => localized(
+    en: '$modeLabel. Special keys are used only when another view is needed.',
+    ja: '$modeLabel。別の表示が必要なときだけ特別キーを使います。',
+    zh: '$modeLabel。仅在需要其他视图时使用特殊密钥。',
+    ko: '$modeLabel. 다른 보기가 필요할 때만 특수 키를 사용합니다.',
+    es: '$modeLabel. Las claves especiales solo se usan cuando se necesita otra vista.',
+    de: '$modeLabel. Spezialschlüssel werden nur verwendet, wenn eine andere Ansicht benötigt wird.',
+  );
   String webPinProtectionSummary(String pinSummary) => localized(
     en: 'Protect this browser session with a 4 digit PIN. $pinSummary',
     ja: 'このブラウザでは 4 桁の PIN でメモ画面を保護します。$pinSummary',
