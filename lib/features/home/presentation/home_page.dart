@@ -16800,6 +16800,7 @@ class _VideoAttachmentViewerState
     extends ConsumerState<_VideoAttachmentViewer> {
   VideoPlayerController? _controller;
   String? _tempFilePath;
+  bool _wasPlaying = false;
 
   @override
   void initState() {
@@ -16809,7 +16810,9 @@ class _VideoAttachmentViewerState
 
   @override
   void dispose() {
-    unawaited(_controller?.dispose());
+    final controller = _controller;
+    controller?.removeListener(_handleControllerChanged);
+    unawaited(controller?.dispose());
     final tempFilePath = _tempFilePath;
     if (tempFilePath != null) {
       unawaited(
@@ -16838,9 +16841,25 @@ class _VideoAttachmentViewerState
     }
     final controller = VideoPlayerController.networkUrl(Uri.file(tempFilePath));
     await controller.initialize();
+    controller.addListener(_handleControllerChanged);
     setState(() {
       _tempFilePath = tempFilePath;
       _controller = controller;
+      _wasPlaying = controller.value.isPlaying;
+    });
+  }
+
+  void _handleControllerChanged() {
+    final controller = _controller;
+    if (controller == null || !mounted) {
+      return;
+    }
+    final isPlaying = controller.value.isPlaying;
+    if (isPlaying == _wasPlaying) {
+      return;
+    }
+    setState(() {
+      _wasPlaying = isPlaying;
     });
   }
 
@@ -16853,40 +16872,81 @@ class _VideoAttachmentViewerState
     if (controller == null || !controller.value.isInitialized) {
       return const Center(child: CircularProgressIndicator());
     }
-    return Column(
-      children: [
-        AspectRatio(
-          aspectRatio: controller.value.aspectRatio,
-          child: VideoPlayer(controller),
-        ),
-        const SizedBox(height: 12),
-        Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : 520.0;
+        final availableHeight = constraints.hasBoundedHeight
+            ? constraints.maxHeight
+            : 420.0;
+        const controlsHeight = 60.0;
+        final maxVideoHeight = math.max(96.0, availableHeight - controlsHeight);
+        final aspectRatio = controller.value.aspectRatio <= 0
+            ? 16 / 9
+            : controller.value.aspectRatio;
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            IconButton(
-              onPressed: () {
-                if (controller.value.isPlaying) {
-                  controller.pause();
-                } else {
-                  controller.play();
-                }
-                setState(() {});
-              },
-              icon: Icon(
-                controller.value.isPlaying
-                    ? Icons.pause_circle_outline
-                    : Icons.play_circle_outline,
+            SizedBox(
+              height: maxVideoHeight,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: maxWidth,
+                    maxHeight: maxVideoHeight,
+                  ),
+                  child: AspectRatio(
+                    aspectRatio: aspectRatio,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: GestureDetector(
+                        onTap: () {
+                          if (controller.value.isPlaying) {
+                            controller.pause();
+                          } else {
+                            controller.play();
+                          }
+                          setState(() {});
+                        },
+                        child: VideoPlayer(controller),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
-            Expanded(
-              child: VideoProgressIndicator(
-                controller,
-                allowScrubbing: true,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-              ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                IconButton(
+                  onPressed: () {
+                    if (controller.value.isPlaying) {
+                      controller.pause();
+                    } else {
+                      controller.play();
+                    }
+                    setState(() {});
+                  },
+                  icon: Icon(
+                    controller.value.isPlaying
+                        ? Icons.pause_circle_outline
+                        : Icons.play_circle_outline,
+                  ),
+                ),
+                Expanded(
+                  child: VideoProgressIndicator(
+                    controller,
+                    allowScrubbing: true,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                ),
+              ],
             ),
           ],
-        ),
-      ],
+        );
+      },
     );
   }
 }
