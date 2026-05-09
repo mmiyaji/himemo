@@ -2810,6 +2810,20 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
+                Text(
+                  strings.localized(
+                    en: 'If you forget this password, HiMemo cannot unlock or recover the private profile data. Support cannot respond to password reset, unlock, or data recovery requests.',
+                    ja: 'このパスワードを忘れると、HiMemo ではプライベートプロファイルのロック解除やデータ復旧はできません。パスワード忘れ、ロック解除、データ復旧に関するお問い合わせにも対応できません。',
+                    zh: '如果忘记此密码，HiMemo 无法解锁或恢复私密配置文件数据。支持也无法处理密码重置、解锁或数据恢复请求。',
+                    ko: '이 비밀번호를 잊으면 HiMemo에서 개인 프로필 잠금 해제나 데이터 복구를 할 수 없습니다. 비밀번호 재설정, 잠금 해제, 데이터 복구 요청에도 대응할 수 없습니다.',
+                    es: 'Si olvidas esta contrasena, HiMemo no puede desbloquear ni recuperar los datos del perfil privado. Soporte no puede responder solicitudes de restablecimiento, desbloqueo o recuperacion.',
+                    de: 'Wenn du dieses Passwort vergisst, kann HiMemo die Daten des privaten Profils nicht entsperren oder wiederherstellen. Support kann keine Anfragen zum Zurucksetzen, Entsperren oder Wiederherstellen bearbeiten.',
+                  ),
+                  style: Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(dialogContext).colorScheme.error,
+                  ),
+                ),
+                const SizedBox(height: 12),
                 TextFormField(
                   key: privateProfilePasswordInputKey,
                   controller: passwordController,
@@ -3436,6 +3450,20 @@ class SettingsScreen extends ConsumerWidget {
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              strings.localized(
+                en: 'Private profile passwords cannot be reset, unlocked, or recovered by support. Keep the password in a safe place.',
+                ja: 'プライベートプロファイルのパスワード忘れ、ロック解除、データ復旧には対応できません。パスワードはご自身で安全に保管してください。',
+                zh: '私密配置文件的密码无法由支持人员重置、解锁或恢复。请妥善保管密码。',
+                ko: '개인 프로필 비밀번호는 지원을 통해 재설정, 잠금 해제 또는 복구할 수 없습니다. 비밀번호를 안전하게 보관하세요.',
+                es: 'Soporte no puede restablecer, desbloquear ni recuperar contrasenas de perfiles privados. Guarda la contrasena en un lugar seguro.',
+                de: 'Private-Profile-Passworter konnen vom Support nicht zuruckgesetzt, entsperrt oder wiederhergestellt werden. Bewahre das Passwort sicher auf.',
+              ),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.error,
+              ),
             ),
             const SizedBox(height: 12),
             Wrap(
@@ -4077,43 +4105,64 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
             if (syncProvider != SyncProvider.off)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: FilledButton.icon(
-                  key: syncNowKey,
-                  onPressed:
-                      syncTransferState.isBusy || !syncAuthState.isAuthenticated
-                      ? null
-                      : () => _syncNow(context, ref),
-                  icon: syncTransferState.isBusy
-                      ? SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Theme.of(context).colorScheme.onPrimary,
-                          ),
-                        )
-                      : const Icon(Icons.sync_rounded),
-                  label: Text(
-                    syncTransferState.isBusy
-                        ? strings.localized(
-                            en: 'Syncing',
-                            ja: '同期中',
-                            zh: '同步中',
-                            ko: '동기화 중',
-                            es: 'Sincronizando',
-                            de: 'Synchronisierung',
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  FilledButton.icon(
+                    key: syncNowKey,
+                    onPressed:
+                        syncTransferState.isBusy ||
+                            !syncAuthState.isAuthenticated
+                        ? null
+                        : () => _syncNow(context, ref),
+                    icon: syncTransferState.stage == SyncTransferStage.busy
+                        ? SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Theme.of(context).colorScheme.onPrimary,
+                            ),
                           )
-                        : strings.localized(
-                            en: 'Sync',
-                            ja: '同期',
-                            zh: '同步',
-                            ko: '동기화',
-                            es: 'Sincronizar',
-                            de: 'Synchronisieren',
-                          ),
+                        : const Icon(Icons.sync_rounded),
+                    label: Text(
+                      syncTransferState.stage == SyncTransferStage.busy
+                          ? _syncProgressLabel(strings, syncTransferState)
+                          : strings.localized(
+                              en: 'Sync',
+                              ja: '同期',
+                              zh: '同步',
+                              ko: '동기화',
+                              es: 'Sincronizar',
+                              de: 'Synchronisieren',
+                            ),
+                    ),
                   ),
-                ),
+                  if (syncTransferState.stage == SyncTransferStage.busy)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8, bottom: 4),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 360),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            LinearProgressIndicator(
+                              value: _syncProgressValue(
+                                syncTransferState.progress,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              _syncProgressDescription(
+                                strings,
+                                syncTransferState,
+                              ),
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
               ),
             Container(
               margin: const EdgeInsets.symmetric(vertical: 8),
@@ -4141,6 +4190,22 @@ class SettingsScreen extends ConsumerWidget {
                   title: Text(strings.syncDetailsTitle),
                   subtitle: Text(strings.syncDetailsSummary),
                   children: [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        strings.localized(
+                          en: 'Sync progress',
+                          ja: '同期の進捗',
+                          zh: '同步进度',
+                          ko: '동기화 진행률',
+                          es: 'Progreso de sincronizacion',
+                          de: 'Synchronisierungsfortschritt',
+                        ),
+                      ),
+                      subtitle: Text(
+                        _syncProgressDescription(strings, syncTransferState),
+                      ),
+                    ),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(strings.text('home.pending.sync.queue')),
@@ -4478,6 +4543,121 @@ class SettingsScreen extends ConsumerWidget {
                                       }
                                     },
                               child: Text(strings.text('home.upload.bundle')),
+                            ),
+                          if (syncProvider != SyncProvider.off &&
+                              syncAuthState.isAuthenticated)
+                            OutlinedButton.icon(
+                              icon: const Icon(Icons.cloud_upload_outlined),
+                              onPressed: syncTransferState.isBusy
+                                  ? null
+                                  : () async {
+                                      final messenger = ScaffoldMessenger.of(
+                                        context,
+                                      );
+                                      final shouldReupload =
+                                          await showDialog<bool>(
+                                            context: context,
+                                            builder: (context) {
+                                              return AlertDialog(
+                                                title: Text(
+                                                  strings.localized(
+                                                    en: 'Re-upload all notes',
+                                                    ja: '全メモを再アップロード',
+                                                    zh: '重新上传全部备忘',
+                                                    ko: '모든 메모 다시 업로드',
+                                                    es: 'Volver a subir todas las notas',
+                                                    de: 'Alle Notizen erneut hochladen',
+                                                  ),
+                                                ),
+                                                content: Text(
+                                                  strings.localized(
+                                                    en: 'This queues all notes on this device and uploads a new encrypted bundle to the selected sync target. Use this after changing sync targets or repairing attachments on this device. It may overwrite the remote bundle.',
+                                                    ja: 'この端末の全メモを同期キューに入れ、選択中の同期先へ新しい暗号化バンドルをアップロードします。同期先の切り替え後や、この端末で添付を修復した後に使用してください。リモートのバンドルは上書きされる場合があります。',
+                                                    zh: '这会将本机全部备忘加入同步队列，并向选定同步目标上传新的加密包。请在切换同步目标或在本机修复附件后使用。远程包可能会被覆盖。',
+                                                    ko: '이 기기의 모든 메모를 동기화 대기열에 넣고 선택한 동기화 대상으로 새 암호화 번들을 업로드합니다. 동기화 대상을 변경했거나 이 기기에서 첨부 파일을 복구한 뒤 사용하세요. 원격 번들을 덮어쓸 수 있습니다.',
+                                                    es: 'Esto pone todas las notas de este dispositivo en la cola de sincronizacion y sube un nuevo paquete cifrado al destino seleccionado. Usalo tras cambiar de destino o reparar adjuntos en este dispositivo. Puede sobrescribir el paquete remoto.',
+                                                    de: 'Dadurch werden alle Notizen dieses Gerats in die Synchronisierungswarteschlange gestellt und als neues verschlusseltes Paket zum ausgewahlten Ziel hochgeladen. Nutze dies nach Zielwechseln oder reparierten Anhangen. Das Remote-Paket kann uberschrieben werden.',
+                                                  ),
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.of(
+                                                          context,
+                                                        ).pop(false),
+                                                    child: Text(strings.cancel),
+                                                  ),
+                                                  FilledButton(
+                                                    onPressed: () =>
+                                                        Navigator.of(
+                                                          context,
+                                                        ).pop(true),
+                                                    child: Text(
+                                                      strings.localized(
+                                                        en: 'Re-upload',
+                                                        ja: '再アップロード',
+                                                        zh: '重新上传',
+                                                        ko: '다시 업로드',
+                                                        es: 'Volver a subir',
+                                                        de: 'Erneut hochladen',
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              );
+                                            },
+                                          ) ??
+                                          false;
+                                      if (!shouldReupload) {
+                                        return;
+                                      }
+                                      try {
+                                        await ref
+                                            .read(
+                                              syncTransferControllerProvider
+                                                  .notifier,
+                                            )
+                                            .reuploadAllCurrentNotes();
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        final message =
+                                            _cloudSyncSnackBarMessage(
+                                              strings,
+                                              ref.read(
+                                                syncTransferControllerProvider,
+                                              ),
+                                              _CloudSyncSnackBarAction.upload,
+                                              syncProvider,
+                                            );
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            showCloseIcon: true,
+                                            content: Text(message),
+                                          ),
+                                        );
+                                      } catch (error) {
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            showCloseIcon: true,
+                                            content: Text('$error'),
+                                          ),
+                                        );
+                                      }
+                                    },
+                              label: Text(
+                                strings.localized(
+                                  en: 'Re-upload all notes',
+                                  ja: '全メモを再アップロード',
+                                  zh: '重新上传全部备忘',
+                                  ko: '모든 메모 다시 업로드',
+                                  es: 'Volver a subir todas las notas',
+                                  de: 'Alle Notizen erneut hochladen',
+                                ),
+                              ),
                             ),
                           if (syncProvider != SyncProvider.off &&
                               syncAuthState.isAuthenticated &&
@@ -14752,6 +14932,188 @@ String _formatDateTime(DateTime value, AppStrings strings) {
   final minute = normalized.minute.toString().padLeft(2, '0');
   final zone = strings.isJapanese ? 'JST' : 'UTC';
   return '$year/$month/$day $hour:$minute $zone';
+}
+
+String _syncProgressLabel(
+  AppStrings strings,
+  SyncTransferState transferState,
+) {
+  if (transferState.stage != SyncTransferStage.busy) {
+    return strings.localized(
+      en: 'Sync',
+      ja: '同期',
+      zh: '同步',
+      ko: '동기화',
+      es: 'Sincronizar',
+      de: 'Synchronisieren',
+    );
+  }
+  return switch (transferState.progress) {
+    SyncTransferProgress.checkingRemote => strings.localized(
+      en: 'Checking',
+      ja: '確認中',
+      zh: '检查中',
+      ko: '확인 중',
+      es: 'Comprobando',
+      de: 'Prufen',
+    ),
+    SyncTransferProgress.preparingBundle => strings.localized(
+      en: 'Preparing',
+      ja: '準備中',
+      zh: '准备中',
+      ko: '준비 중',
+      es: 'Preparando',
+      de: 'Vorbereiten',
+    ),
+    SyncTransferProgress.uploadingBundle => strings.localized(
+      en: 'Uploading',
+      ja: 'アップロード中',
+      zh: '上传中',
+      ko: '업로드 중',
+      es: 'Subiendo',
+      de: 'Hochladen',
+    ),
+    SyncTransferProgress.downloadingBundle => strings.localized(
+      en: 'Downloading',
+      ja: 'ダウンロード中',
+      zh: '下载中',
+      ko: '다운로드 중',
+      es: 'Descargando',
+      de: 'Herunterladen',
+    ),
+    SyncTransferProgress.applyingBundle => strings.localized(
+      en: 'Applying',
+      ja: '適用中',
+      zh: '应用中',
+      ko: '적용 중',
+      es: 'Aplicando',
+      de: 'Anwenden',
+    ),
+    SyncTransferProgress.finalizing => strings.localized(
+      en: 'Finishing',
+      ja: '完了処理中',
+      zh: '完成中',
+      ko: '마무리 중',
+      es: 'Finalizando',
+      de: 'Abschliessen',
+    ),
+    SyncTransferProgress.none => strings.localized(
+      en: 'Syncing',
+      ja: '同期中',
+      zh: '同步中',
+      ko: '동기화 중',
+      es: 'Sincronizando',
+      de: 'Synchronisierung',
+    ),
+  };
+}
+
+String _syncProgressDescription(
+  AppStrings strings,
+  SyncTransferState transferState,
+) {
+  if (transferState.stage == SyncTransferStage.busy) {
+    return switch (transferState.progress) {
+      SyncTransferProgress.checkingRemote => strings.localized(
+        en: 'Checking the latest cloud bundle and local queue.',
+        ja: 'クラウド上の最新バンドルとこの端末の未同期変更を確認しています。',
+        zh: '正在检查最新云端包和本机待同步更改。',
+        ko: '최신 클라우드 번들과 이 기기의 미동기화 변경 사항을 확인하고 있습니다.',
+        es: 'Comprobando el ultimo paquete en la nube y la cola local.',
+        de: 'Aktuelles Cloud-Paket und lokale Warteschlange werden gepruft.',
+      ),
+      SyncTransferProgress.preparingBundle => strings.localized(
+        en: 'Preparing an encrypted bundle from local notes and attachments.',
+        ja: 'ローカルのメモと添付から暗号化バンドルを準備しています。',
+        zh: '正在根据本机备忘和附件准备加密包。',
+        ko: '로컬 메모와 첨부 파일로 암호화 번들을 준비하고 있습니다.',
+        es: 'Preparando un paquete cifrado con notas y adjuntos locales.',
+        de: 'Verschlusseltes Paket aus lokalen Notizen und Anhangen wird vorbereitet.',
+      ),
+      SyncTransferProgress.uploadingBundle => strings.localized(
+        en: 'Uploading the encrypted bundle to the selected cloud target.',
+        ja: '暗号化バンドルを選択中のクラウド同期先へアップロードしています。',
+        zh: '正在将加密包上传到选定的云同步目标。',
+        ko: '암호화 번들을 선택한 클라우드 동기화 대상으로 업로드하고 있습니다.',
+        es: 'Subiendo el paquete cifrado al destino de nube seleccionado.',
+        de: 'Verschlusseltes Paket wird zum ausgewahlten Cloud-Ziel hochgeladen.',
+      ),
+      SyncTransferProgress.downloadingBundle => strings.localized(
+        en: 'Downloading the remote bundle before applying cloud changes.',
+        ja: 'クラウド側の変更を適用するため、リモートバンドルをダウンロードしています。',
+        zh: '正在下载远程包以应用云端更改。',
+        ko: '클라우드 변경 사항을 적용하기 위해 원격 번들을 다운로드하고 있습니다.',
+        es: 'Descargando el paquete remoto antes de aplicar cambios de nube.',
+        de: 'Remote-Paket wird heruntergeladen, bevor Cloud-Anderungen angewendet werden.',
+      ),
+      SyncTransferProgress.applyingBundle => strings.localized(
+        en: 'Decrypting and applying the downloaded bundle to local notes.',
+        ja: 'ダウンロードしたバンドルを復号し、ローカルのメモへ適用しています。',
+        zh: '正在解密下载的包并应用到本机备忘。',
+        ko: '다운로드한 번들을 복호화하여 로컬 메모에 적용하고 있습니다.',
+        es: 'Descifrando y aplicando el paquete descargado a las notas locales.',
+        de: 'Heruntergeladenes Paket wird entschlusselt und lokal angewendet.',
+      ),
+      SyncTransferProgress.finalizing => strings.localized(
+        en: 'Finishing sync and updating local metadata.',
+        ja: '同期を完了し、ローカルの同期情報を更新しています。',
+        zh: '正在完成同步并更新本机元数据。',
+        ko: '동기화를 완료하고 로컬 메타데이터를 업데이트하고 있습니다.',
+        es: 'Finalizando la sincronizacion y actualizando metadatos locales.',
+        de: 'Synchronisierung wird abgeschlossen und lokale Metadaten aktualisiert.',
+      ),
+      SyncTransferProgress.none => strings.localized(
+        en: 'Cloud sync is running.',
+        ja: 'クラウド同期を実行しています。',
+        zh: '云同步正在运行。',
+        ko: '클라우드 동기화를 실행하고 있습니다.',
+        es: 'La sincronizacion en la nube esta en curso.',
+        de: 'Cloud-Synchronisierung lauft.',
+      ),
+    };
+  }
+  final message = transferState.message;
+  if (message != null && message.isNotEmpty) {
+    return message;
+  }
+  return switch (transferState.stage) {
+    SyncTransferStage.success => strings.localized(
+      en: 'The last sync operation completed.',
+      ja: '直近の同期操作は完了しています。',
+      zh: '最近的同步操作已完成。',
+      ko: '최근 동기화 작업이 완료되었습니다.',
+      es: 'La ultima operacion de sincronizacion se completo.',
+      de: 'Der letzte Synchronisierungsvorgang ist abgeschlossen.',
+    ),
+    SyncTransferStage.error => strings.localized(
+      en: 'The last sync operation needs attention.',
+      ja: '直近の同期操作で確認が必要です。',
+      zh: '最近的同步操作需要确认。',
+      ko: '최근 동기화 작업에 확인이 필요합니다.',
+      es: 'La ultima operacion de sincronizacion requiere atencion.',
+      de: 'Der letzte Synchronisierungsvorgang erfordert Aufmerksamkeit.',
+    ),
+    SyncTransferStage.idle || SyncTransferStage.busy => strings.localized(
+      en: 'Sync is ready.',
+      ja: '同期を実行できます。',
+      zh: '可以同步。',
+      ko: '동기화할 수 있습니다.',
+      es: 'La sincronizacion esta lista.',
+      de: 'Synchronisierung ist bereit.',
+    ),
+  };
+}
+
+double? _syncProgressValue(SyncTransferProgress progress) {
+  return switch (progress) {
+    SyncTransferProgress.checkingRemote => 0.18,
+    SyncTransferProgress.preparingBundle => 0.38,
+    SyncTransferProgress.uploadingBundle => 0.64,
+    SyncTransferProgress.downloadingBundle => 0.48,
+    SyncTransferProgress.applyingBundle => 0.78,
+    SyncTransferProgress.finalizing => 0.92,
+    SyncTransferProgress.none => null,
+  };
 }
 
 String _remoteBundleSummary(

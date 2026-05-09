@@ -180,6 +180,16 @@ enum SyncAuthStage { idle, busy, authenticated, unsupported, error }
 
 enum SyncTransferStage { idle, busy, success, error }
 
+enum SyncTransferProgress {
+  none,
+  checkingRemote,
+  preparingBundle,
+  uploadingBundle,
+  downloadingBundle,
+  applyingBundle,
+  finalizing,
+}
+
 const legacyPrivateVaultId = 'private';
 const customPrivateVaultPrefix = 'private_profile:';
 
@@ -941,6 +951,7 @@ class SyncAuthState {
 class SyncTransferState {
   const SyncTransferState({
     required this.stage,
+    this.progress = SyncTransferProgress.none,
     this.message,
     this.remoteStatus,
     this.localBundle,
@@ -949,12 +960,14 @@ class SyncTransferState {
 
   const SyncTransferState.idle()
     : stage = SyncTransferStage.idle,
+      progress = SyncTransferProgress.none,
       message = null,
       remoteStatus = null,
       localBundle = null,
       cooldownUntil = null;
 
   final SyncTransferStage stage;
+  final SyncTransferProgress progress;
   final String? message;
   final RemoteSyncBundleStatus? remoteStatus;
   final StoredSyncBundle? localBundle;
@@ -969,6 +982,7 @@ class SyncTransferState {
 
   SyncTransferState copyWith({
     SyncTransferStage? stage,
+    SyncTransferProgress? progress,
     String? message,
     RemoteSyncBundleStatus? remoteStatus,
     StoredSyncBundle? localBundle,
@@ -979,6 +993,11 @@ class SyncTransferState {
   }) {
     return SyncTransferState(
       stage: stage ?? this.stage,
+      progress:
+          progress ??
+          (stage != null && stage != SyncTransferStage.busy
+              ? SyncTransferProgress.none
+              : this.progress),
       message: clearMessage ? null : (message ?? this.message),
       remoteStatus: remoteStatus ?? this.remoteStatus,
       localBundle: clearLocalBundle ? null : (localBundle ?? this.localBundle),
@@ -1930,7 +1949,14 @@ final syncTransferControllerProvider =
 
 class SyncTransferController extends Notifier<SyncTransferState> {
   static const _syncBundleDecryptionMessage =
-      '同期データを復号できませんでした。別端末で作成したクラウド復元キーを読み込んでから、もう一度同期してください。プライベートプロファイルのメモが含まれる場合は、対象プロファイルも開いてください。';
+      '同期データを復号できませんでした。\n'
+      '・クラウド復元キーが違う可能性があります。元端末でクラウド復元キーをコピーし、この端末へ読み込んでください。\n'
+      '・元端末で添付やメモを修復した場合は、元端末で全メモを再アップロードしてから同期してください。\n'
+      '・プライベートプロファイルのメモが含まれる場合は、同期先端末で対象プロファイルを開いてから、もう一度適用してください。';
+  static const _syncBundleKeyMissingMessage =
+      '同期バンドルを読むためのクラウド復元キーがこの端末にありません。元端末でクラウド復元キーをコピーし、この端末へ読み込んでから、もう一度同期してください。';
+  static const _iCloudSyncBundleKeyWaitingMessage =
+      '同期バンドルを読むためのクラウド復元キーがまだこの端末にありません。iCloud Keychain の同期待ちの可能性があります。しばらく待ってから再試行するか、元端末でクラウド復元キーをコピーしてこの端末へ読み込んでください。';
 
   Timer? _cooldownTimer;
 
@@ -1944,6 +1970,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     state = state.copyWith(clearLocalBundle: true);
   }
 
+  void _startBusy(SyncTransferProgress progress) {
+    state = state.copyWith(
+      stage: SyncTransferStage.busy,
+      progress: progress,
+      clearMessage: true,
+      clearCooldown: true,
+    );
+  }
+
+  void _setProgress(SyncTransferProgress progress) {
+    state = state.copyWith(
+      stage: SyncTransferStage.busy,
+      progress: progress,
+      clearMessage: true,
+    );
+  }
+
   Future<void> refreshRemoteStatus() async {
     final provider = ref.read(syncProviderControllerProvider);
     if (!_supportsRemoteTransport(provider)) {
@@ -1953,11 +1996,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       return;
     }
-    state = state.copyWith(
-      stage: SyncTransferStage.busy,
-      clearMessage: true,
-      clearCooldown: true,
-    );
+    _startBusy(SyncTransferProgress.checkingRemote);
     try {
       final remoteStatus = await runFirebaseTrace(
         'sync_refresh_remote_status',
@@ -2004,11 +2043,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       return;
     }
-    state = state.copyWith(
-      stage: SyncTransferStage.busy,
-      clearMessage: true,
-      clearCooldown: true,
-    );
+    _startBusy(SyncTransferProgress.preparingBundle);
     try {
       await logFirebaseBreadcrumb('sync upload requested');
       final snapshot = await runFirebaseTrace(
@@ -2035,6 +2070,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       if (encodedPayload == null || encodedPayload.isEmpty) {
         throw StateError('ローカルの同期バンドルを準備できませんでした。');
       }
+      _setProgress(SyncTransferProgress.uploadingBundle);
       final remoteStatus = await runFirebaseTrace(
         'sync_upload_remote_bundle',
         () => _uploadRemoteBundle(
@@ -2044,6 +2080,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           attachmentCount: bundle.attachmentCount,
         ),
       );
+      _setProgress(SyncTransferProgress.finalizing);
       await ref.read(notesControllerProvider.notifier).markCurrentStateSynced();
       state = SyncTransferState(
         stage: SyncTransferStage.success,
@@ -2061,6 +2098,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
+  Future<void> reuploadAllCurrentNotes() async {
+    final provider = ref.read(syncProviderControllerProvider);
+    if (!_supportsRemoteTransport(provider)) {
+      state = const SyncTransferState(
+        stage: SyncTransferStage.error,
+        message: '再アップロードするには、先にクラウド同期先を選択してください。',
+      );
+      return;
+    }
+    if (state.isBusy) {
+      return;
+    }
+    _startBusy(SyncTransferProgress.preparingBundle);
+    await ref.read(notesControllerProvider.notifier).queueCurrentStateForSync();
+    await uploadCurrentBundle(force: true);
+  }
+
   Future<void> syncNow({bool forceUpload = false}) async {
     final provider = ref.read(syncProviderControllerProvider);
     if (!_supportsRemoteTransport(provider)) {
@@ -2069,11 +2123,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (state.isBusy) {
       return;
     }
-    state = state.copyWith(
-      stage: SyncTransferStage.busy,
-      clearMessage: true,
-      clearCooldown: true,
-    );
+    _startBusy(SyncTransferProgress.checkingRemote);
     try {
       await logFirebaseBreadcrumb('sync now requested');
       final remoteStatus = await runFirebaseTrace(
@@ -2104,6 +2154,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           );
           return;
         }
+        _setProgress(SyncTransferProgress.downloadingBundle);
         final remoteBundle = await runFirebaseTrace(
           'sync_download_latest_bundle',
           _downloadLatestRemoteBundle,
@@ -2113,6 +2164,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           emptyMessage: '${_providerLabel(provider)} に同期できるバンドルはありません。',
         );
         if (remoteBundle != null) {
+          _setProgress(SyncTransferProgress.applyingBundle);
           await applyDownloadedBundle();
           if (state.stage == SyncTransferStage.error) {
             return;
@@ -2123,9 +2175,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       ref.invalidate(syncQueueSummaryProvider);
       final refreshedQueue = await ref.read(syncQueueSummaryProvider.future);
       if (refreshedQueue.hasPendingChanges) {
+        _setProgress(SyncTransferProgress.preparingBundle);
         await uploadCurrentBundle(force: forceUpload);
         return;
       }
+      _setProgress(SyncTransferProgress.finalizing);
       state = SyncTransferState(
         stage: SyncTransferStage.success,
         message: '${_providerLabel(provider)} と同期済みです。',
@@ -2146,11 +2200,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     Set<String>? vaultIds,
     bool includeSampleNotes = false,
   }) async {
-    state = state.copyWith(
-      stage: SyncTransferStage.busy,
-      clearMessage: true,
-      clearCooldown: true,
-    );
+    _startBusy(SyncTransferProgress.preparingBundle);
     try {
       await logFirebaseBreadcrumb('local zip archive export requested');
       final archive = await runFirebaseTrace(
@@ -2189,11 +2239,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (bytes.isEmpty) {
       throw StateError('選択したアーカイブは空です。');
     }
-    state = state.copyWith(
-      stage: SyncTransferStage.busy,
-      clearMessage: true,
-      clearCooldown: true,
-    );
+    _startBusy(SyncTransferProgress.preparingBundle);
     try {
       await logFirebaseBreadcrumb('local zip archive import selected');
       final decoded = _decodeLocalZipArchive(bytes, password: password);
@@ -2222,7 +2268,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     List<int> bytes, {
     String? password,
   }) async {
-    state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
+    _startBusy(SyncTransferProgress.applyingBundle);
     try {
       await logFirebaseBreadcrumb('local zip archive apply selected');
       final decoded = _decodeLocalZipArchive(bytes, password: password);
@@ -2326,11 +2372,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       return;
     }
-    state = state.copyWith(
-      stage: SyncTransferStage.busy,
-      clearMessage: true,
-      clearCooldown: true,
-    );
+    _startBusy(SyncTransferProgress.downloadingBundle);
     try {
       await logFirebaseBreadcrumb('sync download latest requested');
       final remoteBundle = await runFirebaseTrace(
@@ -2363,11 +2405,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       return;
     }
-    state = state.copyWith(
-      stage: SyncTransferStage.busy,
-      clearMessage: true,
-      clearCooldown: true,
-    );
+    _startBusy(SyncTransferProgress.downloadingBundle);
     try {
       await logFirebaseBreadcrumb(
         'sync download bundle ${remoteStatus.fileId}',
@@ -2408,7 +2446,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       return;
     }
-    state = state.copyWith(stage: SyncTransferStage.busy, clearMessage: true);
+    _startBusy(SyncTransferProgress.applyingBundle);
     try {
       await logFirebaseBreadcrumb('sync apply downloaded bundle');
       final decoded = await runFirebaseTrace(
@@ -2988,6 +3026,18 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       return SyncTransferState(
         stage: SyncTransferStage.error,
         message: _syncBundleDecryptionMessage,
+        remoteStatus: remoteStatus,
+        localBundle: localBundle,
+      );
+    }
+    if (error is StateError &&
+        error.message == 'Sync bundle key is not available.') {
+      final provider = ref.read(syncProviderControllerProvider);
+      return SyncTransferState(
+        stage: SyncTransferStage.error,
+        message: provider == SyncProvider.iCloud
+            ? _iCloudSyncBundleKeyWaitingMessage
+            : _syncBundleKeyMissingMessage,
         remoteStatus: remoteStatus,
         localBundle: localBundle,
       );
