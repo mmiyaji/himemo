@@ -1027,6 +1027,9 @@ void main() {
       final tempDirectory = await Directory.systemTemp.createTemp(
         'himemo-sync-engine-',
       );
+      final targetTempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-engine-target-',
+      );
       final secureStore = MemorySecureKeyValueStore();
       final encryptionService = EncryptionService(random: Random(41));
       final masterKeyService = MasterKeyService(
@@ -1099,14 +1102,51 @@ void main() {
         snapshot.notes.single.note.attachments.single.filePath,
         isNot(storedAttachment),
       );
+      expect(base64Decode(snapshot.attachments.single.bytesBase64), const [
+        9,
+        8,
+        7,
+        6,
+      ]);
+      final targetSecureStore = MemorySecureKeyValueStore();
+      final targetEncryptionService = EncryptionService(random: Random(43));
+      final targetMasterKeyService = MasterKeyService(
+        secureStore: targetSecureStore,
+        keyFactory: targetEncryptionService.generateKeyBytes,
+      );
+      final targetAttachmentStore = EncryptedAttachmentStore(
+        encryptionService: targetEncryptionService,
+        masterKeyService: targetMasterKeyService,
+        directoryProvider: () async => targetTempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final targetEncryptedPayload = await targetAttachmentStore
+          .encryptAttachmentBytes(
+            bytes: base64Decode(snapshot.attachments.single.bytesBase64),
+            type: AttachmentType.photo,
+          );
+      final targetStoredAttachment = await targetAttachmentStore
+          .storeEncryptedPayload(
+            encodedPayload: targetEncryptedPayload,
+            type: AttachmentType.photo,
+            fileNameHint: 'clip.jpg',
+          );
+
+      expect(targetStoredAttachment, isNotNull);
       expect(
-        snapshot.attachments.single.encryptedPayload.contains('clip.jpg'),
-        isFalse,
+        await targetAttachmentStore.readAttachment(
+          targetStoredAttachment!,
+          type: AttachmentType.photo,
+        ),
+        const [9, 8, 7, 6],
       );
 
       await database.close();
       if (await tempDirectory.exists()) {
         await tempDirectory.delete(recursive: true);
+      }
+      if (await targetTempDirectory.exists()) {
+        await targetTempDirectory.delete(recursive: true);
       }
     },
   );
@@ -1161,12 +1201,12 @@ void main() {
             ),
           ),
         ],
-        attachments: const [
+        attachments: [
           PreparedSyncAttachment(
             id: 'export-1-0',
             type: AttachmentType.photo,
             label: 'secret.jpg',
-            encryptedPayload: '{"cipherText":"abc"}',
+            bytesBase64: base64Encode(const [1, 2, 3, 4]),
           ),
         ],
       );
@@ -1212,6 +1252,42 @@ void main() {
       );
       final copiedDecoded = await bundleStore.readBundleJson(copied.reference);
       expect(copiedDecoded?['deviceId'], 'device-export');
+
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'SecureSyncBundleStore does not create a new key when reading a bundle',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-bundle-missing-key-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(52));
+      final bundleStore = SecureSyncBundleStore(
+        encryptionService: encryptionService,
+        syncBundleKeyService: SyncBundleKeyService(
+          secureStore: secureStore,
+          keyFactory: () => List<int>.filled(32, 8),
+        ),
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+
+      final stored = await bundleStore.writeEncryptedBundlePayload(
+        'not-a-readable-bundle',
+        noteCount: 0,
+        attachmentCount: 0,
+      );
+      await expectLater(
+        bundleStore.readBundleJson(stored.reference),
+        throwsStateError,
+      );
+      expect(await secureStore.read('security.sync_bundle_key.v1'), isNull);
 
       if (await tempDirectory.exists()) {
         await tempDirectory.delete(recursive: true);
@@ -1341,6 +1417,20 @@ void main() {
       final backupCode = await service.exportBackupCode();
 
       expect(cloudStore.backupCode, backupCode);
+    },
+  );
+
+  test(
+    'SyncBundleKeyService does not create a key when reading existing only',
+    () async {
+      final secureStore = MemorySecureKeyValueStore();
+      final service = SyncBundleKeyService(
+        secureStore: secureStore,
+        keyFactory: () => List<int>.filled(32, 9),
+      );
+
+      await expectLater(service.requireExisting(), throwsStateError);
+      expect(await secureStore.read('security.sync_bundle_key.v1'), isNull);
     },
   );
 

@@ -2464,38 +2464,88 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               ? PendingNoteChangeAction.upsert
               : PendingNoteChangeAction.delete,
         );
-        final importedAttachments = <NoteAttachment>[];
-        for (final attachment in note.attachments) {
+        final storedBySyncAttachmentId = <String, String?>{};
+        Future<NoteAttachment> importAttachment(
+          NoteAttachment attachment,
+        ) async {
           final filePath = attachment.filePath;
           if (filePath == null || !filePath.startsWith('sync-attachment://')) {
-            importedAttachments.add(attachment);
-            continue;
+            return attachment;
           }
           final attachmentId = filePath.substring('sync-attachment://'.length);
           final payload = attachmentPayloads[attachmentId];
           if (payload == null) {
-            importedAttachments.add(attachment.copyWith(filePath: null));
-            continue;
+            return attachment.copyWith(
+              filePath: null,
+              previewBytesBase64: null,
+            );
           }
-          final storedReference = await ref
-              .read(encryptedAttachmentStoreProvider)
-              .storeEncryptedPayload(
-                encodedPayload: payload['encryptedPayload'] as String,
-                type: AttachmentType.values.firstWhere(
-                  (value) => value.name == payload['type'],
-                  orElse: () => attachment.type,
-                ),
-                fileNameHint: payload['label'] as String? ?? attachment.label,
-                vaultId: note.vaultId,
-              );
-          importedAttachments.add(
-            attachment.copyWith(filePath: storedReference),
+          if (!storedBySyncAttachmentId.containsKey(attachmentId)) {
+            final payloadType = AttachmentType.values.firstWhere(
+              (value) => value.name == payload['type'],
+              orElse: () => attachment.type,
+            );
+            final label = payload['label'] as String? ?? attachment.label;
+            final bytesBase64 = payload['bytesBase64'] as String?;
+            if (bytesBase64 != null && bytesBase64.isNotEmpty) {
+              final encryptedPayload = await ref
+                  .read(encryptedAttachmentStoreProvider)
+                  .encryptAttachmentBytes(
+                    bytes: base64Decode(bytesBase64),
+                    type: payloadType,
+                    vaultId: note.vaultId,
+                  );
+              storedBySyncAttachmentId[attachmentId] = await ref
+                  .read(encryptedAttachmentStoreProvider)
+                  .storeEncryptedPayload(
+                    encodedPayload: encryptedPayload,
+                    type: payloadType,
+                    fileNameHint: label,
+                    vaultId: note.vaultId,
+                  );
+            } else {
+              final legacyPayload = payload['encryptedPayload'] as String?;
+              storedBySyncAttachmentId[attachmentId] =
+                  legacyPayload == null || legacyPayload.isEmpty
+                  ? null
+                  : await ref
+                        .read(encryptedAttachmentStoreProvider)
+                        .storeEncryptedPayload(
+                          encodedPayload: legacyPayload,
+                          type: payloadType,
+                          fileNameHint: label,
+                          vaultId: note.vaultId,
+                        );
+            }
+          }
+          return attachment.copyWith(
+            filePath: storedBySyncAttachmentId[attachmentId],
+            previewBytesBase64: null,
+          );
+        }
+
+        final importedAttachments = <NoteAttachment>[];
+        for (final attachment in note.attachments) {
+          importedAttachments.add(await importAttachment(attachment));
+        }
+        final importedBlocks = <NoteBlock>[];
+        for (final block in note.blocks) {
+          final attachment = block.attachment;
+          importedBlocks.add(
+            attachment == null
+                ? block
+                : block.copyWith(
+                    attachment: await importAttachment(attachment),
+                  ),
           );
         }
         importedChanges.add(
           PreparedSyncNote(
             action: action,
-            note: note.copyWith(attachments: importedAttachments),
+            note: note.copyWith(
+              attachments: importedAttachments,
+              blocks: importedBlocks,
+            ),
           ),
         );
       }

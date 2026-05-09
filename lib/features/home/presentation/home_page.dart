@@ -7068,8 +7068,7 @@ class _NoteListTile extends StatelessWidget {
     final previewFacts = _notePreviewFacts(note);
     final hasDistinctBody =
         bodyPreview.isNotEmpty && bodyPreview != note.title.trim();
-    final showAttachmentPreviews =
-        density != NotesListDensity.compact && !isPrivateNote;
+    final showAttachmentPreviews = density != NotesListDensity.compact;
     final thumbnailSize = switch (density) {
       NotesListDensity.compact => 44.0,
       NotesListDensity.standard => 56.0,
@@ -11848,7 +11847,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                         controller: _contentController,
                         focusNode: _quickContentFocusNode,
                         autofocus: widget.note == null,
-                        minLines: 10,
+                        minLines: 4,
                         maxLines: null,
                         textAlignVertical: TextAlignVertical.top,
                         scrollPadding: const EdgeInsets.only(
@@ -11883,14 +11882,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                     ),
                     const SizedBox(height: 12),
                   ],
-                  if (_editorMode == NoteEditorMode.quick)
-                    _QuickAttachmentSection(
-                      strings: strings,
-                      attachments: _attachments,
-                      onRemove: _removeQuickAttachmentAt,
-                      onMove: _moveQuickAttachment,
-                    ),
-                  const SizedBox(height: 12),
                   Container(
                     decoration: _sectionDecoration(context),
                     padding: const EdgeInsets.all(12),
@@ -12022,6 +12013,15 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                         );
                         _scheduleDraftPersist();
                       },
+                    ),
+                  ],
+                  if (_editorMode == NoteEditorMode.quick) ...[
+                    const SizedBox(height: 12),
+                    _QuickAttachmentSection(
+                      strings: strings,
+                      attachments: _attachments,
+                      onRemove: _removeQuickAttachmentAt,
+                      onMove: _moveQuickAttachment,
                     ),
                   ],
                 ],

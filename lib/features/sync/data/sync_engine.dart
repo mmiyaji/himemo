@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../home/domain/note_entry.dart';
 import '../../security/data/device_identity_store.dart';
 import '../../security/data/encrypted_attachment_store.dart';
@@ -24,13 +26,13 @@ class PreparedSyncAttachment {
     required this.id,
     required this.type,
     required this.label,
-    required this.encryptedPayload,
+    required this.bytesBase64,
   });
 
   final String id;
   final AttachmentType type;
   final String label;
-  final String encryptedPayload;
+  final String bytesBase64;
 }
 
 class PreparedSyncNote {
@@ -89,39 +91,64 @@ class SyncEngine {
         continue;
       }
 
-      final sanitizedAttachments = <NoteAttachment>[];
-      for (var i = 0; i < note.attachments.length; i++) {
-        final attachment = note.attachments[i];
+      final attachmentIdsByPath = <String, String>{};
+
+      Future<NoteAttachment> prepareAttachment(
+        NoteAttachment attachment,
+        int index,
+      ) async {
         final filePath = attachment.filePath;
         if (filePath == null || filePath.isEmpty) {
-          sanitizedAttachments.add(
-            attachment.copyWith(filePath: null, previewBytesBase64: null),
-          );
-          continue;
+          return attachment.copyWith(filePath: null, previewBytesBase64: null);
         }
-        final encryptedPayload = await _attachmentStore.readStoredPayload(
+        if (attachmentIdsByPath[filePath] case final existingId?) {
+          return attachment.copyWith(
+            filePath: 'sync-attachment://$existingId',
+            previewBytesBase64: null,
+          );
+        }
+        final bytes = await _attachmentStore.readAttachment(
           filePath,
+          type: attachment.type,
         );
-        if (encryptedPayload == null || encryptedPayload.isEmpty) {
-          sanitizedAttachments.add(
-            attachment.copyWith(filePath: null, previewBytesBase64: null),
-          );
-          continue;
+        if (bytes == null || bytes.isEmpty) {
+          return attachment.copyWith(filePath: null, previewBytesBase64: null);
         }
-        final attachmentId = '${note.id}-$i';
+        final attachmentId = '${note.id}-$index';
+        attachmentIdsByPath[filePath] = attachmentId;
         attachmentPayloads.add(
           PreparedSyncAttachment(
             id: attachmentId,
             type: attachment.type,
             label: attachment.label,
-            encryptedPayload: encryptedPayload,
+            bytesBase64: base64Encode(bytes),
           ),
         );
+        return attachment.copyWith(
+          filePath: 'sync-attachment://$attachmentId',
+          previewBytesBase64: null,
+        );
+      }
+
+      final sanitizedAttachments = <NoteAttachment>[];
+      for (var i = 0; i < note.attachments.length; i++) {
         sanitizedAttachments.add(
-          attachment.copyWith(
-            filePath: 'sync-attachment://$attachmentId',
-            previewBytesBase64: null,
-          ),
+          await prepareAttachment(note.attachments[i], i),
+        );
+      }
+      final sanitizedBlocks = <NoteBlock>[];
+      for (var i = 0; i < note.blocks.length; i++) {
+        final block = note.blocks[i];
+        final attachment = block.attachment;
+        sanitizedBlocks.add(
+          attachment == null
+              ? block
+              : block.copyWith(
+                  attachment: await prepareAttachment(
+                    attachment,
+                    note.attachments.length + i,
+                  ),
+                ),
         );
       }
 
@@ -129,6 +156,7 @@ class SyncEngine {
         PreparedSyncNote(
           note: note.copyWith(
             attachments: sanitizedAttachments,
+            blocks: sanitizedBlocks,
             syncState: NoteSyncState.synced,
           ),
           action: change.action,

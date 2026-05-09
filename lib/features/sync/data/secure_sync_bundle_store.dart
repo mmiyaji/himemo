@@ -74,7 +74,7 @@ class SecureSyncBundleStore {
               'id': attachment.id,
               'type': attachment.type.name,
               'label': attachment.label,
-              'encryptedPayload': attachment.encryptedPayload,
+              'bytesBase64': attachment.bytesBase64,
             },
         ],
       },
@@ -152,7 +152,7 @@ class SecureSyncBundleStore {
   }
 
   Future<Map<String, dynamic>> _decryptBundleJson(String payload) async {
-    final syncKey = await _syncBundleKeyService.obtainOrCreate();
+    final syncKey = await _syncBundleKeyService.requireExisting();
     try {
       return await _encryptionService.decryptJson(
         encodedPayload: payload,

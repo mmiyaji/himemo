@@ -36,6 +36,14 @@ class SyncBundleKeyService {
     return SecretKey(bytes);
   }
 
+  Future<SecretKey> requireExisting() async {
+    final bytes = await _readExistingBytes();
+    if (bytes == null) {
+      throw StateError('Sync bundle key is not available.');
+    }
+    return SecretKey(bytes);
+  }
+
   Future<String> fingerprint() async {
     final bytes = await _readOrCreateBytes();
     final digest = sha256.convert(bytes).toString();
@@ -61,6 +69,18 @@ class SyncBundleKeyService {
   }
 
   Future<List<int>> _readOrCreateBytes() async {
+    final existing = await _readExistingBytes();
+    if (existing != null) {
+      return existing;
+    }
+
+    final generated = _keyFactory();
+    await _secureStore.write(storageKey, base64Encode(generated));
+    await _cloudStore?.writeBackupCode(_backupCodeForBytes(generated));
+    return generated;
+  }
+
+  Future<List<int>?> _readExistingBytes() async {
     final cloud = _cloudStore;
     if (cloud != null) {
       try {
@@ -92,11 +112,7 @@ class SyncBundleKeyService {
         return bytes;
       }
     }
-
-    final generated = _keyFactory();
-    await _secureStore.write(storageKey, base64Encode(generated));
-    await _cloudStore?.writeBackupCode(_backupCodeForBytes(generated));
-    return generated;
+    return null;
   }
 
   Future<void> _publishCloudKeyIfMissing(List<int> bytes) async {
