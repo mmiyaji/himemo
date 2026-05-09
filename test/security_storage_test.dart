@@ -282,10 +282,37 @@ void main() {
               ),
             ],
           ),
-          throwsA(isA<FormatException>()),
+          throwsA(isA<HimemoDecryptionException>()),
         );
       },
     );
+
+    test('masks low-level decryption authentication failures', () async {
+      final sourceKey = await MasterKeyService(
+        secureStore: MemorySecureKeyValueStore(),
+        keyFactory: encryptionService.generateKeyBytes,
+      ).obtainOrCreate();
+      final wrongKey = await MasterKeyService(
+        secureStore: MemorySecureKeyValueStore(),
+        keyFactory: encryptionService.generateKeyBytes,
+      ).obtainOrCreate();
+      final payload = await encryptionService.encryptJson(
+        payload: const {'message': 'secret'},
+        secretKey: sourceKey,
+      );
+
+      try {
+        await encryptionService.decryptJson(
+          encodedPayload: payload,
+          secretKey: wrongKey,
+        );
+        fail('decryptJson should throw');
+      } catch (error) {
+        expect(error, isA<HimemoDecryptionException>());
+        expect('$error', isNot(contains('SecretBoxAuthenticationError')));
+        expect('$error', contains('復号できませんでした'));
+      }
+    });
   });
 
   group('PrivateVaultSecretStore', () {

@@ -30,6 +30,7 @@ import 'package:video_player/video_player.dart';
 
 import '../../../l10n/app_strings.dart';
 import '../../security/data/encrypted_attachment_store.dart';
+import '../../security/data/encryption_service.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/google_sign_in_initializer.dart';
 import '../../sync/data/sync_bundle_preview.dart';
@@ -14166,12 +14167,35 @@ Future<void> _shareAttachment(
   }
 
   final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
-  if (kIsWeb) {
-    final bytes = await attachmentStore.readAttachment(
+  try {
+    if (kIsWeb) {
+      final bytes = await attachmentStore.readAttachment(
+        filePath,
+        type: attachment.type,
+      );
+      if (bytes == null || bytes.isEmpty) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              showCloseIcon: true,
+              content: Text(strings.unableToDecryptAttachment),
+            ),
+          );
+        }
+        return;
+      }
+      await Share.shareXFiles([
+        XFile.fromData(Uint8List.fromList(bytes), name: attachment.label),
+      ], text: attachment.label);
+      return;
+    }
+
+    final tempFilePath = await attachmentStore.materializeDecryptedFile(
       filePath,
       type: attachment.type,
+      preferredFileName: attachment.label,
     );
-    if (bytes == null || bytes.isEmpty) {
+    if (tempFilePath == null || tempFilePath.isEmpty) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -14182,18 +14206,12 @@ Future<void> _shareAttachment(
       }
       return;
     }
-    await Share.shareXFiles([
-      XFile.fromData(Uint8List.fromList(bytes), name: attachment.label),
-    ], text: attachment.label);
-    return;
-  }
-
-  final tempFilePath = await attachmentStore.materializeDecryptedFile(
-    filePath,
-    type: attachment.type,
-    preferredFileName: attachment.label,
-  );
-  if (tempFilePath == null || tempFilePath.isEmpty) {
+    try {
+      await Share.shareXFiles([XFile(tempFilePath)], text: attachment.label);
+    } finally {
+      await attachmentStore.deleteMaterializedFile(tempFilePath);
+    }
+  } on HimemoDecryptionException {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -14202,12 +14220,6 @@ Future<void> _shareAttachment(
         ),
       );
     }
-    return;
-  }
-  try {
-    await Share.shareXFiles([XFile(tempFilePath)], text: attachment.label);
-  } finally {
-    await attachmentStore.deleteMaterializedFile(tempFilePath);
   }
 }
 

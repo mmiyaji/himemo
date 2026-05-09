@@ -3,20 +3,24 @@ import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
 
+class HimemoDecryptionException implements Exception {
+  const HimemoDecryptionException([
+    this.message = '暗号化されたデータを復号できませんでした。復元キーまたはプライベートプロファイルのパスワードを確認してください。',
+  ]);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class EncryptionService {
-  EncryptionService({
-    AesGcm? algorithm,
-    Random? random,
-    Pbkdf2? kdf,
-  }) : _algorithm = algorithm ?? AesGcm.with256bits(),
-       _random = random ?? Random.secure(),
-       _kdf =
-           kdf ??
-           Pbkdf2(
-             macAlgorithm: Hmac.sha256(),
-             iterations: 210000,
-             bits: 256,
-           );
+  EncryptionService({AesGcm? algorithm, Random? random, Pbkdf2? kdf})
+    : _algorithm = algorithm ?? AesGcm.with256bits(),
+      _random = random ?? Random.secure(),
+      _kdf =
+          kdf ??
+          Pbkdf2(macAlgorithm: Hmac.sha256(), iterations: 210000, bits: 256);
 
   final AesGcm _algorithm;
   final Random _random;
@@ -59,14 +63,20 @@ class EncryptionService {
     required String encodedPayload,
     required SecretKey secretKey,
   }) async {
-    final clearBytes = await decryptBytes(
-      encodedPayload: encodedPayload,
-      secretKey: secretKey,
-      additionalData: utf8.encode('json'),
-    );
-    return Map<String, dynamic>.from(
-      jsonDecode(utf8.decode(clearBytes)) as Map<String, dynamic>,
-    );
+    try {
+      final clearBytes = await decryptBytes(
+        encodedPayload: encodedPayload,
+        secretKey: secretKey,
+        additionalData: utf8.encode('json'),
+      );
+      return Map<String, dynamic>.from(
+        jsonDecode(utf8.decode(clearBytes)) as Map<String, dynamic>,
+      );
+    } on HimemoDecryptionException {
+      rethrow;
+    } catch (_) {
+      throw const HimemoDecryptionException();
+    }
   }
 
   Future<List<int>> decryptBytes({
@@ -74,19 +84,23 @@ class EncryptionService {
     required SecretKey secretKey,
     List<int>? additionalData,
   }) async {
-    final decoded = Map<String, dynamic>.from(
-      jsonDecode(encodedPayload) as Map<String, dynamic>,
-    );
-    final secretBox = SecretBox(
-      base64Decode(decoded['cipherText'] as String),
-      nonce: base64Decode(decoded['nonce'] as String),
-      mac: Mac(base64Decode(decoded['mac'] as String)),
-    );
-    return _algorithm.decrypt(
-      secretBox,
-      secretKey: secretKey,
-      aad: additionalData ?? const <int>[],
-    );
+    try {
+      final decoded = Map<String, dynamic>.from(
+        jsonDecode(encodedPayload) as Map<String, dynamic>,
+      );
+      final secretBox = SecretBox(
+        base64Decode(decoded['cipherText'] as String),
+        nonce: base64Decode(decoded['nonce'] as String),
+        mac: Mac(base64Decode(decoded['mac'] as String)),
+      );
+      return await _algorithm.decrypt(
+        secretBox,
+        secretKey: secretKey,
+        aad: additionalData ?? const <int>[],
+      );
+    } catch (_) {
+      throw const HimemoDecryptionException();
+    }
   }
 
   Future<String> deriveSecretVerifier({

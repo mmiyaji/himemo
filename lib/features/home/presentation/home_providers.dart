@@ -1877,6 +1877,9 @@ final syncTransferControllerProvider =
     );
 
 class SyncTransferController extends Notifier<SyncTransferState> {
+  static const _syncBundleDecryptionMessage =
+      '同期データを復号できませんでした。別端末で作成したクラウド復元キーを読み込んでから、もう一度同期してください。プライベートプロファイルのメモが含まれる場合は、対象プロファイルも開いてください。';
+
   Timer? _cooldownTimer;
 
   @override
@@ -2446,6 +2449,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         stage: SyncTransferStage.success,
         message: 'ダウンロードしたバンドルをローカルのノートに反映しました。',
       );
+    } on HimemoDecryptionException {
+      state = state.copyWith(
+        stage: SyncTransferStage.error,
+        message: _syncBundleDecryptionMessage,
+      );
     } catch (error) {
       state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
     }
@@ -2456,16 +2464,24 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (localBundle == null) {
       throw StateError('確認する前にリモートバンドルをダウンロードしてください。');
     }
-    final decoded = await ref
-        .read(secureSyncBundleStoreProvider)
-        .readBundleJson(localBundle.reference);
-    if (decoded == null) {
-      throw StateError('ダウンロードしたバンドルを復号できませんでした。');
+    try {
+      final decoded = await ref
+          .read(secureSyncBundleStoreProvider)
+          .readBundleJson(localBundle.reference);
+      if (decoded == null) {
+        throw StateError('ダウンロードしたバンドルを復号できませんでした。');
+      }
+      return buildSyncBundlePreview(
+        decodedBundle: decoded,
+        currentNotes: ref.read(notesControllerProvider),
+      );
+    } on HimemoDecryptionException {
+      state = state.copyWith(
+        stage: SyncTransferStage.error,
+        message: _syncBundleDecryptionMessage,
+      );
+      rethrow;
     }
-    return buildSyncBundlePreview(
-      decodedBundle: decoded,
-      currentNotes: ref.read(notesControllerProvider),
-    );
   }
 
   Future<void> _storeDownloadedBundle(
@@ -2836,6 +2852,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     RemoteSyncBundleStatus? remoteStatus,
     StoredSyncBundle? localBundle,
   }) {
+    if (error is HimemoDecryptionException) {
+      return SyncTransferState(
+        stage: SyncTransferStage.error,
+        message: _syncBundleDecryptionMessage,
+        remoteStatus: remoteStatus,
+        localBundle: localBundle,
+      );
+    }
     if (error is GoogleDriveSyncException) {
       final retryAfter = error.retryAfter;
       if (retryAfter != null) {
