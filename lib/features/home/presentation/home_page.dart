@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ui' as ui;
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -738,6 +738,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         vault.id: _vaultDisplayName(context, vault),
     };
     final listDensity = ref.watch(notesListDensityControllerProvider);
+    final attachmentPreviewFit = ref.watch(
+      attachmentPreviewFitControllerProvider,
+    );
     final query = ref.watch(searchQueryProvider).trim();
     final selectedNoteId = ref.watch(selectedNoteIdProvider);
     final syncProvider = ref.watch(syncProviderControllerProvider);
@@ -753,6 +756,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         allVisibleNotes: visibleNotes,
         selectedNoteId: selectedNoteId,
         density: listDensity,
+        attachmentPreviewFit: attachmentPreviewFit,
         query: query,
         onRefresh: syncProvider == SyncProvider.off
             ? null
@@ -795,6 +799,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 vaultNameById: vaultNameById,
                 showVaultName: visibleVaults.length > 1,
                 density: listDensity,
+                attachmentPreviewFit: attachmentPreviewFit,
                 query: query,
                 onAddNote: () => showNoteEditorSheet(context, ref),
                 onRefresh: syncProvider == SyncProvider.off
@@ -2742,6 +2747,42 @@ class SettingsScreen extends ConsumerWidget {
   static const privateProfileExitAdminModeKey = Key(
     'private-profile-exit-admin-mode',
   );
+  static final List<DateTime> _diagnosticModeTapTimes = <DateTime>[];
+
+  Future<void> _handleVersionTap(
+    BuildContext context,
+    WidgetRef ref,
+    AppStrings strings,
+  ) async {
+    final now = DateTime.now();
+    _diagnosticModeTapTimes.removeWhere(
+      (tap) => now.difference(tap) > const Duration(seconds: 5),
+    );
+    _diagnosticModeTapTimes.add(now);
+    if (_diagnosticModeTapTimes.length < 5) {
+      return;
+    }
+    _diagnosticModeTapTimes.clear();
+    await ref.read(diagnosticLogControllerProvider.notifier).setEnabled(true);
+    if (!context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(
+          strings.localized(
+            en: 'Diagnostic logging is enabled.',
+            ja: '診断ログモードを有効化しました。',
+            zh: '已启用诊断日志模式。',
+            ko: '진단 로그 모드를 켰습니다.',
+            es: 'Se activo el registro de diagnostico.',
+            de: 'Diagnoseprotokollierung ist aktiviert.',
+          ),
+        ),
+      ),
+    );
+  }
 
   Future<void> _switchIdentity(WidgetRef ref, String identityId) async {
     await ref.read(activeIdentityProvider.notifier).switchTo(identityId);
@@ -3013,6 +3054,9 @@ class SettingsScreen extends ConsumerWidget {
       lastNoteEditorSettingsControllerProvider,
     );
     final notesListDensity = ref.watch(notesListDensityControllerProvider);
+    final attachmentPreviewFit = ref.watch(
+      attachmentPreviewFitControllerProvider,
+    );
     final notesListSortField = ref.watch(notesListSortControllerProvider);
     final widgetQuickCaptureEnabled = ref.watch(
       widgetQuickCaptureSettingsControllerProvider,
@@ -3047,6 +3091,7 @@ class SettingsScreen extends ConsumerWidget {
     final syncConflictWarning = ref.watch(syncConflictWarningProvider);
     final inAppUpdateState = ref.watch(inAppUpdateControllerProvider);
     final packageInfo = ref.watch(packageInfoProvider);
+    final diagnosticLog = ref.watch(diagnosticLogControllerProvider);
     final storageUsageSummary = ref.watch(storageUsageSummaryProvider);
     const showLegacyAccessSettings = bool.fromEnvironment(
       'HIMEMO_SHOW_LEGACY_ACCESS_SETTINGS',
@@ -3171,6 +3216,7 @@ class SettingsScreen extends ConsumerWidget {
     final appUpdatesDescription = appUpdatesSupported
         ? strings.appUpdatesDesc
         : _appUpdatesUnavailableDescription(strings);
+    final diagnosticLogSnapshot = diagnosticLog.asData?.value;
     final inAppUpdateSummary = switch (inAppUpdateState.stage) {
       InAppUpdateStage.checking => strings.updateStatusChecking,
       InAppUpdateStage.ready => strings.updateStatusAvailable,
@@ -3338,6 +3384,61 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () => ref
                   .read(notesListDensityControllerProvider.notifier)
                   .setDensity(NotesListDensity.compact),
+            ),
+            const SizedBox(height: 8),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Note list attachment preview',
+                ja: 'ノート一覧の添付プレビュー',
+                zh: '笔记列表附件预览',
+                ko: '노트 목록 첨부 미리보기',
+                es: 'Vista previa de adjuntos en la lista',
+                de: 'Anhangsvorschau in der Notizliste',
+              ),
+            ),
+            _ThemeOptionTile(
+              title: strings.localized(
+                en: 'Show thumbnails',
+                ja: 'サムネイルを表示',
+                zh: '显示缩略图',
+                ko: '썸네일 표시',
+                es: 'Mostrar miniaturas',
+                de: 'Miniaturen anzeigen',
+              ),
+              subtitle: strings.localized(
+                en: 'Show photo and video thumbnails in the note list.',
+                ja: 'ノート一覧に写真や動画のサムネイルを表示します。',
+                zh: '在笔记列表中显示照片和视频缩略图。',
+                ko: '노트 목록에 사진과 동영상 썸네일을 표시합니다.',
+                es: 'Muestra miniaturas de fotos y videos en la lista de notas.',
+                de: 'Zeigt Foto- und Videominiaturen in der Notizliste.',
+              ),
+              selected: attachmentPreviewFit == AttachmentPreviewFit.preview,
+              onTap: () => ref
+                  .read(attachmentPreviewFitControllerProvider.notifier)
+                  .setFit(AttachmentPreviewFit.preview),
+            ),
+            _ThemeOptionTile(
+              title: strings.localized(
+                en: 'Show icons',
+                ja: 'アイコンで表示',
+                zh: '仅显示图标',
+                ko: '아이콘만 표시',
+                es: 'Solo iconos',
+                de: 'Nur Symbole',
+              ),
+              subtitle: strings.localized(
+                en: 'Do not show image thumbnails in the note list; use attachment type icons instead.',
+                ja: 'ノート一覧では画像サムネイルを表示せず、添付種別のアイコンに置き換えます。',
+                zh: '笔记列表中不显示图片缩略图，改用附件类型图标。',
+                ko: '노트 목록에서 이미지 썸네일 대신 첨부 유형 아이콘을 표시합니다.',
+                es: 'No muestra miniaturas en la lista de notas; usa iconos del tipo de adjunto.',
+                de: 'Zeigt in der Notizliste keine Bildminiaturen, sondern Symbole fuer den Anhangstyp.',
+              ),
+              selected: attachmentPreviewFit == AttachmentPreviewFit.icon,
+              onTap: () => ref
+                  .read(attachmentPreviewFitControllerProvider.notifier)
+                  .setFit(AttachmentPreviewFit.icon),
             ),
             const SizedBox(height: 8),
             _SettingsSectionLabel(
@@ -5355,6 +5456,7 @@ class SettingsScreen extends ConsumerWidget {
                   error: (_, _) => _versionWithBuildDate(strings, '1.0.0 (1)'),
                 ),
               ),
+              onTap: () => _handleVersionTap(context, ref, strings),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -5532,7 +5634,255 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ],
         ),
+        if (diagnosticLogSnapshot?.enabled == true) ...[
+          const SizedBox(height: 16),
+          _buildDiagnosticLogSettingsGroup(
+            context: context,
+            ref: ref,
+            strings: strings,
+            snapshot: diagnosticLogSnapshot!,
+          ),
+        ],
       ],
+    );
+  }
+
+  Widget _buildDiagnosticLogSettingsGroup({
+    required BuildContext context,
+    required WidgetRef ref,
+    required AppStrings strings,
+    required DiagnosticLogSnapshot snapshot,
+  }) {
+    final entries = snapshot.entries;
+    final preview = entries.isEmpty
+        ? strings.localized(
+            en: 'No diagnostic log entries yet.',
+            ja: '診断ログはまだありません。',
+            zh: '还没有诊断日志。',
+            ko: '아직 진단 로그가 없습니다.',
+            es: 'Aun no hay registros de diagnostico.',
+            de: 'Noch keine Diagnoseprotokolleintraege.',
+          )
+        : entries.reversed.take(120).join('\n');
+    return _SettingsGroup(
+      title: strings.localized(
+        en: 'Diagnostic logs',
+        ja: '診断ログ',
+        zh: '诊断日志',
+        ko: '진단 로그',
+        es: 'Registros de diagnostico',
+        de: 'Diagnoseprotokolle',
+      ),
+      summary: strings.localized(
+        en: '${entries.length} entries. Sync steps and CloudKit calls are recorded.',
+        ja: '${entries.length}件。同期ステップとCloudKit呼び出しを記録します。',
+        zh: '${entries.length} 条。记录同步步骤和 CloudKit 调用。',
+        ko: '${entries.length}개 항목. 동기화 단계와 CloudKit 호출을 기록합니다.',
+        es: '${entries.length} entradas. Se registran pasos de sincronizacion y llamadas CloudKit.',
+        de: '${entries.length} Eintraege. Synchronisierungsschritte und CloudKit-Aufrufe werden protokolliert.',
+      ),
+      assetPath: 'assets/settings/storage.svg',
+      children: [
+        Text(
+          strings.localized(
+            en: 'Hidden diagnostic mode is active. Logs may include device IDs, remote bundle IDs, timestamps, counts, sizes, and error messages, but not note bodies or attachment bytes.',
+            ja: '隠し診断モードが有効です。ログには端末ID、リモートバンドルID、時刻、件数、サイズ、エラー文言が含まれる場合がありますが、メモ本文や添付データは含めません。',
+            zh: '隐藏诊断模式已启用。日志可能包含设备 ID、远程包 ID、时间、数量、大小和错误信息，但不包含笔记正文或附件数据。',
+            ko: '숨겨진 진단 모드가 켜져 있습니다. 로그에는 기기 ID, 원격 번들 ID, 시각, 개수, 크기, 오류 메시지가 포함될 수 있지만 메모 본문이나 첨부 데이터는 포함하지 않습니다.',
+            es: 'El modo de diagnostico oculto esta activo. Los registros pueden incluir IDs de dispositivo, IDs de paquetes remotos, horas, conteos, tamanos y errores, pero no texto de notas ni datos adjuntos.',
+            de: 'Der versteckte Diagnosemodus ist aktiv. Protokolle koennen Geraete-IDs, Remote-Paket-IDs, Zeiten, Zaehler, Groessen und Fehlermeldungen enthalten, aber keine Notiztexte oder Anhangsdaten.',
+          ),
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+        ),
+        const SizedBox(height: 12),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Theme.of(context).dividerColor),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 260),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(12),
+              child: SelectableText(
+                preview,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontFamily: 'monospace',
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: () =>
+                  ref.read(diagnosticLogControllerProvider.notifier).refresh(),
+              icon: const Icon(Icons.refresh_rounded),
+              label: Text(
+                strings.localized(
+                  en: 'Refresh',
+                  ja: '更新',
+                  zh: '刷新',
+                  ko: '새로고침',
+                  es: 'Actualizar',
+                  de: 'Aktualisieren',
+                ),
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => _downloadDiagnosticLog(context, ref, strings),
+              icon: const Icon(Icons.download_outlined),
+              label: Text(
+                strings.localized(
+                  en: 'Download',
+                  ja: 'ダウンロード',
+                  zh: '下载',
+                  ko: '다운로드',
+                  es: 'Descargar',
+                  de: 'Herunterladen',
+                ),
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: () async {
+                await ref
+                    .read(diagnosticLogControllerProvider.notifier)
+                    .clear();
+                if (!context.mounted) {
+                  return;
+                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    showCloseIcon: true,
+                    content: Text(
+                      strings.localized(
+                        en: 'Diagnostic logs were cleared.',
+                        ja: '診断ログを消去しました。',
+                        zh: '已清除诊断日志。',
+                        ko: '진단 로그를 지웠습니다.',
+                        es: 'Se borraron los registros de diagnostico.',
+                        de: 'Diagnoseprotokolle wurden geloescht.',
+                      ),
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.delete_outline_rounded),
+              label: Text(
+                strings.localized(
+                  en: 'Clear',
+                  ja: '消去',
+                  zh: '清除',
+                  ko: '지우기',
+                  es: 'Borrar',
+                  de: 'Loeschen',
+                ),
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => ref
+                  .read(diagnosticLogControllerProvider.notifier)
+                  .setEnabled(false),
+              icon: const Icon(Icons.visibility_off_outlined),
+              label: Text(
+                strings.localized(
+                  en: 'Disable',
+                  ja: '無効化',
+                  zh: '停用',
+                  ko: '끄기',
+                  es: 'Desactivar',
+                  de: 'Deaktivieren',
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Future<void> _downloadDiagnosticLog(
+    BuildContext context,
+    WidgetRef ref,
+    AppStrings strings,
+  ) async {
+    final text = await ref
+        .read(diagnosticLogControllerProvider.notifier)
+        .exportText();
+    final bytes = Uint8List.fromList(utf8.encode(text));
+    final timestamp = DateTime.now().toUtc().toIso8601String().replaceAll(
+      RegExp(r'[:.]'),
+      '-',
+    );
+    final fileName = 'himemo-diagnostic-log-$timestamp.txt';
+    final savedPath = await FilePicker.saveFile(
+      dialogTitle: strings.localized(
+        en: 'Download diagnostic log',
+        ja: '診断ログをダウンロード',
+        zh: '下载诊断日志',
+        ko: '진단 로그 다운로드',
+        es: 'Descargar registro de diagnostico',
+        de: 'Diagnoseprotokoll herunterladen',
+      ),
+      fileName: fileName,
+      type: FileType.custom,
+      allowedExtensions: const ['txt'],
+      bytes: bytes,
+    );
+    if (!context.mounted) {
+      return;
+    }
+    if (kIsWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(
+            strings.localized(
+              en: 'Diagnostic log download was started.',
+              ja: '診断ログのダウンロードを開始しました。',
+              zh: '已开始下载诊断日志。',
+              ko: '진단 로그 다운로드를 시작했습니다.',
+              es: 'Se inicio la descarga del registro de diagnostico.',
+              de: 'Download des Diagnoseprotokolls wurde gestartet.',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    if (savedPath == null || savedPath.isEmpty) {
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [
+            XFile.fromData(bytes, name: fileName, mimeType: 'text/plain'),
+          ],
+          text: 'HiMemo diagnostic log',
+        ),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(
+          strings.localized(
+            en: 'Diagnostic log was downloaded.',
+            ja: '診断ログをダウンロードしました。',
+            zh: '已下载诊断日志。',
+            ko: '진단 로그를 다운로드했습니다.',
+            es: 'Se descargo el registro de diagnostico.',
+            de: 'Diagnoseprotokoll wurde heruntergeladen.',
+          ),
+        ),
+      ),
     );
   }
 
@@ -6984,6 +7334,7 @@ class _MobileNotesList extends StatefulWidget {
     required this.allVisibleNotes,
     required this.selectedNoteId,
     required this.density,
+    required this.attachmentPreviewFit,
     required this.query,
     required this.onRefresh,
     required this.onNoteSelected,
@@ -6997,6 +7348,7 @@ class _MobileNotesList extends StatefulWidget {
   final List<NoteEntry> allVisibleNotes;
   final String? selectedNoteId;
   final NotesListDensity density;
+  final AttachmentPreviewFit attachmentPreviewFit;
   final String query;
   final Future<void> Function()? onRefresh;
   final ValueChanged<NoteEntry> onNoteSelected;
@@ -7022,6 +7374,7 @@ class _MobileNotesListState extends State<_MobileNotesList> {
         oldWidget.showPrivateVaultNotice != widget.showPrivateVaultNotice ||
         oldWidget.compactHeader != widget.compactHeader ||
         oldWidget.density != widget.density ||
+        oldWidget.attachmentPreviewFit != widget.attachmentPreviewFit ||
         oldWidget.showVaultName != widget.showVaultName ||
         oldWidget.vaultNameById.length != widget.vaultNameById.length) {
       _rows = _buildRows();
@@ -7082,6 +7435,7 @@ class _MobileNotesListState extends State<_MobileNotesList> {
                 vaultName: widget.vaultNameById[note.vaultId] ?? note.vaultId,
                 showVaultName: widget.showVaultName,
                 density: widget.density,
+                attachmentPreviewFit: widget.attachmentPreviewFit,
                 query: widget.query,
                 selected: note.id == widget.selectedNoteId,
                 onTap: () => widget.onNoteSelected(note),
@@ -7347,6 +7701,7 @@ class _NoteListTile extends StatelessWidget {
     required this.vaultName,
     required this.showVaultName,
     required this.density,
+    required this.attachmentPreviewFit,
     required this.query,
     required this.selected,
     required this.onTap,
@@ -7356,6 +7711,7 @@ class _NoteListTile extends StatelessWidget {
   final String vaultName;
   final bool showVaultName;
   final NotesListDensity density;
+  final AttachmentPreviewFit attachmentPreviewFit;
   final String query;
   final bool selected;
   final VoidCallback onTap;
@@ -7527,9 +7883,10 @@ class _NoteListTile extends StatelessWidget {
                         padding: EdgeInsets.only(
                           right: i == maxThumbs - 1 ? 0 : 8,
                         ),
-                        child: _AttachmentPreview(
+                        child: _NoteListAttachmentPreview(
                           attachment: note.attachments[i],
                           size: thumbnailSize,
+                          previewFit: attachmentPreviewFit,
                         ),
                       ),
                     ],
@@ -7923,6 +8280,7 @@ class _SplitNotesListPane extends StatefulWidget {
     required this.vaultNameById,
     required this.showVaultName,
     required this.density,
+    required this.attachmentPreviewFit,
     required this.query,
     required this.onAddNote,
     required this.onRefresh,
@@ -7936,6 +8294,7 @@ class _SplitNotesListPane extends StatefulWidget {
   final Map<String, String> vaultNameById;
   final bool showVaultName;
   final NotesListDensity density;
+  final AttachmentPreviewFit attachmentPreviewFit;
   final String query;
   final VoidCallback onAddNote;
   final Future<void> Function()? onRefresh;
@@ -7959,6 +8318,7 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.notes, widget.notes) ||
         oldWidget.density != widget.density ||
+        oldWidget.attachmentPreviewFit != widget.attachmentPreviewFit ||
         oldWidget.showPrivateVaultNotice != widget.showPrivateVaultNotice ||
         oldWidget.activeIdentity.id != widget.activeIdentity.id) {
       _rows = _buildRows();
@@ -8010,6 +8370,7 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
                 vaultName: widget.vaultNameById[note.vaultId] ?? note.vaultId,
                 showVaultName: widget.showVaultName,
                 density: widget.density,
+                attachmentPreviewFit: widget.attachmentPreviewFit,
                 query: widget.query,
                 selected: widget.selectedNoteId == note.id,
                 onTap: () => widget.onNoteSelected(note),
@@ -15414,16 +15775,39 @@ class _AttachmentImageBox extends StatelessWidget {
         .clamp(1, 4096);
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
-      child: Image.memory(
-        bytes,
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        gaplessPlayback: true,
-        cacheWidth: imageCacheSize,
-        cacheHeight: imageCacheSize,
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: Image.memory(
+          bytes,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          cacheWidth: imageCacheSize,
+          cacheHeight: imageCacheSize,
+        ),
       ),
     );
+  }
+}
+
+class _NoteListAttachmentPreview extends StatelessWidget {
+  const _NoteListAttachmentPreview({
+    required this.attachment,
+    required this.size,
+    required this.previewFit,
+  });
+
+  final NoteAttachment attachment;
+  final double size;
+  final AttachmentPreviewFit previewFit;
+
+  @override
+  Widget build(BuildContext context) {
+    if (previewFit == AttachmentPreviewFit.icon) {
+      return _AttachmentIconBox(type: attachment.type, size: size);
+    }
+    return _AttachmentPreview(attachment: attachment, size: size);
   }
 }
 

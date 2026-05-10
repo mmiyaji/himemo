@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
+import '../../../app/diagnostic_log.dart';
 import '../../../app/firebase_observability.dart';
 import 'google_drive_sync_transport.dart';
 
@@ -77,7 +78,9 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
 
   @override
   Future<ICloudAccountStatusResult> checkAccountStatus() async {
+    final stopwatch = Stopwatch()..start();
     await logFirebaseBreadcrumb('icloud cloudKitAccountStatus start');
+    logDiagnostic('icloud', 'account status start');
     try {
       final result = _stringMapFrom(
         await _channel.invokeMethod<dynamic>('cloudKitAccountStatus') ??
@@ -92,8 +95,23 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
       await logFirebaseBreadcrumb(
         'icloud cloudKitAccountStatus ${status.availability.name}',
       );
+      stopwatch.stop();
+      logDiagnostic(
+        'icloud',
+        'account status success',
+        data: {
+          'availability': status.availability.name,
+          'elapsedMs': stopwatch.elapsedMilliseconds,
+        },
+      );
       return status;
     } on MissingPluginException {
+      stopwatch.stop();
+      logDiagnostic(
+        'icloud',
+        'account status missing',
+        data: {'elapsedMs': stopwatch.elapsedMilliseconds},
+      );
       unawaited(
         recordNonFatalError(
           const ICloudSyncException(
@@ -108,6 +126,16 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
         message: 'CloudKit is not available in this runtime.',
       );
     } on PlatformException catch (error) {
+      stopwatch.stop();
+      logDiagnostic(
+        'icloud',
+        'account status failed',
+        data: {
+          'elapsedMs': stopwatch.elapsedMilliseconds,
+          'code': error.code,
+          'message': error.message,
+        },
+      );
       unawaited(
         recordNonFatalError(
           error,
@@ -217,15 +245,40 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
     String method,
     Future<T> Function() operation,
   ) async {
+    final stopwatch = Stopwatch()..start();
     await logFirebaseBreadcrumb('icloud $method start');
+    logDiagnostic('icloud', 'method start', data: {'method': method});
     for (var attempt = 0; attempt <= _retryDelays.length; attempt += 1) {
       try {
         final result = await operation();
         await logFirebaseBreadcrumb('icloud $method success');
+        stopwatch.stop();
+        logDiagnostic(
+          'icloud',
+          'method success',
+          data: {
+            'method': method,
+            'attempt': attempt,
+            'elapsedMs': stopwatch.elapsedMilliseconds,
+          },
+        );
         return result;
       } on PlatformException catch (error) {
         final mapped = _mapPlatformException(error);
         if (attempt >= _retryDelays.length || !mapped.isTemporary) {
+          stopwatch.stop();
+          logDiagnostic(
+            'icloud',
+            'method failed',
+            data: {
+              'method': method,
+              'attempt': attempt,
+              'elapsedMs': stopwatch.elapsedMilliseconds,
+              'code': error.code,
+              'message': mapped.message,
+              'temporary': mapped.isTemporary,
+            },
+          );
           unawaited(
             recordNonFatalError(
               mapped,
@@ -242,10 +295,26 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
           throw mapped;
         }
         await logFirebaseBreadcrumb('icloud $method retry ${attempt + 1}');
+        logDiagnostic(
+          'icloud',
+          'method retry',
+          data: {
+            'method': method,
+            'attempt': attempt + 1,
+            'delayMs': _retryDelays[attempt].inMilliseconds,
+            'message': mapped.message,
+          },
+        );
         await Future<void>.delayed(_retryDelays[attempt]);
       } on MissingPluginException {
         const mapped = ICloudSyncException(
           'CloudKit is not available in this runtime.',
+        );
+        stopwatch.stop();
+        logDiagnostic(
+          'icloud',
+          'method missing',
+          data: {'method': method, 'elapsedMs': stopwatch.elapsedMilliseconds},
         );
         unawaited(
           recordNonFatalError(

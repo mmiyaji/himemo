@@ -21,6 +21,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../app/firebase_observability.dart';
 import '../../../app/app_flavor.dart';
+import '../../../app/diagnostic_log.dart';
 import '../../../app/in_app_update_service.dart';
 import '../../../app/play_integrity_service.dart';
 import '../../../app/play_integrity_verifier.dart';
@@ -165,6 +166,8 @@ const iOSFriendlyAppFontFamilies = <AppFontFamily>{
 };
 
 enum NotesListDensity { standard, compact }
+
+enum AttachmentPreviewFit { preview, icon }
 
 enum NotesListSortField { updatedAt, createdAt }
 
@@ -1041,6 +1044,15 @@ class SyncTransferState {
   }
 }
 
+class DiagnosticLogSnapshot {
+  const DiagnosticLogSnapshot({required this.enabled, required this.entries});
+
+  final bool enabled;
+  final List<String> entries;
+
+  String get text => entries.join('\n');
+}
+
 class LocalNoteArchive {
   const LocalNoteArchive({
     required this.bytes,
@@ -1860,6 +1872,41 @@ final syncEngineProvider = Provider<SyncEngine>((ref) {
   );
 });
 
+final diagnosticLogServiceProvider = Provider<DiagnosticLogService>((ref) {
+  return DiagnosticLogService.instance;
+});
+
+@Riverpod(keepAlive: true)
+class DiagnosticLogController extends _$DiagnosticLogController {
+  @override
+  Future<DiagnosticLogSnapshot> build() async {
+    final service = ref.watch(diagnosticLogServiceProvider);
+    return DiagnosticLogSnapshot(
+      enabled: await service.isEnabled(),
+      entries: await service.entries(),
+    );
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    final service = ref.read(diagnosticLogServiceProvider);
+    await service.setEnabled(enabled);
+    ref.invalidateSelf();
+  }
+
+  Future<void> refresh() async {
+    ref.invalidateSelf();
+  }
+
+  Future<String> exportText() {
+    return ref.read(diagnosticLogServiceProvider).exportText();
+  }
+
+  Future<void> clear() async {
+    await ref.read(diagnosticLogServiceProvider).clear();
+    ref.invalidateSelf();
+  }
+}
+
 final secureSyncBundleStoreProvider = Provider<SecureSyncBundleStore>((ref) {
   return SecureSyncBundleStore(
     encryptionService: ref.watch(encryptionServiceProvider),
@@ -2092,6 +2139,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     return const SyncTransferState.idle();
   }
 
+  void _diagnostic(
+    String message, {
+    Map<String, Object?> data = const <String, Object?>{},
+  }) {
+    logDiagnostic('sync', message, data: data);
+  }
+
   void clearLocalBundleCache() {
     state = state.copyWith(clearLocalBundle: true);
   }
@@ -2148,7 +2202,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   Future<void> uploadCurrentBundle({bool force = false}) async {
     final provider = ref.read(syncProviderControllerProvider);
+    _diagnostic(
+      'upload requested',
+      data: {'provider': provider.name, 'force': force},
+    );
     if (!_supportsRemoteTransport(provider)) {
+      _diagnostic(
+        'upload skipped unsupported provider',
+        data: {'provider': provider.name},
+      );
       state = const SyncTransferState(
         stage: SyncTransferStage.error,
         message: 'sync.error.select_target_for_upload',
@@ -2162,6 +2224,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       bundleState: await ref.read(syncBundleStateProvider.future),
     );
     if (assessment.hasConflict && !force) {
+      _diagnostic(
+        'upload conflict detected',
+        data: {'message': assessment.message},
+      );
       state = state.copyWith(
         stage: SyncTransferStage.error,
         message: 'sync.error.conflict_download_first_or_force_upload',
@@ -2176,6 +2242,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         () => ref
             .read(syncEngineProvider)
             .prepareSnapshot(ref.read(notesControllerProvider)),
+      );
+      _diagnostic(
+        'snapshot prepared',
+        data: {
+          'changes': snapshot.summary.totalChanges,
+          'upserts': snapshot.summary.upserts,
+          'deletes': snapshot.summary.deletes,
+          'attachments': snapshot.attachments.length,
+        },
       );
       final privateProfiles = await ref
           .read(privateMemoProfileStoreProvider)
@@ -2195,6 +2270,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       if (encodedPayload == null || encodedPayload.isEmpty) {
         throw StateError('sync.error.local_bundle_prepare_failed');
       }
+      _diagnostic(
+        'local bundle prepared',
+        data: {
+          'notes': bundle.noteCount,
+          'attachments': bundle.attachmentCount,
+          'payloadLength': encodedPayload.length,
+        },
+      );
       _setProgress(SyncTransferProgress.uploadingBundle);
       final remoteStatus = await runFirebaseTrace(
         'sync_upload_remote_bundle',
@@ -2204,6 +2287,17 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           noteCount: bundle.noteCount,
           attachmentCount: bundle.attachmentCount,
         ),
+      );
+      _diagnostic(
+        'remote bundle uploaded',
+        data: {
+          'fileId': remoteStatus.fileId,
+          'modifiedAt': remoteStatus.modifiedAt?.toUtc().toIso8601String(),
+          'deviceId': remoteStatus.deviceId,
+          'notes': remoteStatus.noteCount,
+          'attachments': remoteStatus.attachmentCount,
+          'sizeBytes': remoteStatus.sizeBytes,
+        },
       );
       _setProgress(SyncTransferProgress.finalizing);
       await ref.read(notesControllerProvider.notifier).markCurrentStateSynced();
@@ -2215,6 +2309,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       await ref.read(syncBundleStateStoreProvider).recordUpload(remoteStatus);
     } catch (error) {
+      _diagnostic('upload failed', data: {'error': error});
       state = _failureState(
         error,
         remoteStatus: state.remoteStatus,
@@ -2242,10 +2337,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   Future<void> syncNow({bool forceUpload = false}) async {
     final provider = ref.read(syncProviderControllerProvider);
+    _diagnostic(
+      'sync now requested',
+      data: {
+        'provider': provider.name,
+        'forceUpload': forceUpload,
+        'busy': state.isBusy,
+      },
+    );
     if (!_supportsRemoteTransport(provider)) {
+      _diagnostic(
+        'sync now skipped unsupported provider',
+        data: {'provider': provider.name},
+      );
       return;
     }
     if (state.isBusy) {
+      _diagnostic('sync now skipped busy');
       return;
     }
     _startBusy(SyncTransferProgress.checkingRemote);
@@ -2256,6 +2364,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         _fetchLatestRemoteStatus,
       );
       final bundleState = await ref.read(syncBundleStateProvider.future);
+      _diagnostic(
+        'remote status refreshed',
+        data: {
+          'hasRemote': remoteStatus != null,
+          'fileId': remoteStatus?.fileId,
+          'modifiedAt': remoteStatus?.modifiedAt?.toUtc().toIso8601String(),
+          'deviceId': remoteStatus?.deviceId,
+          'notes': remoteStatus?.noteCount,
+          'attachments': remoteStatus?.attachmentCount,
+          'sizeBytes': remoteStatus?.sizeBytes,
+          'lastRemoteFileId': bundleState.lastRemoteFileId,
+          'lastAppliedAt': bundleState.lastAppliedAt?.toUtc().toIso8601String(),
+          'lastUploadedAt': bundleState.lastUploadedAt
+              ?.toUtc()
+              .toIso8601String(),
+        },
+      );
       if (remoteStatus != null) {
         await ref
             .read(syncBundleStateStoreProvider)
@@ -2264,8 +2389,21 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       state = state.copyWith(remoteStatus: remoteStatus);
 
       final queue = await ref.read(syncQueueSummaryProvider.future);
+      _diagnostic(
+        'local queue inspected',
+        data: {
+          'changes': queue.totalChanges,
+          'upserts': queue.upserts,
+          'deletes': queue.deletes,
+          'lastQueuedAt': queue.lastQueuedAt?.toUtc().toIso8601String(),
+        },
+      );
       if (remoteStatus != null &&
           _remoteBundleNeedsApply(remoteStatus, bundleState)) {
+        _diagnostic(
+          'remote bundle needs apply',
+          data: {'fileId': remoteStatus.fileId},
+        );
         final assessment = assessSyncConflict(
           googleDriveSelected: true,
           queue: queue,
@@ -2273,6 +2411,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           bundleState: bundleState,
         );
         if (assessment.hasConflict && !forceUpload) {
+          _diagnostic(
+            'sync conflict detected',
+            data: {'message': assessment.message},
+          );
           state = state.copyWith(
             stage: SyncTransferStage.error,
             message: 'sync.error.conflict_review_remote',
@@ -2283,6 +2425,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         final remoteBundle = await runFirebaseTrace(
           'sync_download_latest_bundle',
           _downloadLatestRemoteBundle,
+        );
+        _diagnostic(
+          'latest remote bundle downloaded',
+          data: {
+            'hasBundle': remoteBundle != null,
+            'fileId': remoteBundle?.status.fileId,
+            'payloadLength': remoteBundle?.encodedPayload.length,
+          },
         );
         await _storeDownloadedBundle(
           remoteBundle,
@@ -2299,6 +2449,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
       ref.invalidate(syncQueueSummaryProvider);
       final refreshedQueue = await ref.read(syncQueueSummaryProvider.future);
+      _diagnostic(
+        'local queue refreshed',
+        data: {
+          'changes': refreshedQueue.totalChanges,
+          'upserts': refreshedQueue.upserts,
+          'deletes': refreshedQueue.deletes,
+        },
+      );
       if (refreshedQueue.hasPendingChanges) {
         _setProgress(SyncTransferProgress.preparingBundle);
         await uploadCurrentBundle(force: forceUpload);
@@ -2311,7 +2469,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
       );
+      _diagnostic('sync now completed');
     } catch (error) {
+      _diagnostic('sync now failed', data: {'error': error});
       state = _failureState(
         error,
         remoteStatus: state.remoteStatus,
@@ -5058,6 +5218,39 @@ class NotesListDensityController extends _$NotesListDensityController {
     state = NotesListDensity.values.firstWhere(
       (density) => density.name == stored,
       orElse: () => NotesListDensity.standard,
+    );
+  }
+}
+
+@Riverpod(keepAlive: true)
+class AttachmentPreviewFitController extends _$AttachmentPreviewFitController {
+  static const _storageKey = 'notes.attachment_preview_fit';
+  bool _restored = false;
+
+  @override
+  AttachmentPreviewFit build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return AttachmentPreviewFit.preview;
+  }
+
+  Future<void> setFit(AttachmentPreviewFit fit) async {
+    state = fit;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_storageKey, fit.name);
+  }
+
+  Future<void> _restore() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_storageKey);
+    if (stored == null || stored.isEmpty) {
+      return;
+    }
+    state = AttachmentPreviewFit.values.firstWhere(
+      (fit) => fit.name == stored,
+      orElse: () => AttachmentPreviewFit.preview,
     );
   }
 }

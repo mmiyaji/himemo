@@ -9,6 +9,58 @@ part of 'home_providers.dart';
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // ignore_for_file: type=lint, type=warning
 
+@ProviderFor(DiagnosticLogController)
+final diagnosticLogControllerProvider = DiagnosticLogControllerProvider._();
+
+final class DiagnosticLogControllerProvider
+    extends
+        $AsyncNotifierProvider<DiagnosticLogController, DiagnosticLogSnapshot> {
+  DiagnosticLogControllerProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'diagnosticLogControllerProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$diagnosticLogControllerHash();
+
+  @$internal
+  @override
+  DiagnosticLogController create() => DiagnosticLogController();
+}
+
+String _$diagnosticLogControllerHash() =>
+    r'ba7b6918441d93a128f9e9ba6b3c174daa86e0f9';
+
+abstract class _$DiagnosticLogController
+    extends $AsyncNotifier<DiagnosticLogSnapshot> {
+  FutureOr<DiagnosticLogSnapshot> build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref =
+        this.ref
+            as $Ref<AsyncValue<DiagnosticLogSnapshot>, DiagnosticLogSnapshot>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<
+                AsyncValue<DiagnosticLogSnapshot>,
+                DiagnosticLogSnapshot
+              >,
+              AsyncValue<DiagnosticLogSnapshot>,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
 @ProviderFor(homeRepository)
 final homeRepositoryProvider = HomeRepositoryProvider._();
 
@@ -426,6 +478,65 @@ abstract class _$NotesListDensityController
   }
 }
 
+@ProviderFor(AttachmentPreviewFitController)
+final attachmentPreviewFitControllerProvider =
+    AttachmentPreviewFitControllerProvider._();
+
+final class AttachmentPreviewFitControllerProvider
+    extends
+        $NotifierProvider<
+          AttachmentPreviewFitController,
+          AttachmentPreviewFit
+        > {
+  AttachmentPreviewFitControllerProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'attachmentPreviewFitControllerProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$attachmentPreviewFitControllerHash();
+
+  @$internal
+  @override
+  AttachmentPreviewFitController create() => AttachmentPreviewFitController();
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(AttachmentPreviewFit value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<AttachmentPreviewFit>(value),
+    );
+  }
+}
+
+String _$attachmentPreviewFitControllerHash() =>
+    r'f9a503a1ed2d920dca90514b3e6a1558ef3f0050';
+
+abstract class _$AttachmentPreviewFitController
+    extends $Notifier<AttachmentPreviewFit> {
+  AttachmentPreviewFit build();
+  @$mustCallSuper
+  @override
+  void runBuild() {
+    final ref = this.ref as $Ref<AttachmentPreviewFit, AttachmentPreviewFit>;
+    final element =
+        ref.element
+            as $ClassProviderElement<
+              AnyNotifier<AttachmentPreviewFit, AttachmentPreviewFit>,
+              AttachmentPreviewFit,
+              Object?,
+              Object?
+            >;
+    element.handleCreate(ref, build);
+  }
+}
+
 @ProviderFor(NotesListSortController)
 final notesListSortControllerProvider = NotesListSortControllerProvider._();
 
@@ -572,7 +683,7 @@ final class NotesControllerProvider
   }
 }
 
-String _$notesControllerHash() => r'c981a9d26da02d8ff25833b028caadeb715cfe5b';
+String _$notesControllerHash() => r'7049f864891806499206f7d9bb86f2f9b6d39a21';
 
 abstract class _$NotesController extends $Notifier<List<NoteEntry>> {
   List<NoteEntry> build();
@@ -815,7 +926,7 @@ final class VisibleNotesProvider
   }
 }
 
-String _$visibleNotesHash() => r'35852faa825d271ff73ea00b3d339ae0d024bea0';
+String _$visibleNotesHash() => r'7e26afead3351ff35452052d30f98c33e259bb61';
 
 @ProviderFor(visibleNoteYears)
 final visibleNoteYearsProvider = VisibleNoteYearsProvider._();
@@ -856,7 +967,7 @@ final class VisibleNoteYearsProvider
   }
 }
 
-String _$visibleNoteYearsHash() => r'f0f19d9300e4a6536e289b1368d5cafbb1b78dd9';
+String _$visibleNoteYearsHash() => r'136dd345d35c9b912c306d291b7c979849cb3e2b';
 
 @ProviderFor(noteSearchIndex)
 final noteSearchIndexProvider = NoteSearchIndexProvider._();
