@@ -177,7 +177,7 @@ Important fields:
 
 `lastRemoteFileId` means the latest remote was observed, not necessarily applied. Apply/upload timestamps determine whether a remote bundle should be acted on.
 
-Automatic seamless sync stores its last attempt timestamp here:
+Automatic seamless sync stores its last successful sync timestamp here:
 
 ```powershell
 $adb = 'D:\Android\Sdk\platform-tools\adb.exe'
@@ -185,7 +185,15 @@ $adb = 'D:\Android\Sdk\platform-tools\adb.exe'
   grep -R runtime.cloud_sync_automatic_synced_at /data/data/org.ruhenheim.himemo/shared_prefs/FlutterSharedPreferences.xml
 ```
 
-Normal automatic sync is throttled to once per hour per device to reduce Google Drive API usage. Manual Sync remains immediate.
+Automatic attempts are tracked separately so failed attempts do not look like successful syncs:
+
+```powershell
+$adb = 'D:\Android\Sdk\platform-tools\adb.exe'
+& $adb -s emulator-5554 shell run-as org.ruhenheim.himemo `
+  grep -R runtime.cloud_sync_automatic_attempted_at /data/data/org.ruhenheim.himemo/shared_prefs/FlutterSharedPreferences.xml
+```
+
+Normal remote-status automatic sync is throttled to once per hour per device to reduce Google Drive API usage. Local pending changes are allowed to trigger a shorter automatic convergence window, currently two minutes, with a one-minute attempt guard to avoid repeated failed retries. Manual Sync remains immediate.
 
 ## UI Dump Helpers
 
@@ -309,6 +317,61 @@ flutter analyze
 ```
 
 Build/install after code changes before emulator validation.
+
+## 2026-05-11 Follow-Up Notes
+
+The 2026-05-11 seamless-sync adjustment split automatic sync throttling into three concepts:
+
+- remote-status background checks: at most once per hour per device
+- local pending changes: may trigger automatic convergence after a shorter two-minute success interval
+- failed/repeated attempts: guarded by a one-minute attempt interval
+
+Rationale:
+
+- Google Drive API usage should not grow from idle foreground/resume polling.
+- A successful startup remote check should not block a later local note or attachment upload for a full hour.
+- Failed attempts and large-mobile-transfer skips should not be recorded as successful syncs.
+
+When validating this behavior on Android, check both preference keys:
+
+- `runtime.cloud_sync_automatic_synced_at` changes only after `SyncTransferStage.success`
+- `runtime.cloud_sync_automatic_attempted_at` changes before an automatic run starts
+
+Expected manual checks:
+
+1. Launch both emulators and wait for initial automatic sync.
+2. Create or edit a note with mixed attachments on one emulator.
+3. Confirm the local pending queue appears.
+4. Wait for automatic convergence without pressing Sync.
+5. Confirm the source pending queue drains and the other emulator receives the note after its next automatic/manual refresh.
+6. Confirm repeated foreground/resume without pending changes does not refresh Google Drive more than once per hour.
+
+Observed after the fix:
+
+```text
+tablet source:
+  added 15 performance notes with 45 mixed attachments
+  pending queue before automatic sync: 15
+  automatic sync log: hasPendingChanges=true
+  uploaded bundle payloadLength: 9,651,977 bytes
+  remote bundle metadata: 15 notes, 45 attachments
+  pending queue after automatic sync: 0
+
+phone receiver:
+  after next automatic remote-check window
+  notes: 50
+  attachments: 135
+  pending queue: 0
+
+cross-device comparison:
+  missing notes on either device: 0
+  revision/content_hash mismatches: 0
+```
+
+Important finding:
+
+- `pending_note_changes` can change without `syncQueueSummaryProvider` refreshing unless note persistence invalidates it. If automatic logs show `hasPendingChanges=false` while the DB has pending rows, check that `_persist()` and `_persistOne()` invalidate `syncQueueSummaryProvider`.
+- The remote bundle `noteCount` / `attachmentCount` describe the latest uploaded delta bundle, not necessarily the total local note count. Avoid interpreting `Remote bundle` as full local inventory unless the UI explicitly says it is a delta.
 
 ## Known Pitfalls
 

@@ -6714,6 +6714,7 @@ class NotesController extends _$NotesController {
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
       await ref.read(encryptedNoteStoreProvider).save(state);
+      ref.invalidate(syncQueueSummaryProvider);
       stopwatch?.stop();
       _debugHomePerf(
         'notes persist full count=${state.length} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms',
@@ -6742,6 +6743,7 @@ class NotesController extends _$NotesController {
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
       await ref.read(encryptedNoteStoreProvider).saveOne(note);
+      ref.invalidate(syncQueueSummaryProvider);
       stopwatch?.stop();
       _debugHomePerf(
         'notes persist one id=${note.id} attachments=${note.attachments.length} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms',
