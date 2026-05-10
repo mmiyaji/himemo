@@ -862,20 +862,21 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         context: hostContext,
         isScrollControlled: true,
         showDragHandle: false,
-        useRootNavigator: false,
-        useSafeArea: true,
+        useRootNavigator: true,
+        useSafeArea: false,
         builder: (sheetContext) {
           sheetContextForClose = sheetContext;
           final mediaQuery = MediaQuery.of(sheetContext);
+          final topInset = MediaQuery.viewPaddingOf(sheetContext).top;
           return LayoutBuilder(
             builder: (context, constraints) {
               final sheetHeight = constraints.maxHeight.isFinite
                   ? constraints.maxHeight
-                  : mediaQuery.size.height - mediaQuery.padding.top;
+                  : mediaQuery.size.height;
               return SizedBox(
                 height: sheetHeight,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 6, 10, 12),
+                  padding: EdgeInsets.fromLTRB(10, topInset + 6, 10, 12),
                   child: _NoteDetailPager(
                     notes: visibleNotes,
                     selectedIndex: initialIndex < 0 ? 0 : initialIndex,
@@ -1254,9 +1255,10 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       isScrollControlled: true,
       showDragHandle: false,
       useRootNavigator: true,
-      useSafeArea: true,
+      useSafeArea: false,
       builder: (context) {
         final mediaQuery = MediaQuery.of(context);
+        final topInset = MediaQuery.viewPaddingOf(context).top;
         var selectedDay = DateTime(
           initialDay.year,
           initialDay.month,
@@ -1284,9 +1286,9 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               backwards: false,
             );
             return SizedBox(
-              height: mediaQuery.size.height - mediaQuery.padding.top,
+              height: mediaQuery.size.height,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 6, 10, 12),
+                padding: EdgeInsets.fromLTRB(10, topInset + 6, 10, 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -8279,12 +8281,13 @@ class _NoteDetailPager extends ConsumerStatefulWidget {
 }
 
 class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
-  static const double _bottomDismissThreshold = 72;
-  static const Duration _bottomDismissCloseDelay = Duration(milliseconds: 320);
+  static const double _edgeDismissThreshold = 72;
   late final PageController _pageController;
   int? _programmaticPageTarget;
-  double _bottomDismissPull = 0;
-  bool _bottomDismissClosing = false;
+  double _edgeDismissPull = 0;
+  _EdgeDismissDirection? _edgeDismissDirection;
+  bool _edgeDismissClosing = false;
+  bool _detailScrollAtTop = true;
   bool _detailScrollAtBottom = false;
 
   @override
@@ -8325,107 +8328,129 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
     super.dispose();
   }
 
-  void _applyBottomDismissPull(double delta) {
-    if (widget.onClose == null || _bottomDismissClosing || delta <= 0) {
+  void _applyEdgeDismissPull(double signedDelta) {
+    if (widget.onClose == null || _edgeDismissClosing || signedDelta == 0) {
       return;
     }
-    final nextPull = (_bottomDismissPull + delta).clamp(
-      0.0,
-      _bottomDismissThreshold,
-    );
-    if (nextPull != _bottomDismissPull) {
+    final direction =
+        _edgeDismissDirection ??
+        (signedDelta > 0
+            ? _EdgeDismissDirection.down
+            : _EdgeDismissDirection.up);
+    final nextPull = switch (direction) {
+      _EdgeDismissDirection.down => (_edgeDismissPull + signedDelta).clamp(
+        0.0,
+        _edgeDismissThreshold,
+      ),
+      _EdgeDismissDirection.up => (_edgeDismissPull + signedDelta).clamp(
+        -_edgeDismissThreshold,
+        0.0,
+      ),
+    };
+    if (nextPull != _edgeDismissPull) {
       setState(() {
-        _bottomDismissPull = nextPull;
+        _edgeDismissDirection = direction;
+        _edgeDismissPull = nextPull.toDouble();
       });
-    }
-    if (nextPull >= _bottomDismissThreshold) {
-      _bottomDismissClosing = true;
-      Future<void>.delayed(_bottomDismissCloseDelay, () {
-        if (mounted) {
-          widget.onClose?.call();
-        }
+    } else if (_edgeDismissDirection == null) {
+      setState(() {
+        _edgeDismissDirection = direction;
       });
     }
   }
 
-  void _resetBottomDismissPull() {
-    if (_bottomDismissPull == 0) {
+  void _resetEdgeDismissPull() {
+    if (_edgeDismissPull == 0 && _edgeDismissDirection == null) {
       return;
     }
     setState(() {
-      _bottomDismissPull = 0;
+      _edgeDismissPull = 0;
+      _edgeDismissDirection = null;
     });
+  }
+
+  void _finishEdgeDismissGesture() {
+    if (_edgeDismissClosing || _edgeDismissPull == 0) {
+      return;
+    }
+    if (_edgeDismissPull.abs() >= _edgeDismissThreshold) {
+      _edgeDismissClosing = true;
+      widget.onClose?.call();
+      return;
+    }
+    _resetEdgeDismissPull();
   }
 
   bool _handleDetailScrollNotification(ScrollNotification notification) {
     if (widget.onClose == null ||
-        _bottomDismissClosing ||
+        _edgeDismissClosing ||
         notification.metrics.axis != Axis.vertical) {
       return false;
     }
 
     final metrics = notification.metrics;
+    final isAtTop = metrics.pixels <= metrics.minScrollExtent + 2;
     final isAtBottom = metrics.pixels >= metrics.maxScrollExtent - 2;
+    _detailScrollAtTop = isAtTop;
     _detailScrollAtBottom = isAtBottom;
-    if (notification is OverscrollNotification &&
-        isAtBottom &&
-        notification.overscroll > 0) {
-      _applyBottomDismissPull(notification.overscroll);
-      return false;
+    if (notification is OverscrollNotification) {
+      if (isAtTop && notification.overscroll < 0) {
+        _applyEdgeDismissPull(-notification.overscroll);
+        return false;
+      }
+      if (isAtBottom && notification.overscroll > 0) {
+        _applyEdgeDismissPull(-notification.overscroll);
+        return false;
+      }
     }
 
     if (notification is ScrollStartNotification ||
         notification is ScrollUpdateNotification) {
-      if (!isAtBottom && _bottomDismissPull != 0) {
-        _resetBottomDismissPull();
+      if (!isAtTop && !isAtBottom && _edgeDismissPull != 0) {
+        _resetEdgeDismissPull();
       }
       return false;
     }
 
-    if (notification is ScrollEndNotification && _bottomDismissPull != 0) {
-      _resetBottomDismissPull();
+    if (notification is ScrollEndNotification && _edgeDismissPull != 0) {
+      _finishEdgeDismissGesture();
     }
     return false;
   }
 
   void _handleDetailPointerMove(PointerMoveEvent event) {
-    if (!_detailScrollAtBottom) {
-      _resetBottomDismissPull();
-      return;
-    }
-    if (event.delta.dy < 0) {
-      _applyBottomDismissPull(-event.delta.dy);
-    } else if (event.delta.dy > 0) {
-      _resetBottomDismissPull();
+    if (_detailScrollAtTop && event.delta.dy > 0) {
+      _applyEdgeDismissPull(event.delta.dy);
+    } else if (_detailScrollAtBottom && event.delta.dy < 0) {
+      _applyEdgeDismissPull(event.delta.dy);
+    } else if (_edgeDismissPull != 0) {
+      _resetEdgeDismissPull();
     }
   }
 
   void _handleDetailPointerSignal(PointerSignalEvent event) {
-    if (!_detailScrollAtBottom) {
-      _resetBottomDismissPull();
+    if (event is! PointerScrollEvent) {
       return;
     }
-    if (event is PointerScrollEvent && event.scrollDelta.dy > 0) {
-      _applyBottomDismissPull(event.scrollDelta.dy * 0.3);
+    if (_detailScrollAtTop && event.scrollDelta.dy < 0) {
+      _applyEdgeDismissPull(-event.scrollDelta.dy * 0.3);
+    } else if (_detailScrollAtBottom && event.scrollDelta.dy > 0) {
+      _applyEdgeDismissPull(-event.scrollDelta.dy * 0.3);
     }
   }
 
   void _handleHeaderDismissDragUpdate(DragUpdateDetails details) {
-    if (widget.onClose == null || _bottomDismissClosing) {
+    if (widget.onClose == null || _edgeDismissClosing) {
       return;
     }
     final delta = details.primaryDelta ?? 0;
-    if (delta > 0) {
-      _applyBottomDismissPull(delta);
-    } else if (delta < 0) {
-      _resetBottomDismissPull();
+    if (delta != 0) {
+      _applyEdgeDismissPull(delta);
     }
   }
 
   void _handleHeaderDismissDragEnd(DragEndDetails details) {
-    if (!_bottomDismissClosing) {
-      _resetBottomDismissPull();
-    }
+    _finishEdgeDismissGesture();
   }
 
   @override
@@ -8490,6 +8515,8 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
             child: Listener(
               behavior: HitTestBehavior.translucent,
               onPointerMove: _handleDetailPointerMove,
+              onPointerUp: (_) => _finishEdgeDismissGesture(),
+              onPointerCancel: (_) => _resetEdgeDismissPull(),
               onPointerSignal: _handleDetailPointerSignal,
               child: Stack(
                 children: [
@@ -8531,8 +8558,10 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
                     },
                   ),
                   if (widget.onClose != null)
-                    _BottomPullDismissHint(
-                      progress: _bottomDismissPull / _bottomDismissThreshold,
+                    _EdgePullDismissHint(
+                      progress: _edgeDismissPull.abs() / _edgeDismissThreshold,
+                      direction:
+                          _edgeDismissDirection ?? _EdgeDismissDirection.down,
                     ),
                 ],
               ),
@@ -8544,10 +8573,13 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
   }
 }
 
-class _BottomPullDismissHint extends StatelessWidget {
-  const _BottomPullDismissHint({required this.progress});
+enum _EdgeDismissDirection { up, down }
+
+class _EdgePullDismissHint extends StatelessWidget {
+  const _EdgePullDismissHint({required this.progress, required this.direction});
 
   final double progress;
+  final _EdgeDismissDirection direction;
 
   @override
   Widget build(BuildContext context) {
@@ -8555,17 +8587,19 @@ class _BottomPullDismissHint extends StatelessWidget {
     final visible = effectiveProgress > 0.04;
     final colorScheme = Theme.of(context).colorScheme;
     final strings = context.strings;
+    final isUp = direction == _EdgeDismissDirection.up;
     return Positioned(
       left: 0,
       right: 0,
-      bottom: 16,
+      top: isUp ? null : 16,
+      bottom: isUp ? 16 : null,
       child: IgnorePointer(
         child: AnimatedOpacity(
           opacity: visible ? 1 : 0,
           duration: const Duration(milliseconds: 120),
           curve: Curves.easeOut,
           child: AnimatedSlide(
-            offset: Offset(0, visible ? 0 : 0.2),
+            offset: Offset(0, visible ? 0 : (isUp ? 0.2 : -0.2)),
             duration: const Duration(milliseconds: 120),
             curve: Curves.easeOut,
             child: Center(
@@ -8590,11 +8624,15 @@ class _BottomPullDismissHint extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Transform.translate(
-                        offset: Offset(0, 3 * effectiveProgress),
+                        offset: Offset(0, (isUp ? -3 : 3) * effectiveProgress),
                         child: Icon(
                           effectiveProgress >= 1
-                              ? Icons.keyboard_double_arrow_down_rounded
-                              : Icons.keyboard_arrow_down_rounded,
+                              ? (isUp
+                                    ? Icons.keyboard_double_arrow_up_rounded
+                                    : Icons.keyboard_double_arrow_down_rounded)
+                              : (isUp
+                                    ? Icons.keyboard_arrow_up_rounded
+                                    : Icons.keyboard_arrow_down_rounded),
                           color: colorScheme.onInverseSurface,
                           size: 22,
                         ),
@@ -8604,7 +8642,7 @@ class _BottomPullDismissHint extends StatelessWidget {
                         effectiveProgress >= 0.92
                             ? strings.close
                             : strings.localized(
-                                en: 'Keep scrolling to close',
+                                en: 'Release past the edge to close',
                                 ja: 'さらに下へスクロールして閉じる',
                                 zh: '继续向下滚动以关闭',
                                 ko: '더 아래로 스크롤해 닫기',
@@ -12834,8 +12872,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       if (!mounted) {
         return;
       }
-      final attachment = result.attachment;
-      if (attachment == null) {
+      final attachments = result.allAttachments;
+      if (attachments.isEmpty) {
         final errorMessage = result.errorMessage;
         if (errorMessage != null && errorMessage.isNotEmpty) {
           _showEditorSnackBar(content: Text(errorMessage));
@@ -12844,7 +12882,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       }
       setState(() {
         if (_editorMode == NoteEditorMode.quick) {
-          _attachments = [..._attachments, attachment];
+          _attachments = [..._attachments, ...attachments];
         } else {
           final insertionIndex = _resolveRichInsertionIndex();
           final nextBlocks = [..._richBlocks];
@@ -12874,7 +12912,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                 replacement.add(beforeParagraph);
               }
 
-              replacement.add(_RichBlockDraft.attachment(attachment));
+              replacement.addAll(attachments.map(_RichBlockDraft.attachment));
 
               final afterParagraph = _RichBlockDraft.paragraph(afterText);
               _attachRichBlockListener(afterParagraph);
@@ -12886,8 +12924,14 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             } else {
               nextBlocks.insert(
                 insertionIndex,
-                _RichBlockDraft.attachment(attachment),
+                _RichBlockDraft.attachment(attachments.first),
               );
+              for (var i = 1; i < attachments.length; i += 1) {
+                nextBlocks.insert(
+                  insertionIndex + i,
+                  _RichBlockDraft.attachment(attachments[i]),
+                );
+              }
               paragraphToFocus = current;
               focusOffset = 0;
             }
@@ -12895,7 +12939,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             final trailingParagraph = _RichBlockDraft.paragraph();
             _attachRichBlockListener(trailingParagraph);
             nextBlocks.insertAll(insertionIndex, [
-              _RichBlockDraft.attachment(attachment),
+              ...attachments.map(_RichBlockDraft.attachment),
               trailingParagraph,
             ]);
             paragraphToFocus = trailingParagraph;
@@ -12907,7 +12951,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
           _requestParagraphFocus(paragraphToFocus, focusOffset);
         }
       });
-      _cancelAttachmentDelete(attachment);
+      for (final attachment in attachments) {
+        _cancelAttachmentDelete(attachment);
+      }
       _scheduleDraftPersist();
     } catch (error) {
       if (mounted) {
