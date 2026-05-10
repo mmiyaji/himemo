@@ -16872,11 +16872,13 @@ String _remoteBundleSummary(
   final attachmentCount = remote.attachmentCount == null
       ? '?'
       : '${remote.attachmentCount}';
-  return strings.remoteBundleSummary(
-    modifiedAt: modifiedAt,
-    sizeLabel: sizeLabel,
-    noteCount: noteCount,
-    attachmentCount: attachmentCount,
+  return strings.localized(
+    en: 'Latest change bundle: $modifiedAt, $sizeLabel, $noteCount changed notes, $attachmentCount attachments.',
+    ja: '最新の変更バンドル: $modifiedAt、$sizeLabel、変更ノート $noteCount 件、添付 $attachmentCount 件。',
+    zh: '最新变更包：$modifiedAt，$sizeLabel，变更笔记 $noteCount 条，附件 $attachmentCount 个。',
+    ko: '최신 변경 번들: $modifiedAt, $sizeLabel, 변경된 노트 $noteCount개, 첨부 $attachmentCount개.',
+    es: 'Último paquete de cambios: $modifiedAt, $sizeLabel, $noteCount notas cambiadas, $attachmentCount adjuntos.',
+    de: 'Letztes Änderungs-Bundle: $modifiedAt, $sizeLabel, $noteCount geänderte Notizen, $attachmentCount Anhänge.',
   );
 }
 
