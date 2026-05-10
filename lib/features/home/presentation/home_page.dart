@@ -17117,56 +17117,68 @@ class _VideoLightboxDialog extends ConsumerWidget {
     final strings = context.strings;
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-              child: Row(
-                children: [
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close, color: Colors.white),
-                    tooltip: MaterialLocalizations.of(
-                      context,
-                    ).closeButtonTooltip,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      attachment.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => Navigator.of(context).pop(),
+            ),
+          ),
+          SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close, color: Colors.white),
+                        tooltip: MaterialLocalizations.of(
+                          context,
+                        ).closeButtonTooltip,
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          attachment.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () =>
+                            _shareAttachment(context, ref, attachment),
+                        icon: const Icon(
+                          Icons.ios_share_outlined,
+                          color: Colors.white,
+                        ),
+                        tooltip: strings.share,
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    onPressed: () => _shareAttachment(context, ref, attachment),
-                    icon: const Icon(
-                      Icons.ios_share_outlined,
-                      color: Colors.white,
-                    ),
-                    tooltip: strings.share,
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-                child: _VideoAttachmentViewer(
-                  attachment: attachment,
-                  fillAvailableHeight: true,
-                  showFullScreenAction: false,
-                  showShareAction: false,
                 ),
-              ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                    child: _VideoAttachmentViewer(
+                      attachment: attachment,
+                      fillAvailableHeight: true,
+                      showFullScreenAction: false,
+                      showShareAction: false,
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
