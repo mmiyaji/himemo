@@ -1777,6 +1777,32 @@ void main() {
       pendingChanges = await noteDatabase.loadPendingChanges();
       expect(pendingChanges, isEmpty);
 
+      await controller.mergeFromSync([
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.upsert,
+          note: NoteEntry(
+            id: 'remote-a',
+            vaultId: 'everyday',
+            title: 'Older remote edit',
+            body: 'Remote is behind this device',
+            createdAt: DateTime(2026, 4, 13, 9, 0),
+            updatedAt: DateTime(2026, 4, 13, 8, 30),
+            revision: 2,
+            contentHash: 'remote-a-v2-old',
+          ),
+        ),
+      ]);
+
+      final queuedForConvergence = container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'remote-a');
+      expect(queuedForConvergence.title, 'Local edit');
+      expect(queuedForConvergence.syncState, NoteSyncState.pendingUpload);
+      pendingChanges = await noteDatabase.loadPendingChanges();
+      expect(pendingChanges, hasLength(1));
+      expect(pendingChanges.single.noteId, 'remote-a');
+      expect(pendingChanges.single.action, PendingNoteChangeAction.upsert);
+
       if (await tempDirectory.exists()) {
         await tempDirectory.delete(recursive: true);
       }
@@ -1856,7 +1882,29 @@ void main() {
           ),
           bundleState,
         ),
-        isFalse,
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'remote bundle apply check is not suppressed by status refresh alone',
+    () {
+      final observedOnly = SyncBundleState(
+        lastRemoteFileId: 'remote-observed',
+        lastRemoteModifiedAt: DateTime.utc(2026, 5, 9, 10),
+      );
+
+      expect(
+        remoteBundleNeedsApplyForSync(
+          RemoteSyncBundleStatus(
+            fileId: 'remote-observed',
+            fileName: 'latest_sync_bundle.enc',
+            modifiedAt: DateTime.utc(2026, 5, 9, 10),
+          ),
+          observedOnly,
+        ),
+        isTrue,
       );
     },
   );

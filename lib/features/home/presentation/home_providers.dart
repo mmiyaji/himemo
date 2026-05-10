@@ -218,14 +218,6 @@ bool remoteBundleNeedsApplyForSync(
   RemoteSyncBundleStatus remoteStatus,
   SyncBundleState bundleState,
 ) {
-  if (bundleState.lastRemoteFileId != null &&
-      bundleState.lastRemoteFileId == remoteStatus.fileId) {
-    return false;
-  }
-  if (remoteStatus.fileId.isNotEmpty &&
-      bundleState.lastRemoteFileId != remoteStatus.fileId) {
-    return true;
-  }
   final lastAppliedAt = bundleState.lastAppliedAt;
   final lastUploadedAt = bundleState.lastUploadedAt;
   final knownActionAt = _latestDateTime(lastAppliedAt, lastUploadedAt);
@@ -237,7 +229,11 @@ bool remoteBundleNeedsApplyForSync(
     return bundleState.lastRemoteFileId != remoteStatus.fileId &&
         lastAppliedAt == null;
   }
-  return remoteModifiedAt.isAfter(knownActionAt);
+  if (remoteModifiedAt.isAfter(knownActionAt)) {
+    return true;
+  }
+  return remoteStatus.fileId.isNotEmpty &&
+      bundleState.lastRemoteFileId != remoteStatus.fileId;
 }
 
 DateTime? _latestDateTime(DateTime? left, DateTime? right) {
@@ -5955,6 +5951,17 @@ class NotesController extends _$NotesController {
       }
 
       if (current != null && !_incomingWins(current, incoming)) {
+        if (!_sameSyncedContent(current, incoming) &&
+            !_hasUnuploadedLocalChange(current)) {
+          final queued = current.copyWith(
+            syncState: current.deletedAt == null
+                ? NoteSyncState.pendingUpload
+                : NoteSyncState.pendingDelete,
+          );
+          next[index] = queued.contentHash == null
+              ? queued.copyWith(contentHash: _computeContentHash(queued))
+              : queued;
+        }
         continue;
       }
 
