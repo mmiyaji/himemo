@@ -11,6 +11,7 @@ import 'package:pinput/pinput.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../features/home/domain/note_entry.dart';
 import '../features/home/presentation/home_providers.dart';
 import '../features/sync/data/sync_engine.dart';
 import '../l10n/app_localizations.dart';
@@ -718,6 +719,15 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         localChanges: true,
       );
     });
+    ref.listen<List<NoteEntry>>(notesControllerProvider, (previous, next) {
+      if (!_hasPendingNotes(next)) {
+        return;
+      }
+      _scheduleSeamlessCloudSync(
+        delay: _cloudSyncDebounceDelay,
+        localChanges: true,
+      );
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_setPrivacyScreenEnabled(privacyScreenActive));
     });
@@ -944,6 +954,15 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       ],
     );
   }
+}
+
+bool _hasPendingNotes(List<NoteEntry> notes) {
+  return notes.any(
+    (note) =>
+        note.syncState == NoteSyncState.pendingUpload ||
+        note.syncState == NoteSyncState.pendingDelete ||
+        note.syncState == NoteSyncState.conflict,
+  );
 }
 
 class _ResolvedAppLockPolicy {

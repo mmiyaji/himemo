@@ -370,8 +370,103 @@ cross-device comparison:
 
 Important finding:
 
-- `pending_note_changes` can change without `syncQueueSummaryProvider` refreshing unless note persistence invalidates it. If automatic logs show `hasPendingChanges=false` while the DB has pending rows, check that `_persist()` and `_persistOne()` invalidate `syncQueueSummaryProvider`.
+- `pending_note_changes` can change without `syncQueueSummaryProvider` refreshing at the exact moment the automatic scheduler runs. If automatic logs show `hasPendingChanges=false` while the DB has pending rows, rely on note-state listening rather than invalidating the queue summary from note persistence.
+- A launch-time seed or restore path can still create pending notes before the queue summary listener observes a fresh value. The app also listens to `notesControllerProvider` and schedules seamless sync when any note is `pendingUpload`, `pendingDelete`, or `conflict`.
 - The remote bundle `noteCount` / `attachmentCount` describe the latest uploaded delta bundle, not necessarily the total local note count. Avoid interpreting `Remote bundle` as full local inventory unless the UI explicitly says it is a delta.
+
+## 2026-05-11 Second Cycle
+
+Cycle goal: repeat the emulator sync loop after adding the queue invalidation fix, then stress pending-note detection with another mixed-attachment batch.
+
+Initial state:
+
+```text
+phone emulator-5554:
+  notes: 50
+  attachments: 135
+  pending queue: 0
+  max performance note: perf-0044
+
+tablet emulator-5556:
+  notes: 50
+  attachments: 135
+  pending queue: 0
+  max performance note: perf-0044
+
+cross-device comparison:
+  missing notes: 0
+  revision/content_hash mismatches: 0
+```
+
+Stress input:
+
+```powershell
+flutter build apk --debug --flavor production -t lib/main_production.dart `
+  --dart-define=HIMEMO_USE_DEBUG_APP_CHECK_FOR_LOCAL_PRODUCTION=true `
+  --dart-define=HIMEMO_SKIP_PLAY_INTEGRITY_FOR_LOCAL_PRODUCTION=true `
+  --dart-define=HIMEMO_PERF_NOTE_COUNT=55 `
+  --dart-define=HIMEMO_PERF_ATTACHMENTS_PER_NOTE=3
+```
+
+Install that build on `emulator-5556` only, launch once, and confirm:
+
+```text
+tablet after seed:
+  notes: 60
+  attachments: 165
+  pending queue: 10
+  max performance note: perf-0054
+```
+
+Finding:
+
+- The pending rows existed, but the first automatic logs still showed `hasPendingChanges=false`.
+- Adding direct `notesControllerProvider` pending-state listening made the next normal APK launch drain the pending queue and converge both devices.
+- Invalidating `syncQueueSummaryProvider` from note persistence caused a `CircularDependencyError` during sync apply/upload paths. Do not invalidate that provider from `_persist()` / `_persistOne()`; use note-state listening for seamless-sync scheduling instead.
+
+Final result after installing the normal production debug APK on both devices and waiting for seamless sync:
+
+```text
+phone emulator-5554:
+  notes: 60
+  attachments: 165
+  pending queue: 0
+  max performance note: perf-0054
+
+tablet emulator-5556:
+  notes: 60
+  attachments: 165
+  pending queue: 0
+  max performance note: perf-0054
+
+cross-device comparison:
+  missing notes: 0
+  revision/content_hash mismatches: 0
+```
+
+Follow-up stress after removing persistence-time queue invalidation:
+
+```text
+tablet seed:
+  added perf-0055 through perf-0059
+  notes: 65
+  attachments: 180
+  pending queue after automatic upload: 0
+
+phone next automatic remote-check window:
+  notes: 65
+  attachments: 180
+  pending queue: 0
+
+final cross-device comparison:
+  missing notes: 0
+  revision/content_hash mismatches: 0
+```
+
+Error check:
+
+- searched both emulator shared preferences diagnostic logs for `CircularDependency`, `notes_persist_failed`, `sync now failed`, Google Drive rate-limit, and access-denied messages
+- no matching entries after the final fix
 
 ## Known Pitfalls
 

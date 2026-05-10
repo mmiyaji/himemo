@@ -2503,6 +2503,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         localBundle: bundle,
       );
       await ref.read(syncBundleStateStoreProvider).recordUpload(remoteStatus);
+      ref.invalidate(syncQueueSummaryProvider);
+      ref.invalidate(syncBundleStateProvider);
     } catch (error) {
       _diagnostic('upload failed', data: {'error': error});
       state = _failureState(
@@ -3123,6 +3125,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await ref
           .read(syncBundleStateStoreProvider)
           .recordApply(state.remoteStatus);
+      ref.invalidate(syncQueueSummaryProvider);
+      ref.invalidate(syncBundleStateProvider);
       state = state.copyWith(
         stage: SyncTransferStage.success,
         message: 'sync.info.apply_success',
@@ -3211,6 +3215,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     await ref
         .read(syncBundleStateStoreProvider)
         .recordApply(state.remoteStatus);
+    ref.invalidate(syncBundleStateProvider);
   }
 
   Future<List<PreparedSyncNote>> _readPreparedChangesFromBundle(
@@ -6714,7 +6719,6 @@ class NotesController extends _$NotesController {
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
       await ref.read(encryptedNoteStoreProvider).save(state);
-      ref.invalidate(syncQueueSummaryProvider);
       stopwatch?.stop();
       _debugHomePerf(
         'notes persist full count=${state.length} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms',
@@ -6743,7 +6747,6 @@ class NotesController extends _$NotesController {
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
       await ref.read(encryptedNoteStoreProvider).saveOne(note);
-      ref.invalidate(syncQueueSummaryProvider);
       stopwatch?.stop();
       _debugHomePerf(
         'notes persist one id=${note.id} attachments=${note.attachments.length} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms',
