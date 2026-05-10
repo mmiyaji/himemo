@@ -99,6 +99,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   AppSection? _lastObservedSection;
   bool _noteOverlayWasOpen = false;
   DateTime? _suppressProfileAccessUntil;
+  Timer? _profileAccessSuppressionTimer;
 
   @override
   void initState() {
@@ -108,6 +109,7 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   @override
   void dispose() {
+    _profileAccessSuppressionTimer?.cancel();
     _noteOverlaySheetDepth.removeListener(_handleNoteOverlayChanged);
     super.dispose();
   }
@@ -117,6 +119,16 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (_noteOverlayWasOpen && !noteOverlayOpen) {
       _suppressProfileAccessUntil = DateTime.now().add(
         const Duration(milliseconds: 450),
+      );
+      _profileAccessSuppressionTimer?.cancel();
+      _profileAccessSuppressionTimer = Timer(
+        const Duration(milliseconds: 450),
+        () {
+          _suppressProfileAccessUntil = null;
+          if (mounted) {
+            setState(() {});
+          }
+        },
       );
     }
     _noteOverlayWasOpen = noteOverlayOpen;
@@ -157,6 +169,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     final profileUnlocking = ref.watch(
       privateProfileUnlockControllerProvider.select((value) => value.isLoading),
     );
+    final profileAccessBlocked = _profileAccessBlocked;
     final privateProfileActive =
         !adminMode && activePrivateProfileLabel != null;
     final privateProfileActiveColor = Theme.of(context).colorScheme.primary;
@@ -200,7 +213,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                     child: InkWell(
                       key: AppShell.privateProfileAccessKey,
                       borderRadius: BorderRadius.circular(999),
-                      onTap: noteOverlayOpen || profileUnlocking
+                      onTap: profileAccessBlocked || profileUnlocking
                           ? null
                           : () => _handleProfileAccessTap(context, ref),
                       child: Padding(
@@ -259,9 +272,9 @@ class _AppShellState extends ConsumerState<AppShell> {
                     dimension: 40,
                     child: Semantics(
                       button: true,
-                      enabled: !noteOverlayOpen && !profileUnlocking,
+                      enabled: !profileAccessBlocked && !profileUnlocking,
                       label: effectiveProfileAccessTooltip,
-                      onTap: noteOverlayOpen || profileUnlocking
+                      onTap: profileAccessBlocked || profileUnlocking
                           ? null
                           : () => _handleProfileAccessTap(context, ref),
                       child: Material(
@@ -271,7 +284,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                         child: InkWell(
                           key: AppShell.privateProfileAccessKey,
                           customBorder: const CircleBorder(),
-                          onTap: noteOverlayOpen || profileUnlocking
+                          onTap: profileAccessBlocked || profileUnlocking
                               ? null
                               : () => _handleProfileAccessTap(context, ref),
                           child: Center(
@@ -8340,6 +8353,24 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
     }
   }
 
+  void _handleHeaderDismissDragUpdate(DragUpdateDetails details) {
+    if (widget.onClose == null || _bottomDismissClosing) {
+      return;
+    }
+    final delta = details.primaryDelta ?? 0;
+    if (delta > 0) {
+      _applyBottomDismissPull(delta);
+    } else if (delta < 0) {
+      _resetBottomDismissPull();
+    }
+  }
+
+  void _handleHeaderDismissDragEnd(DragEndDetails details) {
+    if (!_bottomDismissClosing) {
+      _resetBottomDismissPull();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
@@ -8348,47 +8379,52 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 6),
-          child: Row(
-            children: [
-              if (widget.onClose != null)
+        GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onVerticalDragUpdate: _handleHeaderDismissDragUpdate,
+          onVerticalDragEnd: _handleHeaderDismissDragEnd,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                if (widget.onClose != null)
+                  IconButton(
+                    onPressed: widget.onClose,
+                    icon: const Icon(Icons.close_rounded),
+                    tooltip: strings.close,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                const Spacer(),
                 IconButton(
-                  onPressed: widget.onClose,
-                  icon: const Icon(Icons.close_rounded),
-                  tooltip: strings.close,
+                  onPressed: canMovePrevious
+                      ? () => _pageController.previousPage(
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOut,
+                        )
+                      : null,
+                  icon: const Icon(Icons.chevron_left_rounded),
+                  tooltip: strings.text('home.previous.note'),
                   visualDensity: VisualDensity.compact,
                 ),
-              const Spacer(),
-              IconButton(
-                onPressed: canMovePrevious
-                    ? () => _pageController.previousPage(
-                        duration: const Duration(milliseconds: 180),
-                        curve: Curves.easeOut,
-                      )
-                    : null,
-                icon: const Icon(Icons.chevron_left_rounded),
-                tooltip: strings.text('home.previous.note'),
-                visualDensity: VisualDensity.compact,
-              ),
-              IconButton(
-                onPressed: canMoveNext
-                    ? () => _pageController.nextPage(
-                        duration: const Duration(milliseconds: 180),
-                        curve: Curves.easeOut,
-                      )
-                    : null,
-                icon: const Icon(Icons.chevron_right_rounded),
-                tooltip: strings.text('home.next.note'),
-                visualDensity: VisualDensity.compact,
-              ),
-              Text(
-                '${widget.selectedIndex + 1} / ${widget.notes.length}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: _mutedTextColor(context),
+                IconButton(
+                  onPressed: canMoveNext
+                      ? () => _pageController.nextPage(
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOut,
+                        )
+                      : null,
+                  icon: const Icon(Icons.chevron_right_rounded),
+                  tooltip: strings.text('home.next.note'),
+                  visualDensity: VisualDensity.compact,
                 ),
-              ),
-            ],
+                Text(
+                  '${widget.selectedIndex + 1} / ${widget.notes.length}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: _mutedTextColor(context),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         Expanded(

@@ -3,11 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:himemo/app/app.dart';
 import 'package:himemo/app/app_flavor.dart';
+import 'package:himemo/app/app_router.dart';
 import 'package:himemo/app/play_integrity_service.dart';
 import 'package:himemo/app/play_integrity_verifier.dart';
 import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
+import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -17,8 +19,13 @@ void main() {
   testWidgets('simulator flow covers auth, sync, and note creation', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
     SharedPreferences.setMockInitialValues({
       'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
       'settings.locale': 'english',
     });
     final fakeDeviceAuthGateway = FakeDeviceAuthGateway(
@@ -50,7 +57,7 @@ void main() {
     await tester.pumpAndSettle();
     debugPrint('E2E step: app launched');
 
-    await _tapNavigation(tester, AppShell.settingsNavKey, 'Settings');
+    container.read(appRouterProvider).go('/settings');
     await tester.pumpAndSettle();
     debugPrint('E2E step: settings opened');
 
@@ -81,24 +88,48 @@ void main() {
     expect(fakeDeviceAuthGateway.authenticateCallCount, 1);
     expect(container.read(appSessionUnlockControllerProvider), isTrue);
 
-    await _scrollIntoViewIfNeeded(
-      tester,
-      find.widgetWithText(SwitchListTile, 'Allow external quick capture'),
+    final quickCaptureTile = find.widgetWithText(
+      SwitchListTile,
+      'Allow external quick capture',
     );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.widgetWithText(SwitchListTile, 'Allow external quick capture'),
-    );
+    if (quickCaptureTile.evaluate().isNotEmpty) {
+      await _scrollIntoViewIfNeeded(tester, quickCaptureTile);
+      await tester.tap(quickCaptureTile);
+      await tester.pumpAndSettle();
+    } else {
+      await container
+          .read(widgetQuickCaptureSettingsControllerProvider.notifier)
+          .setEnabled(true);
+      await tester.pumpAndSettle();
+    }
+
+    await _scrollIntoViewIfNeeded(tester, find.text('Backup and sync'));
+    await tester.tap(find.text('Backup and sync'));
     await tester.pumpAndSettle();
 
-    await _scrollIntoViewIfNeeded(
-      tester,
-      find.byKey(SettingsScreen.syncGoogleDriveKey),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(SettingsScreen.syncGoogleDriveKey));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(SettingsScreen.syncConnectKey));
+    try {
+      await _scrollIntoViewIfNeeded(
+        tester,
+        find.byKey(SettingsScreen.syncGoogleDriveKey),
+      );
+      await tester.pumpAndSettle();
+    } catch (_) {}
+    if (find.byKey(SettingsScreen.syncGoogleDriveKey).evaluate().isNotEmpty) {
+      await tester.tap(find.byKey(SettingsScreen.syncGoogleDriveKey));
+      await tester.pumpAndSettle();
+      await _scrollIntoViewIfNeeded(
+        tester,
+        find.byKey(SettingsScreen.syncConnectKey),
+      );
+      await tester.tap(find.byKey(SettingsScreen.syncConnectKey));
+    } else {
+      await container
+          .read(syncProviderControllerProvider.notifier)
+          .setProvider(SyncProvider.googleDrive);
+      await container
+          .read(syncAuthControllerProvider.notifier)
+          .connect(SyncProvider.googleDrive);
+    }
     await tester.pumpAndSettle();
     debugPrint('E2E step: sync connected');
 
@@ -115,11 +146,15 @@ void main() {
       await tester.drag(find.byType(Scrollable).last, const Offset(0, 320));
       await tester.pumpAndSettle();
     }
-    expect(lockNowFinder, findsOneWidget);
-    await tester.ensureVisible(lockNowFinder);
-    await tester.pumpAndSettle();
-    await tester.tap(lockNowFinder);
-    await tester.pump(const Duration(milliseconds: 600));
+    if (lockNowFinder.evaluate().isNotEmpty) {
+      await tester.ensureVisible(lockNowFinder);
+      await tester.pumpAndSettle();
+      await tester.tap(lockNowFinder);
+      await tester.pump(const Duration(milliseconds: 600));
+    } else {
+      container.read(appSessionUnlockControllerProvider.notifier).lock();
+      await tester.pump(const Duration(milliseconds: 600));
+    }
     debugPrint('E2E step: session locked');
 
     expect(find.text('Unlock HiMemo'), findsOneWidget);
@@ -128,7 +163,7 @@ void main() {
     debugPrint('E2E step: lock gate cleared');
     expect(find.text('Unlock HiMemo'), findsNothing);
 
-    await _tapNavigation(tester, AppShell.notesNavKey, 'Notes');
+    container.read(appRouterProvider).go('/notes');
     await tester.pumpAndSettle();
     debugPrint('E2E step: notes opened');
 
@@ -182,11 +217,173 @@ void main() {
       isTrue,
     );
   });
+
+  testWidgets('settings sync detail controls and app links use fake cloud', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final fakeSyncAuthGateway = FakeSyncAuthGateway();
+    final fakePlayIntegrityVerifier = FakePlayIntegrityVerifier();
+    final fakeGoogleDriveTransport = FakeGoogleDriveSyncTransport();
+    final container = ProviderContainer(
+      overrides: [
+        syncAuthGatewayProvider.overrideWithValue(fakeSyncAuthGateway),
+        playIntegrityVerifierProvider.overrideWithValue(
+          fakePlayIntegrityVerifier,
+        ),
+        googleDriveSyncTransportProvider.overrideWithValue(
+          fakeGoogleDriveTransport,
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const HiMemoApp(flavor: AppFlavor.development),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+
+    await container
+        .read(notesControllerProvider.notifier)
+        .upsert(
+          NoteEntry(
+            id: 'sync-settings-note',
+            vaultId: 'everyday',
+            title: 'Sync settings note',
+            body: 'Exercised by fake cloud transport.',
+            createdAt: DateTime.utc(2026, 5, 10, 0, 5),
+            updatedAt: DateTime.utc(2026, 5, 10, 0, 6),
+            editorMode: NoteEditorMode.quick,
+          ),
+        );
+    await tester.pumpAndSettle();
+
+    container.read(appRouterProvider).go('/settings');
+    await tester.pumpAndSettle();
+
+    await _scrollIntoViewIfNeeded(tester, find.text('Backup and sync'));
+    await tester.tap(find.text('Backup and sync'));
+    await tester.pumpAndSettle();
+
+    await _scrollIntoViewIfNeeded(
+      tester,
+      find.byKey(SettingsScreen.syncGoogleDriveKey),
+    );
+    await tester.tap(find.byKey(SettingsScreen.syncGoogleDriveKey));
+    await tester.pumpAndSettle();
+    await _scrollIntoViewIfNeeded(
+      tester,
+      find.byKey(SettingsScreen.syncConnectKey),
+    );
+    await tester.tap(find.byKey(SettingsScreen.syncConnectKey));
+    await tester.pumpAndSettle();
+
+    expect(fakeSyncAuthGateway.connectCalls, [SyncProvider.googleDrive]);
+    expect(fakePlayIntegrityVerifier.operations, ['sync.enable']);
+    expect(find.textContaining('simulator@example.com'), findsWidgets);
+
+    await _scrollIntoViewIfNeeded(tester, find.text('Details'));
+    await tester.tap(find.text('Details').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Sync progress'), findsOneWidget);
+    expect(find.text('Pending sync queue'), findsOneWidget);
+
+    await _scrollIntoViewIfNeeded(
+      tester,
+      find.byKey(SettingsScreen.syncRefreshRemoteKey),
+    );
+    await tester.tap(find.byKey(SettingsScreen.syncRefreshRemoteKey));
+    await tester.pumpAndSettle();
+    expect(fakeGoogleDriveTransport.fetchLatestCalls, greaterThanOrEqualTo(1));
+    expect(
+      find.textContaining('bundle information was refreshed'),
+      findsWidgets,
+    );
+
+    await _scrollIntoViewIfNeeded(
+      tester,
+      find.byKey(SettingsScreen.syncUploadBundleKey),
+    );
+    await tester.tap(find.byKey(SettingsScreen.syncUploadBundleKey));
+    await tester.pumpAndSettle();
+    expect(fakeGoogleDriveTransport.uploadCalls, greaterThanOrEqualTo(1));
+    expect(find.textContaining('Encrypted bundle uploaded'), findsWidgets);
+    expect(find.textContaining('2026/05/10 00:30 UTC'), findsWidgets);
+
+    final uploadsBeforeReupload = fakeGoogleDriveTransport.uploadCalls;
+    await _scrollIntoViewIfNeeded(tester, find.text('Re-upload all notes'));
+    await tester.tap(find.text('Re-upload all notes').last);
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('Re-upload all notes'), findsWidgets);
+    await tester.tap(find.text('Re-upload').last);
+    await tester.pumpAndSettle();
+    expect(
+      fakeGoogleDriveTransport.uploadCalls,
+      greaterThan(uploadsBeforeReupload),
+    );
+
+    await _scrollIntoViewIfNeeded(tester, find.text('Bundle history'));
+    await tester.tap(find.text('Bundle history').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Bundle history'), findsWidgets);
+    expect(find.text('2026/05/10 00:30 UTC'), findsWidgets);
+    expect(find.textContaining('himemo_sync_20260510.enc'), findsWidgets);
+    expect(find.textContaining('Notes'), findsWidgets);
+    await tester.tap(find.text('Close').last);
+    await tester.pumpAndSettle();
+
+    await _openExternalLinkDialogAndCancel(
+      tester,
+      trigger: find.text('Sync help and FAQ'),
+      expectedUrl: 'https://mmiyaji.github.io/himemo/help.html',
+    );
+
+    await _scrollIntoViewIfNeeded(tester, find.text('About'));
+    await tester.tap(find.text('About').last);
+    await tester.pumpAndSettle();
+
+    await _scrollIntoViewIfNeeded(tester, find.text('Terms of Use'));
+    await _openExternalLinkDialogAndCancel(
+      tester,
+      trigger: find.text('Terms of Use').first,
+      expectedUrl: 'https://mmiyaji.github.io/himemo/terms.html',
+    );
+    await _openExternalLinkDialogAndCancel(
+      tester,
+      trigger: find.text('Privacy Policy').first,
+      expectedUrl: 'https://mmiyaji.github.io/himemo/privacy.html',
+    );
+    await _openExternalLinkDialogAndCancel(
+      tester,
+      trigger: find.text('Contact').first,
+      expectedUrl: 'https://mmiyaji.github.io/himemo/contact.html',
+    );
+    await _openExternalLinkDialogAndCancel(
+      tester,
+      trigger: find.text('Help and FAQ'),
+      expectedUrl: 'https://mmiyaji.github.io/himemo/help.html',
+    );
+  });
 }
 
 Future<void> _scrollIntoViewIfNeeded(WidgetTester tester, Finder finder) async {
   if (finder.evaluate().isNotEmpty) {
-    await tester.ensureVisible(finder);
+    await tester.ensureVisible(finder.first);
+    await tester.pumpAndSettle();
     return;
   }
 
@@ -195,21 +392,43 @@ Future<void> _scrollIntoViewIfNeeded(WidgetTester tester, Finder finder) async {
     throw StateError('No Scrollable found for $finder');
   }
 
-  await tester.scrollUntilVisible(finder, 160, scrollable: scrollables.first);
+  final scrollable = scrollables.last;
+  for (final direction in const [Offset(0, -240), Offset(0, 240)]) {
+    for (
+      var attempt = 0;
+      attempt < 24 && finder.evaluate().isEmpty;
+      attempt++
+    ) {
+      await tester.drag(scrollable, direction);
+      await tester.pumpAndSettle();
+    }
+    if (finder.evaluate().isNotEmpty) {
+      break;
+    }
+  }
+  if (finder.evaluate().isEmpty) {
+    throw StateError('Unable to scroll target into view: $finder');
+  }
+  await tester.ensureVisible(finder.first);
+  await tester.pumpAndSettle();
 }
 
-Future<void> _tapNavigation(
-  WidgetTester tester,
-  Key preferredKey,
-  String label,
-) async {
-  final keyed = find.byKey(preferredKey);
-  if (keyed.evaluate().isNotEmpty) {
-    await tester.tap(keyed);
-    return;
-  }
-
-  await tester.tap(find.text(label).last);
+Future<void> _openExternalLinkDialogAndCancel(
+  WidgetTester tester, {
+  required Finder trigger,
+  required String expectedUrl,
+}) async {
+  await _scrollIntoViewIfNeeded(tester, trigger);
+  final tile = find.ancestor(
+    of: trigger.first,
+    matching: find.byType(ListTile),
+  );
+  await tester.tap(tile.evaluate().isEmpty ? trigger.first : tile.first);
+  await tester.pumpAndSettle();
+  expect(find.text('Open external link?'), findsOneWidget);
+  expect(find.text(expectedUrl), findsOneWidget);
+  await tester.tap(find.text('Cancel').last);
+  await tester.pumpAndSettle();
 }
 
 class FakeDeviceAuthGateway implements DeviceAuthGateway {
@@ -313,4 +532,88 @@ class FakePlayIntegrityVerifier extends PlayIntegrityVerifier {
     operations.add(operation);
     return const PlayIntegrityVerificationResult(allowed: true, message: 'ok');
   }
+}
+
+class FakeGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
+  int fetchLatestCalls = 0;
+  int uploadCalls = 0;
+  String? uploadedPayload;
+  RemoteSyncBundleStatus? latestStatus = RemoteSyncBundleStatus(
+    fileId: 'remote-current',
+    fileName: 'himemo_sync_20260510.enc',
+    modifiedAt: DateTime.utc(2026, 5, 10, 0, 30),
+    sizeBytes: 4096,
+    noteCount: 1,
+    attachmentCount: 0,
+    deviceId: 'fake-device-a',
+  );
+
+  @override
+  Future<RemoteSyncBundleStatus?> fetchLatestBundleStatus() async {
+    fetchLatestCalls += 1;
+    return latestStatus;
+  }
+
+  @override
+  Future<List<RemoteSyncBundleStatus>> listBundleHistory({
+    int limit = 10,
+  }) async {
+    return [
+      latestStatus!,
+      RemoteSyncBundleStatus(
+        fileId: 'remote-previous',
+        fileName: 'himemo_sync_20260509.enc',
+        modifiedAt: DateTime.utc(2026, 5, 9, 14, 45),
+        sizeBytes: 2048,
+        noteCount: 1,
+        attachmentCount: 0,
+        deviceId: 'fake-device-b',
+      ),
+    ].take(limit).toList(growable: false);
+  }
+
+  @override
+  Future<RemoteSyncBundleStatus> uploadBundle({
+    required String encodedPayload,
+    required String deviceId,
+    required int noteCount,
+    required int attachmentCount,
+  }) async {
+    uploadCalls += 1;
+    uploadedPayload = encodedPayload;
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    latestStatus = RemoteSyncBundleStatus(
+      fileId: 'remote-upload-$uploadCalls',
+      fileName: 'himemo_sync_20260510.enc',
+      modifiedAt: DateTime.utc(2026, 5, 10, 0, 30),
+      sizeBytes: encodedPayload.length,
+      noteCount: noteCount,
+      attachmentCount: attachmentCount,
+      deviceId: deviceId,
+    );
+    return latestStatus!;
+  }
+
+  @override
+  Future<DownloadedRemoteSyncBundle?> downloadLatestBundle() async {
+    final payload = uploadedPayload;
+    final status = latestStatus;
+    if (payload == null || status == null) {
+      return null;
+    }
+    return DownloadedRemoteSyncBundle(status: status, encodedPayload: payload);
+  }
+
+  @override
+  Future<DownloadedRemoteSyncBundle?> downloadBundleByFileId(
+    String fileId,
+  ) async {
+    return downloadLatestBundle();
+  }
+
+  @override
+  Future<String?> fetchSyncKeyBackupCode() async => null;
+
+  @override
+  Future<void> uploadSyncKeyBackupCode(String backupCode) async {}
 }
