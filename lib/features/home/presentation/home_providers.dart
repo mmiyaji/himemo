@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:archive/archive.dart';
@@ -1893,6 +1894,13 @@ class DiagnosticLogController extends _$DiagnosticLogController {
     ref.invalidateSelf();
   }
 
+  Future<bool> toggleEnabled() async {
+    final service = ref.read(diagnosticLogServiceProvider);
+    final enabled = await service.toggleEnabled();
+    ref.invalidateSelf();
+    return enabled;
+  }
+
   Future<void> refresh() async {
     ref.invalidateSelf();
   }
@@ -2915,6 +2923,182 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       rethrow;
     }
+  }
+
+  Future<NoteEntry?> downloadLatestRemoteNoteForConflict(String noteId) async {
+    final provider = ref.read(syncProviderControllerProvider);
+    if (!_supportsRemoteTransport(provider)) {
+      state = const SyncTransferState(
+        stage: SyncTransferStage.error,
+        message: 'sync.error.select_target_for_download',
+      );
+      return null;
+    }
+    _startBusy(SyncTransferProgress.downloadingBundle);
+    try {
+      final remoteBundle = await runFirebaseTrace(
+        'sync_download_latest_bundle_for_conflict',
+        _downloadLatestRemoteBundle,
+      );
+      await _storeDownloadedBundle(
+        remoteBundle,
+        emptyMessage: 'sync.info.no_usable_remote_bundle',
+      );
+      final localBundle = state.localBundle;
+      if (localBundle == null) {
+        return null;
+      }
+      final changes = await _readPreparedChangesFromBundle(
+        localBundle.reference,
+      );
+      for (final change in changes) {
+        if (change.note.id == noteId &&
+            change.action != PendingNoteChangeAction.delete) {
+          return change.note.copyWith(syncState: NoteSyncState.synced);
+        }
+      }
+      return null;
+    } on HimemoDecryptionException {
+      state = state.copyWith(
+        stage: SyncTransferStage.error,
+        message: _syncBundleDecryptionMessage,
+      );
+      return null;
+    } catch (error) {
+      state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
+      return null;
+    }
+  }
+
+  Future<void> recordDownloadedBundleApplied() async {
+    await ref
+        .read(syncBundleStateStoreProvider)
+        .recordApply(state.remoteStatus);
+  }
+
+  Future<List<PreparedSyncNote>> _readPreparedChangesFromBundle(
+    String reference,
+  ) async {
+    final decoded = await ref
+        .read(secureSyncBundleStoreProvider)
+        .readBundleJson(reference);
+    if (decoded == null) {
+      throw StateError('sync.error.downloaded_bundle_decryption_failed');
+    }
+    final rawNoteEntries =
+        decoded['notes'] as List<dynamic>? ?? const <dynamic>[];
+    final lockedPrivateVaultIds = <String>{};
+    for (final rawEntry in rawNoteEntries) {
+      final entry = Map<String, dynamic>.from(rawEntry as Map);
+      final note = NoteEntry.fromJson(
+        Map<String, dynamic>.from(entry['note'] as Map),
+      );
+      if (isPrivateVaultId(note.vaultId) &&
+          !ref
+              .read(profileDataKeyServiceProvider)
+              .isProfileUnlocked(note.vaultId)) {
+        lockedPrivateVaultIds.add(note.vaultId);
+      }
+    }
+    if (lockedPrivateVaultIds.isNotEmpty) {
+      throw StateError('sync.error.private_profile_locked');
+    }
+    final attachmentPayloads = <String, Map<String, dynamic>>{
+      for (final entry
+          in (decoded['attachments'] as List<dynamic>? ?? const <dynamic>[]))
+        (entry as Map)['id'] as String: Map<String, dynamic>.from(entry),
+    };
+    final importedChanges = <PreparedSyncNote>[];
+    for (final rawEntry in rawNoteEntries) {
+      final entry = Map<String, dynamic>.from(rawEntry as Map);
+      final note = NoteEntry.fromJson(
+        Map<String, dynamic>.from(entry['note'] as Map),
+      );
+      final action = PendingNoteChangeAction.values.firstWhere(
+        (value) => value.name == entry['action'],
+        orElse: () => note.deletedAt == null
+            ? PendingNoteChangeAction.upsert
+            : PendingNoteChangeAction.delete,
+      );
+      final storedBySyncAttachmentId = <String, String?>{};
+      Future<NoteAttachment> importAttachment(NoteAttachment attachment) async {
+        final filePath = attachment.filePath;
+        if (filePath == null || !filePath.startsWith('sync-attachment://')) {
+          return attachment;
+        }
+        final attachmentId = filePath.substring('sync-attachment://'.length);
+        final payload = attachmentPayloads[attachmentId];
+        if (payload == null) {
+          return attachment.copyWith(filePath: null, previewBytesBase64: null);
+        }
+        if (!storedBySyncAttachmentId.containsKey(attachmentId)) {
+          final payloadType = AttachmentType.values.firstWhere(
+            (value) => value.name == payload['type'],
+            orElse: () => attachment.type,
+          );
+          final label = payload['label'] as String? ?? attachment.label;
+          final bytesBase64 = payload['bytesBase64'] as String?;
+          if (bytesBase64 != null && bytesBase64.isNotEmpty) {
+            final encryptedPayload = await ref
+                .read(encryptedAttachmentStoreProvider)
+                .encryptAttachmentBytes(
+                  bytes: base64Decode(bytesBase64),
+                  type: payloadType,
+                  vaultId: note.vaultId,
+                );
+            storedBySyncAttachmentId[attachmentId] = await ref
+                .read(encryptedAttachmentStoreProvider)
+                .storeEncryptedPayload(
+                  encodedPayload: encryptedPayload,
+                  type: payloadType,
+                  fileNameHint: label,
+                  vaultId: note.vaultId,
+                );
+          } else {
+            final legacyPayload = payload['encryptedPayload'] as String?;
+            storedBySyncAttachmentId[attachmentId] =
+                legacyPayload == null || legacyPayload.isEmpty
+                ? null
+                : await ref
+                      .read(encryptedAttachmentStoreProvider)
+                      .storeEncryptedPayload(
+                        encodedPayload: legacyPayload,
+                        type: payloadType,
+                        fileNameHint: label,
+                        vaultId: note.vaultId,
+                      );
+          }
+        }
+        return attachment.copyWith(
+          filePath: storedBySyncAttachmentId[attachmentId],
+          previewBytesBase64: null,
+        );
+      }
+
+      final importedAttachments = <NoteAttachment>[];
+      for (final attachment in note.attachments) {
+        importedAttachments.add(await importAttachment(attachment));
+      }
+      final importedBlocks = <NoteBlock>[];
+      for (final block in note.blocks) {
+        final attachment = block.attachment;
+        importedBlocks.add(
+          attachment == null
+              ? block
+              : block.copyWith(attachment: await importAttachment(attachment)),
+        );
+      }
+      importedChanges.add(
+        PreparedSyncNote(
+          action: action,
+          note: note.copyWith(
+            attachments: importedAttachments,
+            blocks: importedBlocks,
+          ),
+        ),
+      );
+    }
+    return importedChanges;
   }
 
   Future<void> _storeDownloadedBundle(
@@ -5808,6 +5992,102 @@ class NotesController extends _$NotesController {
     await _persist();
   }
 
+  Future<void> resolveConflictKeepingLocal(String noteId) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final next = [...state];
+    final index = next.indexWhere((note) => note.id == noteId);
+    if (index == -1) {
+      return;
+    }
+    final current = next[index];
+    final queued = current.copyWith(syncState: NoteSyncState.pendingUpload);
+    next[index] = queued.copyWith(contentHash: _computeContentHash(queued));
+    _sort(next);
+    state = next;
+    await _persist();
+  }
+
+  Future<void> resolveConflictUsingRemote(NoteEntry remoteNote) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final next = [...state];
+    final index = next.indexWhere((note) => note.id == remoteNote.id);
+    final applied = remoteNote.copyWith(
+      deletedAt: null,
+      syncState: NoteSyncState.synced,
+    );
+    final removedAttachments = <NoteAttachment>[];
+    if (index == -1) {
+      next.add(applied);
+    } else {
+      removedAttachments.addAll(next[index].attachments);
+      next[index] = applied;
+    }
+    final retained = <String>{
+      for (final note in next)
+        for (final attachment in note.attachments)
+          if (attachment.filePath != null) attachment.filePath!,
+    };
+    await _deleteAttachments(
+      removedAttachments
+          .where((attachment) {
+            final filePath = attachment.filePath;
+            return filePath != null && !retained.contains(filePath);
+          })
+          .toList(growable: false),
+    );
+    _sort(next);
+    state = next;
+    await _persist();
+  }
+
+  Future<void> resolveConflictByMerging(NoteEntry remoteNote) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final next = [...state];
+    final index = next.indexWhere((note) => note.id == remoteNote.id);
+    if (index == -1) {
+      final queued = remoteNote.copyWith(
+        syncState: NoteSyncState.pendingUpload,
+      );
+      next.add(queued.copyWith(contentHash: _computeContentHash(queued)));
+      _sort(next);
+      state = next;
+      await _persist();
+      return;
+    }
+    final local = next[index];
+    final mergedBody = _mergedConflictBody(local, remoteNote);
+    final mergedAttachments = <NoteAttachment>[
+      ...local.attachments,
+      for (final attachment in remoteNote.attachments)
+        if (!_hasEquivalentAttachment(local.attachments, attachment))
+          attachment,
+    ];
+    final mergedBlocks = <NoteBlock>[
+      NoteBlock(type: NoteBlockType.paragraph, text: mergedBody),
+      for (final attachment in mergedAttachments)
+        NoteBlock(
+          type: _blockTypeForAttachment(attachment.type),
+          attachment: attachment,
+        ),
+    ];
+    final merged = local.copyWith(
+      title: local.title.trim().isEmpty ? remoteNote.title : local.title,
+      body: mergedBody,
+      updatedAt: DateTime.now(),
+      revision: math.max(local.revision, remoteNote.revision) + 1,
+      attachments: mergedAttachments,
+      blocks: mergedBlocks,
+      syncState: NoteSyncState.pendingUpload,
+    );
+    next[index] = merged.copyWith(contentHash: _computeContentHash(merged));
+    _sort(next);
+    state = next;
+    await _persist();
+  }
+
   Future<void> markCurrentStateSynced() async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
@@ -5815,7 +6095,8 @@ class NotesController extends _$NotesController {
     final next = <NoteEntry>[];
     for (final note in state) {
       if (note.syncState == NoteSyncState.pendingUpload ||
-          note.syncState == NoteSyncState.pendingDelete) {
+          note.syncState == NoteSyncState.pendingDelete ||
+          note.syncState == NoteSyncState.conflict) {
         next.add(note.copyWith(syncState: NoteSyncState.synced));
         changed = true;
       } else {
@@ -5970,6 +6251,22 @@ class NotesController extends _$NotesController {
           .toList(growable: false);
       var next = restoredWithoutDeletedSeeds;
       var changed = restoredWithoutDeletedSeeds.length != restored.length;
+      if (!kIsWeb &&
+          next.any((note) => note.syncState == NoteSyncState.conflict)) {
+        final pendingChanges = await ref
+            .read(encryptedNoteDatabaseProvider)
+            .loadPendingChanges();
+        final pendingIds = pendingChanges
+            .map((change) => change.noteId)
+            .toSet();
+        if (next.any(
+          (note) =>
+              note.syncState == NoteSyncState.conflict &&
+              !pendingIds.contains(note.id),
+        )) {
+          changed = true;
+        }
+      }
       if (next.isEmpty && await _shouldSeedDemoNotesForStoreAssets()) {
         next = ref
             .read(homeRepositoryProvider)
@@ -6220,6 +6517,46 @@ class NotesController extends _$NotesController {
     return note.syncState == NoteSyncState.pendingUpload ||
         note.syncState == NoteSyncState.pendingDelete ||
         note.syncState == NoteSyncState.conflict;
+  }
+
+  String _mergedConflictBody(NoteEntry local, NoteEntry remote) {
+    final localBody = local.body.trim();
+    final remoteBody = remote.body.trim();
+    if (localBody == remoteBody) {
+      return local.body;
+    }
+    final buffer = StringBuffer()
+      ..writeln('Local version')
+      ..writeln(localBody.isEmpty ? '(empty)' : localBody)
+      ..writeln()
+      ..writeln('Remote version')
+      ..write(remoteBody.isEmpty ? '(empty)' : remoteBody);
+    return buffer.toString();
+  }
+
+  bool _hasEquivalentAttachment(
+    List<NoteAttachment> attachments,
+    NoteAttachment candidate,
+  ) {
+    return attachments.any((attachment) {
+      if (attachment.filePath != null &&
+          candidate.filePath != null &&
+          attachment.filePath == candidate.filePath) {
+        return true;
+      }
+      return attachment.type == candidate.type &&
+          attachment.label == candidate.label &&
+          attachment.previewBytesBase64 == candidate.previewBytesBase64;
+    });
+  }
+
+  NoteBlockType _blockTypeForAttachment(AttachmentType type) {
+    return switch (type) {
+      AttachmentType.photo => NoteBlockType.photo,
+      AttachmentType.video => NoteBlockType.video,
+      AttachmentType.audio => NoteBlockType.audio,
+      AttachmentType.file => NoteBlockType.file,
+    };
   }
 
   bool _sameSyncedContent(NoteEntry current, NoteEntry incoming) {

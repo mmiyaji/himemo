@@ -41,6 +41,6 @@ SyncConflictAssessment assessSyncConflict({
 
   return const SyncConflictAssessment(
     hasConflict: true,
-    message: 'この端末に未同期の変更があり、リモートにはより新しいバンドルがあります。',
+    message: 'sync.error.conflict_pending_remote_newer',
   );
 }

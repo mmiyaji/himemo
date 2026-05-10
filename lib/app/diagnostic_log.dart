@@ -28,8 +28,17 @@ class DiagnosticLogService {
     await prefs.setBool(_enabledKey, enabled);
     if (enabled) {
       await record('diagnostic', 'logging enabled', force: true);
+    } else {
+      await record('diagnostic', 'logging disabled', force: true);
     }
     _notify();
+  }
+
+  Future<bool> toggleEnabled() async {
+    await _ensureLoaded();
+    final enabled = !_enabled;
+    await setEnabled(enabled);
+    return enabled;
   }
 
   Future<void> record(

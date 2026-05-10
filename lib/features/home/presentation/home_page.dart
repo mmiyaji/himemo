@@ -2763,8 +2763,28 @@ class SettingsScreen extends ConsumerWidget {
       return;
     }
     _diagnosticModeTapTimes.clear();
-    await ref.read(diagnosticLogControllerProvider.notifier).setEnabled(true);
+    final enabled = await ref
+        .read(diagnosticLogControllerProvider.notifier)
+        .toggleEnabled();
     if (!context.mounted) {
+      return;
+    }
+    if (!enabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(
+            strings.localized(
+              en: 'Diagnostic logging is disabled.',
+              ja: '診断ログモードを無効化しました。',
+              zh: '已停用诊断日志模式。',
+              ko: '진단 로그 모드를 껐습니다.',
+              es: 'Se desactivo el registro de diagnostico.',
+              de: 'Diagnoseprotokollierung ist deaktiviert.',
+            ),
+          ),
+        ),
+      );
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
@@ -7774,6 +7794,10 @@ class _NoteListTile extends StatelessWidget {
                   const _PrivateNoteMarker(compact: true),
                   const SizedBox(width: 8),
                 ],
+                if (note.syncState == NoteSyncState.conflict) ...[
+                  const _SyncConflictChip(compact: true),
+                  const SizedBox(width: 8),
+                ],
                 Expanded(
                   child: _HighlightedText(
                     text: compactPreview.isEmpty ? note.title : compactPreview,
@@ -7814,6 +7838,10 @@ class _NoteListTile extends StatelessWidget {
                 children: [
                   if (isPrivateNote) ...[
                     const _PrivateNoteMarker(),
+                    const SizedBox(width: 8),
+                  ],
+                  if (note.syncState == NoteSyncState.conflict) ...[
+                    const _SyncConflictChip(),
                     const SizedBox(width: 8),
                   ],
                   Expanded(
@@ -7979,6 +8007,123 @@ class _PrivateNoteMarker extends StatelessWidget {
           size: iconSize,
           color: colorScheme.primary,
         ),
+      ),
+    );
+  }
+}
+
+class _SyncConflictChip extends StatelessWidget {
+  const _SyncConflictChip({this.compact = false});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final label = context.strings.localized(
+      en: 'Conflict',
+      ja: '競合',
+      zh: '冲突',
+      ko: '충돌',
+      es: 'Conflicto',
+      de: 'Konflikt',
+    );
+    return Tooltip(
+      message: context.strings.localized(
+        en: 'This note has conflicting local and remote changes.',
+        ja: 'このメモはローカルとリモートの変更が競合しています。',
+        zh: '此笔记存在本地和远程更改冲突。',
+        ko: '이 메모는 로컬 변경과 원격 변경이 충돌합니다.',
+        es: 'Esta nota tiene cambios locales y remotos en conflicto.',
+        de: 'Diese Notiz hat widersprechende lokale und Remote-Anderungen.',
+      ),
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 6 : 8,
+          vertical: compact ? 2 : 4,
+        ),
+        decoration: BoxDecoration(
+          color: colorScheme.errorContainer,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: colorScheme.error.withValues(alpha: 0.56)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.sync_problem_rounded,
+              size: compact ? 13 : 15,
+              color: colorScheme.onErrorContainer,
+            ),
+            if (!compact) ...[
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: colorScheme.onErrorContainer,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SyncConflictNotice extends StatelessWidget {
+  const _SyncConflictNotice({required this.onResolve});
+
+  final VoidCallback onResolve;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colorScheme.error.withValues(alpha: 0.56)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.sync_problem_rounded, color: colorScheme.onErrorContainer),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              strings.localized(
+                en: 'This note has conflicting local and remote changes.',
+                ja: 'このメモはローカルとリモートの変更が競合しています。',
+                zh: '此笔记存在本地和远程更改冲突。',
+                ko: '이 메모는 로컬 변경과 원격 변경이 충돌합니다.',
+                es: 'Esta nota tiene cambios locales y remotos en conflicto.',
+                de: 'Diese Notiz hat widersprechende lokale und Remote-Anderungen.',
+              ),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onErrorContainer,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          FilledButton.tonalIcon(
+            onPressed: onResolve,
+            icon: const Icon(Icons.rule_rounded),
+            label: Text(
+              strings.localized(
+                en: 'Resolve',
+                ja: '解決',
+                zh: '解决',
+                ko: '해결',
+                es: 'Resolver',
+                de: 'Losen',
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -9242,6 +9387,13 @@ class _NoteDetailPane extends ConsumerWidget {
                     color: _mutedTextColor(context),
                   ),
                 ),
+                if (note.syncState == NoteSyncState.conflict) ...[
+                  const SizedBox(height: 12),
+                  _SyncConflictNotice(
+                    onResolve: () =>
+                        _showNoteConflictResolver(context, ref, note),
+                  ),
+                ],
                 if (tags.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Wrap(
@@ -16173,6 +16325,15 @@ String _localizedSyncTransferMessage(
         es: 'Este dispositivo tiene cambios sin sincronizar y el paquete remoto puede ser mas reciente. Descarga y aplica primero el paquete remoto, o usa la subida forzada si quieres sobrescribirlo desde este dispositivo.',
         de: 'Dieses Gerat hat nicht synchronisierte Anderungen und das Remote-Paket ist moglicherweise neuer. Lade es zuerst herunter und wende es an, oder nutze erzwungenes Hochladen, wenn dieses Gerat das Remote-Paket uberschreiben soll.',
       );
+    case 'sync.error.conflict_pending_remote_newer':
+      return strings.localized(
+        en: 'This device has unsynced changes, and a newer bundle exists on the remote sync target.',
+        ja: 'この端末に未同期の変更があり、リモートにはより新しいバンドルがあります。',
+        zh: '此设备有未同步的更改，远程同步目标上有较新的捆绑包。',
+        ko: '이 기기에 동기화되지 않은 변경 사항이 있으며, 원격 동기화 대상에 더 새로운 번들이 있습니다.',
+        es: 'Este dispositivo tiene cambios sin sincronizar y hay un paquete mas reciente en el destino remoto.',
+        de: 'Dieses Gerat hat nicht synchronisierte Anderungen, und auf dem Remote-Synchronisierungsziel liegt ein neueres Paket vor.',
+      );
     case 'sync.error.local_bundle_prepare_failed':
       return strings.localized(
         en: 'The local sync bundle could not be prepared.',
@@ -16831,6 +16992,305 @@ void _showStoreFeedback(BuildContext context, String message) {
   ScaffoldMessenger.of(
     context,
   ).showSnackBar(SnackBar(showCloseIcon: true, content: Text(message)));
+}
+
+enum _NoteConflictResolution { keepLocal, useRemote, merge }
+
+Future<void> _showNoteConflictResolver(
+  BuildContext context,
+  WidgetRef ref,
+  NoteEntry localNote,
+) async {
+  final strings = context.strings;
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.showSnackBar(
+    SnackBar(
+      showCloseIcon: true,
+      content: Text(
+        strings.localized(
+          en: 'Loading the latest remote version...',
+          ja: 'リモートの最新版を読み込んでいます...',
+          zh: '正在读取最新远程版本...',
+          ko: '최신 원격 버전을 불러오는 중...',
+          es: 'Cargando la version remota mas reciente...',
+          de: 'Neueste Remote-Version wird geladen...',
+        ),
+      ),
+    ),
+  );
+  final remoteNote = await ref
+      .read(syncTransferControllerProvider.notifier)
+      .downloadLatestRemoteNoteForConflict(localNote.id);
+  messenger.hideCurrentSnackBar();
+  if (!context.mounted) {
+    return;
+  }
+  if (remoteNote == null) {
+    messenger.showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(
+          strings.localized(
+            en: 'No remote version for this note was found in the latest bundle.',
+            ja: '最新バンドルにこのメモのリモート版が見つかりませんでした。',
+            zh: '最新捆绑包中未找到此笔记的远程版本。',
+            ko: '최신 번들에서 이 메모의 원격 버전을 찾을 수 없습니다.',
+            es: 'No se encontro una version remota de esta nota en el paquete mas reciente.',
+            de: 'Im neuesten Paket wurde keine Remote-Version dieser Notiz gefunden.',
+          ),
+        ),
+      ),
+    );
+    return;
+  }
+
+  final resolution = await showDialog<_NoteConflictResolution>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text(
+          strings.localized(
+            en: 'Resolve note conflict',
+            ja: 'メモの競合を解決',
+            zh: '解决笔记冲突',
+            ko: '메모 충돌 해결',
+            es: 'Resolver conflicto de nota',
+            de: 'Notizkonflikt losen',
+          ),
+        ),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  strings.localized(
+                    en: 'Compare the local and remote versions, then choose how to resolve this note.',
+                    ja: 'ローカル版とリモート版の概要を確認し、このメモの扱いを選んでください。',
+                    zh: '比较本地和远程版本，然后选择如何处理此笔记。',
+                    ko: '로컬 버전과 원격 버전을 비교한 뒤 이 메모를 어떻게 처리할지 선택하세요.',
+                    es: 'Compara las versiones local y remota y elige como resolver esta nota.',
+                    de: 'Vergleiche lokale und Remote-Version und wahle, wie diese Notiz gelost wird.',
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _ConflictVersionSummary(
+                  label: strings.localized(
+                    en: 'Local version',
+                    ja: 'ローカル版',
+                    zh: '本地版本',
+                    ko: '로컬 버전',
+                    es: 'Version local',
+                    de: 'Lokale Version',
+                  ),
+                  note: localNote,
+                ),
+                const SizedBox(height: 12),
+                _ConflictVersionSummary(
+                  label: strings.localized(
+                    en: 'Remote version',
+                    ja: 'リモート版',
+                    zh: '远程版本',
+                    ko: '원격 버전',
+                    es: 'Version remota',
+                    de: 'Remote-Version',
+                  ),
+                  note: remoteNote,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(strings.cancel),
+          ),
+          TextButton.icon(
+            onPressed: () => Navigator.of(
+              dialogContext,
+            ).pop(_NoteConflictResolution.useRemote),
+            icon: const Icon(Icons.cloud_download_outlined),
+            label: Text(
+              strings.localized(
+                en: 'Use remote',
+                ja: 'リモートを採用',
+                zh: '使用远程',
+                ko: '원격 사용',
+                es: 'Usar remoto',
+                de: 'Remote verwenden',
+              ),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(_NoteConflictResolution.merge),
+            icon: const Icon(Icons.call_merge_rounded),
+            label: Text(
+              strings.localized(
+                en: 'Merge',
+                ja: 'マージ',
+                zh: '合并',
+                ko: '병합',
+                es: 'Fusionar',
+                de: 'Zusammenfuhren',
+              ),
+            ),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(
+              dialogContext,
+            ).pop(_NoteConflictResolution.keepLocal),
+            icon: const Icon(Icons.cloud_upload_outlined),
+            label: Text(
+              strings.localized(
+                en: 'Keep local',
+                ja: 'ローカルを採用',
+                zh: '保留本地',
+                ko: '로컬 유지',
+                es: 'Mantener local',
+                de: 'Lokal behalten',
+              ),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+  if (resolution == null) {
+    await ref
+        .read(notesControllerProvider.notifier)
+        .cleanupUnreferencedAttachments();
+    return;
+  }
+  if (!context.mounted) {
+    return;
+  }
+
+  try {
+    switch (resolution) {
+      case _NoteConflictResolution.keepLocal:
+        await ref
+            .read(notesControllerProvider.notifier)
+            .resolveConflictKeepingLocal(localNote.id);
+        await ref
+            .read(syncTransferControllerProvider.notifier)
+            .uploadCurrentBundle(force: true);
+        await ref
+            .read(notesControllerProvider.notifier)
+            .cleanupUnreferencedAttachments();
+        break;
+      case _NoteConflictResolution.useRemote:
+        await ref
+            .read(notesControllerProvider.notifier)
+            .resolveConflictUsingRemote(remoteNote);
+        await ref
+            .read(syncTransferControllerProvider.notifier)
+            .recordDownloadedBundleApplied();
+        break;
+      case _NoteConflictResolution.merge:
+        await ref
+            .read(notesControllerProvider.notifier)
+            .resolveConflictByMerging(remoteNote);
+        await ref
+            .read(syncTransferControllerProvider.notifier)
+            .uploadCurrentBundle(force: true);
+        break;
+    }
+    if (!context.mounted) {
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(
+          strings.localized(
+            en: 'Note conflict resolved.',
+            ja: 'メモの競合を解決しました。',
+            zh: '笔记冲突已解决。',
+            ko: '메모 충돌이 해결되었습니다.',
+            es: 'Conflicto de nota resuelto.',
+            de: 'Notizkonflikt gelost.',
+          ),
+        ),
+      ),
+    );
+  } catch (error) {
+    if (!context.mounted) {
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(showCloseIcon: true, content: Text('$error')),
+    );
+  }
+}
+
+class _ConflictVersionSummary extends StatelessWidget {
+  const _ConflictVersionSummary({required this.label, required this.note});
+
+  final String label;
+  final NoteEntry note;
+
+  @override
+  Widget build(BuildContext context) {
+    final changedAt = (note.updatedAt ?? note.createdAt).toLocal();
+    final timeLabel =
+        '${changedAt.year}/${changedAt.month}/${changedAt.day} '
+        '${changedAt.hour.toString().padLeft(2, '0')}:${changedAt.minute.toString().padLeft(2, '0')}';
+    final body = _normalizePreviewText(note.body, maxChars: 240);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Theme.of(context).dividerColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(
+              context,
+            ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            note.title.trim().isEmpty
+                ? context.strings.localized(
+                    en: '(Untitled)',
+                    ja: '（無題）',
+                    zh: '（无标题）',
+                    ko: '(제목 없음)',
+                    es: '(Sin titulo)',
+                    de: '(Ohne Titel)',
+                  )
+                : note.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            body.isEmpty ? '-' : body,
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'rev ${note.revision} / $timeLabel / ${note.attachments.length} attachments',
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: _mutedTextColor(context)),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 enum _LocalArchiveExportKind { passwordProtectedZip, plainZip }

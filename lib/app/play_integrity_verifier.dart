@@ -7,6 +7,10 @@ import 'package:http/http.dart' as http;
 import 'app_flavor.dart';
 import 'play_integrity_service.dart';
 
+const _skipPlayIntegrityForLocalProduction = bool.fromEnvironment(
+  'HIMEMO_SKIP_PLAY_INTEGRITY_FOR_LOCAL_PRODUCTION',
+);
+
 class PlayIntegrityVerificationResult {
   const PlayIntegrityVerificationResult({
     required this.allowed,
@@ -45,6 +49,16 @@ class PlayIntegrityVerifier {
       return const PlayIntegrityVerificationResult(
         allowed: true,
         message: 'Play Integrity is only enforced on Android.',
+      );
+    }
+
+    if (!kReleaseMode &&
+        flavor == AppFlavor.production &&
+        _skipPlayIntegrityForLocalProduction) {
+      return const PlayIntegrityVerificationResult(
+        allowed: true,
+        message:
+            'Play Integrity verification was skipped for local production debugging.',
       );
     }
 
@@ -115,7 +129,8 @@ class PlayIntegrityVerifier {
         jsonDecode(response.body) as Map<String, dynamic>,
       );
       final verdictOk = body['verdictOk'] as bool? ?? false;
-      final verdicts = ((body['deviceIntegrity'] as Map?)?['verdicts'] as List?)
+      final verdicts =
+          ((body['deviceIntegrity'] as Map?)?['verdicts'] as List?)
               ?.map((entry) => '$entry')
               .toList(growable: false) ??
           const <String>[];
@@ -131,7 +146,8 @@ class PlayIntegrityVerifier {
       if (flavor == AppFlavor.development) {
         return PlayIntegrityVerificationResult(
           allowed: true,
-          message: 'Play Integrity verification was skipped in development: $error',
+          message:
+              'Play Integrity verification was skipped in development: $error',
         );
       }
       return PlayIntegrityVerificationResult(
@@ -155,10 +171,7 @@ class PlayIntegrityVerifier {
     final response = await client.post(
       Uri.parse(_challengeEndpoint),
       headers: headers,
-      body: jsonEncode({
-        'packageName': packageName,
-        'operation': operation,
-      }),
+      body: jsonEncode({'packageName': packageName, 'operation': operation}),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       return PlayIntegrityVerificationResult(

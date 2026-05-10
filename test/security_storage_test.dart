@@ -1764,7 +1764,18 @@ void main() {
           .singleWhere((note) => note.id == 'remote-a');
       expect(conflicted.title, 'Local edit');
       expect(conflicted.syncState, NoteSyncState.conflict);
-      expect(await noteDatabase.loadPendingChanges(), isEmpty);
+      var pendingChanges = await noteDatabase.loadPendingChanges();
+      expect(pendingChanges, hasLength(1));
+      expect(pendingChanges.single.noteId, 'remote-a');
+      expect(pendingChanges.single.action, PendingNoteChangeAction.upsert);
+
+      await controller.markCurrentStateSynced();
+      final resolved = container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'remote-a');
+      expect(resolved.syncState, NoteSyncState.synced);
+      pendingChanges = await noteDatabase.loadPendingChanges();
+      expect(pendingChanges, isEmpty);
 
       if (await tempDirectory.exists()) {
         await tempDirectory.delete(recursive: true);
@@ -1895,7 +1906,7 @@ void main() {
       );
 
       expect(assessment.hasConflict, isTrue);
-      expect(assessment.message, isNotNull);
+      expect(assessment.message, 'sync.error.conflict_pending_remote_newer');
     },
   );
 

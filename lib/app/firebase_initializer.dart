@@ -6,6 +6,10 @@ import '../firebase_options.dart' as production;
 import '../firebase_options_development.dart' as development;
 import 'app_flavor.dart';
 
+const _useDebugAppCheckForLocalProduction = bool.fromEnvironment(
+  'HIMEMO_USE_DEBUG_APP_CHECK_FOR_LOCAL_PRODUCTION',
+);
+
 Future<void> initializeFirebaseForFlavor(AppFlavor flavor) async {
   if (kIsWeb) {
     return;
@@ -20,8 +24,13 @@ Future<void> initializeFirebaseForFlavor(AppFlavor flavor) async {
           production.DefaultFirebaseOptions.currentPlatform,
       };
       await Firebase.initializeApp(options: options);
+      final useDebugProvider =
+          flavor == AppFlavor.development ||
+          (!kReleaseMode &&
+              flavor == AppFlavor.production &&
+              _useDebugAppCheckForLocalProduction);
       await FirebaseAppCheck.instance.activate(
-        providerAndroid: flavor == AppFlavor.development
+        providerAndroid: useDebugProvider
             ? const AndroidDebugProvider()
             : const AndroidPlayIntegrityProvider(),
       );

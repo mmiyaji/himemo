@@ -281,6 +281,7 @@ class EncryptedNoteStore {
 
   PendingNoteChangeRecord? _pendingChangeFor(NoteEntry note) {
     if (note.syncState != NoteSyncState.pendingUpload &&
+        note.syncState != NoteSyncState.conflict &&
         note.syncState != NoteSyncState.pendingDelete) {
       return null;
     }
