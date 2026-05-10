@@ -2393,6 +2393,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       state = state.copyWith(remoteStatus: remoteStatus);
 
       final queue = await ref.read(syncQueueSummaryProvider.future);
+      final hadPendingChangesBeforeRemoteApply = queue.hasPendingChanges;
+      var appliedRemoteDuringSync = false;
       _diagnostic(
         'local queue inspected',
         data: {
@@ -2448,6 +2450,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           if (state.stage == SyncTransferStage.error) {
             return;
           }
+          appliedRemoteDuringSync = true;
         }
       }
 
@@ -2463,7 +2466,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       if (refreshedQueue.hasPendingChanges) {
         _setProgress(SyncTransferProgress.preparingBundle);
-        await uploadCurrentBundle(force: forceUpload);
+        final forceConvergenceUpload =
+            appliedRemoteDuringSync && !hadPendingChangesBeforeRemoteApply;
+        await uploadCurrentBundle(force: forceUpload || forceConvergenceUpload);
         return;
       }
       _setProgress(SyncTransferProgress.finalizing);
