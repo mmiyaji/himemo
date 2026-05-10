@@ -39,6 +39,8 @@ import '../domain/note_entry.dart';
 import '../domain/note_tags.dart';
 import '../domain/vault_models.dart';
 import 'home_providers.dart';
+import 'web_video_object_url_stub.dart'
+    if (dart.library.html) 'web_video_object_url_web.dart';
 
 const _appStoreId = String.fromEnvironment('HIMEMO_APP_STORE_ID');
 const _androidStorePackageName = 'org.ruhenheim.himemo';
@@ -12633,6 +12635,45 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
               ),
             ),
             SizedBox(height: _editorMode == NoteEditorMode.rich ? 8 : 16),
+            SizedBox(
+              height: 22,
+              child: Center(
+                child: AnimatedOpacity(
+                  opacity: _attachmentImportBusy ? 1 : 0,
+                  duration: const Duration(milliseconds: 120),
+                  child: IgnorePointer(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(width: 8),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 180),
+                          child: Text(
+                            strings.localized(
+                              en: 'Attaching...',
+                              ja: '添付処理中...',
+                              zh: '正在附加...',
+                              ko: '첨부 중...',
+                              es: 'Adjuntando...',
+                              de: 'Wird angehängt...',
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.labelMedium
+                                ?.copyWith(color: _mutedTextColor(context)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
             Row(
               children: [
                 TextButton(
@@ -12640,31 +12681,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                   child: Text(strings.cancel),
                 ),
                 const Spacer(),
-                if (_attachmentImportBusy) ...[
-                  const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      strings.localized(
-                        en: 'Attaching...',
-                        ja: '添付処理中...',
-                        zh: '正在附加...',
-                        ko: '첨부 중...',
-                        es: 'Adjuntando...',
-                        de: 'Wird angehängt...',
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: _mutedTextColor(context),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                ],
                 ValueListenableBuilder<bool>(
                   valueListenable: _canSubmitNotifier,
                   builder: (context, canSubmit, _) {
@@ -18364,6 +18380,7 @@ class _VideoAttachmentViewerState
     extends ConsumerState<_VideoAttachmentViewer> {
   VideoPlayerController? _controller;
   String? _tempFilePath;
+  String? _webObjectUrl;
   String? _errorMessage;
   bool _wasPlaying = false;
   Duration _position = Duration.zero;
@@ -18395,12 +18412,16 @@ class _VideoAttachmentViewerState
     controller?.removeListener(_handleControllerChanged);
     unawaited(controller?.dispose());
     final tempFilePath = _tempFilePath;
+    final webObjectUrl = _webObjectUrl;
     if (tempFilePath != null) {
       unawaited(
         ref
             .read(encryptedAttachmentStoreProvider)
             .deleteMaterializedFile(tempFilePath),
       );
+    }
+    if (webObjectUrl != null) {
+      revokeWebVideoObjectUrl(webObjectUrl);
     }
     super.dispose();
   }
@@ -18409,9 +18430,11 @@ class _VideoAttachmentViewerState
     final generation = ++_loadGeneration;
     final controller = _controller;
     final tempFilePath = _tempFilePath;
+    final webObjectUrl = _webObjectUrl;
     setState(() {
       _controller = null;
       _tempFilePath = null;
+      _webObjectUrl = null;
       _errorMessage = null;
       _wasPlaying = false;
       _position = Duration.zero;
@@ -18424,6 +18447,9 @@ class _VideoAttachmentViewerState
       await ref
           .read(encryptedAttachmentStoreProvider)
           .deleteMaterializedFile(tempFilePath);
+    }
+    if (webObjectUrl != null) {
+      revokeWebVideoObjectUrl(webObjectUrl);
     }
     if (!mounted || generation != _loadGeneration) {
       return;
@@ -18446,10 +18472,11 @@ class _VideoAttachmentViewerState
       }
       return;
     }
+    String? tempFilePath;
+    String? webObjectUrl;
     try {
       final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
       final VideoPlayerController controller;
-      String? tempFilePath;
       if (kIsWeb) {
         final bytes = await attachmentStore.readAttachment(
           filePath,
@@ -18464,12 +18491,18 @@ class _VideoAttachmentViewerState
           });
           return;
         }
-        controller = VideoPlayerController.networkUrl(
-          Uri.dataFromBytes(
-            Uint8List.fromList(bytes),
-            mimeType: _mimeTypeForVideoAttachment(widget.attachment),
-          ),
+        final mimeType = _mimeTypeForVideoAttachment(widget.attachment);
+        webObjectUrl = createWebVideoObjectUrl(
+          Uint8List.fromList(bytes),
+          mimeType,
         );
+        if (webObjectUrl == null) {
+          setState(() {
+            _errorMessage = context.strings.videoPreviewUnavailableWeb;
+          });
+          return;
+        }
+        controller = VideoPlayerController.networkUrl(Uri.parse(webObjectUrl));
       } else {
         tempFilePath = await attachmentStore.materializeDecryptedFile(
           filePath,
@@ -18497,10 +18530,14 @@ class _VideoAttachmentViewerState
         if (tempFilePath != null) {
           await attachmentStore.deleteMaterializedFile(tempFilePath);
         }
+        if (webObjectUrl != null) {
+          revokeWebVideoObjectUrl(webObjectUrl);
+        }
         return;
       }
       setState(() {
         _tempFilePath = tempFilePath;
+        _webObjectUrl = webObjectUrl;
         _controller = controller;
         _wasPlaying = controller.value.isPlaying;
         _position = controller.value.position;
@@ -18508,6 +18545,16 @@ class _VideoAttachmentViewerState
       });
     } catch (error, stackTrace) {
       debugPrint('Video playback load failed: $error\n$stackTrace');
+      if (tempFilePath != null) {
+        unawaited(
+          ref
+              .read(encryptedAttachmentStoreProvider)
+              .deleteMaterializedFile(tempFilePath),
+        );
+      }
+      if (webObjectUrl != null) {
+        revokeWebVideoObjectUrl(webObjectUrl);
+      }
       if (!mounted || generation != _loadGeneration) {
         return;
       }
