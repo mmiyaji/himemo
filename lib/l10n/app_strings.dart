@@ -491,8 +491,7 @@ class AppStrings {
       'home.authentication': 'Autenticación',
       'home.sync.is.disabled': 'La sincronización está desactivada.',
       'home.no.account.connected.yet': 'Aún no hay ninguna cuenta conectada.',
-      'home.no.account.connected.yet.2':
-          'Aún no hay ninguna cuenta conectada.',
+      'home.no.account.connected.yet.2': 'Aún no hay ninguna cuenta conectada.',
       'home.no.cloud.account.is.connected':
           'No hay ninguna cuenta en la nube conectada.',
       'home.no.cloud.account.is.connected.2':
@@ -529,8 +528,7 @@ class AppStrings {
       'home.queue.ready': 'cola lista',
       'home.no.pending.device.changes':
           'No hay cambios pendientes en este dispositivo.',
-      'home.checking.pending.changes':
-          'Comprobando cambios pendientes...',
+      'home.checking.pending.changes': 'Comprobando cambios pendientes...',
       'home.unable.to.inspect.the.local.sync.queue':
           'No se pudo inspeccionar la cola de sincronización local.',
       'home.cloud.recovery.key.fingerprint':
@@ -541,8 +539,7 @@ class AppStrings {
           'No se pudo leer la huella de la clave de recuperación.',
       'home.no.sync.activity.has.been.recorded.on.this.device.yet':
           'Aún no se ha registrado actividad de sincronización en este dispositivo.',
-      'home.reading.sync.activity':
-          'Leyendo actividad de sincronización...',
+      'home.reading.sync.activity': 'Leyendo actividad de sincronización...',
       'home.unable.to.read.local.sync.activity':
           'No se pudo leer la actividad de sincronización local.',
       'home.no.remote.bundle.history.is.available':
@@ -2112,15 +2109,14 @@ class AppStrings {
     es: 'Desbloquear HiMemo con la autenticación del dispositivo',
     de: 'HiMemo mit Geräteauthentifizierung entsperren',
   );
-  String notesCount(int count, {bool spacedEnglish = true}) =>
-      localized(
-        en: '$count${spacedEnglish ? ' ' : ''}notes',
-        ja: '$count件',
-        zh: '$count 条笔记',
-        ko: '$count개 노트',
-        es: '$count notas',
-        de: '$count Notizen',
-      );
+  String notesCount(int count, {bool spacedEnglish = true}) => localized(
+    en: '$count${spacedEnglish ? ' ' : ''}notes',
+    ja: '$count件',
+    zh: '$count 条笔记',
+    ko: '$count개 노트',
+    es: '$count notas',
+    de: '$count Notizen',
+  );
   String entriesCount(int count) => localized(
     en: '$count entries',
     ja: '$count 件',
@@ -3603,7 +3599,14 @@ class AppStrings {
       ? 'iCloud や Google Drive への同期は、あとから設定で有効化できます。最初はオフラインのまま始められます。'
       : 'Enable iCloud or Google Drive later in Settings. You can start as an offline-first memo app.';
 
-  String get termsOfUse => localized(en: 'Terms of Use', ja: '利用規約');
+  String get termsOfUse => localized(
+    en: 'Terms of Use',
+    ja: '利用規約',
+    zh: '使用条款',
+    ko: '이용 약관',
+    es: 'Condiciones de uso',
+    de: 'Nutzungsbedingungen',
+  );
   String get termsOfUseDesc => localized(
     en: 'Open the current terms for using HiMemo.',
     ja: 'HiMemo の利用条件を確認します。',
@@ -3612,7 +3615,14 @@ class AppStrings {
     es: 'Abre las condiciones actuales de uso de HiMemo.',
     de: 'Öffnet die aktuellen Nutzungsbedingungen für HiMemo.',
   );
-  String get privacyPolicy => localized(en: 'Privacy Policy', ja: 'プライバシーポリシー');
+  String get privacyPolicy => localized(
+    en: 'Privacy Policy',
+    ja: 'プライバシーポリシー',
+    zh: '隐私政策',
+    ko: '개인정보 처리방침',
+    es: 'Política de privacidad',
+    de: 'Datenschutzrichtlinie',
+  );
   String get privacyPolicyDesc => localized(
     en: 'Open how HiMemo handles local data, cloud sync, and diagnostics.',
     ja: 'ローカルデータ、クラウド同期、診断情報の扱いを確認します。',
@@ -3637,10 +3647,64 @@ class AppStrings {
     es: 'Abre el formulario de soporte y comentarios.',
     de: 'Öffnet das Formular für Support und Feedback.',
   );
-  String get onboardingLegalPrefix =>
-      localized(en: 'By continuing, you agree to the', ja: '続行することで');
-  String get onboardingLegalSeparator => localized(en: 'and', ja: 'および');
-  String get onboardingLegalSuffix => localized(en: '.', ja: 'に同意したものとみなされます。');
+  String get help => localized(
+    en: 'Help and FAQ',
+    ja: '使い方・よくある質問',
+    zh: '帮助和常见问题',
+    ko: '도움말 및 FAQ',
+    es: 'Ayuda y preguntas frecuentes',
+    de: 'Hilfe und FAQ',
+  );
+  String get helpDesc => localized(
+    en: 'Open guidance for private profiles, sync, and recovery steps.',
+    ja: 'プライベートプロファイル、同期、復旧手順の説明を開きます。',
+    zh: '打开私密档案、同步和恢复步骤的说明。',
+    ko: '비공개 프로필, 동기화, 복구 절차 안내를 엽니다.',
+    es: 'Abre la guía de perfiles privados, sincronización y recuperación.',
+    de: 'Öffnet Hinweise zu privaten Profilen, Synchronisierung und Wiederherstellung.',
+  );
+  String get privateProfileHelp => localized(
+    en: 'Private profile help',
+    ja: 'プライベートプロファイルのヘルプ',
+    zh: '私密档案帮助',
+    ko: '비공개 프로필 도움말',
+    es: 'Ayuda de perfiles privados',
+    de: 'Hilfe zu privaten Profilen',
+  );
+  String get syncHelp => localized(
+    en: 'Sync help and FAQ',
+    ja: '同期の使い方・FAQ',
+    zh: '同步帮助和常见问题',
+    ko: '동기화 도움말 및 FAQ',
+    es: 'Ayuda y FAQ de sincronización',
+    de: 'Synchronisierungshilfe und FAQ',
+  );
+  String get syncHelpDesc => localized(
+    en: 'See when to refresh, upload, download, apply, or re-upload all notes.',
+    ja: '更新、アップロード、ダウンロード、適用、全メモ再アップロードの使い分けを確認します。',
+    zh: '查看何时刷新、上传、下载、应用或重新上传全部备忘。',
+    ko: '새로 고침, 업로드, 다운로드, 적용, 모든 메모 재업로드를 언제 쓰는지 확인합니다.',
+    es: 'Consulta cuándo actualizar, subir, descargar, aplicar o volver a subir todas las notas.',
+    de: 'Sieh nach, wann Aktualisieren, Hochladen, Herunterladen, Anwenden oder erneutes Hochladen sinnvoll ist.',
+  );
+  String get onboardingLegalPrefix => localized(
+    en: 'By continuing, you agree to the',
+    ja: '続行することで',
+    zh: '继续即表示你同意',
+    ko: '계속하면 다음에 동의하는 것으로 간주됩니다:',
+    es: 'Al continuar, aceptas las',
+    de: 'Wenn du fortfährst, stimmst du den',
+  );
+  String get onboardingLegalSeparator =>
+      localized(en: 'and', ja: 'および', zh: '和', ko: '및', es: 'y', de: 'und');
+  String get onboardingLegalSuffix => localized(
+    en: '.',
+    ja: 'に同意したものとみなされます。',
+    zh: '。',
+    ko: '.',
+    es: '.',
+    de: 'zu.',
+  );
 
   String get privateProfilesSettingsTitle => localized(
     en: 'Private profiles',

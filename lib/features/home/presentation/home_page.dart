@@ -46,6 +46,7 @@ const _buildDateIso = String.fromEnvironment('HIMEMO_BUILD_DATE');
 const _termsUrl = 'https://mmiyaji.github.io/himemo/terms.html';
 const _privacyUrl = 'https://mmiyaji.github.io/himemo/privacy.html';
 const _contactUrl = 'https://mmiyaji.github.io/himemo/contact.html';
+const _helpUrl = 'https://mmiyaji.github.io/himemo/help.html';
 const _httpUserAgent = 'HiMemo/1.0 (+$_contactUrl)';
 const _appAuthor = '@mmiyaji';
 const _appAuthorUrl = 'https://ruhenheim.org/';
@@ -3371,6 +3372,15 @@ class SettingsScreen extends ConsumerWidget {
                 color: Theme.of(context).colorScheme.error,
               ),
             ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () =>
+                    _openExternalLink(context, Uri.parse(_helpUrl), strings),
+                icon: const Icon(Icons.help_outline_rounded),
+                label: Text(strings.privateProfileHelp),
+              ),
+            ),
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
@@ -4158,6 +4168,18 @@ class SettingsScreen extends ConsumerWidget {
                           syncProvider,
                           syncTransferState,
                         ),
+                      ),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.help_outline_rounded),
+                      title: Text(strings.syncHelp),
+                      subtitle: Text(strings.syncHelpDesc),
+                      trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+                      onTap: () => _openExternalLink(
+                        context,
+                        Uri.parse(_helpUrl),
+                        strings,
                       ),
                     ),
                     ListTile(
@@ -5411,6 +5433,15 @@ class SettingsScreen extends ConsumerWidget {
               trailing: const Icon(Icons.open_in_new_rounded, size: 18),
               onTap: () =>
                   _openExternalLink(context, Uri.parse(_contactUrl), strings),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.help_outline_rounded),
+              title: Text(strings.help),
+              subtitle: Text(strings.helpDesc),
+              trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+              onTap: () =>
+                  _openExternalLink(context, Uri.parse(_helpUrl), strings),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -14965,10 +14996,7 @@ String _formatDateTime(DateTime value, AppStrings strings) {
   return '$year/$month/$day $hour:$minute $zone';
 }
 
-String _syncProgressLabel(
-  AppStrings strings,
-  SyncTransferState transferState,
-) {
+String _syncProgressLabel(AppStrings strings, SyncTransferState transferState) {
   if (transferState.stage != SyncTransferStage.busy) {
     return strings.localized(
       en: 'Sync',
@@ -15344,10 +15372,11 @@ String _localizedSyncTransferMessage(
         de: 'Das Remote-Paket von $providerName wurde im geschutzten lokalen Speicher abgelegt.',
       );
   }
-  if (message == '同期データを復号できませんでした。\n'
-      '・クラウド復元キーが違う可能性があります。元端末でクラウド復元キーをコピーし、この端末へ読み込んでください。\n'
-      '・元端末で添付やメモを修復した場合は、元端末で全メモを再アップロードしてから同期してください。\n'
-      '・プライベートプロファイルのメモが含まれる場合は、同期先端末で対象プロファイルを開いてから、もう一度適用してください。') {
+  if (message ==
+      '同期データを復号できませんでした。\n'
+          '・クラウド復元キーが違う可能性があります。元端末でクラウド復元キーをコピーし、この端末へ読み込んでください。\n'
+          '・元端末で添付やメモを修復した場合は、元端末で全メモを再アップロードしてから同期してください。\n'
+          '・プライベートプロファイルのメモが含まれる場合は、同期先端末で対象プロファイルを開いてから、もう一度適用してください。') {
     return strings.localized(
       en:
           'Sync data could not be decrypted.\n'
@@ -15377,7 +15406,8 @@ String _localizedSyncTransferMessage(
           '- Wenn Notizen privater Profile enthalten sind, offne das Zielprofil auf diesem Gerat und wende das Paket erneut an.',
     );
   }
-  if (message == '同期バンドルを読むためのクラウド復元キーがこの端末にありません。元端末でクラウド復元キーをコピーし、この端末へ読み込んでから、もう一度同期してください。') {
+  if (message ==
+      '同期バンドルを読むためのクラウド復元キーがこの端末にありません。元端末でクラウド復元キーをコピーし、この端末へ読み込んでから、もう一度同期してください。') {
     return strings.localized(
       en: 'The cloud recovery key for this sync bundle is not available on this device. Copy the cloud recovery key from the original device, import it here, then sync again.',
       ja: message,
@@ -15387,7 +15417,8 @@ String _localizedSyncTransferMessage(
       de: 'Der Cloud-Wiederherstellungsschlussel fur dieses Synchronisierungspaket ist auf diesem Gerat nicht verfugbar. Kopiere ihn vom ursprunglichen Gerat, importiere ihn hier und synchronisiere erneut.',
     );
   }
-  if (message == '同期バンドルを読むためのクラウド復元キーがまだこの端末にありません。iCloud Keychain の同期待ちの可能性があります。しばらく待ってから再試行するか、元端末でクラウド復元キーをコピーしてこの端末へ読み込んでください。') {
+  if (message ==
+      '同期バンドルを読むためのクラウド復元キーがまだこの端末にありません。iCloud Keychain の同期待ちの可能性があります。しばらく待ってから再試行するか、元端末でクラウド復元キーをコピーしてこの端末へ読み込んでください。') {
     return strings.localized(
       en: 'The cloud recovery key for this sync bundle is not on this device yet. iCloud Keychain may still be syncing. Wait a little and try again, or copy the cloud recovery key from the original device and import it here.',
       ja: message,
@@ -15511,7 +15542,8 @@ String _localizedSyncTransferMessage(
       de: 'Das heruntergeladene Paket konnte nicht entschlusselt werden.',
     );
   }
-  if (message == 'プライベートプロファイルのメモが含まれています。同期先端末で同じプロファイルパスワードを入力して開いてから、もう一度適用してください。') {
+  if (message ==
+      'プライベートプロファイルのメモが含まれています。同期先端末で同じプロファイルパスワードを入力して開いてから、もう一度適用してください。') {
     return strings.localized(
       en: 'This bundle contains private profile notes. Enter the same private profile password on this device, open that profile, then apply the bundle again.',
       ja: message,
