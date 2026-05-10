@@ -8013,23 +8013,26 @@ class _NoteListTile extends StatelessWidget {
                       ),
                     ],
                     if (note.attachments.length > maxThumbs) ...[
-                      Container(
-                        width: thumbnailSize,
-                        height: thumbnailSize,
-                        decoration: BoxDecoration(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: Theme.of(context).dividerColor,
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: Container(
+                          width: thumbnailSize,
+                          height: thumbnailSize,
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: Theme.of(context).dividerColor,
+                            ),
                           ),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          '+${note.attachments.length - maxThumbs}',
-                          style: Theme.of(context).textTheme.labelLarge
-                              ?.copyWith(fontWeight: FontWeight.w700),
+                          alignment: Alignment.center,
+                          child: Text(
+                            '+${note.attachments.length - maxThumbs}',
+                            style: Theme.of(context).textTheme.labelLarge
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
                         ),
                       ),
                     ],
@@ -13282,38 +13285,60 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             ),
             SizedBox(height: _editorMode == NoteEditorMode.rich ? 8 : 16),
             SizedBox(
-              height: 22,
+              height: 56,
               child: Center(
                 child: AnimatedOpacity(
                   opacity: _attachmentImportBusy ? 1 : 0,
                   duration: const Duration(milliseconds: 120),
                   child: IgnorePointer(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.primaryContainer.withValues(alpha: 0.36),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.24),
                         ),
-                        const SizedBox(width: 8),
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 180),
-                          child: Text(
-                            strings.localized(
-                              en: 'Attaching...',
-                              ja: '添付処理中...',
-                              zh: '正在附加...',
-                              ko: '첨부 중...',
-                              es: 'Adjuntando...',
-                              de: 'Wird angehängt...',
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.labelMedium
-                                ?.copyWith(color: _mutedTextColor(context)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 8),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 180),
+                            child: Text(
+                              strings.localized(
+                                en: 'Processing attachment...',
+                                ja: '添付処理中...',
+                                zh: '正在附加...',
+                                ko: '첨부 중...',
+                                es: 'Adjuntando...',
+                                de: 'Wird angehängt...',
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.labelMedium
+                                  ?.copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onPrimaryContainer,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -16023,21 +16048,18 @@ class _AttachmentImageBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final imageCacheSize = (size * MediaQuery.devicePixelRatioOf(context))
-        .round()
-        .clamp(1, 4096);
+    final pixelRatio = MediaQuery.devicePixelRatioOf(context);
+    final imageCacheHeight = (size * pixelRatio).round().clamp(1, 4096);
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
-      child: ColoredBox(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: size * 1.6, maxHeight: size),
         child: Image.memory(
           bytes,
-          width: size,
           height: size,
-          fit: BoxFit.cover,
+          fit: BoxFit.contain,
           gaplessPlayback: true,
-          cacheWidth: imageCacheSize,
-          cacheHeight: imageCacheSize,
+          cacheHeight: imageCacheHeight,
           errorBuilder: (context, error, stackTrace) {
             return _AttachmentImageErrorBox(size: size);
           },
