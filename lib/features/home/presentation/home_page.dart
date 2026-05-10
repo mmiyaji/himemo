@@ -3441,6 +3441,7 @@ class SettingsScreen extends ConsumerWidget {
                 color: Theme.of(context).colorScheme.error,
               ),
             ),
+            const SizedBox(height: 10),
             Align(
               alignment: Alignment.centerLeft,
               child: TextButton.icon(
@@ -17642,6 +17643,7 @@ class _VideoLightboxDialog extends ConsumerWidget {
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                     child: _VideoAttachmentViewer(
                       attachment: attachment,
+                      autoLoad: true,
                       fillAvailableHeight: true,
                       showFullScreenAction: false,
                       showShareAction: false,
@@ -17654,6 +17656,239 @@ class _VideoLightboxDialog extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+class _VideoControllerLightboxDialog extends StatefulWidget {
+  const _VideoControllerLightboxDialog({
+    required this.attachment,
+    required this.controller,
+    this.onShare,
+  });
+
+  final NoteAttachment attachment;
+  final VideoPlayerController controller;
+  final VoidCallback? onShare;
+
+  @override
+  State<_VideoControllerLightboxDialog> createState() =>
+      _VideoControllerLightboxDialogState();
+}
+
+class _VideoControllerLightboxDialogState
+    extends State<_VideoControllerLightboxDialog> {
+  Duration? _dragPosition;
+
+  VideoPlayerController get _controller => widget.controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_handleControllerChanged);
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_handleControllerChanged);
+    super.dispose();
+  }
+
+  void _handleControllerChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final duration = _controller.value.duration;
+    final position = _clampMediaPosition(
+      _dragPosition ?? _controller.value.position,
+      duration,
+    );
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => Navigator.of(context).pop(),
+            ),
+          ),
+          SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close, color: Colors.white),
+                        tooltip: MaterialLocalizations.of(
+                          context,
+                        ).closeButtonTooltip,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          widget.attachment.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                      ),
+                      if (widget.onShare != null)
+                        IconButton(
+                          onPressed: widget.onShare,
+                          icon: const Icon(
+                            Icons.ios_share_outlined,
+                            color: Colors.white,
+                          ),
+                          tooltip: strings.share,
+                        ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final aspectRatio = _controller.value.aspectRatio <= 0
+                            ? 16 / 9
+                            : _controller.value.aspectRatio;
+                        return Column(
+                          children: [
+                            Expanded(
+                              child: Center(
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxWidth: constraints.maxWidth,
+                                    maxHeight: constraints.maxHeight,
+                                  ),
+                                  child: AspectRatio(
+                                    aspectRatio: aspectRatio,
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          AbsorbPointer(
+                                            child: VideoPlayer(_controller),
+                                          ),
+                                          Positioned.fill(
+                                            child: GestureDetector(
+                                              behavior: HitTestBehavior.opaque,
+                                              onTap: _togglePlayback,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                IconButton(
+                                  onPressed: _togglePlayback,
+                                  icon: Icon(
+                                    _controller.value.isPlaying
+                                        ? Icons.pause_circle_outline
+                                        : Icons.play_circle_outline,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Slider(
+                                    value: duration <= Duration.zero
+                                        ? 0
+                                        : position.inMilliseconds
+                                              .clamp(0, duration.inMilliseconds)
+                                              .toDouble(),
+                                    max: duration <= Duration.zero
+                                        ? 1
+                                        : duration.inMilliseconds.toDouble(),
+                                    onChanged: duration <= Duration.zero
+                                        ? null
+                                        : (value) {
+                                            setState(() {
+                                              _dragPosition = Duration(
+                                                milliseconds: value.round(),
+                                              );
+                                            });
+                                          },
+                                    onChangeEnd: duration <= Duration.zero
+                                        ? null
+                                        : (value) {
+                                            unawaited(_seek(value, duration));
+                                          },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Row(
+                              children: [
+                                Text(
+                                  '${_formatAudioDuration(position)} / '
+                                  '${_formatAudioDuration(duration)}',
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(color: Colors.white70),
+                                ),
+                              ],
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _togglePlayback() {
+    if (_controller.value.isPlaying) {
+      unawaited(_controller.pause());
+      return;
+    }
+    final duration = _controller.value.duration;
+    if (duration > Duration.zero &&
+        _controller.value.position >=
+            duration - const Duration(milliseconds: 250)) {
+      unawaited(
+        _controller.seekTo(Duration.zero).then((_) => _controller.play()),
+      );
+    } else {
+      unawaited(_controller.play());
+    }
+  }
+
+  Future<void> _seek(double value, Duration duration) async {
+    final target = _clampMediaPosition(
+      Duration(milliseconds: value.round()),
+      duration,
+    );
+    await _controller.seekTo(target);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _dragPosition = null;
+    });
   }
 }
 
@@ -18360,6 +18595,7 @@ class _VideoAttachmentViewer extends ConsumerStatefulWidget {
   const _VideoAttachmentViewer({
     required this.attachment,
     this.fillAvailableHeight = false,
+    this.autoLoad = false,
     this.onOpenFullScreen,
     this.showFullScreenAction = true,
     this.showShareAction = true,
@@ -18367,6 +18603,7 @@ class _VideoAttachmentViewer extends ConsumerStatefulWidget {
 
   final NoteAttachment attachment;
   final bool fillAvailableHeight;
+  final bool autoLoad;
   final VoidCallback? onOpenFullScreen;
   final bool showFullScreenAction;
   final bool showShareAction;
@@ -18387,11 +18624,16 @@ class _VideoAttachmentViewerState
   Duration _duration = Duration.zero;
   Duration? _dragPosition;
   int _loadGeneration = 0;
+  int _videoViewGeneration = 0;
+  bool _loading = false;
+  bool _playWhenLoaded = false;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_load());
+    if (widget.autoLoad) {
+      unawaited(_load(playWhenLoaded: false));
+    }
   }
 
   @override
@@ -18402,7 +18644,7 @@ class _VideoAttachmentViewerState
         oldWidget.attachment.label == widget.attachment.label) {
       return;
     }
-    unawaited(_resetAndLoad());
+    unawaited(_resetAndMaybeLoad());
   }
 
   @override
@@ -18426,7 +18668,7 @@ class _VideoAttachmentViewerState
     super.dispose();
   }
 
-  Future<void> _resetAndLoad() async {
+  Future<void> _resetAndMaybeLoad() async {
     final generation = ++_loadGeneration;
     final controller = _controller;
     final tempFilePath = _tempFilePath;
@@ -18440,6 +18682,8 @@ class _VideoAttachmentViewerState
       _position = Duration.zero;
       _duration = Duration.zero;
       _dragPosition = null;
+      _loading = false;
+      _playWhenLoaded = false;
     });
     controller?.removeListener(_handleControllerChanged);
     await controller?.dispose();
@@ -18454,20 +18698,38 @@ class _VideoAttachmentViewerState
     if (!mounted || generation != _loadGeneration) {
       return;
     }
-    await _loadAttachment(generation: generation);
+    if (widget.autoLoad) {
+      await _load(playWhenLoaded: false);
+    }
   }
 
-  Future<void> _load() async {
+  Future<void> _load({required bool playWhenLoaded}) async {
+    if (_loading || _controller != null) {
+      return;
+    }
     final generation = ++_loadGeneration;
-    await _loadAttachment(generation: generation);
+    setState(() {
+      _loading = true;
+      _playWhenLoaded = playWhenLoaded;
+      _errorMessage = null;
+    });
+    await _loadAttachment(
+      generation: generation,
+      playWhenLoaded: playWhenLoaded,
+    );
   }
 
-  Future<void> _loadAttachment({required int generation}) async {
+  Future<void> _loadAttachment({
+    required int generation,
+    required bool playWhenLoaded,
+  }) async {
     final filePath = widget.attachment.filePath;
     if (filePath == null || filePath.isEmpty) {
       if (mounted && generation == _loadGeneration) {
         setState(() {
           _errorMessage = context.strings.videoPreviewUnavailableWeb;
+          _loading = false;
+          _playWhenLoaded = false;
         });
       }
       return;
@@ -18488,6 +18750,8 @@ class _VideoAttachmentViewerState
         if (bytes == null || bytes.isEmpty) {
           setState(() {
             _errorMessage = context.strings.videoPreviewUnavailableWeb;
+            _loading = false;
+            _playWhenLoaded = false;
           });
           return;
         }
@@ -18499,6 +18763,8 @@ class _VideoAttachmentViewerState
         if (webObjectUrl == null) {
           setState(() {
             _errorMessage = context.strings.videoPreviewUnavailableWeb;
+            _loading = false;
+            _playWhenLoaded = false;
           });
           return;
         }
@@ -18518,6 +18784,8 @@ class _VideoAttachmentViewerState
         if (tempFilePath == null) {
           setState(() {
             _errorMessage = context.strings.videoPreviewUnavailableWeb;
+            _loading = false;
+            _playWhenLoaded = false;
           });
           return;
         }
@@ -18535,6 +18803,9 @@ class _VideoAttachmentViewerState
         }
         return;
       }
+      if (playWhenLoaded) {
+        unawaited(controller.play());
+      }
       setState(() {
         _tempFilePath = tempFilePath;
         _webObjectUrl = webObjectUrl;
@@ -18542,6 +18813,8 @@ class _VideoAttachmentViewerState
         _wasPlaying = controller.value.isPlaying;
         _position = controller.value.position;
         _duration = controller.value.duration;
+        _loading = false;
+        _playWhenLoaded = false;
       });
     } catch (error, stackTrace) {
       debugPrint('Video playback load failed: $error\n$stackTrace');
@@ -18560,6 +18833,8 @@ class _VideoAttachmentViewerState
       }
       setState(() {
         _errorMessage = context.strings.videoPreviewUnavailableWeb;
+        _loading = false;
+        _playWhenLoaded = false;
       });
     }
   }
@@ -18592,7 +18867,7 @@ class _VideoAttachmentViewerState
     }
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
-      return const Center(child: CircularProgressIndicator());
+      return _buildDeferredPreview(context, loading: _loading);
     }
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -18621,7 +18896,7 @@ class _VideoAttachmentViewerState
             : _mutedTextColor(context);
         final videoTapHandler = widget.fillAvailableHeight
             ? () => _togglePlayback(controller)
-            : widget.onOpenFullScreen;
+            : _openFullScreen;
         final videoPane = SizedBox(
           height: maxVideoHeight,
           child: Center(
@@ -18637,7 +18912,12 @@ class _VideoAttachmentViewerState
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      AbsorbPointer(child: VideoPlayer(controller)),
+                      AbsorbPointer(
+                        child: VideoPlayer(
+                          controller,
+                          key: ValueKey(_videoViewGeneration),
+                        ),
+                      ),
                       Positioned.fill(
                         child: GestureDetector(
                           behavior: HitTestBehavior.opaque,
@@ -18716,7 +18996,7 @@ class _VideoAttachmentViewerState
                 if (widget.showFullScreenAction &&
                     widget.onOpenFullScreen != null)
                   IconButton(
-                    onPressed: widget.onOpenFullScreen,
+                    onPressed: _openFullScreen,
                     icon: Icon(Icons.open_in_full_rounded, color: controlColor),
                   ),
                 if (widget.showShareAction)
@@ -18732,6 +19012,193 @@ class _VideoAttachmentViewerState
         );
       },
     );
+  }
+
+  Widget _buildDeferredPreview(BuildContext context, {required bool loading}) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : 520.0;
+        final availableHeight = constraints.hasBoundedHeight
+            ? constraints.maxHeight
+            : 420.0;
+        const controlsHeight = 96.0;
+        final maxVideoHeight = math.max(96.0, availableHeight - controlsHeight);
+        final controlsOnDark = widget.fillAvailableHeight;
+        final controlColor = controlsOnDark ? Colors.white : null;
+        final secondaryControlColor = controlsOnDark
+            ? Colors.white70
+            : _mutedTextColor(context);
+        final previewBytes = _decodeVideoPreviewBytes();
+        final playAction = loading
+            ? null
+            : () => unawaited(_load(playWhenLoaded: true));
+        final videoPane = SizedBox(
+          height: maxVideoHeight,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: maxWidth,
+                maxHeight: maxVideoHeight,
+              ),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Material(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                    child: InkWell(
+                      onTap: playAction,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (previewBytes != null)
+                            Image.memory(
+                              previewBytes,
+                              fit: BoxFit.cover,
+                              gaplessPlayback: true,
+                            )
+                          else
+                            Icon(
+                              Icons.videocam_outlined,
+                              size: 56,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                          ColoredBox(
+                            color: Colors.black.withValues(alpha: 0.18),
+                          ),
+                          Center(
+                            child: loading
+                                ? const SizedBox(
+                                    width: 34,
+                                    height: 34,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 3,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Container(
+                                    width: 58,
+                                    height: 58,
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.56,
+                                      ),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.play_arrow_rounded,
+                                      color: Colors.white,
+                                      size: 38,
+                                    ),
+                                  ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        return Column(
+          mainAxisSize: widget.fillAvailableHeight
+              ? MainAxisSize.max
+              : MainAxisSize.min,
+          children: [
+            if (widget.fillAvailableHeight)
+              Expanded(child: videoPane)
+            else
+              videoPane,
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                IconButton(
+                  onPressed: playAction,
+                  icon: Icon(Icons.play_circle_outline, color: controlColor),
+                ),
+                Expanded(
+                  child: Text(
+                    loading && _playWhenLoaded
+                        ? context.strings.localized(
+                            en: 'Loading video...',
+                            ja: '動画を読み込み中...',
+                            zh: '正在加载视频...',
+                            ko: '동영상을 불러오는 중...',
+                            es: 'Cargando video...',
+                            de: 'Video wird geladen...',
+                          )
+                        : context.strings.tapToPlayVideo,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: secondaryControlColor,
+                    ),
+                  ),
+                ),
+                if (widget.showShareAction)
+                  IconButton(
+                    onPressed: () =>
+                        _shareAttachment(context, ref, widget.attachment),
+                    icon: Icon(Icons.ios_share_outlined, color: controlColor),
+                    tooltip: context.strings.share,
+                  ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Uint8List? _decodeVideoPreviewBytes() {
+    final encoded = widget.attachment.previewBytesBase64;
+    if (encoded == null || encoded.isEmpty) {
+      return null;
+    }
+    try {
+      return base64Decode(encoded);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  Future<void> _openFullScreen() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      widget.onOpenFullScreen?.call();
+      return;
+    }
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      barrierColor: Colors.black.withValues(alpha: 0.88),
+      pageBuilder: (context, _, _) => _VideoControllerLightboxDialog(
+        attachment: widget.attachment,
+        controller: controller,
+        onShare: widget.showShareAction
+            ? () => _shareAttachment(context, ref, widget.attachment)
+            : null,
+      ),
+      transitionBuilder: (context, animation, _, child) => FadeTransition(
+        opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+        child: child,
+      ),
+    );
+    if (mounted) {
+      setState(() {
+        _videoViewGeneration += 1;
+        _wasPlaying = controller.value.isPlaying;
+        _position = controller.value.position;
+        _duration = controller.value.duration;
+      });
+    }
   }
 
   void _togglePlayback(VideoPlayerController controller) {
