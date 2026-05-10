@@ -39,6 +39,8 @@ import '../domain/note_entry.dart';
 import '../domain/note_tags.dart';
 import '../domain/vault_models.dart';
 import 'home_providers.dart';
+import 'web_video_object_url_stub.dart'
+    if (dart.library.html) 'web_video_object_url_web.dart';
 
 const _appStoreId = String.fromEnvironment('HIMEMO_APP_STORE_ID');
 const _androidStorePackageName = 'org.ruhenheim.himemo';
@@ -54,6 +56,8 @@ const _appAuthorUrl = 'https://ruhenheim.org/';
 enum AppSection { notes, calendar, insights, settings }
 
 final _noteOverlaySheetDepth = ValueNotifier<int>(0);
+final _mobileNoteDetailSheetDepth = ValueNotifier<int>(0);
+final _mobileNoteDetailCloseRequests = ValueNotifier<int>(0);
 
 void _pushNoteOverlaySheet() {
   _noteOverlaySheetDepth.value = _noteOverlaySheetDepth.value + 1;
@@ -63,6 +67,21 @@ void _popNoteOverlaySheet() {
   if (_noteOverlaySheetDepth.value > 0) {
     _noteOverlaySheetDepth.value = _noteOverlaySheetDepth.value - 1;
   }
+}
+
+void _pushMobileNoteDetailSheet() {
+  _mobileNoteDetailSheetDepth.value = _mobileNoteDetailSheetDepth.value + 1;
+}
+
+void _popMobileNoteDetailSheet() {
+  if (_mobileNoteDetailSheetDepth.value > 0) {
+    _mobileNoteDetailSheetDepth.value = _mobileNoteDetailSheetDepth.value - 1;
+  }
+}
+
+void _requestMobileNoteDetailClose() {
+  _mobileNoteDetailCloseRequests.value =
+      _mobileNoteDetailCloseRequests.value + 1;
 }
 
 void _debugNotePerf(String message) {
@@ -99,6 +118,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   AppSection? _lastObservedSection;
   bool _noteOverlayWasOpen = false;
   DateTime? _suppressProfileAccessUntil;
+  Timer? _profileAccessSuppressionTimer;
 
   @override
   void initState() {
@@ -108,6 +128,7 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   @override
   void dispose() {
+    _profileAccessSuppressionTimer?.cancel();
     _noteOverlaySheetDepth.removeListener(_handleNoteOverlayChanged);
     super.dispose();
   }
@@ -117,6 +138,16 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (_noteOverlayWasOpen && !noteOverlayOpen) {
       _suppressProfileAccessUntil = DateTime.now().add(
         const Duration(milliseconds: 450),
+      );
+      _profileAccessSuppressionTimer?.cancel();
+      _profileAccessSuppressionTimer = Timer(
+        const Duration(milliseconds: 450),
+        () {
+          _suppressProfileAccessUntil = null;
+          if (mounted) {
+            setState(() {});
+          }
+        },
       );
     }
     _noteOverlayWasOpen = noteOverlayOpen;
@@ -157,6 +188,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     final profileUnlocking = ref.watch(
       privateProfileUnlockControllerProvider.select((value) => value.isLoading),
     );
+    final profileAccessBlocked = _profileAccessBlocked;
     final privateProfileActive =
         !adminMode && activePrivateProfileLabel != null;
     final privateProfileActiveColor = Theme.of(context).colorScheme.primary;
@@ -200,7 +232,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                     child: InkWell(
                       key: AppShell.privateProfileAccessKey,
                       borderRadius: BorderRadius.circular(999),
-                      onTap: noteOverlayOpen || profileUnlocking
+                      onTap: profileAccessBlocked || profileUnlocking
                           ? null
                           : () => _handleProfileAccessTap(context, ref),
                       child: Padding(
@@ -259,9 +291,9 @@ class _AppShellState extends ConsumerState<AppShell> {
                     dimension: 40,
                     child: Semantics(
                       button: true,
-                      enabled: !noteOverlayOpen && !profileUnlocking,
+                      enabled: !profileAccessBlocked && !profileUnlocking,
                       label: effectiveProfileAccessTooltip,
-                      onTap: noteOverlayOpen || profileUnlocking
+                      onTap: profileAccessBlocked || profileUnlocking
                           ? null
                           : () => _handleProfileAccessTap(context, ref),
                       child: Material(
@@ -271,7 +303,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                         child: InkWell(
                           key: AppShell.privateProfileAccessKey,
                           customBorder: const CircleBorder(),
-                          onTap: noteOverlayOpen || profileUnlocking
+                          onTap: profileAccessBlocked || profileUnlocking
                               ? null
                               : () => _handleProfileAccessTap(context, ref),
                           child: Center(
@@ -441,6 +473,10 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (!force && _noteOverlaySheetDepth.value <= 0) {
       return;
     }
+    if (_mobileNoteDetailSheetDepth.value > 0) {
+      _requestMobileNoteDetailClose();
+      return;
+    }
     final rootNavigator = Navigator.of(context, rootNavigator: true);
     if (rootNavigator.canPop()) {
       rootNavigator.pop();
@@ -481,14 +517,27 @@ class _AppBrandTitle extends StatelessWidget {
             width: 28,
             height: 28,
             fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return ColoredBox(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                child: Icon(
+                  Icons.lock_outline_rounded,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                ),
+              );
+            },
           ),
         ),
         const SizedBox(width: 10),
-        Text(
-          'HiMemo',
-          style: Theme.of(
-            context,
-          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+        Flexible(
+          child: Text(
+            'HiMemo',
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
         ),
       ],
     );
@@ -797,49 +846,69 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final initialIndex = visibleNotes.indexWhere(
       (entry) => entry.id == note.id,
     );
+    BuildContext? sheetContextForClose;
+    void handleCloseRequest() {
+      final sheetContext = sheetContextForClose;
+      if (sheetContext != null && sheetContext.mounted) {
+        Navigator.of(sheetContext).pop();
+      }
+    }
+
     _pushNoteOverlaySheet();
+    _pushMobileNoteDetailSheet();
+    _mobileNoteDetailCloseRequests.addListener(handleCloseRequest);
     try {
       await showModalBottomSheet<void>(
         context: hostContext,
         isScrollControlled: true,
         showDragHandle: false,
-        useRootNavigator: true,
+        useRootNavigator: false,
         useSafeArea: true,
         builder: (sheetContext) {
+          sheetContextForClose = sheetContext;
           final mediaQuery = MediaQuery.of(sheetContext);
-          return SizedBox(
-            height: mediaQuery.size.height - mediaQuery.padding.top,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 6, 10, 12),
-              child: _NoteDetailPager(
-                notes: visibleNotes,
-                selectedIndex: initialIndex < 0 ? 0 : initialIndex,
-                onPageChanged: (index) => ref
-                    .read(selectedNoteIdProvider.notifier)
-                    .select(visibleNotes[index].id),
-                onEdit: (selectedNote) async {
-                  Navigator.of(sheetContext).pop();
-                  await showNoteEditorSheet(
-                    hostContext,
-                    ref,
-                    note: selectedNote,
-                  );
-                },
-                onDelete: (selectedNote) async {
-                  Navigator.of(sheetContext).pop();
-                  await _deleteNote(hostContext, selectedNote);
-                },
-                onClose: () => Navigator.of(sheetContext).pop(),
-                onTagTap: (tag) {
-                  Navigator.of(sheetContext).pop();
-                  _applyTagFilter(hostContext, tag);
-                },
-              ),
-            ),
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final sheetHeight = constraints.maxHeight.isFinite
+                  ? constraints.maxHeight
+                  : mediaQuery.size.height - mediaQuery.padding.top;
+              return SizedBox(
+                height: sheetHeight,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 6, 10, 12),
+                  child: _NoteDetailPager(
+                    notes: visibleNotes,
+                    selectedIndex: initialIndex < 0 ? 0 : initialIndex,
+                    onPageChanged: (index) => ref
+                        .read(selectedNoteIdProvider.notifier)
+                        .select(visibleNotes[index].id),
+                    onEdit: (selectedNote) async {
+                      Navigator.of(sheetContext).pop();
+                      await showNoteEditorSheet(
+                        hostContext,
+                        ref,
+                        note: selectedNote,
+                      );
+                    },
+                    onDelete: (selectedNote) async {
+                      Navigator.of(sheetContext).pop();
+                      await _deleteNote(hostContext, selectedNote);
+                    },
+                    onClose: () => Navigator.of(sheetContext).pop(),
+                    onTagTap: (tag) {
+                      Navigator.of(sheetContext).pop();
+                      _applyTagFilter(hostContext, tag);
+                    },
+                  ),
+                ),
+              );
+            },
           );
         },
       );
     } finally {
+      _mobileNoteDetailCloseRequests.removeListener(handleCloseRequest);
+      _popMobileNoteDetailSheet();
       _popNoteOverlaySheet();
     }
   }
@@ -3372,6 +3441,7 @@ class SettingsScreen extends ConsumerWidget {
                 color: Theme.of(context).colorScheme.error,
               ),
             ),
+            const SizedBox(height: 10),
             Align(
               alignment: Alignment.centerLeft,
               child: TextButton.icon(
@@ -8209,8 +8279,13 @@ class _NoteDetailPager extends ConsumerStatefulWidget {
 }
 
 class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
+  static const double _bottomDismissThreshold = 72;
+  static const Duration _bottomDismissCloseDelay = Duration(milliseconds: 320);
   late final PageController _pageController;
   int? _programmaticPageTarget;
+  double _bottomDismissPull = 0;
+  bool _bottomDismissClosing = false;
+  bool _detailScrollAtBottom = false;
 
   @override
   void initState() {
@@ -8250,6 +8325,109 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
     super.dispose();
   }
 
+  void _applyBottomDismissPull(double delta) {
+    if (widget.onClose == null || _bottomDismissClosing || delta <= 0) {
+      return;
+    }
+    final nextPull = (_bottomDismissPull + delta).clamp(
+      0.0,
+      _bottomDismissThreshold,
+    );
+    if (nextPull != _bottomDismissPull) {
+      setState(() {
+        _bottomDismissPull = nextPull;
+      });
+    }
+    if (nextPull >= _bottomDismissThreshold) {
+      _bottomDismissClosing = true;
+      Future<void>.delayed(_bottomDismissCloseDelay, () {
+        if (mounted) {
+          widget.onClose?.call();
+        }
+      });
+    }
+  }
+
+  void _resetBottomDismissPull() {
+    if (_bottomDismissPull == 0) {
+      return;
+    }
+    setState(() {
+      _bottomDismissPull = 0;
+    });
+  }
+
+  bool _handleDetailScrollNotification(ScrollNotification notification) {
+    if (widget.onClose == null ||
+        _bottomDismissClosing ||
+        notification.metrics.axis != Axis.vertical) {
+      return false;
+    }
+
+    final metrics = notification.metrics;
+    final isAtBottom = metrics.pixels >= metrics.maxScrollExtent - 2;
+    _detailScrollAtBottom = isAtBottom;
+    if (notification is OverscrollNotification &&
+        isAtBottom &&
+        notification.overscroll > 0) {
+      _applyBottomDismissPull(notification.overscroll);
+      return false;
+    }
+
+    if (notification is ScrollStartNotification ||
+        notification is ScrollUpdateNotification) {
+      if (!isAtBottom && _bottomDismissPull != 0) {
+        _resetBottomDismissPull();
+      }
+      return false;
+    }
+
+    if (notification is ScrollEndNotification && _bottomDismissPull != 0) {
+      _resetBottomDismissPull();
+    }
+    return false;
+  }
+
+  void _handleDetailPointerMove(PointerMoveEvent event) {
+    if (!_detailScrollAtBottom) {
+      _resetBottomDismissPull();
+      return;
+    }
+    if (event.delta.dy < 0) {
+      _applyBottomDismissPull(-event.delta.dy);
+    } else if (event.delta.dy > 0) {
+      _resetBottomDismissPull();
+    }
+  }
+
+  void _handleDetailPointerSignal(PointerSignalEvent event) {
+    if (!_detailScrollAtBottom) {
+      _resetBottomDismissPull();
+      return;
+    }
+    if (event is PointerScrollEvent && event.scrollDelta.dy > 0) {
+      _applyBottomDismissPull(event.scrollDelta.dy * 0.3);
+    }
+  }
+
+  void _handleHeaderDismissDragUpdate(DragUpdateDetails details) {
+    if (widget.onClose == null || _bottomDismissClosing) {
+      return;
+    }
+    final delta = details.primaryDelta ?? 0;
+    if (delta > 0) {
+      _applyBottomDismissPull(delta);
+    } else if (delta < 0) {
+      _resetBottomDismissPull();
+    }
+  }
+
+  void _handleHeaderDismissDragEnd(DragEndDetails details) {
+    if (!_bottomDismissClosing) {
+      _resetBottomDismissPull();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
@@ -8258,89 +8436,192 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 6),
-          child: Row(
-            children: [
-              if (widget.onClose != null)
+        GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onVerticalDragUpdate: _handleHeaderDismissDragUpdate,
+          onVerticalDragEnd: _handleHeaderDismissDragEnd,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                if (widget.onClose != null)
+                  IconButton(
+                    onPressed: widget.onClose,
+                    icon: const Icon(Icons.close_rounded),
+                    tooltip: strings.close,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                const Spacer(),
                 IconButton(
-                  onPressed: widget.onClose,
-                  icon: const Icon(Icons.close_rounded),
-                  tooltip: strings.close,
+                  onPressed: canMovePrevious
+                      ? () => _pageController.previousPage(
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOut,
+                        )
+                      : null,
+                  icon: const Icon(Icons.chevron_left_rounded),
+                  tooltip: strings.text('home.previous.note'),
                   visualDensity: VisualDensity.compact,
                 ),
-              const Spacer(),
-              IconButton(
-                onPressed: canMovePrevious
-                    ? () => _pageController.previousPage(
-                        duration: const Duration(milliseconds: 180),
-                        curve: Curves.easeOut,
-                      )
-                    : null,
-                icon: const Icon(Icons.chevron_left_rounded),
-                tooltip: strings.text('home.previous.note'),
-                visualDensity: VisualDensity.compact,
-              ),
-              IconButton(
-                onPressed: canMoveNext
-                    ? () => _pageController.nextPage(
-                        duration: const Duration(milliseconds: 180),
-                        curve: Curves.easeOut,
-                      )
-                    : null,
-                icon: const Icon(Icons.chevron_right_rounded),
-                tooltip: strings.text('home.next.note'),
-                visualDensity: VisualDensity.compact,
-              ),
-              Text(
-                '${widget.selectedIndex + 1} / ${widget.notes.length}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: _mutedTextColor(context),
+                IconButton(
+                  onPressed: canMoveNext
+                      ? () => _pageController.nextPage(
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOut,
+                        )
+                      : null,
+                  icon: const Icon(Icons.chevron_right_rounded),
+                  tooltip: strings.text('home.next.note'),
+                  visualDensity: VisualDensity.compact,
                 ),
-              ),
-            ],
+                Text(
+                  '${widget.selectedIndex + 1} / ${widget.notes.length}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: _mutedTextColor(context),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         Expanded(
-          child: PageView.builder(
-            controller: _pageController,
-            itemCount: widget.notes.length,
-            onPageChanged: (index) {
-              final programmaticTarget = _programmaticPageTarget;
-              if (programmaticTarget != null) {
-                if (index == programmaticTarget) {
-                  _programmaticPageTarget = null;
-                }
-                _debugNotePerf(
-                  'detail pager ignored programmatic onPageChanged index=$index target=$programmaticTarget',
-                );
-                return;
-              }
-              widget.onPageChanged(index);
-            },
-            itemBuilder: (context, index) {
-              final note = widget.notes[index];
-              _debugNotePerf(
-                'detail page build index=$index ${_notePerfLabel(note)}',
-              );
-              return Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: _NoteDetailPane(
-                  note: note,
-                  isActive: index == widget.selectedIndex,
-                  vaultName: _vaultDisplayName(
-                    context,
-                    ref.watch(vaultByIdProvider(note.vaultId)),
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _handleDetailScrollNotification,
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerMove: _handleDetailPointerMove,
+              onPointerSignal: _handleDetailPointerSignal,
+              child: Stack(
+                children: [
+                  PageView.builder(
+                    controller: _pageController,
+                    itemCount: widget.notes.length,
+                    onPageChanged: (index) {
+                      final programmaticTarget = _programmaticPageTarget;
+                      if (programmaticTarget != null) {
+                        if (index == programmaticTarget) {
+                          _programmaticPageTarget = null;
+                        }
+                        _debugNotePerf(
+                          'detail pager ignored programmatic onPageChanged index=$index target=$programmaticTarget',
+                        );
+                        return;
+                      }
+                      widget.onPageChanged(index);
+                    },
+                    itemBuilder: (context, index) {
+                      final note = widget.notes[index];
+                      _debugNotePerf(
+                        'detail page build index=$index ${_notePerfLabel(note)}',
+                      );
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: _NoteDetailPane(
+                          note: note,
+                          isActive: index == widget.selectedIndex,
+                          vaultName: _vaultDisplayName(
+                            context,
+                            ref.watch(vaultByIdProvider(note.vaultId)),
+                          ),
+                          onEdit: () => widget.onEdit(note),
+                          onDelete: () => widget.onDelete(note),
+                          onTagTap: widget.onTagTap,
+                        ),
+                      );
+                    },
                   ),
-                  onEdit: () => widget.onEdit(note),
-                  onDelete: () => widget.onDelete(note),
-                  onTagTap: widget.onTagTap,
-                ),
-              );
-            },
+                  if (widget.onClose != null)
+                    _BottomPullDismissHint(
+                      progress: _bottomDismissPull / _bottomDismissThreshold,
+                    ),
+                ],
+              ),
+            ),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _BottomPullDismissHint extends StatelessWidget {
+  const _BottomPullDismissHint({required this.progress});
+
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveProgress = progress.clamp(0.0, 1.0);
+    final visible = effectiveProgress > 0.04;
+    final colorScheme = Theme.of(context).colorScheme;
+    final strings = context.strings;
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 16,
+      child: IgnorePointer(
+        child: AnimatedOpacity(
+          opacity: visible ? 1 : 0,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+          child: AnimatedSlide(
+            offset: Offset(0, visible ? 0 : 0.2),
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            child: Center(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: colorScheme.inverseSurface.withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(999),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.18),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Transform.translate(
+                        offset: Offset(0, 3 * effectiveProgress),
+                        child: Icon(
+                          effectiveProgress >= 1
+                              ? Icons.keyboard_double_arrow_down_rounded
+                              : Icons.keyboard_arrow_down_rounded,
+                          color: colorScheme.onInverseSurface,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        effectiveProgress >= 0.92
+                            ? strings.close
+                            : strings.localized(
+                                en: 'Keep scrolling to close',
+                                ja: 'さらに下へスクロールして閉じる',
+                                zh: '继续向下滚动以关闭',
+                                ko: '더 아래로 스크롤해 닫기',
+                                es: 'Sigue desplazando para cerrar',
+                                de: 'Weiter scrollen zum Schließen',
+                              ),
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(color: colorScheme.onInverseSurface),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -9161,6 +9442,19 @@ class _SettingsSectionLabel extends StatelessWidget {
   }
 }
 
+final Map<String, Future<bool>> _settingsIconAssetAvailability = {};
+
+Future<bool> _isSettingsIconAssetAvailable(String assetPath) {
+  return _settingsIconAssetAvailability.putIfAbsent(assetPath, () async {
+    try {
+      final data = await rootBundle.load(assetPath);
+      return data.lengthInBytes > 0;
+    } catch (_) {
+      return false;
+    }
+  });
+}
+
 class _SettingsSectionIcon extends StatelessWidget {
   const _SettingsSectionIcon({required this.assetPath});
 
@@ -9177,12 +9471,46 @@ class _SettingsSectionIcon extends StatelessWidget {
         color: colorScheme.primary.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: SvgPicture.asset(
-        assetPath,
-        colorFilter: ColorFilter.mode(colorScheme.primary, BlendMode.srcIn),
+      child: FutureBuilder<bool>(
+        future: _isSettingsIconAssetAvailable(assetPath),
+        builder: (context, snapshot) {
+          if (snapshot.data == true) {
+            return SvgPicture.asset(
+              assetPath,
+              colorFilter: ColorFilter.mode(
+                colorScheme.primary,
+                BlendMode.srcIn,
+              ),
+            );
+          }
+          return Icon(
+            _settingsFallbackIcon(assetPath),
+            size: 22,
+            color: colorScheme.primary,
+          );
+        },
       ),
     );
   }
+}
+
+IconData _settingsFallbackIcon(String assetPath) {
+  if (assetPath.contains('sync')) {
+    return Icons.sync_rounded;
+  }
+  if (assetPath.contains('storage')) {
+    return Icons.inventory_2_rounded;
+  }
+  if (assetPath.contains('security') || assetPath.contains('access')) {
+    return Icons.lock_rounded;
+  }
+  if (assetPath.contains('appearance')) {
+    return Icons.palette_rounded;
+  }
+  if (assetPath.contains('about')) {
+    return Icons.info_outline_rounded;
+  }
+  return Icons.tune_rounded;
 }
 
 class _ColorThemePicker extends StatefulWidget {
@@ -11316,9 +11644,11 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   bool _saved = false;
   bool _draftLoaded = false;
   bool _editorDisposed = false;
+  bool _attachmentImportBusy = false;
   Timer? _draftSaveTimer;
   bool _discardingDraft = false;
   bool _draftRestoreSnackBarActive = false;
+  ScaffoldMessengerState? _scaffoldMessenger;
 
   @override
   void initState() {
@@ -11372,6 +11702,12 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     }
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scaffoldMessenger = ScaffoldMessenger.maybeOf(context);
+  }
+
   String _initialNewNoteVaultId() {
     final unlockedVaultId = ref.read(unlockedPrivateProfileVaultIdProvider);
     if (unlockedVaultId != null) {
@@ -11412,7 +11748,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _editorDisposed = true;
     _draftSaveTimer?.cancel();
     if (_draftRestoreSnackBarActive) {
-      ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+      _scaffoldMessenger?.hideCurrentSnackBar();
     }
     final shouldKeepDraft = !_saved && widget.note == null && _hasDraftContent;
     if (shouldKeepDraft && _selectedVaultId != null) {
@@ -11467,7 +11803,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (_editorDisposed) {
       return;
     }
-    final next = _hasSubmitContent;
+    final next = _hasSubmitContent && !_attachmentImportBusy;
     if (_canSubmitNotifier.value != next) {
       _canSubmitNotifier.value = next;
     }
@@ -11511,6 +11847,24 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
           if (block.attachment != null) {
             drafts.add(_RichBlockDraft.attachment(block.attachment!));
           }
+      }
+    }
+    final noteTitle = widget.note?.title.trim() ?? '';
+    if (noteTitle.isNotEmpty) {
+      final firstParagraphIndex = drafts.indexWhere(
+        (block) => block.type == NoteBlockType.paragraph,
+      );
+      if (firstParagraphIndex == -1) {
+        drafts.insert(0, _RichBlockDraft.paragraph(noteTitle));
+      } else {
+        final paragraph = drafts[firstParagraphIndex];
+        final text = paragraph.controller?.text ?? '';
+        final firstLine = text.split('\n').first.trim();
+        if (text.trim().isEmpty) {
+          paragraph.controller?.text = noteTitle;
+        } else if (firstLine != noteTitle) {
+          paragraph.controller?.text = '$noteTitle\n$text';
+        }
       }
     }
     if (drafts.isEmpty) {
@@ -11676,10 +12030,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         location: _location,
       );
       if (!_draftHasContent(snapshot)) {
-        unawaited(ref.read(noteEditorDraftStoreProvider).clear());
+        unawaited(_draftStore.clear());
         return;
       }
-      ref.read(noteEditorDraftStoreProvider).save(snapshot);
+      unawaited(_draftStore.save(snapshot));
     });
   }
 
@@ -11942,129 +12296,141 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                             strings: strings,
                           ),
                         ),
-                        const Spacer(),
-                        Wrap(
-                          spacing: 4,
-                          children: [
-                            IconButton(
-                              tooltip: strings.pinThisNote,
-                              onPressed: () {
-                                setState(() {
-                                  _isPinned = !_isPinned;
-                                });
-                                _scheduleDraftPersist();
-                              },
-                              icon: Icon(
-                                _isPinned
-                                    ? Icons.push_pin_rounded
-                                    : Icons.push_pin_outlined,
-                                color: _isPinned
-                                    ? Theme.of(context).colorScheme.primary
-                                    : _mutedTextColor(context),
-                              ),
-                            ),
-                            IconButton(
-                              tooltip: _captureLocationEnabled
-                                  ? strings.currentLocationLabel
-                                  : strings.addCurrentLocation,
-                              onPressed: _locationBusy
-                                  ? null
-                                  : _toggleLocationCapture,
-                              icon: _locationBusy
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Align(
+                            alignment: AlignmentDirectional.centerEnd,
+                            child: Wrap(
+                              spacing: 4,
+                              alignment: WrapAlignment.end,
+                              children: [
+                                IconButton(
+                                  tooltip: strings.pinThisNote,
+                                  onPressed: () {
+                                    setState(() {
+                                      _isPinned = !_isPinned;
+                                    });
+                                    _scheduleDraftPersist();
+                                  },
+                                  icon: Icon(
+                                    _isPinned
+                                        ? Icons.push_pin_rounded
+                                        : Icons.push_pin_outlined,
+                                    color: _isPinned
+                                        ? Theme.of(context).colorScheme.primary
+                                        : _mutedTextColor(context),
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: _captureLocationEnabled
+                                      ? strings.currentLocationLabel
+                                      : strings.addCurrentLocation,
+                                  onPressed: _locationBusy
+                                      ? null
+                                      : _toggleLocationCapture,
+                                  icon: _locationBusy
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : Icon(
+                                          _location != null
+                                              ? Icons.my_location_rounded
+                                              : Icons.my_location_outlined,
+                                          color:
+                                              _captureLocationEnabled ||
+                                                  _location != null
+                                              ? Theme.of(
+                                                  context,
+                                                ).colorScheme.primary
+                                              : _mutedTextColor(context),
+                                        ),
+                                ),
+                                PopupMenuButton<MediaImportAction>(
+                                  key: const Key('note-capture-media-menu'),
+                                  tooltip: strings.captureMedia,
+                                  enabled: !_attachmentImportBusy,
+                                  icon: Icon(
+                                    Icons.photo_camera_outlined,
+                                    color: _attachmentImportBusy
+                                        ? Theme.of(context).disabledColor
+                                        : _mutedTextColor(context),
+                                  ),
+                                  onSelected: _handleAttachmentAction,
+                                  itemBuilder: (context) => [
+                                    if (!kIsWeb)
+                                      PopupMenuItem(
+                                        value: MediaImportAction.takePhoto,
+                                        child: _MediaMenuEntry(
+                                          icon: Icons.photo_camera_outlined,
+                                          label: strings.takePhoto,
+                                        ),
                                       ),
-                                    )
-                                  : Icon(
-                                      _location != null
-                                          ? Icons.my_location_rounded
-                                          : Icons.my_location_outlined,
-                                      color:
-                                          _captureLocationEnabled ||
-                                              _location != null
-                                          ? Theme.of(
-                                              context,
-                                            ).colorScheme.primary
-                                          : _mutedTextColor(context),
+                                    if (!kIsWeb)
+                                      PopupMenuItem(
+                                        value: MediaImportAction.recordVideo,
+                                        child: _MediaMenuEntry(
+                                          icon: Icons.videocam_outlined,
+                                          label: strings.recordVideo,
+                                        ),
+                                      ),
+                                    PopupMenuItem(
+                                      value: MediaImportAction.recordAudio,
+                                      child: _MediaMenuEntry(
+                                        icon: Icons.mic_none_rounded,
+                                        label: strings.recordAudio,
+                                      ),
                                     ),
-                            ),
-                            PopupMenuButton<MediaImportAction>(
-                              key: const Key('note-capture-media-menu'),
-                              tooltip: strings.captureMedia,
-                              icon: Icon(
-                                Icons.photo_camera_outlined,
-                                color: _mutedTextColor(context),
-                              ),
-                              onSelected: _handleAttachmentAction,
-                              itemBuilder: (context) => [
-                                if (!kIsWeb)
-                                  PopupMenuItem(
-                                    value: MediaImportAction.takePhoto,
-                                    child: _MediaMenuEntry(
-                                      icon: Icons.photo_camera_outlined,
-                                      label: strings.takePhoto,
+                                  ],
+                                ),
+                                PopupMenuButton<MediaImportAction>(
+                                  key: const Key('note-import-file-menu'),
+                                  tooltip: strings.importFiles,
+                                  enabled: !_attachmentImportBusy,
+                                  icon: Icon(
+                                    Icons.folder_open_outlined,
+                                    color: _attachmentImportBusy
+                                        ? Theme.of(context).disabledColor
+                                        : _mutedTextColor(context),
+                                  ),
+                                  onSelected: _handleAttachmentAction,
+                                  itemBuilder: (context) => [
+                                    PopupMenuItem(
+                                      value: MediaImportAction.pickPhoto,
+                                      child: _MediaMenuEntry(
+                                        icon: Icons.photo_library_outlined,
+                                        label: strings.pickPhoto,
+                                      ),
                                     ),
-                                  ),
-                                if (!kIsWeb)
-                                  PopupMenuItem(
-                                    value: MediaImportAction.recordVideo,
-                                    child: _MediaMenuEntry(
-                                      icon: Icons.videocam_outlined,
-                                      label: strings.recordVideo,
+                                    PopupMenuItem(
+                                      value: MediaImportAction.pickVideo,
+                                      child: _MediaMenuEntry(
+                                        icon: Icons.video_library_outlined,
+                                        label: strings.pickVideo,
+                                      ),
                                     ),
-                                  ),
-                                PopupMenuItem(
-                                  value: MediaImportAction.recordAudio,
-                                  child: _MediaMenuEntry(
-                                    icon: Icons.mic_none_rounded,
-                                    label: strings.recordAudio,
-                                  ),
+                                    PopupMenuItem(
+                                      value: MediaImportAction.pickAudio,
+                                      child: _MediaMenuEntry(
+                                        icon: Icons.graphic_eq_rounded,
+                                        label: strings.pickAudio,
+                                      ),
+                                    ),
+                                    PopupMenuItem(
+                                      value: MediaImportAction.pickFile,
+                                      child: _MediaMenuEntry(
+                                        icon: Icons.insert_drive_file_outlined,
+                                        label: strings.pickFile,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
-                            PopupMenuButton<MediaImportAction>(
-                              key: const Key('note-import-file-menu'),
-                              tooltip: strings.importFiles,
-                              icon: Icon(
-                                Icons.folder_open_outlined,
-                                color: _mutedTextColor(context),
-                              ),
-                              onSelected: _handleAttachmentAction,
-                              itemBuilder: (context) => [
-                                PopupMenuItem(
-                                  value: MediaImportAction.pickPhoto,
-                                  child: _MediaMenuEntry(
-                                    icon: Icons.photo_library_outlined,
-                                    label: strings.pickPhoto,
-                                  ),
-                                ),
-                                PopupMenuItem(
-                                  value: MediaImportAction.pickVideo,
-                                  child: _MediaMenuEntry(
-                                    icon: Icons.video_library_outlined,
-                                    label: strings.pickVideo,
-                                  ),
-                                ),
-                                PopupMenuItem(
-                                  value: MediaImportAction.pickAudio,
-                                  child: _MediaMenuEntry(
-                                    icon: Icons.graphic_eq_rounded,
-                                    label: strings.pickAudio,
-                                  ),
-                                ),
-                                PopupMenuItem(
-                                  value: MediaImportAction.pickFile,
-                                  child: _MediaMenuEntry(
-                                    icon: Icons.insert_drive_file_outlined,
-                                    label: strings.pickFile,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                          ),
                         ),
                       ],
                     ),
@@ -12270,6 +12636,45 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
               ),
             ),
             SizedBox(height: _editorMode == NoteEditorMode.rich ? 8 : 16),
+            SizedBox(
+              height: 22,
+              child: Center(
+                child: AnimatedOpacity(
+                  opacity: _attachmentImportBusy ? 1 : 0,
+                  duration: const Duration(milliseconds: 120),
+                  child: IgnorePointer(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(width: 8),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 180),
+                          child: Text(
+                            strings.localized(
+                              en: 'Attaching...',
+                              ja: '添付処理中...',
+                              zh: '正在附加...',
+                              ko: '첨부 중...',
+                              es: 'Adjuntando...',
+                              de: 'Wird angehängt...',
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.labelMedium
+                                ?.copyWith(color: _mutedTextColor(context)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
             Row(
               children: [
                 TextButton(
@@ -12282,7 +12687,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                   builder: (context, canSubmit, _) {
                     return FilledButton(
                       key: const Key('save-note-button'),
-                      onPressed: canSubmit && _selectedVaultId != null
+                      onPressed:
+                          canSubmit &&
+                              _selectedVaultId != null &&
+                              !_attachmentImportBusy
                           ? _save
                           : null,
                       child: Text(
@@ -12402,96 +12810,128 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   Future<void> _handleAttachmentAction(MediaImportAction action) async {
+    if (_attachmentImportBusy) {
+      return;
+    }
     if (action == MediaImportAction.addLocation) {
       await _toggleLocationCapture();
       return;
     }
-    final MediaImportResult result;
-    if (action == MediaImportAction.recordAudio) {
-      // ignore: use_build_context_synchronously
-      result = await _showAudioRecordingDialog(context, ref);
-    } else {
-      final mediaImportService = ref.read(mediaImportServiceProvider);
-      result = await mediaImportService.importAttachment(action);
-    }
-    if (!mounted) {
-      return;
-    }
-    final attachment = result.attachment;
-    if (attachment == null) {
-      final errorMessage = result.errorMessage;
-      if (errorMessage != null && errorMessage.isNotEmpty) {
-        _showEditorSnackBar(content: Text(errorMessage));
-      }
-      return;
-    }
     setState(() {
-      if (_editorMode == NoteEditorMode.quick) {
-        _attachments = [..._attachments, attachment];
+      _attachmentImportBusy = true;
+    });
+    _updateCanSubmit();
+    final strings = context.strings;
+    final MediaImportResult result;
+    try {
+      if (action == MediaImportAction.recordAudio) {
+        // ignore: use_build_context_synchronously
+        result = await _showAudioRecordingDialog(context, ref);
       } else {
-        final insertionIndex = _resolveRichInsertionIndex();
-        final nextBlocks = [..._richBlocks];
-        late final _RichBlockDraft paragraphToFocus;
-        var focusOffset = 0;
+        final mediaImportService = ref.read(mediaImportServiceProvider);
+        result = await mediaImportService.importAttachment(action);
+      }
+      if (!mounted) {
+        return;
+      }
+      final attachment = result.attachment;
+      if (attachment == null) {
+        final errorMessage = result.errorMessage;
+        if (errorMessage != null && errorMessage.isNotEmpty) {
+          _showEditorSnackBar(content: Text(errorMessage));
+        }
+        return;
+      }
+      setState(() {
+        if (_editorMode == NoteEditorMode.quick) {
+          _attachments = [..._attachments, attachment];
+        } else {
+          final insertionIndex = _resolveRichInsertionIndex();
+          final nextBlocks = [..._richBlocks];
+          late final _RichBlockDraft paragraphToFocus;
+          var focusOffset = 0;
 
-        if (insertionIndex < nextBlocks.length &&
-            nextBlocks[insertionIndex].type == NoteBlockType.paragraph) {
-          final current = nextBlocks[insertionIndex];
-          final controller = current.controller!;
-          final text = controller.text;
-          final selection = controller.selection;
-          final cursorOffset = selection.isValid
-              ? selection.baseOffset.clamp(0, text.length)
-              : text.length;
+          if (insertionIndex < nextBlocks.length &&
+              nextBlocks[insertionIndex].type == NoteBlockType.paragraph) {
+            final current = nextBlocks[insertionIndex];
+            final controller = current.controller!;
+            final text = controller.text;
+            final selection = controller.selection;
+            final cursorOffset = selection.isValid
+                ? selection.baseOffset.clamp(0, text.length)
+                : text.length;
 
-          if (text.trim().isNotEmpty) {
-            final beforeText = text.substring(0, cursorOffset);
-            final afterText = text.substring(cursorOffset);
-            current.dispose();
-            nextBlocks.removeAt(insertionIndex);
+            if (text.trim().isNotEmpty) {
+              final beforeText = text.substring(0, cursorOffset);
+              final afterText = text.substring(cursorOffset);
+              current.dispose();
+              nextBlocks.removeAt(insertionIndex);
 
-            final replacement = <_RichBlockDraft>[];
-            if (beforeText.isNotEmpty) {
-              final beforeParagraph = _RichBlockDraft.paragraph(beforeText);
-              _attachRichBlockListener(beforeParagraph);
-              replacement.add(beforeParagraph);
+              final replacement = <_RichBlockDraft>[];
+              if (beforeText.isNotEmpty) {
+                final beforeParagraph = _RichBlockDraft.paragraph(beforeText);
+                _attachRichBlockListener(beforeParagraph);
+                replacement.add(beforeParagraph);
+              }
+
+              replacement.add(_RichBlockDraft.attachment(attachment));
+
+              final afterParagraph = _RichBlockDraft.paragraph(afterText);
+              _attachRichBlockListener(afterParagraph);
+              replacement.add(afterParagraph);
+
+              nextBlocks.insertAll(insertionIndex, replacement);
+              paragraphToFocus = afterParagraph;
+              focusOffset = 0;
+            } else {
+              nextBlocks.insert(
+                insertionIndex,
+                _RichBlockDraft.attachment(attachment),
+              );
+              paragraphToFocus = current;
+              focusOffset = 0;
             }
-
-            replacement.add(_RichBlockDraft.attachment(attachment));
-
-            final afterParagraph = _RichBlockDraft.paragraph(afterText);
-            _attachRichBlockListener(afterParagraph);
-            replacement.add(afterParagraph);
-
-            nextBlocks.insertAll(insertionIndex, replacement);
-            paragraphToFocus = afterParagraph;
-            focusOffset = 0;
           } else {
-            nextBlocks.insert(
-              insertionIndex,
+            final trailingParagraph = _RichBlockDraft.paragraph();
+            _attachRichBlockListener(trailingParagraph);
+            nextBlocks.insertAll(insertionIndex, [
               _RichBlockDraft.attachment(attachment),
-            );
-            paragraphToFocus = current;
+              trailingParagraph,
+            ]);
+            paragraphToFocus = trailingParagraph;
             focusOffset = 0;
           }
-        } else {
-          final trailingParagraph = _RichBlockDraft.paragraph();
-          _attachRichBlockListener(trailingParagraph);
-          nextBlocks.insertAll(insertionIndex, [
-            _RichBlockDraft.attachment(attachment),
-            trailingParagraph,
-          ]);
-          paragraphToFocus = trailingParagraph;
-          focusOffset = 0;
-        }
 
-        _richBlocks = nextBlocks;
-        _activeRichParagraphIndex = _richBlocks.indexOf(paragraphToFocus);
-        _requestParagraphFocus(paragraphToFocus, focusOffset);
+          _richBlocks = nextBlocks;
+          _activeRichParagraphIndex = _richBlocks.indexOf(paragraphToFocus);
+          _requestParagraphFocus(paragraphToFocus, focusOffset);
+        }
+      });
+      _cancelAttachmentDelete(attachment);
+      _scheduleDraftPersist();
+    } catch (error) {
+      if (mounted) {
+        _showEditorSnackBar(
+          content: Text(
+            strings.localized(
+              en: 'Could not attach the selected file. ($error)',
+              ja: '選択したファイルを添付できませんでした。($error)',
+              zh: '无法附加所选文件。($error)',
+              ko: '선택한 파일을 첨부할 수 없습니다. ($error)',
+              es: 'No se pudo adjuntar el archivo seleccionado. ($error)',
+              de: 'Die ausgewählte Datei konnte nicht angehängt werden. ($error)',
+            ),
+          ),
+        );
       }
-    });
-    _cancelAttachmentDelete(attachment);
-    _scheduleDraftPersist();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _attachmentImportBusy = false;
+        });
+        _updateCanSubmit();
+      }
+    }
   }
 
   Future<void> _toggleLocationCapture() async {
@@ -14872,13 +15312,17 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
   Widget build(BuildContext context) {
     final attachment = widget.attachment;
     final size = widget.size;
-    if (attachment.type != AttachmentType.photo) {
-      return _AttachmentIconBox(type: attachment.type, size: size);
-    }
-
     final previewBytesBase64 = attachment.previewBytesBase64;
     if (previewBytesBase64 != null && previewBytesBase64.isNotEmpty) {
-      return _AttachmentImageBox(bytes: _decodePreviewBytes(), size: size);
+      final bytes = _decodePreviewBytes();
+      if (attachment.type == AttachmentType.video) {
+        return _AttachmentVideoImageBox(bytes: bytes, size: size);
+      }
+      return _AttachmentImageBox(bytes: bytes, size: size);
+    }
+
+    if (attachment.type != AttachmentType.photo) {
+      return _AttachmentIconBox(type: attachment.type, size: size);
     }
 
     final filePath = attachment.filePath;
@@ -14933,6 +15377,36 @@ class _AttachmentImageBox extends StatelessWidget {
         cacheWidth: imageCacheSize,
         cacheHeight: imageCacheSize,
       ),
+    );
+  }
+}
+
+class _AttachmentVideoImageBox extends StatelessWidget {
+  const _AttachmentVideoImageBox({required this.bytes, this.size = 72});
+
+  final Uint8List bytes;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        _AttachmentImageBox(bytes: bytes, size: size),
+        Container(
+          width: size * 0.42,
+          height: size * 0.42,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.52),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            Icons.play_arrow_rounded,
+            color: Colors.white,
+            size: size * 0.28,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -17169,6 +17643,7 @@ class _VideoLightboxDialog extends ConsumerWidget {
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                     child: _VideoAttachmentViewer(
                       attachment: attachment,
+                      autoLoad: true,
                       fillAvailableHeight: true,
                       showFullScreenAction: false,
                       showShareAction: false,
@@ -17181,6 +17656,239 @@ class _VideoLightboxDialog extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+class _VideoControllerLightboxDialog extends StatefulWidget {
+  const _VideoControllerLightboxDialog({
+    required this.attachment,
+    required this.controller,
+    this.onShare,
+  });
+
+  final NoteAttachment attachment;
+  final VideoPlayerController controller;
+  final VoidCallback? onShare;
+
+  @override
+  State<_VideoControllerLightboxDialog> createState() =>
+      _VideoControllerLightboxDialogState();
+}
+
+class _VideoControllerLightboxDialogState
+    extends State<_VideoControllerLightboxDialog> {
+  Duration? _dragPosition;
+
+  VideoPlayerController get _controller => widget.controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_handleControllerChanged);
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_handleControllerChanged);
+    super.dispose();
+  }
+
+  void _handleControllerChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final duration = _controller.value.duration;
+    final position = _clampMediaPosition(
+      _dragPosition ?? _controller.value.position,
+      duration,
+    );
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => Navigator.of(context).pop(),
+            ),
+          ),
+          SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close, color: Colors.white),
+                        tooltip: MaterialLocalizations.of(
+                          context,
+                        ).closeButtonTooltip,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          widget.attachment.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                      ),
+                      if (widget.onShare != null)
+                        IconButton(
+                          onPressed: widget.onShare,
+                          icon: const Icon(
+                            Icons.ios_share_outlined,
+                            color: Colors.white,
+                          ),
+                          tooltip: strings.share,
+                        ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final aspectRatio = _controller.value.aspectRatio <= 0
+                            ? 16 / 9
+                            : _controller.value.aspectRatio;
+                        return Column(
+                          children: [
+                            Expanded(
+                              child: Center(
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxWidth: constraints.maxWidth,
+                                    maxHeight: constraints.maxHeight,
+                                  ),
+                                  child: AspectRatio(
+                                    aspectRatio: aspectRatio,
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          AbsorbPointer(
+                                            child: VideoPlayer(_controller),
+                                          ),
+                                          Positioned.fill(
+                                            child: GestureDetector(
+                                              behavior: HitTestBehavior.opaque,
+                                              onTap: _togglePlayback,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                IconButton(
+                                  onPressed: _togglePlayback,
+                                  icon: Icon(
+                                    _controller.value.isPlaying
+                                        ? Icons.pause_circle_outline
+                                        : Icons.play_circle_outline,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Slider(
+                                    value: duration <= Duration.zero
+                                        ? 0
+                                        : position.inMilliseconds
+                                              .clamp(0, duration.inMilliseconds)
+                                              .toDouble(),
+                                    max: duration <= Duration.zero
+                                        ? 1
+                                        : duration.inMilliseconds.toDouble(),
+                                    onChanged: duration <= Duration.zero
+                                        ? null
+                                        : (value) {
+                                            setState(() {
+                                              _dragPosition = Duration(
+                                                milliseconds: value.round(),
+                                              );
+                                            });
+                                          },
+                                    onChangeEnd: duration <= Duration.zero
+                                        ? null
+                                        : (value) {
+                                            unawaited(_seek(value, duration));
+                                          },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Row(
+                              children: [
+                                Text(
+                                  '${_formatAudioDuration(position)} / '
+                                  '${_formatAudioDuration(duration)}',
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(color: Colors.white70),
+                                ),
+                              ],
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _togglePlayback() {
+    if (_controller.value.isPlaying) {
+      unawaited(_controller.pause());
+      return;
+    }
+    final duration = _controller.value.duration;
+    if (duration > Duration.zero &&
+        _controller.value.position >=
+            duration - const Duration(milliseconds: 250)) {
+      unawaited(
+        _controller.seekTo(Duration.zero).then((_) => _controller.play()),
+      );
+    } else {
+      unawaited(_controller.play());
+    }
+  }
+
+  Future<void> _seek(double value, Duration duration) async {
+    final target = _clampMediaPosition(
+      Duration(milliseconds: value.round()),
+      duration,
+    );
+    await _controller.seekTo(target);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _dragPosition = null;
+    });
   }
 }
 
@@ -17887,6 +18595,7 @@ class _VideoAttachmentViewer extends ConsumerStatefulWidget {
   const _VideoAttachmentViewer({
     required this.attachment,
     this.fillAvailableHeight = false,
+    this.autoLoad = false,
     this.onOpenFullScreen,
     this.showFullScreenAction = true,
     this.showShareAction = true,
@@ -17894,6 +18603,7 @@ class _VideoAttachmentViewer extends ConsumerStatefulWidget {
 
   final NoteAttachment attachment;
   final bool fillAvailableHeight;
+  final bool autoLoad;
   final VoidCallback? onOpenFullScreen;
   final bool showFullScreenAction;
   final bool showShareAction;
@@ -17907,24 +18617,44 @@ class _VideoAttachmentViewerState
     extends ConsumerState<_VideoAttachmentViewer> {
   VideoPlayerController? _controller;
   String? _tempFilePath;
+  String? _webObjectUrl;
   String? _errorMessage;
   bool _wasPlaying = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   Duration? _dragPosition;
+  int _loadGeneration = 0;
+  int _videoViewGeneration = 0;
+  bool _loading = false;
+  bool _playWhenLoaded = false;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_load());
+    if (widget.autoLoad) {
+      unawaited(_load(playWhenLoaded: false));
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _VideoAttachmentViewer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.attachment.filePath == widget.attachment.filePath &&
+        oldWidget.attachment.type == widget.attachment.type &&
+        oldWidget.attachment.label == widget.attachment.label) {
+      return;
+    }
+    unawaited(_resetAndMaybeLoad());
   }
 
   @override
   void dispose() {
+    _loadGeneration += 1;
     final controller = _controller;
     controller?.removeListener(_handleControllerChanged);
     unawaited(controller?.dispose());
     final tempFilePath = _tempFilePath;
+    final webObjectUrl = _webObjectUrl;
     if (tempFilePath != null) {
       unawaited(
         ref
@@ -17932,55 +18662,130 @@ class _VideoAttachmentViewerState
             .deleteMaterializedFile(tempFilePath),
       );
     }
+    if (webObjectUrl != null) {
+      revokeWebVideoObjectUrl(webObjectUrl);
+    }
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _resetAndMaybeLoad() async {
+    final generation = ++_loadGeneration;
+    final controller = _controller;
+    final tempFilePath = _tempFilePath;
+    final webObjectUrl = _webObjectUrl;
+    setState(() {
+      _controller = null;
+      _tempFilePath = null;
+      _webObjectUrl = null;
+      _errorMessage = null;
+      _wasPlaying = false;
+      _position = Duration.zero;
+      _duration = Duration.zero;
+      _dragPosition = null;
+      _loading = false;
+      _playWhenLoaded = false;
+    });
+    controller?.removeListener(_handleControllerChanged);
+    await controller?.dispose();
+    if (tempFilePath != null) {
+      await ref
+          .read(encryptedAttachmentStoreProvider)
+          .deleteMaterializedFile(tempFilePath);
+    }
+    if (webObjectUrl != null) {
+      revokeWebVideoObjectUrl(webObjectUrl);
+    }
+    if (!mounted || generation != _loadGeneration) {
+      return;
+    }
+    if (widget.autoLoad) {
+      await _load(playWhenLoaded: false);
+    }
+  }
+
+  Future<void> _load({required bool playWhenLoaded}) async {
+    if (_loading || _controller != null) {
+      return;
+    }
+    final generation = ++_loadGeneration;
+    setState(() {
+      _loading = true;
+      _playWhenLoaded = playWhenLoaded;
+      _errorMessage = null;
+    });
+    await _loadAttachment(
+      generation: generation,
+      playWhenLoaded: playWhenLoaded,
+    );
+  }
+
+  Future<void> _loadAttachment({
+    required int generation,
+    required bool playWhenLoaded,
+  }) async {
     final filePath = widget.attachment.filePath;
     if (filePath == null || filePath.isEmpty) {
-      if (mounted) {
+      if (mounted && generation == _loadGeneration) {
         setState(() {
           _errorMessage = context.strings.videoPreviewUnavailableWeb;
+          _loading = false;
+          _playWhenLoaded = false;
         });
       }
       return;
     }
+    String? tempFilePath;
+    String? webObjectUrl;
     try {
       final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
       final VideoPlayerController controller;
-      String? tempFilePath;
       if (kIsWeb) {
         final bytes = await attachmentStore.readAttachment(
           filePath,
           type: widget.attachment.type,
         );
-        if (!mounted) {
+        if (!mounted || generation != _loadGeneration) {
           return;
         }
         if (bytes == null || bytes.isEmpty) {
           setState(() {
             _errorMessage = context.strings.videoPreviewUnavailableWeb;
+            _loading = false;
+            _playWhenLoaded = false;
           });
           return;
         }
-        controller = VideoPlayerController.networkUrl(
-          Uri.dataFromBytes(
-            Uint8List.fromList(bytes),
-            mimeType: _mimeTypeForVideoAttachment(widget.attachment),
-          ),
+        final mimeType = _mimeTypeForVideoAttachment(widget.attachment);
+        webObjectUrl = createWebVideoObjectUrl(
+          Uint8List.fromList(bytes),
+          mimeType,
         );
+        if (webObjectUrl == null) {
+          setState(() {
+            _errorMessage = context.strings.videoPreviewUnavailableWeb;
+            _loading = false;
+            _playWhenLoaded = false;
+          });
+          return;
+        }
+        controller = VideoPlayerController.networkUrl(Uri.parse(webObjectUrl));
       } else {
         tempFilePath = await attachmentStore.materializeDecryptedFile(
           filePath,
           type: widget.attachment.type,
           preferredFileName: widget.attachment.label,
         );
-        if (!mounted) {
+        if (!mounted || generation != _loadGeneration) {
+          if (tempFilePath != null) {
+            await attachmentStore.deleteMaterializedFile(tempFilePath);
+          }
           return;
         }
         if (tempFilePath == null) {
           setState(() {
             _errorMessage = context.strings.videoPreviewUnavailableWeb;
+            _loading = false;
+            _playWhenLoaded = false;
           });
           return;
         }
@@ -17988,27 +18793,48 @@ class _VideoAttachmentViewerState
       }
       await controller.initialize();
       controller.addListener(_handleControllerChanged);
-      if (!mounted) {
+      if (!mounted || generation != _loadGeneration) {
         await controller.dispose();
         if (tempFilePath != null) {
           await attachmentStore.deleteMaterializedFile(tempFilePath);
         }
+        if (webObjectUrl != null) {
+          revokeWebVideoObjectUrl(webObjectUrl);
+        }
         return;
+      }
+      if (playWhenLoaded) {
+        unawaited(controller.play());
       }
       setState(() {
         _tempFilePath = tempFilePath;
+        _webObjectUrl = webObjectUrl;
         _controller = controller;
         _wasPlaying = controller.value.isPlaying;
         _position = controller.value.position;
         _duration = controller.value.duration;
+        _loading = false;
+        _playWhenLoaded = false;
       });
     } catch (error, stackTrace) {
       debugPrint('Video playback load failed: $error\n$stackTrace');
-      if (!mounted) {
+      if (tempFilePath != null) {
+        unawaited(
+          ref
+              .read(encryptedAttachmentStoreProvider)
+              .deleteMaterializedFile(tempFilePath),
+        );
+      }
+      if (webObjectUrl != null) {
+        revokeWebVideoObjectUrl(webObjectUrl);
+      }
+      if (!mounted || generation != _loadGeneration) {
         return;
       }
       setState(() {
         _errorMessage = context.strings.videoPreviewUnavailableWeb;
+        _loading = false;
+        _playWhenLoaded = false;
       });
     }
   }
@@ -18041,7 +18867,7 @@ class _VideoAttachmentViewerState
     }
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
-      return const Center(child: CircularProgressIndicator());
+      return _buildDeferredPreview(context, loading: _loading);
     }
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -18068,6 +18894,9 @@ class _VideoAttachmentViewerState
         final secondaryControlColor = controlsOnDark
             ? Colors.white70
             : _mutedTextColor(context);
+        final videoTapHandler = widget.fillAvailableHeight
+            ? () => _togglePlayback(controller)
+            : _openFullScreen;
         final videoPane = SizedBox(
           height: maxVideoHeight,
           child: Center(
@@ -18080,9 +18909,22 @@ class _VideoAttachmentViewerState
                 aspectRatio: aspectRatio,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: GestureDetector(
-                    onTap: widget.onOpenFullScreen,
-                    child: VideoPlayer(controller),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      AbsorbPointer(
+                        child: VideoPlayer(
+                          controller,
+                          key: ValueKey(_videoViewGeneration),
+                        ),
+                      ),
+                      Positioned.fill(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: videoTapHandler,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -18154,7 +18996,7 @@ class _VideoAttachmentViewerState
                 if (widget.showFullScreenAction &&
                     widget.onOpenFullScreen != null)
                   IconButton(
-                    onPressed: widget.onOpenFullScreen,
+                    onPressed: _openFullScreen,
                     icon: Icon(Icons.open_in_full_rounded, color: controlColor),
                   ),
                 if (widget.showShareAction)
@@ -18170,6 +19012,193 @@ class _VideoAttachmentViewerState
         );
       },
     );
+  }
+
+  Widget _buildDeferredPreview(BuildContext context, {required bool loading}) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : 520.0;
+        final availableHeight = constraints.hasBoundedHeight
+            ? constraints.maxHeight
+            : 420.0;
+        const controlsHeight = 96.0;
+        final maxVideoHeight = math.max(96.0, availableHeight - controlsHeight);
+        final controlsOnDark = widget.fillAvailableHeight;
+        final controlColor = controlsOnDark ? Colors.white : null;
+        final secondaryControlColor = controlsOnDark
+            ? Colors.white70
+            : _mutedTextColor(context);
+        final previewBytes = _decodeVideoPreviewBytes();
+        final playAction = loading
+            ? null
+            : () => unawaited(_load(playWhenLoaded: true));
+        final videoPane = SizedBox(
+          height: maxVideoHeight,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: maxWidth,
+                maxHeight: maxVideoHeight,
+              ),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Material(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                    child: InkWell(
+                      onTap: playAction,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (previewBytes != null)
+                            Image.memory(
+                              previewBytes,
+                              fit: BoxFit.cover,
+                              gaplessPlayback: true,
+                            )
+                          else
+                            Icon(
+                              Icons.videocam_outlined,
+                              size: 56,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                          ColoredBox(
+                            color: Colors.black.withValues(alpha: 0.18),
+                          ),
+                          Center(
+                            child: loading
+                                ? const SizedBox(
+                                    width: 34,
+                                    height: 34,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 3,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Container(
+                                    width: 58,
+                                    height: 58,
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.56,
+                                      ),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.play_arrow_rounded,
+                                      color: Colors.white,
+                                      size: 38,
+                                    ),
+                                  ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        return Column(
+          mainAxisSize: widget.fillAvailableHeight
+              ? MainAxisSize.max
+              : MainAxisSize.min,
+          children: [
+            if (widget.fillAvailableHeight)
+              Expanded(child: videoPane)
+            else
+              videoPane,
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                IconButton(
+                  onPressed: playAction,
+                  icon: Icon(Icons.play_circle_outline, color: controlColor),
+                ),
+                Expanded(
+                  child: Text(
+                    loading && _playWhenLoaded
+                        ? context.strings.localized(
+                            en: 'Loading video...',
+                            ja: '動画を読み込み中...',
+                            zh: '正在加载视频...',
+                            ko: '동영상을 불러오는 중...',
+                            es: 'Cargando video...',
+                            de: 'Video wird geladen...',
+                          )
+                        : context.strings.tapToPlayVideo,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: secondaryControlColor,
+                    ),
+                  ),
+                ),
+                if (widget.showShareAction)
+                  IconButton(
+                    onPressed: () =>
+                        _shareAttachment(context, ref, widget.attachment),
+                    icon: Icon(Icons.ios_share_outlined, color: controlColor),
+                    tooltip: context.strings.share,
+                  ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Uint8List? _decodeVideoPreviewBytes() {
+    final encoded = widget.attachment.previewBytesBase64;
+    if (encoded == null || encoded.isEmpty) {
+      return null;
+    }
+    try {
+      return base64Decode(encoded);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  Future<void> _openFullScreen() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      widget.onOpenFullScreen?.call();
+      return;
+    }
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      barrierColor: Colors.black.withValues(alpha: 0.88),
+      pageBuilder: (context, _, _) => _VideoControllerLightboxDialog(
+        attachment: widget.attachment,
+        controller: controller,
+        onShare: widget.showShareAction
+            ? () => _shareAttachment(context, ref, widget.attachment)
+            : null,
+      ),
+      transitionBuilder: (context, animation, _, child) => FadeTransition(
+        opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+        child: child,
+      ),
+    );
+    if (mounted) {
+      setState(() {
+        _videoViewGeneration += 1;
+        _wasPlaying = controller.value.isPlaying;
+        _position = controller.value.position;
+        _duration = controller.value.duration;
+      });
+    }
   }
 
   void _togglePlayback(VideoPlayerController controller) {

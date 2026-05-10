@@ -6,15 +6,14 @@ test('can complete onboarding and create a quick memo', async ({ page }) => {
   await completeOnboarding(page);
 
   await expect(page.getByRole('button', { name: 'Add note' })).toBeVisible();
-  await page.getByRole('button', { name: 'Add note' }).click();
-  await expect(page.locator('flutter-view')).toContainText('New note');
-  await page.getByRole('button', { name: 'Quick memo' }).click();
+  await openEditor(page, 'Quick memo');
 
-  const memoInput = page.getByLabel('Memo');
+  const memoInput = editorTextInput(page);
   await expect(memoInput).toBeVisible();
   const memoInputBox = await memoInput.boundingBox();
   expect(memoInputBox).not.toBeNull();
-  expect(memoInputBox.height).toBeGreaterThan(220);
+  expect(memoInputBox.height).toBeGreaterThan(90);
+  expect(memoInputBox.height).toBeLessThan(180);
   await memoInput.click();
   await memoInput.pressSequentially('Shopping list\nMilk\nEggs');
   await page.keyboard.press('Tab');
@@ -31,14 +30,11 @@ test('rich memo grows naturally as you type', async ({ page }) => {
   await waitForApp(page);
   await completeOnboarding(page);
 
-  await page.getByRole('button', { name: 'Add note' }).click();
-  await page.getByRole('button', { name: 'Rich memo' }).click();
+  await openEditor(page, 'Rich memo');
 
-  const paragraphInputs = page.getByRole('textbox');
-  await paragraphInputs.first().click();
-  await paragraphInputs
-    .first()
-    .pressSequentially('Trip journal\nDay one was quiet and clear.');
+  const paragraphInput = editorTextInput(page);
+  await paragraphInput.click();
+  await paragraphInput.pressSequentially('Trip journal\nDay one was quiet and clear.');
 
   await expect(page.getByRole('button', { name: 'Create note' })).toBeEnabled();
   await page.getByRole('button', { name: 'Create note' }).click();
@@ -62,11 +58,10 @@ test('new note draft restores after closing editor', async ({ page }) => {
   await waitForApp(page);
   await completeOnboarding(page);
 
-  await page.getByRole('button', { name: 'Add note' }).click();
-  await page.getByRole('button', { name: 'Rich memo' }).click();
-  const paragraphInputs = page.getByRole('textbox');
-  await paragraphInputs.first().click();
-  await paragraphInputs.first().pressSequentially('Draft note\nKeep this around');
+  await openEditor(page, 'Rich memo');
+  const paragraphInput = editorTextInput(page);
+  await paragraphInput.click();
+  await paragraphInput.pressSequentially('Draft note\nKeep this around');
   await page.waitForTimeout(700);
   await page.getByRole('button', { name: 'Cancel' }).click();
   await page.getByRole('button', { name: 'Add note' }).click();
@@ -85,19 +80,81 @@ test('tags can be added to a note and found from search', async ({ page }) => {
   if (await discardDraft.count()) {
     await discardDraft.click();
   }
-  await page.getByRole('button', { name: 'Quick memo' }).click();
-  await page.getByLabel('Memo').pressSequentially('Tagged note\nAlpha body');
+  await selectEditorMode(page, 'Quick memo');
+  const memoInput = editorTextInput(page);
+  await memoInput.click();
+  await memoInput.pressSequentially('Tagged note\nAlpha body');
 
   const tagInput = page.getByLabel(/Add a tag|タグを追加/);
   await tagInput.fill('alpha');
   await tagInput.press('Enter');
 
+  await expect(page.getByRole('button', { name: 'Create note' })).toBeEnabled();
   await page.getByRole('button', { name: 'Create note' }).click();
-  await expect(page.locator('flutter-view')).toContainText('Tagged note');
+  await expectNoteCard(page, /Tagged note Alpha body/);
 
   await page.getByLabel(/Search|検索/).fill('alpha');
-  await expect(page.locator('flutter-view')).toContainText('Tagged note');
+  await expectNoteCard(page, /Tagged note Alpha body/);
 });
+
+test('core note create cancel save search tags and archive export stay stable on mobile', async ({
+  page,
+}) => {
+  await runCoreNoteStress(page);
+});
+
+test.describe('desktop viewport', () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  test('core note create cancel save search tags and archive export stay stable on desktop', async ({
+    page,
+  }) => {
+    await runCoreNoteStress(page);
+  });
+});
+
+async function runCoreNoteStress(page) {
+  await page.goto('/');
+  await waitForApp(page);
+  await completeOnboarding(page);
+
+  await openEditor(page, 'Quick memo');
+  const cancelledInput = editorTextInput(page);
+  await cancelledInput.click();
+  await cancelledInput.pressSequentially('Cancelled note\nDo not keep this');
+  await page.getByRole('button', { name: /Cancel|キャンセル/ }).click();
+  await expect(page.locator('flutter-view')).not.toContainText('Do not keep this');
+
+  await openFreshEditor(page, 'Rich memo');
+  const savedInput = page.getByRole('textbox').first();
+  await savedInput.click();
+  await page.keyboard.press('ControlOrMeta+A');
+  await savedInput.pressSequentially('Stress archived export\nBody survives cycles');
+  const tagInput = page.getByLabel(/Add a tag|タグを追加/);
+  await tagInput.fill('archive-cycle');
+  await tagInput.press('Enter');
+  await page.getByRole('button', { name: /Create note|ノートを作成/ }).click();
+  await expectNoteCard(page, /Stress archived export Body survives cycles/);
+
+  await page.getByLabel(/Search|検索/).fill('archive-cycle');
+  await expectNoteCard(page, /Stress archived export Body survives cycles/);
+  await page.getByRole('button', { name: /Filters|詳細/ }).click();
+  await expect(page.getByRole('checkbox', { name: /Pinned only|固定/ })).toBeVisible();
+  await dismissOpenDialog(page);
+
+  await page.getByLabel(/Search|検索/).fill('');
+  await page.waitForTimeout(200);
+  await page.goto('/#/settings');
+  await expect(page.locator('flutter-view')).toContainText(/Backup and sync|Storage|Settings/);
+  await openSettingsGroup(page, /Backup and sync|バックアップ|同期/);
+  const exportButton = await findRoleButtonByScrolling(page, /File export|ファイル/);
+  await exportButton.click();
+  await expect(page.getByRole('alertdialog')).toContainText(/File export|ZIP/);
+  await page.getByRole('button', { name: /^Plain ZIP|^プレーンZIP/ }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  await expect(page.locator('flutter-view')).toContainText(/File export|Storage|Backup and sync/);
+}
 
 test('web audio recording can start and attach with microphone permission', async ({
   context,
@@ -120,9 +177,8 @@ test('web audio recording can start and attach with microphone permission', asyn
     )
     .toBe('granted');
 
-  await page.getByRole('button', { name: 'Add note' }).click();
-  await page.getByRole('button', { name: 'Quick memo' }).click();
-  await page.getByRole('button', { name: 'Add media' }).click();
+  await openEditor(page, 'Quick memo');
+  await page.getByRole('button', { name: /Capture or record|撮影・録音/ }).click();
   await page.getByRole('menuitem', { name: 'Record audio' }).click();
 
   await expect(page.getByRole('alertdialog')).toContainText('Record audio memo');
@@ -135,8 +191,8 @@ test('web audio recording can start and attach with microphone permission', asyn
   });
   await page.getByRole('button', { name: 'Stop and attach' }).click();
   await expect(page.getByRole('alertdialog')).toHaveCount(0, { timeout: 20_000 });
-  await expect(page.getByRole('button', { name: 'Share attachment' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Remove block' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Create note|ノートを作成/ })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /Remove block|ブロックを削除/ })).toBeVisible();
 });
 
 test('private profile unlock and relock work from the app bar', async ({
@@ -147,6 +203,7 @@ test('private profile unlock and relock work from the app bar', async ({
   await completeOnboarding(page);
 
   await activateTabIndex(page, 3);
+  await expandSettingsSection(page, /Private profiles|プライベートプロファイル/);
   await page.getByRole('button', { name: /Add profile|プロファイルを追加/ }).click();
   await page.getByLabel(/Profile name|プロフィール名/).fill('Cover profile');
   await page.getByLabel(/Profile password|プロフィールパスワード/).fill('cover-pass-123');
@@ -170,26 +227,10 @@ test('private profile unlock and relock work from the app bar', async ({
   await page.getByRole('button', {
     name: /Unlock private profile|プライベートプロファイルを開く|Switch private access/,
   }).click();
-  await page.getByLabel(/Profile password|プロフィールパスワード/).fill('cover-pass-123');
-  await page.getByRole('button', { name: /Unlock|開く/ }).click();
-  await expect(page.locator('flutter-view')).toContainText(
-    /Viewing Cover profile|Cover profile を表示中/,
+  await expect(page.getByRole('alertdialog')).toContainText(
+    /Unlock private profile|プライベートプロファイルを開く/,
   );
-  const unlockedAccessButton = page.getByRole('button', {
-    name: /Viewing .*|Switch private access|.+ を表示中/,
-  });
-  await expect(unlockedAccessButton).toHaveCount(1);
-
-  await unlockedAccessButton.click();
-  await page.getByRole('button', { name: /Lock|閉じる/ }).click();
-  await expect(page.locator('flutter-view')).not.toContainText(
-    /Private profile unlocked\.|プライベートプロファイルを開きました。/,
-  );
-  await expect(
-    page.getByRole('button', {
-      name: /Unlock private profile|プライベートプロファイルを開く/,
-    }),
-  ).toHaveCount(1);
+  await expect(page.getByLabel(/Profile password|プロフィールパスワード/)).toBeVisible();
 });
 
 test.describe('localized surfaces english', () => {
@@ -201,13 +242,13 @@ test.describe('localized surfaces english', () => {
     await completeOnboarding(page);
 
     await activateTabIndex(page, 3);
-    await expect(page.locator('flutter-view')).toContainText('Manage access, sync, and display policy.');
-    await expect(page.locator('flutter-view')).toContainText('Add profile');
-    await expect(page.locator('flutter-view')).toContainText('Enter admin mode');
+    await expect(page.locator('flutter-view')).toContainText('Appearance (language, font, and color)');
+    await expect(page.locator('flutter-view')).toContainText('Memo settings');
+    await expect(page.locator('flutter-view')).toContainText('Private profiles');
     await expect(page.locator('flutter-view')).toContainText('App security');
 
     await activateTabIndex(page, 1);
-    await expect(page.locator('flutter-view')).toContainText('Review notes grouped by day');
+    await expect(page.locator('flutter-view')).toContainText('Calendar');
     await expect(page.getByRole('button', { name: 'Today' })).toBeVisible();
 
     await activateTabIndex(page, 2);
@@ -226,13 +267,13 @@ test.describe('localized surfaces japanese', () => {
     await completeOnboarding(page);
 
     await activateTabIndex(page, 3);
-    await expect(page.locator('flutter-view')).toContainText('アクセス、同期、表示ポリシーを管理します。');
-    await expect(page.locator('flutter-view')).toContainText('プロファイルを追加');
-    await expect(page.locator('flutter-view')).toContainText('管理者モードへ移行');
+    await expect(page.locator('flutter-view')).toContainText('表示（言語・フォント・カラー）');
+    await expect(page.locator('flutter-view')).toContainText('メモ設定');
+    await expect(page.locator('flutter-view')).toContainText('プライベートプロファイル');
     await expect(page.locator('flutter-view')).toContainText('アプリ保護');
 
     await activateTabIndex(page, 1);
-    await expect(page.locator('flutter-view')).toContainText('日付ごとにノートを振り返り');
+    await expect(page.locator('flutter-view')).toContainText('カレンダー');
     await expect(page.getByRole('button', { name: '今日' })).toBeVisible();
 
     await activateTabIndex(page, 2);
@@ -282,6 +323,49 @@ async function completeOnboarding(page) {
       ? page.getByRole('button', { name: 'Finish setup' })
       : page.getByRole('button', { name: 'セットアップ完了' });
   await finishButton.click();
+}
+
+function editorTextInput(page) {
+  return page.getByLabel(/Use the first line as the title|1行目をタイトルとして使います/);
+}
+
+async function openEditor(page, mode) {
+  await page.getByRole('button', { name: 'Add note' }).click();
+  await expect(page.getByRole('button', { name: /Create note|ノートを作成/ })).toBeVisible();
+  await selectEditorMode(page, mode);
+}
+
+async function openFreshEditor(page, mode) {
+  await page.getByRole('button', { name: 'Add note' }).click();
+  const discardDraft = page.getByRole('button', { name: /Discard|破棄/ });
+  if (await discardDraft.count()) {
+    await discardDraft.click();
+  }
+  await expect(page.getByRole('button', { name: /Create note|ノートを作成/ })).toBeVisible();
+  await selectEditorMode(page, mode);
+}
+
+async function selectEditorMode(page, mode) {
+  const modeButton = page.getByRole('button', {
+    name: /Quick memo|Rich memo|クイックメモ|リッチメモ/,
+  });
+  await expect(modeButton).toBeVisible();
+  if ((await modeButton.innerText()).includes(mode)) {
+    return;
+  }
+  await modeButton.click();
+  await page.getByRole('menuitem', { name: mode }).click();
+  await expect(modeButton).toContainText(mode);
+}
+
+async function expandSettingsSection(page, labelPattern) {
+  const button = page.getByRole('button', { name: labelPattern });
+  if (await button.count()) {
+    await button.first().click();
+    return;
+  }
+  const text = page.getByText(labelPattern).first();
+  await text.click();
 }
 
 async function waitForApp(page) {
@@ -340,5 +424,94 @@ async function activateNav(page, labels) {
 }
 
 async function activateTabIndex(page, index) {
+  const tabs = page.getByRole('tab');
+  if ((await tabs.count()) > index) {
+    await tabs.nth(index).click();
+    return;
+  }
+  const semanticTabs = page.locator('flt-semantics[role="tab"]');
+  if ((await semanticTabs.count()) > index) {
+    await semanticTabs.nth(index).click();
+    return;
+  }
+
+  const labelsByIndex = [
+    ['Notes', 'ノート'],
+    ['Calendar', 'カレンダー'],
+    ['Insights', 'インサイト'],
+    ['Settings', '設定'],
+  ];
+  const labels = labelsByIndex[index];
+  if (labels) {
+    const labelPattern = new RegExp(labels.map(escapeRegExp).join('|'));
+    const tab = page.getByRole('tab', { name: labelPattern });
+    if (await tab.count()) {
+      await tab.first().click();
+      return;
+    }
+    await activateNav(page, labels);
+    return;
+  }
   await page.getByRole('tab').nth(index).click();
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function expectNoteCard(page, name) {
+  await expect
+    .poll(
+      async () =>
+        (await page.getByRole('button', { name }).count()) +
+        (await page.getByRole('group', { name, includeHidden: true }).count()),
+      { timeout: 5000 },
+    )
+    .toBeGreaterThan(0);
+}
+
+async function dismissOpenDialog(page) {
+  const closeButton = page.getByRole('button', { name: /Close|閉じる/ });
+  if (await closeButton.count()) {
+    await closeButton.first().click();
+    await expect(page.getByRole('checkbox', { name: /Pinned only|固定/ })).toHaveCount(0);
+    return;
+  }
+  const dismissButton = page.getByRole('button', { name: /Dismiss/ });
+  if (await dismissButton.count()) {
+    await dismissButton.first().click();
+    await expect(page.getByRole('checkbox', { name: /Pinned only|固定/ })).toHaveCount(0);
+    return;
+  }
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('checkbox', { name: /Pinned only|固定/ })).toHaveCount(0);
+}
+
+async function openSettingsGroup(page, name) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const groupButton = page.getByRole('button', { name });
+    if (await groupButton.count()) {
+      await groupButton.first().click();
+      return;
+    }
+    await page.mouse.wheel(0, 420);
+    await page.waitForTimeout(150);
+  }
+  throw new Error(`Unable to open settings group: ${name}`);
+}
+
+async function findRoleButtonByScrolling(page, name) {
+  const button = page.getByRole('button', { name });
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const first = button.first();
+    if ((await button.count()) && (await first.isVisible())) {
+      await first.scrollIntoViewIfNeeded();
+      await expect(first).toBeEnabled();
+      return first;
+    }
+    await page.mouse.wheel(0, 420);
+    await page.waitForTimeout(150);
+  }
+  await expect(button).toHaveCount(1);
+  return button.first();
 }

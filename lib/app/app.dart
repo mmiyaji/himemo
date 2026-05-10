@@ -589,175 +589,208 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       );
     }
 
-    return Scaffold(
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final wide = constraints.maxWidth >= 960;
-            final colorScheme = Theme.of(context).colorScheme;
-            return Row(
-              children: [
-                Expanded(
-                  flex: wide ? 6 : 1,
-                  child: Container(
-                    color: colorScheme.surface,
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            'HiMemo',
-                            style: Theme.of(context).textTheme.labelLarge,
-                          ),
-                        ),
-                        const Spacer(),
-                        Container(
-                          width: 88,
-                          height: 88,
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(24),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.12),
-                                blurRadius: 24,
-                                offset: const Offset(0, 12),
-                              ),
-                            ],
-                          ),
-                          child: Image.asset(
-                            'assets/app-icon.png',
-                            filterQuality: FilterQuality.medium,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          strings.unlockHiMemo,
-                          style: Theme.of(context).textTheme.headlineMedium,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          usePinUnlock
-                              ? strings.localized(
-                                  en: 'Enter your PIN to unlock this session.',
-                                  ja: 'PIN を入力してこのセッションを解除します。',
-                                  zh: '輸入 PIN 以解鎖此工作階段。',
-                                  ko: 'PIN을 입력해 이 세션의 잠금을 해제하세요.',
-                                  es: 'Introduce tu PIN para desbloquear esta sesión.',
-                                  de: 'Gib deine PIN ein, um diese Sitzung zu entsperren.',
-                                )
-                              : strings.deviceAuthGate,
-                          style: Theme.of(context).textTheme.bodyLarge
-                              ?.copyWith(color: colorScheme.onSurfaceVariant),
-                        ),
-                        const SizedBox(height: 24),
-                        if (wide)
-                          Text(
-                            strings.privateVaultLockedMessage,
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(color: colorScheme.onSurfaceVariant),
-                          ),
-                        const Spacer(),
-                      ],
-                    ),
-                  ),
-                ),
-                Expanded(
-                  flex: wide ? 5 : 1,
-                  child: Container(
-                    color: colorScheme.surfaceContainer,
-                    padding: const EdgeInsets.all(24),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 440),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              usePinUnlock
-                                  ? pinState.summary
-                                  : authState.summary,
-                              textAlign: TextAlign.center,
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
-                                  ),
-                            ),
-                            const SizedBox(height: 24),
-                            if (usePinUnlock)
-                              const _PinUnlockPanel()
-                            else if (canUseDeviceAuth)
-                              FilledButton.icon(
-                                onPressed: () async {
-                                  await ref
-                                      .read(
-                                        deviceAuthControllerProvider.notifier,
-                                      )
-                                      .authenticate(
-                                        reason:
-                                            'Unlock HiMemo with device authentication',
-                                      );
-                                },
-                                icon: const Icon(Icons.lock_open_rounded),
-                                label: Text(strings.authenticate),
-                              )
-                            else
-                              Text(
-                                strings.localized(
-                                  en: 'No unlock method is configured. Set a PIN from App security.',
-                                  ja: '解除方法が設定されていません。アプリ保護で PIN を設定してください。',
-                                  zh: '尚未設定解鎖方式。請在應用程式安全性中設定 PIN。',
-                                  ko: '잠금 해제 방법이 설정되어 있지 않습니다. 앱 보안에서 PIN을 설정하세요.',
-                                  es: 'No hay un método de desbloqueo configurado. Define un PIN en Seguridad de la app.',
-                                  de: 'Es ist keine Entsperrmethode eingerichtet. Lege unter App-Sicherheit eine PIN fest.',
+    final lockScreen = Overlay(
+      initialEntries: [
+        OverlayEntry(
+          builder: (context) => Scaffold(
+            body: SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final wide = constraints.maxWidth >= 960;
+                  final colorScheme = Theme.of(context).colorScheme;
+                  return Flex(
+                    direction: wide ? Axis.horizontal : Axis.vertical,
+                    children: [
+                      Expanded(
+                        flex: wide ? 6 : 1,
+                        child: Container(
+                          color: colorScheme.surface,
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
                                 ),
-                                textAlign: TextAlign.center,
-                                style: Theme.of(context).textTheme.bodyMedium
+                                decoration: BoxDecoration(
+                                  color: colorScheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  'HiMemo',
+                                  style: Theme.of(context).textTheme.labelLarge,
+                                ),
+                              ),
+                              const Spacer(),
+                              Container(
+                                width: 88,
+                                height: 88,
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: colorScheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(24),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.12,
+                                      ),
+                                      blurRadius: 24,
+                                      offset: const Offset(0, 12),
+                                    ),
+                                  ],
+                                ),
+                                child: Image.asset(
+                                  'assets/app-icon.png',
+                                  filterQuality: FilterQuality.medium,
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                              Text(
+                                strings.unlockHiMemo,
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.headlineMedium,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                usePinUnlock
+                                    ? strings.localized(
+                                        en: 'Enter your PIN to unlock this session.',
+                                        ja: 'PIN を入力してこのセッションを解除します。',
+                                        zh: '輸入 PIN 以解鎖此工作階段。',
+                                        ko: 'PIN을 입력해 이 세션의 잠금을 해제하세요.',
+                                        es: 'Introduce tu PIN para desbloquear esta sesión.',
+                                        de: 'Gib deine PIN ein, um diese Sitzung zu entsperren.',
+                                      )
+                                    : strings.deviceAuthGate,
+                                style: Theme.of(context).textTheme.bodyLarge
                                     ?.copyWith(
                                       color: colorScheme.onSurfaceVariant,
                                     ),
                               ),
-                            if (kDebugMode) ...[
-                              const SizedBox(height: 12),
-                              TextButton(
-                                onPressed: () async {
-                                  await ref
-                                      .read(
-                                        appLockSettingsControllerProvider
-                                            .notifier,
-                                      )
-                                      .setEnabled(false);
-                                  ref
-                                      .read(
-                                        appSessionUnlockControllerProvider
-                                            .notifier,
-                                      )
-                                      .unlock();
-                                },
-                                child: Text(strings.disableUnlockForNow),
-                              ),
+                              const SizedBox(height: 24),
+                              if (wide)
+                                Text(
+                                  strings.privateVaultLockedMessage,
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(
+                                        color: colorScheme.onSurfaceVariant,
+                                      ),
+                                ),
+                              const Spacer(),
                             ],
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
+                      Expanded(
+                        flex: wide ? 5 : 1,
+                        child: Container(
+                          color: colorScheme.surfaceContainer,
+                          padding: const EdgeInsets.all(24),
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 440),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    usePinUnlock
+                                        ? pinState.summary
+                                        : authState.summary,
+                                    textAlign: TextAlign.center,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          color: colorScheme.onSurfaceVariant,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 24),
+                                  if (usePinUnlock)
+                                    const _PinUnlockPanel()
+                                  else if (canUseDeviceAuth)
+                                    FilledButton.icon(
+                                      onPressed: () async {
+                                        await ref
+                                            .read(
+                                              deviceAuthControllerProvider
+                                                  .notifier,
+                                            )
+                                            .authenticate(
+                                              reason:
+                                                  'Unlock HiMemo with device authentication',
+                                            );
+                                      },
+                                      icon: const Icon(Icons.lock_open_rounded),
+                                      label: Text(strings.authenticate),
+                                    )
+                                  else
+                                    Text(
+                                      strings.localized(
+                                        en: 'No unlock method is configured. Set a PIN from App security.',
+                                        ja: '解除方法が設定されていません。アプリ保護で PIN を設定してください。',
+                                        zh: '尚未設定解鎖方式。請在應用程式安全性中設定 PIN。',
+                                        ko: '잠금 해제 방법이 설정되어 있지 않습니다. 앱 보안에서 PIN을 설정하세요.',
+                                        es: 'No hay un método de desbloqueo configurado. Define un PIN en Seguridad de la app.',
+                                        de: 'Es ist keine Entsperrmethode eingerichtet. Lege unter App-Sicherheit eine PIN fest.',
+                                      ),
+                                      textAlign: TextAlign.center,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            color: colorScheme.onSurfaceVariant,
+                                          ),
+                                    ),
+                                  if (kDebugMode) ...[
+                                    const SizedBox(height: 12),
+                                    TextButton(
+                                      onPressed: () async {
+                                        await ref
+                                            .read(
+                                              appLockSettingsControllerProvider
+                                                  .notifier,
+                                            )
+                                            .setEnabled(false);
+                                        ref
+                                            .read(
+                                              appSessionUnlockControllerProvider
+                                                  .notifier,
+                                            )
+                                            .unlock();
+                                      },
+                                      child: Text(strings.disableUnlockForNow),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
         ),
-      ),
+      ],
+    );
+
+    final child = widget.child;
+    if (child == null) {
+      return lockScreen;
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        IgnorePointer(child: ExcludeFocus(child: child)),
+        lockScreen,
+      ],
     );
   }
 }

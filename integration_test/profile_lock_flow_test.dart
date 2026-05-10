@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:himemo/app/app.dart';
 import 'package:himemo/app/app_flavor.dart';
+import 'package:himemo/app/app_router.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
 import 'package:integration_test/integration_test.dart';
@@ -20,7 +21,9 @@ void main() {
 
       SharedPreferences.setMockInitialValues({
         'app.onboarding_completed': true,
+        'app.onboarding_completed_version': 2,
         'settings.locale': 'english',
+        'notes.last_editor_mode': 'quick',
       });
       final fakeDeviceAuthGateway = _FakeDeviceAuthGateway(
         authenticateResults: [true, true],
@@ -45,6 +48,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1200));
       await tester.pumpAndSettle();
 
+      final noteTitle =
+          'Private profile E2E note ${DateTime.now().microsecondsSinceEpoch}';
       final addError = await container
           .read(privateMemoProfilesControllerProvider.notifier)
           .addProfile(name: 'Cover profile', password: 'cover-pass-123');
@@ -52,7 +57,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(container.read(privateMemoProfilesProvider).length, 1);
 
-      await _tapNavigation(tester, AppShell.notesNavKey, 'Notes');
+      container.read(appRouterProvider).go('/notes');
       await tester.pumpAndSettle();
 
       final unlocked = await container
@@ -71,15 +76,14 @@ void main() {
 
       await tester.tap(find.byKey(AppShell.addNoteKey));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Quick memo'));
-      await tester.pumpAndSettle();
+      await _ensureQuickMemoEditor(tester);
       final privateToggle = find.byKey(const Key('note-save-private-toggle'));
       await _scrollIntoViewIfNeeded(tester, privateToggle);
       await tester.tap(privateToggle);
       await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const Key('note-content-input')),
-        'Private profile E2E note\nSaved on an unlocked profile',
+        '$noteTitle\nSaved on an unlocked profile',
       );
       final saveButton = find.byKey(const Key('save-note-button'));
       await _scrollIntoViewIfNeeded(tester, saveButton);
@@ -88,17 +92,17 @@ void main() {
 
       expect(
         container.read(visibleNotesProvider).map((note) => note.title),
-        contains('Private profile E2E note'),
+        contains(noteTitle),
       );
-      await tester.scrollUntilVisible(
-        find.text('Private profile E2E note'),
-        180,
-        scrollable: find.byType(Scrollable).first,
-      );
+      await _scrollIntoViewIfNeeded(tester, find.text(noteTitle));
       await tester.pumpAndSettle();
-      expect(find.text('Private profile E2E note'), findsOneWidget);
+      expect(find.text(noteTitle), findsWidgets);
 
-      await _tapNavigation(tester, AppShell.settingsNavKey, 'Settings');
+      container.read(appRouterProvider).go('/settings');
+      await tester.pumpAndSettle();
+
+      await _scrollIntoViewIfNeeded(tester, find.text('App security'));
+      await tester.tap(find.text('App security').first);
       await tester.pumpAndSettle();
 
       final appLockToggle = find.byKey(SettingsScreen.appLockToggleKey);
@@ -121,7 +125,7 @@ void main() {
       expect(container.read(adminModeSessionControllerProvider), isFalse);
       expect(fakeDeviceAuthGateway.authenticateCallCount, 2);
 
-      await _tapNavigation(tester, AppShell.notesNavKey, 'Notes');
+      container.read(appRouterProvider).go('/notes');
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(AppShell.addNoteKey));
       await tester.pumpAndSettle();
@@ -142,22 +146,46 @@ Future<void> _scrollIntoViewIfNeeded(WidgetTester tester, Finder finder) async {
     throw StateError('No Scrollable found for $finder');
   }
 
-  await tester.scrollUntilVisible(finder, 160, scrollable: scrollables.first);
+  final scrollable = scrollables.last;
+  for (final direction in const [Offset(0, -240), Offset(0, 240)]) {
+    for (
+      var attempt = 0;
+      attempt < 24 && finder.evaluate().isEmpty;
+      attempt++
+    ) {
+      await tester.drag(scrollable, direction);
+      await tester.pumpAndSettle();
+    }
+    if (finder.evaluate().isNotEmpty) {
+      break;
+    }
+  }
+  if (finder.evaluate().isEmpty) {
+    throw StateError('Unable to scroll target into view: $finder');
+  }
+  await tester.ensureVisible(finder.first);
   await tester.pumpAndSettle();
 }
 
-Future<void> _tapNavigation(
-  WidgetTester tester,
-  Key preferredKey,
-  String label,
-) async {
-  final keyed = find.byKey(preferredKey);
-  if (keyed.evaluate().isNotEmpty) {
-    await tester.tap(keyed);
+Future<void> _ensureQuickMemoEditor(WidgetTester tester) async {
+  final quickInput = find.byKey(const Key('note-content-input'));
+  if (quickInput.evaluate().isNotEmpty) {
     return;
   }
 
-  await tester.tap(find.text(label).last);
+  final richMemoButton = find.text('Rich memo');
+  if (richMemoButton.evaluate().isNotEmpty) {
+    await tester.tap(richMemoButton.last);
+    await tester.pumpAndSettle();
+  }
+
+  final quickMemoButton = find.text('Quick memo');
+  if (quickMemoButton.evaluate().isNotEmpty) {
+    await tester.tap(quickMemoButton.last);
+    await tester.pumpAndSettle();
+  }
+
+  await _scrollIntoViewIfNeeded(tester, quickInput);
 }
 
 class _FakeDeviceAuthGateway implements DeviceAuthGateway {
