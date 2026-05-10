@@ -8209,8 +8209,13 @@ class _NoteDetailPager extends ConsumerStatefulWidget {
 }
 
 class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
+  static const double _bottomDismissThreshold = 72;
+  static const Duration _bottomDismissCloseDelay = Duration(milliseconds: 320);
   late final PageController _pageController;
   int? _programmaticPageTarget;
+  double _bottomDismissPull = 0;
+  bool _bottomDismissClosing = false;
+  bool _detailScrollAtBottom = false;
 
   @override
   void initState() {
@@ -8248,6 +8253,91 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
   void dispose() {
     _pageController.dispose();
     super.dispose();
+  }
+
+  void _applyBottomDismissPull(double delta) {
+    if (widget.onClose == null || _bottomDismissClosing || delta <= 0) {
+      return;
+    }
+    final nextPull = (_bottomDismissPull + delta).clamp(
+      0.0,
+      _bottomDismissThreshold,
+    );
+    if (nextPull != _bottomDismissPull) {
+      setState(() {
+        _bottomDismissPull = nextPull;
+      });
+    }
+    if (nextPull >= _bottomDismissThreshold) {
+      _bottomDismissClosing = true;
+      Future<void>.delayed(_bottomDismissCloseDelay, () {
+        if (mounted) {
+          widget.onClose?.call();
+        }
+      });
+    }
+  }
+
+  void _resetBottomDismissPull() {
+    if (_bottomDismissPull == 0) {
+      return;
+    }
+    setState(() {
+      _bottomDismissPull = 0;
+    });
+  }
+
+  bool _handleDetailScrollNotification(ScrollNotification notification) {
+    if (widget.onClose == null ||
+        _bottomDismissClosing ||
+        notification.metrics.axis != Axis.vertical) {
+      return false;
+    }
+
+    final metrics = notification.metrics;
+    final isAtBottom = metrics.pixels >= metrics.maxScrollExtent - 2;
+    _detailScrollAtBottom = isAtBottom;
+    if (notification is OverscrollNotification &&
+        isAtBottom &&
+        notification.overscroll > 0) {
+      _applyBottomDismissPull(notification.overscroll);
+      return false;
+    }
+
+    if (notification is ScrollStartNotification ||
+        notification is ScrollUpdateNotification) {
+      if (!isAtBottom && _bottomDismissPull != 0) {
+        _resetBottomDismissPull();
+      }
+      return false;
+    }
+
+    if (notification is ScrollEndNotification && _bottomDismissPull != 0) {
+      _resetBottomDismissPull();
+    }
+    return false;
+  }
+
+  void _handleDetailPointerMove(PointerMoveEvent event) {
+    if (!_detailScrollAtBottom) {
+      _resetBottomDismissPull();
+      return;
+    }
+    if (event.delta.dy < 0) {
+      _applyBottomDismissPull(-event.delta.dy);
+    } else if (event.delta.dy > 0) {
+      _resetBottomDismissPull();
+    }
+  }
+
+  void _handleDetailPointerSignal(PointerSignalEvent event) {
+    if (!_detailScrollAtBottom) {
+      _resetBottomDismissPull();
+      return;
+    }
+    if (event is PointerScrollEvent && event.scrollDelta.dy > 0) {
+      _applyBottomDismissPull(event.scrollDelta.dy * 0.3);
+    }
   }
 
   @override
@@ -8302,45 +8392,143 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
           ),
         ),
         Expanded(
-          child: PageView.builder(
-            controller: _pageController,
-            itemCount: widget.notes.length,
-            onPageChanged: (index) {
-              final programmaticTarget = _programmaticPageTarget;
-              if (programmaticTarget != null) {
-                if (index == programmaticTarget) {
-                  _programmaticPageTarget = null;
-                }
-                _debugNotePerf(
-                  'detail pager ignored programmatic onPageChanged index=$index target=$programmaticTarget',
-                );
-                return;
-              }
-              widget.onPageChanged(index);
-            },
-            itemBuilder: (context, index) {
-              final note = widget.notes[index];
-              _debugNotePerf(
-                'detail page build index=$index ${_notePerfLabel(note)}',
-              );
-              return Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: _NoteDetailPane(
-                  note: note,
-                  isActive: index == widget.selectedIndex,
-                  vaultName: _vaultDisplayName(
-                    context,
-                    ref.watch(vaultByIdProvider(note.vaultId)),
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _handleDetailScrollNotification,
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerMove: _handleDetailPointerMove,
+              onPointerSignal: _handleDetailPointerSignal,
+              child: Stack(
+                children: [
+                  PageView.builder(
+                    controller: _pageController,
+                    itemCount: widget.notes.length,
+                    onPageChanged: (index) {
+                      final programmaticTarget = _programmaticPageTarget;
+                      if (programmaticTarget != null) {
+                        if (index == programmaticTarget) {
+                          _programmaticPageTarget = null;
+                        }
+                        _debugNotePerf(
+                          'detail pager ignored programmatic onPageChanged index=$index target=$programmaticTarget',
+                        );
+                        return;
+                      }
+                      widget.onPageChanged(index);
+                    },
+                    itemBuilder: (context, index) {
+                      final note = widget.notes[index];
+                      _debugNotePerf(
+                        'detail page build index=$index ${_notePerfLabel(note)}',
+                      );
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: _NoteDetailPane(
+                          note: note,
+                          isActive: index == widget.selectedIndex,
+                          vaultName: _vaultDisplayName(
+                            context,
+                            ref.watch(vaultByIdProvider(note.vaultId)),
+                          ),
+                          onEdit: () => widget.onEdit(note),
+                          onDelete: () => widget.onDelete(note),
+                          onTagTap: widget.onTagTap,
+                        ),
+                      );
+                    },
                   ),
-                  onEdit: () => widget.onEdit(note),
-                  onDelete: () => widget.onDelete(note),
-                  onTagTap: widget.onTagTap,
-                ),
-              );
-            },
+                  if (widget.onClose != null)
+                    _BottomPullDismissHint(
+                      progress: _bottomDismissPull / _bottomDismissThreshold,
+                    ),
+                ],
+              ),
+            ),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _BottomPullDismissHint extends StatelessWidget {
+  const _BottomPullDismissHint({required this.progress});
+
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveProgress = progress.clamp(0.0, 1.0);
+    final visible = effectiveProgress > 0.04;
+    final colorScheme = Theme.of(context).colorScheme;
+    final strings = context.strings;
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 16,
+      child: IgnorePointer(
+        child: AnimatedOpacity(
+          opacity: visible ? 1 : 0,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+          child: AnimatedSlide(
+            offset: Offset(0, visible ? 0 : 0.2),
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            child: Center(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: colorScheme.inverseSurface.withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(999),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.18),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Transform.translate(
+                        offset: Offset(0, 3 * effectiveProgress),
+                        child: Icon(
+                          effectiveProgress >= 1
+                              ? Icons.keyboard_double_arrow_down_rounded
+                              : Icons.keyboard_arrow_down_rounded,
+                          color: colorScheme.onInverseSurface,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        effectiveProgress >= 0.92
+                            ? strings.close
+                            : strings.localized(
+                                en: 'Keep scrolling to close',
+                                ja: 'さらに下へスクロールして閉じる',
+                                zh: '继续向下滚动以关闭',
+                                ko: '더 아래로 스크롤해 닫기',
+                                es: 'Sigue desplazando para cerrar',
+                                de: 'Weiter scrollen zum Schließen',
+                              ),
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(color: colorScheme.onInverseSurface),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -11316,6 +11504,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   bool _saved = false;
   bool _draftLoaded = false;
   bool _editorDisposed = false;
+  bool _attachmentImportBusy = false;
   Timer? _draftSaveTimer;
   bool _discardingDraft = false;
   bool _draftRestoreSnackBarActive = false;
@@ -11467,7 +11656,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (_editorDisposed) {
       return;
     }
-    final next = _hasSubmitContent;
+    final next = _hasSubmitContent && !_attachmentImportBusy;
     if (_canSubmitNotifier.value != next) {
       _canSubmitNotifier.value = next;
     }
@@ -11511,6 +11700,24 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
           if (block.attachment != null) {
             drafts.add(_RichBlockDraft.attachment(block.attachment!));
           }
+      }
+    }
+    final noteTitle = widget.note?.title.trim() ?? '';
+    if (noteTitle.isNotEmpty) {
+      final firstParagraphIndex = drafts.indexWhere(
+        (block) => block.type == NoteBlockType.paragraph,
+      );
+      if (firstParagraphIndex == -1) {
+        drafts.insert(0, _RichBlockDraft.paragraph(noteTitle));
+      } else {
+        final paragraph = drafts[firstParagraphIndex];
+        final text = paragraph.controller?.text ?? '';
+        final firstLine = text.split('\n').first.trim();
+        if (text.trim().isEmpty) {
+          paragraph.controller?.text = noteTitle;
+        } else if (firstLine != noteTitle) {
+          paragraph.controller?.text = '$noteTitle\n$text';
+        }
       }
     }
     if (drafts.isEmpty) {
@@ -11994,9 +12201,12 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                             PopupMenuButton<MediaImportAction>(
                               key: const Key('note-capture-media-menu'),
                               tooltip: strings.captureMedia,
+                              enabled: !_attachmentImportBusy,
                               icon: Icon(
                                 Icons.photo_camera_outlined,
-                                color: _mutedTextColor(context),
+                                color: _attachmentImportBusy
+                                    ? Theme.of(context).disabledColor
+                                    : _mutedTextColor(context),
                               ),
                               onSelected: _handleAttachmentAction,
                               itemBuilder: (context) => [
@@ -12028,9 +12238,12 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                             PopupMenuButton<MediaImportAction>(
                               key: const Key('note-import-file-menu'),
                               tooltip: strings.importFiles,
+                              enabled: !_attachmentImportBusy,
                               icon: Icon(
                                 Icons.folder_open_outlined,
-                                color: _mutedTextColor(context),
+                                color: _attachmentImportBusy
+                                    ? Theme.of(context).disabledColor
+                                    : _mutedTextColor(context),
                               ),
                               onSelected: _handleAttachmentAction,
                               itemBuilder: (context) => [
@@ -12277,12 +12490,40 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                   child: Text(strings.cancel),
                 ),
                 const Spacer(),
+                if (_attachmentImportBusy) ...[
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      strings.localized(
+                        en: 'Attaching...',
+                        ja: '添付処理中...',
+                        zh: '正在附加...',
+                        ko: '첨부 중...',
+                        es: 'Adjuntando...',
+                        de: 'Wird angehängt...',
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: _mutedTextColor(context),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                ],
                 ValueListenableBuilder<bool>(
                   valueListenable: _canSubmitNotifier,
                   builder: (context, canSubmit, _) {
                     return FilledButton(
                       key: const Key('save-note-button'),
-                      onPressed: canSubmit && _selectedVaultId != null
+                      onPressed:
+                          canSubmit &&
+                              _selectedVaultId != null &&
+                              !_attachmentImportBusy
                           ? _save
                           : null,
                       child: Text(
@@ -12402,96 +12643,128 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   Future<void> _handleAttachmentAction(MediaImportAction action) async {
+    if (_attachmentImportBusy) {
+      return;
+    }
     if (action == MediaImportAction.addLocation) {
       await _toggleLocationCapture();
       return;
     }
-    final MediaImportResult result;
-    if (action == MediaImportAction.recordAudio) {
-      // ignore: use_build_context_synchronously
-      result = await _showAudioRecordingDialog(context, ref);
-    } else {
-      final mediaImportService = ref.read(mediaImportServiceProvider);
-      result = await mediaImportService.importAttachment(action);
-    }
-    if (!mounted) {
-      return;
-    }
-    final attachment = result.attachment;
-    if (attachment == null) {
-      final errorMessage = result.errorMessage;
-      if (errorMessage != null && errorMessage.isNotEmpty) {
-        _showEditorSnackBar(content: Text(errorMessage));
-      }
-      return;
-    }
     setState(() {
-      if (_editorMode == NoteEditorMode.quick) {
-        _attachments = [..._attachments, attachment];
+      _attachmentImportBusy = true;
+    });
+    _updateCanSubmit();
+    final strings = context.strings;
+    final MediaImportResult result;
+    try {
+      if (action == MediaImportAction.recordAudio) {
+        // ignore: use_build_context_synchronously
+        result = await _showAudioRecordingDialog(context, ref);
       } else {
-        final insertionIndex = _resolveRichInsertionIndex();
-        final nextBlocks = [..._richBlocks];
-        late final _RichBlockDraft paragraphToFocus;
-        var focusOffset = 0;
+        final mediaImportService = ref.read(mediaImportServiceProvider);
+        result = await mediaImportService.importAttachment(action);
+      }
+      if (!mounted) {
+        return;
+      }
+      final attachment = result.attachment;
+      if (attachment == null) {
+        final errorMessage = result.errorMessage;
+        if (errorMessage != null && errorMessage.isNotEmpty) {
+          _showEditorSnackBar(content: Text(errorMessage));
+        }
+        return;
+      }
+      setState(() {
+        if (_editorMode == NoteEditorMode.quick) {
+          _attachments = [..._attachments, attachment];
+        } else {
+          final insertionIndex = _resolveRichInsertionIndex();
+          final nextBlocks = [..._richBlocks];
+          late final _RichBlockDraft paragraphToFocus;
+          var focusOffset = 0;
 
-        if (insertionIndex < nextBlocks.length &&
-            nextBlocks[insertionIndex].type == NoteBlockType.paragraph) {
-          final current = nextBlocks[insertionIndex];
-          final controller = current.controller!;
-          final text = controller.text;
-          final selection = controller.selection;
-          final cursorOffset = selection.isValid
-              ? selection.baseOffset.clamp(0, text.length)
-              : text.length;
+          if (insertionIndex < nextBlocks.length &&
+              nextBlocks[insertionIndex].type == NoteBlockType.paragraph) {
+            final current = nextBlocks[insertionIndex];
+            final controller = current.controller!;
+            final text = controller.text;
+            final selection = controller.selection;
+            final cursorOffset = selection.isValid
+                ? selection.baseOffset.clamp(0, text.length)
+                : text.length;
 
-          if (text.trim().isNotEmpty) {
-            final beforeText = text.substring(0, cursorOffset);
-            final afterText = text.substring(cursorOffset);
-            current.dispose();
-            nextBlocks.removeAt(insertionIndex);
+            if (text.trim().isNotEmpty) {
+              final beforeText = text.substring(0, cursorOffset);
+              final afterText = text.substring(cursorOffset);
+              current.dispose();
+              nextBlocks.removeAt(insertionIndex);
 
-            final replacement = <_RichBlockDraft>[];
-            if (beforeText.isNotEmpty) {
-              final beforeParagraph = _RichBlockDraft.paragraph(beforeText);
-              _attachRichBlockListener(beforeParagraph);
-              replacement.add(beforeParagraph);
+              final replacement = <_RichBlockDraft>[];
+              if (beforeText.isNotEmpty) {
+                final beforeParagraph = _RichBlockDraft.paragraph(beforeText);
+                _attachRichBlockListener(beforeParagraph);
+                replacement.add(beforeParagraph);
+              }
+
+              replacement.add(_RichBlockDraft.attachment(attachment));
+
+              final afterParagraph = _RichBlockDraft.paragraph(afterText);
+              _attachRichBlockListener(afterParagraph);
+              replacement.add(afterParagraph);
+
+              nextBlocks.insertAll(insertionIndex, replacement);
+              paragraphToFocus = afterParagraph;
+              focusOffset = 0;
+            } else {
+              nextBlocks.insert(
+                insertionIndex,
+                _RichBlockDraft.attachment(attachment),
+              );
+              paragraphToFocus = current;
+              focusOffset = 0;
             }
-
-            replacement.add(_RichBlockDraft.attachment(attachment));
-
-            final afterParagraph = _RichBlockDraft.paragraph(afterText);
-            _attachRichBlockListener(afterParagraph);
-            replacement.add(afterParagraph);
-
-            nextBlocks.insertAll(insertionIndex, replacement);
-            paragraphToFocus = afterParagraph;
-            focusOffset = 0;
           } else {
-            nextBlocks.insert(
-              insertionIndex,
+            final trailingParagraph = _RichBlockDraft.paragraph();
+            _attachRichBlockListener(trailingParagraph);
+            nextBlocks.insertAll(insertionIndex, [
               _RichBlockDraft.attachment(attachment),
-            );
-            paragraphToFocus = current;
+              trailingParagraph,
+            ]);
+            paragraphToFocus = trailingParagraph;
             focusOffset = 0;
           }
-        } else {
-          final trailingParagraph = _RichBlockDraft.paragraph();
-          _attachRichBlockListener(trailingParagraph);
-          nextBlocks.insertAll(insertionIndex, [
-            _RichBlockDraft.attachment(attachment),
-            trailingParagraph,
-          ]);
-          paragraphToFocus = trailingParagraph;
-          focusOffset = 0;
-        }
 
-        _richBlocks = nextBlocks;
-        _activeRichParagraphIndex = _richBlocks.indexOf(paragraphToFocus);
-        _requestParagraphFocus(paragraphToFocus, focusOffset);
+          _richBlocks = nextBlocks;
+          _activeRichParagraphIndex = _richBlocks.indexOf(paragraphToFocus);
+          _requestParagraphFocus(paragraphToFocus, focusOffset);
+        }
+      });
+      _cancelAttachmentDelete(attachment);
+      _scheduleDraftPersist();
+    } catch (error) {
+      if (mounted) {
+        _showEditorSnackBar(
+          content: Text(
+            strings.localized(
+              en: 'Could not attach the selected file. ($error)',
+              ja: '選択したファイルを添付できませんでした。($error)',
+              zh: '无法附加所选文件。($error)',
+              ko: '선택한 파일을 첨부할 수 없습니다. ($error)',
+              es: 'No se pudo adjuntar el archivo seleccionado. ($error)',
+              de: 'Die ausgewählte Datei konnte nicht angehängt werden. ($error)',
+            ),
+          ),
+        );
       }
-    });
-    _cancelAttachmentDelete(attachment);
-    _scheduleDraftPersist();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _attachmentImportBusy = false;
+        });
+        _updateCanSubmit();
+      }
+    }
   }
 
   Future<void> _toggleLocationCapture() async {
@@ -17912,6 +18185,7 @@ class _VideoAttachmentViewerState
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   Duration? _dragPosition;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
@@ -17920,7 +18194,19 @@ class _VideoAttachmentViewerState
   }
 
   @override
+  void didUpdateWidget(covariant _VideoAttachmentViewer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.attachment.filePath == widget.attachment.filePath &&
+        oldWidget.attachment.type == widget.attachment.type &&
+        oldWidget.attachment.label == widget.attachment.label) {
+      return;
+    }
+    unawaited(_resetAndLoad());
+  }
+
+  @override
   void dispose() {
+    _loadGeneration += 1;
     final controller = _controller;
     controller?.removeListener(_handleControllerChanged);
     unawaited(controller?.dispose());
@@ -17935,10 +18221,41 @@ class _VideoAttachmentViewerState
     super.dispose();
   }
 
+  Future<void> _resetAndLoad() async {
+    final generation = ++_loadGeneration;
+    final controller = _controller;
+    final tempFilePath = _tempFilePath;
+    setState(() {
+      _controller = null;
+      _tempFilePath = null;
+      _errorMessage = null;
+      _wasPlaying = false;
+      _position = Duration.zero;
+      _duration = Duration.zero;
+      _dragPosition = null;
+    });
+    controller?.removeListener(_handleControllerChanged);
+    await controller?.dispose();
+    if (tempFilePath != null) {
+      await ref
+          .read(encryptedAttachmentStoreProvider)
+          .deleteMaterializedFile(tempFilePath);
+    }
+    if (!mounted || generation != _loadGeneration) {
+      return;
+    }
+    await _loadAttachment(generation: generation);
+  }
+
   Future<void> _load() async {
+    final generation = ++_loadGeneration;
+    await _loadAttachment(generation: generation);
+  }
+
+  Future<void> _loadAttachment({required int generation}) async {
     final filePath = widget.attachment.filePath;
     if (filePath == null || filePath.isEmpty) {
-      if (mounted) {
+      if (mounted && generation == _loadGeneration) {
         setState(() {
           _errorMessage = context.strings.videoPreviewUnavailableWeb;
         });
@@ -17954,7 +18271,7 @@ class _VideoAttachmentViewerState
           filePath,
           type: widget.attachment.type,
         );
-        if (!mounted) {
+        if (!mounted || generation != _loadGeneration) {
           return;
         }
         if (bytes == null || bytes.isEmpty) {
@@ -17975,7 +18292,10 @@ class _VideoAttachmentViewerState
           type: widget.attachment.type,
           preferredFileName: widget.attachment.label,
         );
-        if (!mounted) {
+        if (!mounted || generation != _loadGeneration) {
+          if (tempFilePath != null) {
+            await attachmentStore.deleteMaterializedFile(tempFilePath);
+          }
           return;
         }
         if (tempFilePath == null) {
@@ -17988,7 +18308,7 @@ class _VideoAttachmentViewerState
       }
       await controller.initialize();
       controller.addListener(_handleControllerChanged);
-      if (!mounted) {
+      if (!mounted || generation != _loadGeneration) {
         await controller.dispose();
         if (tempFilePath != null) {
           await attachmentStore.deleteMaterializedFile(tempFilePath);
@@ -18004,7 +18324,7 @@ class _VideoAttachmentViewerState
       });
     } catch (error, stackTrace) {
       debugPrint('Video playback load failed: $error\n$stackTrace');
-      if (!mounted) {
+      if (!mounted || generation != _loadGeneration) {
         return;
       }
       setState(() {
@@ -18081,7 +18401,10 @@ class _VideoAttachmentViewerState
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: GestureDetector(
-                    onTap: widget.onOpenFullScreen,
+                    behavior: HitTestBehavior.opaque,
+                    onTap: widget.fillAvailableHeight
+                        ? () => _togglePlayback(controller)
+                        : widget.onOpenFullScreen,
                     child: VideoPlayer(controller),
                   ),
                 ),

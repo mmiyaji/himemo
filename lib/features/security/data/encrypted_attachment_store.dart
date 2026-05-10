@@ -12,6 +12,8 @@ import '../../home/domain/note_entry.dart';
 import 'encryption_service.dart';
 import 'master_key_service.dart';
 import 'profile_data_key_service.dart';
+import 'web_attachment_payload_store_stub.dart'
+    if (dart.library.html) 'web_attachment_payload_store_web.dart';
 
 class EncryptedAttachmentStore {
   EncryptedAttachmentStore({
@@ -23,21 +25,25 @@ class EncryptedAttachmentStore {
     this.webPrefix = 'secure-attachment://',
     this.webStoragePrefix = 'attachments.encrypted.',
     this.vaultStoragePrefix = 'attachments.vault.',
+    WebAttachmentPayloadStore? webPayloadStore,
   }) : _encryptionService = encryptionService,
        _masterKeyService = masterKeyService,
        _profileDataKeyService = profileDataKeyService,
        _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
        _sharedPreferencesProvider =
-           sharedPreferencesProvider ?? SharedPreferences.getInstance;
+           sharedPreferencesProvider ?? SharedPreferences.getInstance,
+       _webPayloadStore = webPayloadStore ?? WebAttachmentPayloadStore();
 
   final EncryptionService _encryptionService;
   final MasterKeyService _masterKeyService;
   final ProfileDataKeyService? _profileDataKeyService;
   final Future<Directory> Function() _directoryProvider;
   final Future<SharedPreferences> Function() _sharedPreferencesProvider;
+  final WebAttachmentPayloadStore _webPayloadStore;
   final String webPrefix;
   final String webStoragePrefix;
   final String vaultStoragePrefix;
+  static const _webIndexedDbMarker = 'indexeddb:';
 
   Future<String?> storeAttachment(
     XFile sourceFile, {
@@ -54,7 +60,7 @@ class EncryptedAttachmentStore {
     if (kIsWeb) {
       final id = _attachmentId(type, sourceFile.name);
       final prefs = await _sharedPreferencesProvider();
-      await prefs.setString('$webStoragePrefix$id', encrypted);
+      await _writeWebPayload(id, encrypted, prefs);
       final reference = '$webPrefix$id';
       await prefs.setString('$vaultStoragePrefix$reference', 'everyday');
       return reference;
@@ -79,7 +85,7 @@ class EncryptedAttachmentStore {
     if (kIsWeb) {
       final id = _attachmentId(type, fileNameHint);
       final prefs = await _sharedPreferencesProvider();
-      await prefs.setString('$webStoragePrefix$id', encodedPayload);
+      await _writeWebPayload(id, encodedPayload, prefs);
       final reference = '$webPrefix$id';
       await prefs.setString('$vaultStoragePrefix$reference', vaultId);
       return reference;
@@ -174,6 +180,7 @@ class EncryptedAttachmentStore {
     if (storedReference.startsWith(webPrefix)) {
       final id = storedReference.substring(webPrefix.length);
       final prefs = await _sharedPreferencesProvider();
+      await _webPayloadStore.delete(id);
       await prefs.remove('$webStoragePrefix$id');
       await prefs.remove('$vaultStoragePrefix$storedReference');
       return;
@@ -236,7 +243,13 @@ class EncryptedAttachmentStore {
         if (!key.startsWith(webStoragePrefix)) {
           continue;
         }
-        total += utf8.encode(prefs.getString(key) ?? '').length;
+        final value = prefs.getString(key) ?? '';
+        if (value.startsWith(_webIndexedDbMarker)) {
+          final id = value.substring(_webIndexedDbMarker.length);
+          total += utf8.encode(await _webPayloadStore.get(id) ?? '').length;
+        } else {
+          total += utf8.encode(value).length;
+        }
       }
       return total;
     }
@@ -319,7 +332,7 @@ class EncryptedAttachmentStore {
     if (storedReference.startsWith(webPrefix)) {
       final id = storedReference.substring(webPrefix.length);
       final prefs = await _sharedPreferencesProvider();
-      return prefs.getString('$webStoragePrefix$id');
+      return _readWebPayload(id, prefs);
     }
 
     if (kIsWeb) {
@@ -337,7 +350,7 @@ class EncryptedAttachmentStore {
     if (storedReference.startsWith(webPrefix)) {
       final id = storedReference.substring(webPrefix.length);
       final prefs = await _sharedPreferencesProvider();
-      await prefs.setString('$webStoragePrefix$id', payload);
+      await _writeWebPayload(id, payload, prefs);
       return;
     }
 
@@ -352,6 +365,26 @@ class EncryptedAttachmentStore {
 
   Future<String?> readStoredPayload(String storedReference) {
     return _readPayload(storedReference);
+  }
+
+  Future<void> _writeWebPayload(
+    String id,
+    String payload,
+    SharedPreferences prefs,
+  ) async {
+    await _webPayloadStore.put(id, payload);
+    await prefs.setString('$webStoragePrefix$id', '$_webIndexedDbMarker$id');
+  }
+
+  Future<String?> _readWebPayload(String id, SharedPreferences prefs) async {
+    final stored = prefs.getString('$webStoragePrefix$id');
+    if (stored == null || stored.isEmpty) {
+      return null;
+    }
+    if (!stored.startsWith(_webIndexedDbMarker)) {
+      return stored;
+    }
+    return _webPayloadStore.get(stored.substring(_webIndexedDbMarker.length));
   }
 
   Future<String> _attachmentVaultId(String storedReference) async {
