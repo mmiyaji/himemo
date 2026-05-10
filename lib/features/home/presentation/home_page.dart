@@ -54,6 +54,8 @@ const _appAuthorUrl = 'https://ruhenheim.org/';
 enum AppSection { notes, calendar, insights, settings }
 
 final _noteOverlaySheetDepth = ValueNotifier<int>(0);
+final _mobileNoteDetailSheetDepth = ValueNotifier<int>(0);
+final _mobileNoteDetailCloseRequests = ValueNotifier<int>(0);
 
 void _pushNoteOverlaySheet() {
   _noteOverlaySheetDepth.value = _noteOverlaySheetDepth.value + 1;
@@ -63,6 +65,21 @@ void _popNoteOverlaySheet() {
   if (_noteOverlaySheetDepth.value > 0) {
     _noteOverlaySheetDepth.value = _noteOverlaySheetDepth.value - 1;
   }
+}
+
+void _pushMobileNoteDetailSheet() {
+  _mobileNoteDetailSheetDepth.value = _mobileNoteDetailSheetDepth.value + 1;
+}
+
+void _popMobileNoteDetailSheet() {
+  if (_mobileNoteDetailSheetDepth.value > 0) {
+    _mobileNoteDetailSheetDepth.value = _mobileNoteDetailSheetDepth.value - 1;
+  }
+}
+
+void _requestMobileNoteDetailClose() {
+  _mobileNoteDetailCloseRequests.value =
+      _mobileNoteDetailCloseRequests.value + 1;
 }
 
 void _debugNotePerf(String message) {
@@ -454,6 +471,10 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (!force && _noteOverlaySheetDepth.value <= 0) {
       return;
     }
+    if (_mobileNoteDetailSheetDepth.value > 0) {
+      _requestMobileNoteDetailClose();
+      return;
+    }
     final rootNavigator = Navigator.of(context, rootNavigator: true);
     if (rootNavigator.canPop()) {
       rootNavigator.pop();
@@ -494,14 +515,27 @@ class _AppBrandTitle extends StatelessWidget {
             width: 28,
             height: 28,
             fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return ColoredBox(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                child: Icon(
+                  Icons.lock_outline_rounded,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                ),
+              );
+            },
           ),
         ),
         const SizedBox(width: 10),
-        Text(
-          'HiMemo',
-          style: Theme.of(
-            context,
-          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+        Flexible(
+          child: Text(
+            'HiMemo',
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
         ),
       ],
     );
@@ -810,49 +844,69 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final initialIndex = visibleNotes.indexWhere(
       (entry) => entry.id == note.id,
     );
+    BuildContext? sheetContextForClose;
+    void handleCloseRequest() {
+      final sheetContext = sheetContextForClose;
+      if (sheetContext != null && sheetContext.mounted) {
+        Navigator.of(sheetContext).pop();
+      }
+    }
+
     _pushNoteOverlaySheet();
+    _pushMobileNoteDetailSheet();
+    _mobileNoteDetailCloseRequests.addListener(handleCloseRequest);
     try {
       await showModalBottomSheet<void>(
         context: hostContext,
         isScrollControlled: true,
         showDragHandle: false,
-        useRootNavigator: true,
+        useRootNavigator: false,
         useSafeArea: true,
         builder: (sheetContext) {
+          sheetContextForClose = sheetContext;
           final mediaQuery = MediaQuery.of(sheetContext);
-          return SizedBox(
-            height: mediaQuery.size.height - mediaQuery.padding.top,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(10, 6, 10, 12),
-              child: _NoteDetailPager(
-                notes: visibleNotes,
-                selectedIndex: initialIndex < 0 ? 0 : initialIndex,
-                onPageChanged: (index) => ref
-                    .read(selectedNoteIdProvider.notifier)
-                    .select(visibleNotes[index].id),
-                onEdit: (selectedNote) async {
-                  Navigator.of(sheetContext).pop();
-                  await showNoteEditorSheet(
-                    hostContext,
-                    ref,
-                    note: selectedNote,
-                  );
-                },
-                onDelete: (selectedNote) async {
-                  Navigator.of(sheetContext).pop();
-                  await _deleteNote(hostContext, selectedNote);
-                },
-                onClose: () => Navigator.of(sheetContext).pop(),
-                onTagTap: (tag) {
-                  Navigator.of(sheetContext).pop();
-                  _applyTagFilter(hostContext, tag);
-                },
-              ),
-            ),
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final sheetHeight = constraints.maxHeight.isFinite
+                  ? constraints.maxHeight
+                  : mediaQuery.size.height - mediaQuery.padding.top;
+              return SizedBox(
+                height: sheetHeight,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 6, 10, 12),
+                  child: _NoteDetailPager(
+                    notes: visibleNotes,
+                    selectedIndex: initialIndex < 0 ? 0 : initialIndex,
+                    onPageChanged: (index) => ref
+                        .read(selectedNoteIdProvider.notifier)
+                        .select(visibleNotes[index].id),
+                    onEdit: (selectedNote) async {
+                      Navigator.of(sheetContext).pop();
+                      await showNoteEditorSheet(
+                        hostContext,
+                        ref,
+                        note: selectedNote,
+                      );
+                    },
+                    onDelete: (selectedNote) async {
+                      Navigator.of(sheetContext).pop();
+                      await _deleteNote(hostContext, selectedNote);
+                    },
+                    onClose: () => Navigator.of(sheetContext).pop(),
+                    onTagTap: (tag) {
+                      Navigator.of(sheetContext).pop();
+                      _applyTagFilter(hostContext, tag);
+                    },
+                  ),
+                ),
+              );
+            },
           );
         },
       );
     } finally {
+      _mobileNoteDetailCloseRequests.removeListener(handleCloseRequest);
+      _popMobileNoteDetailSheet();
       _popNoteOverlaySheet();
     }
   }
@@ -9385,6 +9439,19 @@ class _SettingsSectionLabel extends StatelessWidget {
   }
 }
 
+final Map<String, Future<bool>> _settingsIconAssetAvailability = {};
+
+Future<bool> _isSettingsIconAssetAvailable(String assetPath) {
+  return _settingsIconAssetAvailability.putIfAbsent(assetPath, () async {
+    try {
+      final data = await rootBundle.load(assetPath);
+      return data.lengthInBytes > 0;
+    } catch (_) {
+      return false;
+    }
+  });
+}
+
 class _SettingsSectionIcon extends StatelessWidget {
   const _SettingsSectionIcon({required this.assetPath});
 
@@ -9401,12 +9468,46 @@ class _SettingsSectionIcon extends StatelessWidget {
         color: colorScheme.primary.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: SvgPicture.asset(
-        assetPath,
-        colorFilter: ColorFilter.mode(colorScheme.primary, BlendMode.srcIn),
+      child: FutureBuilder<bool>(
+        future: _isSettingsIconAssetAvailable(assetPath),
+        builder: (context, snapshot) {
+          if (snapshot.data == true) {
+            return SvgPicture.asset(
+              assetPath,
+              colorFilter: ColorFilter.mode(
+                colorScheme.primary,
+                BlendMode.srcIn,
+              ),
+            );
+          }
+          return Icon(
+            _settingsFallbackIcon(assetPath),
+            size: 22,
+            color: colorScheme.primary,
+          );
+        },
       ),
     );
   }
+}
+
+IconData _settingsFallbackIcon(String assetPath) {
+  if (assetPath.contains('sync')) {
+    return Icons.sync_rounded;
+  }
+  if (assetPath.contains('storage')) {
+    return Icons.inventory_2_rounded;
+  }
+  if (assetPath.contains('security') || assetPath.contains('access')) {
+    return Icons.lock_rounded;
+  }
+  if (assetPath.contains('appearance')) {
+    return Icons.palette_rounded;
+  }
+  if (assetPath.contains('about')) {
+    return Icons.info_outline_rounded;
+  }
+  return Icons.tune_rounded;
 }
 
 class _ColorThemePicker extends StatefulWidget {
@@ -11926,10 +12027,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         location: _location,
       );
       if (!_draftHasContent(snapshot)) {
-        unawaited(ref.read(noteEditorDraftStoreProvider).clear());
+        unawaited(_draftStore.clear());
         return;
       }
-      ref.read(noteEditorDraftStoreProvider).save(snapshot);
+      unawaited(_draftStore.save(snapshot));
     });
   }
 
@@ -12192,135 +12293,141 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                             strings: strings,
                           ),
                         ),
-                        const Spacer(),
-                        Wrap(
-                          spacing: 4,
-                          children: [
-                            IconButton(
-                              tooltip: strings.pinThisNote,
-                              onPressed: () {
-                                setState(() {
-                                  _isPinned = !_isPinned;
-                                });
-                                _scheduleDraftPersist();
-                              },
-                              icon: Icon(
-                                _isPinned
-                                    ? Icons.push_pin_rounded
-                                    : Icons.push_pin_outlined,
-                                color: _isPinned
-                                    ? Theme.of(context).colorScheme.primary
-                                    : _mutedTextColor(context),
-                              ),
-                            ),
-                            IconButton(
-                              tooltip: _captureLocationEnabled
-                                  ? strings.currentLocationLabel
-                                  : strings.addCurrentLocation,
-                              onPressed: _locationBusy
-                                  ? null
-                                  : _toggleLocationCapture,
-                              icon: _locationBusy
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Align(
+                            alignment: AlignmentDirectional.centerEnd,
+                            child: Wrap(
+                              spacing: 4,
+                              alignment: WrapAlignment.end,
+                              children: [
+                                IconButton(
+                                  tooltip: strings.pinThisNote,
+                                  onPressed: () {
+                                    setState(() {
+                                      _isPinned = !_isPinned;
+                                    });
+                                    _scheduleDraftPersist();
+                                  },
+                                  icon: Icon(
+                                    _isPinned
+                                        ? Icons.push_pin_rounded
+                                        : Icons.push_pin_outlined,
+                                    color: _isPinned
+                                        ? Theme.of(context).colorScheme.primary
+                                        : _mutedTextColor(context),
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: _captureLocationEnabled
+                                      ? strings.currentLocationLabel
+                                      : strings.addCurrentLocation,
+                                  onPressed: _locationBusy
+                                      ? null
+                                      : _toggleLocationCapture,
+                                  icon: _locationBusy
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : Icon(
+                                          _location != null
+                                              ? Icons.my_location_rounded
+                                              : Icons.my_location_outlined,
+                                          color:
+                                              _captureLocationEnabled ||
+                                                  _location != null
+                                              ? Theme.of(
+                                                  context,
+                                                ).colorScheme.primary
+                                              : _mutedTextColor(context),
+                                        ),
+                                ),
+                                PopupMenuButton<MediaImportAction>(
+                                  key: const Key('note-capture-media-menu'),
+                                  tooltip: strings.captureMedia,
+                                  enabled: !_attachmentImportBusy,
+                                  icon: Icon(
+                                    Icons.photo_camera_outlined,
+                                    color: _attachmentImportBusy
+                                        ? Theme.of(context).disabledColor
+                                        : _mutedTextColor(context),
+                                  ),
+                                  onSelected: _handleAttachmentAction,
+                                  itemBuilder: (context) => [
+                                    if (!kIsWeb)
+                                      PopupMenuItem(
+                                        value: MediaImportAction.takePhoto,
+                                        child: _MediaMenuEntry(
+                                          icon: Icons.photo_camera_outlined,
+                                          label: strings.takePhoto,
+                                        ),
                                       ),
-                                    )
-                                  : Icon(
-                                      _location != null
-                                          ? Icons.my_location_rounded
-                                          : Icons.my_location_outlined,
-                                      color:
-                                          _captureLocationEnabled ||
-                                              _location != null
-                                          ? Theme.of(
-                                              context,
-                                            ).colorScheme.primary
-                                          : _mutedTextColor(context),
+                                    if (!kIsWeb)
+                                      PopupMenuItem(
+                                        value: MediaImportAction.recordVideo,
+                                        child: _MediaMenuEntry(
+                                          icon: Icons.videocam_outlined,
+                                          label: strings.recordVideo,
+                                        ),
+                                      ),
+                                    PopupMenuItem(
+                                      value: MediaImportAction.recordAudio,
+                                      child: _MediaMenuEntry(
+                                        icon: Icons.mic_none_rounded,
+                                        label: strings.recordAudio,
+                                      ),
                                     ),
-                            ),
-                            PopupMenuButton<MediaImportAction>(
-                              key: const Key('note-capture-media-menu'),
-                              tooltip: strings.captureMedia,
-                              enabled: !_attachmentImportBusy,
-                              icon: Icon(
-                                Icons.photo_camera_outlined,
-                                color: _attachmentImportBusy
-                                    ? Theme.of(context).disabledColor
-                                    : _mutedTextColor(context),
-                              ),
-                              onSelected: _handleAttachmentAction,
-                              itemBuilder: (context) => [
-                                if (!kIsWeb)
-                                  PopupMenuItem(
-                                    value: MediaImportAction.takePhoto,
-                                    child: _MediaMenuEntry(
-                                      icon: Icons.photo_camera_outlined,
-                                      label: strings.takePhoto,
+                                  ],
+                                ),
+                                PopupMenuButton<MediaImportAction>(
+                                  key: const Key('note-import-file-menu'),
+                                  tooltip: strings.importFiles,
+                                  enabled: !_attachmentImportBusy,
+                                  icon: Icon(
+                                    Icons.folder_open_outlined,
+                                    color: _attachmentImportBusy
+                                        ? Theme.of(context).disabledColor
+                                        : _mutedTextColor(context),
+                                  ),
+                                  onSelected: _handleAttachmentAction,
+                                  itemBuilder: (context) => [
+                                    PopupMenuItem(
+                                      value: MediaImportAction.pickPhoto,
+                                      child: _MediaMenuEntry(
+                                        icon: Icons.photo_library_outlined,
+                                        label: strings.pickPhoto,
+                                      ),
                                     ),
-                                  ),
-                                if (!kIsWeb)
-                                  PopupMenuItem(
-                                    value: MediaImportAction.recordVideo,
-                                    child: _MediaMenuEntry(
-                                      icon: Icons.videocam_outlined,
-                                      label: strings.recordVideo,
+                                    PopupMenuItem(
+                                      value: MediaImportAction.pickVideo,
+                                      child: _MediaMenuEntry(
+                                        icon: Icons.video_library_outlined,
+                                        label: strings.pickVideo,
+                                      ),
                                     ),
-                                  ),
-                                PopupMenuItem(
-                                  value: MediaImportAction.recordAudio,
-                                  child: _MediaMenuEntry(
-                                    icon: Icons.mic_none_rounded,
-                                    label: strings.recordAudio,
-                                  ),
+                                    PopupMenuItem(
+                                      value: MediaImportAction.pickAudio,
+                                      child: _MediaMenuEntry(
+                                        icon: Icons.graphic_eq_rounded,
+                                        label: strings.pickAudio,
+                                      ),
+                                    ),
+                                    PopupMenuItem(
+                                      value: MediaImportAction.pickFile,
+                                      child: _MediaMenuEntry(
+                                        icon: Icons.insert_drive_file_outlined,
+                                        label: strings.pickFile,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
-                            PopupMenuButton<MediaImportAction>(
-                              key: const Key('note-import-file-menu'),
-                              tooltip: strings.importFiles,
-                              enabled: !_attachmentImportBusy,
-                              icon: Icon(
-                                Icons.folder_open_outlined,
-                                color: _attachmentImportBusy
-                                    ? Theme.of(context).disabledColor
-                                    : _mutedTextColor(context),
-                              ),
-                              onSelected: _handleAttachmentAction,
-                              itemBuilder: (context) => [
-                                PopupMenuItem(
-                                  value: MediaImportAction.pickPhoto,
-                                  child: _MediaMenuEntry(
-                                    icon: Icons.photo_library_outlined,
-                                    label: strings.pickPhoto,
-                                  ),
-                                ),
-                                PopupMenuItem(
-                                  value: MediaImportAction.pickVideo,
-                                  child: _MediaMenuEntry(
-                                    icon: Icons.video_library_outlined,
-                                    label: strings.pickVideo,
-                                  ),
-                                ),
-                                PopupMenuItem(
-                                  value: MediaImportAction.pickAudio,
-                                  child: _MediaMenuEntry(
-                                    icon: Icons.graphic_eq_rounded,
-                                    label: strings.pickAudio,
-                                  ),
-                                ),
-                                PopupMenuItem(
-                                  value: MediaImportAction.pickFile,
-                                  child: _MediaMenuEntry(
-                                    icon: Icons.insert_drive_file_outlined,
-                                    label: strings.pickFile,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                          ),
                         ),
                       ],
                     ),

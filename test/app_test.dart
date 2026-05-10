@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:himemo/app/app.dart';
 import 'package:himemo/app/app_flavor.dart';
+import 'package:himemo/app/app_router.dart';
 import 'package:himemo/features/home/data/home_repository.dart';
 import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/home/domain/note_tags.dart';
@@ -163,7 +164,7 @@ void main() {
     expect(zh.noteDayLabel(DateTime(2026, 5, 3)), '2026/05/03(周日)');
     expect(
       zh.webPinProtectionSummary(zh.pinLockSummary(isConfigured: false)),
-      '使用 4 位 PIN 保护此浏览器会话。此浏览器尚未设置解锁 PIN。',
+      '使用 4 位 PIN 保护此浏览器会话。尚未设置解锁 PIN。',
     );
     expect(
       zh.remoteBundleSummary(
@@ -185,7 +186,7 @@ void main() {
     expect(ko.noteDayLabel(DateTime(2026, 5, 3)), '2026/05/03(일)');
     expect(
       ko.webPinProtectionSummary(ko.pinLockSummary(isConfigured: true)),
-      '이 브라우저 세션을 4자리 PIN으로 보호합니다. 이 브라우저 세션에는 웹 전용 잠금 해제 PIN이 설정되어 있습니다.',
+      '이 브라우저 세션을 4자리 PIN으로 보호합니다. 이 앱의 잠금 해제 PIN이 설정되어 있습니다.',
     );
     expect(
       ko.remoteBundleSummary(
@@ -996,10 +997,7 @@ void main() {
     await tester.tap(find.text('Cancel').last);
     await tester.pumpAndSettle();
 
-    expect(
-      find.byKey(SettingsScreen.privateProfileNameInputKey),
-      findsNothing,
-    );
+    expect(find.byKey(SettingsScreen.privateProfileNameInputKey), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -1022,8 +1020,18 @@ void main() {
       keyFactory: encryptionService.generateKeyBytes,
     );
     final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final homeRepository = SeededHomeRepository(
+      seedBaseDate: DateTime(2026, 4, 12, 23, 30),
+      useEnglishSeedData: true,
+    );
     final container = ProviderContainer(
       overrides: [
+        homeRepositoryProvider.overrideWithValue(homeRepository),
+        notesControllerProvider.overrideWithValue(
+          homeRepository.seededNotes
+              .where((note) => note.vaultId == 'everyday')
+              .toList(growable: false),
+        ),
         secureKeyValueStoreProvider.overrideWithValue(secureStore),
         encryptionServiceProvider.overrideWithValue(encryptionService),
         masterKeyServiceProvider.overrideWithValue(masterKeyService),
@@ -1050,7 +1058,6 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 1200));
     await tester.pump(const Duration(milliseconds: 200));
-    await container.read(notesControllerProvider.notifier).createDemoNotes();
     await tester.pump(const Duration(milliseconds: 500));
 
     await tester.tap(
@@ -1059,8 +1066,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.byKey(const Key('edit-note-button')), findsOneWidget);
 
-    await tester.tap(find.byKey(AppShell.settingsNavKey));
-    await tester.pump(const Duration(milliseconds: 500));
+    container.read(appRouterProvider).go('/settings');
+    await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('edit-note-button')), findsNothing);
     expect(container.read(selectedNoteIdProvider), isNull);
@@ -1322,8 +1329,8 @@ void main() {
       container.read(searchFiltersControllerProvider.notifier).reset();
       container.read(searchQueryProvider.notifier).setQuery('');
       expect(container.read(visibleNotesProvider).map((note) => note.id), [
-        'archive-current',
         'archive-old',
+        'archive-current',
       ]);
     },
   );

@@ -97,6 +97,65 @@ test('tags can be added to a note and found from search', async ({ page }) => {
   await expectNoteCard(page, /Tagged note Alpha body/);
 });
 
+test('core note create cancel save search tags and archive export stay stable on mobile', async ({
+  page,
+}) => {
+  await runCoreNoteStress(page);
+});
+
+test.describe('desktop viewport', () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  test('core note create cancel save search tags and archive export stay stable on desktop', async ({
+    page,
+  }) => {
+    await runCoreNoteStress(page);
+  });
+});
+
+async function runCoreNoteStress(page) {
+  await page.goto('/');
+  await waitForApp(page);
+  await completeOnboarding(page);
+
+  await openEditor(page, 'Quick memo');
+  const cancelledInput = editorTextInput(page);
+  await cancelledInput.click();
+  await cancelledInput.pressSequentially('Cancelled note\nDo not keep this');
+  await page.getByRole('button', { name: /Cancel|キャンセル/ }).click();
+  await expect(page.locator('flutter-view')).not.toContainText('Do not keep this');
+
+  await openFreshEditor(page, 'Rich memo');
+  const savedInput = page.getByRole('textbox').first();
+  await savedInput.click();
+  await page.keyboard.press('ControlOrMeta+A');
+  await savedInput.pressSequentially('Stress archived export\nBody survives cycles');
+  const tagInput = page.getByLabel(/Add a tag|タグを追加/);
+  await tagInput.fill('archive-cycle');
+  await tagInput.press('Enter');
+  await page.getByRole('button', { name: /Create note|ノートを作成/ }).click();
+  await expectNoteCard(page, /Stress archived export Body survives cycles/);
+
+  await page.getByLabel(/Search|検索/).fill('archive-cycle');
+  await expectNoteCard(page, /Stress archived export Body survives cycles/);
+  await page.getByRole('button', { name: /Filters|詳細/ }).click();
+  await expect(page.getByRole('checkbox', { name: /Pinned only|固定/ })).toBeVisible();
+  await dismissOpenDialog(page);
+
+  await page.getByLabel(/Search|検索/).fill('');
+  await page.waitForTimeout(200);
+  await page.goto('/#/settings');
+  await expect(page.locator('flutter-view')).toContainText(/Backup and sync|Storage|Settings/);
+  await openSettingsGroup(page, /Backup and sync|バックアップ|同期/);
+  const exportButton = await findRoleButtonByScrolling(page, /File export|ファイル/);
+  await exportButton.click();
+  await expect(page.getByRole('alertdialog')).toContainText(/File export|ZIP/);
+  await page.getByRole('button', { name: /^Plain ZIP|^プレーンZIP/ }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  await expect(page.locator('flutter-view')).toContainText(/File export|Storage|Backup and sync/);
+}
+
 test('web audio recording can start and attach with microphone permission', async ({
   context,
   page,
@@ -168,11 +227,10 @@ test('private profile unlock and relock work from the app bar', async ({
   await page.getByRole('button', {
     name: /Unlock private profile|プライベートプロファイルを開く|Switch private access/,
   }).click();
-  await expect(
-    page.getByRole('button', {
-      name: /Unlock private profile|プライベートプロファイルを開く/,
-    }),
-  ).toHaveCount(1);
+  await expect(page.getByRole('alertdialog')).toContainText(
+    /Unlock private profile|プライベートプロファイルを開く/,
+  );
+  await expect(page.getByLabel(/Profile password|プロフィールパスワード/)).toBeVisible();
 });
 
 test.describe('localized surfaces english', () => {
@@ -277,6 +335,16 @@ async function openEditor(page, mode) {
   await selectEditorMode(page, mode);
 }
 
+async function openFreshEditor(page, mode) {
+  await page.getByRole('button', { name: 'Add note' }).click();
+  const discardDraft = page.getByRole('button', { name: /Discard|破棄/ });
+  if (await discardDraft.count()) {
+    await discardDraft.click();
+  }
+  await expect(page.getByRole('button', { name: /Create note|ノートを作成/ })).toBeVisible();
+  await selectEditorMode(page, mode);
+}
+
 async function selectEditorMode(page, mode) {
   const modeButton = page.getByRole('button', {
     name: /Quick memo|Rich memo|クイックメモ|リッチメモ/,
@@ -356,7 +424,39 @@ async function activateNav(page, labels) {
 }
 
 async function activateTabIndex(page, index) {
+  const tabs = page.getByRole('tab');
+  if ((await tabs.count()) > index) {
+    await tabs.nth(index).click();
+    return;
+  }
+  const semanticTabs = page.locator('flt-semantics[role="tab"]');
+  if ((await semanticTabs.count()) > index) {
+    await semanticTabs.nth(index).click();
+    return;
+  }
+
+  const labelsByIndex = [
+    ['Notes', 'ノート'],
+    ['Calendar', 'カレンダー'],
+    ['Insights', 'インサイト'],
+    ['Settings', '設定'],
+  ];
+  const labels = labelsByIndex[index];
+  if (labels) {
+    const labelPattern = new RegExp(labels.map(escapeRegExp).join('|'));
+    const tab = page.getByRole('tab', { name: labelPattern });
+    if (await tab.count()) {
+      await tab.first().click();
+      return;
+    }
+    await activateNav(page, labels);
+    return;
+  }
   await page.getByRole('tab').nth(index).click();
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 async function expectNoteCard(page, name) {
@@ -368,4 +468,50 @@ async function expectNoteCard(page, name) {
       { timeout: 5000 },
     )
     .toBeGreaterThan(0);
+}
+
+async function dismissOpenDialog(page) {
+  const closeButton = page.getByRole('button', { name: /Close|閉じる/ });
+  if (await closeButton.count()) {
+    await closeButton.first().click();
+    await expect(page.getByRole('checkbox', { name: /Pinned only|固定/ })).toHaveCount(0);
+    return;
+  }
+  const dismissButton = page.getByRole('button', { name: /Dismiss/ });
+  if (await dismissButton.count()) {
+    await dismissButton.first().click();
+    await expect(page.getByRole('checkbox', { name: /Pinned only|固定/ })).toHaveCount(0);
+    return;
+  }
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('checkbox', { name: /Pinned only|固定/ })).toHaveCount(0);
+}
+
+async function openSettingsGroup(page, name) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const groupButton = page.getByRole('button', { name });
+    if (await groupButton.count()) {
+      await groupButton.first().click();
+      return;
+    }
+    await page.mouse.wheel(0, 420);
+    await page.waitForTimeout(150);
+  }
+  throw new Error(`Unable to open settings group: ${name}`);
+}
+
+async function findRoleButtonByScrolling(page, name) {
+  const button = page.getByRole('button', { name });
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const first = button.first();
+    if ((await button.count()) && (await first.isVisible())) {
+      await first.scrollIntoViewIfNeeded();
+      await expect(first).toBeEnabled();
+      return first;
+    }
+    await page.mouse.wheel(0, 420);
+    await page.waitForTimeout(150);
+  }
+  await expect(button).toHaveCount(1);
+  return button.first();
 }

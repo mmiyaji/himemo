@@ -27,6 +27,7 @@ void main() {
       'app.onboarding_completed': true,
       'app.onboarding_completed_version': 2,
       'settings.locale': 'english',
+      'notes.last_editor_mode': 'quick',
     });
     final fakeDeviceAuthGateway = FakeDeviceAuthGateway(
       authenticateResults: [true, true],
@@ -167,10 +168,13 @@ void main() {
     await tester.pumpAndSettle();
     debugPrint('E2E step: notes opened');
 
+    await container
+        .read(lastNoteEditorSettingsControllerProvider.notifier)
+        .remember(mode: NoteEditorMode.quick, vaultId: 'everyday');
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(AppShell.addNoteKey));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Quick memo').last);
-    await tester.pumpAndSettle();
+    await _waitForFinder(tester, find.byKey(const Key('note-content-input')));
     await tester.enterText(
       find.byKey(const Key('note-content-input')),
       'Simulator attachment note\nCreated in mobile integration test.',
@@ -207,6 +211,7 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 900));
     debugPrint('E2E step: external quick capture saved');
+    await tester.pumpAndSettle(const Duration(milliseconds: 250));
 
     final noteTitles = container
         .read(notesControllerProvider)
@@ -411,6 +416,20 @@ Future<void> _scrollIntoViewIfNeeded(WidgetTester tester, Finder finder) async {
   }
   await tester.ensureVisible(finder.first);
   await tester.pumpAndSettle();
+}
+
+Future<void> _waitForFinder(
+  WidgetTester tester,
+  Finder finder, {
+  int attempts = 10,
+}) async {
+  for (var attempt = 0; attempt < attempts; attempt++) {
+    if (finder.evaluate().isNotEmpty) {
+      return;
+    }
+    await tester.pump(const Duration(milliseconds: 200));
+  }
+  expect(finder, findsOneWidget);
 }
 
 Future<void> _openExternalLinkDialogAndCancel(
