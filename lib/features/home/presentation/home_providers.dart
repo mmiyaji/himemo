@@ -5769,18 +5769,30 @@ class NotesController extends _$NotesController {
     return notesToAdd.length;
   }
 
-  Future<int> createPerformanceTestNotes({required int count}) async {
+  Future<int> createPerformanceTestNotes({
+    required int count,
+    int attachmentsPerNote = 0,
+  }) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     if (count <= 0) {
       return 0;
     }
     final now = DateTime.now();
-    final existingIds = state.map((note) => note.id).toSet();
+    final existingById = {for (final note in state) note.id: note};
     final notesToAdd = <NoteEntry>[];
+    final notesToRequeue = <String, NoteEntry>{};
     for (var index = 0; index < count; index++) {
       final id = 'perf-${index.toString().padLeft(4, '0')}';
-      if (existingIds.contains(id)) {
+      final existing = existingById[id];
+      if (existing != null) {
+        if (existing.syncState == NoteSyncState.localOnly) {
+          notesToRequeue[id] = existing.copyWith(
+            updatedAt: now,
+            syncState: NoteSyncState.pendingUpload,
+            contentHash: 'performance-seed-$id-requeued',
+          );
+        }
         continue;
       }
       final createdAt = now.subtract(Duration(minutes: index * 11));
@@ -5788,6 +5800,12 @@ class NotesController extends _$NotesController {
       final body =
           'Performance test memo ${index + 1}\n'
           'This generated note is used to measure list, search, calendar, and detail switching performance.';
+      final attachments = attachmentsPerNote <= 0
+          ? const <NoteAttachment>[]
+          : await _createPerformanceTestAttachments(
+              noteIndex: index,
+              count: attachmentsPerNote,
+            );
       notesToAdd.add(
         NoteEntry(
           id: id,
@@ -5798,7 +5816,16 @@ class NotesController extends _$NotesController {
           updatedAt: createdAt,
           deviceId: 'performance-seed',
           contentHash: 'performance-seed-$id',
-          blocks: [NoteBlock(type: NoteBlockType.paragraph, text: body)],
+          syncState: NoteSyncState.pendingUpload,
+          attachments: attachments,
+          blocks: [
+            NoteBlock(type: NoteBlockType.paragraph, text: body),
+            for (final attachment in attachments)
+              NoteBlock(
+                type: _blockTypeForAttachment(attachment.type),
+                attachment: attachment,
+              ),
+          ],
           tags: [
             'performance',
             if (index.isEven) 'batch-a' else 'batch-b',
@@ -5816,14 +5843,89 @@ class NotesController extends _$NotesController {
         ),
       );
     }
-    if (notesToAdd.isEmpty) {
+    if (notesToAdd.isEmpty && notesToRequeue.isEmpty) {
       return 0;
     }
-    final next = [...state, ...notesToAdd];
+    final next = [
+      for (final note in state) notesToRequeue[note.id] ?? note,
+      ...notesToAdd,
+    ];
     _sort(next);
     state = next;
     await _persist();
-    return notesToAdd.length;
+    return notesToAdd.length + notesToRequeue.length;
+  }
+
+  Future<List<NoteAttachment>> _createPerformanceTestAttachments({
+    required int noteIndex,
+    required int count,
+  }) async {
+    final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+    final attachments = <NoteAttachment>[];
+    for (var attachmentIndex = 0; attachmentIndex < count; attachmentIndex++) {
+      final type = switch (attachmentIndex % 3) {
+        0 => AttachmentType.photo,
+        1 => AttachmentType.video,
+        _ => AttachmentType.audio,
+      };
+      final extension = switch (type) {
+        AttachmentType.photo => 'png',
+        AttachmentType.video => 'mp4',
+        AttachmentType.audio => 'm4a',
+        AttachmentType.file => 'bin',
+      };
+      final mimeType = switch (type) {
+        AttachmentType.photo => 'image/png',
+        AttachmentType.video => 'video/mp4',
+        AttachmentType.audio => 'audio/mp4',
+        AttachmentType.file => 'application/octet-stream',
+      };
+      final fileName =
+          'perf-${noteIndex.toString().padLeft(4, '0')}-'
+          '${attachmentIndex.toString().padLeft(2, '0')}.$extension';
+      final sourceFile = XFile.fromData(
+        _performanceAttachmentBytes(type, noteIndex, attachmentIndex),
+        name: fileName,
+        mimeType: mimeType,
+      );
+      final storedPath = await attachmentStore.storeAttachment(
+        sourceFile,
+        type: type,
+      );
+      attachments.add(
+        NoteAttachment(
+          type: type,
+          label: fileName,
+          filePath: storedPath,
+          durationMs: switch (type) {
+            AttachmentType.video => 15000 + (noteIndex % 9) * 1000,
+            AttachmentType.audio => 30000 + (noteIndex % 11) * 1000,
+            _ => null,
+          },
+        ),
+      );
+    }
+    return attachments;
+  }
+
+  Uint8List _performanceAttachmentBytes(
+    AttachmentType type,
+    int noteIndex,
+    int attachmentIndex,
+  ) {
+    if (type == AttachmentType.photo) {
+      return base64Decode('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==');
+    }
+    final size = switch (type) {
+      AttachmentType.video => 256 * 1024,
+      AttachmentType.audio => 96 * 1024,
+      AttachmentType.file => 32 * 1024,
+      AttachmentType.photo => 1024,
+    };
+    final seed = (noteIndex + 1) * 1103515245 + attachmentIndex * 12345;
+    return Uint8List.fromList(
+      List<int>.generate(size, (offset) => (seed + offset * 31) & 0xff),
+    );
   }
 
   Future<void> get restoreCompleted => _waitForInitialRestore();

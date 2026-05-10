@@ -55,6 +55,28 @@ Output:
 build\app\outputs\flutter-apk\app-production-debug.apk
 ```
 
+### Build A One-Time Sync Load APK
+
+For Google Drive performance checks, build a temporary production debug APK that seeds synthetic load on launch. Install it on only one emulator, launch once, sync, then reinstall the normal APK above. This avoids both devices generating the same test IDs independently.
+
+```powershell
+flutter build apk --debug --flavor production -t lib/main_production.dart `
+  --dart-define=HIMEMO_USE_DEBUG_APP_CHECK_FOR_LOCAL_PRODUCTION=true `
+  --dart-define=HIMEMO_SKIP_PLAY_INTEGRITY_FOR_LOCAL_PRODUCTION=true `
+  --dart-define=HIMEMO_PERF_NOTE_COUNT=30 `
+  --dart-define=HIMEMO_PERF_ATTACHMENTS_PER_NOTE=3
+```
+
+Observed 2026-05-11 result:
+
+```text
+tablet seed: 34 notes, 91 attachments, 30 pending uploads
+tablet manual Sync: pending 0 after the first 10-second poll
+phone seamless apply: 34 notes, 91 attachments, pending 0
+```
+
+Performance seed attachments are synthetic image/video/audio payloads intended for sync throughput testing, not media playback quality checks.
+
 ## Install And Launch
 
 ```powershell
@@ -155,6 +177,16 @@ Important fields:
 
 `lastRemoteFileId` means the latest remote was observed, not necessarily applied. Apply/upload timestamps determine whether a remote bundle should be acted on.
 
+Automatic seamless sync stores its last attempt timestamp here:
+
+```powershell
+$adb = 'D:\Android\Sdk\platform-tools\adb.exe'
+& $adb -s emulator-5554 shell run-as org.ruhenheim.himemo `
+  grep -R runtime.cloud_sync_automatic_synced_at /data/data/org.ruhenheim.himemo/shared_prefs/FlutterSharedPreferences.xml
+```
+
+Normal automatic sync is throttled to once per hour per device to reduce Google Drive API usage. Manual Sync remains immediate.
+
 ## UI Dump Helpers
 
 Use UI Automator when coordinates are uncertain:
@@ -246,7 +278,7 @@ Common tablet coordinates observed on `emulator-5556`:
 
 - left Settings nav: around `(220, 690)`
 - Backup and sync card: around `(1500, 1495)`
-- Sync button in expanded section: around `(1537, 829)`
+- Sync button in expanded section: around `(1537, 829)` or `(1535, 1478)` depending on scroll
 
 Always verify with `uiautomator dump` before destructive actions such as `Re-upload all notes`.
 
@@ -287,4 +319,3 @@ Build/install after code changes before emulator validation.
 - A note can show `synced` on both devices while revisions/hashes differ if convergence did not run correctly. Always compare `(id, revision, sync_state, content_hash)`, not only pending queue count.
 - Attachment table only stores `note_id`, `position`, and `encrypted_payload`; do not query a nonexistent `payload_hash` column.
 - `lastRemoteFileId` alone is not proof that the bundle was applied. Check `lastAppliedAt` / `lastUploadedAt` and DB content.
-

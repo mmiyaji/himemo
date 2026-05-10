@@ -21,6 +21,9 @@ import 'app_router.dart';
 const _termsUrl = 'https://mmiyaji.github.io/himemo/terms.html';
 const _privacyUrl = 'https://mmiyaji.github.io/himemo/privacy.html';
 const _performanceSeedNoteCount = int.fromEnvironment('HIMEMO_PERF_NOTE_COUNT');
+const _performanceSeedAttachmentsPerNote = int.fromEnvironment(
+  'HIMEMO_PERF_ATTACHMENTS_PER_NOTE',
+);
 
 class HiMemoApp extends ConsumerWidget {
   const HiMemoApp({super.key, required this.flavor});
@@ -134,7 +137,6 @@ class _DevelopmentPerformanceSeedGateState
   void _maybeStartSeeding() {
     if (_started ||
         kReleaseMode ||
-        widget.flavor != AppFlavor.development ||
         widget.launchSurface != AppLaunchSurface.ready ||
         _performanceSeedNoteCount <= 0) {
       return;
@@ -146,8 +148,14 @@ class _DevelopmentPerformanceSeedGateState
   Future<void> _seedPerformanceNotes() async {
     final added = await ref
         .read(notesControllerProvider.notifier)
-        .createPerformanceTestNotes(count: _performanceSeedNoteCount);
-    debugPrint('[perf-seed] requested=$_performanceSeedNoteCount added=$added');
+        .createPerformanceTestNotes(
+          count: _performanceSeedNoteCount,
+          attachmentsPerNote: _performanceSeedAttachmentsPerNote,
+        );
+    debugPrint(
+      '[perf-seed] requested=$_performanceSeedNoteCount '
+      'attachmentsPerNote=$_performanceSeedAttachmentsPerNote added=$added',
+    );
   }
 
   @override
@@ -225,8 +233,10 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   static const _privateSessionTimeout = Duration(minutes: 5);
   static const _privacyChannel = MethodChannel('org.ruhenheim.himemo/privacy');
   static const _backgroundedAtStorageKey = 'runtime.app_lock_backgrounded_at';
+  static const _automaticCloudSyncedAtStorageKey =
+      'runtime.cloud_sync_automatic_synced_at';
   static const _cloudSyncDebounceDelay = Duration(seconds: 2);
-  static const _cloudSyncForegroundMinInterval = Duration(seconds: 30);
+  static const _automaticCloudSyncMinInterval = Duration(hours: 1);
 
   bool _privacyScreenEnabled = false;
   bool _autoPrompted = false;
@@ -516,7 +526,10 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       if (transferState.isBusy) {
         return;
       }
-      _lastAutomaticCloudSyncAt = DateTime.now();
+      if (!await _canRunAutomaticCloudSync()) {
+        return;
+      }
+      await _recordAutomaticCloudSyncAttempt();
       await ref.read(syncTransferControllerProvider.notifier).syncNow();
     } finally {
       _cloudSyncScheduled = false;
@@ -532,7 +545,40 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     if (last == null) {
       return true;
     }
-    return DateTime.now().difference(last) >= _cloudSyncForegroundMinInterval;
+    return DateTime.now().difference(last) >= _automaticCloudSyncMinInterval;
+  }
+
+  Future<bool> _canRunAutomaticCloudSync() async {
+    final lastInMemory = _lastAutomaticCloudSyncAt;
+    if (lastInMemory != null &&
+        DateTime.now().difference(lastInMemory) <
+            _automaticCloudSyncMinInterval) {
+      return false;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getInt(_automaticCloudSyncedAtStorageKey);
+      if (stored == null) {
+        return true;
+      }
+      final last = DateTime.fromMillisecondsSinceEpoch(stored);
+      _lastAutomaticCloudSyncAt = last;
+      return DateTime.now().difference(last) >= _automaticCloudSyncMinInterval;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> _recordAutomaticCloudSyncAttempt() async {
+    final now = DateTime.now();
+    _lastAutomaticCloudSyncAt = now;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(
+        _automaticCloudSyncedAtStorageKey,
+        now.millisecondsSinceEpoch,
+      );
+    } catch (_) {}
   }
 
   @override
