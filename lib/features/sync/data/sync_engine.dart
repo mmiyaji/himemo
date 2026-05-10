@@ -56,6 +56,23 @@ class PreparedSyncSnapshot {
   final SyncQueueSummary summary;
   final List<PreparedSyncNote> notes;
   final List<PreparedSyncAttachment> attachments;
+
+  int get estimatedPayloadBytes {
+    var total = 4096;
+    total += utf8.encode(deviceId).length;
+    total += utf8.encode(exportedAt.toIso8601String()).length;
+    for (final entry in notes) {
+      total += utf8.encode(jsonEncode(entry.note.toJson())).length;
+      total += 64;
+    }
+    for (final attachment in attachments) {
+      total += utf8.encode(attachment.id).length;
+      total += utf8.encode(attachment.label).length;
+      total += utf8.encode(attachment.bytesBase64).length;
+      total += 64;
+    }
+    return total;
+  }
 }
 
 class SyncEngine {
@@ -171,6 +188,42 @@ class SyncEngine {
       notes: preparedNotes,
       attachments: attachmentPayloads,
     );
+  }
+
+  Future<int> estimateNotesPayloadBytes(List<NoteEntry> notes) async {
+    var total = 4096;
+    final countedPaths = <String>{};
+    for (final note in notes) {
+      total += utf8.encode(jsonEncode(note.toJson())).length + 64;
+      Future<void> addAttachment(NoteAttachment attachment) async {
+        final filePath = attachment.filePath;
+        if (filePath == null ||
+            filePath.isEmpty ||
+            !countedPaths.add(filePath)) {
+          return;
+        }
+        final bytes = await _attachmentStore.readAttachment(
+          filePath,
+          type: attachment.type,
+        );
+        if (bytes == null || bytes.isEmpty) {
+          return;
+        }
+        total += base64Encode(bytes).length;
+        total += utf8.encode(attachment.label).length + 64;
+      }
+
+      for (final attachment in note.attachments) {
+        await addAttachment(attachment);
+      }
+      for (final block in note.blocks) {
+        final attachment = block.attachment;
+        if (attachment != null) {
+          await addAttachment(attachment);
+        }
+      }
+    }
+    return total;
   }
 
   SyncQueueSummary _summarize(List<PendingNoteChangeRecord> changes) {

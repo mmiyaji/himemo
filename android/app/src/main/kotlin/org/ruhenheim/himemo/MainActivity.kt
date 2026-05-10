@@ -3,6 +3,8 @@ package org.ruhenheim.himemo
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.view.WindowManager
@@ -26,11 +28,13 @@ class MainActivity : FlutterFragmentActivity() {
         private const val WIDGET_CHANNEL = "org.ruhenheim.himemo/widget"
         private const val INTEGRITY_CHANNEL = "org.ruhenheim.himemo/integrity"
         private const val PRIVACY_CHANNEL = "org.ruhenheim.himemo/privacy"
+        private const val NETWORK_CHANNEL = "org.ruhenheim.himemo/network"
     }
 
     private var widgetChannel: MethodChannel? = null
     private var integrityChannel: MethodChannel? = null
     private var privacyChannel: MethodChannel? = null
+    private var networkChannel: MethodChannel? = null
 
     override fun getInitialRoute(): String? {
         return if (shouldOpenQuickCapture(intent)) {
@@ -45,6 +49,7 @@ class MainActivity : FlutterFragmentActivity() {
         widgetChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WIDGET_CHANNEL)
         integrityChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, INTEGRITY_CHANNEL)
         privacyChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PRIVACY_CHANNEL)
+        networkChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, NETWORK_CHANNEL)
         widgetChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "consumePendingQuickCapture" -> {
@@ -96,6 +101,12 @@ class MainActivity : FlutterFragmentActivity() {
                 else -> result.notImplemented()
             }
         }
+        networkChannel?.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "currentConnectionKind" -> result.success(currentConnectionKind())
+                else -> result.notImplemented()
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -114,6 +125,18 @@ class MainActivity : FlutterFragmentActivity() {
         return when (intent?.action) {
             ACTION_SEND, ACTION_SEND_MULTIPLE -> true
             else -> false
+        }
+    }
+
+    private fun currentConnectionKind(): String {
+        val manager = getSystemService(ConnectivityManager::class.java) ?: return "unknown"
+        val network = manager.activeNetwork ?: return "none"
+        val capabilities = manager.getNetworkCapabilities(network) ?: return "unknown"
+        return when {
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+            else -> "other"
         }
     }
 

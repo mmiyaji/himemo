@@ -39,6 +39,8 @@ import '../domain/note_entry.dart';
 import '../domain/note_tags.dart';
 import '../domain/vault_models.dart';
 import 'home_providers.dart';
+import 'web_video_element_view_stub.dart'
+    if (dart.library.html) 'web_video_element_view_web.dart';
 import 'web_video_object_url_stub.dart'
     if (dart.library.html) 'web_video_object_url_web.dart';
 
@@ -921,7 +923,21 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
 
   Future<void> _refreshNotesFromCloud(BuildContext context) async {
     final strings = context.strings;
-    await ref.read(syncTransferControllerProvider.notifier).syncNow();
+    final warning = await ref
+        .read(syncTransferControllerProvider.notifier)
+        .largeMobileTransferWarning(includeUpload: true, includeDownload: true);
+    if (!context.mounted) {
+      return;
+    }
+    final confirmed = warning == null
+        ? true
+        : await _showLargeMobileSyncConfirmDialog(context, warning) ?? false;
+    if (!confirmed || !context.mounted) {
+      return;
+    }
+    await ref
+        .read(syncTransferControllerProvider.notifier)
+        .syncNow(allowLargeMobileTransfer: true);
     if (!context.mounted) {
       return;
     }
@@ -3026,7 +3042,18 @@ class SettingsScreen extends ConsumerWidget {
     final messenger = ScaffoldMessenger.of(context);
     final strings = context.strings;
     try {
-      await ref.read(syncTransferControllerProvider.notifier).syncNow();
+      final confirmed = await _confirmLargeMobileSyncIfNeeded(
+        context,
+        ref,
+        includeUpload: true,
+        includeDownload: true,
+      );
+      if (!confirmed || !context.mounted) {
+        return;
+      }
+      await ref
+          .read(syncTransferControllerProvider.notifier)
+          .syncNow(allowLargeMobileTransfer: true);
       if (!context.mounted) {
         return;
       }
@@ -3047,6 +3074,29 @@ class SettingsScreen extends ConsumerWidget {
         SnackBar(showCloseIcon: true, content: Text('$error')),
       );
     }
+  }
+
+  Future<bool> _confirmLargeMobileSyncIfNeeded(
+    BuildContext context,
+    WidgetRef ref, {
+    required bool includeUpload,
+    required bool includeDownload,
+    bool estimateAllLocalNotes = false,
+  }) async {
+    final warning = await ref
+        .read(syncTransferControllerProvider.notifier)
+        .largeMobileTransferWarning(
+          includeUpload: includeUpload,
+          includeDownload: includeDownload,
+          estimateAllLocalNotes: estimateAllLocalNotes,
+        );
+    if (warning == null) {
+      return true;
+    }
+    if (!context.mounted) {
+      return false;
+    }
+    return await _showLargeMobileSyncConfirmDialog(context, warning) ?? false;
   }
 
   @override
@@ -4632,12 +4682,24 @@ class SettingsScreen extends ConsumerWidget {
                                         context,
                                       );
                                       try {
+                                        final confirmed =
+                                            await _confirmLargeMobileSyncIfNeeded(
+                                              context,
+                                              ref,
+                                              includeUpload: true,
+                                              includeDownload: false,
+                                            );
+                                        if (!confirmed || !context.mounted) {
+                                          return;
+                                        }
                                         await ref
                                             .read(
                                               syncTransferControllerProvider
                                                   .notifier,
                                             )
-                                            .uploadCurrentBundle();
+                                            .uploadCurrentBundle(
+                                              allowLargeMobileTransfer: true,
+                                            );
                                         if (!context.mounted) {
                                           return;
                                         }
@@ -4737,13 +4799,29 @@ class SettingsScreen extends ConsumerWidget {
                                       if (!shouldReupload) {
                                         return;
                                       }
+                                      if (!context.mounted) {
+                                        return;
+                                      }
                                       try {
+                                        final confirmed =
+                                            await _confirmLargeMobileSyncIfNeeded(
+                                              context,
+                                              ref,
+                                              includeUpload: true,
+                                              includeDownload: false,
+                                              estimateAllLocalNotes: true,
+                                            );
+                                        if (!confirmed || !context.mounted) {
+                                          return;
+                                        }
                                         await ref
                                             .read(
                                               syncTransferControllerProvider
                                                   .notifier,
                                             )
-                                            .reuploadAllCurrentNotes();
+                                            .reuploadAllCurrentNotes(
+                                              allowLargeMobileTransfer: true,
+                                            );
                                         if (!context.mounted) {
                                           return;
                                         }
@@ -4837,12 +4915,28 @@ class SettingsScreen extends ConsumerWidget {
                                       if (!shouldForce) {
                                         return;
                                       }
+                                      if (!context.mounted) {
+                                        return;
+                                      }
+                                      final confirmed =
+                                          await _confirmLargeMobileSyncIfNeeded(
+                                            context,
+                                            ref,
+                                            includeUpload: true,
+                                            includeDownload: false,
+                                          );
+                                      if (!confirmed || !context.mounted) {
+                                        return;
+                                      }
                                       await ref
                                           .read(
                                             syncTransferControllerProvider
                                                 .notifier,
                                           )
-                                          .uploadCurrentBundle(force: true);
+                                          .uploadCurrentBundle(
+                                            force: true,
+                                            allowLargeMobileTransfer: true,
+                                          );
                                       if (!context.mounted) {
                                         return;
                                       }
@@ -15791,6 +15885,9 @@ class _EmbeddedPhotoAttachmentState
                   Uint8List.fromList(bytes),
                   fit: BoxFit.contain,
                   gaplessPlayback: true,
+                  errorBuilder: (context, error, stackTrace) {
+                    return const _AttachmentImageErrorPanel(height: 180);
+                  },
                 ),
               ),
             ),
@@ -15910,7 +16007,11 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
       return _previewBytes!;
     }
     _previewBytesBase64 = encoded;
-    return _previewBytes = base64Decode(encoded);
+    try {
+      return _previewBytes = base64Decode(encoded);
+    } on FormatException {
+      return _previewBytes = Uint8List(0);
+    }
   }
 }
 
@@ -15937,6 +16038,52 @@ class _AttachmentImageBox extends StatelessWidget {
           gaplessPlayback: true,
           cacheWidth: imageCacheSize,
           cacheHeight: imageCacheSize,
+          errorBuilder: (context, error, stackTrace) {
+            return _AttachmentImageErrorBox(size: size);
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _AttachmentImageErrorPanel extends StatelessWidget {
+  const _AttachmentImageErrorPanel({required this.height});
+
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: height,
+      child: Center(child: _AttachmentImageErrorBox(size: 72)),
+    );
+  }
+}
+
+class _AttachmentImageErrorBox extends StatelessWidget {
+  const _AttachmentImageErrorBox({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: size,
+      height: size,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: scheme.outlineVariant.withValues(alpha: 0.7),
+          ),
+        ),
+        child: Icon(
+          Icons.broken_image_outlined,
+          size: size * 0.42,
+          color: _mutedTextColor(context),
         ),
       ),
     );
@@ -16001,17 +16148,19 @@ class _AttachmentIconBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        color: scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.7)),
       ),
       child: Icon(
         _iconForAttachment(type),
         size: size * 0.42,
-        color: Theme.of(context).colorScheme.primary,
+        color: scheme.primary,
       ),
     );
   }
@@ -16342,6 +16491,15 @@ String _localizedSyncTransferMessage(
         ko: '로컬 동기화 번들을 준비할 수 없습니다.',
         es: 'No se pudo preparar el paquete de sincronizacion local.',
         de: 'Das lokale Synchronisierungspaket konnte nicht vorbereitet werden.',
+      );
+    case 'sync.error.large_mobile_transfer_requires_confirmation':
+      return strings.localized(
+        en: 'This sync is large and the current connection appears to be mobile data. Confirm from the sync button before continuing.',
+        ja: 'この同期は大きく、現在の接続はモバイル回線のようです。続行するには同期ボタンから確認してください。',
+        zh: '本次同步较大，当前连接似乎是移动数据。请从同步按钮确认后继续。',
+        ko: '이번 동기화는 크고 현재 연결이 모바일 데이터로 보입니다. 계속하려면 동기화 버튼에서 확인하세요.',
+        es: 'Esta sincronizacion es grande y la conexion actual parece ser de datos moviles. Confirma desde el boton de sincronizacion antes de continuar.',
+        de: 'Diese Synchronisierung ist gross und die aktuelle Verbindung scheint mobil zu sein. Bestatige uber die Synchronisierungsschaltflache, bevor du fortfahrst.',
       );
     case 'sync.info.upload_success':
       return strings.localized(
@@ -16855,6 +17013,89 @@ String _syncProviderName(SyncProvider provider) {
   };
 }
 
+Future<bool?> _showLargeMobileSyncConfirmDialog(
+  BuildContext context,
+  LargeSyncTransferWarning warning,
+) {
+  final strings = context.strings;
+  final direction = switch (warning.direction) {
+    LargeSyncTransferDirection.upload => strings.localized(
+      en: 'upload',
+      ja: 'アップロード',
+      zh: '上传',
+      ko: '업로드',
+      es: 'subida',
+      de: 'Upload',
+    ),
+    LargeSyncTransferDirection.download => strings.localized(
+      en: 'download',
+      ja: 'ダウンロード',
+      zh: '下载',
+      ko: '다운로드',
+      es: 'descarga',
+      de: 'Download',
+    ),
+  };
+  final size = _formatBytes(warning.bytes);
+  final threshold = _formatBytes(warning.thresholdBytes);
+  return showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(
+        strings.localized(
+          en: 'Sync over mobile data?',
+          ja: 'モバイル回線で同期しますか？',
+          zh: '要通过移动数据同步吗？',
+          ko: '모바일 데이터로 동기화할까요?',
+          es: 'Sincronizar con datos moviles?',
+          de: 'Uber mobile Daten synchronisieren?',
+        ),
+      ),
+      content: Text(
+        strings.localized(
+          en: 'This sync $direction is about $size, which is larger than the $threshold guideline. Continue only if mobile data usage is acceptable.',
+          ja: 'この同期の$directionは約$sizeです。目安の$thresholdを超えています。モバイルデータ通信量に問題がない場合だけ続行してください。',
+          zh: '本次同步$direction约为 $size，超过 $threshold 的建议值。仅在可以接受移动数据用量时继续。',
+          ko: '이번 동기화 $direction 크기는 약 $size이며 기준인 $threshold를 넘습니다. 모바일 데이터 사용량이 괜찮을 때만 계속하세요.',
+          es: 'Esta $direction de sincronizacion es de unos $size, por encima de la referencia de $threshold. Continua solo si aceptas el uso de datos moviles.',
+          de: 'Diese Synchronisierungs-$direction ist etwa $size gross und liegt uber dem Richtwert von $threshold. Fahre nur fort, wenn mobile Datennutzung akzeptabel ist.',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(strings.cancel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(
+            strings.localized(
+              en: 'Continue',
+              ja: '続行',
+              zh: '继续',
+              ko: '계속',
+              es: 'Continuar',
+              de: 'Fortfahren',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+String _formatBytes(int bytes) {
+  const units = ['B', 'KB', 'MB', 'GB'];
+  var value = bytes.toDouble();
+  var unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  final fractionDigits = value >= 10 || unitIndex == 0 ? 0 : 1;
+  return '${value.toStringAsFixed(fractionDigits)} ${units[unitIndex]}';
+}
+
 String _appUpdatesUnavailableDescription(AppStrings strings) {
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
     return strings.appUpdatesDescIos;
@@ -17172,12 +17413,19 @@ Future<void> _showNoteConflictResolver(
   try {
     switch (resolution) {
       case _NoteConflictResolution.keepLocal:
+        final confirmed = await _confirmLargeMobileConflictUploadIfNeeded(
+          context,
+          ref,
+        );
+        if (!confirmed) {
+          return;
+        }
         await ref
             .read(notesControllerProvider.notifier)
             .resolveConflictKeepingLocal(localNote.id);
         await ref
             .read(syncTransferControllerProvider.notifier)
-            .uploadCurrentBundle(force: true);
+            .uploadCurrentBundle(force: true, allowLargeMobileTransfer: true);
         await ref
             .read(notesControllerProvider.notifier)
             .cleanupUnreferencedAttachments();
@@ -17191,12 +17439,19 @@ Future<void> _showNoteConflictResolver(
             .recordDownloadedBundleApplied();
         break;
       case _NoteConflictResolution.merge:
+        final confirmed = await _confirmLargeMobileConflictUploadIfNeeded(
+          context,
+          ref,
+        );
+        if (!confirmed) {
+          return;
+        }
         await ref
             .read(notesControllerProvider.notifier)
             .resolveConflictByMerging(remoteNote);
         await ref
             .read(syncTransferControllerProvider.notifier)
-            .uploadCurrentBundle(force: true);
+            .uploadCurrentBundle(force: true, allowLargeMobileTransfer: true);
         break;
     }
     if (!context.mounted) {
@@ -17225,6 +17480,22 @@ Future<void> _showNoteConflictResolver(
       SnackBar(showCloseIcon: true, content: Text('$error')),
     );
   }
+}
+
+Future<bool> _confirmLargeMobileConflictUploadIfNeeded(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  final warning = await ref
+      .read(syncTransferControllerProvider.notifier)
+      .largeMobileTransferWarning(includeUpload: true, includeDownload: false);
+  if (warning == null) {
+    return true;
+  }
+  if (!context.mounted) {
+    return false;
+  }
+  return await _showLargeMobileSyncConfirmDialog(context, warning) ?? false;
 }
 
 class _ConflictVersionSummary extends StatelessWidget {
@@ -18782,6 +19053,98 @@ class _VideoControllerLightboxDialogState
   }
 }
 
+class _WebVideoLightboxDialog extends StatelessWidget {
+  const _WebVideoLightboxDialog({
+    required this.attachment,
+    required this.objectUrl,
+    this.onShare,
+  });
+
+  final NoteAttachment attachment;
+  final String objectUrl;
+  final VoidCallback? onShare;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final viewType = 'himemo-video-lightbox-${identityHashCode(this)}';
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => Navigator.of(context).pop(),
+            ),
+          ),
+          SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close, color: Colors.white),
+                        tooltip: MaterialLocalizations.of(
+                          context,
+                        ).closeButtonTooltip,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          attachment.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                      ),
+                      if (onShare != null)
+                        IconButton(
+                          onPressed: onShare,
+                          icon: const Icon(
+                            Icons.ios_share_outlined,
+                            color: Colors.white,
+                          ),
+                          tooltip: strings.share,
+                        ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                    child: Center(
+                      child: AspectRatio(
+                        aspectRatio: 16 / 9,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: buildWebVideoElementView(
+                            viewType: viewType,
+                            objectUrl: objectUrl,
+                            autoplay: true,
+                            fillAvailableHeight: true,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PhotoLightboxDialog extends ConsumerStatefulWidget {
   const _PhotoLightboxDialog({
     required this.attachments,
@@ -19017,6 +19380,11 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                                       width: displayedWidth,
                                       height: displayedHeight,
                                       fit: BoxFit.fill,
+                                      errorBuilder: (context, error, stackTrace) {
+                                        return const _AttachmentImageErrorPanel(
+                                          height: 180,
+                                        );
+                                      },
                                     ),
                                   ),
                                 ),
@@ -19395,7 +19763,11 @@ Future<List<int>?> _readPhotoAttachmentBytes(
   if (previewBytesBase64 == null || previewBytesBase64.isEmpty) {
     return Future<List<int>?>.value(null);
   }
-  return Future<List<int>?>.value(base64Decode(previewBytesBase64));
+  try {
+    return Future<List<int>?>.value(base64Decode(previewBytesBase64));
+  } on FormatException {
+    return Future<List<int>?>.value(null);
+  }
 }
 
 Future<List<int>?> _readPhotoAttachmentDetailBytes(
@@ -19404,7 +19776,11 @@ Future<List<int>?> _readPhotoAttachmentDetailBytes(
 ) {
   final previewBytesBase64 = attachment.previewBytesBase64;
   if (previewBytesBase64 != null && previewBytesBase64.isNotEmpty) {
-    return Future<List<int>?>.value(base64Decode(previewBytesBase64));
+    try {
+      return Future<List<int>?>.value(base64Decode(previewBytesBase64));
+    } on FormatException {
+      return Future<List<int>?>.value(null);
+    }
   }
   return _readPhotoAttachmentBytes(ref, attachment);
 }
@@ -19473,7 +19849,13 @@ class _PhotoAttachmentViewer extends ConsumerWidget {
         return InteractiveViewer(
           maxScale: 6,
           child: Center(
-            child: Image.memory(Uint8List.fromList(bytes), fit: BoxFit.contain),
+            child: Image.memory(
+              Uint8List.fromList(bytes),
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return const _AttachmentImageErrorPanel(height: 180);
+              },
+            ),
           ),
         );
       },
@@ -19508,6 +19890,8 @@ class _VideoAttachmentViewerState
   VideoPlayerController? _controller;
   String? _tempFilePath;
   String? _webObjectUrl;
+  String? _webVideoViewType;
+  bool _webVideoAutoplay = false;
   String? _errorMessage;
   bool _wasPlaying = false;
   Duration _position = Duration.zero;
@@ -19567,6 +19951,8 @@ class _VideoAttachmentViewerState
       _controller = null;
       _tempFilePath = null;
       _webObjectUrl = null;
+      _webVideoViewType = null;
+      _webVideoAutoplay = false;
       _errorMessage = null;
       _wasPlaying = false;
       _position = Duration.zero;
@@ -19658,7 +20044,15 @@ class _VideoAttachmentViewerState
           });
           return;
         }
-        controller = VideoPlayerController.networkUrl(Uri.parse(webObjectUrl));
+        setState(() {
+          _webObjectUrl = webObjectUrl;
+          _webVideoViewType =
+              'himemo-video-${DateTime.now().microsecondsSinceEpoch}';
+          _webVideoAutoplay = playWhenLoaded;
+          _loading = false;
+          _playWhenLoaded = false;
+        });
+        return;
       } else {
         tempFilePath = await attachmentStore.materializeDecryptedFile(
           filePath,
@@ -19685,12 +20079,7 @@ class _VideoAttachmentViewerState
       controller.addListener(_handleControllerChanged);
       if (!mounted || generation != _loadGeneration) {
         await controller.dispose();
-        if (tempFilePath != null) {
-          await attachmentStore.deleteMaterializedFile(tempFilePath);
-        }
-        if (webObjectUrl != null) {
-          revokeWebVideoObjectUrl(webObjectUrl);
-        }
+        await attachmentStore.deleteMaterializedFile(tempFilePath);
         return;
       }
       if (playWhenLoaded) {
@@ -19754,6 +20143,9 @@ class _VideoAttachmentViewerState
     final errorMessage = _errorMessage;
     if (errorMessage != null) {
       return Center(child: Text(errorMessage));
+    }
+    if (kIsWeb && _webObjectUrl != null && _webVideoViewType != null) {
+      return _buildWebVideo(context, _webObjectUrl!, _webVideoViewType!);
     }
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
@@ -19904,6 +20296,80 @@ class _VideoAttachmentViewerState
     );
   }
 
+  Widget _buildWebVideo(
+    BuildContext context,
+    String objectUrl,
+    String viewType,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : 520.0;
+        final availableHeight = constraints.hasBoundedHeight
+            ? constraints.maxHeight
+            : 420.0;
+        final maxVideoHeight = widget.fillAvailableHeight
+            ? availableHeight
+            : math.max(96.0, availableHeight - 56.0);
+        final videoPane = SizedBox(
+          height: maxVideoHeight,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: maxWidth,
+                maxHeight: maxVideoHeight,
+              ),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: buildWebVideoElementView(
+                    viewType: viewType,
+                    objectUrl: objectUrl,
+                    autoplay: _webVideoAutoplay,
+                    fillAvailableHeight: widget.fillAvailableHeight,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        final controlColor = widget.fillAvailableHeight ? Colors.white : null;
+        return Column(
+          mainAxisSize: widget.fillAvailableHeight
+              ? MainAxisSize.max
+              : MainAxisSize.min,
+          children: [
+            if (widget.fillAvailableHeight)
+              Expanded(child: videoPane)
+            else
+              videoPane,
+            if (!widget.fillAvailableHeight) const SizedBox(height: 8),
+            Row(
+              children: [
+                const Spacer(),
+                if (widget.showFullScreenAction &&
+                    widget.onOpenFullScreen != null)
+                  IconButton(
+                    onPressed: _openFullScreen,
+                    icon: Icon(Icons.open_in_full_rounded, color: controlColor),
+                  ),
+                if (widget.showShareAction)
+                  IconButton(
+                    onPressed: () =>
+                        _shareAttachment(context, ref, widget.attachment),
+                    icon: Icon(Icons.ios_share_outlined, color: controlColor),
+                    tooltip: context.strings.share,
+                  ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildDeferredPreview(BuildContext context, {required bool loading}) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -19950,6 +20416,13 @@ class _VideoAttachmentViewerState
                               previewBytes,
                               fit: BoxFit.cover,
                               gaplessPlayback: true,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Icon(
+                                  Icons.videocam_outlined,
+                                  size: 56,
+                                  color: Theme.of(context).colorScheme.primary,
+                                );
+                              },
                             )
                           else
                             Icon(
@@ -20059,6 +20532,28 @@ class _VideoAttachmentViewerState
   }
 
   Future<void> _openFullScreen() async {
+    if (kIsWeb && _webObjectUrl != null) {
+      await showGeneralDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        barrierLabel: MaterialLocalizations.of(
+          context,
+        ).modalBarrierDismissLabel,
+        barrierColor: Colors.black.withValues(alpha: 0.88),
+        pageBuilder: (context, _, _) => _WebVideoLightboxDialog(
+          attachment: widget.attachment,
+          objectUrl: _webObjectUrl!,
+          onShare: widget.showShareAction
+              ? () => _shareAttachment(context, ref, widget.attachment)
+              : null,
+        ),
+        transitionBuilder: (context, animation, _, child) => FadeTransition(
+          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+          child: child,
+        ),
+      );
+      return;
+    }
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
       widget.onOpenFullScreen?.call();

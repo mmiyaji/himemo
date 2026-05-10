@@ -530,7 +530,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         return;
       }
       await _recordAutomaticCloudSyncAttempt();
-      await ref.read(syncTransferControllerProvider.notifier).syncNow();
+      await ref
+          .read(syncTransferControllerProvider.notifier)
+          .syncNow(silentLargeMobileSkip: true);
     } finally {
       _cloudSyncScheduled = false;
       if (_cloudSyncRescheduleRequested) {

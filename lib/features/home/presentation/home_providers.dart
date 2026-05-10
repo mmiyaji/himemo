@@ -24,6 +24,7 @@ import '../../../app/firebase_observability.dart';
 import '../../../app/app_flavor.dart';
 import '../../../app/diagnostic_log.dart';
 import '../../../app/in_app_update_service.dart';
+import '../../../app/network_connection.dart';
 import '../../../app/play_integrity_service.dart';
 import '../../../app/play_integrity_verifier.dart';
 import '../data/home_repository.dart';
@@ -716,6 +717,19 @@ Future<String?> _videoPreviewBytesBase64ForSourceFile(XFile sourceFile) async {
   }
 }
 
+Future<String?> _videoPreviewBytesBase64ForBytes(
+  List<int> bytes, {
+  required String label,
+  String? mimeType,
+}) {
+  if (bytes.isEmpty) {
+    return Future.value(null);
+  }
+  return _videoPreviewBytesBase64ForSourceFile(
+    XFile.fromData(Uint8List.fromList(bytes), name: label, mimeType: mimeType),
+  );
+}
+
 class DeviceAuthState {
   const DeviceAuthState({
     required this.availability,
@@ -1039,6 +1053,20 @@ class SyncTransferState {
           : (cooldownUntil ?? this.cooldownUntil),
     );
   }
+}
+
+enum LargeSyncTransferDirection { upload, download }
+
+class LargeSyncTransferWarning {
+  const LargeSyncTransferWarning({
+    required this.direction,
+    required this.bytes,
+    required this.thresholdBytes,
+  });
+
+  final LargeSyncTransferDirection direction;
+  final int bytes;
+  final int thresholdBytes;
 }
 
 class DiagnosticLogSnapshot {
@@ -1473,6 +1501,7 @@ class DefaultMediaImportService implements MediaImportService {
     try {
       final picker = ImagePicker();
       picked = await picker.pickVideo(source: source);
+      picked ??= await _recoverLostVideoCapture(picker);
     } on MissingPluginException {
       return const MediaImportResult.failure(
         'Video import is not configured in this runtime.',
@@ -1493,9 +1522,41 @@ class DefaultMediaImportService implements MediaImportService {
     if (tooLarge != null) {
       return tooLarge;
     }
-    return MediaImportResult.success(
-      await _buildAttachment(type: AttachmentType.video, sourceFile: picked),
-    );
+    try {
+      return MediaImportResult.success(
+        await _buildAttachment(type: AttachmentType.video, sourceFile: picked),
+      );
+    } catch (error) {
+      return MediaImportResult.failure(
+        'The recorded video could not be attached on this device. ($error)',
+      );
+    }
+  }
+
+  Future<XFile?> _recoverLostVideoCapture(ImagePicker picker) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return null;
+    }
+    try {
+      final response = await picker.retrieveLostData();
+      if (response.isEmpty) {
+        return null;
+      }
+      final exception = response.exception;
+      if (exception != null) {
+        throw exception;
+      }
+      final files = response.files;
+      if (files != null && files.isNotEmpty) {
+        return files.last;
+      }
+      return response.file;
+    } on PlatformException {
+      rethrow;
+    } catch (error) {
+      debugPrint('Video capture lost data recovery failed: $error');
+      return null;
+    }
   }
 
   Future<MediaImportResult> _pickMediaFiles({
@@ -1873,6 +1934,12 @@ final diagnosticLogServiceProvider = Provider<DiagnosticLogService>((ref) {
   return DiagnosticLogService.instance;
 });
 
+final networkConnectionServiceProvider = Provider<NetworkConnectionService>((
+  ref,
+) {
+  return const NetworkConnectionService();
+});
+
 @Riverpod(keepAlive: true)
 class DiagnosticLogController extends _$DiagnosticLogController {
   @override
@@ -2129,6 +2196,7 @@ final syncTransferControllerProvider =
     );
 
 class SyncTransferController extends Notifier<SyncTransferState> {
+  static const largeMobileSyncThresholdBytes = 50 * 1024 * 1024;
   static const _syncBundleDecryptionMessage =
       'sync.error.bundle_decryption_failed';
   static const _syncBundleKeyMissingMessage = 'sync.error.bundle_key_missing';
@@ -2152,6 +2220,118 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   void clearLocalBundleCache() {
     state = state.copyWith(clearLocalBundle: true);
+  }
+
+  Future<LargeSyncTransferWarning?> largeMobileTransferWarning({
+    bool includeUpload = true,
+    bool includeDownload = true,
+    bool estimateAllLocalNotes = false,
+  }) async {
+    final kind = await ref.read(networkConnectionServiceProvider).currentKind();
+    if (kind != NetworkConnectionKind.mobile) {
+      return null;
+    }
+    if (includeDownload) {
+      var remoteStatus = state.remoteStatus;
+      if (remoteStatus == null &&
+          _supportsRemoteTransport(ref.read(syncProviderControllerProvider))) {
+        remoteStatus = await runFirebaseTrace(
+          'sync_large_mobile_remote_status',
+          _fetchLatestRemoteStatus,
+        );
+        if (remoteStatus != null) {
+          await ref
+              .read(syncBundleStateStoreProvider)
+              .recordRemoteStatus(remoteStatus);
+          state = state.copyWith(remoteStatus: remoteStatus);
+        }
+      }
+      final remoteSize = remoteStatus?.sizeBytes;
+      final bundleState = await ref.read(syncBundleStateProvider.future);
+      final needsDownload =
+          remoteStatus != null &&
+          remoteBundleNeedsApplyForSync(remoteStatus, bundleState);
+      if (needsDownload &&
+          remoteSize != null &&
+          remoteSize >= largeMobileSyncThresholdBytes) {
+        return LargeSyncTransferWarning(
+          direction: LargeSyncTransferDirection.download,
+          bytes: remoteSize,
+          thresholdBytes: largeMobileSyncThresholdBytes,
+        );
+      }
+    }
+    if (!includeUpload) {
+      return null;
+    }
+    final uploadBytes = estimateAllLocalNotes
+        ? await estimateCurrentStateUploadBytes()
+        : await estimatePendingUploadBytes();
+    if (uploadBytes >= largeMobileSyncThresholdBytes) {
+      return LargeSyncTransferWarning(
+        direction: LargeSyncTransferDirection.upload,
+        bytes: uploadBytes,
+        thresholdBytes: largeMobileSyncThresholdBytes,
+      );
+    }
+    return null;
+  }
+
+  Future<int> estimatePendingUploadBytes() async {
+    final snapshot = await ref
+        .read(syncEngineProvider)
+        .prepareSnapshot(ref.read(notesControllerProvider));
+    return snapshot.estimatedPayloadBytes;
+  }
+
+  Future<int> estimateCurrentStateUploadBytes() async {
+    final notes = ref
+        .read(notesControllerProvider)
+        .where((note) => !isGeneratedSampleNote(note))
+        .map((note) {
+          final syncState = note.deletedAt == null
+              ? NoteSyncState.pendingUpload
+              : NoteSyncState.pendingDelete;
+          return note.copyWith(syncState: syncState);
+        })
+        .toList(growable: false);
+    return ref.read(syncEngineProvider).estimateNotesPayloadBytes(notes);
+  }
+
+  Future<bool> _shouldBlockLargeMobileTransfer({
+    required bool allowLargeMobileTransfer,
+    required bool silentLargeMobileSkip,
+    bool includeUpload = true,
+    bool includeDownload = true,
+    bool estimateAllLocalNotes = false,
+  }) async {
+    if (allowLargeMobileTransfer) {
+      return false;
+    }
+    final warning = await largeMobileTransferWarning(
+      includeUpload: includeUpload,
+      includeDownload: includeDownload,
+      estimateAllLocalNotes: estimateAllLocalNotes,
+    );
+    if (warning == null) {
+      return false;
+    }
+    _diagnostic(
+      'large mobile sync blocked',
+      data: {
+        'direction': warning.direction.name,
+        'bytes': warning.bytes,
+        'thresholdBytes': warning.thresholdBytes,
+        'silent': silentLargeMobileSkip,
+      },
+    );
+    if (!silentLargeMobileSkip) {
+      state = const SyncTransferState(
+        stage: SyncTransferStage.error,
+        message: 'sync.error.large_mobile_transfer_requires_confirmation',
+      );
+    }
+    return true;
   }
 
   void _startBusy(SyncTransferProgress progress) {
@@ -2204,7 +2384,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  Future<void> uploadCurrentBundle({bool force = false}) async {
+  Future<void> uploadCurrentBundle({
+    bool force = false,
+    bool allowLargeMobileTransfer = false,
+    bool silentLargeMobileSkip = false,
+  }) async {
     final provider = ref.read(syncProviderControllerProvider);
     _diagnostic(
       'upload requested',
@@ -2236,6 +2420,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         stage: SyncTransferStage.error,
         message: 'sync.error.conflict_download_first_or_force_upload',
       );
+      return;
+    }
+    if (await _shouldBlockLargeMobileTransfer(
+      allowLargeMobileTransfer: allowLargeMobileTransfer,
+      silentLargeMobileSkip: silentLargeMobileSkip,
+      includeDownload: false,
+    )) {
       return;
     }
     _startBusy(SyncTransferProgress.preparingBundle);
@@ -2322,7 +2513,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  Future<void> reuploadAllCurrentNotes() async {
+  Future<void> reuploadAllCurrentNotes({
+    bool allowLargeMobileTransfer = false,
+    bool silentLargeMobileSkip = false,
+  }) async {
     final provider = ref.read(syncProviderControllerProvider);
     if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
@@ -2334,12 +2528,28 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (state.isBusy) {
       return;
     }
+    if (await _shouldBlockLargeMobileTransfer(
+      allowLargeMobileTransfer: allowLargeMobileTransfer,
+      silentLargeMobileSkip: silentLargeMobileSkip,
+      includeDownload: false,
+      estimateAllLocalNotes: true,
+    )) {
+      return;
+    }
     _startBusy(SyncTransferProgress.preparingBundle);
     await ref.read(notesControllerProvider.notifier).queueCurrentStateForSync();
-    await uploadCurrentBundle(force: true);
+    await uploadCurrentBundle(
+      force: true,
+      allowLargeMobileTransfer: allowLargeMobileTransfer,
+      silentLargeMobileSkip: silentLargeMobileSkip,
+    );
   }
 
-  Future<void> syncNow({bool forceUpload = false}) async {
+  Future<void> syncNow({
+    bool forceUpload = false,
+    bool allowLargeMobileTransfer = false,
+    bool silentLargeMobileSkip = false,
+  }) async {
     final provider = ref.read(syncProviderControllerProvider);
     _diagnostic(
       'sync now requested',
@@ -2391,6 +2601,17 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             .recordRemoteStatus(remoteStatus);
       }
       state = state.copyWith(remoteStatus: remoteStatus);
+
+      if (await _shouldBlockLargeMobileTransfer(
+        allowLargeMobileTransfer: allowLargeMobileTransfer,
+        silentLargeMobileSkip: silentLargeMobileSkip,
+        includeUpload: false,
+        includeDownload:
+            remoteStatus != null &&
+            _remoteBundleNeedsApply(remoteStatus, bundleState),
+      )) {
+        return;
+      }
 
       final queue = await ref.read(syncQueueSummaryProvider.future);
       final hadPendingChangesBeforeRemoteApply = queue.hasPendingChanges;
@@ -2468,7 +2689,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         _setProgress(SyncTransferProgress.preparingBundle);
         final forceConvergenceUpload =
             appliedRemoteDuringSync && !hadPendingChangesBeforeRemoteApply;
-        await uploadCurrentBundle(force: forceUpload || forceConvergenceUpload);
+        await uploadCurrentBundle(
+          force: forceUpload || forceConvergenceUpload,
+          allowLargeMobileTransfer: allowLargeMobileTransfer,
+          silentLargeMobileSkip: silentLargeMobileSkip,
+        );
         return;
       }
       _setProgress(SyncTransferProgress.finalizing);
@@ -2797,6 +3022,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               : PendingNoteChangeAction.delete,
         );
         final storedBySyncAttachmentId = <String, String?>{};
+        final previewBySyncAttachmentId = <String, String?>{};
         Future<NoteAttachment> importAttachment(
           NoteAttachment attachment,
         ) async {
@@ -2820,10 +3046,19 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             final label = payload['label'] as String? ?? attachment.label;
             final bytesBase64 = payload['bytesBase64'] as String?;
             if (bytesBase64 != null && bytesBase64.isNotEmpty) {
+              final clearBytes = base64Decode(bytesBase64);
+              previewBySyncAttachmentId[attachmentId] =
+                  payloadType == AttachmentType.video
+                  ? await _videoPreviewBytesBase64ForBytes(
+                      clearBytes,
+                      label: label,
+                      mimeType: 'video/mp4',
+                    )
+                  : null;
               final encryptedPayload = await ref
                   .read(encryptedAttachmentStoreProvider)
                   .encryptAttachmentBytes(
-                    bytes: base64Decode(bytesBase64),
+                    bytes: clearBytes,
                     type: payloadType,
                     vaultId: note.vaultId,
                   );
@@ -2836,6 +3071,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
                     vaultId: note.vaultId,
                   );
             } else {
+              previewBySyncAttachmentId[attachmentId] = null;
               final legacyPayload = payload['encryptedPayload'] as String?;
               storedBySyncAttachmentId[attachmentId] =
                   legacyPayload == null || legacyPayload.isEmpty
@@ -2852,7 +3088,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           }
           return attachment.copyWith(
             filePath: storedBySyncAttachmentId[attachmentId],
-            previewBytesBase64: null,
+            previewBytesBase64: previewBySyncAttachmentId[attachmentId],
           );
         }
 
@@ -3022,6 +3258,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             : PendingNoteChangeAction.delete,
       );
       final storedBySyncAttachmentId = <String, String?>{};
+      final previewBySyncAttachmentId = <String, String?>{};
       Future<NoteAttachment> importAttachment(NoteAttachment attachment) async {
         final filePath = attachment.filePath;
         if (filePath == null || !filePath.startsWith('sync-attachment://')) {
@@ -3040,10 +3277,19 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           final label = payload['label'] as String? ?? attachment.label;
           final bytesBase64 = payload['bytesBase64'] as String?;
           if (bytesBase64 != null && bytesBase64.isNotEmpty) {
+            final clearBytes = base64Decode(bytesBase64);
+            previewBySyncAttachmentId[attachmentId] =
+                payloadType == AttachmentType.video
+                ? await _videoPreviewBytesBase64ForBytes(
+                    clearBytes,
+                    label: label,
+                    mimeType: 'video/mp4',
+                  )
+                : null;
             final encryptedPayload = await ref
                 .read(encryptedAttachmentStoreProvider)
                 .encryptAttachmentBytes(
-                  bytes: base64Decode(bytesBase64),
+                  bytes: clearBytes,
                   type: payloadType,
                   vaultId: note.vaultId,
                 );
@@ -3056,6 +3302,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
                   vaultId: note.vaultId,
                 );
           } else {
+            previewBySyncAttachmentId[attachmentId] = null;
             final legacyPayload = payload['encryptedPayload'] as String?;
             storedBySyncAttachmentId[attachmentId] =
                 legacyPayload == null || legacyPayload.isEmpty
@@ -3072,7 +3319,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         }
         return attachment.copyWith(
           filePath: storedBySyncAttachmentId[attachmentId],
-          previewBytesBase64: null,
+          previewBytesBase64: previewBySyncAttachmentId[attachmentId],
         );
       }
 

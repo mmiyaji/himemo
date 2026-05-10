@@ -1,12 +1,14 @@
 import UIKit
 import Flutter
 import CloudKit
+import Network
 
 @UIApplicationMain
 @objc class AppDelegate: FlutterAppDelegate {
   private let widgetChannelName = "org.ruhenheim.himemo/widget"
   private let cloudKitChannelName = "org.ruhenheim.himemo/cloudkit"
   private let privacyChannelName = "org.ruhenheim.himemo/privacy"
+  private let networkChannelName = "org.ruhenheim.himemo/network"
   private let quickCaptureUrl = "himemo://widget-capture"
   private let appGroupIdentifier = "group.org.ruhenheim.himemo"
   private let pendingQuickCaptureFileName = "pending_quick_capture.json"
@@ -21,6 +23,7 @@ import CloudKit
   private var widgetChannel: FlutterMethodChannel?
   private var cloudKitChannel: FlutterMethodChannel?
   private var privacyChannel: FlutterMethodChannel?
+  private var networkChannel: FlutterMethodChannel?
   private var pendingQuickCapturePayload: [String: Any]?
   private var privacyProtectionEnabled = false
   private var privacyOverlayView: UIVisualEffectView?
@@ -43,6 +46,10 @@ import CloudKit
       )
       privacyChannel = FlutterMethodChannel(
         name: privacyChannelName,
+        binaryMessenger: controller.binaryMessenger
+      )
+      networkChannel = FlutterMethodChannel(
+        name: networkChannelName,
         binaryMessenger: controller.binaryMessenger
       )
 
@@ -85,6 +92,14 @@ import CloudKit
           return
         }
         self.handlePrivacyMethod(call: call, result: result)
+      }
+
+      networkChannel?.setMethodCallHandler { [weak self] call, result in
+        guard let self else {
+          result("unknown")
+          return
+        }
+        self.handleNetworkMethod(call: call, result: result)
       }
     }
 
@@ -135,6 +150,40 @@ import CloudKit
     default:
       result(FlutterMethodNotImplemented)
     }
+  }
+
+  private func handleNetworkMethod(call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "currentConnectionKind":
+      result(currentConnectionKind())
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private func currentConnectionKind() -> String {
+    let monitor = NWPathMonitor()
+    let queue = DispatchQueue(label: "org.ruhenheim.himemo.network-kind")
+    let semaphore = DispatchSemaphore(value: 0)
+    var kind = "unknown"
+    monitor.pathUpdateHandler = { path in
+      if path.status != .satisfied {
+        kind = "none"
+      } else if path.usesInterfaceType(.cellular) || path.isExpensive {
+        kind = "mobile"
+      } else if path.usesInterfaceType(.wifi) {
+        kind = "wifi"
+      } else if path.usesInterfaceType(.wiredEthernet) {
+        kind = "ethernet"
+      } else {
+        kind = "other"
+      }
+      semaphore.signal()
+    }
+    monitor.start(queue: queue)
+    _ = semaphore.wait(timeout: .now() + 0.8)
+    monitor.cancel()
+    return kind
   }
 
   private func setPrivacyProtectionEnabled(_ enabled: Bool) {
