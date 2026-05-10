@@ -28,6 +28,9 @@ import '../data/home_repository.dart';
 import '../domain/note_entry.dart';
 import '../domain/note_tags.dart';
 import '../domain/vault_models.dart';
+import 'video_thumbnail_generator_stub.dart'
+    if (dart.library.io) 'video_thumbnail_generator_io.dart'
+    if (dart.library.html) 'video_thumbnail_generator_web.dart';
 import '../../security/data/device_identity_store.dart';
 import '../../security/data/encrypted_note_store.dart';
 import '../../security/data/encrypted_note_database.dart';
@@ -681,6 +684,19 @@ Future<int?> _mediaDurationMs({
     AttachmentType.video => probeVideoDurationMs(sourceFile.path),
     _ => null,
   };
+}
+
+Future<String?> _videoPreviewBytesBase64ForSourceFile(XFile sourceFile) async {
+  try {
+    final bytes = await generateVideoThumbnailBytes(sourceFile);
+    if (bytes == null || bytes.isEmpty) {
+      return null;
+    }
+    return base64Encode(bytes);
+  } catch (error) {
+    debugPrint('Video thumbnail generation failed: $error');
+    return null;
+  }
 }
 
 class DeviceAuthState {
@@ -1558,6 +1574,9 @@ class DefaultMediaImportService implements MediaImportService {
       type: type,
       sourceFile: sourceFile,
     );
+    final previewBytesBase64 = type == AttachmentType.video
+        ? await _videoPreviewBytesBase64ForSourceFile(sourceFile)
+        : null;
     final storedPath = await _attachmentStore.storeAttachment(
       sourceFile,
       type: type,
@@ -1568,6 +1587,7 @@ class DefaultMediaImportService implements MediaImportService {
           ? path.basename(sourceFile.path)
           : sourceFile.name,
       filePath: storedPath,
+      previewBytesBase64: previewBytesBase64,
       durationMs: durationMs,
     );
   }
@@ -1950,8 +1970,7 @@ final syncTransferControllerProvider =
 class SyncTransferController extends Notifier<SyncTransferState> {
   static const _syncBundleDecryptionMessage =
       'sync.error.bundle_decryption_failed';
-  static const _syncBundleKeyMissingMessage =
-      'sync.error.bundle_key_missing';
+  static const _syncBundleKeyMissingMessage = 'sync.error.bundle_key_missing';
   static const _iCloudSyncBundleKeyWaitingMessage =
       'sync.error.icloud_keychain_waiting';
 
@@ -2428,7 +2447,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   ) async {
     await downloadBundle(remoteStatus);
     if (state.stage == SyncTransferStage.error) {
-      throw StateError(state.message ?? 'sync.error.remote_bundle_download_failed');
+      throw StateError(
+        state.message ?? 'sync.error.remote_bundle_download_failed',
+      );
     }
     return previewDownloadedBundle();
   }
@@ -2477,9 +2498,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         }
       }
       if (lockedPrivateVaultIds.isNotEmpty) {
-        throw StateError(
-          'sync.error.private_profile_locked',
-        );
+        throw StateError('sync.error.private_profile_locked');
       }
       final attachmentPayloads = <String, Map<String, dynamic>>{
         for (final entry
@@ -5590,11 +5609,15 @@ class NotesController extends _$NotesController {
         type: attachmentType,
         sourceFile: sourceFile,
       );
+      final previewBytesBase64 = attachmentType == AttachmentType.video
+          ? await _videoPreviewBytesBase64ForSourceFile(sourceFile)
+          : null;
       attachments.add(
         NoteAttachment(
           type: attachmentType,
           label: sourceFile.name,
           filePath: storedPath,
+          previewBytesBase64: previewBytesBase64,
           durationMs: durationMs,
         ),
       );

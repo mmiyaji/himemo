@@ -11508,6 +11508,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   Timer? _draftSaveTimer;
   bool _discardingDraft = false;
   bool _draftRestoreSnackBarActive = false;
+  ScaffoldMessengerState? _scaffoldMessenger;
 
   @override
   void initState() {
@@ -11561,6 +11562,12 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     }
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scaffoldMessenger = ScaffoldMessenger.maybeOf(context);
+  }
+
   String _initialNewNoteVaultId() {
     final unlockedVaultId = ref.read(unlockedPrivateProfileVaultIdProvider);
     if (unlockedVaultId != null) {
@@ -11601,7 +11608,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _editorDisposed = true;
     _draftSaveTimer?.cancel();
     if (_draftRestoreSnackBarActive) {
-      ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+      _scaffoldMessenger?.hideCurrentSnackBar();
     }
     final shouldKeepDraft = !_saved && widget.note == null && _hasDraftContent;
     if (shouldKeepDraft && _selectedVaultId != null) {
@@ -15145,13 +15152,17 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
   Widget build(BuildContext context) {
     final attachment = widget.attachment;
     final size = widget.size;
-    if (attachment.type != AttachmentType.photo) {
-      return _AttachmentIconBox(type: attachment.type, size: size);
-    }
-
     final previewBytesBase64 = attachment.previewBytesBase64;
     if (previewBytesBase64 != null && previewBytesBase64.isNotEmpty) {
-      return _AttachmentImageBox(bytes: _decodePreviewBytes(), size: size);
+      final bytes = _decodePreviewBytes();
+      if (attachment.type == AttachmentType.video) {
+        return _AttachmentVideoImageBox(bytes: bytes, size: size);
+      }
+      return _AttachmentImageBox(bytes: bytes, size: size);
+    }
+
+    if (attachment.type != AttachmentType.photo) {
+      return _AttachmentIconBox(type: attachment.type, size: size);
     }
 
     final filePath = attachment.filePath;
@@ -15206,6 +15217,36 @@ class _AttachmentImageBox extends StatelessWidget {
         cacheWidth: imageCacheSize,
         cacheHeight: imageCacheSize,
       ),
+    );
+  }
+}
+
+class _AttachmentVideoImageBox extends StatelessWidget {
+  const _AttachmentVideoImageBox({required this.bytes, this.size = 72});
+
+  final Uint8List bytes;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        _AttachmentImageBox(bytes: bytes, size: size),
+        Container(
+          width: size * 0.42,
+          height: size * 0.42,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.52),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            Icons.play_arrow_rounded,
+            color: Colors.white,
+            size: size * 0.28,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -18388,6 +18429,9 @@ class _VideoAttachmentViewerState
         final secondaryControlColor = controlsOnDark
             ? Colors.white70
             : _mutedTextColor(context);
+        final videoTapHandler = widget.fillAvailableHeight
+            ? () => _togglePlayback(controller)
+            : widget.onOpenFullScreen;
         final videoPane = SizedBox(
           height: maxVideoHeight,
           child: Center(
@@ -18400,12 +18444,17 @@ class _VideoAttachmentViewerState
                 aspectRatio: aspectRatio,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: widget.fillAvailableHeight
-                        ? () => _togglePlayback(controller)
-                        : widget.onOpenFullScreen,
-                    child: VideoPlayer(controller),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      AbsorbPointer(child: VideoPlayer(controller)),
+                      Positioned.fill(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: videoTapHandler,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
