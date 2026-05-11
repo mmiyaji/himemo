@@ -4082,9 +4082,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     };
   }
 
-  Future<String?> _downloadRemoteAttachmentObject(String contentHash) {
+  Future<String?> _downloadRemoteAttachmentObject(String contentHash) async {
     final provider = ref.read(syncProviderControllerProvider);
-    return switch (provider) {
+    Future<String?> download() => switch (provider) {
       SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
         () => ref
             .read(googleDriveSyncTransportProvider)
@@ -4096,6 +4096,28 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             .downloadAttachmentObject(contentHash),
       SyncProvider.off => Future<String?>.value(),
     };
+    var encodedPayload = await download();
+    if ((encodedPayload == null || encodedPayload.isEmpty) &&
+        provider == SyncProvider.iCloud) {
+      for (final delay in const [
+        Duration(milliseconds: 700),
+        Duration(seconds: 2),
+        Duration(seconds: 4),
+      ]) {
+        await Future<void>.delayed(delay);
+        encodedPayload = await download();
+        if (encodedPayload != null && encodedPayload.isNotEmpty) {
+          break;
+        }
+      }
+    }
+    if (encodedPayload == null || encodedPayload.isEmpty) {
+      _diagnostic(
+        'remote attachment object unavailable',
+        data: {'provider': provider.name, 'contentHash': contentHash},
+      );
+    }
+    return encodedPayload;
   }
 
   Future<DownloadedRemoteSyncBundle?> _downloadLatestRemoteBundle() {

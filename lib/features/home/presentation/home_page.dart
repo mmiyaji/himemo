@@ -31,6 +31,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../app/diagnostic_log.dart';
 import '../../../l10n/app_strings.dart';
 import '../../security/data/encrypted_attachment_store.dart';
 import '../../security/data/encryption_service.dart';
@@ -20350,19 +20351,27 @@ Future<T> _profileNotePerfFuture<T>(
 Future<List<int>?> _readPhotoAttachmentBytes(
   WidgetRef ref,
   NoteAttachment attachment,
-) {
+) async {
   final filePath = attachment.filePath;
   if (filePath != null && filePath.isNotEmpty) {
-    return _readDisplayAttachmentBytes(ref, attachment);
+    final bytes = await _readDisplayAttachmentBytes(ref, attachment);
+    if (bytes != null && bytes.isNotEmpty) {
+      return bytes;
+    }
+    return _decodeAttachmentPreviewBytes(attachment);
   }
+  return _decodeAttachmentPreviewBytes(attachment);
+}
+
+List<int>? _decodeAttachmentPreviewBytes(NoteAttachment attachment) {
   final previewBytesBase64 = attachment.previewBytesBase64;
   if (previewBytesBase64 == null || previewBytesBase64.isEmpty) {
-    return Future<List<int>?>.value(null);
+    return null;
   }
   try {
-    return Future<List<int>?>.value(base64Decode(previewBytesBase64));
+    return base64Decode(previewBytesBase64);
   } on FormatException {
-    return Future<List<int>?>.value(null);
+    return null;
   }
 }
 
@@ -20397,18 +20406,44 @@ Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
   if (contentHash.isEmpty) {
     return null;
   }
-  final encodedPayload = switch (ref.read(syncProviderControllerProvider)) {
+  final provider = ref.read(syncProviderControllerProvider);
+  Future<String?> download() => switch (provider) {
     SyncProvider.iCloud =>
-      await ref
+      ref
           .read(iCloudSyncTransportProvider)
           .downloadAttachmentObject(contentHash),
     SyncProvider.googleDrive =>
-      await ref
+      ref
           .read(googleDriveSyncTransportProvider)
           .downloadAttachmentObject(contentHash),
-    SyncProvider.off => null,
+    SyncProvider.off => Future<String?>.value(),
   };
+  var encodedPayload = await download();
+  if ((encodedPayload == null || encodedPayload.isEmpty) &&
+      provider == SyncProvider.iCloud) {
+    for (final delay in const [
+      Duration(milliseconds: 700),
+      Duration(seconds: 2),
+      Duration(seconds: 4),
+    ]) {
+      await Future<void>.delayed(delay);
+      encodedPayload = await download();
+      if (encodedPayload != null && encodedPayload.isNotEmpty) {
+        break;
+      }
+    }
+  }
   if (encodedPayload == null || encodedPayload.isEmpty) {
+    logDiagnostic(
+      'sync',
+      'remote attachment object unavailable for display',
+      data: {
+        'provider': provider.name,
+        'contentHash': contentHash,
+        'type': attachment.type.name,
+        'label': attachment.label,
+      },
+    );
     return null;
   }
   final decoded = await ref
