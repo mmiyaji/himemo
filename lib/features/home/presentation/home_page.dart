@@ -872,11 +872,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         isScrollControlled: true,
         showDragHandle: false,
         useRootNavigator: true,
-        useSafeArea: false,
+        useSafeArea: true,
         builder: (sheetContext) {
           sheetContextForClose = sheetContext;
           final mediaQuery = MediaQuery.of(sheetContext);
-          final topInset = MediaQuery.viewPaddingOf(sheetContext).top;
           return LayoutBuilder(
             builder: (context, constraints) {
               final sheetHeight = constraints.maxHeight.isFinite
@@ -885,7 +884,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               return SizedBox(
                 height: sheetHeight,
                 child: Padding(
-                  padding: EdgeInsets.fromLTRB(10, topInset + 6, 10, 12),
+                  padding: const EdgeInsets.fromLTRB(10, 6, 10, 12),
                   child: _NoteDetailPager(
                     notes: visibleNotes,
                     selectedIndex: initialIndex < 0 ? 0 : initialIndex,
@@ -1278,10 +1277,9 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       isScrollControlled: true,
       showDragHandle: false,
       useRootNavigator: true,
-      useSafeArea: false,
+      useSafeArea: true,
       builder: (context) {
         final mediaQuery = MediaQuery.of(context);
-        final topInset = MediaQuery.viewPaddingOf(context).top;
         var selectedDay = DateTime(
           initialDay.year,
           initialDay.month,
@@ -1311,7 +1309,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
             return SizedBox(
               height: mediaQuery.size.height,
               child: Padding(
-                padding: EdgeInsets.fromLTRB(10, topInset + 6, 10, 12),
+                padding: const EdgeInsets.fromLTRB(10, 6, 10, 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
