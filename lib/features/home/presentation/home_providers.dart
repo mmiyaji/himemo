@@ -2374,6 +2374,12 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         stage: SyncTransferStage.error,
         message: 'sync.error.large_mobile_transfer_requires_confirmation',
       );
+    } else if (state.stage == SyncTransferStage.busy) {
+      state = SyncTransferState(
+        stage: SyncTransferStage.idle,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
     }
     return true;
   }
@@ -2480,6 +2486,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           .read(syncEngineProvider)
           .loadPendingChanges();
       final pendingIds = pendingChanges.map((change) => change.noteId).toSet();
+      final pendingHashes = {
+        for (final change in pendingChanges) change.noteId: change.contentHash,
+      };
       final notes = await ref
           .read(notesControllerProvider.notifier)
           .notesForSyncSnapshot(pendingNoteIds: pendingIds);
@@ -2564,7 +2573,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         },
       );
       _setProgress(SyncTransferProgress.finalizing);
-      await ref.read(notesControllerProvider.notifier).markCurrentStateSynced();
+      await ref
+          .read(notesControllerProvider.notifier)
+          .markSnapshotChangesSynced(pendingHashes);
       ref.invalidate(syncQueueSummaryProvider);
       final queueAfterUpload = await ref.read(syncQueueSummaryProvider.future);
       _diagnostic(
@@ -6862,6 +6873,41 @@ class NotesController extends _$NotesController {
     var changed = false;
     final next = <NoteEntry>[];
     for (final note in state) {
+      if (note.syncState == NoteSyncState.pendingUpload ||
+          note.syncState == NoteSyncState.pendingDelete ||
+          note.syncState == NoteSyncState.conflict) {
+        next.add(note.copyWith(syncState: NoteSyncState.synced));
+        changed = true;
+      } else {
+        next.add(note);
+      }
+    }
+    if (!changed) {
+      return;
+    }
+    _sort(next);
+    state = next;
+    await _persist();
+  }
+
+  Future<void> markSnapshotChangesSynced(
+    Map<String, String?> pendingContentHashes,
+  ) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    if (pendingContentHashes.isEmpty) {
+      return;
+    }
+    var changed = false;
+    final next = <NoteEntry>[];
+    for (final note in state) {
+      final pendingHash = pendingContentHashes[note.id];
+      if (!pendingContentHashes.containsKey(note.id) ||
+          (pendingHash != null && note.contentHash != pendingHash) ||
+          (pendingHash == null && note.contentHash != null)) {
+        next.add(note);
+        continue;
+      }
       if (note.syncState == NoteSyncState.pendingUpload ||
           note.syncState == NoteSyncState.pendingDelete ||
           note.syncState == NoteSyncState.conflict) {
