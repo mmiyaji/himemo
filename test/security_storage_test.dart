@@ -1985,6 +1985,33 @@ void main() {
     },
   );
 
+  test('assessSyncConflict allows local queue newer than remote bundle', () {
+    final assessment = assessSyncConflict(
+      googleDriveSelected: true,
+      queue: SyncQueueSummary(
+        totalChanges: 1,
+        upserts: 1,
+        deletes: 0,
+        lastQueuedAt: DateTime.utc(2026, 4, 12, 20, 5),
+      ),
+      remoteStatus: RemoteSyncBundleStatus(
+        fileId: 'remote-1',
+        fileName: 'himemo_sync_bundle.enc',
+        modifiedAt: DateTime.utc(2026, 4, 12, 20),
+        deviceId: 'device-a',
+      ),
+      bundleState: SyncBundleState(
+        lastRemoteFileId: 'remote-0',
+        lastRemoteModifiedAt: DateTime.utc(2026, 4, 12, 19),
+        lastRemoteDeviceId: 'device-a',
+        lastUploadedAt: DateTime.utc(2026, 4, 12, 19, 15),
+      ),
+    );
+
+    expect(assessment.hasConflict, isFalse);
+    expect(assessment.message, isNull);
+  });
+
   test('assessSyncConflict ignores stale remote bundle', () {
     final assessment = assessSyncConflict(
       googleDriveSelected: true,

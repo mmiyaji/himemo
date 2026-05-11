@@ -2259,6 +2259,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     state = state.copyWith(clearLocalBundle: true);
   }
 
+  Future<SyncQueueSummary> _readLocalSyncQueueSummary() {
+    return ref.read(syncEngineProvider).summarizeQueue();
+  }
+
   Future<LargeSyncTransferWarning?> largeMobileTransferWarning({
     bool includeUpload = true,
     bool includeDownload = true,
@@ -2457,7 +2461,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
     final assessment = assessSyncConflict(
       googleDriveSelected: true,
-      queue: await ref.read(syncQueueSummaryProvider.future),
+      queue: await _readLocalSyncQueueSummary(),
       remoteStatus: state.remoteStatus,
       bundleState: await ref.read(syncBundleStateProvider.future),
     );
@@ -2577,7 +2581,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           .read(notesControllerProvider.notifier)
           .markSnapshotChangesSynced(pendingHashes);
       ref.invalidate(syncQueueSummaryProvider);
-      final queueAfterUpload = await ref.read(syncQueueSummaryProvider.future);
+      final queueAfterUpload = await _readLocalSyncQueueSummary();
       _diagnostic(
         'local queue after upload marked synced',
         data: {
@@ -2704,7 +2708,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         return;
       }
 
-      final queue = await ref.read(syncQueueSummaryProvider.future);
+      final queue = await _readLocalSyncQueueSummary();
       final hadPendingChangesBeforeRemoteApply = queue.hasPendingChanges;
       var appliedRemoteDuringSync = false;
       _diagnostic(
@@ -2770,7 +2774,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       }
 
       ref.invalidate(syncQueueSummaryProvider);
-      final refreshedQueue = await ref.read(syncQueueSummaryProvider.future);
+      final refreshedQueue = await _readLocalSyncQueueSummary();
       _diagnostic(
         'local queue refreshed',
         data: {
