@@ -9312,56 +9312,66 @@ class _EdgePullDismissHint extends StatelessWidget {
             duration: const Duration(milliseconds: 120),
             curve: Curves.easeOut,
             child: Center(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: colorScheme.inverseSurface.withValues(alpha: 0.9),
-                  borderRadius: BorderRadius.circular(999),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.18),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Transform.translate(
-                        offset: Offset(0, (isUp ? -3 : 3) * effectiveProgress),
-                        child: Icon(
-                          effectiveProgress >= 1
-                              ? (isUp
-                                    ? Icons.keyboard_double_arrow_up_rounded
-                                    : Icons.keyboard_double_arrow_down_rounded)
-                              : (isUp
-                                    ? Icons.keyboard_arrow_up_rounded
-                                    : Icons.keyboard_arrow_down_rounded),
-                          color: colorScheme.onInverseSurface,
-                          size: 22,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        effectiveProgress >= 0.92
-                            ? strings.close
-                            : strings.localized(
-                                en: 'Release past the edge to close',
-                                ja: 'さらに下へスクロールして閉じる',
-                                zh: '继续向下滚动以关闭',
-                                ko: '더 아래로 스크롤해 닫기',
-                                es: 'Sigue desplazando para cerrar',
-                                de: 'Weiter scrollen zum Schließen',
-                              ),
-                        style: Theme.of(context).textTheme.labelMedium
-                            ?.copyWith(color: colorScheme.onInverseSurface),
+              child: SizedBox(
+                width: 252,
+                height: 44,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: colorScheme.inverseSurface.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(999),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
                       ),
                     ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Transform.translate(
+                          offset: Offset(
+                            0,
+                            (isUp ? -3 : 3) * effectiveProgress,
+                          ),
+                          child: Icon(
+                            effectiveProgress >= 1
+                                ? (isUp
+                                      ? Icons.keyboard_double_arrow_up_rounded
+                                      : Icons
+                                            .keyboard_double_arrow_down_rounded)
+                                : (isUp
+                                      ? Icons.keyboard_arrow_up_rounded
+                                      : Icons.keyboard_arrow_down_rounded),
+                            color: colorScheme.onInverseSurface,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            effectiveProgress >= 0.92
+                                ? strings.close
+                                : strings.localized(
+                                    en: 'Release past the edge to close',
+                                    ja: 'さらに下へスクロールして閉じる',
+                                    zh: '继续向下滚动以关闭',
+                                    ko: '더 아래로 스크롤해 닫기',
+                                    es: 'Sigue desplazando para cerrar',
+                                    de: 'Weiter scrollen zum Schließen',
+                                  ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.labelMedium
+                                ?.copyWith(color: colorScheme.onInverseSurface),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
