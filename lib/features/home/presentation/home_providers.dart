@@ -1401,7 +1401,10 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
 }
 
 abstract class MediaImportService {
-  Future<MediaImportResult> importAttachment(MediaImportAction action);
+  Future<MediaImportResult> importAttachment(
+    MediaImportAction action, {
+    VoidCallback? onProcessingStarted,
+  });
 }
 
 class DefaultMediaImportService implements MediaImportService {
@@ -1411,24 +1414,39 @@ class DefaultMediaImportService implements MediaImportService {
   final EncryptedAttachmentStore _attachmentStore;
 
   @override
-  Future<MediaImportResult> importAttachment(MediaImportAction action) async {
+  Future<MediaImportResult> importAttachment(
+    MediaImportAction action, {
+    VoidCallback? onProcessingStarted,
+  }) async {
     switch (action) {
       case MediaImportAction.takePhoto:
-        return _pickPhoto(ImageSource.camera);
+        return _pickPhoto(
+          ImageSource.camera,
+          onProcessingStarted: onProcessingStarted,
+        );
       case MediaImportAction.pickPhoto:
-        return _pickPhoto(ImageSource.gallery);
+        return _pickPhoto(
+          ImageSource.gallery,
+          onProcessingStarted: onProcessingStarted,
+        );
       case MediaImportAction.recordVideo:
-        return _pickVideo(ImageSource.camera);
+        return _pickVideo(
+          ImageSource.camera,
+          onProcessingStarted: onProcessingStarted,
+        );
       case MediaImportAction.pickVideo:
-        return _pickVideo(ImageSource.gallery);
+        return _pickVideo(
+          ImageSource.gallery,
+          onProcessingStarted: onProcessingStarted,
+        );
       case MediaImportAction.recordAudio:
         return const MediaImportResult.failure(
           'Audio recording is handled by the note editor.',
         );
       case MediaImportAction.pickAudio:
-        return _pickAudio();
+        return _pickAudio(onProcessingStarted: onProcessingStarted);
       case MediaImportAction.pickFile:
-        return _pickFile();
+        return _pickFile(onProcessingStarted: onProcessingStarted);
       case MediaImportAction.addLocation:
         return const MediaImportResult.failure(
           'Location capture is handled by the note editor.',
@@ -1436,7 +1454,10 @@ class DefaultMediaImportService implements MediaImportService {
     }
   }
 
-  Future<MediaImportResult> _pickPhoto(ImageSource source) async {
+  Future<MediaImportResult> _pickPhoto(
+    ImageSource source, {
+    VoidCallback? onProcessingStarted,
+  }) async {
     if (source == ImageSource.gallery) {
       return _pickMediaFiles(
         type: AttachmentType.photo,
@@ -1448,6 +1469,7 @@ class DefaultMediaImportService implements MediaImportService {
         importNotConfiguredMessage:
             'Photo import is not configured in this runtime.',
         importFailedPrefix: 'Photo import failed on this device.',
+        onProcessingStarted: onProcessingStarted,
       );
     }
     XFile? picked;
@@ -1470,6 +1492,7 @@ class DefaultMediaImportService implements MediaImportService {
     if (picked == null) {
       return const MediaImportResult.cancelled();
     }
+    onProcessingStarted?.call();
     final tooLarge = await _validateFileSize(
       picked,
       maxBytes: 25 * 1024 * 1024,
@@ -1483,7 +1506,10 @@ class DefaultMediaImportService implements MediaImportService {
     );
   }
 
-  Future<MediaImportResult> _pickVideo(ImageSource source) async {
+  Future<MediaImportResult> _pickVideo(
+    ImageSource source, {
+    VoidCallback? onProcessingStarted,
+  }) async {
     if (source == ImageSource.gallery) {
       return _pickMediaFiles(
         type: AttachmentType.video,
@@ -1495,6 +1521,7 @@ class DefaultMediaImportService implements MediaImportService {
         importNotConfiguredMessage:
             'Video import is not configured in this runtime.',
         importFailedPrefix: 'Video import failed on this device.',
+        onProcessingStarted: onProcessingStarted,
       );
     }
     XFile? picked;
@@ -1514,6 +1541,7 @@ class DefaultMediaImportService implements MediaImportService {
     if (picked == null) {
       return const MediaImportResult.cancelled();
     }
+    onProcessingStarted?.call();
     final tooLarge = await _validateFileSize(
       picked,
       maxBytes: 200 * 1024 * 1024,
@@ -1567,6 +1595,7 @@ class DefaultMediaImportService implements MediaImportService {
     required String openFailureMessage,
     required String importNotConfiguredMessage,
     required String importFailedPrefix,
+    VoidCallback? onProcessingStarted,
   }) async {
     FilePickerResult? result;
     try {
@@ -1586,6 +1615,7 @@ class DefaultMediaImportService implements MediaImportService {
       return const MediaImportResult.cancelled();
     }
 
+    onProcessingStarted?.call();
     final attachments = <NoteAttachment>[];
     for (final file in result.files) {
       final sourceFile = _xFileFromPlatformFile(file);
@@ -1614,7 +1644,9 @@ class DefaultMediaImportService implements MediaImportService {
     return MediaImportResult.successMany(attachments);
   }
 
-  Future<MediaImportResult> _pickAudio() async {
+  Future<MediaImportResult> _pickAudio({
+    VoidCallback? onProcessingStarted,
+  }) async {
     FilePickerResult? result;
     try {
       final audioExtensions = <String>[
@@ -1654,6 +1686,7 @@ class DefaultMediaImportService implements MediaImportService {
       return const MediaImportResult.cancelled();
     }
 
+    onProcessingStarted?.call();
     final file = result.files.single;
     final bytes = file.bytes;
     if (file.path == null && bytes == null) {
@@ -1685,7 +1718,9 @@ class DefaultMediaImportService implements MediaImportService {
     );
   }
 
-  Future<MediaImportResult> _pickFile() async {
+  Future<MediaImportResult> _pickFile({
+    VoidCallback? onProcessingStarted,
+  }) async {
     FilePickerResult? result;
     try {
       result = await FilePicker.pickFiles(type: FileType.any, withData: kIsWeb);
@@ -1706,6 +1741,7 @@ class DefaultMediaImportService implements MediaImportService {
       return const MediaImportResult.cancelled();
     }
 
+    onProcessingStarted?.call();
     final file = result.files.single;
     final bytes = file.bytes;
     if (file.path == null && bytes == null) {

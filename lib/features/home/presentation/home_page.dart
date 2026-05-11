@@ -12353,6 +12353,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   bool _saved = false;
   bool _draftLoaded = false;
   bool _editorDisposed = false;
+  bool _attachmentPickerBusy = false;
   bool _attachmentImportBusy = false;
   Timer? _draftSaveTimer;
   bool _discardingDraft = false;
@@ -12512,7 +12513,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (_editorDisposed) {
       return;
     }
-    final next = _hasSubmitContent && !_attachmentImportBusy;
+    final next = _hasSubmitContent && !_attachmentActionBusy;
     if (_canSubmitNotifier.value != next) {
       _canSubmitNotifier.value = next;
     }
@@ -13061,10 +13062,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                 PopupMenuButton<MediaImportAction>(
                                   key: const Key('note-capture-media-menu'),
                                   tooltip: strings.captureMedia,
-                                  enabled: !_attachmentImportBusy,
+                                  enabled: !_attachmentActionBusy,
                                   icon: Icon(
                                     Icons.photo_camera_outlined,
-                                    color: _attachmentImportBusy
+                                    color: _attachmentActionBusy
                                         ? Theme.of(context).disabledColor
                                         : _mutedTextColor(context),
                                   ),
@@ -13098,10 +13099,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                 PopupMenuButton<MediaImportAction>(
                                   key: const Key('note-import-file-menu'),
                                   tooltip: strings.importFiles,
-                                  enabled: !_attachmentImportBusy,
+                                  enabled: !_attachmentActionBusy,
                                   icon: Icon(
                                     Icons.folder_open_outlined,
-                                    color: _attachmentImportBusy
+                                    color: _attachmentActionBusy
                                         ? Theme.of(context).disabledColor
                                         : _mutedTextColor(context),
                                   ),
@@ -13421,7 +13422,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       onPressed:
                           canSubmit &&
                               _selectedVaultId != null &&
-                              !_attachmentImportBusy
+                              !_attachmentActionBusy
                           ? _save
                           : null,
                       child: Text(
@@ -13454,6 +13455,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   bool get _canSave {
     return _hasSubmitContent && _selectedVaultId != null;
   }
+
+  bool get _attachmentActionBusy =>
+      _attachmentPickerBusy || _attachmentImportBusy;
 
   void _showEditorSnackBar({required Widget content, SnackBarAction? action}) {
     final messenger = ScaffoldMessenger.of(context);
@@ -13541,7 +13545,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   Future<void> _handleAttachmentAction(MediaImportAction action) async {
-    if (_attachmentImportBusy) {
+    if (_attachmentActionBusy) {
       return;
     }
     if (action == MediaImportAction.addLocation) {
@@ -13549,7 +13553,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       return;
     }
     setState(() {
-      _attachmentImportBusy = true;
+      _attachmentPickerBusy = true;
     });
     _updateCanSubmit();
     final strings = context.strings;
@@ -13560,7 +13564,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         result = await _showAudioRecordingDialog(context, ref);
       } else {
         final mediaImportService = ref.read(mediaImportServiceProvider);
-        result = await mediaImportService.importAttachment(action);
+        result = await mediaImportService.importAttachment(
+          action,
+          onProcessingStarted: _markAttachmentProcessingStarted,
+        );
       }
       if (!mounted) {
         return;
@@ -13666,11 +13673,23 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     } finally {
       if (mounted) {
         setState(() {
+          _attachmentPickerBusy = false;
           _attachmentImportBusy = false;
         });
         _updateCanSubmit();
       }
     }
+  }
+
+  void _markAttachmentProcessingStarted() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _attachmentPickerBusy = false;
+      _attachmentImportBusy = true;
+    });
+    _updateCanSubmit();
   }
 
   Future<void> _toggleLocationCapture() async {

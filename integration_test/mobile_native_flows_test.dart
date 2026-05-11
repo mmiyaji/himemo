@@ -502,8 +502,12 @@ class FakeMediaImportService implements MediaImportService {
   int importCallCount = 0;
 
   @override
-  Future<MediaImportResult> importAttachment(MediaImportAction action) async {
+  Future<MediaImportResult> importAttachment(
+    MediaImportAction action, {
+    VoidCallback? onProcessingStarted,
+  }) async {
     importCallCount += 1;
+    onProcessingStarted?.call();
     return switch (action) {
       MediaImportAction.takePhoto ||
       MediaImportAction.pickPhoto => const MediaImportResult.success(

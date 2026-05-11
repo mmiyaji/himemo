@@ -117,7 +117,11 @@ class _FakeSyncAuthGateway implements SyncAuthGateway {
 
 class _FakeMediaImportService implements MediaImportService {
   @override
-  Future<MediaImportResult> importAttachment(MediaImportAction action) async {
+  Future<MediaImportResult> importAttachment(
+    MediaImportAction action, {
+    VoidCallback? onProcessingStarted,
+  }) async {
+    onProcessingStarted?.call();
     return switch (action) {
       MediaImportAction.takePhoto ||
       MediaImportAction.pickPhoto => const MediaImportResult.success(
