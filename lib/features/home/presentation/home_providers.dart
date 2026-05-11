@@ -2238,6 +2238,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   static const _syncBundleKeyMissingMessage = 'sync.error.bundle_key_missing';
   static const _iCloudSyncBundleKeyWaitingMessage =
       'sync.error.icloud_keychain_waiting';
+  static const _privateProfileNotesPendingUnlockMessage =
+      'sync.info.private_profile_notes_pending_unlock';
 
   Timer? _cooldownTimer;
 
@@ -2741,6 +2743,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           if (state.stage == SyncTransferStage.error) {
             return;
           }
+          if (state.message == _privateProfileNotesPendingUnlockMessage) {
+            return;
+          }
           appliedRemoteDuringSync = true;
         }
       }
@@ -3059,21 +3064,6 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       final rawNoteEntries =
           decoded['notes'] as List<dynamic>? ?? const <dynamic>[];
       final lockedPrivateVaultIds = <String>{};
-      for (final rawEntry in rawNoteEntries) {
-        final entry = Map<String, dynamic>.from(rawEntry as Map);
-        final note = NoteEntry.fromJson(
-          Map<String, dynamic>.from(entry['note'] as Map),
-        );
-        if (isPrivateVaultId(note.vaultId) &&
-            !ref
-                .read(profileDataKeyServiceProvider)
-                .isProfileUnlocked(note.vaultId)) {
-          lockedPrivateVaultIds.add(note.vaultId);
-        }
-      }
-      if (lockedPrivateVaultIds.isNotEmpty) {
-        throw StateError('sync.error.private_profile_locked');
-      }
       final attachmentPayloads = <String, Map<String, dynamic>>{
         for (final entry
             in (decoded['attachments'] as List<dynamic>? ?? const <dynamic>[]))
@@ -3085,6 +3075,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         final note = NoteEntry.fromJson(
           Map<String, dynamic>.from(entry['note'] as Map),
         );
+        if (isPrivateVaultId(note.vaultId) &&
+            !ref
+                .read(profileDataKeyServiceProvider)
+                .isProfileUnlocked(note.vaultId)) {
+          lockedPrivateVaultIds.add(note.vaultId);
+          continue;
+        }
         final action = PendingNoteChangeAction.values.firstWhere(
           (value) => value.name == entry['action'],
           orElse: () => note.deletedAt == null
@@ -3133,17 +3130,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           ),
         );
       }
-      await ref
-          .read(notesControllerProvider.notifier)
-          .mergeFromSync(importedChanges);
-      await ref
-          .read(syncBundleStateStoreProvider)
-          .recordApply(state.remoteStatus);
-      ref.invalidate(syncQueueSummaryProvider);
-      ref.invalidate(syncBundleStateProvider);
+      if (importedChanges.isNotEmpty) {
+        await ref
+            .read(notesControllerProvider.notifier)
+            .mergeFromSync(importedChanges);
+        ref.invalidate(syncQueueSummaryProvider);
+      }
+      if (lockedPrivateVaultIds.isEmpty) {
+        await ref
+            .read(syncBundleStateStoreProvider)
+            .recordApply(state.remoteStatus);
+        ref.invalidate(syncBundleStateProvider);
+      }
       state = state.copyWith(
         stage: SyncTransferStage.success,
-        message: 'sync.info.apply_success',
+        message: lockedPrivateVaultIds.isEmpty
+            ? 'sync.info.apply_success'
+            : _privateProfileNotesPendingUnlockMessage,
       );
     } on HimemoDecryptionException {
       state = state.copyWith(
@@ -7420,6 +7423,7 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
             .read(unlockedPrivateProfileVaultIdProvider.notifier)
             .unlock(custom.vaultId);
         ref.read(adminModeSessionControllerProvider.notifier).lock();
+        await _applyPendingDownloadedBundle();
         await ref.read(notesControllerProvider.notifier).reloadFromStorage();
         state = const AsyncData(null);
         return custom;
@@ -7437,6 +7441,7 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
             .read(unlockedPrivateProfileVaultIdProvider.notifier)
             .unlock(result.vaultId);
         ref.read(adminModeSessionControllerProvider.notifier).lock();
+        await _applyPendingDownloadedBundle();
         await ref.read(notesControllerProvider.notifier).reloadFromStorage();
         state = const AsyncData(null);
         return result;
@@ -7447,6 +7452,15 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
       state = AsyncError(error, stackTrace);
       return null;
     }
+  }
+
+  Future<void> _applyPendingDownloadedBundle() async {
+    if (ref.read(syncTransferControllerProvider).localBundle == null) {
+      return;
+    }
+    await ref
+        .read(syncTransferControllerProvider.notifier)
+        .applyDownloadedBundle();
   }
 }
 

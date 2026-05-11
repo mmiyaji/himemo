@@ -16696,6 +16696,15 @@ String _localizedSyncTransferMessage(
         es: 'Paquete descargado aplicado a las notas locales.',
         de: 'Heruntergeladenes Paket wurde auf lokale Notizen angewendet.',
       );
+    case 'sync.info.private_profile_notes_pending_unlock':
+      return strings.localized(
+        en: 'Sync completed. Private profile notes will be applied after you open the matching private profile on this device.',
+        ja: '同期は完了しました。プライベートプロファイルのメモは、この端末で該当するプロファイルを開いたあとに反映されます。',
+        zh: '同步已完成。私人配置文件中的笔记会在你在此设备上打开对应配置文件后应用。',
+        ko: '동기화가 완료되었습니다. 비공개 프로필 메모는 이 기기에서 해당 프로필을 연 뒤 적용됩니다.',
+        es: 'La sincronizacion se completo. Las notas de perfiles privados se aplicaran cuando abras el perfil privado correspondiente en este dispositivo.',
+        de: 'Die Synchronisierung ist abgeschlossen. Notizen privater Profile werden angewendet, nachdem du das passende private Profil auf diesem Gerat geoffnet hast.',
+      );
     case 'sync.info.deferred_attachments_downloaded':
       return strings.localized(
         en: 'Pending attachments were downloaded.',
