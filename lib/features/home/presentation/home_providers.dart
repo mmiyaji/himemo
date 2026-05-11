@@ -2734,14 +2734,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         );
         if (assessment.hasConflict && !forceUpload) {
           _diagnostic(
-            'sync conflict detected',
+            'sync conflict candidate detected',
             data: {'message': assessment.message},
           );
-          state = state.copyWith(
-            stage: SyncTransferStage.error,
-            message: 'sync.error.conflict_review_remote',
-          );
-          return;
         }
         _setProgress(SyncTransferProgress.downloadingBundle);
         final remoteBundle = await runFirebaseTrace(
@@ -2770,6 +2765,17 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             return;
           }
           appliedRemoteDuringSync = true;
+          final hasNoteConflicts = ref
+              .read(notesControllerProvider)
+              .any((note) => note.syncState == NoteSyncState.conflict);
+          if (hasNoteConflicts && !forceUpload) {
+            _diagnostic('sync note conflict requires review');
+            state = state.copyWith(
+              stage: SyncTransferStage.error,
+              message: 'sync.error.conflict_review_remote',
+            );
+            return;
+          }
         }
       }
 

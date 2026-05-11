@@ -241,7 +241,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       'runtime.cloud_sync_automatic_attempted_at';
   static const _cloudSyncDebounceDelay = Duration(seconds: 2);
   static const _automaticCloudSyncAttemptMinInterval = Duration(seconds: 30);
-  static const _automaticCloudSyncRemoteMinInterval = Duration(minutes: 5);
+  static const _automaticCloudSyncRemoteMinInterval = Duration(minutes: 2);
   static const _automaticCloudSyncLocalChangeMinInterval = Duration(
     seconds: 30,
   );
@@ -253,6 +253,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   bool _cloudSyncRescheduleRequested = false;
   bool _cloudSyncScheduledForLocalChanges = false;
   bool _initialPendingCloudSyncScheduled = false;
+  bool _cloudSyncForeground = true;
   Duration? _cloudSyncRescheduleDelay;
   DateTime? _backgroundedAt;
   DateTime? _lastAutomaticCloudSyncSucceededAt;
@@ -288,12 +289,16 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _cloudSyncForeground = true;
       unawaited(_handleAppResumed());
       return;
     }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
+      _cloudSyncForeground = false;
+      _cloudSyncDebounceTimer?.cancel();
+      _cloudSyncScheduled = false;
       unawaited(_markAppBackgrounded());
       unawaited(_lockImmediatelyIfConfigured());
     }
@@ -518,6 +523,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     bool respectForegroundBurst = false,
     bool localChanges = false,
   }) {
+    if (!_cloudSyncForeground) {
+      return;
+    }
     if (localChanges) {
       _cloudSyncScheduledForLocalChanges = true;
     }
@@ -564,6 +572,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   Future<void> _runSeamlessCloudSync() async {
     try {
       if (!mounted) {
+        return;
+      }
+      if (!_cloudSyncForeground) {
         return;
       }
       final provider = ref.read(syncProviderControllerProvider);
@@ -614,6 +625,11 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
           _cloudSyncRescheduleDelay = _automaticCloudSyncRetryDelay(
             hasPendingChanges: hasPendingChanges,
           );
+        } else {
+          _cloudSyncRescheduleRequested = true;
+          _cloudSyncRescheduleDelay = _automaticCloudSyncRetryDelay(
+            hasPendingChanges: false,
+          );
         }
         return;
       }
@@ -639,6 +655,11 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         );
         if (remainingPendingChanges) {
           _cloudSyncRescheduleRequested = true;
+        } else {
+          _cloudSyncRescheduleRequested = true;
+          _cloudSyncRescheduleDelay = _automaticCloudSyncRetryDelay(
+            hasPendingChanges: false,
+          );
         }
       }
     } finally {
