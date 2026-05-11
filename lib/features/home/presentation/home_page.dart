@@ -21,9 +21,11 @@ import 'package:http/http.dart' as http;
 import 'package:in_app_update/in_app_update.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:latlong2/latlong.dart' show LatLng;
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:pinput/pinput.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:record/record.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -35,6 +37,7 @@ import '../../security/data/encryption_service.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/google_sign_in_initializer.dart';
 import '../../sync/data/sync_bundle_preview.dart';
+import '../../sync/data/sync_bundle_key_service.dart';
 import '../../sync/presentation/google_sign_in_web_button.dart';
 import '../domain/note_entry.dart';
 import '../domain/note_tags.dart';
@@ -4484,54 +4487,19 @@ class SettingsScreen extends ConsumerWidget {
                             },
                             child: Text(strings.text('home.copy.recovery.key')),
                           ),
-                          OutlinedButton(
+                          OutlinedButton.icon(
                             onPressed: () async {
-                              final backupCode = await _showSyncKeyImportDialog(
-                                context,
-                              );
-                              if (!context.mounted || backupCode == null) {
-                                return;
-                              }
                               final messenger = ScaffoldMessenger.of(context);
                               try {
-                                final currentFingerprint = await ref
+                                final backupCode = await ref
                                     .read(syncBundleKeyServiceProvider)
-                                    .fingerprint();
+                                    .exportBackupCode();
                                 if (!context.mounted) {
                                   return;
                                 }
-                                final incomingFingerprint = ref
-                                    .read(syncBundleKeyServiceProvider)
-                                    .previewBackupCodeFingerprint(backupCode);
-                                final shouldImport =
-                                    await _showSyncKeyImportConfirmDialog(
-                                      context,
-                                      currentFingerprint: currentFingerprint,
-                                      incomingFingerprint: incomingFingerprint,
-                                    ) ??
-                                    false;
-                                if (!shouldImport || !context.mounted) {
-                                  return;
-                                }
-                                final fingerprint = await ref
-                                    .read(syncBundleKeyServiceProvider)
-                                    .importBackupCode(backupCode);
-                                ref.invalidate(syncBundleFingerprintProvider);
-                                ref
-                                    .read(
-                                      syncTransferControllerProvider.notifier,
-                                    )
-                                    .clearLocalBundleCache();
-                                if (!context.mounted) {
-                                  return;
-                                }
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    showCloseIcon: true,
-                                    content: Text(
-                                      strings.recoveryKeyImported(fingerprint),
-                                    ),
-                                  ),
+                                await _showSyncKeyQrDialog(
+                                  context,
+                                  backupCode: backupCode,
                                 );
                               } catch (error) {
                                 if (!context.mounted) {
@@ -4545,8 +4513,59 @@ class SettingsScreen extends ConsumerWidget {
                                 );
                               }
                             },
+                            icon: const Icon(Icons.qr_code_2_rounded),
+                            label: Text(
+                              strings.localized(
+                                en: 'Show QR',
+                                ja: 'QRを表示',
+                                zh: '显示 QR',
+                                ko: 'QR 표시',
+                                es: 'Mostrar QR',
+                                de: 'QR anzeigen',
+                              ),
+                            ),
+                          ),
+                          OutlinedButton(
+                            onPressed: () async {
+                              final backupCode = await _showSyncKeyImportDialog(
+                                context,
+                              );
+                              if (!context.mounted || backupCode == null) {
+                                return;
+                              }
+                              await _handleSyncKeyImport(
+                                context,
+                                ref,
+                                backupCode,
+                              );
+                            },
                             child: Text(
                               strings.text('home.import.recovery.key'),
+                            ),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () async {
+                              final backupCode =
+                                  await _showSyncKeyQrScannerDialog(context);
+                              if (!context.mounted || backupCode == null) {
+                                return;
+                              }
+                              await _handleSyncKeyImport(
+                                context,
+                                ref,
+                                backupCode,
+                              );
+                            },
+                            icon: const Icon(Icons.qr_code_scanner_rounded),
+                            label: Text(
+                              strings.localized(
+                                en: 'Scan QR',
+                                ja: 'QRを読み取り',
+                                zh: '扫描 QR',
+                                ko: 'QR 스캔',
+                                es: 'Escanear QR',
+                                de: 'QR scannen',
+                              ),
                             ),
                           ),
                         ],
@@ -18400,6 +18419,387 @@ Future<String?> _showSyncKeyImportDialog(BuildContext context) {
       );
     },
   );
+}
+
+Future<void> _showSyncKeyQrDialog(
+  BuildContext context, {
+  required String backupCode,
+}) {
+  final strings = context.strings;
+  return showDialog<void>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: Text(
+          strings.localized(
+            en: 'Cloud recovery key QR',
+            ja: 'クラウド復元キーのQR',
+            zh: '云恢复密钥 QR',
+            ko: '클라우드 복구 키 QR',
+            es: 'QR de clave de recuperacion',
+            de: 'QR fur Cloud-Wiederherstellungsschlussel',
+          ),
+        ),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                strings.localized(
+                  en: 'This QR code contains the full cloud recovery key. Show it only in a private place.',
+                  ja: 'このQRコードにはクラウド復元キー全体が含まれます。周囲に見られない場所で表示してください。',
+                  zh: '此 QR 码包含完整的云恢复密钥。请仅在私密场所显示。',
+                  ko: '이 QR 코드에는 전체 클라우드 복구 키가 포함됩니다. 주변에 보이지 않는 곳에서만 표시하세요.',
+                  es: 'Este QR contiene la clave de recuperacion completa. Muestralo solo en un lugar privado.',
+                  de: 'Dieser QR-Code enthalt den vollstandigen Wiederherstellungsschlussel. Zeige ihn nur an einem privaten Ort.',
+                ),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 16),
+              Center(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.black12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: _CloudRecoveryKeyQrImage(data: backupCode),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(strings.close),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+class _CloudRecoveryKeyQrImage extends StatefulWidget {
+  const _CloudRecoveryKeyQrImage({required this.data});
+
+  final String data;
+
+  @override
+  State<_CloudRecoveryKeyQrImage> createState() =>
+      _CloudRecoveryKeyQrImageState();
+}
+
+class _CloudRecoveryKeyQrImageState extends State<_CloudRecoveryKeyQrImage> {
+  late Future<Uint8List> _imageBytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _imageBytes = _renderQrPng(widget.data);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CloudRecoveryKeyQrImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.data != widget.data) {
+      _imageBytes = _renderQrPng(widget.data);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: 260,
+      child: FutureBuilder<Uint8List>(
+        future: _imageBytes,
+        builder: (context, snapshot) {
+          if (snapshot.hasData) {
+            return Semantics(
+              label: 'qr code',
+              child: Image.memory(
+                snapshot.data!,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.none,
+                gaplessPlayback: true,
+              ),
+            );
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Icon(
+                Icons.error_outline_rounded,
+                color: Theme.of(context).colorScheme.error,
+                size: 32,
+              ),
+            );
+          }
+          return const Center(child: CircularProgressIndicator());
+        },
+      ),
+    );
+  }
+
+  Future<Uint8List> _renderQrPng(String data) async {
+    final painter = QrPainter(
+      data: data,
+      version: QrVersions.auto,
+      errorCorrectionLevel: QrErrorCorrectLevel.M,
+      gapless: false,
+      eyeStyle: const QrEyeStyle(
+        eyeShape: QrEyeShape.square,
+        color: Colors.black,
+      ),
+      dataModuleStyle: const QrDataModuleStyle(
+        dataModuleShape: QrDataModuleShape.square,
+        color: Colors.black,
+      ),
+    );
+    final byteData = await painter.toImageData(
+      720,
+      format: ui.ImageByteFormat.png,
+    );
+    if (byteData == null) {
+      throw StateError('Failed to render recovery key QR code.');
+    }
+    return byteData.buffer.asUint8List();
+  }
+}
+
+Future<String?> _showSyncKeyQrScannerDialog(BuildContext context) {
+  final strings = context.strings;
+  if (!_syncKeyQrScannerSupported) {
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          strings.localized(
+            en: 'QR scanning is unavailable',
+            ja: 'QR読み取りを利用できません',
+            zh: '无法扫描 QR',
+            ko: 'QR 스캔을 사용할 수 없습니다',
+            es: 'El escaneo QR no esta disponible',
+            de: 'QR-Scan ist nicht verfugbar',
+          ),
+        ),
+        content: Text(
+          strings.localized(
+            en: 'Use copy and paste to import the cloud recovery key on this platform.',
+            ja: 'この環境では、コピーと貼り付けでクラウド復元キーをインポートしてください。',
+            zh: '请在此平台上使用复制和粘贴导入云恢复密钥。',
+            ko: '이 환경에서는 복사와 붙여넣기로 클라우드 복구 키를 가져오세요.',
+            es: 'Usa copiar y pegar para importar la clave de recuperacion en esta plataforma.',
+            de: 'Importiere den Cloud-Wiederherstellungsschlussel auf dieser Plattform per Kopieren und Einfugen.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(strings.close),
+          ),
+        ],
+      ),
+    );
+  }
+  return showDialog<String>(
+    context: context,
+    builder: (context) => _SyncKeyQrScannerDialog(strings: strings),
+  );
+}
+
+bool get _syncKeyQrScannerSupported {
+  if (kIsWeb) {
+    return true;
+  }
+  return defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.macOS;
+}
+
+class _SyncKeyQrScannerDialog extends StatefulWidget {
+  const _SyncKeyQrScannerDialog({required this.strings});
+
+  final AppStrings strings;
+
+  @override
+  State<_SyncKeyQrScannerDialog> createState() =>
+      _SyncKeyQrScannerDialogState();
+}
+
+class _SyncKeyQrScannerDialogState extends State<_SyncKeyQrScannerDialog> {
+  late final MobileScannerController _controller;
+  bool _completed = false;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = MobileScannerController(
+      detectionSpeed: DetectionSpeed.noDuplicates,
+      facing: CameraFacing.back,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _handleDetect(BarcodeCapture capture) {
+    if (_completed) {
+      return;
+    }
+    for (final barcode in capture.barcodes) {
+      final raw = barcode.rawValue?.trim();
+      if (raw == null || raw.isEmpty) {
+        continue;
+      }
+      if (!raw.startsWith(SyncBundleKeyService.backupCodePrefix)) {
+        setState(() {
+          _errorText = widget.strings.localized(
+            en: 'This QR code is not a HiMemo cloud recovery key.',
+            ja: 'このQRコードはHiMemoのクラウド復元キーではありません。',
+            zh: '此 QR 码不是 HiMemo 云恢复密钥。',
+            ko: '이 QR 코드는 HiMemo 클라우드 복구 키가 아닙니다.',
+            es: 'Este QR no es una clave de recuperacion de HiMemo.',
+            de: 'Dieser QR-Code ist kein HiMemo-Cloud-Wiederherstellungsschlussel.',
+          );
+        });
+        continue;
+      }
+      _completed = true;
+      Navigator.of(context).pop(raw);
+      return;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = widget.strings;
+    return AlertDialog(
+      title: Text(
+        strings.localized(
+          en: 'Scan recovery key QR',
+          ja: '復元キーQRを読み取り',
+          zh: '扫描恢复密钥 QR',
+          ko: '복구 키 QR 스캔',
+          es: 'Escanear QR de recuperacion',
+          de: 'Wiederherstellungs-QR scannen',
+        ),
+      ),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              strings.localized(
+                en: 'Point the camera at the QR code shown on the other device.',
+                ja: '別の端末に表示したQRコードをカメラに向けてください。',
+                zh: '将相机对准另一台设备上显示的 QR 码。',
+                ko: '다른 기기에 표시된 QR 코드를 카메라로 비추세요.',
+                es: 'Apunta la camara al QR mostrado en el otro dispositivo.',
+                de: 'Richte die Kamera auf den QR-Code auf dem anderen Gerat.',
+              ),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: MobileScanner(
+                  controller: _controller,
+                  onDetect: _handleDetect,
+                  errorBuilder: (context, error) => Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        error.errorDetails?.message ?? error.toString(),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (_errorText != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _errorText!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(strings.cancel),
+        ),
+      ],
+    );
+  }
+}
+
+Future<void> _handleSyncKeyImport(
+  BuildContext context,
+  WidgetRef ref,
+  String backupCode,
+) async {
+  final strings = context.strings;
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final normalized = backupCode.trim();
+    final currentFingerprint = await ref
+        .read(syncBundleKeyServiceProvider)
+        .fingerprint();
+    if (!context.mounted) {
+      return;
+    }
+    final incomingFingerprint = ref
+        .read(syncBundleKeyServiceProvider)
+        .previewBackupCodeFingerprint(normalized);
+    final shouldImport =
+        await _showSyncKeyImportConfirmDialog(
+          context,
+          currentFingerprint: currentFingerprint,
+          incomingFingerprint: incomingFingerprint,
+        ) ??
+        false;
+    if (!shouldImport || !context.mounted) {
+      return;
+    }
+    final fingerprint = await ref
+        .read(syncBundleKeyServiceProvider)
+        .importBackupCode(normalized);
+    ref.invalidate(syncBundleFingerprintProvider);
+    ref.read(syncTransferControllerProvider.notifier).clearLocalBundleCache();
+    if (!context.mounted) {
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(strings.recoveryKeyImported(fingerprint)),
+      ),
+    );
+  } catch (error) {
+    if (!context.mounted) {
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(showCloseIcon: true, content: Text('$error')),
+    );
+  }
 }
 
 Future<String?> _showSingleSecretPrompt(
