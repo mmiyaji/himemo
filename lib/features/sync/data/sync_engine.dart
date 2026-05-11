@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
+
 import '../../home/domain/note_entry.dart';
 import '../../security/data/device_identity_store.dart';
 import '../../security/data/encrypted_attachment_store.dart';
@@ -27,12 +29,27 @@ class PreparedSyncAttachment {
     required this.type,
     required this.label,
     required this.bytesBase64,
+    required this.contentHash,
+    required this.sizeBytes,
   });
 
   final String id;
   final AttachmentType type;
   final String label;
   final String bytesBase64;
+  final String contentHash;
+  final int sizeBytes;
+
+  Map<String, dynamic> toJson({required bool inlineBytes}) {
+    return {
+      'id': id,
+      'type': type.name,
+      'label': label,
+      'contentHash': contentHash,
+      'sizeBytes': sizeBytes,
+      if (inlineBytes) 'bytesBase64': bytesBase64,
+    };
+  }
 }
 
 class PreparedSyncNote {
@@ -56,6 +73,23 @@ class PreparedSyncSnapshot {
   final SyncQueueSummary summary;
   final List<PreparedSyncNote> notes;
   final List<PreparedSyncAttachment> attachments;
+
+  int get estimatedMetadataPayloadBytes {
+    var total = 4096;
+    total += utf8.encode(deviceId).length;
+    total += utf8.encode(exportedAt.toIso8601String()).length;
+    for (final entry in notes) {
+      total += utf8.encode(jsonEncode(entry.note.toJson())).length;
+      total += 64;
+    }
+    for (final attachment in attachments) {
+      total += utf8
+          .encode(jsonEncode(attachment.toJson(inlineBytes: false)))
+          .length;
+      total += 64;
+    }
+    return total;
+  }
 
   int get estimatedPayloadBytes {
     var total = 4096;
@@ -120,8 +154,7 @@ class SyncEngine {
         }
         if (attachmentIdsByPath[filePath] case final existingId?) {
           return attachment.copyWith(
-            filePath: 'sync-attachment://$existingId',
-            previewBytesBase64: null,
+            filePath: 'sync-attachment-object://$existingId',
           );
         }
         final bytes = await _attachmentStore.readAttachment(
@@ -131,7 +164,8 @@ class SyncEngine {
         if (bytes == null || bytes.isEmpty) {
           return attachment.copyWith(filePath: null, previewBytesBase64: null);
         }
-        final attachmentId = '${note.id}-$index';
+        final attachmentHash = sha256.convert(bytes).toString();
+        final attachmentId = attachmentHash;
         attachmentIdsByPath[filePath] = attachmentId;
         attachmentPayloads.add(
           PreparedSyncAttachment(
@@ -139,11 +173,12 @@ class SyncEngine {
             type: attachment.type,
             label: attachment.label,
             bytesBase64: base64Encode(bytes),
+            contentHash: attachmentHash,
+            sizeBytes: bytes.length,
           ),
         );
         return attachment.copyWith(
-          filePath: 'sync-attachment://$attachmentId',
-          previewBytesBase64: null,
+          filePath: 'sync-attachment-object://$attachmentId',
         );
       }
 

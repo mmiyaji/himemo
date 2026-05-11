@@ -14,7 +14,13 @@ import Network
   private let pendingQuickCaptureFileName = "pending_quick_capture.json"
   private let cloudKitContainerIdentifier = "iCloud.org.ruhenheim.himemo"
   private let cloudKitRecordType = "HiMemoSyncBundle"
+  private let cloudKitAttachmentRecordType = "HiMemoSyncAttachment"
   private let cloudKitAssetField = "bundleAsset"
+  private let cloudKitAttachmentAssetField = "attachmentAsset"
+  private let cloudKitContentHashField = "contentHash"
+  private let cloudKitAttachmentTypeField = "attachmentType"
+  private let cloudKitAttachmentLabelField = "attachmentLabel"
+  private let cloudKitAttachmentSizeField = "attachmentSize"
   private let cloudKitDeviceIdField = "deviceId"
   private let cloudKitNoteCountField = "noteCount"
   private let cloudKitAttachmentCountField = "attachmentCount"
@@ -406,6 +412,49 @@ import Network
       )
     case "cloudKitDownloadLatestBundle":
       downloadLatestCloudKitBundle(result: result)
+    case "cloudKitUploadAttachmentObject":
+      guard
+        let args = call.arguments as? [String: Any],
+        let contentHash = args["contentHash"] as? String,
+        let encodedPayload = args["encodedPayload"] as? String,
+        let type = args["type"] as? String,
+        let label = args["label"] as? String,
+        let sizeBytes = args["sizeBytes"] as? Int,
+        !contentHash.isEmpty
+      else {
+        result(
+          FlutterError(
+            code: "invalidArguments",
+            message: "CloudKit attachment upload arguments are invalid.",
+            details: nil
+          )
+        )
+        return
+      }
+      uploadCloudKitAttachmentObject(
+        contentHash: contentHash,
+        encodedPayload: encodedPayload,
+        type: type,
+        label: label,
+        sizeBytes: sizeBytes,
+        result: result
+      )
+    case "cloudKitDownloadAttachmentObject":
+      guard
+        let args = call.arguments as? [String: Any],
+        let contentHash = args["contentHash"] as? String,
+        !contentHash.isEmpty
+      else {
+        result(
+          FlutterError(
+            code: "invalidArguments",
+            message: "contentHash is required.",
+            details: nil
+          )
+        )
+        return
+      }
+      downloadCloudKitAttachmentObject(contentHash: contentHash, result: result)
     case "cloudKitDownloadBundle":
       guard
         let args = call.arguments as? [String: Any],
@@ -600,6 +649,110 @@ import Network
     }
   }
 
+  private func uploadCloudKitAttachmentObject(
+    contentHash: String,
+    encodedPayload: String,
+    type: String,
+    label: String,
+    sizeBytes: Int,
+    result: @escaping FlutterResult
+  ) {
+    withAvailableCloudKit(result: result) { database in
+      let recordID = CKRecord.ID(recordName: "attachment-\(contentHash)")
+      database.fetch(withRecordID: recordID) { existingRecord, fetchError in
+        if existingRecord != nil {
+          DispatchQueue.main.async {
+            result(["recordName": recordID.recordName])
+          }
+          return
+        }
+        if let fetchError = fetchError as? CKError, fetchError.code != .unknownItem {
+          DispatchQueue.main.async {
+            result(self.flutterError(from: fetchError))
+          }
+          return
+        }
+
+        let record = CKRecord(recordType: self.cloudKitAttachmentRecordType, recordID: recordID)
+        let temporaryURL = URL(fileURLWithPath: NSTemporaryDirectory())
+          .appendingPathComponent("\(recordID.recordName).encjson")
+
+        do {
+          try encodedPayload.write(to: temporaryURL, atomically: true, encoding: .utf8)
+        } catch {
+          DispatchQueue.main.async {
+            result(
+              FlutterError(
+                code: "writeFailed",
+                message: "Failed to prepare the encrypted attachment for iCloud upload.",
+                details: nil
+              )
+            )
+          }
+          return
+        }
+
+        record[self.cloudKitContentHashField] = contentHash as CKRecordValue
+        record[self.cloudKitAttachmentTypeField] = type as CKRecordValue
+        record[self.cloudKitAttachmentLabelField] = label as CKRecordValue
+        record[self.cloudKitAttachmentSizeField] = NSNumber(value: sizeBytes)
+        record[self.cloudKitExportedAtField] = Date() as CKRecordValue
+        record[self.cloudKitAttachmentAssetField] = CKAsset(fileURL: temporaryURL)
+
+        database.save(record) { savedRecord, error in
+          try? FileManager.default.removeItem(at: temporaryURL)
+          DispatchQueue.main.async {
+            if let error {
+              result(self.flutterError(from: error))
+              return
+            }
+            guard let savedRecord else {
+              result(
+                FlutterError(
+                  code: "saveFailed",
+                  message: "CloudKit didn't return saved attachment metadata.",
+                  details: nil
+                )
+              )
+              return
+            }
+            result(["recordName": savedRecord.recordID.recordName])
+          }
+        }
+      }
+    }
+  }
+
+  private func downloadCloudKitAttachmentObject(
+    contentHash: String,
+    result: @escaping FlutterResult
+  ) {
+    withAvailableCloudKit(result: result) { database in
+      let recordID = CKRecord.ID(recordName: "attachment-\(contentHash)")
+      database.fetch(withRecordID: recordID) { record, error in
+        if let error = error as? CKError, error.code == .unknownItem {
+          DispatchQueue.main.async {
+            result(nil)
+          }
+          return
+        }
+        if let error {
+          DispatchQueue.main.async {
+            result(self.flutterError(from: error))
+          }
+          return
+        }
+        guard let record else {
+          DispatchQueue.main.async {
+            result(nil)
+          }
+          return
+        }
+        self.readAttachmentObjectPayload(from: record, result: result)
+      }
+    }
+  }
+
   private func withAvailableCloudKit(
     result: @escaping FlutterResult,
     action: @escaping (CKDatabase) -> Void
@@ -679,6 +832,41 @@ import Network
           FlutterError(
             code: "readFailed",
             message: "The downloaded iCloud bundle couldn't be read.",
+            details: nil
+          )
+        )
+      }
+    }
+  }
+
+  private func readAttachmentObjectPayload(from record: CKRecord, result: @escaping FlutterResult) {
+    guard
+      let asset = record[cloudKitAttachmentAssetField] as? CKAsset,
+      let fileURL = asset.fileURL
+    else {
+      DispatchQueue.main.async {
+        result(
+          FlutterError(
+            code: "missingAsset",
+            message: "CloudKit record does not contain an encrypted attachment asset.",
+            details: nil
+          )
+        )
+      }
+      return
+    }
+
+    do {
+      let payload = try String(contentsOf: fileURL, encoding: .utf8)
+      DispatchQueue.main.async {
+        result(["encodedPayload": payload])
+      }
+    } catch {
+      DispatchQueue.main.async {
+        result(
+          FlutterError(
+            code: "readFailed",
+            message: "The downloaded iCloud attachment couldn't be read.",
             details: nil
           )
         )

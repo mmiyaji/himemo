@@ -51,6 +51,16 @@ abstract class GoogleDriveSyncTransport {
     required int attachmentCount,
   });
 
+  Future<void> uploadAttachmentObject({
+    required String contentHash,
+    required String encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+  });
+
+  Future<String?> downloadAttachmentObject(String contentHash);
+
   Future<DownloadedRemoteSyncBundle?> downloadLatestBundle();
 
   Future<DownloadedRemoteSyncBundle?> downloadBundleByFileId(String fileId);
@@ -135,6 +145,8 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   static const _bundleFileName = 'himemo_sync_bundle.enc';
   static const _bundleFilePrefix = 'himemo_sync_bundle_';
   static const _syncKeyFileName = 'himemo_sync_key_v1.json';
+  static const _attachmentFilePrefix = 'himemo_sync_attachment_';
+  static const _attachmentFileSuffix = '.encjson';
   static const _spaces = 'appDataFolder';
   static const _retryDelays = <Duration>[
     Duration(seconds: 1),
@@ -192,6 +204,52 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     );
 
     return _toStatus(result);
+  }
+
+  @override
+  Future<void> uploadAttachmentObject({
+    required String contentHash,
+    required String encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+  }) async {
+    final api = await _openDriveApi(interactive: false);
+    final existing = await _findAttachmentObject(api, contentHash);
+    if (existing != null && existing.id != null && existing.id!.isNotEmpty) {
+      return;
+    }
+    final bytes = utf8.encode(encodedPayload);
+    final media = drive.Media(Stream<List<int>>.value(bytes), bytes.length);
+    final metadata = drive.File()
+      ..name = '$_attachmentFilePrefix$contentHash$_attachmentFileSuffix'
+      ..parents = ['appDataFolder']
+      ..appProperties = {
+        'kind': 'attachment',
+        'contentHash': contentHash,
+        'type': type,
+        'label': label,
+        'sizeBytes': '$sizeBytes',
+      };
+
+    await _withDriveRetry(
+      () => api.files.create(
+        metadata,
+        uploadMedia: media,
+        $fields: 'id,name,modifiedTime,size,appProperties',
+      ),
+    );
+  }
+
+  @override
+  Future<String?> downloadAttachmentObject(String contentHash) async {
+    final api = await _openDriveApi(interactive: false);
+    final existing = await _findAttachmentObject(api, contentHash);
+    if (existing == null || existing.id == null || existing.id!.isEmpty) {
+      return null;
+    }
+    final downloaded = await _downloadFile(api, existing);
+    return downloaded.encodedPayload;
   }
 
   @override
@@ -427,6 +485,26 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
       () => api.files.list(
         spaces: _spaces,
         q: "name = '$_syncKeyFileName' and trashed = false",
+        orderBy: 'modifiedTime desc',
+        pageSize: 1,
+        $fields: 'files(id,name,modifiedTime,size,appProperties)',
+      ),
+    );
+    final files = response.files;
+    if (files == null || files.isEmpty) {
+      return null;
+    }
+    return files.first;
+  }
+
+  Future<drive.File?> _findAttachmentObject(
+    drive.DriveApi api,
+    String contentHash,
+  ) async {
+    final response = await _withDriveRetry(
+      () => api.files.list(
+        spaces: _spaces,
+        q: "name = '$_attachmentFilePrefix$contentHash$_attachmentFileSuffix' and trashed = false",
         orderBy: 'modifiedTime desc',
         pageSize: 1,
         $fields: 'files(id,name,modifiedTime,size,appProperties)',

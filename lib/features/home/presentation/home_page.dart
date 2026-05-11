@@ -5162,6 +5162,57 @@ class SettingsScreen extends ConsumerWidget {
                                     },
                               child: Text(strings.text('home.apply.bundle')),
                             ),
+                          if (syncProvider != SyncProvider.off &&
+                              syncAuthState.isAuthenticated)
+                            OutlinedButton(
+                              onPressed: syncTransferState.isBusy
+                                  ? null
+                                  : () async {
+                                      final messenger = ScaffoldMessenger.of(
+                                        context,
+                                      );
+                                      try {
+                                        final count = await ref
+                                            .read(
+                                              syncTransferControllerProvider
+                                                  .notifier,
+                                            )
+                                            .downloadDeferredAttachments();
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            showCloseIcon: true,
+                                            content: Text(
+                                              count == 0
+                                                  ? strings.text(
+                                                      'home.no.deferred.attachments',
+                                                    )
+                                                  : strings.text(
+                                                      'home.deferred.attachments.downloaded',
+                                                    ),
+                                            ),
+                                          ),
+                                        );
+                                      } catch (error) {
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            showCloseIcon: true,
+                                            content: Text('$error'),
+                                          ),
+                                        );
+                                      }
+                                    },
+                              child: Text(
+                                strings.text(
+                                  'home.download.deferred.attachments',
+                                ),
+                              ),
+                            ),
                           OutlinedButton(
                             onPressed: () async {
                               final snapshot = await ref
@@ -16589,6 +16640,15 @@ String _localizedSyncTransferMessage(
         es: 'No se pudo descifrar el paquete descargado.',
         de: 'Das heruntergeladene Paket konnte nicht entschlusselt werden.',
       );
+    case 'sync.error.attachment_object_hash_mismatch':
+      return strings.localized(
+        en: 'A downloaded attachment did not match its sync metadata. Re-upload all notes from the original device and sync again.',
+        ja: 'ダウンロードした添付が同期メタデータと一致しませんでした。元端末で全メモを再アップロードしてから、もう一度同期してください。',
+        zh: '下载的附件与同步元数据不匹配。请从原设备重新上传全部备忘后再同步。',
+        ko: '다운로드한 첨부가 동기화 메타데이터와 일치하지 않습니다. 원래 기기에서 모든 메모를 다시 업로드한 뒤 동기화하세요.',
+        es: 'Un adjunto descargado no coincide con sus metadatos de sincronizacion. Vuelve a subir todas las notas desde el dispositivo original y sincroniza de nuevo.',
+        de: 'Ein heruntergeladener Anhang passt nicht zu seinen Synchronisierungsmetadaten. Lade alle Notizen vom ursprunglichen Gerat erneut hoch und synchronisiere noch einmal.',
+      );
     case 'sync.error.private_profile_locked':
       return strings.localized(
         en: 'This bundle contains private profile notes. Enter the same private profile password on this device, open that profile, then apply the bundle again.',
@@ -16606,6 +16666,24 @@ String _localizedSyncTransferMessage(
         ko: '다운로드한 번들을 로컬 노트에 적용했습니다.',
         es: 'Paquete descargado aplicado a las notas locales.',
         de: 'Heruntergeladenes Paket wurde auf lokale Notizen angewendet.',
+      );
+    case 'sync.info.deferred_attachments_downloaded':
+      return strings.localized(
+        en: 'Pending attachments were downloaded.',
+        ja: '保留中の添付をダウンロードしました。',
+        zh: '已下载待处理附件。',
+        ko: '보류 중인 첨부를 다운로드했습니다.',
+        es: 'Se descargaron los adjuntos pendientes.',
+        de: 'Ausstehende Anhänge wurden heruntergeladen.',
+      );
+    case 'sync.info.no_deferred_attachments':
+      return strings.localized(
+        en: 'No pending attachments need to be downloaded.',
+        ja: 'ダウンロード待ちの添付はありません。',
+        zh: '没有需要下载的待处理附件。',
+        ko: '다운로드할 보류 중인 첨부가 없습니다.',
+        es: 'No hay adjuntos pendientes para descargar.',
+        de: 'Keine ausstehenden Anhänge zum Herunterladen.',
       );
     case 'sync.info.remote_bundle_saved_locally':
       return strings.localized(

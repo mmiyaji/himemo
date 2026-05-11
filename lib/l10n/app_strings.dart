@@ -161,6 +161,9 @@ class AppStrings {
       'home.download.bundle': 'Download bundle',
       'home.review.bundle': 'Review bundle',
       'home.apply.bundle': 'Apply bundle',
+      'home.download.deferred.attachments': 'Download pending attachments',
+      'home.deferred.attachments.downloaded': 'Downloaded pending attachments.',
+      'home.no.deferred.attachments': 'No pending attachments to download.',
       'home.inspect.snapshot': 'Inspect snapshot',
       'home.storage': 'Storage',
       'home.cancel': 'Cancel',
@@ -524,6 +527,11 @@ class AppStrings {
       'home.download.bundle': 'Descargar paquete',
       'home.review.bundle': 'Revisar paquete',
       'home.apply.bundle': 'Aplicar paquete',
+      'home.download.deferred.attachments': 'Descargar adjuntos pendientes',
+      'home.deferred.attachments.downloaded':
+          'Adjuntos pendientes descargados.',
+      'home.no.deferred.attachments':
+          'No hay adjuntos pendientes para descargar.',
       'home.inspect.snapshot': 'Inspeccionar instantánea',
       'home.queue.ready': 'cola lista',
       'home.no.pending.device.changes':
@@ -649,6 +657,11 @@ class AppStrings {
       'home.download.bundle': 'Paket herunterladen',
       'home.review.bundle': 'Paket prüfen',
       'home.apply.bundle': 'Paket anwenden',
+      'home.download.deferred.attachments': 'Ausstehende Anhänge herunterladen',
+      'home.deferred.attachments.downloaded':
+          'Ausstehende Anhänge wurden heruntergeladen.',
+      'home.no.deferred.attachments':
+          'Keine ausstehenden Anhänge zum Herunterladen.',
       'home.inspect.snapshot': 'Snapshot prüfen',
       'home.queue.ready': 'Warteschlange bereit',
       'home.no.pending.device.changes':
@@ -797,6 +810,9 @@ class AppStrings {
       'home.download.bundle': 'バンドルをダウンロード',
       'home.review.bundle': 'バンドルを確認',
       'home.apply.bundle': 'バンドルを適用',
+      'home.download.deferred.attachments': '保留中の添付をダウンロード',
+      'home.deferred.attachments.downloaded': '保留中の添付をダウンロードしました。',
+      'home.no.deferred.attachments': 'ダウンロード待ちの添付はありません。',
       'home.inspect.snapshot': 'スナップショットを確認',
       'home.storage': 'ストレージ',
       'home.cancel': 'キャンセル',
@@ -1161,6 +1177,9 @@ class AppStrings {
       'home.download.bundle': '下载包',
       'home.review.bundle': '查看包',
       'home.apply.bundle': '应用包',
+      'home.download.deferred.attachments': '下载待处理附件',
+      'home.deferred.attachments.downloaded': '已下载待处理附件。',
+      'home.no.deferred.attachments': '没有待下载的附件。',
       'home.inspect.snapshot': '检查快照',
       'home.storage': '存储',
       'home.cancel': '取消',
@@ -1499,6 +1518,9 @@ class AppStrings {
       'home.download.bundle': '번들 다운로드',
       'home.review.bundle': '번들 검토',
       'home.apply.bundle': '번들 적용',
+      'home.download.deferred.attachments': '보류 중인 첨부 다운로드',
+      'home.deferred.attachments.downloaded': '보류 중인 첨부를 다운로드했습니다.',
+      'home.no.deferred.attachments': '다운로드할 보류 중인 첨부가 없습니다.',
       'home.inspect.snapshot': '스냅샷 검사',
       'home.storage': '저장소',
       'home.cancel': '취소',

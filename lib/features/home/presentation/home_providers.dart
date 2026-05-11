@@ -2450,11 +2450,22 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       final privateProfiles = await ref
           .read(privateMemoProfileStoreProvider)
           .exportSyncPayload();
+      final provider = ref.read(syncProviderControllerProvider);
+      if (provider != SyncProvider.off) {
+        await runFirebaseTrace(
+          'sync_upload_attachment_objects',
+          () => _uploadRemoteAttachmentObjects(snapshot.attachments),
+        );
+      }
       final bundle = await runFirebaseTrace(
         'sync_write_local_bundle',
         () => ref
             .read(secureSyncBundleStoreProvider)
-            .writeBundle(snapshot, privateProfiles: [privateProfiles]),
+            .writeBundle(
+              snapshot,
+              privateProfiles: [privateProfiles],
+              inlineAttachments: provider == SyncProvider.off,
+            ),
       );
       final encodedPayload = await runFirebaseTrace(
         'sync_read_local_bundle_payload',
@@ -3025,78 +3036,18 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         );
         final storedBySyncAttachmentId = <String, String?>{};
         final previewBySyncAttachmentId = <String, String?>{};
-        Future<NoteAttachment> importAttachment(
-          NoteAttachment attachment,
-        ) async {
-          final filePath = attachment.filePath;
-          if (filePath == null || !filePath.startsWith('sync-attachment://')) {
-            return attachment;
-          }
-          final attachmentId = filePath.substring('sync-attachment://'.length);
-          final payload = attachmentPayloads[attachmentId];
-          if (payload == null) {
-            return attachment.copyWith(
-              filePath: null,
-              previewBytesBase64: null,
-            );
-          }
-          if (!storedBySyncAttachmentId.containsKey(attachmentId)) {
-            final payloadType = AttachmentType.values.firstWhere(
-              (value) => value.name == payload['type'],
-              orElse: () => attachment.type,
-            );
-            final label = payload['label'] as String? ?? attachment.label;
-            final bytesBase64 = payload['bytesBase64'] as String?;
-            if (bytesBase64 != null && bytesBase64.isNotEmpty) {
-              final clearBytes = base64Decode(bytesBase64);
-              previewBySyncAttachmentId[attachmentId] =
-                  payloadType == AttachmentType.video
-                  ? await _videoPreviewBytesBase64ForBytes(
-                      clearBytes,
-                      label: label,
-                      mimeType: 'video/mp4',
-                    )
-                  : null;
-              final encryptedPayload = await ref
-                  .read(encryptedAttachmentStoreProvider)
-                  .encryptAttachmentBytes(
-                    bytes: clearBytes,
-                    type: payloadType,
-                    vaultId: note.vaultId,
-                  );
-              storedBySyncAttachmentId[attachmentId] = await ref
-                  .read(encryptedAttachmentStoreProvider)
-                  .storeEncryptedPayload(
-                    encodedPayload: encryptedPayload,
-                    type: payloadType,
-                    fileNameHint: label,
-                    vaultId: note.vaultId,
-                  );
-            } else {
-              previewBySyncAttachmentId[attachmentId] = null;
-              final legacyPayload = payload['encryptedPayload'] as String?;
-              storedBySyncAttachmentId[attachmentId] =
-                  legacyPayload == null || legacyPayload.isEmpty
-                  ? null
-                  : await ref
-                        .read(encryptedAttachmentStoreProvider)
-                        .storeEncryptedPayload(
-                          encodedPayload: legacyPayload,
-                          type: payloadType,
-                          fileNameHint: label,
-                          vaultId: note.vaultId,
-                        );
-            }
-          }
-          return attachment.copyWith(
-            filePath: storedBySyncAttachmentId[attachmentId],
-            previewBytesBase64: previewBySyncAttachmentId[attachmentId],
-          );
-        }
 
         final importedAttachments = <NoteAttachment>[];
         for (final attachment in note.attachments) {
-          importedAttachments.add(await importAttachment(attachment));
+          importedAttachments.add(
+            await _importRemoteSyncAttachment(
+              attachment: attachment,
+              note: note,
+              inlinePayloads: attachmentPayloads,
+              storedBySyncAttachmentId: storedBySyncAttachmentId,
+              previewBySyncAttachmentId: previewBySyncAttachmentId,
+            ),
+          );
         }
         final importedBlocks = <NoteBlock>[];
         for (final block in note.blocks) {
@@ -3105,7 +3056,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             attachment == null
                 ? block
                 : block.copyWith(
-                    attachment: await importAttachment(attachment),
+                    attachment: await _importRemoteSyncAttachment(
+                      attachment: attachment,
+                      note: note,
+                      inlinePayloads: attachmentPayloads,
+                      storedBySyncAttachmentId: storedBySyncAttachmentId,
+                      previewBySyncAttachmentId: previewBySyncAttachmentId,
+                    ),
                   ),
           );
         }
@@ -3138,6 +3095,79 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
     } catch (error) {
       state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
+    }
+  }
+
+  Future<int> downloadDeferredAttachments() async {
+    if (!_supportsRemoteTransport(ref.read(syncProviderControllerProvider))) {
+      return 0;
+    }
+    _startBusy(SyncTransferProgress.downloadingBundle);
+    try {
+      var count = 0;
+      final hydratedNotes = <NoteEntry>[];
+      for (final note in ref.read(notesControllerProvider)) {
+        final storedBySyncAttachmentId = <String, String?>{};
+        final previewBySyncAttachmentId = <String, String?>{};
+        Future<NoteAttachment> hydrate(NoteAttachment attachment) async {
+          final remoteRef = attachment.filePath;
+          if (remoteRef == null ||
+              !remoteRef.startsWith('sync-attachment-object://')) {
+            return attachment;
+          }
+          final imported = await _importRemoteSyncAttachment(
+            attachment: attachment,
+            note: note,
+            inlinePayloads: const <String, Map<String, dynamic>>{},
+            storedBySyncAttachmentId: storedBySyncAttachmentId,
+            previewBySyncAttachmentId: previewBySyncAttachmentId,
+            deferOnMobile: false,
+          );
+          final storedPath = imported.filePath;
+          if (storedPath != null && storedPath != remoteRef) {
+            count += 1;
+          }
+          return imported;
+        }
+
+        hydratedNotes.add(
+          note.copyWith(
+            attachments: [
+              for (final attachment in note.attachments)
+                await hydrate(attachment),
+            ],
+            blocks: [
+              for (final block in note.blocks)
+                block.attachment == null
+                    ? block
+                    : block.copyWith(
+                        attachment: await hydrate(block.attachment!),
+                      ),
+            ],
+          ),
+        );
+      }
+      if (count > 0) {
+        await ref
+            .read(notesControllerProvider.notifier)
+            .replaceFromSync(hydratedNotes);
+      }
+      state = state.copyWith(
+        stage: SyncTransferStage.success,
+        message: count == 0
+            ? 'sync.info.no_deferred_attachments'
+            : 'sync.info.deferred_attachments_downloaded',
+      );
+      return count;
+    } on HimemoDecryptionException {
+      state = state.copyWith(
+        stage: SyncTransferStage.error,
+        message: _syncBundleDecryptionMessage,
+      );
+      return 0;
+    } catch (error) {
+      state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
+      return 0;
     }
   }
 
@@ -3218,6 +3248,196 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     ref.invalidate(syncBundleStateProvider);
   }
 
+  Future<NoteAttachment> _importRemoteSyncAttachment({
+    required NoteAttachment attachment,
+    required NoteEntry note,
+    required Map<String, Map<String, dynamic>> inlinePayloads,
+    required Map<String, String?> storedBySyncAttachmentId,
+    required Map<String, String?> previewBySyncAttachmentId,
+    bool deferOnMobile = true,
+  }) async {
+    final filePath = attachment.filePath;
+    if (filePath == null) {
+      return attachment;
+    }
+    if (filePath.startsWith('sync-attachment-object://')) {
+      final contentHash = filePath.substring(
+        'sync-attachment-object://'.length,
+      );
+      if (contentHash.isEmpty) {
+        return attachment.copyWith(filePath: null, previewBytesBase64: null);
+      }
+      final inlinePayload = inlinePayloads[contentHash];
+      if (inlinePayload != null) {
+        return _importInlineSyncAttachment(
+          attachment: attachment,
+          note: note,
+          attachmentId: contentHash,
+          payload: inlinePayload,
+          storedBySyncAttachmentId: storedBySyncAttachmentId,
+          previewBySyncAttachmentId: previewBySyncAttachmentId,
+        );
+      }
+      final connectionKind = await ref
+          .read(networkConnectionServiceProvider)
+          .currentKind();
+      if (deferOnMobile && connectionKind == NetworkConnectionKind.mobile) {
+        _diagnostic(
+          'remote attachment object deferred on mobile',
+          data: {
+            'contentHash': contentHash,
+            'type': attachment.type.name,
+            'label': attachment.label,
+          },
+        );
+        return attachment;
+      }
+      if (!storedBySyncAttachmentId.containsKey(contentHash)) {
+        final encodedPayload = await _downloadRemoteAttachmentObject(
+          contentHash,
+        );
+        if (encodedPayload == null || encodedPayload.isEmpty) {
+          storedBySyncAttachmentId[contentHash] = null;
+          previewBySyncAttachmentId[contentHash] =
+              attachment.previewBytesBase64;
+        } else {
+          final decoded = await ref
+              .read(secureSyncBundleStoreProvider)
+              .readAttachmentObjectPayload(encodedPayload);
+          final payloadHash = decoded['contentHash'] as String? ?? contentHash;
+          if (payloadHash != contentHash) {
+            throw StateError('sync.error.attachment_object_hash_mismatch');
+          }
+          final payloadType = AttachmentType.values.firstWhere(
+            (value) => value.name == decoded['type'],
+            orElse: () => attachment.type,
+          );
+          final label = decoded['label'] as String? ?? attachment.label;
+          final bytesBase64 = decoded['bytesBase64'] as String?;
+          if (bytesBase64 == null || bytesBase64.isEmpty) {
+            storedBySyncAttachmentId[contentHash] = null;
+            previewBySyncAttachmentId[contentHash] =
+                attachment.previewBytesBase64;
+          } else {
+            final clearBytes = base64Decode(bytesBase64);
+            final clearHash = sha256.convert(clearBytes).toString();
+            if (clearHash != contentHash) {
+              throw StateError('sync.error.attachment_object_hash_mismatch');
+            }
+            previewBySyncAttachmentId[contentHash] =
+                payloadType == AttachmentType.video
+                ? await _videoPreviewBytesBase64ForBytes(
+                    clearBytes,
+                    label: label,
+                    mimeType: 'video/mp4',
+                  )
+                : attachment.previewBytesBase64;
+            final encryptedPayload = await ref
+                .read(encryptedAttachmentStoreProvider)
+                .encryptAttachmentBytes(
+                  bytes: clearBytes,
+                  type: payloadType,
+                  vaultId: note.vaultId,
+                );
+            storedBySyncAttachmentId[contentHash] = await ref
+                .read(encryptedAttachmentStoreProvider)
+                .storeEncryptedPayload(
+                  encodedPayload: encryptedPayload,
+                  type: payloadType,
+                  fileNameHint: label,
+                  vaultId: note.vaultId,
+                );
+          }
+        }
+      }
+      final storedPath = storedBySyncAttachmentId[contentHash];
+      return attachment.copyWith(
+        filePath: storedPath ?? attachment.filePath,
+        previewBytesBase64:
+            previewBySyncAttachmentId[contentHash] ??
+            attachment.previewBytesBase64,
+      );
+    }
+    if (!filePath.startsWith('sync-attachment://')) {
+      return attachment;
+    }
+    final attachmentId = filePath.substring('sync-attachment://'.length);
+    final payload = inlinePayloads[attachmentId];
+    if (payload == null) {
+      return attachment.copyWith(filePath: null, previewBytesBase64: null);
+    }
+    return _importInlineSyncAttachment(
+      attachment: attachment,
+      note: note,
+      attachmentId: attachmentId,
+      payload: payload,
+      storedBySyncAttachmentId: storedBySyncAttachmentId,
+      previewBySyncAttachmentId: previewBySyncAttachmentId,
+    );
+  }
+
+  Future<NoteAttachment> _importInlineSyncAttachment({
+    required NoteAttachment attachment,
+    required NoteEntry note,
+    required String attachmentId,
+    required Map<String, dynamic> payload,
+    required Map<String, String?> storedBySyncAttachmentId,
+    required Map<String, String?> previewBySyncAttachmentId,
+  }) async {
+    if (!storedBySyncAttachmentId.containsKey(attachmentId)) {
+      final payloadType = AttachmentType.values.firstWhere(
+        (value) => value.name == payload['type'],
+        orElse: () => attachment.type,
+      );
+      final label = payload['label'] as String? ?? attachment.label;
+      final bytesBase64 = payload['bytesBase64'] as String?;
+      if (bytesBase64 != null && bytesBase64.isNotEmpty) {
+        final clearBytes = base64Decode(bytesBase64);
+        previewBySyncAttachmentId[attachmentId] =
+            payloadType == AttachmentType.video
+            ? await _videoPreviewBytesBase64ForBytes(
+                clearBytes,
+                label: label,
+                mimeType: 'video/mp4',
+              )
+            : null;
+        final encryptedPayload = await ref
+            .read(encryptedAttachmentStoreProvider)
+            .encryptAttachmentBytes(
+              bytes: clearBytes,
+              type: payloadType,
+              vaultId: note.vaultId,
+            );
+        storedBySyncAttachmentId[attachmentId] = await ref
+            .read(encryptedAttachmentStoreProvider)
+            .storeEncryptedPayload(
+              encodedPayload: encryptedPayload,
+              type: payloadType,
+              fileNameHint: label,
+              vaultId: note.vaultId,
+            );
+      } else {
+        previewBySyncAttachmentId[attachmentId] = null;
+        final legacyPayload = payload['encryptedPayload'] as String?;
+        storedBySyncAttachmentId[attachmentId] =
+            legacyPayload == null || legacyPayload.isEmpty
+            ? null
+            : await ref
+                  .read(encryptedAttachmentStoreProvider)
+                  .storeEncryptedPayload(
+                    encodedPayload: legacyPayload,
+                    type: payloadType,
+                    fileNameHint: label,
+                    vaultId: note.vaultId,
+                  );
+      }
+    }
+    return attachment.copyWith(
+      filePath: storedBySyncAttachmentId[attachmentId],
+      previewBytesBase64: previewBySyncAttachmentId[attachmentId],
+    );
+  }
+
   Future<List<PreparedSyncNote>> _readPreparedChangesFromBundle(
     String reference,
   ) async {
@@ -3264,73 +3484,18 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       final storedBySyncAttachmentId = <String, String?>{};
       final previewBySyncAttachmentId = <String, String?>{};
-      Future<NoteAttachment> importAttachment(NoteAttachment attachment) async {
-        final filePath = attachment.filePath;
-        if (filePath == null || !filePath.startsWith('sync-attachment://')) {
-          return attachment;
-        }
-        final attachmentId = filePath.substring('sync-attachment://'.length);
-        final payload = attachmentPayloads[attachmentId];
-        if (payload == null) {
-          return attachment.copyWith(filePath: null, previewBytesBase64: null);
-        }
-        if (!storedBySyncAttachmentId.containsKey(attachmentId)) {
-          final payloadType = AttachmentType.values.firstWhere(
-            (value) => value.name == payload['type'],
-            orElse: () => attachment.type,
-          );
-          final label = payload['label'] as String? ?? attachment.label;
-          final bytesBase64 = payload['bytesBase64'] as String?;
-          if (bytesBase64 != null && bytesBase64.isNotEmpty) {
-            final clearBytes = base64Decode(bytesBase64);
-            previewBySyncAttachmentId[attachmentId] =
-                payloadType == AttachmentType.video
-                ? await _videoPreviewBytesBase64ForBytes(
-                    clearBytes,
-                    label: label,
-                    mimeType: 'video/mp4',
-                  )
-                : null;
-            final encryptedPayload = await ref
-                .read(encryptedAttachmentStoreProvider)
-                .encryptAttachmentBytes(
-                  bytes: clearBytes,
-                  type: payloadType,
-                  vaultId: note.vaultId,
-                );
-            storedBySyncAttachmentId[attachmentId] = await ref
-                .read(encryptedAttachmentStoreProvider)
-                .storeEncryptedPayload(
-                  encodedPayload: encryptedPayload,
-                  type: payloadType,
-                  fileNameHint: label,
-                  vaultId: note.vaultId,
-                );
-          } else {
-            previewBySyncAttachmentId[attachmentId] = null;
-            final legacyPayload = payload['encryptedPayload'] as String?;
-            storedBySyncAttachmentId[attachmentId] =
-                legacyPayload == null || legacyPayload.isEmpty
-                ? null
-                : await ref
-                      .read(encryptedAttachmentStoreProvider)
-                      .storeEncryptedPayload(
-                        encodedPayload: legacyPayload,
-                        type: payloadType,
-                        fileNameHint: label,
-                        vaultId: note.vaultId,
-                      );
-          }
-        }
-        return attachment.copyWith(
-          filePath: storedBySyncAttachmentId[attachmentId],
-          previewBytesBase64: previewBySyncAttachmentId[attachmentId],
-        );
-      }
 
       final importedAttachments = <NoteAttachment>[];
       for (final attachment in note.attachments) {
-        importedAttachments.add(await importAttachment(attachment));
+        importedAttachments.add(
+          await _importRemoteSyncAttachment(
+            attachment: attachment,
+            note: note,
+            inlinePayloads: attachmentPayloads,
+            storedBySyncAttachmentId: storedBySyncAttachmentId,
+            previewBySyncAttachmentId: previewBySyncAttachmentId,
+          ),
+        );
       }
       final importedBlocks = <NoteBlock>[];
       for (final block in note.blocks) {
@@ -3338,7 +3503,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         importedBlocks.add(
           attachment == null
               ? block
-              : block.copyWith(attachment: await importAttachment(attachment)),
+              : block.copyWith(
+                  attachment: await _importRemoteSyncAttachment(
+                    attachment: attachment,
+                    note: note,
+                    inlinePayloads: attachmentPayloads,
+                    storedBySyncAttachmentId: storedBySyncAttachmentId,
+                    previewBySyncAttachmentId: previewBySyncAttachmentId,
+                  ),
+                ),
         );
       }
       importedChanges.add(
@@ -3678,6 +3851,77 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       SyncProvider.off => Future.error(
         StateError('Remote sync is not enabled.'),
       ),
+    };
+  }
+
+  Future<void> _uploadRemoteAttachmentObjects(
+    List<PreparedSyncAttachment> attachments,
+  ) async {
+    if (attachments.isEmpty) {
+      return;
+    }
+    final bundleStore = ref.read(secureSyncBundleStoreProvider);
+    for (final attachment in attachments) {
+      final encodedPayload = await bundleStore.writeAttachmentObjectPayload(
+        attachment,
+      );
+      await _uploadRemoteAttachmentObject(
+        contentHash: attachment.contentHash,
+        encodedPayload: encodedPayload,
+        type: attachment.type.name,
+        label: attachment.label,
+        sizeBytes: attachment.sizeBytes,
+      );
+    }
+  }
+
+  Future<void> _uploadRemoteAttachmentObject({
+    required String contentHash,
+    required String encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+  }) {
+    final provider = ref.read(syncProviderControllerProvider);
+    return switch (provider) {
+      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
+        () => ref
+            .read(googleDriveSyncTransportProvider)
+            .uploadAttachmentObject(
+              contentHash: contentHash,
+              encodedPayload: encodedPayload,
+              type: type,
+              label: label,
+              sizeBytes: sizeBytes,
+            ),
+      ),
+      SyncProvider.iCloud =>
+        ref
+            .read(iCloudSyncTransportProvider)
+            .uploadAttachmentObject(
+              contentHash: contentHash,
+              encodedPayload: encodedPayload,
+              type: type,
+              label: label,
+              sizeBytes: sizeBytes,
+            ),
+      SyncProvider.off => Future<void>.value(),
+    };
+  }
+
+  Future<String?> _downloadRemoteAttachmentObject(String contentHash) {
+    final provider = ref.read(syncProviderControllerProvider);
+    return switch (provider) {
+      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
+        () => ref
+            .read(googleDriveSyncTransportProvider)
+            .downloadAttachmentObject(contentHash),
+      ),
+      SyncProvider.iCloud =>
+        ref
+            .read(iCloudSyncTransportProvider)
+            .downloadAttachmentObject(contentHash),
+      SyncProvider.off => Future<String?>.value(),
     };
   }
 
