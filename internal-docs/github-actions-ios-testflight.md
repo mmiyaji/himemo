@@ -17,6 +17,8 @@ Workflow 名:
 - `upload_to_testflight=false` にすると、署名済み IPA artifact の生成までで止められる
 - `build_number` 未指定時は UTC の `yyMMddHHmm` を使う
 
+The workflow uses the `macos-26` GitHub-hosted runner so App Store Connect receives an IPA built with the iOS 26 SDK or later.
+
 Codemagic と同じく、iOS は `--flavor production` を付けずに entrypoint だけ `lib/main_production.dart` にする。
 
 ## Required Secrets
@@ -85,3 +87,5 @@ The upload step only uploads to App Store Connect. Tester group assignment shoul
 If Xcode reports `No Accounts` or searches for `iOS App Development provisioning profiles`, the archive step is still using automatic/development signing. The workflow includes `Configure manual iOS signing` to set the app, widget, and share extension targets to manual `Apple Distribution` signing before `flutter build ipa`.
 
 The workflow reads the embedded `Name` and `UUID` from each `.mobileprovision` file and uses those values for Xcode signing. If Xcode says a profile does not include the signing certificate, regenerate that provisioning profile in Apple Developer Portal with the Apple Distribution certificate used for `IOS_DISTRIBUTION_CERTIFICATE_BASE64`.
+
+The widget and share extension `Info.plist` files contain Flutter build variables in source, but App Store Connect requires concrete `CFBundleShortVersionString` and `CFBundleVersion` values inside the uploaded `.appex` bundles. The workflow writes those values from `pubspec.yaml` and `build_number` before building.
