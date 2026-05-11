@@ -36,6 +36,9 @@ workflows:
             --container-id "$CLOUDKIT_CONTAINER_ID" \
             --environment production \
             --output-file build/cloudkit/production-schema.ckdb
+          python3 tools/cloudkit/check_expected_schema.py \
+            build/cloudkit/development-schema.ckdb \
+            build/cloudkit/production-schema.ckdb
           ls -lh build/cloudkit
     artifacts:
       - build/cloudkit/*.ckdb

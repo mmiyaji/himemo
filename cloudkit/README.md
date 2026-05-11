@@ -57,6 +57,14 @@ The workflow requires these secure environment variables:
    python tools/cloudkit/check_expected_schema.py
    ```
 
+   To validate exported CloudKit schemas against the checked manifest, pass the exported `.ckdb` files:
+
+   ```sh
+   python tools/cloudkit/check_expected_schema.py \
+     build/cloudkit/development-schema.ckdb \
+     build/cloudkit/production-schema.ckdb
+   ```
+
 4. Create or update the schema in CloudKit Development.
 5. Export Development schema with Codemagic and keep the artifact for review.
 6. Deploy schema changes to Production from CloudKit Console.
