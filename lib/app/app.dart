@@ -568,6 +568,14 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
           .syncNow(silentLargeMobileSkip: true);
       final result = ref.read(syncTransferControllerProvider);
       if (result.stage == SyncTransferStage.success) {
+        if (result.message ==
+            'sync.info.private_profile_notes_pending_unlock') {
+          logDiagnostic(
+            'sync',
+            'automatic sync paused pending private profile unlock',
+          );
+          return;
+        }
         final remainingPendingChanges = await _hasPendingCloudSyncChanges();
         await _recordAutomaticCloudSyncSuccess(
           hasPendingChanges: remainingPendingChanges,

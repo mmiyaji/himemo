@@ -37,6 +37,7 @@ import '../../security/data/encryption_service.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/google_sign_in_initializer.dart';
 import '../../sync/data/sync_bundle_preview.dart';
+import '../../sync/data/sync_bundle_state_store.dart';
 import '../../sync/data/sync_bundle_key_service.dart';
 import '../../sync/presentation/google_sign_in_web_button.dart';
 import '../domain/note_entry.dart';
@@ -4261,7 +4262,9 @@ class SettingsScreen extends ConsumerWidget {
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(strings.text('home.selected.target')),
-              subtitle: Text(_syncSubtitle(context, syncProvider)),
+              subtitle: Text(
+                _syncSubtitle(context, syncProvider, syncAuthState),
+              ),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -4417,6 +4420,7 @@ class SettingsScreen extends ConsumerWidget {
                           strings,
                           syncProvider,
                           syncTransferState,
+                          syncBundleState.asData?.value,
                         ),
                       ),
                     ),
@@ -6360,7 +6364,11 @@ class SettingsScreen extends ConsumerWidget {
     return strings.text('home.disconnect');
   }
 
-  String _syncSubtitle(BuildContext context, SyncProvider provider) {
+  String _syncSubtitle(
+    BuildContext context,
+    SyncProvider provider,
+    SyncAuthState authState,
+  ) {
     final strings = context.strings;
     switch (provider) {
       case SyncProvider.off:
@@ -6370,6 +6378,16 @@ class SettingsScreen extends ConsumerWidget {
           'home.icloud.selected.the.app.checks.this.device.s.icloud.avai',
         );
       case SyncProvider.googleDrive:
+        if (authState.isAuthenticated) {
+          return strings.localized(
+            en: 'Google Drive app-data sync is connected and ready.',
+            ja: 'Google Drive のアプリデータ同期は接続済みです。',
+            zh: 'Google Drive 应用数据同步已连接并可使用。',
+            ko: 'Google Drive 앱 데이터 동기화가 연결되어 사용할 수 있습니다.',
+            es: 'La sincronizacion de datos de la app con Google Drive esta conectada y lista.',
+            de: 'Die Google Drive App-Daten-Synchronisierung ist verbunden und bereit.',
+          );
+        }
         return strings.text(
           'home.google.drive.selected.authorize.access.to.drive.app.data',
         );
@@ -6377,7 +6395,11 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   String syncSubtitleLegacy(BuildContext context, SyncProvider provider) {
-    return _syncSubtitle(context, provider);
+    return _syncSubtitle(
+      context,
+      provider,
+      SyncAuthState(provider: provider, stage: SyncAuthStage.idle),
+    );
   }
 
   String _syncAuthSummary(
@@ -16501,6 +16523,15 @@ String _localizedSyncTransferMessage(
 ) {
   final providerName = _syncProviderName(provider);
   switch (message) {
+    case 'sync.error.local_snapshot_incomplete':
+      return strings.localized(
+        en: 'Some pending notes cannot be uploaded yet. If private profile notes are included, open the matching private profile on this device and sync again.',
+        ja: '未同期の一部のメモはまだアップロードできません。プライベートプロファイルのメモが含まれる場合は、この端末で該当プロファイルを開いてからもう一度同期してください。',
+        zh: '部分待同步笔记暂时无法上传。如果包含私密配置文件的笔记，请先在此设备上打开对应配置文件，然后再次同步。',
+        ko: '일부 대기 중인 메모는 아직 업로드할 수 없습니다. 비공개 프로필 메모가 포함된 경우 이 기기에서 해당 프로필을 연 뒤 다시 동기화하세요.',
+        es: 'Algunas notas pendientes todavia no se pueden subir. Si incluyen notas de perfiles privados, abre el perfil privado correspondiente en este dispositivo y vuelve a sincronizar.',
+        de: 'Einige ausstehende Notizen konnen noch nicht hochgeladen werden. Wenn private Profilnotizen enthalten sind, offne das passende private Profil auf diesem Gerat und synchronisiere erneut.',
+      );
     case 'sync.error.bundle_decryption_failed':
       return strings.localized(
         en:
@@ -16976,6 +17007,7 @@ String _remoteBundleSummary(
   AppStrings strings,
   SyncProvider provider,
   SyncTransferState transferState,
+  SyncBundleState? bundleState,
 ) {
   if (provider == SyncProvider.off) {
     return strings.text('home.remote.bundle.storage.is.not.configured.yet');
@@ -16999,6 +17031,18 @@ String _remoteBundleSummary(
   }
   final remote = transferState.remoteStatus;
   if (remote == null) {
+    final lastRemoteAt = bundleState?.lastRemoteModifiedAt;
+    if (lastRemoteAt != null) {
+      final modifiedAt = _formatDateTime(lastRemoteAt, strings);
+      return strings.localized(
+        en: 'Last known remote bundle: $modifiedAt. Refresh to check for newer changes.',
+        ja: '最後に確認したリモートバンドル: $modifiedAt。新しい変更を確認するには更新してください。',
+        zh: '上次确认的远程包：$modifiedAt。请刷新以检查更新。',
+        ko: '마지막으로 확인한 원격 번들: $modifiedAt. 새 변경 사항은 새로고침으로 확인하세요.',
+        es: 'Ultimo paquete remoto conocido: $modifiedAt. Actualiza para comprobar cambios nuevos.',
+        de: 'Zuletzt bekanntes Remote-Bundle: $modifiedAt. Aktualisiere, um neuere Anderungen zu prufen.',
+      );
+    }
     return strings.text('home.no.remote.bundle.metadata.loaded.yet');
   }
   final modifiedAt = remote.modifiedAt == null

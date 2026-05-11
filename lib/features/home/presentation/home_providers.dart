@@ -6884,11 +6884,14 @@ class NotesController extends _$NotesController {
   }) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
+    bool canUpload(NoteEntry note) => !_isLockedPrivatePlaceholder(note);
     if (pendingNoteIds == null) {
-      return List<NoteEntry>.unmodifiable(state);
+      return List<NoteEntry>.unmodifiable(state.where(canUpload));
     }
     return List<NoteEntry>.unmodifiable(
-      state.where((note) => pendingNoteIds.contains(note.id)),
+      state.where(
+        (note) => pendingNoteIds.contains(note.id) && canUpload(note),
+      ),
     );
   }
 
