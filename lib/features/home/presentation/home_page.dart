@@ -5215,11 +5215,21 @@ class SettingsScreen extends ConsumerWidget {
                             ),
                           OutlinedButton(
                             onPressed: () async {
-                              final snapshot = await ref
-                                  .read(syncEngineProvider)
-                                  .prepareSnapshot(
-                                    ref.read(notesControllerProvider),
+                              final syncEngine = ref.read(syncEngineProvider);
+                              final pendingChanges = await syncEngine
+                                  .loadPendingChanges();
+                              final pendingIds = pendingChanges
+                                  .map((change) => change.noteId)
+                                  .toSet();
+                              final notes = await ref
+                                  .read(notesControllerProvider.notifier)
+                                  .notesForSyncSnapshot(
+                                    pendingNoteIds: pendingIds,
                                   );
+                              final snapshot = await syncEngine.prepareSnapshot(
+                                notes,
+                                pendingChanges: pendingChanges,
+                              );
                               if (!context.mounted) {
                                 return;
                               }

@@ -123,16 +123,21 @@ class SyncEngine {
   final DeviceIdentityStore _deviceIdentityStore;
 
   Future<SyncQueueSummary> summarizeQueue() async {
-    final changes = await _database.loadPendingChanges();
+    final changes = await loadPendingChanges();
     return _summarize(changes);
   }
 
-  Future<PreparedSyncSnapshot> prepareSnapshot(List<NoteEntry> notes) async {
-    final pendingChanges = await _database.loadPendingChanges();
-    final summary = _summarize(pendingChanges);
-    final pendingById = {
-      for (final change in pendingChanges) change.noteId: change,
-    };
+  Future<List<PendingNoteChangeRecord>> loadPendingChanges() {
+    return _database.loadPendingChanges();
+  }
+
+  Future<PreparedSyncSnapshot> prepareSnapshot(
+    List<NoteEntry> notes, {
+    List<PendingNoteChangeRecord>? pendingChanges,
+  }) async {
+    final changes = pendingChanges ?? await loadPendingChanges();
+    final summary = _summarize(changes);
+    final pendingById = {for (final change in changes) change.noteId: change};
     final attachmentPayloads = <PreparedSyncAttachment>[];
     final preparedNotes = <PreparedSyncNote>[];
 

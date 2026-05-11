@@ -2278,10 +2278,16 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   Future<int> estimatePendingUploadBytes() async {
+    final pendingChanges = await ref
+        .read(syncEngineProvider)
+        .loadPendingChanges();
+    final pendingIds = pendingChanges.map((change) => change.noteId).toSet();
     final notes = await ref
         .read(notesControllerProvider.notifier)
-        .notesForSyncSnapshot();
-    final snapshot = await ref.read(syncEngineProvider).prepareSnapshot(notes);
+        .notesForSyncSnapshot(pendingNoteIds: pendingIds);
+    final snapshot = await ref
+        .read(syncEngineProvider)
+        .prepareSnapshot(notes, pendingChanges: pendingChanges);
     return snapshot.estimatedPayloadBytes;
   }
 
@@ -2433,12 +2439,18 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     _startBusy(SyncTransferProgress.preparingBundle);
     try {
       await logFirebaseBreadcrumb('sync upload requested');
+      final pendingChanges = await ref
+          .read(syncEngineProvider)
+          .loadPendingChanges();
+      final pendingIds = pendingChanges.map((change) => change.noteId).toSet();
       final notes = await ref
           .read(notesControllerProvider.notifier)
-          .notesForSyncSnapshot();
+          .notesForSyncSnapshot(pendingNoteIds: pendingIds);
       final snapshot = await runFirebaseTrace(
         'sync_prepare_snapshot',
-        () => ref.read(syncEngineProvider).prepareSnapshot(notes),
+        () => ref
+            .read(syncEngineProvider)
+            .prepareSnapshot(notes, pendingChanges: pendingChanges),
       );
       final preparedUpserts = snapshot.notes
           .where((change) => change.action == PendingNoteChangeAction.upsert)
@@ -6820,10 +6832,17 @@ class NotesController extends _$NotesController {
     await _persist();
   }
 
-  Future<List<NoteEntry>> notesForSyncSnapshot() async {
+  Future<List<NoteEntry>> notesForSyncSnapshot({
+    Set<String>? pendingNoteIds,
+  }) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
-    return List<NoteEntry>.unmodifiable(state);
+    if (pendingNoteIds == null) {
+      return List<NoteEntry>.unmodifiable(state);
+    }
+    return List<NoteEntry>.unmodifiable(
+      state.where((note) => pendingNoteIds.contains(note.id)),
+    );
   }
 
   Future<void> queueCurrentStateForSync() async {
