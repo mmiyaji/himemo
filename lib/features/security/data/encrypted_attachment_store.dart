@@ -176,6 +176,28 @@ class EncryptedAttachmentStore {
     return file.path;
   }
 
+  Future<String?> materializeDecryptedBytes(
+    List<int> bytes, {
+    required AttachmentType type,
+    String? preferredFileName,
+  }) async {
+    if (kIsWeb || bytes.isEmpty) {
+      return null;
+    }
+    final directory = await _directoryProvider();
+    final extension = preferredFileName == null
+        ? ''
+        : path.extension(preferredFileName);
+    final tempName =
+        '${DateTime.now().microsecondsSinceEpoch}_${type.name}${extension.isEmpty ? '.bin' : extension}';
+    final file = File(
+      path.join(directory.path, 'attachments', 'tmp', tempName),
+    );
+    await file.create(recursive: true);
+    await file.writeAsBytes(bytes, flush: true);
+    return file.path;
+  }
+
   Future<void> deleteAttachment(String storedReference) async {
     if (storedReference.startsWith(webPrefix)) {
       final id = storedReference.substring(webPrefix.length);

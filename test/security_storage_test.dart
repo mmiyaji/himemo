@@ -1985,7 +1985,34 @@ void main() {
     },
   );
 
-  test('assessSyncConflict ignores matching device or stale remote bundle', () {
+  test('assessSyncConflict allows local queue newer than remote bundle', () {
+    final assessment = assessSyncConflict(
+      googleDriveSelected: true,
+      queue: SyncQueueSummary(
+        totalChanges: 1,
+        upserts: 1,
+        deletes: 0,
+        lastQueuedAt: DateTime.utc(2026, 4, 12, 20, 5),
+      ),
+      remoteStatus: RemoteSyncBundleStatus(
+        fileId: 'remote-1',
+        fileName: 'himemo_sync_bundle.enc',
+        modifiedAt: DateTime.utc(2026, 4, 12, 20),
+        deviceId: 'device-a',
+      ),
+      bundleState: SyncBundleState(
+        lastRemoteFileId: 'remote-0',
+        lastRemoteModifiedAt: DateTime.utc(2026, 4, 12, 19),
+        lastRemoteDeviceId: 'device-a',
+        lastUploadedAt: DateTime.utc(2026, 4, 12, 19, 15),
+      ),
+    );
+
+    expect(assessment.hasConflict, isFalse);
+    expect(assessment.message, isNull);
+  });
+
+  test('assessSyncConflict ignores stale remote bundle', () {
     final assessment = assessSyncConflict(
       googleDriveSelected: true,
       queue: const SyncQueueSummary(totalChanges: 1, upserts: 1, deletes: 0),
@@ -2005,6 +2032,28 @@ void main() {
 
     expect(assessment.hasConflict, isFalse);
     expect(assessment.message, isNull);
+  });
+
+  test('assessSyncConflict does not trust refreshed device id alone', () {
+    final assessment = assessSyncConflict(
+      googleDriveSelected: true,
+      queue: const SyncQueueSummary(totalChanges: 1, upserts: 1, deletes: 0),
+      remoteStatus: RemoteSyncBundleStatus(
+        fileId: 'remote-2',
+        fileName: 'himemo_sync_bundle.enc',
+        modifiedAt: DateTime(2026, 4, 12, 20, 0),
+        deviceId: 'device-a',
+      ),
+      bundleState: SyncBundleState(
+        lastRemoteFileId: 'remote-2',
+        lastRemoteModifiedAt: DateTime(2026, 4, 12, 20, 0),
+        lastRemoteDeviceId: 'device-a',
+        lastAppliedAt: DateTime(2026, 4, 12, 19, 0),
+      ),
+    );
+
+    expect(assessment.hasConflict, isTrue);
+    expect(assessment.message, 'sync.error.conflict_pending_remote_newer');
   });
 
   test('buildSyncBundlePreview summarizes add, update, and removal counts', () {

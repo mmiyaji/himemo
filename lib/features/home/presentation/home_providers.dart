@@ -1401,7 +1401,10 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
 }
 
 abstract class MediaImportService {
-  Future<MediaImportResult> importAttachment(MediaImportAction action);
+  Future<MediaImportResult> importAttachment(
+    MediaImportAction action, {
+    VoidCallback? onProcessingStarted,
+  });
 }
 
 class DefaultMediaImportService implements MediaImportService {
@@ -1411,24 +1414,39 @@ class DefaultMediaImportService implements MediaImportService {
   final EncryptedAttachmentStore _attachmentStore;
 
   @override
-  Future<MediaImportResult> importAttachment(MediaImportAction action) async {
+  Future<MediaImportResult> importAttachment(
+    MediaImportAction action, {
+    VoidCallback? onProcessingStarted,
+  }) async {
     switch (action) {
       case MediaImportAction.takePhoto:
-        return _pickPhoto(ImageSource.camera);
+        return _pickPhoto(
+          ImageSource.camera,
+          onProcessingStarted: onProcessingStarted,
+        );
       case MediaImportAction.pickPhoto:
-        return _pickPhoto(ImageSource.gallery);
+        return _pickPhoto(
+          ImageSource.gallery,
+          onProcessingStarted: onProcessingStarted,
+        );
       case MediaImportAction.recordVideo:
-        return _pickVideo(ImageSource.camera);
+        return _pickVideo(
+          ImageSource.camera,
+          onProcessingStarted: onProcessingStarted,
+        );
       case MediaImportAction.pickVideo:
-        return _pickVideo(ImageSource.gallery);
+        return _pickVideo(
+          ImageSource.gallery,
+          onProcessingStarted: onProcessingStarted,
+        );
       case MediaImportAction.recordAudio:
         return const MediaImportResult.failure(
           'Audio recording is handled by the note editor.',
         );
       case MediaImportAction.pickAudio:
-        return _pickAudio();
+        return _pickAudio(onProcessingStarted: onProcessingStarted);
       case MediaImportAction.pickFile:
-        return _pickFile();
+        return _pickFile(onProcessingStarted: onProcessingStarted);
       case MediaImportAction.addLocation:
         return const MediaImportResult.failure(
           'Location capture is handled by the note editor.',
@@ -1436,7 +1454,10 @@ class DefaultMediaImportService implements MediaImportService {
     }
   }
 
-  Future<MediaImportResult> _pickPhoto(ImageSource source) async {
+  Future<MediaImportResult> _pickPhoto(
+    ImageSource source, {
+    VoidCallback? onProcessingStarted,
+  }) async {
     if (source == ImageSource.gallery) {
       return _pickMediaFiles(
         type: AttachmentType.photo,
@@ -1448,6 +1469,7 @@ class DefaultMediaImportService implements MediaImportService {
         importNotConfiguredMessage:
             'Photo import is not configured in this runtime.',
         importFailedPrefix: 'Photo import failed on this device.',
+        onProcessingStarted: onProcessingStarted,
       );
     }
     XFile? picked;
@@ -1470,6 +1492,7 @@ class DefaultMediaImportService implements MediaImportService {
     if (picked == null) {
       return const MediaImportResult.cancelled();
     }
+    onProcessingStarted?.call();
     final tooLarge = await _validateFileSize(
       picked,
       maxBytes: 25 * 1024 * 1024,
@@ -1483,7 +1506,10 @@ class DefaultMediaImportService implements MediaImportService {
     );
   }
 
-  Future<MediaImportResult> _pickVideo(ImageSource source) async {
+  Future<MediaImportResult> _pickVideo(
+    ImageSource source, {
+    VoidCallback? onProcessingStarted,
+  }) async {
     if (source == ImageSource.gallery) {
       return _pickMediaFiles(
         type: AttachmentType.video,
@@ -1495,6 +1521,7 @@ class DefaultMediaImportService implements MediaImportService {
         importNotConfiguredMessage:
             'Video import is not configured in this runtime.',
         importFailedPrefix: 'Video import failed on this device.',
+        onProcessingStarted: onProcessingStarted,
       );
     }
     XFile? picked;
@@ -1514,6 +1541,7 @@ class DefaultMediaImportService implements MediaImportService {
     if (picked == null) {
       return const MediaImportResult.cancelled();
     }
+    onProcessingStarted?.call();
     final tooLarge = await _validateFileSize(
       picked,
       maxBytes: 200 * 1024 * 1024,
@@ -1567,6 +1595,7 @@ class DefaultMediaImportService implements MediaImportService {
     required String openFailureMessage,
     required String importNotConfiguredMessage,
     required String importFailedPrefix,
+    VoidCallback? onProcessingStarted,
   }) async {
     FilePickerResult? result;
     try {
@@ -1586,6 +1615,7 @@ class DefaultMediaImportService implements MediaImportService {
       return const MediaImportResult.cancelled();
     }
 
+    onProcessingStarted?.call();
     final attachments = <NoteAttachment>[];
     for (final file in result.files) {
       final sourceFile = _xFileFromPlatformFile(file);
@@ -1614,7 +1644,9 @@ class DefaultMediaImportService implements MediaImportService {
     return MediaImportResult.successMany(attachments);
   }
 
-  Future<MediaImportResult> _pickAudio() async {
+  Future<MediaImportResult> _pickAudio({
+    VoidCallback? onProcessingStarted,
+  }) async {
     FilePickerResult? result;
     try {
       final audioExtensions = <String>[
@@ -1654,6 +1686,7 @@ class DefaultMediaImportService implements MediaImportService {
       return const MediaImportResult.cancelled();
     }
 
+    onProcessingStarted?.call();
     final file = result.files.single;
     final bytes = file.bytes;
     if (file.path == null && bytes == null) {
@@ -1685,7 +1718,9 @@ class DefaultMediaImportService implements MediaImportService {
     );
   }
 
-  Future<MediaImportResult> _pickFile() async {
+  Future<MediaImportResult> _pickFile({
+    VoidCallback? onProcessingStarted,
+  }) async {
     FilePickerResult? result;
     try {
       result = await FilePicker.pickFiles(type: FileType.any, withData: kIsWeb);
@@ -1706,6 +1741,7 @@ class DefaultMediaImportService implements MediaImportService {
       return const MediaImportResult.cancelled();
     }
 
+    onProcessingStarted?.call();
     final file = result.files.single;
     final bytes = file.bytes;
     if (file.path == null && bytes == null) {
@@ -2068,7 +2104,6 @@ final syncConflictWarningProvider = Provider<String?>((ref) {
 });
 
 final syncQueueSummaryProvider = FutureProvider<SyncQueueSummary>((ref) async {
-  ref.watch(notesControllerProvider);
   return ref.watch(syncEngineProvider).summarizeQueue();
 });
 
@@ -2202,6 +2237,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   static const _syncBundleKeyMissingMessage = 'sync.error.bundle_key_missing';
   static const _iCloudSyncBundleKeyWaitingMessage =
       'sync.error.icloud_keychain_waiting';
+  static const _privateProfileNotesPendingUnlockMessage =
+      'sync.info.private_profile_notes_pending_unlock';
 
   Timer? _cooldownTimer;
 
@@ -2220,6 +2257,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   void clearLocalBundleCache() {
     state = state.copyWith(clearLocalBundle: true);
+  }
+
+  Future<SyncQueueSummary> _readLocalSyncQueueSummary() {
+    return ref.read(syncEngineProvider).summarizeQueue();
   }
 
   Future<LargeSyncTransferWarning?> largeMobileTransferWarning({
@@ -2337,6 +2378,12 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         stage: SyncTransferStage.error,
         message: 'sync.error.large_mobile_transfer_requires_confirmation',
       );
+    } else if (state.stage == SyncTransferStage.busy) {
+      state = SyncTransferState(
+        stage: SyncTransferStage.idle,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
     }
     return true;
   }
@@ -2414,7 +2461,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
     final assessment = assessSyncConflict(
       googleDriveSelected: true,
-      queue: await ref.read(syncQueueSummaryProvider.future),
+      queue: await _readLocalSyncQueueSummary(),
       remoteStatus: state.remoteStatus,
       bundleState: await ref.read(syncBundleStateProvider.future),
     );
@@ -2443,6 +2490,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           .read(syncEngineProvider)
           .loadPendingChanges();
       final pendingIds = pendingChanges.map((change) => change.noteId).toSet();
+      final pendingHashes = {
+        for (final change in pendingChanges) change.noteId: change.contentHash,
+      };
       final notes = await ref
           .read(notesControllerProvider.notifier)
           .notesForSyncSnapshot(pendingNoteIds: pendingIds);
@@ -2527,7 +2577,19 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         },
       );
       _setProgress(SyncTransferProgress.finalizing);
-      await ref.read(notesControllerProvider.notifier).markCurrentStateSynced();
+      await ref
+          .read(notesControllerProvider.notifier)
+          .markSnapshotChangesSynced(pendingHashes);
+      ref.invalidate(syncQueueSummaryProvider);
+      final queueAfterUpload = await _readLocalSyncQueueSummary();
+      _diagnostic(
+        'local queue after upload marked synced',
+        data: {
+          'changes': queueAfterUpload.totalChanges,
+          'upserts': queueAfterUpload.upserts,
+          'deletes': queueAfterUpload.deletes,
+        },
+      );
       state = SyncTransferState(
         stage: SyncTransferStage.success,
         message: 'sync.info.upload_success',
@@ -2535,7 +2597,6 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         localBundle: bundle,
       );
       await ref.read(syncBundleStateStoreProvider).recordUpload(remoteStatus);
-      ref.invalidate(syncQueueSummaryProvider);
       ref.invalidate(syncBundleStateProvider);
     } catch (error) {
       _diagnostic('upload failed', data: {'error': error});
@@ -2647,7 +2708,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         return;
       }
 
-      final queue = await ref.read(syncQueueSummaryProvider.future);
+      final queue = await _readLocalSyncQueueSummary();
       final hadPendingChangesBeforeRemoteApply = queue.hasPendingChanges;
       var appliedRemoteDuringSync = false;
       _diagnostic(
@@ -2705,12 +2766,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           if (state.stage == SyncTransferStage.error) {
             return;
           }
+          if (state.message == _privateProfileNotesPendingUnlockMessage) {
+            return;
+          }
           appliedRemoteDuringSync = true;
         }
       }
 
       ref.invalidate(syncQueueSummaryProvider);
-      final refreshedQueue = await ref.read(syncQueueSummaryProvider.future);
+      final refreshedQueue = await _readLocalSyncQueueSummary();
       _diagnostic(
         'local queue refreshed',
         data: {
@@ -3023,21 +3087,6 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       final rawNoteEntries =
           decoded['notes'] as List<dynamic>? ?? const <dynamic>[];
       final lockedPrivateVaultIds = <String>{};
-      for (final rawEntry in rawNoteEntries) {
-        final entry = Map<String, dynamic>.from(rawEntry as Map);
-        final note = NoteEntry.fromJson(
-          Map<String, dynamic>.from(entry['note'] as Map),
-        );
-        if (isPrivateVaultId(note.vaultId) &&
-            !ref
-                .read(profileDataKeyServiceProvider)
-                .isProfileUnlocked(note.vaultId)) {
-          lockedPrivateVaultIds.add(note.vaultId);
-        }
-      }
-      if (lockedPrivateVaultIds.isNotEmpty) {
-        throw StateError('sync.error.private_profile_locked');
-      }
       final attachmentPayloads = <String, Map<String, dynamic>>{
         for (final entry
             in (decoded['attachments'] as List<dynamic>? ?? const <dynamic>[]))
@@ -3049,6 +3098,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         final note = NoteEntry.fromJson(
           Map<String, dynamic>.from(entry['note'] as Map),
         );
+        if (isPrivateVaultId(note.vaultId) &&
+            !ref
+                .read(profileDataKeyServiceProvider)
+                .isProfileUnlocked(note.vaultId)) {
+          lockedPrivateVaultIds.add(note.vaultId);
+          continue;
+        }
         final action = PendingNoteChangeAction.values.firstWhere(
           (value) => value.name == entry['action'],
           orElse: () => note.deletedAt == null
@@ -3097,17 +3153,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           ),
         );
       }
-      await ref
-          .read(notesControllerProvider.notifier)
-          .mergeFromSync(importedChanges);
-      await ref
-          .read(syncBundleStateStoreProvider)
-          .recordApply(state.remoteStatus);
-      ref.invalidate(syncQueueSummaryProvider);
-      ref.invalidate(syncBundleStateProvider);
+      if (importedChanges.isNotEmpty) {
+        await ref
+            .read(notesControllerProvider.notifier)
+            .mergeFromSync(importedChanges);
+        ref.invalidate(syncQueueSummaryProvider);
+      }
+      if (lockedPrivateVaultIds.isEmpty) {
+        await ref
+            .read(syncBundleStateStoreProvider)
+            .recordApply(state.remoteStatus);
+        ref.invalidate(syncBundleStateProvider);
+      }
       state = state.copyWith(
         stage: SyncTransferStage.success,
-        message: 'sync.info.apply_success',
+        message: lockedPrivateVaultIds.isEmpty
+            ? 'sync.info.apply_success'
+            : _privateProfileNotesPendingUnlockMessage,
       );
     } on HimemoDecryptionException {
       state = state.copyWith(
@@ -6832,16 +6894,54 @@ class NotesController extends _$NotesController {
     await _persist();
   }
 
+  Future<void> markSnapshotChangesSynced(
+    Map<String, String?> pendingContentHashes,
+  ) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    if (pendingContentHashes.isEmpty) {
+      return;
+    }
+    var changed = false;
+    final next = <NoteEntry>[];
+    for (final note in state) {
+      final pendingHash = pendingContentHashes[note.id];
+      if (!pendingContentHashes.containsKey(note.id) ||
+          (pendingHash != null && note.contentHash != pendingHash) ||
+          (pendingHash == null && note.contentHash != null)) {
+        next.add(note);
+        continue;
+      }
+      if (note.syncState == NoteSyncState.pendingUpload ||
+          note.syncState == NoteSyncState.pendingDelete ||
+          note.syncState == NoteSyncState.conflict) {
+        next.add(note.copyWith(syncState: NoteSyncState.synced));
+        changed = true;
+      } else {
+        next.add(note);
+      }
+    }
+    if (!changed) {
+      return;
+    }
+    _sort(next);
+    state = next;
+    await _persist();
+  }
+
   Future<List<NoteEntry>> notesForSyncSnapshot({
     Set<String>? pendingNoteIds,
   }) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
+    bool canUpload(NoteEntry note) => !_isLockedPrivatePlaceholder(note);
     if (pendingNoteIds == null) {
-      return List<NoteEntry>.unmodifiable(state);
+      return List<NoteEntry>.unmodifiable(state.where(canUpload));
     }
     return List<NoteEntry>.unmodifiable(
-      state.where((note) => pendingNoteIds.contains(note.id)),
+      state.where(
+        (note) => pendingNoteIds.contains(note.id) && canUpload(note),
+      ),
     );
   }
 
@@ -7087,6 +7187,7 @@ class NotesController extends _$NotesController {
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
       await ref.read(encryptedNoteStoreProvider).save(state);
+      ref.invalidate(syncQueueSummaryProvider);
       stopwatch?.stop();
       _debugHomePerf(
         'notes persist full count=${state.length} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms',
@@ -7115,6 +7216,7 @@ class NotesController extends _$NotesController {
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
       await ref.read(encryptedNoteStoreProvider).saveOne(note);
+      ref.invalidate(syncQueueSummaryProvider);
       stopwatch?.stop();
       _debugHomePerf(
         'notes persist one id=${note.id} attachments=${note.attachments.length} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms',
@@ -7384,6 +7486,7 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
             .read(unlockedPrivateProfileVaultIdProvider.notifier)
             .unlock(custom.vaultId);
         ref.read(adminModeSessionControllerProvider.notifier).lock();
+        await _applyPendingDownloadedBundle();
         await ref.read(notesControllerProvider.notifier).reloadFromStorage();
         state = const AsyncData(null);
         return custom;
@@ -7401,6 +7504,7 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
             .read(unlockedPrivateProfileVaultIdProvider.notifier)
             .unlock(result.vaultId);
         ref.read(adminModeSessionControllerProvider.notifier).lock();
+        await _applyPendingDownloadedBundle();
         await ref.read(notesControllerProvider.notifier).reloadFromStorage();
         state = const AsyncData(null);
         return result;
@@ -7411,6 +7515,15 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
       state = AsyncError(error, stackTrace);
       return null;
     }
+  }
+
+  Future<void> _applyPendingDownloadedBundle() async {
+    if (ref.read(syncTransferControllerProvider).localBundle == null) {
+      return;
+    }
+    await ref
+        .read(syncTransferControllerProvider.notifier)
+        .applyDownloadedBundle();
   }
 }
 

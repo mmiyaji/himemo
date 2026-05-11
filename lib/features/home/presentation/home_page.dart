@@ -16,13 +16,16 @@ import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:in_app_update/in_app_update.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:latlong2/latlong.dart' show LatLng;
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:pinput/pinput.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:record/record.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -34,6 +37,8 @@ import '../../security/data/encryption_service.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/google_sign_in_initializer.dart';
 import '../../sync/data/sync_bundle_preview.dart';
+import '../../sync/data/sync_bundle_state_store.dart';
+import '../../sync/data/sync_bundle_key_service.dart';
 import '../../sync/presentation/google_sign_in_web_button.dart';
 import '../domain/note_entry.dart';
 import '../domain/note_tags.dart';
@@ -54,6 +59,7 @@ const _helpUrl = 'https://mmiyaji.github.io/himemo/help.html';
 const _httpUserAgent = 'HiMemo/1.0 (+$_contactUrl)';
 const _appAuthor = '@mmiyaji';
 const _appAuthorUrl = 'https://ruhenheim.org/';
+const _remoteSyncAttachmentObjectPrefix = 'sync-attachment-object://';
 
 enum AppSection { notes, calendar, insights, settings }
 
@@ -870,11 +876,10 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         isScrollControlled: true,
         showDragHandle: false,
         useRootNavigator: true,
-        useSafeArea: false,
+        useSafeArea: true,
         builder: (sheetContext) {
           sheetContextForClose = sheetContext;
           final mediaQuery = MediaQuery.of(sheetContext);
-          final topInset = MediaQuery.viewPaddingOf(sheetContext).top;
           return LayoutBuilder(
             builder: (context, constraints) {
               final sheetHeight = constraints.maxHeight.isFinite
@@ -883,7 +888,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               return SizedBox(
                 height: sheetHeight,
                 child: Padding(
-                  padding: EdgeInsets.fromLTRB(10, topInset + 6, 10, 12),
+                  padding: const EdgeInsets.fromLTRB(10, 6, 10, 12),
                   child: _NoteDetailPager(
                     notes: visibleNotes,
                     selectedIndex: initialIndex < 0 ? 0 : initialIndex,
@@ -1276,10 +1281,9 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       isScrollControlled: true,
       showDragHandle: false,
       useRootNavigator: true,
-      useSafeArea: false,
+      useSafeArea: true,
       builder: (context) {
         final mediaQuery = MediaQuery.of(context);
-        final topInset = MediaQuery.viewPaddingOf(context).top;
         var selectedDay = DateTime(
           initialDay.year,
           initialDay.month,
@@ -1309,7 +1313,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
             return SizedBox(
               height: mediaQuery.size.height,
               child: Padding(
-                padding: EdgeInsets.fromLTRB(10, topInset + 6, 10, 12),
+                padding: const EdgeInsets.fromLTRB(10, 6, 10, 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -4235,7 +4239,11 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ),
                 child: Text(
-                  syncConflictWarning,
+                  _localizedSyncTransferMessage(
+                    strings,
+                    syncConflictWarning,
+                    syncProvider,
+                  ),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: Theme.of(context).colorScheme.onErrorContainer,
                   ),
@@ -4254,7 +4262,9 @@ class SettingsScreen extends ConsumerWidget {
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(strings.text('home.selected.target')),
-              subtitle: Text(_syncSubtitle(context, syncProvider)),
+              subtitle: Text(
+                _syncSubtitle(context, syncProvider, syncAuthState),
+              ),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -4410,6 +4420,7 @@ class SettingsScreen extends ConsumerWidget {
                           strings,
                           syncProvider,
                           syncTransferState,
+                          syncBundleState.asData?.value,
                         ),
                       ),
                     ),
@@ -4484,54 +4495,19 @@ class SettingsScreen extends ConsumerWidget {
                             },
                             child: Text(strings.text('home.copy.recovery.key')),
                           ),
-                          OutlinedButton(
+                          OutlinedButton.icon(
                             onPressed: () async {
-                              final backupCode = await _showSyncKeyImportDialog(
-                                context,
-                              );
-                              if (!context.mounted || backupCode == null) {
-                                return;
-                              }
                               final messenger = ScaffoldMessenger.of(context);
                               try {
-                                final currentFingerprint = await ref
+                                final backupCode = await ref
                                     .read(syncBundleKeyServiceProvider)
-                                    .fingerprint();
+                                    .exportBackupCode();
                                 if (!context.mounted) {
                                   return;
                                 }
-                                final incomingFingerprint = ref
-                                    .read(syncBundleKeyServiceProvider)
-                                    .previewBackupCodeFingerprint(backupCode);
-                                final shouldImport =
-                                    await _showSyncKeyImportConfirmDialog(
-                                      context,
-                                      currentFingerprint: currentFingerprint,
-                                      incomingFingerprint: incomingFingerprint,
-                                    ) ??
-                                    false;
-                                if (!shouldImport || !context.mounted) {
-                                  return;
-                                }
-                                final fingerprint = await ref
-                                    .read(syncBundleKeyServiceProvider)
-                                    .importBackupCode(backupCode);
-                                ref.invalidate(syncBundleFingerprintProvider);
-                                ref
-                                    .read(
-                                      syncTransferControllerProvider.notifier,
-                                    )
-                                    .clearLocalBundleCache();
-                                if (!context.mounted) {
-                                  return;
-                                }
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    showCloseIcon: true,
-                                    content: Text(
-                                      strings.recoveryKeyImported(fingerprint),
-                                    ),
-                                  ),
+                                await _showSyncKeyQrDialog(
+                                  context,
+                                  backupCode: backupCode,
                                 );
                               } catch (error) {
                                 if (!context.mounted) {
@@ -4545,8 +4521,59 @@ class SettingsScreen extends ConsumerWidget {
                                 );
                               }
                             },
+                            icon: const Icon(Icons.qr_code_2_rounded),
+                            label: Text(
+                              strings.localized(
+                                en: 'Show QR',
+                                ja: 'QRを表示',
+                                zh: '显示 QR',
+                                ko: 'QR 표시',
+                                es: 'Mostrar QR',
+                                de: 'QR anzeigen',
+                              ),
+                            ),
+                          ),
+                          OutlinedButton(
+                            onPressed: () async {
+                              final backupCode = await _showSyncKeyImportDialog(
+                                context,
+                              );
+                              if (!context.mounted || backupCode == null) {
+                                return;
+                              }
+                              await _handleSyncKeyImport(
+                                context,
+                                ref,
+                                backupCode,
+                              );
+                            },
                             child: Text(
                               strings.text('home.import.recovery.key'),
+                            ),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () async {
+                              final backupCode =
+                                  await _showSyncKeyQrScannerDialog(context);
+                              if (!context.mounted || backupCode == null) {
+                                return;
+                              }
+                              await _handleSyncKeyImport(
+                                context,
+                                ref,
+                                backupCode,
+                              );
+                            },
+                            icon: const Icon(Icons.qr_code_scanner_rounded),
+                            label: Text(
+                              strings.localized(
+                                en: 'Scan QR',
+                                ja: 'QRを読み取り',
+                                zh: '扫描 QR',
+                                ko: 'QR 스캔',
+                                es: 'Escanear QR',
+                                de: 'QR scannen',
+                              ),
                             ),
                           ),
                         ],
@@ -6337,7 +6364,11 @@ class SettingsScreen extends ConsumerWidget {
     return strings.text('home.disconnect');
   }
 
-  String _syncSubtitle(BuildContext context, SyncProvider provider) {
+  String _syncSubtitle(
+    BuildContext context,
+    SyncProvider provider,
+    SyncAuthState authState,
+  ) {
     final strings = context.strings;
     switch (provider) {
       case SyncProvider.off:
@@ -6347,6 +6378,16 @@ class SettingsScreen extends ConsumerWidget {
           'home.icloud.selected.the.app.checks.this.device.s.icloud.avai',
         );
       case SyncProvider.googleDrive:
+        if (authState.isAuthenticated) {
+          return strings.localized(
+            en: 'Google Drive app-data sync is connected and ready.',
+            ja: 'Google Drive のアプリデータ同期は接続済みです。',
+            zh: 'Google Drive 应用数据同步已连接并可使用。',
+            ko: 'Google Drive 앱 데이터 동기화가 연결되어 사용할 수 있습니다.',
+            es: 'La sincronizacion de datos de la app con Google Drive esta conectada y lista.',
+            de: 'Die Google Drive App-Daten-Synchronisierung ist verbunden und bereit.',
+          );
+        }
         return strings.text(
           'home.google.drive.selected.authorize.access.to.drive.app.data',
         );
@@ -6354,7 +6395,11 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   String syncSubtitleLegacy(BuildContext context, SyncProvider provider) {
-    return _syncSubtitle(context, provider);
+    return _syncSubtitle(
+      context,
+      provider,
+      SyncAuthState(provider: provider, stage: SyncAuthStage.idle),
+    );
   }
 
   String _syncAuthSummary(
@@ -12353,6 +12398,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   bool _saved = false;
   bool _draftLoaded = false;
   bool _editorDisposed = false;
+  bool _attachmentPickerBusy = false;
   bool _attachmentImportBusy = false;
   Timer? _draftSaveTimer;
   bool _discardingDraft = false;
@@ -12512,7 +12558,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (_editorDisposed) {
       return;
     }
-    final next = _hasSubmitContent && !_attachmentImportBusy;
+    final next = _hasSubmitContent && !_attachmentActionBusy;
     if (_canSubmitNotifier.value != next) {
       _canSubmitNotifier.value = next;
     }
@@ -13061,10 +13107,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                 PopupMenuButton<MediaImportAction>(
                                   key: const Key('note-capture-media-menu'),
                                   tooltip: strings.captureMedia,
-                                  enabled: !_attachmentImportBusy,
+                                  enabled: !_attachmentActionBusy,
                                   icon: Icon(
                                     Icons.photo_camera_outlined,
-                                    color: _attachmentImportBusy
+                                    color: _attachmentActionBusy
                                         ? Theme.of(context).disabledColor
                                         : _mutedTextColor(context),
                                   ),
@@ -13098,10 +13144,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                 PopupMenuButton<MediaImportAction>(
                                   key: const Key('note-import-file-menu'),
                                   tooltip: strings.importFiles,
-                                  enabled: !_attachmentImportBusy,
+                                  enabled: !_attachmentActionBusy,
                                   icon: Icon(
                                     Icons.folder_open_outlined,
-                                    color: _attachmentImportBusy
+                                    color: _attachmentActionBusy
                                         ? Theme.of(context).disabledColor
                                         : _mutedTextColor(context),
                                   ),
@@ -13421,7 +13467,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       onPressed:
                           canSubmit &&
                               _selectedVaultId != null &&
-                              !_attachmentImportBusy
+                              !_attachmentActionBusy
                           ? _save
                           : null,
                       child: Text(
@@ -13454,6 +13500,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   bool get _canSave {
     return _hasSubmitContent && _selectedVaultId != null;
   }
+
+  bool get _attachmentActionBusy =>
+      _attachmentPickerBusy || _attachmentImportBusy;
 
   void _showEditorSnackBar({required Widget content, SnackBarAction? action}) {
     final messenger = ScaffoldMessenger.of(context);
@@ -13541,7 +13590,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   Future<void> _handleAttachmentAction(MediaImportAction action) async {
-    if (_attachmentImportBusy) {
+    if (_attachmentActionBusy) {
       return;
     }
     if (action == MediaImportAction.addLocation) {
@@ -13549,7 +13598,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       return;
     }
     setState(() {
-      _attachmentImportBusy = true;
+      _attachmentPickerBusy = true;
     });
     _updateCanSubmit();
     final strings = context.strings;
@@ -13560,7 +13609,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         result = await _showAudioRecordingDialog(context, ref);
       } else {
         final mediaImportService = ref.read(mediaImportServiceProvider);
-        result = await mediaImportService.importAttachment(action);
+        result = await mediaImportService.importAttachment(
+          action,
+          onProcessingStarted: _markAttachmentProcessingStarted,
+        );
       }
       if (!mounted) {
         return;
@@ -13666,11 +13718,23 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     } finally {
       if (mounted) {
         setState(() {
+          _attachmentPickerBusy = false;
           _attachmentImportBusy = false;
         });
         _updateCanSubmit();
       }
     }
+  }
+
+  void _markAttachmentProcessingStarted() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _attachmentPickerBusy = false;
+      _attachmentImportBusy = true;
+    });
+    _updateCanSubmit();
   }
 
   Future<void> _toggleLocationCapture() async {
@@ -16459,6 +16523,15 @@ String _localizedSyncTransferMessage(
 ) {
   final providerName = _syncProviderName(provider);
   switch (message) {
+    case 'sync.error.local_snapshot_incomplete':
+      return strings.localized(
+        en: 'Some pending notes cannot be uploaded yet. If private profile notes are included, open the matching private profile on this device and sync again.',
+        ja: '未同期の一部のメモはまだアップロードできません。プライベートプロファイルのメモが含まれる場合は、この端末で該当プロファイルを開いてからもう一度同期してください。',
+        zh: '部分待同步笔记暂时无法上传。如果包含私密配置文件的笔记，请先在此设备上打开对应配置文件，然后再次同步。',
+        ko: '일부 대기 중인 메모는 아직 업로드할 수 없습니다. 비공개 프로필 메모가 포함된 경우 이 기기에서 해당 프로필을 연 뒤 다시 동기화하세요.',
+        es: 'Algunas notas pendientes todavia no se pueden subir. Si incluyen notas de perfiles privados, abre el perfil privado correspondiente en este dispositivo y vuelve a sincronizar.',
+        de: 'Einige ausstehende Notizen konnen noch nicht hochgeladen werden. Wenn private Profilnotizen enthalten sind, offne das passende private Profil auf diesem Gerat und synchronisiere erneut.',
+      );
     case 'sync.error.bundle_decryption_failed':
       return strings.localized(
         en:
@@ -16676,6 +16749,15 @@ String _localizedSyncTransferMessage(
         ko: '다운로드한 번들을 로컬 노트에 적용했습니다.',
         es: 'Paquete descargado aplicado a las notas locales.',
         de: 'Heruntergeladenes Paket wurde auf lokale Notizen angewendet.',
+      );
+    case 'sync.info.private_profile_notes_pending_unlock':
+      return strings.localized(
+        en: 'Sync completed. Private profile notes will be applied after you open the matching private profile on this device.',
+        ja: '同期は完了しました。プライベートプロファイルのメモは、この端末で該当するプロファイルを開いたあとに反映されます。',
+        zh: '同步已完成。私人配置文件中的笔记会在你在此设备上打开对应配置文件后应用。',
+        ko: '동기화가 완료되었습니다. 비공개 프로필 메모는 이 기기에서 해당 프로필을 연 뒤 적용됩니다.',
+        es: 'La sincronizacion se completo. Las notas de perfiles privados se aplicaran cuando abras el perfil privado correspondiente en este dispositivo.',
+        de: 'Die Synchronisierung ist abgeschlossen. Notizen privater Profile werden angewendet, nachdem du das passende private Profil auf diesem Gerat geoffnet hast.',
       );
     case 'sync.info.deferred_attachments_downloaded':
       return strings.localized(
@@ -16925,6 +17007,7 @@ String _remoteBundleSummary(
   AppStrings strings,
   SyncProvider provider,
   SyncTransferState transferState,
+  SyncBundleState? bundleState,
 ) {
   if (provider == SyncProvider.off) {
     return strings.text('home.remote.bundle.storage.is.not.configured.yet');
@@ -16948,6 +17031,18 @@ String _remoteBundleSummary(
   }
   final remote = transferState.remoteStatus;
   if (remote == null) {
+    final lastRemoteAt = bundleState?.lastRemoteModifiedAt;
+    if (lastRemoteAt != null) {
+      final modifiedAt = _formatDateTime(lastRemoteAt, strings);
+      return strings.localized(
+        en: 'Last known remote bundle: $modifiedAt. Refresh to check for newer changes.',
+        ja: '最後に確認したリモートバンドル: $modifiedAt。新しい変更を確認するには更新してください。',
+        zh: '上次确认的远程包：$modifiedAt。请刷新以检查更新。',
+        ko: '마지막으로 확인한 원격 번들: $modifiedAt. 새 변경 사항은 새로고침으로 확인하세요.',
+        es: 'Ultimo paquete remoto conocido: $modifiedAt. Actualiza para comprobar cambios nuevos.',
+        de: 'Zuletzt bekanntes Remote-Bundle: $modifiedAt. Aktualisiere, um neuere Anderungen zu prufen.',
+      );
+    }
     return strings.text('home.no.remote.bundle.metadata.loaded.yet');
   }
   final modifiedAt = remote.modifiedAt == null
@@ -18372,6 +18467,387 @@ Future<String?> _showSyncKeyImportDialog(BuildContext context) {
       );
     },
   );
+}
+
+Future<void> _showSyncKeyQrDialog(
+  BuildContext context, {
+  required String backupCode,
+}) {
+  final strings = context.strings;
+  return showDialog<void>(
+    context: context,
+    builder: (context) {
+      return AlertDialog(
+        title: Text(
+          strings.localized(
+            en: 'Cloud recovery key QR',
+            ja: 'クラウド復元キーのQR',
+            zh: '云恢复密钥 QR',
+            ko: '클라우드 복구 키 QR',
+            es: 'QR de clave de recuperacion',
+            de: 'QR fur Cloud-Wiederherstellungsschlussel',
+          ),
+        ),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                strings.localized(
+                  en: 'This QR code contains the full cloud recovery key. Show it only in a private place.',
+                  ja: 'このQRコードにはクラウド復元キー全体が含まれます。周囲に見られない場所で表示してください。',
+                  zh: '此 QR 码包含完整的云恢复密钥。请仅在私密场所显示。',
+                  ko: '이 QR 코드에는 전체 클라우드 복구 키가 포함됩니다. 주변에 보이지 않는 곳에서만 표시하세요.',
+                  es: 'Este QR contiene la clave de recuperacion completa. Muestralo solo en un lugar privado.',
+                  de: 'Dieser QR-Code enthalt den vollstandigen Wiederherstellungsschlussel. Zeige ihn nur an einem privaten Ort.',
+                ),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 16),
+              Center(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.black12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: _CloudRecoveryKeyQrImage(data: backupCode),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(strings.close),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+class _CloudRecoveryKeyQrImage extends StatefulWidget {
+  const _CloudRecoveryKeyQrImage({required this.data});
+
+  final String data;
+
+  @override
+  State<_CloudRecoveryKeyQrImage> createState() =>
+      _CloudRecoveryKeyQrImageState();
+}
+
+class _CloudRecoveryKeyQrImageState extends State<_CloudRecoveryKeyQrImage> {
+  late Future<Uint8List> _imageBytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _imageBytes = _renderQrPng(widget.data);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CloudRecoveryKeyQrImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.data != widget.data) {
+      _imageBytes = _renderQrPng(widget.data);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: 260,
+      child: FutureBuilder<Uint8List>(
+        future: _imageBytes,
+        builder: (context, snapshot) {
+          if (snapshot.hasData) {
+            return Semantics(
+              label: 'qr code',
+              child: Image.memory(
+                snapshot.data!,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.none,
+                gaplessPlayback: true,
+              ),
+            );
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Icon(
+                Icons.error_outline_rounded,
+                color: Theme.of(context).colorScheme.error,
+                size: 32,
+              ),
+            );
+          }
+          return const Center(child: CircularProgressIndicator());
+        },
+      ),
+    );
+  }
+
+  Future<Uint8List> _renderQrPng(String data) async {
+    final painter = QrPainter(
+      data: data,
+      version: QrVersions.auto,
+      errorCorrectionLevel: QrErrorCorrectLevel.M,
+      gapless: false,
+      eyeStyle: const QrEyeStyle(
+        eyeShape: QrEyeShape.square,
+        color: Colors.black,
+      ),
+      dataModuleStyle: const QrDataModuleStyle(
+        dataModuleShape: QrDataModuleShape.square,
+        color: Colors.black,
+      ),
+    );
+    final byteData = await painter.toImageData(
+      720,
+      format: ui.ImageByteFormat.png,
+    );
+    if (byteData == null) {
+      throw StateError('Failed to render recovery key QR code.');
+    }
+    return byteData.buffer.asUint8List();
+  }
+}
+
+Future<String?> _showSyncKeyQrScannerDialog(BuildContext context) {
+  final strings = context.strings;
+  if (!_syncKeyQrScannerSupported) {
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          strings.localized(
+            en: 'QR scanning is unavailable',
+            ja: 'QR読み取りを利用できません',
+            zh: '无法扫描 QR',
+            ko: 'QR 스캔을 사용할 수 없습니다',
+            es: 'El escaneo QR no esta disponible',
+            de: 'QR-Scan ist nicht verfugbar',
+          ),
+        ),
+        content: Text(
+          strings.localized(
+            en: 'Use copy and paste to import the cloud recovery key on this platform.',
+            ja: 'この環境では、コピーと貼り付けでクラウド復元キーをインポートしてください。',
+            zh: '请在此平台上使用复制和粘贴导入云恢复密钥。',
+            ko: '이 환경에서는 복사와 붙여넣기로 클라우드 복구 키를 가져오세요.',
+            es: 'Usa copiar y pegar para importar la clave de recuperacion en esta plataforma.',
+            de: 'Importiere den Cloud-Wiederherstellungsschlussel auf dieser Plattform per Kopieren und Einfugen.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(strings.close),
+          ),
+        ],
+      ),
+    );
+  }
+  return showDialog<String>(
+    context: context,
+    builder: (context) => _SyncKeyQrScannerDialog(strings: strings),
+  );
+}
+
+bool get _syncKeyQrScannerSupported {
+  if (kIsWeb) {
+    return true;
+  }
+  return defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.macOS;
+}
+
+class _SyncKeyQrScannerDialog extends StatefulWidget {
+  const _SyncKeyQrScannerDialog({required this.strings});
+
+  final AppStrings strings;
+
+  @override
+  State<_SyncKeyQrScannerDialog> createState() =>
+      _SyncKeyQrScannerDialogState();
+}
+
+class _SyncKeyQrScannerDialogState extends State<_SyncKeyQrScannerDialog> {
+  late final MobileScannerController _controller;
+  bool _completed = false;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = MobileScannerController(
+      detectionSpeed: DetectionSpeed.noDuplicates,
+      facing: CameraFacing.back,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _handleDetect(BarcodeCapture capture) {
+    if (_completed) {
+      return;
+    }
+    for (final barcode in capture.barcodes) {
+      final raw = barcode.rawValue?.trim();
+      if (raw == null || raw.isEmpty) {
+        continue;
+      }
+      if (!raw.startsWith(SyncBundleKeyService.backupCodePrefix)) {
+        setState(() {
+          _errorText = widget.strings.localized(
+            en: 'This QR code is not a HiMemo cloud recovery key.',
+            ja: 'このQRコードはHiMemoのクラウド復元キーではありません。',
+            zh: '此 QR 码不是 HiMemo 云恢复密钥。',
+            ko: '이 QR 코드는 HiMemo 클라우드 복구 키가 아닙니다.',
+            es: 'Este QR no es una clave de recuperacion de HiMemo.',
+            de: 'Dieser QR-Code ist kein HiMemo-Cloud-Wiederherstellungsschlussel.',
+          );
+        });
+        continue;
+      }
+      _completed = true;
+      Navigator.of(context).pop(raw);
+      return;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = widget.strings;
+    return AlertDialog(
+      title: Text(
+        strings.localized(
+          en: 'Scan recovery key QR',
+          ja: '復元キーQRを読み取り',
+          zh: '扫描恢复密钥 QR',
+          ko: '복구 키 QR 스캔',
+          es: 'Escanear QR de recuperacion',
+          de: 'Wiederherstellungs-QR scannen',
+        ),
+      ),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              strings.localized(
+                en: 'Point the camera at the QR code shown on the other device.',
+                ja: '別の端末に表示したQRコードをカメラに向けてください。',
+                zh: '将相机对准另一台设备上显示的 QR 码。',
+                ko: '다른 기기에 표시된 QR 코드를 카메라로 비추세요.',
+                es: 'Apunta la camara al QR mostrado en el otro dispositivo.',
+                de: 'Richte die Kamera auf den QR-Code auf dem anderen Gerat.',
+              ),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: MobileScanner(
+                  controller: _controller,
+                  onDetect: _handleDetect,
+                  errorBuilder: (context, error) => Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        error.errorDetails?.message ?? error.toString(),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (_errorText != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _errorText!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(strings.cancel),
+        ),
+      ],
+    );
+  }
+}
+
+Future<void> _handleSyncKeyImport(
+  BuildContext context,
+  WidgetRef ref,
+  String backupCode,
+) async {
+  final strings = context.strings;
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final normalized = backupCode.trim();
+    final currentFingerprint = await ref
+        .read(syncBundleKeyServiceProvider)
+        .fingerprint();
+    if (!context.mounted) {
+      return;
+    }
+    final incomingFingerprint = ref
+        .read(syncBundleKeyServiceProvider)
+        .previewBackupCodeFingerprint(normalized);
+    final shouldImport =
+        await _showSyncKeyImportConfirmDialog(
+          context,
+          currentFingerprint: currentFingerprint,
+          incomingFingerprint: incomingFingerprint,
+        ) ??
+        false;
+    if (!shouldImport || !context.mounted) {
+      return;
+    }
+    final fingerprint = await ref
+        .read(syncBundleKeyServiceProvider)
+        .importBackupCode(normalized);
+    ref.invalidate(syncBundleFingerprintProvider);
+    ref.read(syncTransferControllerProvider.notifier).clearLocalBundleCache();
+    if (!context.mounted) {
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(strings.recoveryKeyImported(fingerprint)),
+      ),
+    );
+  } catch (error) {
+    if (!context.mounted) {
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(showCloseIcon: true, content: Text('$error')),
+    );
+  }
 }
 
 Future<String?> _showSingleSecretPrompt(
@@ -19867,9 +20343,7 @@ Future<List<int>?> _readPhotoAttachmentBytes(
 ) {
   final filePath = attachment.filePath;
   if (filePath != null && filePath.isNotEmpty) {
-    return ref
-        .read(encryptedAttachmentStoreProvider)
-        .readAttachment(filePath, type: attachment.type);
+    return _readDisplayAttachmentBytes(ref, attachment);
   }
   final previewBytesBase64 = attachment.previewBytesBase64;
   if (previewBytesBase64 == null || previewBytesBase64.isEmpty) {
@@ -19880,6 +20354,73 @@ Future<List<int>?> _readPhotoAttachmentBytes(
   } on FormatException {
     return Future<List<int>?>.value(null);
   }
+}
+
+Future<List<int>?> _readDisplayAttachmentBytes(
+  WidgetRef ref,
+  NoteAttachment attachment,
+) async {
+  final filePath = attachment.filePath;
+  if (filePath == null || filePath.isEmpty) {
+    return null;
+  }
+  if (filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
+    return _downloadRemoteSyncAttachmentBytes(ref, attachment);
+  }
+  return ref
+      .read(encryptedAttachmentStoreProvider)
+      .readAttachment(filePath, type: attachment.type);
+}
+
+Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
+  WidgetRef ref,
+  NoteAttachment attachment,
+) async {
+  final filePath = attachment.filePath;
+  if (filePath == null ||
+      !filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
+    return null;
+  }
+  final contentHash = filePath.substring(
+    _remoteSyncAttachmentObjectPrefix.length,
+  );
+  if (contentHash.isEmpty) {
+    return null;
+  }
+  final encodedPayload = switch (ref.read(syncProviderControllerProvider)) {
+    SyncProvider.iCloud =>
+      await ref
+          .read(iCloudSyncTransportProvider)
+          .downloadAttachmentObject(contentHash),
+    SyncProvider.googleDrive =>
+      await ref
+          .read(googleDriveSyncTransportProvider)
+          .downloadAttachmentObject(contentHash),
+    SyncProvider.off => null,
+  };
+  if (encodedPayload == null || encodedPayload.isEmpty) {
+    return null;
+  }
+  final decoded = await ref
+      .read(secureSyncBundleStoreProvider)
+      .readAttachmentObjectPayload(encodedPayload);
+  final payloadHash = decoded['contentHash'] as String? ?? contentHash;
+  if (payloadHash != contentHash) {
+    return null;
+  }
+  final payloadType = decoded['type'] as String?;
+  if (payloadType != null && payloadType != attachment.type.name) {
+    return null;
+  }
+  final bytesBase64 = decoded['bytesBase64'] as String?;
+  if (bytesBase64 == null || bytesBase64.isEmpty) {
+    return null;
+  }
+  final bytes = base64Decode(bytesBase64);
+  if (sha256.convert(bytes).toString() != contentHash) {
+    return null;
+  }
+  return bytes;
 }
 
 Future<List<int>?> _readPhotoAttachmentDetailBytes(
@@ -19930,6 +20471,11 @@ Future<List<int>?> _readPhotoAttachmentBytesWithPerf(
     () => _readPhotoAttachmentDetailBytes(ref, attachment),
   );
   _photoAttachmentBytesCache[cacheKey] = future;
+  future.then((bytes) {
+    if (bytes == null || bytes.isEmpty) {
+      _photoAttachmentBytesCache.remove(cacheKey);
+    }
+  });
   future.catchError((Object _) {
     _photoAttachmentBytesCache.remove(cacheKey);
     return null;
@@ -20128,10 +20674,7 @@ class _VideoAttachmentViewerState
       final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
       final VideoPlayerController controller;
       if (kIsWeb) {
-        final bytes = await attachmentStore.readAttachment(
-          filePath,
-          type: widget.attachment.type,
-        );
+        final bytes = await _readDisplayAttachmentBytes(ref, widget.attachment);
         if (!mounted || generation != _loadGeneration) {
           return;
         }
@@ -20166,11 +20709,25 @@ class _VideoAttachmentViewerState
         });
         return;
       } else {
-        tempFilePath = await attachmentStore.materializeDecryptedFile(
-          filePath,
-          type: widget.attachment.type,
-          preferredFileName: widget.attachment.label,
-        );
+        if (filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
+          final bytes = await _readDisplayAttachmentBytes(
+            ref,
+            widget.attachment,
+          );
+          if (bytes != null && bytes.isNotEmpty) {
+            tempFilePath = await attachmentStore.materializeDecryptedBytes(
+              bytes,
+              type: widget.attachment.type,
+              preferredFileName: widget.attachment.label,
+            );
+          }
+        } else {
+          tempFilePath = await attachmentStore.materializeDecryptedFile(
+            filePath,
+            type: widget.attachment.type,
+            preferredFileName: widget.attachment.label,
+          );
+        }
         if (!mounted || generation != _loadGeneration) {
           if (tempFilePath != null) {
             await attachmentStore.deleteMaterializedFile(tempFilePath);

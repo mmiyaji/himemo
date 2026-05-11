@@ -33,12 +33,10 @@ SyncConflictAssessment assessSyncConflict({
       !remoteModifiedAt.isAfter(knownMoment.toUtc())) {
     return const SyncConflictAssessment.clear();
   }
-  if (remoteStatus.deviceId != null &&
-      bundleState.lastRemoteDeviceId != null &&
-      remoteStatus.deviceId == bundleState.lastRemoteDeviceId) {
+  final lastQueuedAt = queue.lastQueuedAt?.toUtc();
+  if (lastQueuedAt != null && !remoteModifiedAt.isAfter(lastQueuedAt)) {
     return const SyncConflictAssessment.clear();
   }
-
   return const SyncConflictAssessment(
     hasConflict: true,
     message: 'sync.error.conflict_pending_remote_newer',

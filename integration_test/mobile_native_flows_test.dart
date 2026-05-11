@@ -502,8 +502,12 @@ class FakeMediaImportService implements MediaImportService {
   int importCallCount = 0;
 
   @override
-  Future<MediaImportResult> importAttachment(MediaImportAction action) async {
+  Future<MediaImportResult> importAttachment(
+    MediaImportAction action, {
+    VoidCallback? onProcessingStarted,
+  }) async {
     importCallCount += 1;
+    onProcessingStarted?.call();
     return switch (action) {
       MediaImportAction.takePhoto ||
       MediaImportAction.pickPhoto => const MediaImportResult.success(
@@ -557,6 +561,7 @@ class FakeGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   int fetchLatestCalls = 0;
   int uploadCalls = 0;
   String? uploadedPayload;
+  final Map<String, String> uploadedAttachmentObjects = {};
   RemoteSyncBundleStatus? latestStatus = RemoteSyncBundleStatus(
     fileId: 'remote-current',
     fileName: 'himemo_sync_20260510.enc',
@@ -611,6 +616,28 @@ class FakeGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
       deviceId: deviceId,
     );
     return latestStatus!;
+  }
+
+  @override
+  Future<void> uploadAttachmentObject({
+    required String contentHash,
+    required String encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+    bool skipExistingCheck = false,
+  }) async {
+    uploadedAttachmentObjects[contentHash] = encodedPayload;
+  }
+
+  @override
+  Future<Set<String>> listAttachmentObjectContentHashes() async {
+    return uploadedAttachmentObjects.keys.toSet();
+  }
+
+  @override
+  Future<String?> downloadAttachmentObject(String contentHash) async {
+    return uploadedAttachmentObjects[contentHash];
   }
 
   @override
