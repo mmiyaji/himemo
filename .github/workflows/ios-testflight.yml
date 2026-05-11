@@ -1,0 +1,261 @@
+name: iOS TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: "Optional CFBundleVersion. Defaults to UTC yyMMddHHmm."
+        required: false
+        type: string
+      upload_to_testflight:
+        description: "Upload the signed IPA to App Store Connect/TestFlight."
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: "3.41.6"
+  APPLE_TEAM_ID: "B8LGAS7YHH"
+  BUNDLE_ID: "org.ruhenheim.himemo"
+  WIDGET_BUNDLE_ID: "org.ruhenheim.himemo.QuickCaptureWidget"
+  SHARE_EXTENSION_BUNDLE_ID: "org.ruhenheim.himemo.ShareExtension"
+  APP_STORE_PROFILE_NAME: "HiMemo App Store Profile"
+  WIDGET_PROFILE_NAME: "HiMemo Widget App Store Profile"
+  SHARE_EXTENSION_PROFILE_NAME: "HiMemo Share Extension App Store Profile"
+  KEYCHAIN_NAME: "himemo-build.keychain-db"
+
+jobs:
+  build-and-upload:
+    name: Build iOS IPA and upload to TestFlight
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Show toolchain versions
+        run: |
+          flutter --version
+          xcodebuild -version
+          pod --version
+
+      - name: Resolve build number
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.build_number }}" ]; then
+            BUILD_NUMBER="${{ inputs.build_number }}"
+          else
+            BUILD_NUMBER="$(date -u +%y%m%d%H%M)"
+          fi
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "Using build number: $BUILD_NUMBER"
+
+      - name: Install Apple signing assets
+        env:
+          IOS_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          IOS_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_APP_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_APP_BASE64 }}
+          IOS_PROVISIONING_PROFILE_WIDGET_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_WIDGET_BASE64 }}
+          IOS_PROVISIONING_PROFILE_SHARE_EXTENSION_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_SHARE_EXTENSION_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.IOS_BUILD_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/$KEYCHAIN_NAME"
+          : "${IOS_DISTRIBUTION_CERTIFICATE_BASE64:?Missing IOS_DISTRIBUTION_CERTIFICATE_BASE64 secret}"
+          : "${IOS_DISTRIBUTION_CERTIFICATE_PASSWORD:?Missing IOS_DISTRIBUTION_CERTIFICATE_PASSWORD secret}"
+          : "${IOS_PROVISIONING_PROFILE_APP_BASE64:?Missing IOS_PROVISIONING_PROFILE_APP_BASE64 secret}"
+          : "${IOS_PROVISIONING_PROFILE_WIDGET_BASE64:?Missing IOS_PROVISIONING_PROFILE_WIDGET_BASE64 secret}"
+          : "${IOS_PROVISIONING_PROFILE_SHARE_EXTENSION_BASE64:?Missing IOS_PROVISIONING_PROFILE_SHARE_EXTENSION_BASE64 secret}"
+
+          KEYCHAIN_PASSWORD="${KEYCHAIN_PASSWORD:-$(uuidgen)}"
+          CERTIFICATE_PATH="$RUNNER_TEMP/distribution.p12"
+          echo "$IOS_DISTRIBUTION_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" \
+            -P "$IOS_DISTRIBUTION_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | sed s/\"//g)
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+
+          install_profile() {
+            local encoded_profile="$1"
+            local label="$2"
+            local profile_path="$RUNNER_TEMP/$label.mobileprovision"
+            local plist_path="$RUNNER_TEMP/$label.plist"
+            echo "$encoded_profile" | base64 --decode > "$profile_path"
+            security cms -D -i "$profile_path" > "$plist_path"
+            local uuid
+            uuid=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$plist_path")
+            local name
+            name=$(/usr/libexec/PlistBuddy -c "Print :Name" "$plist_path")
+            cp "$profile_path" "$PROFILE_DIR/$uuid.mobileprovision"
+            echo "Installed provisioning profile: $name ($uuid)"
+          }
+
+          install_profile "$IOS_PROVISIONING_PROFILE_APP_BASE64" "app-store-app"
+          install_profile "$IOS_PROVISIONING_PROFILE_WIDGET_BASE64" "app-store-widget"
+          install_profile "$IOS_PROVISIONING_PROFILE_SHARE_EXTENSION_BASE64" "app-store-share-extension"
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Install CocoaPods dependencies
+        run: |
+          set -euo pipefail
+          find ios -name "Podfile" -execdir pod install \;
+
+      - name: Configure Google Sign-In
+        env:
+          HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID: ${{ secrets.HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID }}
+          HIMEMO_GOOGLE_REVERSED_CLIENT_ID: ${{ secrets.HIMEMO_GOOGLE_REVERSED_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          PLIST="$GITHUB_WORKSPACE/ios/Runner/Info.plist"
+          if [ -n "${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID:-}" ]; then
+            /usr/libexec/PlistBuddy -c "Set :GIDClientID ${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID}" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :GIDClientID string ${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID}" "$PLIST"
+          fi
+          if [ -n "${HIMEMO_GOOGLE_REVERSED_CLIENT_ID:-}" ]; then
+            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1 dict" "$PLIST" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleTypeRole Editor" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleTypeRole string Editor" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLName google-sign-in" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLName string google-sign-in" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes array" "$PLIST" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes:0 string ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST"
+          fi
+
+      - name: Create App Store export options
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>destination</key>
+            <string>export</string>
+            <key>manageAppVersionAndBuildNumber</key>
+            <false/>
+            <key>method</key>
+            <string>app-store</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${BUNDLE_ID}</key>
+              <string>${APP_STORE_PROFILE_NAME}</string>
+              <key>${WIDGET_BUNDLE_ID}</key>
+              <string>${WIDGET_PROFILE_NAME}</string>
+              <key>${SHARE_EXTENSION_BUNDLE_ID}</key>
+              <string>${SHARE_EXTENSION_PROFILE_NAME}</string>
+            </dict>
+            <key>signingCertificate</key>
+            <string>Apple Distribution</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>teamID</key>
+            <string>${APPLE_TEAM_ID}</string>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+          plutil -lint "$RUNNER_TEMP/ExportOptions.plist"
+
+      - name: Build production IPA
+        env:
+          HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID: ${{ secrets.HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID }}
+          HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID: ${{ secrets.HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID }}
+          HIMEMO_APP_STORE_ID: ${{ secrets.HIMEMO_APP_STORE_ID }}
+        run: |
+          set -euo pipefail
+          flutter build ipa --release \
+            -t lib/main_production.dart \
+            --dart-define=HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID:-}" \
+            --dart-define=HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID:-}" \
+            --dart-define=HIMEMO_APP_STORE_ID="${HIMEMO_APP_STORE_ID:-}" \
+            --dart-define=HIMEMO_BUILD_DATE="$(date -u +%Y-%m-%d)" \
+            --build-number="$BUILD_NUMBER" \
+            --export-options-plist="$RUNNER_TEMP/ExportOptions.plist"
+
+      - name: Verify production IPA entitlements
+        run: |
+          set -euo pipefail
+          IPA_PATH="$(find build/ios/ipa -name '*.ipa' | head -n 1)"
+          if [ -z "$IPA_PATH" ]; then
+            echo "No IPA was produced."
+            exit 1
+          fi
+          echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
+          VERIFY_DIR="$(mktemp -d)"
+          unzip -q "$IPA_PATH" -d "$VERIFY_DIR"
+          codesign -d --entitlements :- "$VERIFY_DIR/Payload/Runner.app" > "$VERIFY_DIR/entitlements.plist"
+          cat "$VERIFY_DIR/entitlements.plist"
+          if ! /usr/libexec/PlistBuddy -c "Print :com.apple.developer.icloud-services" "$VERIFY_DIR/entitlements.plist" | grep -q CloudKit; then
+            echo "Missing CloudKit service entitlement."
+            exit 1
+          fi
+          if ! /usr/libexec/PlistBuddy -c "Print :com.apple.developer.icloud-container-identifiers" "$VERIFY_DIR/entitlements.plist" | grep -q iCloud.org.ruhenheim.himemo; then
+            echo "Missing HiMemo iCloud container entitlement."
+            exit 1
+          fi
+          /usr/libexec/PlistBuddy -c "Print :com.apple.developer.icloud-container-environment" "$VERIFY_DIR/entitlements.plist" || true
+          rm -rf "$VERIFY_DIR"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: himemo-ios-${{ github.run_number }}
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
+
+      - name: Upload to App Store Connect
+        if: ${{ inputs.upload_to_testflight }}
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          : "${APP_STORE_CONNECT_API_KEY_ID:?Missing APP_STORE_CONNECT_API_KEY_ID secret}"
+          : "${APP_STORE_CONNECT_API_ISSUER_ID:?Missing APP_STORE_CONNECT_API_ISSUER_ID secret}"
+          : "${APP_STORE_CONNECT_API_PRIVATE_KEY:?Missing APP_STORE_CONNECT_API_PRIVATE_KEY secret}"
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          printf '%s' "$APP_STORE_CONNECT_API_PRIVATE_KEY" > "$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA_PATH" \
+            --apiKey "$APP_STORE_CONNECT_API_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_API_ISSUER_ID"
+
+      - name: Clean up signing assets
+        if: always()
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/$KEYCHAIN_NAME"
+          security delete-keychain "$KEYCHAIN_PATH" || true
+          rm -rf "$HOME/.appstoreconnect/private_keys" || true
