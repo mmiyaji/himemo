@@ -24,6 +24,7 @@ import '../../../app/firebase_observability.dart';
 import '../../../app/app_flavor.dart';
 import '../../../app/diagnostic_log.dart';
 import '../../../app/in_app_update_service.dart';
+import '../../../app/network_connection.dart';
 import '../../../app/play_integrity_service.dart';
 import '../../../app/play_integrity_verifier.dart';
 import '../data/home_repository.dart';
@@ -218,14 +219,6 @@ bool remoteBundleNeedsApplyForSync(
   RemoteSyncBundleStatus remoteStatus,
   SyncBundleState bundleState,
 ) {
-  if (bundleState.lastRemoteFileId != null &&
-      bundleState.lastRemoteFileId == remoteStatus.fileId) {
-    return false;
-  }
-  if (remoteStatus.fileId.isNotEmpty &&
-      bundleState.lastRemoteFileId != remoteStatus.fileId) {
-    return true;
-  }
   final lastAppliedAt = bundleState.lastAppliedAt;
   final lastUploadedAt = bundleState.lastUploadedAt;
   final knownActionAt = _latestDateTime(lastAppliedAt, lastUploadedAt);
@@ -237,7 +230,11 @@ bool remoteBundleNeedsApplyForSync(
     return bundleState.lastRemoteFileId != remoteStatus.fileId &&
         lastAppliedAt == null;
   }
-  return remoteModifiedAt.isAfter(knownActionAt);
+  if (remoteModifiedAt.isAfter(knownActionAt)) {
+    return true;
+  }
+  return remoteStatus.fileId.isNotEmpty &&
+      bundleState.lastRemoteFileId != remoteStatus.fileId;
 }
 
 DateTime? _latestDateTime(DateTime? left, DateTime? right) {
@@ -720,6 +717,19 @@ Future<String?> _videoPreviewBytesBase64ForSourceFile(XFile sourceFile) async {
   }
 }
 
+Future<String?> _videoPreviewBytesBase64ForBytes(
+  List<int> bytes, {
+  required String label,
+  String? mimeType,
+}) {
+  if (bytes.isEmpty) {
+    return Future.value(null);
+  }
+  return _videoPreviewBytesBase64ForSourceFile(
+    XFile.fromData(Uint8List.fromList(bytes), name: label, mimeType: mimeType),
+  );
+}
+
 class DeviceAuthState {
   const DeviceAuthState({
     required this.availability,
@@ -1043,6 +1053,20 @@ class SyncTransferState {
           : (cooldownUntil ?? this.cooldownUntil),
     );
   }
+}
+
+enum LargeSyncTransferDirection { upload, download }
+
+class LargeSyncTransferWarning {
+  const LargeSyncTransferWarning({
+    required this.direction,
+    required this.bytes,
+    required this.thresholdBytes,
+  });
+
+  final LargeSyncTransferDirection direction;
+  final int bytes;
+  final int thresholdBytes;
 }
 
 class DiagnosticLogSnapshot {
@@ -1477,6 +1501,7 @@ class DefaultMediaImportService implements MediaImportService {
     try {
       final picker = ImagePicker();
       picked = await picker.pickVideo(source: source);
+      picked ??= await _recoverLostVideoCapture(picker);
     } on MissingPluginException {
       return const MediaImportResult.failure(
         'Video import is not configured in this runtime.',
@@ -1497,9 +1522,41 @@ class DefaultMediaImportService implements MediaImportService {
     if (tooLarge != null) {
       return tooLarge;
     }
-    return MediaImportResult.success(
-      await _buildAttachment(type: AttachmentType.video, sourceFile: picked),
-    );
+    try {
+      return MediaImportResult.success(
+        await _buildAttachment(type: AttachmentType.video, sourceFile: picked),
+      );
+    } catch (error) {
+      return MediaImportResult.failure(
+        'The recorded video could not be attached on this device. ($error)',
+      );
+    }
+  }
+
+  Future<XFile?> _recoverLostVideoCapture(ImagePicker picker) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return null;
+    }
+    try {
+      final response = await picker.retrieveLostData();
+      if (response.isEmpty) {
+        return null;
+      }
+      final exception = response.exception;
+      if (exception != null) {
+        throw exception;
+      }
+      final files = response.files;
+      if (files != null && files.isNotEmpty) {
+        return files.last;
+      }
+      return response.file;
+    } on PlatformException {
+      rethrow;
+    } catch (error) {
+      debugPrint('Video capture lost data recovery failed: $error');
+      return null;
+    }
   }
 
   Future<MediaImportResult> _pickMediaFiles({
@@ -1877,6 +1934,12 @@ final diagnosticLogServiceProvider = Provider<DiagnosticLogService>((ref) {
   return DiagnosticLogService.instance;
 });
 
+final networkConnectionServiceProvider = Provider<NetworkConnectionService>((
+  ref,
+) {
+  return const NetworkConnectionService();
+});
+
 @Riverpod(keepAlive: true)
 class DiagnosticLogController extends _$DiagnosticLogController {
   @override
@@ -2133,6 +2196,7 @@ final syncTransferControllerProvider =
     );
 
 class SyncTransferController extends Notifier<SyncTransferState> {
+  static const largeMobileSyncThresholdBytes = 50 * 1024 * 1024;
   static const _syncBundleDecryptionMessage =
       'sync.error.bundle_decryption_failed';
   static const _syncBundleKeyMissingMessage = 'sync.error.bundle_key_missing';
@@ -2156,6 +2220,125 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   void clearLocalBundleCache() {
     state = state.copyWith(clearLocalBundle: true);
+  }
+
+  Future<LargeSyncTransferWarning?> largeMobileTransferWarning({
+    bool includeUpload = true,
+    bool includeDownload = true,
+    bool estimateAllLocalNotes = false,
+  }) async {
+    final kind = await ref.read(networkConnectionServiceProvider).currentKind();
+    if (kind != NetworkConnectionKind.mobile) {
+      return null;
+    }
+    if (includeDownload) {
+      var remoteStatus = state.remoteStatus;
+      if (remoteStatus == null &&
+          _supportsRemoteTransport(ref.read(syncProviderControllerProvider))) {
+        remoteStatus = await runFirebaseTrace(
+          'sync_large_mobile_remote_status',
+          _fetchLatestRemoteStatus,
+        );
+        if (remoteStatus != null) {
+          await ref
+              .read(syncBundleStateStoreProvider)
+              .recordRemoteStatus(remoteStatus);
+          state = state.copyWith(remoteStatus: remoteStatus);
+        }
+      }
+      final remoteSize = remoteStatus?.sizeBytes;
+      final bundleState = await ref.read(syncBundleStateProvider.future);
+      final needsDownload =
+          remoteStatus != null &&
+          remoteBundleNeedsApplyForSync(remoteStatus, bundleState);
+      if (needsDownload &&
+          remoteSize != null &&
+          remoteSize >= largeMobileSyncThresholdBytes) {
+        return LargeSyncTransferWarning(
+          direction: LargeSyncTransferDirection.download,
+          bytes: remoteSize,
+          thresholdBytes: largeMobileSyncThresholdBytes,
+        );
+      }
+    }
+    if (!includeUpload) {
+      return null;
+    }
+    final uploadBytes = estimateAllLocalNotes
+        ? await estimateCurrentStateUploadBytes()
+        : await estimatePendingUploadBytes();
+    if (uploadBytes >= largeMobileSyncThresholdBytes) {
+      return LargeSyncTransferWarning(
+        direction: LargeSyncTransferDirection.upload,
+        bytes: uploadBytes,
+        thresholdBytes: largeMobileSyncThresholdBytes,
+      );
+    }
+    return null;
+  }
+
+  Future<int> estimatePendingUploadBytes() async {
+    final pendingChanges = await ref
+        .read(syncEngineProvider)
+        .loadPendingChanges();
+    final pendingIds = pendingChanges.map((change) => change.noteId).toSet();
+    final notes = await ref
+        .read(notesControllerProvider.notifier)
+        .notesForSyncSnapshot(pendingNoteIds: pendingIds);
+    final snapshot = await ref
+        .read(syncEngineProvider)
+        .prepareSnapshot(notes, pendingChanges: pendingChanges);
+    return snapshot.estimatedPayloadBytes;
+  }
+
+  Future<int> estimateCurrentStateUploadBytes() async {
+    final notes = ref
+        .read(notesControllerProvider)
+        .where((note) => !isGeneratedSampleNote(note))
+        .map((note) {
+          final syncState = note.deletedAt == null
+              ? NoteSyncState.pendingUpload
+              : NoteSyncState.pendingDelete;
+          return note.copyWith(syncState: syncState);
+        })
+        .toList(growable: false);
+    return ref.read(syncEngineProvider).estimateNotesPayloadBytes(notes);
+  }
+
+  Future<bool> _shouldBlockLargeMobileTransfer({
+    required bool allowLargeMobileTransfer,
+    required bool silentLargeMobileSkip,
+    bool includeUpload = true,
+    bool includeDownload = true,
+    bool estimateAllLocalNotes = false,
+  }) async {
+    if (allowLargeMobileTransfer) {
+      return false;
+    }
+    final warning = await largeMobileTransferWarning(
+      includeUpload: includeUpload,
+      includeDownload: includeDownload,
+      estimateAllLocalNotes: estimateAllLocalNotes,
+    );
+    if (warning == null) {
+      return false;
+    }
+    _diagnostic(
+      'large mobile sync blocked',
+      data: {
+        'direction': warning.direction.name,
+        'bytes': warning.bytes,
+        'thresholdBytes': warning.thresholdBytes,
+        'silent': silentLargeMobileSkip,
+      },
+    );
+    if (!silentLargeMobileSkip) {
+      state = const SyncTransferState(
+        stage: SyncTransferStage.error,
+        message: 'sync.error.large_mobile_transfer_requires_confirmation',
+      );
+    }
+    return true;
   }
 
   void _startBusy(SyncTransferProgress progress) {
@@ -2208,7 +2391,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  Future<void> uploadCurrentBundle({bool force = false}) async {
+  Future<void> uploadCurrentBundle({
+    bool force = false,
+    bool allowLargeMobileTransfer = false,
+    bool silentLargeMobileSkip = false,
+  }) async {
     final provider = ref.read(syncProviderControllerProvider);
     _diagnostic(
       'upload requested',
@@ -2242,32 +2429,65 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       return;
     }
+    if (await _shouldBlockLargeMobileTransfer(
+      allowLargeMobileTransfer: allowLargeMobileTransfer,
+      silentLargeMobileSkip: silentLargeMobileSkip,
+      includeDownload: false,
+    )) {
+      return;
+    }
     _startBusy(SyncTransferProgress.preparingBundle);
     try {
       await logFirebaseBreadcrumb('sync upload requested');
+      final pendingChanges = await ref
+          .read(syncEngineProvider)
+          .loadPendingChanges();
+      final pendingIds = pendingChanges.map((change) => change.noteId).toSet();
+      final notes = await ref
+          .read(notesControllerProvider.notifier)
+          .notesForSyncSnapshot(pendingNoteIds: pendingIds);
       final snapshot = await runFirebaseTrace(
         'sync_prepare_snapshot',
         () => ref
             .read(syncEngineProvider)
-            .prepareSnapshot(ref.read(notesControllerProvider)),
+            .prepareSnapshot(notes, pendingChanges: pendingChanges),
       );
+      final preparedUpserts = snapshot.notes
+          .where((change) => change.action == PendingNoteChangeAction.upsert)
+          .length;
+      if (preparedUpserts < snapshot.summary.upserts) {
+        throw StateError('sync.error.local_snapshot_incomplete');
+      }
       _diagnostic(
         'snapshot prepared',
         data: {
           'changes': snapshot.summary.totalChanges,
           'upserts': snapshot.summary.upserts,
           'deletes': snapshot.summary.deletes,
+          'preparedNotes': snapshot.notes.length,
           'attachments': snapshot.attachments.length,
         },
       );
       final privateProfiles = await ref
           .read(privateMemoProfileStoreProvider)
           .exportSyncPayload();
+      final provider = ref.read(syncProviderControllerProvider);
+      if (provider != SyncProvider.off) {
+        _setProgress(SyncTransferProgress.uploadingBundle);
+        await runFirebaseTrace(
+          'sync_upload_attachment_objects',
+          () => _uploadRemoteAttachmentObjects(snapshot.attachments),
+        );
+      }
       final bundle = await runFirebaseTrace(
         'sync_write_local_bundle',
         () => ref
             .read(secureSyncBundleStoreProvider)
-            .writeBundle(snapshot, privateProfiles: [privateProfiles]),
+            .writeBundle(
+              snapshot,
+              privateProfiles: [privateProfiles],
+              inlineAttachments: provider == SyncProvider.off,
+            ),
       );
       final encodedPayload = await runFirebaseTrace(
         'sync_read_local_bundle_payload',
@@ -2286,7 +2506,6 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           'payloadLength': encodedPayload.length,
         },
       );
-      _setProgress(SyncTransferProgress.uploadingBundle);
       final remoteStatus = await runFirebaseTrace(
         'sync_upload_remote_bundle',
         () => _uploadRemoteBundle(
@@ -2316,6 +2535,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         localBundle: bundle,
       );
       await ref.read(syncBundleStateStoreProvider).recordUpload(remoteStatus);
+      ref.invalidate(syncQueueSummaryProvider);
+      ref.invalidate(syncBundleStateProvider);
     } catch (error) {
       _diagnostic('upload failed', data: {'error': error});
       state = _failureState(
@@ -2326,7 +2547,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  Future<void> reuploadAllCurrentNotes() async {
+  Future<void> reuploadAllCurrentNotes({
+    bool allowLargeMobileTransfer = false,
+    bool silentLargeMobileSkip = false,
+  }) async {
     final provider = ref.read(syncProviderControllerProvider);
     if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
@@ -2338,12 +2562,28 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (state.isBusy) {
       return;
     }
+    if (await _shouldBlockLargeMobileTransfer(
+      allowLargeMobileTransfer: allowLargeMobileTransfer,
+      silentLargeMobileSkip: silentLargeMobileSkip,
+      includeDownload: false,
+      estimateAllLocalNotes: true,
+    )) {
+      return;
+    }
     _startBusy(SyncTransferProgress.preparingBundle);
     await ref.read(notesControllerProvider.notifier).queueCurrentStateForSync();
-    await uploadCurrentBundle(force: true);
+    await uploadCurrentBundle(
+      force: true,
+      allowLargeMobileTransfer: allowLargeMobileTransfer,
+      silentLargeMobileSkip: silentLargeMobileSkip,
+    );
   }
 
-  Future<void> syncNow({bool forceUpload = false}) async {
+  Future<void> syncNow({
+    bool forceUpload = false,
+    bool allowLargeMobileTransfer = false,
+    bool silentLargeMobileSkip = false,
+  }) async {
     final provider = ref.read(syncProviderControllerProvider);
     _diagnostic(
       'sync now requested',
@@ -2396,7 +2636,20 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       }
       state = state.copyWith(remoteStatus: remoteStatus);
 
+      if (await _shouldBlockLargeMobileTransfer(
+        allowLargeMobileTransfer: allowLargeMobileTransfer,
+        silentLargeMobileSkip: silentLargeMobileSkip,
+        includeUpload: false,
+        includeDownload:
+            remoteStatus != null &&
+            _remoteBundleNeedsApply(remoteStatus, bundleState),
+      )) {
+        return;
+      }
+
       final queue = await ref.read(syncQueueSummaryProvider.future);
+      final hadPendingChangesBeforeRemoteApply = queue.hasPendingChanges;
+      var appliedRemoteDuringSync = false;
       _diagnostic(
         'local queue inspected',
         data: {
@@ -2452,6 +2705,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           if (state.stage == SyncTransferStage.error) {
             return;
           }
+          appliedRemoteDuringSync = true;
         }
       }
 
@@ -2467,7 +2721,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       if (refreshedQueue.hasPendingChanges) {
         _setProgress(SyncTransferProgress.preparingBundle);
-        await uploadCurrentBundle(force: forceUpload);
+        final forceConvergenceUpload =
+            appliedRemoteDuringSync && !hadPendingChangesBeforeRemoteApply;
+        await uploadCurrentBundle(
+          force: forceUpload || forceConvergenceUpload,
+          allowLargeMobileTransfer: allowLargeMobileTransfer,
+          silentLargeMobileSkip: silentLargeMobileSkip,
+        );
         return;
       }
       _setProgress(SyncTransferProgress.finalizing);
@@ -2796,68 +3056,19 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               : PendingNoteChangeAction.delete,
         );
         final storedBySyncAttachmentId = <String, String?>{};
-        Future<NoteAttachment> importAttachment(
-          NoteAttachment attachment,
-        ) async {
-          final filePath = attachment.filePath;
-          if (filePath == null || !filePath.startsWith('sync-attachment://')) {
-            return attachment;
-          }
-          final attachmentId = filePath.substring('sync-attachment://'.length);
-          final payload = attachmentPayloads[attachmentId];
-          if (payload == null) {
-            return attachment.copyWith(
-              filePath: null,
-              previewBytesBase64: null,
-            );
-          }
-          if (!storedBySyncAttachmentId.containsKey(attachmentId)) {
-            final payloadType = AttachmentType.values.firstWhere(
-              (value) => value.name == payload['type'],
-              orElse: () => attachment.type,
-            );
-            final label = payload['label'] as String? ?? attachment.label;
-            final bytesBase64 = payload['bytesBase64'] as String?;
-            if (bytesBase64 != null && bytesBase64.isNotEmpty) {
-              final encryptedPayload = await ref
-                  .read(encryptedAttachmentStoreProvider)
-                  .encryptAttachmentBytes(
-                    bytes: base64Decode(bytesBase64),
-                    type: payloadType,
-                    vaultId: note.vaultId,
-                  );
-              storedBySyncAttachmentId[attachmentId] = await ref
-                  .read(encryptedAttachmentStoreProvider)
-                  .storeEncryptedPayload(
-                    encodedPayload: encryptedPayload,
-                    type: payloadType,
-                    fileNameHint: label,
-                    vaultId: note.vaultId,
-                  );
-            } else {
-              final legacyPayload = payload['encryptedPayload'] as String?;
-              storedBySyncAttachmentId[attachmentId] =
-                  legacyPayload == null || legacyPayload.isEmpty
-                  ? null
-                  : await ref
-                        .read(encryptedAttachmentStoreProvider)
-                        .storeEncryptedPayload(
-                          encodedPayload: legacyPayload,
-                          type: payloadType,
-                          fileNameHint: label,
-                          vaultId: note.vaultId,
-                        );
-            }
-          }
-          return attachment.copyWith(
-            filePath: storedBySyncAttachmentId[attachmentId],
-            previewBytesBase64: null,
-          );
-        }
+        final previewBySyncAttachmentId = <String, String?>{};
 
         final importedAttachments = <NoteAttachment>[];
         for (final attachment in note.attachments) {
-          importedAttachments.add(await importAttachment(attachment));
+          importedAttachments.add(
+            await _importRemoteSyncAttachment(
+              attachment: attachment,
+              note: note,
+              inlinePayloads: attachmentPayloads,
+              storedBySyncAttachmentId: storedBySyncAttachmentId,
+              previewBySyncAttachmentId: previewBySyncAttachmentId,
+            ),
+          );
         }
         final importedBlocks = <NoteBlock>[];
         for (final block in note.blocks) {
@@ -2866,7 +3077,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             attachment == null
                 ? block
                 : block.copyWith(
-                    attachment: await importAttachment(attachment),
+                    attachment: await _importRemoteSyncAttachment(
+                      attachment: attachment,
+                      note: note,
+                      inlinePayloads: attachmentPayloads,
+                      storedBySyncAttachmentId: storedBySyncAttachmentId,
+                      previewBySyncAttachmentId: previewBySyncAttachmentId,
+                    ),
                   ),
           );
         }
@@ -2886,6 +3103,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await ref
           .read(syncBundleStateStoreProvider)
           .recordApply(state.remoteStatus);
+      ref.invalidate(syncQueueSummaryProvider);
+      ref.invalidate(syncBundleStateProvider);
       state = state.copyWith(
         stage: SyncTransferStage.success,
         message: 'sync.info.apply_success',
@@ -2897,6 +3116,79 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
     } catch (error) {
       state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
+    }
+  }
+
+  Future<int> downloadDeferredAttachments() async {
+    if (!_supportsRemoteTransport(ref.read(syncProviderControllerProvider))) {
+      return 0;
+    }
+    _startBusy(SyncTransferProgress.downloadingBundle);
+    try {
+      var count = 0;
+      final hydratedNotes = <NoteEntry>[];
+      for (final note in ref.read(notesControllerProvider)) {
+        final storedBySyncAttachmentId = <String, String?>{};
+        final previewBySyncAttachmentId = <String, String?>{};
+        Future<NoteAttachment> hydrate(NoteAttachment attachment) async {
+          final remoteRef = attachment.filePath;
+          if (remoteRef == null ||
+              !remoteRef.startsWith('sync-attachment-object://')) {
+            return attachment;
+          }
+          final imported = await _importRemoteSyncAttachment(
+            attachment: attachment,
+            note: note,
+            inlinePayloads: const <String, Map<String, dynamic>>{},
+            storedBySyncAttachmentId: storedBySyncAttachmentId,
+            previewBySyncAttachmentId: previewBySyncAttachmentId,
+            deferOnMobile: false,
+          );
+          final storedPath = imported.filePath;
+          if (storedPath != null && storedPath != remoteRef) {
+            count += 1;
+          }
+          return imported;
+        }
+
+        hydratedNotes.add(
+          note.copyWith(
+            attachments: [
+              for (final attachment in note.attachments)
+                await hydrate(attachment),
+            ],
+            blocks: [
+              for (final block in note.blocks)
+                block.attachment == null
+                    ? block
+                    : block.copyWith(
+                        attachment: await hydrate(block.attachment!),
+                      ),
+            ],
+          ),
+        );
+      }
+      if (count > 0) {
+        await ref
+            .read(notesControllerProvider.notifier)
+            .replaceFromSync(hydratedNotes);
+      }
+      state = state.copyWith(
+        stage: SyncTransferStage.success,
+        message: count == 0
+            ? 'sync.info.no_deferred_attachments'
+            : 'sync.info.deferred_attachments_downloaded',
+      );
+      return count;
+    } on HimemoDecryptionException {
+      state = state.copyWith(
+        stage: SyncTransferStage.error,
+        message: _syncBundleDecryptionMessage,
+      );
+      return 0;
+    } catch (error) {
+      state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
+      return 0;
     }
   }
 
@@ -2974,6 +3266,197 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     await ref
         .read(syncBundleStateStoreProvider)
         .recordApply(state.remoteStatus);
+    ref.invalidate(syncBundleStateProvider);
+  }
+
+  Future<NoteAttachment> _importRemoteSyncAttachment({
+    required NoteAttachment attachment,
+    required NoteEntry note,
+    required Map<String, Map<String, dynamic>> inlinePayloads,
+    required Map<String, String?> storedBySyncAttachmentId,
+    required Map<String, String?> previewBySyncAttachmentId,
+    bool deferOnMobile = true,
+  }) async {
+    final filePath = attachment.filePath;
+    if (filePath == null) {
+      return attachment;
+    }
+    if (filePath.startsWith('sync-attachment-object://')) {
+      final contentHash = filePath.substring(
+        'sync-attachment-object://'.length,
+      );
+      if (contentHash.isEmpty) {
+        return attachment.copyWith(filePath: null, previewBytesBase64: null);
+      }
+      final inlinePayload = inlinePayloads[contentHash];
+      if (inlinePayload != null) {
+        return _importInlineSyncAttachment(
+          attachment: attachment,
+          note: note,
+          attachmentId: contentHash,
+          payload: inlinePayload,
+          storedBySyncAttachmentId: storedBySyncAttachmentId,
+          previewBySyncAttachmentId: previewBySyncAttachmentId,
+        );
+      }
+      final connectionKind = await ref
+          .read(networkConnectionServiceProvider)
+          .currentKind();
+      if (deferOnMobile && connectionKind == NetworkConnectionKind.mobile) {
+        _diagnostic(
+          'remote attachment object deferred on mobile',
+          data: {
+            'contentHash': contentHash,
+            'type': attachment.type.name,
+            'label': attachment.label,
+          },
+        );
+        return attachment;
+      }
+      if (!storedBySyncAttachmentId.containsKey(contentHash)) {
+        final encodedPayload = await _downloadRemoteAttachmentObject(
+          contentHash,
+        );
+        if (encodedPayload == null || encodedPayload.isEmpty) {
+          storedBySyncAttachmentId[contentHash] = null;
+          previewBySyncAttachmentId[contentHash] =
+              attachment.previewBytesBase64;
+        } else {
+          final decoded = await ref
+              .read(secureSyncBundleStoreProvider)
+              .readAttachmentObjectPayload(encodedPayload);
+          final payloadHash = decoded['contentHash'] as String? ?? contentHash;
+          if (payloadHash != contentHash) {
+            throw StateError('sync.error.attachment_object_hash_mismatch');
+          }
+          final payloadType = AttachmentType.values.firstWhere(
+            (value) => value.name == decoded['type'],
+            orElse: () => attachment.type,
+          );
+          final label = decoded['label'] as String? ?? attachment.label;
+          final bytesBase64 = decoded['bytesBase64'] as String?;
+          if (bytesBase64 == null || bytesBase64.isEmpty) {
+            storedBySyncAttachmentId[contentHash] = null;
+            previewBySyncAttachmentId[contentHash] =
+                attachment.previewBytesBase64;
+          } else {
+            final clearBytes = base64Decode(bytesBase64);
+            final clearHash = sha256.convert(clearBytes).toString();
+            if (clearHash != contentHash) {
+              throw StateError('sync.error.attachment_object_hash_mismatch');
+            }
+            previewBySyncAttachmentId[contentHash] =
+                payloadType == AttachmentType.video
+                ? await _videoPreviewBytesBase64ForBytes(
+                    clearBytes,
+                    label: label,
+                    mimeType: 'video/mp4',
+                  )
+                : attachment.previewBytesBase64;
+            final encryptedPayload = await ref
+                .read(encryptedAttachmentStoreProvider)
+                .encryptAttachmentBytes(
+                  bytes: clearBytes,
+                  type: payloadType,
+                  vaultId: note.vaultId,
+                );
+            storedBySyncAttachmentId[contentHash] = await ref
+                .read(encryptedAttachmentStoreProvider)
+                .storeEncryptedPayload(
+                  encodedPayload: encryptedPayload,
+                  type: payloadType,
+                  fileNameHint: label,
+                  vaultId: note.vaultId,
+                );
+          }
+        }
+      }
+      final storedPath = storedBySyncAttachmentId[contentHash];
+      return attachment.copyWith(
+        filePath: storedPath ?? attachment.filePath,
+        previewBytesBase64:
+            previewBySyncAttachmentId[contentHash] ??
+            attachment.previewBytesBase64,
+      );
+    }
+    if (!filePath.startsWith('sync-attachment://')) {
+      return attachment;
+    }
+    final attachmentId = filePath.substring('sync-attachment://'.length);
+    final payload = inlinePayloads[attachmentId];
+    if (payload == null) {
+      return attachment.copyWith(filePath: null, previewBytesBase64: null);
+    }
+    return _importInlineSyncAttachment(
+      attachment: attachment,
+      note: note,
+      attachmentId: attachmentId,
+      payload: payload,
+      storedBySyncAttachmentId: storedBySyncAttachmentId,
+      previewBySyncAttachmentId: previewBySyncAttachmentId,
+    );
+  }
+
+  Future<NoteAttachment> _importInlineSyncAttachment({
+    required NoteAttachment attachment,
+    required NoteEntry note,
+    required String attachmentId,
+    required Map<String, dynamic> payload,
+    required Map<String, String?> storedBySyncAttachmentId,
+    required Map<String, String?> previewBySyncAttachmentId,
+  }) async {
+    if (!storedBySyncAttachmentId.containsKey(attachmentId)) {
+      final payloadType = AttachmentType.values.firstWhere(
+        (value) => value.name == payload['type'],
+        orElse: () => attachment.type,
+      );
+      final label = payload['label'] as String? ?? attachment.label;
+      final bytesBase64 = payload['bytesBase64'] as String?;
+      if (bytesBase64 != null && bytesBase64.isNotEmpty) {
+        final clearBytes = base64Decode(bytesBase64);
+        previewBySyncAttachmentId[attachmentId] =
+            payloadType == AttachmentType.video
+            ? await _videoPreviewBytesBase64ForBytes(
+                clearBytes,
+                label: label,
+                mimeType: 'video/mp4',
+              )
+            : null;
+        final encryptedPayload = await ref
+            .read(encryptedAttachmentStoreProvider)
+            .encryptAttachmentBytes(
+              bytes: clearBytes,
+              type: payloadType,
+              vaultId: note.vaultId,
+            );
+        storedBySyncAttachmentId[attachmentId] = await ref
+            .read(encryptedAttachmentStoreProvider)
+            .storeEncryptedPayload(
+              encodedPayload: encryptedPayload,
+              type: payloadType,
+              fileNameHint: label,
+              vaultId: note.vaultId,
+            );
+      } else {
+        previewBySyncAttachmentId[attachmentId] = null;
+        final legacyPayload = payload['encryptedPayload'] as String?;
+        storedBySyncAttachmentId[attachmentId] =
+            legacyPayload == null || legacyPayload.isEmpty
+            ? null
+            : await ref
+                  .read(encryptedAttachmentStoreProvider)
+                  .storeEncryptedPayload(
+                    encodedPayload: legacyPayload,
+                    type: payloadType,
+                    fileNameHint: label,
+                    vaultId: note.vaultId,
+                  );
+      }
+    }
+    return attachment.copyWith(
+      filePath: storedBySyncAttachmentId[attachmentId],
+      previewBytesBase64: previewBySyncAttachmentId[attachmentId],
+    );
   }
 
   Future<List<PreparedSyncNote>> _readPreparedChangesFromBundle(
@@ -3021,63 +3504,19 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             : PendingNoteChangeAction.delete,
       );
       final storedBySyncAttachmentId = <String, String?>{};
-      Future<NoteAttachment> importAttachment(NoteAttachment attachment) async {
-        final filePath = attachment.filePath;
-        if (filePath == null || !filePath.startsWith('sync-attachment://')) {
-          return attachment;
-        }
-        final attachmentId = filePath.substring('sync-attachment://'.length);
-        final payload = attachmentPayloads[attachmentId];
-        if (payload == null) {
-          return attachment.copyWith(filePath: null, previewBytesBase64: null);
-        }
-        if (!storedBySyncAttachmentId.containsKey(attachmentId)) {
-          final payloadType = AttachmentType.values.firstWhere(
-            (value) => value.name == payload['type'],
-            orElse: () => attachment.type,
-          );
-          final label = payload['label'] as String? ?? attachment.label;
-          final bytesBase64 = payload['bytesBase64'] as String?;
-          if (bytesBase64 != null && bytesBase64.isNotEmpty) {
-            final encryptedPayload = await ref
-                .read(encryptedAttachmentStoreProvider)
-                .encryptAttachmentBytes(
-                  bytes: base64Decode(bytesBase64),
-                  type: payloadType,
-                  vaultId: note.vaultId,
-                );
-            storedBySyncAttachmentId[attachmentId] = await ref
-                .read(encryptedAttachmentStoreProvider)
-                .storeEncryptedPayload(
-                  encodedPayload: encryptedPayload,
-                  type: payloadType,
-                  fileNameHint: label,
-                  vaultId: note.vaultId,
-                );
-          } else {
-            final legacyPayload = payload['encryptedPayload'] as String?;
-            storedBySyncAttachmentId[attachmentId] =
-                legacyPayload == null || legacyPayload.isEmpty
-                ? null
-                : await ref
-                      .read(encryptedAttachmentStoreProvider)
-                      .storeEncryptedPayload(
-                        encodedPayload: legacyPayload,
-                        type: payloadType,
-                        fileNameHint: label,
-                        vaultId: note.vaultId,
-                      );
-          }
-        }
-        return attachment.copyWith(
-          filePath: storedBySyncAttachmentId[attachmentId],
-          previewBytesBase64: null,
-        );
-      }
+      final previewBySyncAttachmentId = <String, String?>{};
 
       final importedAttachments = <NoteAttachment>[];
       for (final attachment in note.attachments) {
-        importedAttachments.add(await importAttachment(attachment));
+        importedAttachments.add(
+          await _importRemoteSyncAttachment(
+            attachment: attachment,
+            note: note,
+            inlinePayloads: attachmentPayloads,
+            storedBySyncAttachmentId: storedBySyncAttachmentId,
+            previewBySyncAttachmentId: previewBySyncAttachmentId,
+          ),
+        );
       }
       final importedBlocks = <NoteBlock>[];
       for (final block in note.blocks) {
@@ -3085,7 +3524,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         importedBlocks.add(
           attachment == null
               ? block
-              : block.copyWith(attachment: await importAttachment(attachment)),
+              : block.copyWith(
+                  attachment: await _importRemoteSyncAttachment(
+                    attachment: attachment,
+                    note: note,
+                    inlinePayloads: attachmentPayloads,
+                    storedBySyncAttachmentId: storedBySyncAttachmentId,
+                    previewBySyncAttachmentId: previewBySyncAttachmentId,
+                  ),
+                ),
         );
       }
       importedChanges.add(
@@ -3425,6 +3872,167 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       SyncProvider.off => Future.error(
         StateError('Remote sync is not enabled.'),
       ),
+    };
+  }
+
+  Future<void> _uploadRemoteAttachmentObjects(
+    List<PreparedSyncAttachment> attachments,
+  ) async {
+    if (attachments.isEmpty) {
+      return;
+    }
+    final uniqueAttachments = <String, PreparedSyncAttachment>{};
+    for (final attachment in attachments) {
+      uniqueAttachments.putIfAbsent(attachment.contentHash, () => attachment);
+    }
+    final unique = uniqueAttachments.values.toList(growable: false);
+    final totalBytes = unique.fold<int>(
+      0,
+      (total, attachment) => total + attachment.sizeBytes,
+    );
+    _diagnostic(
+      'attachment object upload start',
+      data: {
+        'requested': attachments.length,
+        'unique': unique.length,
+        'bytes': totalBytes,
+      },
+    );
+    final existingHashes = await _listExistingRemoteAttachmentHashes();
+    final pendingUploads = existingHashes == null
+        ? unique
+        : unique
+              .where(
+                (attachment) =>
+                    !existingHashes.contains(attachment.contentHash),
+              )
+              .toList(growable: false);
+    final skipped = unique.length - pendingUploads.length;
+    if (existingHashes != null) {
+      _diagnostic(
+        'attachment object upload existing checked',
+        data: {
+          'remoteKnown': existingHashes.length,
+          'skipped': skipped,
+          'pending': pendingUploads.length,
+        },
+      );
+    }
+    if (pendingUploads.isEmpty) {
+      _diagnostic(
+        'attachment object upload progress',
+        data: {
+          'uploaded': unique.length,
+          'total': unique.length,
+          'skipped': skipped,
+        },
+      );
+      return;
+    }
+    final bundleStore = ref.read(secureSyncBundleStoreProvider);
+    var nextIndex = 0;
+    var uploaded = 0;
+    final parallelism = math.min(3, pendingUploads.length);
+
+    Future<void> worker() async {
+      while (true) {
+        final index = nextIndex;
+        nextIndex += 1;
+        if (index >= pendingUploads.length) {
+          return;
+        }
+        final attachment = pendingUploads[index];
+        final encodedPayload = await bundleStore.writeAttachmentObjectPayload(
+          attachment,
+        );
+        await _uploadRemoteAttachmentObject(
+          contentHash: attachment.contentHash,
+          encodedPayload: encodedPayload,
+          type: attachment.type.name,
+          label: attachment.label,
+          sizeBytes: attachment.sizeBytes,
+          skipExistingCheck: existingHashes != null,
+        );
+        uploaded += 1;
+        final completed = skipped + uploaded;
+        if (completed % 25 == 0 || completed == unique.length) {
+          _diagnostic(
+            'attachment object upload progress',
+            data: {
+              'uploaded': completed,
+              'total': unique.length,
+              'skipped': skipped,
+            },
+          );
+        }
+      }
+    }
+
+    await Future.wait([for (var i = 0; i < parallelism; i += 1) worker()]);
+  }
+
+  Future<Set<String>?> _listExistingRemoteAttachmentHashes() {
+    final provider = ref.read(syncProviderControllerProvider);
+    return switch (provider) {
+      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
+        () => ref
+            .read(googleDriveSyncTransportProvider)
+            .listAttachmentObjectContentHashes(),
+      ),
+      SyncProvider.iCloud || SyncProvider.off => Future<Set<String>?>.value(),
+    };
+  }
+
+  Future<void> _uploadRemoteAttachmentObject({
+    required String contentHash,
+    required String encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+    bool skipExistingCheck = false,
+  }) {
+    final provider = ref.read(syncProviderControllerProvider);
+    return switch (provider) {
+      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
+        () => ref
+            .read(googleDriveSyncTransportProvider)
+            .uploadAttachmentObject(
+              contentHash: contentHash,
+              encodedPayload: encodedPayload,
+              type: type,
+              label: label,
+              sizeBytes: sizeBytes,
+              skipExistingCheck: skipExistingCheck,
+            ),
+      ),
+      SyncProvider.iCloud =>
+        ref
+            .read(iCloudSyncTransportProvider)
+            .uploadAttachmentObject(
+              contentHash: contentHash,
+              encodedPayload: encodedPayload,
+              type: type,
+              label: label,
+              sizeBytes: sizeBytes,
+              skipExistingCheck: skipExistingCheck,
+            ),
+      SyncProvider.off => Future<void>.value(),
+    };
+  }
+
+  Future<String?> _downloadRemoteAttachmentObject(String contentHash) {
+    final provider = ref.read(syncProviderControllerProvider);
+    return switch (provider) {
+      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
+        () => ref
+            .read(googleDriveSyncTransportProvider)
+            .downloadAttachmentObject(contentHash),
+      ),
+      SyncProvider.iCloud =>
+        ref
+            .read(iCloudSyncTransportProvider)
+            .downloadAttachmentObject(contentHash),
+      SyncProvider.off => Future<String?>.value(),
     };
   }
 
@@ -5768,18 +6376,30 @@ class NotesController extends _$NotesController {
     return notesToAdd.length;
   }
 
-  Future<int> createPerformanceTestNotes({required int count}) async {
+  Future<int> createPerformanceTestNotes({
+    required int count,
+    int attachmentsPerNote = 0,
+  }) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     if (count <= 0) {
       return 0;
     }
     final now = DateTime.now();
-    final existingIds = state.map((note) => note.id).toSet();
+    final existingById = {for (final note in state) note.id: note};
     final notesToAdd = <NoteEntry>[];
+    final notesToRequeue = <String, NoteEntry>{};
     for (var index = 0; index < count; index++) {
       final id = 'perf-${index.toString().padLeft(4, '0')}';
-      if (existingIds.contains(id)) {
+      final existing = existingById[id];
+      if (existing != null) {
+        if (existing.syncState == NoteSyncState.localOnly) {
+          notesToRequeue[id] = existing.copyWith(
+            updatedAt: now,
+            syncState: NoteSyncState.pendingUpload,
+            contentHash: 'performance-seed-$id-requeued',
+          );
+        }
         continue;
       }
       final createdAt = now.subtract(Duration(minutes: index * 11));
@@ -5787,6 +6407,12 @@ class NotesController extends _$NotesController {
       final body =
           'Performance test memo ${index + 1}\n'
           'This generated note is used to measure list, search, calendar, and detail switching performance.';
+      final attachments = attachmentsPerNote <= 0
+          ? const <NoteAttachment>[]
+          : await _createPerformanceTestAttachments(
+              noteIndex: index,
+              count: attachmentsPerNote,
+            );
       notesToAdd.add(
         NoteEntry(
           id: id,
@@ -5797,7 +6423,16 @@ class NotesController extends _$NotesController {
           updatedAt: createdAt,
           deviceId: 'performance-seed',
           contentHash: 'performance-seed-$id',
-          blocks: [NoteBlock(type: NoteBlockType.paragraph, text: body)],
+          syncState: NoteSyncState.pendingUpload,
+          attachments: attachments,
+          blocks: [
+            NoteBlock(type: NoteBlockType.paragraph, text: body),
+            for (final attachment in attachments)
+              NoteBlock(
+                type: _blockTypeForAttachment(attachment.type),
+                attachment: attachment,
+              ),
+          ],
           tags: [
             'performance',
             if (index.isEven) 'batch-a' else 'batch-b',
@@ -5815,14 +6450,89 @@ class NotesController extends _$NotesController {
         ),
       );
     }
-    if (notesToAdd.isEmpty) {
+    if (notesToAdd.isEmpty && notesToRequeue.isEmpty) {
       return 0;
     }
-    final next = [...state, ...notesToAdd];
+    final next = [
+      for (final note in state) notesToRequeue[note.id] ?? note,
+      ...notesToAdd,
+    ];
     _sort(next);
     state = next;
     await _persist();
-    return notesToAdd.length;
+    return notesToAdd.length + notesToRequeue.length;
+  }
+
+  Future<List<NoteAttachment>> _createPerformanceTestAttachments({
+    required int noteIndex,
+    required int count,
+  }) async {
+    final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+    final attachments = <NoteAttachment>[];
+    for (var attachmentIndex = 0; attachmentIndex < count; attachmentIndex++) {
+      final type = switch (attachmentIndex % 3) {
+        0 => AttachmentType.photo,
+        1 => AttachmentType.video,
+        _ => AttachmentType.audio,
+      };
+      final extension = switch (type) {
+        AttachmentType.photo => 'png',
+        AttachmentType.video => 'mp4',
+        AttachmentType.audio => 'm4a',
+        AttachmentType.file => 'bin',
+      };
+      final mimeType = switch (type) {
+        AttachmentType.photo => 'image/png',
+        AttachmentType.video => 'video/mp4',
+        AttachmentType.audio => 'audio/mp4',
+        AttachmentType.file => 'application/octet-stream',
+      };
+      final fileName =
+          'perf-${noteIndex.toString().padLeft(4, '0')}-'
+          '${attachmentIndex.toString().padLeft(2, '0')}.$extension';
+      final sourceFile = XFile.fromData(
+        _performanceAttachmentBytes(type, noteIndex, attachmentIndex),
+        name: fileName,
+        mimeType: mimeType,
+      );
+      final storedPath = await attachmentStore.storeAttachment(
+        sourceFile,
+        type: type,
+      );
+      attachments.add(
+        NoteAttachment(
+          type: type,
+          label: fileName,
+          filePath: storedPath,
+          durationMs: switch (type) {
+            AttachmentType.video => 15000 + (noteIndex % 9) * 1000,
+            AttachmentType.audio => 30000 + (noteIndex % 11) * 1000,
+            _ => null,
+          },
+        ),
+      );
+    }
+    return attachments;
+  }
+
+  Uint8List _performanceAttachmentBytes(
+    AttachmentType type,
+    int noteIndex,
+    int attachmentIndex,
+  ) {
+    if (type == AttachmentType.photo) {
+      return base64Decode('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==');
+    }
+    final size = switch (type) {
+      AttachmentType.video => 256 * 1024,
+      AttachmentType.audio => 96 * 1024,
+      AttachmentType.file => 32 * 1024,
+      AttachmentType.photo => 1024,
+    };
+    final seed = (noteIndex + 1) * 1103515245 + attachmentIndex * 12345;
+    return Uint8List.fromList(
+      List<int>.generate(size, (offset) => (seed + offset * 31) & 0xff),
+    );
   }
 
   Future<void> get restoreCompleted => _waitForInitialRestore();
@@ -5955,6 +6665,17 @@ class NotesController extends _$NotesController {
       }
 
       if (current != null && !_incomingWins(current, incoming)) {
+        if (!_sameSyncedContent(current, incoming) &&
+            !_hasUnuploadedLocalChange(current)) {
+          final queued = current.copyWith(
+            syncState: current.deletedAt == null
+                ? NoteSyncState.pendingUpload
+                : NoteSyncState.pendingDelete,
+          );
+          next[index] = queued.contentHash == null
+              ? queued.copyWith(contentHash: _computeContentHash(queued))
+              : queued;
+        }
         continue;
       }
 
@@ -6109,6 +6830,19 @@ class NotesController extends _$NotesController {
     _sort(next);
     state = next;
     await _persist();
+  }
+
+  Future<List<NoteEntry>> notesForSyncSnapshot({
+    Set<String>? pendingNoteIds,
+  }) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    if (pendingNoteIds == null) {
+      return List<NoteEntry>.unmodifiable(state);
+    }
+    return List<NoteEntry>.unmodifiable(
+      state.where((note) => pendingNoteIds.contains(note.id)),
+    );
   }
 
   Future<void> queueCurrentStateForSync() async {
@@ -6598,12 +7332,19 @@ class UnlockedPrivateProfileVaultIdController extends Notifier<String?> {
   @override
   String? build() => null;
 
-  void unlock(String vaultId) => state = vaultId;
+  void unlock(String vaultId) {
+    state = vaultId;
+    ref.read(searchFiltersControllerProvider.notifier).setVault(vaultId);
+  }
 
   void lock() {
     final vaultId = state;
     if (vaultId != null) {
       ref.read(profileDataKeyServiceProvider).lockProfile(vaultId);
+      final filters = ref.read(searchFiltersControllerProvider);
+      if (filters.vaultId == vaultId) {
+        ref.read(searchFiltersControllerProvider.notifier).setVault(null);
+      }
     }
     state = null;
   }

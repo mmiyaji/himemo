@@ -49,14 +49,16 @@ class SecureSyncBundleStore {
   Future<StoredSyncBundle> writeBundle(
     PreparedSyncSnapshot snapshot, {
     List<Map<String, dynamic>> privateProfiles = const <Map<String, dynamic>>[],
+    bool inlineAttachments = false,
   }) async {
     final key = await _syncBundleKeyService.obtainOrCreate();
     final payload = await _encryptionService.encryptJson(
       payload: {
-        'bundleVersion': 2,
+        'bundleVersion': inlineAttachments ? 2 : 3,
         'mode': 'changes',
         'deviceId': snapshot.deviceId,
         'exportedAt': snapshot.exportedAt.toIso8601String(),
+        if (!inlineAttachments) 'attachmentStorage': 'objects',
         'summary': {
           'totalChanges': snapshot.summary.totalChanges,
           'upserts': snapshot.summary.upserts,
@@ -70,12 +72,7 @@ class SecureSyncBundleStore {
         'privateProfiles': privateProfiles,
         'attachments': [
           for (final attachment in snapshot.attachments)
-            {
-              'id': attachment.id,
-              'type': attachment.type.name,
-              'label': attachment.label,
-              'bytesBase64': attachment.bytesBase64,
-            },
+            attachment.toJson(inlineBytes: inlineAttachments),
         ],
       },
       secretKey: key,
@@ -141,6 +138,31 @@ class SecureSyncBundleStore {
       noteCount: noteCount,
       attachmentCount: attachmentCount,
     );
+  }
+
+  Future<String> writeAttachmentObjectPayload(
+    PreparedSyncAttachment attachment,
+  ) async {
+    final key = await _syncBundleKeyService.obtainOrCreate();
+    return _encryptionService.encryptJson(
+      payload: {
+        'objectVersion': 1,
+        'kind': 'attachment',
+        'id': attachment.id,
+        'contentHash': attachment.contentHash,
+        'type': attachment.type.name,
+        'label': attachment.label,
+        'sizeBytes': attachment.sizeBytes,
+        'bytesBase64': attachment.bytesBase64,
+      },
+      secretKey: key,
+    );
+  }
+
+  Future<Map<String, dynamic>> readAttachmentObjectPayload(
+    String encodedPayload,
+  ) {
+    return _decryptBundleJson(encodedPayload);
   }
 
   Future<Map<String, dynamic>?> readBundleJson(String reference) async {

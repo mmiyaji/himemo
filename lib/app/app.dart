@@ -11,16 +11,21 @@ import 'package:pinput/pinput.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../features/home/domain/note_entry.dart';
 import '../features/home/presentation/home_providers.dart';
 import '../features/sync/data/sync_engine.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/app_strings.dart';
+import 'diagnostic_log.dart';
 import 'app_flavor.dart';
 import 'app_router.dart';
 
 const _termsUrl = 'https://mmiyaji.github.io/himemo/terms.html';
 const _privacyUrl = 'https://mmiyaji.github.io/himemo/privacy.html';
 const _performanceSeedNoteCount = int.fromEnvironment('HIMEMO_PERF_NOTE_COUNT');
+const _performanceSeedAttachmentsPerNote = int.fromEnvironment(
+  'HIMEMO_PERF_ATTACHMENTS_PER_NOTE',
+);
 
 class HiMemoApp extends ConsumerWidget {
   const HiMemoApp({super.key, required this.flavor});
@@ -134,7 +139,6 @@ class _DevelopmentPerformanceSeedGateState
   void _maybeStartSeeding() {
     if (_started ||
         kReleaseMode ||
-        widget.flavor != AppFlavor.development ||
         widget.launchSurface != AppLaunchSurface.ready ||
         _performanceSeedNoteCount <= 0) {
       return;
@@ -146,8 +150,14 @@ class _DevelopmentPerformanceSeedGateState
   Future<void> _seedPerformanceNotes() async {
     final added = await ref
         .read(notesControllerProvider.notifier)
-        .createPerformanceTestNotes(count: _performanceSeedNoteCount);
-    debugPrint('[perf-seed] requested=$_performanceSeedNoteCount added=$added');
+        .createPerformanceTestNotes(
+          count: _performanceSeedNoteCount,
+          attachmentsPerNote: _performanceSeedAttachmentsPerNote,
+        );
+    debugPrint(
+      '[perf-seed] requested=$_performanceSeedNoteCount '
+      'attachmentsPerNote=$_performanceSeedAttachmentsPerNote added=$added',
+    );
   }
 
   @override
@@ -225,16 +235,24 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   static const _privateSessionTimeout = Duration(minutes: 5);
   static const _privacyChannel = MethodChannel('org.ruhenheim.himemo/privacy');
   static const _backgroundedAtStorageKey = 'runtime.app_lock_backgrounded_at';
+  static const _automaticCloudSyncedAtStorageKey =
+      'runtime.cloud_sync_automatic_synced_at';
+  static const _automaticCloudAttemptedAtStorageKey =
+      'runtime.cloud_sync_automatic_attempted_at';
   static const _cloudSyncDebounceDelay = Duration(seconds: 2);
-  static const _cloudSyncForegroundMinInterval = Duration(seconds: 30);
+  static const _automaticCloudSyncAttemptMinInterval = Duration(minutes: 1);
+  static const _automaticCloudSyncRemoteMinInterval = Duration(hours: 1);
+  static const _automaticCloudSyncLocalChangeMinInterval = Duration(minutes: 2);
 
   bool _privacyScreenEnabled = false;
   bool _autoPrompted = false;
   bool _updateChecked = false;
   bool _cloudSyncScheduled = false;
   bool _cloudSyncRescheduleRequested = false;
+  bool _cloudSyncScheduledForLocalChanges = false;
   DateTime? _backgroundedAt;
-  DateTime? _lastAutomaticCloudSyncAt;
+  DateTime? _lastAutomaticCloudSyncSucceededAt;
+  DateTime? _lastAutomaticCloudSyncAttemptedAt;
   Timer? _privateSessionTimer;
   Timer? _cloudSyncDebounceTimer;
 
@@ -488,8 +506,14 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   void _scheduleSeamlessCloudSync({
     Duration delay = const Duration(milliseconds: 500),
     bool respectForegroundBurst = false,
+    bool localChanges = false,
   }) {
-    if (respectForegroundBurst && !_canRunForegroundCloudSync()) {
+    if (localChanges) {
+      _cloudSyncScheduledForLocalChanges = true;
+    }
+    if (respectForegroundBurst &&
+        !localChanges &&
+        !_canRunForegroundCloudSync()) {
       return;
     }
     if (_cloudSyncScheduled) {
@@ -516,23 +540,148 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       if (transferState.isBusy) {
         return;
       }
-      _lastAutomaticCloudSyncAt = DateTime.now();
-      await ref.read(syncTransferControllerProvider.notifier).syncNow();
+      final hasPendingChanges =
+          _cloudSyncScheduledForLocalChanges ||
+          await _hasPendingCloudSyncChanges();
+      if (!await _canRunAutomaticCloudSync(
+        hasPendingChanges: hasPendingChanges,
+      )) {
+        logDiagnostic(
+          'sync',
+          'automatic sync skipped by interval',
+          data: {
+            'hasPendingChanges': hasPendingChanges,
+            'minIntervalMinutes':
+                (hasPendingChanges
+                        ? _automaticCloudSyncLocalChangeMinInterval
+                        : _automaticCloudSyncRemoteMinInterval)
+                    .inMinutes,
+          },
+        );
+        return;
+      }
+      await _recordAutomaticCloudSyncAttempt(
+        hasPendingChanges: hasPendingChanges,
+      );
+      await ref
+          .read(syncTransferControllerProvider.notifier)
+          .syncNow(silentLargeMobileSkip: true);
+      final result = ref.read(syncTransferControllerProvider);
+      if (result.stage == SyncTransferStage.success) {
+        await _recordAutomaticCloudSyncSuccess(
+          hasPendingChanges: hasPendingChanges,
+        );
+      }
     } finally {
+      final rescheduleForLocalChanges = _cloudSyncScheduledForLocalChanges;
       _cloudSyncScheduled = false;
+      _cloudSyncScheduledForLocalChanges = false;
       if (_cloudSyncRescheduleRequested) {
         _cloudSyncRescheduleRequested = false;
-        _scheduleSeamlessCloudSync(delay: _cloudSyncDebounceDelay);
+        _scheduleSeamlessCloudSync(
+          delay: _cloudSyncDebounceDelay,
+          localChanges: rescheduleForLocalChanges,
+        );
       }
     }
   }
 
   bool _canRunForegroundCloudSync() {
-    final last = _lastAutomaticCloudSyncAt;
+    final last = _lastAutomaticCloudSyncSucceededAt;
     if (last == null) {
       return true;
     }
-    return DateTime.now().difference(last) >= _cloudSyncForegroundMinInterval;
+    return DateTime.now().difference(last) >=
+        _automaticCloudSyncRemoteMinInterval;
+  }
+
+  Future<bool> _canRunAutomaticCloudSync({
+    required bool hasPendingChanges,
+  }) async {
+    final minInterval = hasPendingChanges
+        ? _automaticCloudSyncLocalChangeMinInterval
+        : _automaticCloudSyncRemoteMinInterval;
+    final now = DateTime.now();
+    final lastAttemptInMemory = _lastAutomaticCloudSyncAttemptedAt;
+    if (lastAttemptInMemory != null &&
+        now.difference(lastAttemptInMemory) <
+            _automaticCloudSyncAttemptMinInterval) {
+      return false;
+    }
+    final lastSuccessInMemory = _lastAutomaticCloudSyncSucceededAt;
+    if (lastSuccessInMemory != null &&
+        now.difference(lastSuccessInMemory) < minInterval) {
+      return false;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final storedAttempt = prefs.getInt(_automaticCloudAttemptedAtStorageKey);
+      if (storedAttempt != null) {
+        final lastAttempt = DateTime.fromMillisecondsSinceEpoch(storedAttempt);
+        _lastAutomaticCloudSyncAttemptedAt = lastAttempt;
+        if (now.difference(lastAttempt) <
+            _automaticCloudSyncAttemptMinInterval) {
+          return false;
+        }
+      }
+      final stored = prefs.getInt(_automaticCloudSyncedAtStorageKey);
+      if (stored == null) {
+        return true;
+      }
+      final last = DateTime.fromMillisecondsSinceEpoch(stored);
+      _lastAutomaticCloudSyncSucceededAt = last;
+      return now.difference(last) >= minInterval;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<bool> _hasPendingCloudSyncChanges() async {
+    try {
+      return (await ref.read(
+        syncQueueSummaryProvider.future,
+      )).hasPendingChanges;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _recordAutomaticCloudSyncAttempt({
+    required bool hasPendingChanges,
+  }) async {
+    final now = DateTime.now();
+    _lastAutomaticCloudSyncAttemptedAt = now;
+    logDiagnostic(
+      'sync',
+      'automatic sync attempt recorded',
+      data: {'hasPendingChanges': hasPendingChanges},
+    );
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(
+        _automaticCloudAttemptedAtStorageKey,
+        now.millisecondsSinceEpoch,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _recordAutomaticCloudSyncSuccess({
+    required bool hasPendingChanges,
+  }) async {
+    final now = DateTime.now();
+    _lastAutomaticCloudSyncSucceededAt = now;
+    logDiagnostic(
+      'sync',
+      'automatic sync success recorded',
+      data: {'hasPendingChanges': hasPendingChanges},
+    );
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(
+        _automaticCloudSyncedAtStorageKey,
+        now.millisecondsSinceEpoch,
+      );
+    } catch (_) {}
   }
 
   @override
@@ -565,7 +714,19 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       if (summary == null || !summary.hasPendingChanges) {
         return;
       }
-      _scheduleSeamlessCloudSync(delay: _cloudSyncDebounceDelay);
+      _scheduleSeamlessCloudSync(
+        delay: _cloudSyncDebounceDelay,
+        localChanges: true,
+      );
+    });
+    ref.listen<List<NoteEntry>>(notesControllerProvider, (previous, next) {
+      if (!_hasPendingNotes(next)) {
+        return;
+      }
+      _scheduleSeamlessCloudSync(
+        delay: _cloudSyncDebounceDelay,
+        localChanges: true,
+      );
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_setPrivacyScreenEnabled(privacyScreenActive));
@@ -793,6 +954,15 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       ],
     );
   }
+}
+
+bool _hasPendingNotes(List<NoteEntry> notes) {
+  return notes.any(
+    (note) =>
+        note.syncState == NoteSyncState.pendingUpload ||
+        note.syncState == NoteSyncState.pendingDelete ||
+        note.syncState == NoteSyncState.conflict,
+  );
 }
 
 class _ResolvedAppLockPolicy {

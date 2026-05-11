@@ -1096,7 +1096,7 @@ void main() {
       expect(snapshot.attachments, hasLength(1));
       expect(
         snapshot.notes.single.note.attachments.single.filePath,
-        'sync-attachment://sync-preview-1-0',
+        'sync-attachment-object://63d987d1c6d69751c17297f410f5b3547a65d096a8993b35bcb4f9cad054f176',
       );
       expect(
         snapshot.notes.single.note.attachments.single.filePath,
@@ -1108,6 +1108,11 @@ void main() {
         7,
         6,
       ]);
+      expect(
+        snapshot.attachments.single.contentHash,
+        '63d987d1c6d69751c17297f410f5b3547a65d096a8993b35bcb4f9cad054f176',
+      );
+      expect(snapshot.attachments.single.sizeBytes, 4);
       final targetSecureStore = MemorySecureKeyValueStore();
       final targetEncryptionService = EncryptionService(random: Random(43));
       final targetMasterKeyService = MasterKeyService(
@@ -1207,6 +1212,9 @@ void main() {
             type: AttachmentType.photo,
             label: 'secret.jpg',
             bytesBase64: base64Encode(const [1, 2, 3, 4]),
+            contentHash:
+                '9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a',
+            sizeBytes: 4,
           ),
         ],
       );
@@ -1237,8 +1245,27 @@ void main() {
 
       final decoded = await bundleStore.readBundleJson(stored.reference);
       expect(decoded?['deviceId'], 'device-export');
+      expect(decoded?['bundleVersion'], 3);
+      expect(decoded?['attachmentStorage'], 'objects');
       expect((decoded?['notes'] as List<dynamic>).length, 1);
       expect((decoded?['privateProfiles'] as List<dynamic>).length, 1);
+      final decodedAttachments = decoded?['attachments'] as List<dynamic>;
+      final decodedAttachment = decodedAttachments.single as Map;
+      expect(decodedAttachment['contentHash'], isNotEmpty);
+      expect(decodedAttachment['sizeBytes'], 4);
+      expect(decodedAttachment.containsKey('bytesBase64'), isFalse);
+      final attachmentObjectPayload = await bundleStore
+          .writeAttachmentObjectPayload(snapshot.attachments.single);
+      final decodedAttachmentObject = await bundleStore
+          .readAttachmentObjectPayload(attachmentObjectPayload);
+      expect(
+        decodedAttachmentObject['contentHash'],
+        decodedAttachment['contentHash'],
+      );
+      expect(
+        decodedAttachmentObject['bytesBase64'],
+        base64Encode(const [1, 2, 3, 4]),
+      );
       final encryptedPayload = await bundleStore.readEncryptedBundlePayload(
         stored.reference,
       );
@@ -1777,6 +1804,32 @@ void main() {
       pendingChanges = await noteDatabase.loadPendingChanges();
       expect(pendingChanges, isEmpty);
 
+      await controller.mergeFromSync([
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.upsert,
+          note: NoteEntry(
+            id: 'remote-a',
+            vaultId: 'everyday',
+            title: 'Older remote edit',
+            body: 'Remote is behind this device',
+            createdAt: DateTime(2026, 4, 13, 9, 0),
+            updatedAt: DateTime(2026, 4, 13, 8, 30),
+            revision: 2,
+            contentHash: 'remote-a-v2-old',
+          ),
+        ),
+      ]);
+
+      final queuedForConvergence = container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'remote-a');
+      expect(queuedForConvergence.title, 'Local edit');
+      expect(queuedForConvergence.syncState, NoteSyncState.pendingUpload);
+      pendingChanges = await noteDatabase.loadPendingChanges();
+      expect(pendingChanges, hasLength(1));
+      expect(pendingChanges.single.noteId, 'remote-a');
+      expect(pendingChanges.single.action, PendingNoteChangeAction.upsert);
+
       if (await tempDirectory.exists()) {
         await tempDirectory.delete(recursive: true);
       }
@@ -1856,7 +1909,29 @@ void main() {
           ),
           bundleState,
         ),
-        isFalse,
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'remote bundle apply check is not suppressed by status refresh alone',
+    () {
+      final observedOnly = SyncBundleState(
+        lastRemoteFileId: 'remote-observed',
+        lastRemoteModifiedAt: DateTime.utc(2026, 5, 9, 10),
+      );
+
+      expect(
+        remoteBundleNeedsApplyForSync(
+          RemoteSyncBundleStatus(
+            fileId: 'remote-observed',
+            fileName: 'latest_sync_bundle.enc',
+            modifiedAt: DateTime.utc(2026, 5, 9, 10),
+          ),
+          observedOnly,
+        ),
+        isTrue,
       );
     },
   );

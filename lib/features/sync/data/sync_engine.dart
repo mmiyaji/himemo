@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
+
 import '../../home/domain/note_entry.dart';
 import '../../security/data/device_identity_store.dart';
 import '../../security/data/encrypted_attachment_store.dart';
@@ -27,12 +29,27 @@ class PreparedSyncAttachment {
     required this.type,
     required this.label,
     required this.bytesBase64,
+    required this.contentHash,
+    required this.sizeBytes,
   });
 
   final String id;
   final AttachmentType type;
   final String label;
   final String bytesBase64;
+  final String contentHash;
+  final int sizeBytes;
+
+  Map<String, dynamic> toJson({required bool inlineBytes}) {
+    return {
+      'id': id,
+      'type': type.name,
+      'label': label,
+      'contentHash': contentHash,
+      'sizeBytes': sizeBytes,
+      if (inlineBytes) 'bytesBase64': bytesBase64,
+    };
+  }
 }
 
 class PreparedSyncNote {
@@ -56,6 +73,40 @@ class PreparedSyncSnapshot {
   final SyncQueueSummary summary;
   final List<PreparedSyncNote> notes;
   final List<PreparedSyncAttachment> attachments;
+
+  int get estimatedMetadataPayloadBytes {
+    var total = 4096;
+    total += utf8.encode(deviceId).length;
+    total += utf8.encode(exportedAt.toIso8601String()).length;
+    for (final entry in notes) {
+      total += utf8.encode(jsonEncode(entry.note.toJson())).length;
+      total += 64;
+    }
+    for (final attachment in attachments) {
+      total += utf8
+          .encode(jsonEncode(attachment.toJson(inlineBytes: false)))
+          .length;
+      total += 64;
+    }
+    return total;
+  }
+
+  int get estimatedPayloadBytes {
+    var total = 4096;
+    total += utf8.encode(deviceId).length;
+    total += utf8.encode(exportedAt.toIso8601String()).length;
+    for (final entry in notes) {
+      total += utf8.encode(jsonEncode(entry.note.toJson())).length;
+      total += 64;
+    }
+    for (final attachment in attachments) {
+      total += utf8.encode(attachment.id).length;
+      total += utf8.encode(attachment.label).length;
+      total += utf8.encode(attachment.bytesBase64).length;
+      total += 64;
+    }
+    return total;
+  }
 }
 
 class SyncEngine {
@@ -72,16 +123,21 @@ class SyncEngine {
   final DeviceIdentityStore _deviceIdentityStore;
 
   Future<SyncQueueSummary> summarizeQueue() async {
-    final changes = await _database.loadPendingChanges();
+    final changes = await loadPendingChanges();
     return _summarize(changes);
   }
 
-  Future<PreparedSyncSnapshot> prepareSnapshot(List<NoteEntry> notes) async {
-    final pendingChanges = await _database.loadPendingChanges();
-    final summary = _summarize(pendingChanges);
-    final pendingById = {
-      for (final change in pendingChanges) change.noteId: change,
-    };
+  Future<List<PendingNoteChangeRecord>> loadPendingChanges() {
+    return _database.loadPendingChanges();
+  }
+
+  Future<PreparedSyncSnapshot> prepareSnapshot(
+    List<NoteEntry> notes, {
+    List<PendingNoteChangeRecord>? pendingChanges,
+  }) async {
+    final changes = pendingChanges ?? await loadPendingChanges();
+    final summary = _summarize(changes);
+    final pendingById = {for (final change in changes) change.noteId: change};
     final attachmentPayloads = <PreparedSyncAttachment>[];
     final preparedNotes = <PreparedSyncNote>[];
 
@@ -103,8 +159,7 @@ class SyncEngine {
         }
         if (attachmentIdsByPath[filePath] case final existingId?) {
           return attachment.copyWith(
-            filePath: 'sync-attachment://$existingId',
-            previewBytesBase64: null,
+            filePath: 'sync-attachment-object://$existingId',
           );
         }
         final bytes = await _attachmentStore.readAttachment(
@@ -114,7 +169,8 @@ class SyncEngine {
         if (bytes == null || bytes.isEmpty) {
           return attachment.copyWith(filePath: null, previewBytesBase64: null);
         }
-        final attachmentId = '${note.id}-$index';
+        final attachmentHash = sha256.convert(bytes).toString();
+        final attachmentId = attachmentHash;
         attachmentIdsByPath[filePath] = attachmentId;
         attachmentPayloads.add(
           PreparedSyncAttachment(
@@ -122,11 +178,12 @@ class SyncEngine {
             type: attachment.type,
             label: attachment.label,
             bytesBase64: base64Encode(bytes),
+            contentHash: attachmentHash,
+            sizeBytes: bytes.length,
           ),
         );
         return attachment.copyWith(
-          filePath: 'sync-attachment://$attachmentId',
-          previewBytesBase64: null,
+          filePath: 'sync-attachment-object://$attachmentId',
         );
       }
 
@@ -171,6 +228,42 @@ class SyncEngine {
       notes: preparedNotes,
       attachments: attachmentPayloads,
     );
+  }
+
+  Future<int> estimateNotesPayloadBytes(List<NoteEntry> notes) async {
+    var total = 4096;
+    final countedPaths = <String>{};
+    for (final note in notes) {
+      total += utf8.encode(jsonEncode(note.toJson())).length + 64;
+      Future<void> addAttachment(NoteAttachment attachment) async {
+        final filePath = attachment.filePath;
+        if (filePath == null ||
+            filePath.isEmpty ||
+            !countedPaths.add(filePath)) {
+          return;
+        }
+        final bytes = await _attachmentStore.readAttachment(
+          filePath,
+          type: attachment.type,
+        );
+        if (bytes == null || bytes.isEmpty) {
+          return;
+        }
+        total += base64Encode(bytes).length;
+        total += utf8.encode(attachment.label).length + 64;
+      }
+
+      for (final attachment in note.attachments) {
+        await addAttachment(attachment);
+      }
+      for (final block in note.blocks) {
+        final attachment = block.attachment;
+        if (attachment != null) {
+          await addAttachment(attachment);
+        }
+      }
+    }
+    return total;
   }
 
   SyncQueueSummary _summarize(List<PendingNoteChangeRecord> changes) {

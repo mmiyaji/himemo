@@ -59,6 +59,17 @@ abstract class ICloudSyncTransport {
     required int attachmentCount,
   });
 
+  Future<void> uploadAttachmentObject({
+    required String contentHash,
+    required String encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+    bool skipExistingCheck = false,
+  });
+
+  Future<String?> downloadAttachmentObject(String contentHash);
+
   Future<DownloadedRemoteSyncBundle?> downloadLatestBundle();
 
   Future<DownloadedRemoteSyncBundle?> downloadBundleByRecordName(
@@ -192,6 +203,32 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
       throw const FormatException('CloudKit did not return uploaded metadata.');
     }
     return _statusFromMap(result);
+  }
+
+  @override
+  Future<void> uploadAttachmentObject({
+    required String contentHash,
+    required String encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+    bool skipExistingCheck = false,
+  }) async {
+    await _invokeMap('cloudKitUploadAttachmentObject', {
+      'contentHash': contentHash,
+      'encodedPayload': encodedPayload,
+      'type': type,
+      'label': label,
+      'sizeBytes': sizeBytes,
+    });
+  }
+
+  @override
+  Future<String?> downloadAttachmentObject(String contentHash) async {
+    final result = await _invokeMap('cloudKitDownloadAttachmentObject', {
+      'contentHash': contentHash,
+    });
+    return result?['encodedPayload'] as String?;
   }
 
   @override
