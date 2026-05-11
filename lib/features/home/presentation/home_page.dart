@@ -4238,7 +4238,11 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ),
                 child: Text(
-                  syncConflictWarning,
+                  _localizedSyncTransferMessage(
+                    strings,
+                    syncConflictWarning,
+                    syncProvider,
+                  ),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: Theme.of(context).colorScheme.onErrorContainer,
                   ),
