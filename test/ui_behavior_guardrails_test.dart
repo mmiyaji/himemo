@@ -40,4 +40,14 @@ void main() {
       expect(guardrails, contains('Automated checks should cover these rules'));
     },
   );
+
+  test('rich editor restores a text block after trailing attachments', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+
+    expect(homePage, contains('void _ensureTrailingRichParagraph'));
+    expect(homePage, contains('_ensureTrailingRichParagraph(drafts);'));
+    expect(homePage, contains('_ensureTrailingRichParagraph(_richBlocks);'));
+  });
 }

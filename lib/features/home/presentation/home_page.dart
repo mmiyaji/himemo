@@ -12677,6 +12677,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (drafts.isEmpty) {
       drafts.add(_RichBlockDraft.paragraph());
     }
+    _ensureTrailingRichParagraph(drafts);
     return drafts;
   }
 
@@ -12702,6 +12703,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _richBlocks = nextBlocks.isEmpty
         ? [_RichBlockDraft.paragraph()]
         : nextBlocks;
+    _ensureTrailingRichParagraph(_richBlocks);
     for (final block in _richBlocks) {
       _attachRichBlockListener(block);
     }
@@ -12761,6 +12763,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       if (_richBlocks.isEmpty) {
         _richBlocks = [_RichBlockDraft.paragraph()];
       }
+      _ensureTrailingRichParagraph(_richBlocks);
       for (final block in _richBlocks) {
         _attachRichBlockListener(block);
       }
@@ -14184,6 +14187,13 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       );
     }
     _queueAttachmentDelete(attachment);
+  }
+
+  void _ensureTrailingRichParagraph(List<_RichBlockDraft> drafts) {
+    if (drafts.isEmpty || drafts.last.type == NoteBlockType.paragraph) {
+      return;
+    }
+    drafts.add(_RichBlockDraft.paragraph());
   }
 
   String _deriveRichTitle() {
