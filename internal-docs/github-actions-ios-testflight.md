@@ -79,3 +79,9 @@ If the Apple Developer Portal profile names change, update the `APP_STORE_PROFIL
 5. Confirm App Store Connect receives the build and TestFlight processing completes.
 
 The upload step only uploads to App Store Connect. Tester group assignment should be handled by App Store Connect TestFlight settings, or added later through App Store Connect API automation if needed.
+
+## Troubleshooting
+
+If Xcode reports `No Accounts` or searches for `iOS App Development provisioning profiles`, the archive step is still using automatic/development signing. The workflow includes `Configure manual iOS signing` to set the app, widget, and share extension targets to manual `Apple Distribution` signing before `flutter build ipa`.
+
+The provisioning profile names in the workflow must exactly match the `Name` embedded in each `.mobileprovision` file, not only the downloaded file name.

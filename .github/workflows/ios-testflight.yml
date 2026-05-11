@@ -187,6 +187,77 @@ jobs:
           PLIST
           plutil -lint "$RUNNER_TEMP/ExportOptions.plist"
 
+      - name: Configure manual iOS signing
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          project_path = Path("ios/Runner.xcodeproj/project.pbxproj")
+          text = project_path.read_text()
+
+          profiles = {
+              "org.ruhenheim.himemo": "HiMemo App Store Profile",
+              "org.ruhenheim.himemo.QuickCaptureWidget": "HiMemo Widget App Store Profile",
+              "org.ruhenheim.himemo.ShareExtension": "HiMemo Share Extension App Store Profile",
+          }
+
+          def upsert_setting(block: str, key: str, value: str) -> str:
+              quoted_key = f'"{key}"' if "[" in key or "]" in key else key
+              line = f"\t\t\t\t{quoted_key} = {value};"
+              for existing_key in (key, quoted_key):
+                  marker = f"{existing_key} = "
+                  if marker in block:
+                      lines = []
+                      for item in block.splitlines():
+                          if marker in item:
+                              lines.append(line)
+                          else:
+                              lines.append(item)
+                      return "\n".join(lines)
+
+              anchor = "\t\t\t\tPRODUCT_BUNDLE_IDENTIFIER = "
+              lines = block.splitlines()
+              for index, item in enumerate(lines):
+                  if item.startswith(anchor):
+                      lines.insert(index + 1, line)
+                      return "\n".join(lines)
+              return block
+
+          output = []
+          cursor = 0
+          while True:
+              start = text.find("\t\t\tbuildSettings = {", cursor)
+              if start == -1:
+                  output.append(text[cursor:])
+                  break
+              end = text.find("\n\t\t\t};", start)
+              if end == -1:
+                  raise RuntimeError("Could not find end of buildSettings block")
+              end += len("\n\t\t\t};")
+              block = text[start:end]
+              output.append(text[cursor:start])
+
+              bundle_id = None
+              for candidate in profiles:
+                  if f"PRODUCT_BUNDLE_IDENTIFIER = {candidate};" in block:
+                      bundle_id = candidate
+                      break
+
+              if bundle_id:
+                  block = upsert_setting(block, "CODE_SIGN_IDENTITY", '"Apple Distribution"')
+                  block = upsert_setting(block, "CODE_SIGN_IDENTITY[sdk=iphoneos*]", '"Apple Distribution"')
+                  block = upsert_setting(block, "CODE_SIGN_STYLE", "Manual")
+                  block = upsert_setting(block, "DEVELOPMENT_TEAM", "B8LGAS7YHH")
+                  block = upsert_setting(block, "PROVISIONING_PROFILE_SPECIFIER", f'"{profiles[bundle_id]}"')
+                  print(f"Configured manual signing for {bundle_id}: {profiles[bundle_id]}")
+
+              output.append(block)
+              cursor = end
+
+          project_path.write_text("".join(output))
+          PY
+
       - name: Build production IPA
         env:
           HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID: ${{ secrets.HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID }}
