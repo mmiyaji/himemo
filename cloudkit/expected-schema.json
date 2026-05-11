@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "containerId": "iCloud.org.ruhenheim.himemo",
+  "database": "private",
+  "zone": "_defaultZone",
+  "recordTypes": {
+    "HiMemoSyncBundle": {
+      "fields": {
+        "attachmentCount": "Int(64)",
+        "bundleAsset": "Asset",
+        "deviceId": "String",
+        "exportedAt": "Date/Time",
+        "noteCount": "Int(64)"
+      },
+      "notes": [
+        "Stores encrypted change bundles. Production must include attachmentCount before split attachment sync is released."
+      ]
+    },
+    "HiMemoSyncAttachment": {
+      "fields": {
+        "attachmentAsset": "Asset",
+        "attachmentLabel": "String",
+        "attachmentSize": "Int(64)",
+        "attachmentType": "String",
+        "contentHash": "String",
+        "exportedAt": "Date/Time"
+      },
+      "notes": [
+        "Stores encrypted attachment objects by content hash. Required for iCloud split attachment sync."
+      ]
+    }
+  }
+}

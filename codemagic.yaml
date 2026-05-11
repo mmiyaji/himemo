@@ -1,4 +1,43 @@
 workflows:
+  cloudkit-schema-export:
+    name: CloudKit Schema Export
+    instance_type: mac_mini_m2
+    max_build_duration: 15
+    environment:
+      xcode: latest
+      vars:
+        CLOUDKIT_CONTAINER_ID: iCloud.org.ruhenheim.himemo
+    scripts:
+      - name: Validate checked CloudKit schema manifest
+        script: |
+          set -euo pipefail
+          python3 tools/cloudkit/check_expected_schema.py
+      - name: Export CloudKit development and production schemas
+        script: |
+          set -euo pipefail
+          if [ -z "${APPLE_TEAM_ID:-}" ]; then
+            echo "APPLE_TEAM_ID is required."
+            exit 1
+          fi
+          if [ -z "${CLOUDKIT_MANAGEMENT_TOKEN:-}" ]; then
+            echo "CLOUDKIT_MANAGEMENT_TOKEN is required."
+            exit 1
+          fi
+          mkdir -p build/cloudkit
+          xcrun cktool export-schema \
+            --team-id "$APPLE_TEAM_ID" \
+            --container-id "$CLOUDKIT_CONTAINER_ID" \
+            --environment development \
+            --output-file build/cloudkit/development-schema.ckdb
+          xcrun cktool export-schema \
+            --team-id "$APPLE_TEAM_ID" \
+            --container-id "$CLOUDKIT_CONTAINER_ID" \
+            --environment production \
+            --output-file build/cloudkit/production-schema.ckdb
+          ls -lh build/cloudkit
+    artifacts:
+      - build/cloudkit/*.ckdb
+
   ios-testflight-production:
     name: iOS TestFlight (Production)
     instance_type: mac_mini_m2
