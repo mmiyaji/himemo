@@ -568,9 +568,13 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
           .syncNow(silentLargeMobileSkip: true);
       final result = ref.read(syncTransferControllerProvider);
       if (result.stage == SyncTransferStage.success) {
+        final remainingPendingChanges = await _hasPendingCloudSyncChanges();
         await _recordAutomaticCloudSyncSuccess(
-          hasPendingChanges: hasPendingChanges,
+          hasPendingChanges: remainingPendingChanges,
         );
+        if (remainingPendingChanges) {
+          _cloudSyncRescheduleRequested = true;
+        }
       }
     } finally {
       final rescheduleForLocalChanges = _cloudSyncScheduledForLocalChanges;

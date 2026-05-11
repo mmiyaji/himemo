@@ -2104,7 +2104,6 @@ final syncConflictWarningProvider = Provider<String?>((ref) {
 });
 
 final syncQueueSummaryProvider = FutureProvider<SyncQueueSummary>((ref) async {
-  ref.watch(notesControllerProvider);
   return ref.watch(syncEngineProvider).summarizeQueue();
 });
 
@@ -2566,6 +2565,16 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       _setProgress(SyncTransferProgress.finalizing);
       await ref.read(notesControllerProvider.notifier).markCurrentStateSynced();
+      ref.invalidate(syncQueueSummaryProvider);
+      final queueAfterUpload = await ref.read(syncQueueSummaryProvider.future);
+      _diagnostic(
+        'local queue after upload marked synced',
+        data: {
+          'changes': queueAfterUpload.totalChanges,
+          'upserts': queueAfterUpload.upserts,
+          'deletes': queueAfterUpload.deletes,
+        },
+      );
       state = SyncTransferState(
         stage: SyncTransferStage.success,
         message: 'sync.info.upload_success',
@@ -2573,7 +2582,6 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         localBundle: bundle,
       );
       await ref.read(syncBundleStateStoreProvider).recordUpload(remoteStatus);
-      ref.invalidate(syncQueueSummaryProvider);
       ref.invalidate(syncBundleStateProvider);
     } catch (error) {
       _diagnostic('upload failed', data: {'error': error});
@@ -7126,6 +7134,7 @@ class NotesController extends _$NotesController {
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
       await ref.read(encryptedNoteStoreProvider).save(state);
+      ref.invalidate(syncQueueSummaryProvider);
       stopwatch?.stop();
       _debugHomePerf(
         'notes persist full count=${state.length} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms',
@@ -7154,6 +7163,7 @@ class NotesController extends _$NotesController {
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
       await ref.read(encryptedNoteStoreProvider).saveOne(note);
+      ref.invalidate(syncQueueSummaryProvider);
       stopwatch?.stop();
       _debugHomePerf(
         'notes persist one id=${note.id} attachments=${note.attachments.length} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms',
