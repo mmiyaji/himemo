@@ -103,6 +103,7 @@ jobs:
           install_profile() {
             local encoded_profile="$1"
             local label="$2"
+            local env_prefix="$3"
             local profile_path="$RUNNER_TEMP/$label.mobileprovision"
             local plist_path="$RUNNER_TEMP/$label.plist"
             echo "$encoded_profile" | base64 --decode > "$profile_path"
@@ -113,11 +114,15 @@ jobs:
             name=$(/usr/libexec/PlistBuddy -c "Print :Name" "$plist_path")
             cp "$profile_path" "$PROFILE_DIR/$uuid.mobileprovision"
             echo "Installed provisioning profile: $name ($uuid)"
+            {
+              echo "${env_prefix}_PROFILE_UUID=$uuid"
+              echo "${env_prefix}_PROFILE_NAME=$name"
+            } >> "$GITHUB_ENV"
           }
 
-          install_profile "$IOS_PROVISIONING_PROFILE_APP_BASE64" "app-store-app"
-          install_profile "$IOS_PROVISIONING_PROFILE_WIDGET_BASE64" "app-store-widget"
-          install_profile "$IOS_PROVISIONING_PROFILE_SHARE_EXTENSION_BASE64" "app-store-share-extension"
+          install_profile "$IOS_PROVISIONING_PROFILE_APP_BASE64" "app-store-app" "IOS_APP"
+          install_profile "$IOS_PROVISIONING_PROFILE_WIDGET_BASE64" "app-store-widget" "IOS_WIDGET"
+          install_profile "$IOS_PROVISIONING_PROFILE_SHARE_EXTENSION_BASE64" "app-store-share-extension" "IOS_SHARE_EXTENSION"
 
       - name: Install Flutter dependencies
         run: flutter pub get
@@ -166,11 +171,11 @@ jobs:
             <key>provisioningProfiles</key>
             <dict>
               <key>${BUNDLE_ID}</key>
-              <string>${APP_STORE_PROFILE_NAME}</string>
+              <string>${IOS_APP_PROFILE_NAME}</string>
               <key>${WIDGET_BUNDLE_ID}</key>
-              <string>${WIDGET_PROFILE_NAME}</string>
+              <string>${IOS_WIDGET_PROFILE_NAME}</string>
               <key>${SHARE_EXTENSION_BUNDLE_ID}</key>
-              <string>${SHARE_EXTENSION_PROFILE_NAME}</string>
+              <string>${IOS_SHARE_EXTENSION_PROFILE_NAME}</string>
             </dict>
             <key>signingCertificate</key>
             <string>Apple Distribution</string>
@@ -191,15 +196,25 @@ jobs:
         run: |
           set -euo pipefail
           python3 <<'PY'
+          import os
           from pathlib import Path
 
           project_path = Path("ios/Runner.xcodeproj/project.pbxproj")
           text = project_path.read_text()
 
           profiles = {
-              "org.ruhenheim.himemo": "HiMemo App Store Profile",
-              "org.ruhenheim.himemo.QuickCaptureWidget": "HiMemo Widget App Store Profile",
-              "org.ruhenheim.himemo.ShareExtension": "HiMemo Share Extension App Store Profile",
+              "org.ruhenheim.himemo": {
+                  "name": os.environ["IOS_APP_PROFILE_NAME"],
+                  "uuid": os.environ["IOS_APP_PROFILE_UUID"],
+              },
+              "org.ruhenheim.himemo.QuickCaptureWidget": {
+                  "name": os.environ["IOS_WIDGET_PROFILE_NAME"],
+                  "uuid": os.environ["IOS_WIDGET_PROFILE_UUID"],
+              },
+              "org.ruhenheim.himemo.ShareExtension": {
+                  "name": os.environ["IOS_SHARE_EXTENSION_PROFILE_NAME"],
+                  "uuid": os.environ["IOS_SHARE_EXTENSION_PROFILE_UUID"],
+              },
           }
 
           def upsert_setting(block: str, key: str, value: str) -> str:
@@ -249,8 +264,12 @@ jobs:
                   block = upsert_setting(block, "CODE_SIGN_IDENTITY[sdk=iphoneos*]", '"Apple Distribution"')
                   block = upsert_setting(block, "CODE_SIGN_STYLE", "Manual")
                   block = upsert_setting(block, "DEVELOPMENT_TEAM", "B8LGAS7YHH")
-                  block = upsert_setting(block, "PROVISIONING_PROFILE_SPECIFIER", f'"{profiles[bundle_id]}"')
-                  print(f"Configured manual signing for {bundle_id}: {profiles[bundle_id]}")
+                  block = upsert_setting(block, "PROVISIONING_PROFILE", profiles[bundle_id]["uuid"])
+                  block = upsert_setting(block, "PROVISIONING_PROFILE_SPECIFIER", f'"{profiles[bundle_id]["name"]}"')
+                  print(
+                      f"Configured manual signing for {bundle_id}: "
+                      f'{profiles[bundle_id]["name"]} ({profiles[bundle_id]["uuid"]})'
+                  )
 
               output.append(block)
               cursor = end

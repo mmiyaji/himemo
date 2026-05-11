@@ -84,4 +84,4 @@ The upload step only uploads to App Store Connect. Tester group assignment shoul
 
 If Xcode reports `No Accounts` or searches for `iOS App Development provisioning profiles`, the archive step is still using automatic/development signing. The workflow includes `Configure manual iOS signing` to set the app, widget, and share extension targets to manual `Apple Distribution` signing before `flutter build ipa`.
 
-The provisioning profile names in the workflow must exactly match the `Name` embedded in each `.mobileprovision` file, not only the downloaded file name.
+The workflow reads the embedded `Name` and `UUID` from each `.mobileprovision` file and uses those values for Xcode signing. If Xcode says a profile does not include the signing certificate, regenerate that provisioning profile in Apple Developer Portal with the Apple Distribution certificate used for `IOS_DISTRIBUTION_CERTIFICATE_BASE64`.
