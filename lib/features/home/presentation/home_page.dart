@@ -16,6 +16,7 @@ import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:in_app_update/in_app_update.dart';
 import 'package:just_audio/just_audio.dart';
@@ -54,6 +55,7 @@ const _helpUrl = 'https://mmiyaji.github.io/himemo/help.html';
 const _httpUserAgent = 'HiMemo/1.0 (+$_contactUrl)';
 const _appAuthor = '@mmiyaji';
 const _appAuthorUrl = 'https://ruhenheim.org/';
+const _remoteSyncAttachmentObjectPrefix = 'sync-attachment-object://';
 
 enum AppSection { notes, calendar, insights, settings }
 
@@ -19867,9 +19869,7 @@ Future<List<int>?> _readPhotoAttachmentBytes(
 ) {
   final filePath = attachment.filePath;
   if (filePath != null && filePath.isNotEmpty) {
-    return ref
-        .read(encryptedAttachmentStoreProvider)
-        .readAttachment(filePath, type: attachment.type);
+    return _readDisplayAttachmentBytes(ref, attachment);
   }
   final previewBytesBase64 = attachment.previewBytesBase64;
   if (previewBytesBase64 == null || previewBytesBase64.isEmpty) {
@@ -19880,6 +19880,73 @@ Future<List<int>?> _readPhotoAttachmentBytes(
   } on FormatException {
     return Future<List<int>?>.value(null);
   }
+}
+
+Future<List<int>?> _readDisplayAttachmentBytes(
+  WidgetRef ref,
+  NoteAttachment attachment,
+) async {
+  final filePath = attachment.filePath;
+  if (filePath == null || filePath.isEmpty) {
+    return null;
+  }
+  if (filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
+    return _downloadRemoteSyncAttachmentBytes(ref, attachment);
+  }
+  return ref
+      .read(encryptedAttachmentStoreProvider)
+      .readAttachment(filePath, type: attachment.type);
+}
+
+Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
+  WidgetRef ref,
+  NoteAttachment attachment,
+) async {
+  final filePath = attachment.filePath;
+  if (filePath == null ||
+      !filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
+    return null;
+  }
+  final contentHash = filePath.substring(
+    _remoteSyncAttachmentObjectPrefix.length,
+  );
+  if (contentHash.isEmpty) {
+    return null;
+  }
+  final encodedPayload = switch (ref.read(syncProviderControllerProvider)) {
+    SyncProvider.iCloud =>
+      await ref
+          .read(iCloudSyncTransportProvider)
+          .downloadAttachmentObject(contentHash),
+    SyncProvider.googleDrive =>
+      await ref
+          .read(googleDriveSyncTransportProvider)
+          .downloadAttachmentObject(contentHash),
+    SyncProvider.off => null,
+  };
+  if (encodedPayload == null || encodedPayload.isEmpty) {
+    return null;
+  }
+  final decoded = await ref
+      .read(secureSyncBundleStoreProvider)
+      .readAttachmentObjectPayload(encodedPayload);
+  final payloadHash = decoded['contentHash'] as String? ?? contentHash;
+  if (payloadHash != contentHash) {
+    return null;
+  }
+  final payloadType = decoded['type'] as String?;
+  if (payloadType != null && payloadType != attachment.type.name) {
+    return null;
+  }
+  final bytesBase64 = decoded['bytesBase64'] as String?;
+  if (bytesBase64 == null || bytesBase64.isEmpty) {
+    return null;
+  }
+  final bytes = base64Decode(bytesBase64);
+  if (sha256.convert(bytes).toString() != contentHash) {
+    return null;
+  }
+  return bytes;
 }
 
 Future<List<int>?> _readPhotoAttachmentDetailBytes(
@@ -19930,6 +19997,11 @@ Future<List<int>?> _readPhotoAttachmentBytesWithPerf(
     () => _readPhotoAttachmentDetailBytes(ref, attachment),
   );
   _photoAttachmentBytesCache[cacheKey] = future;
+  future.then((bytes) {
+    if (bytes == null || bytes.isEmpty) {
+      _photoAttachmentBytesCache.remove(cacheKey);
+    }
+  });
   future.catchError((Object _) {
     _photoAttachmentBytesCache.remove(cacheKey);
     return null;
@@ -20128,10 +20200,7 @@ class _VideoAttachmentViewerState
       final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
       final VideoPlayerController controller;
       if (kIsWeb) {
-        final bytes = await attachmentStore.readAttachment(
-          filePath,
-          type: widget.attachment.type,
-        );
+        final bytes = await _readDisplayAttachmentBytes(ref, widget.attachment);
         if (!mounted || generation != _loadGeneration) {
           return;
         }
@@ -20166,11 +20235,25 @@ class _VideoAttachmentViewerState
         });
         return;
       } else {
-        tempFilePath = await attachmentStore.materializeDecryptedFile(
-          filePath,
-          type: widget.attachment.type,
-          preferredFileName: widget.attachment.label,
-        );
+        if (filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
+          final bytes = await _readDisplayAttachmentBytes(
+            ref,
+            widget.attachment,
+          );
+          if (bytes != null && bytes.isNotEmpty) {
+            tempFilePath = await attachmentStore.materializeDecryptedBytes(
+              bytes,
+              type: widget.attachment.type,
+              preferredFileName: widget.attachment.label,
+            );
+          }
+        } else {
+          tempFilePath = await attachmentStore.materializeDecryptedFile(
+            filePath,
+            type: widget.attachment.type,
+            preferredFileName: widget.attachment.label,
+          );
+        }
         if (!mounted || generation != _loadGeneration) {
           if (tempFilePath != null) {
             await attachmentStore.deleteMaterializedFile(tempFilePath);

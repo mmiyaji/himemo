@@ -557,6 +557,7 @@ class FakeGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   int fetchLatestCalls = 0;
   int uploadCalls = 0;
   String? uploadedPayload;
+  final Map<String, String> uploadedAttachmentObjects = {};
   RemoteSyncBundleStatus? latestStatus = RemoteSyncBundleStatus(
     fileId: 'remote-current',
     fileName: 'himemo_sync_20260510.enc',
@@ -611,6 +612,28 @@ class FakeGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
       deviceId: deviceId,
     );
     return latestStatus!;
+  }
+
+  @override
+  Future<void> uploadAttachmentObject({
+    required String contentHash,
+    required String encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+    bool skipExistingCheck = false,
+  }) async {
+    uploadedAttachmentObjects[contentHash] = encodedPayload;
+  }
+
+  @override
+  Future<Set<String>> listAttachmentObjectContentHashes() async {
+    return uploadedAttachmentObjects.keys.toSet();
+  }
+
+  @override
+  Future<String?> downloadAttachmentObject(String contentHash) async {
+    return uploadedAttachmentObjects[contentHash];
   }
 
   @override
