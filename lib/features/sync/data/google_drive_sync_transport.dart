@@ -57,7 +57,10 @@ abstract class GoogleDriveSyncTransport {
     required String type,
     required String label,
     required int sizeBytes,
+    bool skipExistingCheck = false,
   });
+
+  Future<Set<String>> listAttachmentObjectContentHashes();
 
   Future<String?> downloadAttachmentObject(String contentHash);
 
@@ -213,11 +216,14 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     required String type,
     required String label,
     required int sizeBytes,
+    bool skipExistingCheck = false,
   }) async {
     final api = await _openDriveApi(interactive: false);
-    final existing = await _findAttachmentObject(api, contentHash);
-    if (existing != null && existing.id != null && existing.id!.isNotEmpty) {
-      return;
+    if (!skipExistingCheck) {
+      final existing = await _findAttachmentObject(api, contentHash);
+      if (existing != null && existing.id != null && existing.id!.isNotEmpty) {
+        return;
+      }
     }
     final bytes = utf8.encode(encodedPayload);
     final media = drive.Media(Stream<List<int>>.value(bytes), bytes.length);
@@ -239,6 +245,12 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
         $fields: 'id,name,modifiedTime,size,appProperties',
       ),
     );
+  }
+
+  @override
+  Future<Set<String>> listAttachmentObjectContentHashes() async {
+    final api = await _openDriveApi(interactive: false);
+    return _listAttachmentObjectContentHashes(api);
   }
 
   @override
@@ -515,6 +527,46 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
       return null;
     }
     return files.first;
+  }
+
+  Future<Set<String>> _listAttachmentObjectContentHashes(
+    drive.DriveApi api,
+  ) async {
+    final hashes = <String>{};
+    String? pageToken;
+    do {
+      final response = await _withDriveRetry(
+        () => api.files.list(
+          spaces: _spaces,
+          q: "name contains '$_attachmentFilePrefix' and trashed = false",
+          pageSize: 1000,
+          pageToken: pageToken,
+          $fields: 'nextPageToken,files(name,appProperties)',
+        ),
+      );
+      for (final file in response.files ?? const <drive.File>[]) {
+        final hash =
+            file.appProperties?['contentHash'] ??
+            _contentHashFromAttachmentFileName(file.name);
+        if (hash != null && hash.isNotEmpty) {
+          hashes.add(hash);
+        }
+      }
+      pageToken = response.nextPageToken;
+    } while (pageToken != null && pageToken.isNotEmpty);
+    return hashes;
+  }
+
+  String? _contentHashFromAttachmentFileName(String? name) {
+    if (name == null ||
+        !name.startsWith(_attachmentFilePrefix) ||
+        !name.endsWith(_attachmentFileSuffix)) {
+      return null;
+    }
+    return name.substring(
+      _attachmentFilePrefix.length,
+      name.length - _attachmentFileSuffix.length,
+    );
   }
 
   Future<List<drive.File>> _findBundleHistory(

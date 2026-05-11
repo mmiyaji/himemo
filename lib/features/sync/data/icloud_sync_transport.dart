@@ -65,6 +65,7 @@ abstract class ICloudSyncTransport {
     required String type,
     required String label,
     required int sizeBytes,
+    bool skipExistingCheck = false,
   });
 
   Future<String?> downloadAttachmentObject(String contentHash);
@@ -211,6 +212,7 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
     required String type,
     required String label,
     required int sizeBytes,
+    bool skipExistingCheck = false,
   }) async {
     await _invokeMap('cloudKitUploadAttachmentObject', {
       'contentHash': contentHash,

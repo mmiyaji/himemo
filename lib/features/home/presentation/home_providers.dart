@@ -2278,9 +2278,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   Future<int> estimatePendingUploadBytes() async {
-    final snapshot = await ref
-        .read(syncEngineProvider)
-        .prepareSnapshot(ref.read(notesControllerProvider));
+    final notes = await ref
+        .read(notesControllerProvider.notifier)
+        .notesForSyncSnapshot();
+    final snapshot = await ref.read(syncEngineProvider).prepareSnapshot(notes);
     return snapshot.estimatedPayloadBytes;
   }
 
@@ -2432,18 +2433,26 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     _startBusy(SyncTransferProgress.preparingBundle);
     try {
       await logFirebaseBreadcrumb('sync upload requested');
+      final notes = await ref
+          .read(notesControllerProvider.notifier)
+          .notesForSyncSnapshot();
       final snapshot = await runFirebaseTrace(
         'sync_prepare_snapshot',
-        () => ref
-            .read(syncEngineProvider)
-            .prepareSnapshot(ref.read(notesControllerProvider)),
+        () => ref.read(syncEngineProvider).prepareSnapshot(notes),
       );
+      final preparedUpserts = snapshot.notes
+          .where((change) => change.action == PendingNoteChangeAction.upsert)
+          .length;
+      if (preparedUpserts < snapshot.summary.upserts) {
+        throw StateError('sync.error.local_snapshot_incomplete');
+      }
       _diagnostic(
         'snapshot prepared',
         data: {
           'changes': snapshot.summary.totalChanges,
           'upserts': snapshot.summary.upserts,
           'deletes': snapshot.summary.deletes,
+          'preparedNotes': snapshot.notes.length,
           'attachments': snapshot.attachments.length,
         },
       );
@@ -2452,6 +2461,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           .exportSyncPayload();
       final provider = ref.read(syncProviderControllerProvider);
       if (provider != SyncProvider.off) {
+        _setProgress(SyncTransferProgress.uploadingBundle);
         await runFirebaseTrace(
           'sync_upload_attachment_objects',
           () => _uploadRemoteAttachmentObjects(snapshot.attachments),
@@ -2484,7 +2494,6 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           'payloadLength': encodedPayload.length,
         },
       );
-      _setProgress(SyncTransferProgress.uploadingBundle);
       final remoteStatus = await runFirebaseTrace(
         'sync_upload_remote_bundle',
         () => _uploadRemoteBundle(
@@ -3860,19 +3869,106 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (attachments.isEmpty) {
       return;
     }
-    final bundleStore = ref.read(secureSyncBundleStoreProvider);
+    final uniqueAttachments = <String, PreparedSyncAttachment>{};
     for (final attachment in attachments) {
-      final encodedPayload = await bundleStore.writeAttachmentObjectPayload(
-        attachment,
-      );
-      await _uploadRemoteAttachmentObject(
-        contentHash: attachment.contentHash,
-        encodedPayload: encodedPayload,
-        type: attachment.type.name,
-        label: attachment.label,
-        sizeBytes: attachment.sizeBytes,
+      uniqueAttachments.putIfAbsent(attachment.contentHash, () => attachment);
+    }
+    final unique = uniqueAttachments.values.toList(growable: false);
+    final totalBytes = unique.fold<int>(
+      0,
+      (total, attachment) => total + attachment.sizeBytes,
+    );
+    _diagnostic(
+      'attachment object upload start',
+      data: {
+        'requested': attachments.length,
+        'unique': unique.length,
+        'bytes': totalBytes,
+      },
+    );
+    final existingHashes = await _listExistingRemoteAttachmentHashes();
+    final pendingUploads = existingHashes == null
+        ? unique
+        : unique
+              .where(
+                (attachment) =>
+                    !existingHashes.contains(attachment.contentHash),
+              )
+              .toList(growable: false);
+    final skipped = unique.length - pendingUploads.length;
+    if (existingHashes != null) {
+      _diagnostic(
+        'attachment object upload existing checked',
+        data: {
+          'remoteKnown': existingHashes.length,
+          'skipped': skipped,
+          'pending': pendingUploads.length,
+        },
       );
     }
+    if (pendingUploads.isEmpty) {
+      _diagnostic(
+        'attachment object upload progress',
+        data: {
+          'uploaded': unique.length,
+          'total': unique.length,
+          'skipped': skipped,
+        },
+      );
+      return;
+    }
+    final bundleStore = ref.read(secureSyncBundleStoreProvider);
+    var nextIndex = 0;
+    var uploaded = 0;
+    final parallelism = math.min(3, pendingUploads.length);
+
+    Future<void> worker() async {
+      while (true) {
+        final index = nextIndex;
+        nextIndex += 1;
+        if (index >= pendingUploads.length) {
+          return;
+        }
+        final attachment = pendingUploads[index];
+        final encodedPayload = await bundleStore.writeAttachmentObjectPayload(
+          attachment,
+        );
+        await _uploadRemoteAttachmentObject(
+          contentHash: attachment.contentHash,
+          encodedPayload: encodedPayload,
+          type: attachment.type.name,
+          label: attachment.label,
+          sizeBytes: attachment.sizeBytes,
+          skipExistingCheck: existingHashes != null,
+        );
+        uploaded += 1;
+        final completed = skipped + uploaded;
+        if (completed % 25 == 0 || completed == unique.length) {
+          _diagnostic(
+            'attachment object upload progress',
+            data: {
+              'uploaded': completed,
+              'total': unique.length,
+              'skipped': skipped,
+            },
+          );
+        }
+      }
+    }
+
+    await Future.wait([for (var i = 0; i < parallelism; i += 1) worker()]);
+  }
+
+  Future<Set<String>?> _listExistingRemoteAttachmentHashes() {
+    final provider = ref.read(syncProviderControllerProvider);
+    return switch (provider) {
+      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
+        () => ref
+            .read(googleDriveSyncTransportProvider)
+            .listAttachmentObjectContentHashes(),
+      ),
+      SyncProvider.iCloud || SyncProvider.off => Future<Set<String>?>.value(),
+    };
   }
 
   Future<void> _uploadRemoteAttachmentObject({
@@ -3881,6 +3977,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     required String type,
     required String label,
     required int sizeBytes,
+    bool skipExistingCheck = false,
   }) {
     final provider = ref.read(syncProviderControllerProvider);
     return switch (provider) {
@@ -3893,6 +3990,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               type: type,
               label: label,
               sizeBytes: sizeBytes,
+              skipExistingCheck: skipExistingCheck,
             ),
       ),
       SyncProvider.iCloud =>
@@ -3904,6 +4002,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               type: type,
               label: label,
               sizeBytes: sizeBytes,
+              skipExistingCheck: skipExistingCheck,
             ),
       SyncProvider.off => Future<void>.value(),
     };
@@ -6719,6 +6818,12 @@ class NotesController extends _$NotesController {
     _sort(next);
     state = next;
     await _persist();
+  }
+
+  Future<List<NoteEntry>> notesForSyncSnapshot() async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    return List<NoteEntry>.unmodifiable(state);
   }
 
   Future<void> queueCurrentStateForSync() async {
