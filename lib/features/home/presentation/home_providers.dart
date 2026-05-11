@@ -3357,7 +3357,22 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         return attachment.copyWith(filePath: null, previewBytesBase64: null);
       }
       final inlinePayload = inlinePayloads[contentHash];
-      if (inlinePayload != null) {
+      final hasInlinePayload =
+          inlinePayload != null &&
+          ((inlinePayload['bytesBase64'] as String?)?.isNotEmpty == true ||
+              (inlinePayload['encryptedPayload'] as String?)?.isNotEmpty ==
+                  true);
+      if (inlinePayload != null && !hasInlinePayload) {
+        _diagnostic(
+          'remote attachment object metadata found',
+          data: {
+            'contentHash': contentHash,
+            'type': inlinePayload['type'],
+            'label': inlinePayload['label'],
+          },
+        );
+      }
+      if (inlinePayload != null && hasInlinePayload) {
         return _importInlineSyncAttachment(
           attachment: attachment,
           note: note,
