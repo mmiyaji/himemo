@@ -501,18 +501,25 @@ void main() {
         .read(privateProfileUnlockControllerProvider.notifier)
         .unlockWithPassword('cover-pass-123');
     expect(unlocked, isNotNull);
+    final unlockedVaultId = unlocked!.vaultId;
+    expect(
+      container.read(searchFiltersControllerProvider).vaultId,
+      unlockedVaultId,
+    );
 
     expect(container.read(visibleVaultsProvider).length, 2);
     expect(
       container
           .read(visibleVaultsProvider)
-          .any((vault) => vault.id == unlocked!.vaultId),
+          .any((vault) => vault.id == unlockedVaultId),
       isTrue,
     );
     expect(container.read(visibleVaultsProvider).map((vault) => vault.id), [
-      unlocked!.vaultId,
+      unlockedVaultId,
       'everyday',
     ]);
+    container.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+    expect(container.read(searchFiltersControllerProvider).vaultId, isNull);
   });
 
   test('private profile notes remain visible immediately after save', () async {

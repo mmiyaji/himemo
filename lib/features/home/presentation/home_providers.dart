@@ -7332,12 +7332,19 @@ class UnlockedPrivateProfileVaultIdController extends Notifier<String?> {
   @override
   String? build() => null;
 
-  void unlock(String vaultId) => state = vaultId;
+  void unlock(String vaultId) {
+    state = vaultId;
+    ref.read(searchFiltersControllerProvider.notifier).setVault(vaultId);
+  }
 
   void lock() {
     final vaultId = state;
     if (vaultId != null) {
       ref.read(profileDataKeyServiceProvider).lockProfile(vaultId);
+      final filters = ref.read(searchFiltersControllerProvider);
+      if (filters.vaultId == vaultId) {
+        ref.read(searchFiltersControllerProvider.notifier).setVault(null);
+      }
     }
     state = null;
   }
