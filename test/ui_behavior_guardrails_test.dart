@@ -13,6 +13,7 @@ void main() {
 
     expect(webVideoElement, contains('html.VideoElement'));
     expect(webVideoElement, contains('..controls = true'));
+    expect(webVideoElement, contains('..muted = muted'));
     expect(webVideoElement, contains('HtmlElementView'));
     expect(
       homePage,

@@ -3132,6 +3132,9 @@ class SettingsScreen extends ConsumerWidget {
     final attachmentPreviewFit = ref.watch(
       attachmentPreviewFitControllerProvider,
     );
+    final videoPlaybackMutedByDefault = ref.watch(
+      videoPlaybackMutedByDefaultControllerProvider,
+    );
     final notesListSortField = ref.watch(notesListSortControllerProvider);
     final widgetQuickCaptureEnabled = ref.watch(
       widgetQuickCaptureSettingsControllerProvider,
@@ -3584,6 +3587,44 @@ class SettingsScreen extends ConsumerWidget {
               onChanged: (enabled) => ref
                   .read(lastNoteEditorSettingsControllerProvider.notifier)
                   .setCaptureLocation(enabled),
+            ),
+            const SizedBox(height: 8),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Video playback',
+                ja: '動画再生',
+                zh: '视频播放',
+                ko: '동영상 재생',
+                es: 'Reproducción de video',
+                de: 'Videowiedergabe',
+              ),
+            ),
+            SwitchListTile.adaptive(
+              value: videoPlaybackMutedByDefault,
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                strings.localized(
+                  en: 'Mute videos by default',
+                  ja: '動画をデフォルトでミュート',
+                  zh: '默认将视频静音',
+                  ko: '동영상을 기본적으로 음소거',
+                  es: 'Silenciar videos de forma predeterminada',
+                  de: 'Videos standardmäßig stummschalten',
+                ),
+              ),
+              subtitle: Text(
+                strings.localized(
+                  en: 'Newly opened videos start muted. Turn this off if you want videos to start with sound.',
+                  ja: '新しく開く動画はミュートで開始します。音声ありで開始したい場合はオフにしてください。',
+                  zh: '新打开的视频会以静音开始。如需默认播放声音，请关闭此项。',
+                  ko: '새로 여는 동영상은 음소거로 시작합니다. 소리와 함께 시작하려면 끄세요.',
+                  es: 'Los videos recién abiertos empiezan silenciados. Desactívalo si quieres que empiecen con sonido.',
+                  de: 'Neu geöffnete Videos starten stumm. Deaktiviere dies, wenn Videos mit Ton starten sollen.',
+                ),
+              ),
+              onChanged: (muted) => ref
+                  .read(videoPlaybackMutedByDefaultControllerProvider.notifier)
+                  .setMuted(muted),
             ),
           ],
         ),
@@ -19656,11 +19697,13 @@ class _WebVideoLightboxDialog extends StatelessWidget {
   const _WebVideoLightboxDialog({
     required this.attachment,
     required this.objectUrl,
+    required this.muted,
     this.onShare,
   });
 
   final NoteAttachment attachment;
   final String objectUrl;
+  final bool muted;
   final VoidCallback? onShare;
 
   @override
@@ -19728,6 +19771,7 @@ class _WebVideoLightboxDialog extends StatelessWidget {
                             viewType: viewType,
                             objectUrl: objectUrl,
                             autoplay: true,
+                            muted: muted,
                             fillAvailableHeight: true,
                           ),
                         ),
@@ -20790,6 +20834,7 @@ class _VideoAttachmentViewerState
         controller = VideoPlayerController.networkUrl(Uri.file(tempFilePath));
       }
       await controller.initialize();
+      await _applyDefaultVideoVolume(controller);
       controller.addListener(_handleControllerChanged);
       if (!mounted || generation != _loadGeneration) {
         await controller.dispose();
@@ -20854,14 +20899,25 @@ class _VideoAttachmentViewerState
 
   @override
   Widget build(BuildContext context) {
+    final mutedByDefault = ref.watch(
+      videoPlaybackMutedByDefaultControllerProvider,
+    );
+    final controller = _controller;
+    if (controller != null && controller.value.isInitialized) {
+      unawaited(_applyDefaultVideoVolume(controller));
+    }
     final errorMessage = _errorMessage;
     if (errorMessage != null) {
       return Center(child: Text(errorMessage));
     }
     if (kIsWeb && _webObjectUrl != null && _webVideoViewType != null) {
-      return _buildWebVideo(context, _webObjectUrl!, _webVideoViewType!);
+      return _buildWebVideo(
+        context,
+        _webObjectUrl!,
+        _webVideoViewType!,
+        muted: mutedByDefault,
+      );
     }
-    final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
       return _buildDeferredPreview(context, loading: _loading);
     }
@@ -21013,8 +21069,9 @@ class _VideoAttachmentViewerState
   Widget _buildWebVideo(
     BuildContext context,
     String objectUrl,
-    String viewType,
-  ) {
+    String viewType, {
+    required bool muted,
+  }) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxWidth = constraints.hasBoundedWidth
@@ -21042,6 +21099,7 @@ class _VideoAttachmentViewerState
                     viewType: viewType,
                     objectUrl: objectUrl,
                     autoplay: _webVideoAutoplay,
+                    muted: muted,
                     fillAvailableHeight: widget.fillAvailableHeight,
                   ),
                 ),
@@ -21246,6 +21304,9 @@ class _VideoAttachmentViewerState
   }
 
   Future<void> _openFullScreen() async {
+    final mutedByDefault = ref.read(
+      videoPlaybackMutedByDefaultControllerProvider,
+    );
     if (kIsWeb && _webObjectUrl != null) {
       await showGeneralDialog<void>(
         context: context,
@@ -21257,6 +21318,7 @@ class _VideoAttachmentViewerState
         pageBuilder: (context, _, _) => _WebVideoLightboxDialog(
           attachment: widget.attachment,
           objectUrl: _webObjectUrl!,
+          muted: mutedByDefault,
           onShare: widget.showShareAction
               ? () => _shareAttachment(context, ref, widget.attachment)
               : null,
@@ -21298,6 +21360,19 @@ class _VideoAttachmentViewerState
         _duration = controller.value.duration;
       });
     }
+  }
+
+  Future<void> _applyDefaultVideoVolume(
+    VideoPlayerController controller,
+  ) async {
+    final mutedByDefault = ref.read(
+      videoPlaybackMutedByDefaultControllerProvider,
+    );
+    final desiredVolume = mutedByDefault ? 0.0 : 1.0;
+    if ((controller.value.volume - desiredVolume).abs() < 0.01) {
+      return;
+    }
+    await controller.setVolume(desiredVolume);
   }
 
   void _togglePlayback(VideoPlayerController controller) {

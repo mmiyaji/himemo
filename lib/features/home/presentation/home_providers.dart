@@ -6152,6 +6152,36 @@ class AttachmentPreviewFitController extends _$AttachmentPreviewFitController {
   }
 }
 
+final videoPlaybackMutedByDefaultControllerProvider =
+    NotifierProvider<VideoPlaybackMutedByDefaultController, bool>(
+      VideoPlaybackMutedByDefaultController.new,
+    );
+
+class VideoPlaybackMutedByDefaultController extends Notifier<bool> {
+  static const _storageKey = 'settings.video_playback_muted_by_default';
+  bool _restored = false;
+
+  @override
+  bool build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return true;
+  }
+
+  Future<void> setMuted(bool muted) async {
+    state = muted;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_storageKey, muted);
+  }
+
+  Future<void> _restore() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(_storageKey) ?? true;
+  }
+}
+
 @Riverpod(keepAlive: true)
 class NotesListSortController extends _$NotesListSortController {
   static const _storageKey = 'notes.list_sort_field';
