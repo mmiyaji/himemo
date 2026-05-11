@@ -34,7 +34,7 @@ env:
 jobs:
   build-and-upload:
     name: Build iOS IPA and upload to TestFlight
-    runs-on: macos-latest
+    runs-on: macos-26
     timeout-minutes: 60
 
     steps:
@@ -56,12 +56,19 @@ jobs:
       - name: Resolve build number
         run: |
           set -euo pipefail
+          VERSION_NAME="$(sed -nE 's/^version:[[:space:]]*([0-9A-Za-z.+-]+).*/\1/p' pubspec.yaml | head -n 1 | cut -d + -f 1)"
+          if [ -z "$VERSION_NAME" ]; then
+            echo "Could not resolve version name from pubspec.yaml."
+            exit 1
+          fi
           if [ -n "${{ inputs.build_number }}" ]; then
             BUILD_NUMBER="${{ inputs.build_number }}"
           else
             BUILD_NUMBER="$(date -u +%y%m%d%H%M)"
           fi
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "Using version name: $VERSION_NAME"
           echo "Using build number: $BUILD_NUMBER"
 
       - name: Install Apple signing assets
@@ -153,6 +160,21 @@ jobs:
             /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST" 2>/dev/null \
               || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes:0 string ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST"
           fi
+
+      - name: Configure extension bundle versions
+        run: |
+          set -euo pipefail
+          for PLIST in \
+            "$GITHUB_WORKSPACE/ios/QuickCaptureWidgetExtension/Info.plist" \
+            "$GITHUB_WORKSPACE/ios/ShareExtension/Info.plist"
+          do
+            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION_NAME}" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${VERSION_NAME}" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${BUILD_NUMBER}" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${BUILD_NUMBER}" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST"
+          done
 
       - name: Create App Store export options
         run: |
