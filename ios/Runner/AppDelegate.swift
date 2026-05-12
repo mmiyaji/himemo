@@ -983,7 +983,7 @@ import Network
     }
 
     func fetchChanges(after token: CKServerChangeToken?) {
-      let zoneID = CKRecordZone.ID.default()
+      let zoneID = CKRecordZone.ID.default
       let options = CKFetchRecordZoneChangesOperation.ZoneOptions()
       options.previousServerChangeToken = token
       let operation = CKFetchRecordZoneChangesOperation(
@@ -991,12 +991,13 @@ import Network
         optionsByRecordZoneID: [zoneID: options]
       )
       var requestedMore = false
-      operation.recordChangedBlock = { record in
+      operation.recordChangedBlock = { (record: CKRecord) in
         if record.recordType == recordType {
           records.append(record)
         }
       }
-      operation.recordZoneFetchCompletionBlock = { _, serverChangeToken, _, moreComing, error in
+      operation.recordZoneFetchCompletionBlock = {
+        (_: CKRecordZone.ID, serverChangeToken: CKServerChangeToken?, _: Data?, moreComing: Bool, error: Error?) in
         if let error {
           finish(error)
           return
@@ -1006,7 +1007,7 @@ import Network
           fetchChanges(after: serverChangeToken)
         }
       }
-      operation.fetchRecordZoneChangesCompletionBlock = { error in
+      operation.fetchRecordZoneChangesCompletionBlock = { (error: Error?) in
         if requestedMore {
           return
         }
