@@ -967,39 +967,59 @@ import Network
     sortedByModificationDate: Bool,
     completion: @escaping ([CKRecord], Error?) -> Void
   ) {
-    let query = CKQuery(recordType: recordType, predicate: NSPredicate(value: true))
-    if sortedByModificationDate {
-      query.sortDescriptors = [NSSortDescriptor(key: "modificationDate", ascending: false)]
-    }
-
     var records: [CKRecord] = []
 
-    func run(cursor: CKQueryOperation.Cursor?) {
-      let operation: CKQueryOperation
-      if let cursor {
-        operation = CKQueryOperation(cursor: cursor)
-      } else {
-        operation = CKQueryOperation(query: query)
+    func finish(_ error: Error?) {
+      if let error {
+        completion(records, error)
+        return
       }
-      operation.resultsLimit = CKQueryOperation.maximumResults
-      operation.recordFetchedBlock = { record in
-        records.append(record)
+      if sortedByModificationDate {
+        records.sort {
+          ($0.modificationDate ?? .distantPast) > ($1.modificationDate ?? .distantPast)
+        }
       }
-      operation.queryCompletionBlock = { nextCursor, error in
+      completion(records, nil)
+    }
+
+    func fetchChanges(after token: CKServerChangeToken?) {
+      let zoneID = CKRecordZone.ID.default()
+      let options = CKFetchRecordZoneChangesOperation.ZoneOptions()
+      options.previousServerChangeToken = token
+      let operation = CKFetchRecordZoneChangesOperation(
+        recordZoneIDs: [zoneID],
+        optionsByRecordZoneID: [zoneID: options]
+      )
+      var requestedMore = false
+      operation.recordChangedBlock = { record in
+        if record.recordType == recordType {
+          records.append(record)
+        }
+      }
+      operation.recordZoneFetchCompletionBlock = { _, serverChangeToken, _, moreComing, error in
         if let error {
-          completion(records, error)
+          finish(error)
           return
         }
-        if let nextCursor {
-          run(cursor: nextCursor)
+        if moreComing {
+          requestedMore = true
+          fetchChanges(after: serverChangeToken)
+        }
+      }
+      operation.fetchRecordZoneChangesCompletionBlock = { error in
+        if requestedMore {
           return
         }
-        completion(records, nil)
+        if let error {
+          finish(error)
+          return
+        }
+        finish(nil)
       }
       database.add(operation)
     }
 
-    run(cursor: nil)
+    fetchChanges(after: nil)
   }
 
   private func deleteCloudKitRecords(
