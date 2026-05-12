@@ -536,9 +536,11 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   Future<void> _refreshNativePrivacyScreen({bool? privatePrivacyActive}) {
     final privacyScreenActive =
         privatePrivacyActive ?? (ref.read(privacyScreenActiveProvider) == true);
-    return _setPrivacyScreenEnabled(
-      privacyScreenActive || _lifecyclePrivacyProtectionEnabled,
-    );
+    final shouldEnableNativePrivacy =
+        defaultTargetPlatform == TargetPlatform.android
+        ? privacyScreenActive
+        : (privacyScreenActive || _lifecyclePrivacyProtectionEnabled);
+    return _setPrivacyScreenEnabled(shouldEnableNativePrivacy);
   }
 
   void _refreshPrivateSessionTimer() {

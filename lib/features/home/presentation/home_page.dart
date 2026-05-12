@@ -8164,6 +8164,7 @@ class _NoteListTile extends StatelessWidget {
     );
     final tags = note.normalizedTags;
     final previewFacts = _notePreviewFacts(note);
+    final hasLocationPreview = _firstLocationPreview(note) != null;
     final hasDistinctBody =
         bodyPreview.isNotEmpty && bodyPreview != note.title.trim();
     final showAttachmentPreviews = density != NotesListDensity.compact;
@@ -8221,6 +8222,14 @@ class _NoteListTile extends StatelessWidget {
                   const SizedBox(width: 8),
                   Icon(
                     Icons.push_pin_rounded,
+                    size: 14,
+                    color: _mutedTextColor(context),
+                  ),
+                ],
+                if (hasLocationPreview) ...[
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.location_on_outlined,
                     size: 14,
                     color: _mutedTextColor(context),
                   ),
