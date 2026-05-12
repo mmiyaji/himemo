@@ -2749,6 +2749,12 @@ class SettingsScreen extends ConsumerWidget {
   static const syncUploadBundleKey = Key('sync-upload-bundle-button');
   static const syncDownloadBundleKey = Key('sync-download-bundle-button');
   static const syncApplyBundleKey = Key('sync-apply-bundle-button');
+  static const diagnosticICloudStorageBreakdownKey = Key(
+    'diagnostic-icloud-storage-breakdown-button',
+  );
+  static const diagnosticICloudPruneBundlesKey = Key(
+    'diagnostic-icloud-prune-bundles-button',
+  );
   static const privateVaultSetKey = Key('private-vault-set-key');
   static const privateVaultUnlockKey = Key('private-vault-unlock-key');
   static const privateVaultLockKey = Key('private-vault-lock-key');
@@ -3131,6 +3137,9 @@ class SettingsScreen extends ConsumerWidget {
     final notesListDensity = ref.watch(notesListDensityControllerProvider);
     final attachmentPreviewFit = ref.watch(
       attachmentPreviewFitControllerProvider,
+    );
+    final videoPlaybackMutedByDefault = ref.watch(
+      videoPlaybackMutedByDefaultControllerProvider,
     );
     final notesListSortField = ref.watch(notesListSortControllerProvider);
     final widgetQuickCaptureEnabled = ref.watch(
@@ -3584,6 +3593,44 @@ class SettingsScreen extends ConsumerWidget {
               onChanged: (enabled) => ref
                   .read(lastNoteEditorSettingsControllerProvider.notifier)
                   .setCaptureLocation(enabled),
+            ),
+            const SizedBox(height: 8),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Video playback',
+                ja: '動画再生',
+                zh: '视频播放',
+                ko: '동영상 재생',
+                es: 'Reproducción de video',
+                de: 'Videowiedergabe',
+              ),
+            ),
+            SwitchListTile.adaptive(
+              value: videoPlaybackMutedByDefault,
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                strings.localized(
+                  en: 'Mute videos by default',
+                  ja: '動画をデフォルトでミュート',
+                  zh: '默认将视频静音',
+                  ko: '동영상을 기본적으로 음소거',
+                  es: 'Silenciar videos de forma predeterminada',
+                  de: 'Videos standardmäßig stummschalten',
+                ),
+              ),
+              subtitle: Text(
+                strings.localized(
+                  en: 'Newly opened videos start muted. Turn this off if you want videos to start with sound.',
+                  ja: '新しく開く動画はミュートで開始します。音声ありで開始したい場合はオフにしてください。',
+                  zh: '新打开的视频会以静音开始。如需默认播放声音，请关闭此项。',
+                  ko: '새로 여는 동영상은 음소거로 시작합니다. 소리와 함께 시작하려면 끄세요.',
+                  es: 'Los videos recién abiertos empiezan silenciados. Desactívalo si quieres que empiecen con sonido.',
+                  de: 'Neu geöffnete Videos starten stumm. Deaktiviere dies, wenn Videos mit Ton starten sollen.',
+                ),
+              ),
+              onChanged: (muted) => ref
+                  .read(videoPlaybackMutedByDefaultControllerProvider.notifier)
+                  .setMuted(muted),
             ),
           ],
         ),
@@ -5991,6 +6038,44 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
             OutlinedButton.icon(
+              key: diagnosticICloudStorageBreakdownKey,
+              onPressed: () => _showICloudStorageBreakdown(
+                context,
+                ref,
+                strings,
+              ),
+              icon: const Icon(Icons.cloud_queue_rounded),
+              label: Text(
+                strings.localized(
+                  en: 'iCloud usage',
+                  ja: 'iCloud 使用量',
+                  zh: 'iCloud 使用量',
+                  ko: 'iCloud 사용량',
+                  es: 'Uso de iCloud',
+                  de: 'iCloud-Nutzung',
+                ),
+              ),
+            ),
+            OutlinedButton.icon(
+              key: diagnosticICloudPruneBundlesKey,
+              onPressed: () => _confirmCompactICloudStorage(
+                context,
+                ref,
+                strings,
+              ),
+              icon: const Icon(Icons.cleaning_services_outlined),
+              label: Text(
+                strings.localized(
+                  en: 'Clean old iCloud bundles',
+                  ja: 'iCloud 同期データを整理',
+                  zh: '清理旧 iCloud 包',
+                  ko: '이전 iCloud 번들 정리',
+                  es: 'Limpiar paquetes iCloud antiguos',
+                  de: 'Alte iCloud-Pakete bereinigen',
+                ),
+              ),
+            ),
+            OutlinedButton.icon(
               onPressed: () => ref
                   .read(diagnosticLogControllerProvider.notifier)
                   .setEnabled(false),
@@ -6010,6 +6095,134 @@ class SettingsScreen extends ConsumerWidget {
         ),
       ],
     );
+  }
+
+  Future<void> _showICloudStorageBreakdown(
+    BuildContext context,
+    WidgetRef ref,
+    AppStrings strings,
+  ) async {
+    try {
+      final breakdown = await ref
+          .read(syncTransferControllerProvider.notifier)
+          .fetchICloudStorageBreakdown();
+      if (!context.mounted) {
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(
+            strings.localized(
+              en: 'iCloud storage usage',
+              ja: 'iCloud ストレージ使用量',
+              zh: 'iCloud 存储使用量',
+              ko: 'iCloud 저장 공간 사용량',
+              es: 'Uso de almacenamiento de iCloud',
+              de: 'iCloud-Speichernutzung',
+            ),
+          ),
+          content: SelectableText(
+            strings.localized(
+              en: 'Total: ${strings.byteCount(breakdown.totalBytes)}\nSync bundles: ${breakdown.bundleCount} / ${strings.byteCount(breakdown.bundleBytes)}\nAttachments: ${breakdown.attachmentCount} / ${strings.byteCount(breakdown.attachmentBytes)}',
+              ja: '合計: ${strings.byteCount(breakdown.totalBytes)}\n同期バンドル: ${breakdown.bundleCount} 件 / ${strings.byteCount(breakdown.bundleBytes)}\n添付オブジェクト: ${breakdown.attachmentCount} 件 / ${strings.byteCount(breakdown.attachmentBytes)}',
+              zh: '总计：${strings.byteCount(breakdown.totalBytes)}\n同步包：${breakdown.bundleCount} / ${strings.byteCount(breakdown.bundleBytes)}\n附件：${breakdown.attachmentCount} / ${strings.byteCount(breakdown.attachmentBytes)}',
+              ko: '합계: ${strings.byteCount(breakdown.totalBytes)}\n동기화 번들: ${breakdown.bundleCount}개 / ${strings.byteCount(breakdown.bundleBytes)}\n첨부 파일: ${breakdown.attachmentCount}개 / ${strings.byteCount(breakdown.attachmentBytes)}',
+              es: 'Total: ${strings.byteCount(breakdown.totalBytes)}\nPaquetes de sincronizacion: ${breakdown.bundleCount} / ${strings.byteCount(breakdown.bundleBytes)}\nAdjuntos: ${breakdown.attachmentCount} / ${strings.byteCount(breakdown.attachmentBytes)}',
+              de: 'Gesamt: ${strings.byteCount(breakdown.totalBytes)}\nSync-Pakete: ${breakdown.bundleCount} / ${strings.byteCount(breakdown.bundleBytes)}\nAnhaenge: ${breakdown.attachmentCount} / ${strings.byteCount(breakdown.attachmentBytes)}',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(strings.close),
+            ),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(showCloseIcon: true, content: Text('$error')),
+      );
+    }
+  }
+
+  Future<void> _confirmCompactICloudStorage(
+    BuildContext context,
+    WidgetRef ref,
+    AppStrings strings,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          strings.localized(
+            en: 'Clean old iCloud sync bundles?',
+            ja: 'iCloud 同期データを整理しますか？',
+            zh: '清理旧的 iCloud 同步包？',
+            ko: '이전 iCloud 동기화 번들을 정리할까요?',
+            es: '¿Limpiar paquetes antiguos de iCloud?',
+            de: 'Alte iCloud-Sync-Pakete bereinigen?',
+          ),
+        ),
+        content: Text(
+          strings.localized(
+            en: 'This uploads the current state as a fresh full snapshot, keeps that latest iCloud bundle, and deletes older bundles plus attachment objects no longer referenced by the latest snapshot.',
+            ja: '現在の状態を新しいフルスナップショットとしてアップロードし、その最新 iCloud バンドルだけを残します。古いバンドルと、最新スナップショットから参照されない添付オブジェクトも削除します。',
+            zh: '这会保留最新的 iCloud 同步包并删除旧的包快照。此命令不会删除附件对象。',
+            ko: '최신 iCloud 동기화 번들 1개를 남기고 이전 번들 스냅샷을 삭제합니다. 이 명령은 첨부 파일 객체를 삭제하지 않습니다.',
+            es: 'Sube el estado actual como una instantanea completa, conserva el paquete mas reciente y elimina paquetes antiguos y adjuntos sin referencia.',
+            de: 'Laedt den aktuellen Stand als vollstaendigen Snapshot hoch, behaelt das neueste Paket und loescht alte Pakete sowie nicht referenzierte Anhaenge.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(strings.text('home.cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(strings.delete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+    try {
+      final result = await ref
+          .read(syncTransferControllerProvider.notifier)
+          .compactICloudStorage();
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(
+            strings.localized(
+              en: 'Deleted ${result.deletedBundleCount} old bundles and ${result.deletedAttachmentCount} unreferenced attachments (${strings.byteCount(result.deletedBytes)}).',
+              ja: '古いバンドル ${result.deletedBundleCount} 件と未参照の添付 ${result.deletedAttachmentCount} 件（${strings.byteCount(result.deletedBytes)}）を削除しました。',
+              zh: '已删除 ${result.deletedBundleCount} 个旧 iCloud 包（${strings.byteCount(result.deletedBundleBytes)}）。',
+              ko: '이전 iCloud 번들 ${result.deletedBundleCount}개(${strings.byteCount(result.deletedBundleBytes)})를 삭제했습니다.',
+              es: 'Se eliminaron ${result.deletedBundleCount} paquetes antiguos y ${result.deletedAttachmentCount} adjuntos sin referencia (${strings.byteCount(result.deletedBytes)}).',
+              de: '${result.deletedBundleCount} alte Pakete und ${result.deletedAttachmentCount} nicht referenzierte Anhaenge geloescht (${strings.byteCount(result.deletedBytes)}).',
+            ),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(showCloseIcon: true, content: Text('$error')),
+      );
+    }
   }
 
   Future<void> _downloadDiagnosticLog(
@@ -12636,6 +12849,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     if (drafts.isEmpty) {
       drafts.add(_RichBlockDraft.paragraph());
     }
+    _ensureTrailingRichParagraph(drafts);
     return drafts;
   }
 
@@ -12661,6 +12875,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _richBlocks = nextBlocks.isEmpty
         ? [_RichBlockDraft.paragraph()]
         : nextBlocks;
+    _ensureTrailingRichParagraph(_richBlocks);
     for (final block in _richBlocks) {
       _attachRichBlockListener(block);
     }
@@ -12720,6 +12935,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       if (_richBlocks.isEmpty) {
         _richBlocks = [_RichBlockDraft.paragraph()];
       }
+      _ensureTrailingRichParagraph(_richBlocks);
       for (final block in _richBlocks) {
         _attachRichBlockListener(block);
       }
@@ -14143,6 +14359,13 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       );
     }
     _queueAttachmentDelete(attachment);
+  }
+
+  void _ensureTrailingRichParagraph(List<_RichBlockDraft> drafts) {
+    if (drafts.isEmpty || drafts.last.type == NoteBlockType.paragraph) {
+      return;
+    }
+    drafts.add(_RichBlockDraft.paragraph());
   }
 
   String _deriveRichTitle() {
@@ -19656,11 +19879,13 @@ class _WebVideoLightboxDialog extends StatelessWidget {
   const _WebVideoLightboxDialog({
     required this.attachment,
     required this.objectUrl,
+    required this.muted,
     this.onShare,
   });
 
   final NoteAttachment attachment;
   final String objectUrl;
+  final bool muted;
   final VoidCallback? onShare;
 
   @override
@@ -19728,6 +19953,7 @@ class _WebVideoLightboxDialog extends StatelessWidget {
                             viewType: viewType,
                             objectUrl: objectUrl,
                             autoplay: true,
+                            muted: muted,
                             fillAvailableHeight: true,
                           ),
                         ),
@@ -20790,6 +21016,7 @@ class _VideoAttachmentViewerState
         controller = VideoPlayerController.networkUrl(Uri.file(tempFilePath));
       }
       await controller.initialize();
+      await _applyDefaultVideoVolume(controller);
       controller.addListener(_handleControllerChanged);
       if (!mounted || generation != _loadGeneration) {
         await controller.dispose();
@@ -20854,14 +21081,25 @@ class _VideoAttachmentViewerState
 
   @override
   Widget build(BuildContext context) {
+    final mutedByDefault = ref.watch(
+      videoPlaybackMutedByDefaultControllerProvider,
+    );
+    final controller = _controller;
+    if (controller != null && controller.value.isInitialized) {
+      unawaited(_applyDefaultVideoVolume(controller));
+    }
     final errorMessage = _errorMessage;
     if (errorMessage != null) {
       return Center(child: Text(errorMessage));
     }
     if (kIsWeb && _webObjectUrl != null && _webVideoViewType != null) {
-      return _buildWebVideo(context, _webObjectUrl!, _webVideoViewType!);
+      return _buildWebVideo(
+        context,
+        _webObjectUrl!,
+        _webVideoViewType!,
+        muted: mutedByDefault,
+      );
     }
-    final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
       return _buildDeferredPreview(context, loading: _loading);
     }
@@ -21013,8 +21251,9 @@ class _VideoAttachmentViewerState
   Widget _buildWebVideo(
     BuildContext context,
     String objectUrl,
-    String viewType,
-  ) {
+    String viewType, {
+    required bool muted,
+  }) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxWidth = constraints.hasBoundedWidth
@@ -21042,6 +21281,7 @@ class _VideoAttachmentViewerState
                     viewType: viewType,
                     objectUrl: objectUrl,
                     autoplay: _webVideoAutoplay,
+                    muted: muted,
                     fillAvailableHeight: widget.fillAvailableHeight,
                   ),
                 ),
@@ -21246,6 +21486,9 @@ class _VideoAttachmentViewerState
   }
 
   Future<void> _openFullScreen() async {
+    final mutedByDefault = ref.read(
+      videoPlaybackMutedByDefaultControllerProvider,
+    );
     if (kIsWeb && _webObjectUrl != null) {
       await showGeneralDialog<void>(
         context: context,
@@ -21257,6 +21500,7 @@ class _VideoAttachmentViewerState
         pageBuilder: (context, _, _) => _WebVideoLightboxDialog(
           attachment: widget.attachment,
           objectUrl: _webObjectUrl!,
+          muted: mutedByDefault,
           onShare: widget.showShareAction
               ? () => _shareAttachment(context, ref, widget.attachment)
               : null,
@@ -21298,6 +21542,19 @@ class _VideoAttachmentViewerState
         _duration = controller.value.duration;
       });
     }
+  }
+
+  Future<void> _applyDefaultVideoVolume(
+    VideoPlayerController controller,
+  ) async {
+    final mutedByDefault = ref.read(
+      videoPlaybackMutedByDefaultControllerProvider,
+    );
+    final desiredVolume = mutedByDefault ? 0.0 : 1.0;
+    if ((controller.value.volume - desiredVolume).abs() < 0.01) {
+      return;
+    }
+    await controller.setVolume(desiredVolume);
   }
 
   void _togglePlayback(VideoPlayerController controller) {

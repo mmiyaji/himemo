@@ -13,6 +13,7 @@ void main() {
 
     expect(webVideoElement, contains('html.VideoElement'));
     expect(webVideoElement, contains('..controls = true'));
+    expect(webVideoElement, contains('..muted = muted'));
     expect(webVideoElement, contains('HtmlElementView'));
     expect(
       homePage,
@@ -39,4 +40,40 @@ void main() {
       expect(guardrails, contains('Automated checks should cover these rules'));
     },
   );
+
+  test('rich editor restores a text block after trailing attachments', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+
+    expect(homePage, contains('void _ensureTrailingRichParagraph'));
+    expect(homePage, contains('_ensureTrailingRichParagraph(drafts);'));
+    expect(homePage, contains('_ensureTrailingRichParagraph(_richBlocks);'));
+  });
+
+  test('app lock background privacy cover prevents delayed relock flashes', () {
+    final appShell = File('lib/app/app.dart').readAsStringSync();
+
+    expect(appShell, contains('_activateAppLockPrivacyCoverIfEnabled'));
+    expect(appShell, contains('_lifecyclePrivacyCoverVisible'));
+    expect(appShell, contains('_AppPrivacyCover'));
+    expect(
+      appShell,
+      contains('privacyScreenActive || _lifecyclePrivacyProtectionEnabled'),
+    );
+  });
+
+  test('diagnostic mode exposes iCloud storage maintenance actions', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+    final iCloudTransport = File(
+      'lib/features/sync/data/icloud_sync_transport.dart',
+    ).readAsStringSync();
+
+    expect(homePage, contains('diagnosticICloudStorageBreakdownKey'));
+    expect(homePage, contains('diagnosticICloudPruneBundlesKey'));
+    expect(iCloudTransport, contains('fetchStorageBreakdown'));
+    expect(iCloudTransport, contains('pruneObsoleteData'));
+  });
 }

@@ -2438,10 +2438,100 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
+  Future<ICloudStorageBreakdown> fetchICloudStorageBreakdown() async {
+    final provider = ref.read(syncProviderControllerProvider);
+    if (provider != SyncProvider.iCloud) {
+      throw StateError('iCloud sync is not selected.');
+    }
+    _diagnostic('icloud storage breakdown requested');
+    final breakdown = await runFirebaseTrace(
+      'sync_icloud_storage_breakdown',
+      () => ref.read(iCloudSyncTransportProvider).fetchStorageBreakdown(),
+    );
+    _diagnostic(
+      'icloud storage breakdown loaded',
+      data: {
+        'bundleCount': breakdown.bundleCount,
+        'bundleBytes': breakdown.bundleBytes,
+        'attachmentCount': breakdown.attachmentCount,
+        'attachmentBytes': breakdown.attachmentBytes,
+        'totalBytes': breakdown.totalBytes,
+      },
+    );
+    return breakdown;
+  }
+
+  Future<ICloudMaintenanceResult> compactICloudStorage({
+    int keepLatest = 1,
+  }) async {
+    final provider = ref.read(syncProviderControllerProvider);
+    if (provider != SyncProvider.iCloud) {
+      throw StateError('iCloud sync is not selected.');
+    }
+    _diagnostic(
+      'icloud storage compact requested',
+      data: {'keepLatest': keepLatest},
+    );
+    await ref.read(notesControllerProvider.notifier).queueCurrentStateForSync();
+    await uploadCurrentBundle(force: true, pruneAfterUpload: false);
+    final localBundle = state.localBundle;
+    if (localBundle == null) {
+      throw StateError('sync.error.local_bundle_prepare_failed');
+    }
+    final referencedHashes = await _referencedAttachmentHashesFromBundle(
+      localBundle.reference,
+    );
+    final result = await runFirebaseTrace(
+      'sync_icloud_prune_obsolete_data',
+      () => ref
+          .read(iCloudSyncTransportProvider)
+          .pruneObsoleteData(
+            keepLatest: keepLatest,
+            referencedAttachmentHashes: referencedHashes,
+          ),
+    );
+    _diagnostic(
+      'icloud storage compact completed',
+      data: {
+        'deletedBundleCount': result.deletedBundleCount,
+        'deletedBundleBytes': result.deletedBundleBytes,
+        'deletedAttachmentCount': result.deletedAttachmentCount,
+        'deletedAttachmentBytes': result.deletedAttachmentBytes,
+        'referencedAttachmentHashes': referencedHashes.length,
+      },
+    );
+    await refreshRemoteStatus();
+    return result;
+  }
+
+  Future<Set<String>> _referencedAttachmentHashesFromBundle(
+    String reference,
+  ) async {
+    final decoded = await ref
+        .read(secureSyncBundleStoreProvider)
+        .readBundleJson(reference);
+    if (decoded == null) {
+      return const <String>{};
+    }
+    final hashes = <String>{};
+    for (final rawAttachment
+        in (decoded['attachments'] as List<dynamic>? ?? const <dynamic>[])) {
+      if (rawAttachment is! Map) {
+        continue;
+      }
+      final contentHash = rawAttachment['contentHash'] as String?;
+      if (contentHash != null && contentHash.isNotEmpty) {
+        hashes.add(contentHash);
+      }
+    }
+    return hashes;
+  }
+
   Future<void> uploadCurrentBundle({
     bool force = false,
     bool allowLargeMobileTransfer = false,
     bool silentLargeMobileSkip = false,
+    bool pruneAfterUpload = true,
   }) async {
     final provider = ref.read(syncProviderControllerProvider);
     _diagnostic(
@@ -2486,6 +2576,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     _startBusy(SyncTransferProgress.preparingBundle);
     try {
       await logFirebaseBreadcrumb('sync upload requested');
+      await ref.read(notesControllerProvider.notifier).queueCurrentStateForSync();
       final pendingChanges = await ref
           .read(syncEngineProvider)
           .loadPendingChanges();
@@ -2598,6 +2689,39 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       await ref.read(syncBundleStateStoreProvider).recordUpload(remoteStatus);
       ref.invalidate(syncBundleStateProvider);
+      if (provider == SyncProvider.iCloud && pruneAfterUpload) {
+        try {
+          final referencedHashes = await _referencedAttachmentHashesFromBundle(
+            bundle.reference,
+          );
+          final maintenance = await ref
+              .read(iCloudSyncTransportProvider)
+              .pruneObsoleteData(
+                keepLatest: 1,
+                referencedAttachmentHashes: referencedHashes,
+              );
+          _diagnostic(
+            'icloud post upload storage prune completed',
+            data: {
+              'deletedBundleCount': maintenance.deletedBundleCount,
+              'deletedBundleBytes': maintenance.deletedBundleBytes,
+              'deletedAttachmentCount': maintenance.deletedAttachmentCount,
+              'deletedAttachmentBytes': maintenance.deletedAttachmentBytes,
+              'referencedAttachmentHashes': referencedHashes.length,
+            },
+          );
+        } catch (error, stackTrace) {
+          _diagnostic(
+            'icloud post upload storage prune failed',
+            data: {'error': error},
+          );
+          await recordNonFatalError(
+            error,
+            stackTrace,
+            reason: 'icloud_post_upload_storage_prune_failed',
+          );
+        }
+      }
     } catch (error) {
       _diagnostic('upload failed', data: {'error': error});
       state = _failureState(
@@ -2734,14 +2858,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         );
         if (assessment.hasConflict && !forceUpload) {
           _diagnostic(
-            'sync conflict detected',
+            'sync conflict candidate detected',
             data: {'message': assessment.message},
           );
-          state = state.copyWith(
-            stage: SyncTransferStage.error,
-            message: 'sync.error.conflict_review_remote',
-          );
-          return;
         }
         _setProgress(SyncTransferProgress.downloadingBundle);
         final remoteBundle = await runFirebaseTrace(
@@ -2770,6 +2889,17 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             return;
           }
           appliedRemoteDuringSync = true;
+          final hasNoteConflicts = ref
+              .read(notesControllerProvider)
+              .any((note) => note.syncState == NoteSyncState.conflict);
+          if (hasNoteConflicts && !forceUpload) {
+            _diagnostic('sync note conflict requires review');
+            state = state.copyWith(
+              stage: SyncTransferStage.error,
+              message: 'sync.error.conflict_review_remote',
+            );
+            return;
+          }
         }
       }
 
@@ -3351,7 +3481,22 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         return attachment.copyWith(filePath: null, previewBytesBase64: null);
       }
       final inlinePayload = inlinePayloads[contentHash];
-      if (inlinePayload != null) {
+      final hasInlinePayload =
+          inlinePayload != null &&
+          ((inlinePayload['bytesBase64'] as String?)?.isNotEmpty == true ||
+              (inlinePayload['encryptedPayload'] as String?)?.isNotEmpty ==
+                  true);
+      if (inlinePayload != null && !hasInlinePayload) {
+        _diagnostic(
+          'remote attachment object metadata found',
+          data: {
+            'contentHash': contentHash,
+            'type': inlinePayload['type'],
+            'label': inlinePayload['label'],
+          },
+        );
+      }
+      if (inlinePayload != null && hasInlinePayload) {
         return _importInlineSyncAttachment(
           attachment: attachment,
           note: note,
@@ -6128,6 +6273,36 @@ class AttachmentPreviewFitController extends _$AttachmentPreviewFitController {
       (fit) => fit.name == stored,
       orElse: () => AttachmentPreviewFit.preview,
     );
+  }
+}
+
+final videoPlaybackMutedByDefaultControllerProvider =
+    NotifierProvider<VideoPlaybackMutedByDefaultController, bool>(
+      VideoPlaybackMutedByDefaultController.new,
+    );
+
+class VideoPlaybackMutedByDefaultController extends Notifier<bool> {
+  static const _storageKey = 'settings.video_playback_muted_by_default';
+  bool _restored = false;
+
+  @override
+  bool build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return true;
+  }
+
+  Future<void> setMuted(bool muted) async {
+    state = muted;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_storageKey, muted);
+  }
+
+  Future<void> _restore() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(_storageKey) ?? true;
   }
 }
 

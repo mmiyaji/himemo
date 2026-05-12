@@ -45,6 +45,38 @@ class ICloudSyncException implements Exception {
   String toString() => message;
 }
 
+class ICloudStorageBreakdown {
+  const ICloudStorageBreakdown({
+    required this.bundleCount,
+    required this.bundleBytes,
+    required this.attachmentCount,
+    required this.attachmentBytes,
+  });
+
+  final int bundleCount;
+  final int bundleBytes;
+  final int attachmentCount;
+  final int attachmentBytes;
+
+  int get totalBytes => bundleBytes + attachmentBytes;
+}
+
+class ICloudMaintenanceResult {
+  const ICloudMaintenanceResult({
+    required this.deletedBundleCount,
+    required this.deletedBundleBytes,
+    required this.deletedAttachmentCount,
+    required this.deletedAttachmentBytes,
+  });
+
+  final int deletedBundleCount;
+  final int deletedBundleBytes;
+  final int deletedAttachmentCount;
+  final int deletedAttachmentBytes;
+
+  int get deletedBytes => deletedBundleBytes + deletedAttachmentBytes;
+}
+
 abstract class ICloudSyncTransport {
   Future<ICloudAccountStatusResult> checkAccountStatus();
 
@@ -75,6 +107,13 @@ abstract class ICloudSyncTransport {
   Future<DownloadedRemoteSyncBundle?> downloadBundleByRecordName(
     String recordName,
   );
+
+  Future<ICloudStorageBreakdown> fetchStorageBreakdown();
+
+  Future<ICloudMaintenanceResult> pruneObsoleteData({
+    int keepLatest = 1,
+    required Set<String> referencedAttachmentHashes,
+  });
 }
 
 class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
@@ -251,6 +290,40 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
       return null;
     }
     return _downloadedBundleFromMap(result);
+  }
+
+  @override
+  Future<ICloudStorageBreakdown> fetchStorageBreakdown() async {
+    final result = await _invokeMap('cloudKitStorageBreakdown');
+    if (result == null) {
+      throw const FormatException('CloudKit did not return storage metadata.');
+    }
+    return ICloudStorageBreakdown(
+      bundleCount: _intFrom(result['bundleCount']),
+      bundleBytes: _intFrom(result['bundleBytes']),
+      attachmentCount: _intFrom(result['attachmentCount']),
+      attachmentBytes: _intFrom(result['attachmentBytes']),
+    );
+  }
+
+  @override
+  Future<ICloudMaintenanceResult> pruneObsoleteData({
+    int keepLatest = 1,
+    required Set<String> referencedAttachmentHashes,
+  }) async {
+    final result = await _invokeMap('cloudKitPruneObsoleteData', {
+      'keepLatest': keepLatest,
+      'referencedAttachmentHashes': referencedAttachmentHashes.toList()..sort(),
+    });
+    if (result == null) {
+      throw const FormatException('CloudKit did not return cleanup metadata.');
+    }
+    return ICloudMaintenanceResult(
+      deletedBundleCount: _intFrom(result['deletedBundleCount']),
+      deletedBundleBytes: _intFrom(result['deletedBundleBytes']),
+      deletedAttachmentCount: _intFrom(result['deletedAttachmentCount']),
+      deletedAttachmentBytes: _intFrom(result['deletedAttachmentBytes']),
+    );
   }
 
   Future<Map<String, dynamic>?> _invokeMap(
@@ -434,6 +507,15 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
       return null;
     }
     return DateTime.tryParse(value)?.toUtc();
+  }
+
+  int _intFrom(Object? value) {
+    return switch (value) {
+      int value => value,
+      double value => value.toInt(),
+      String value => int.tryParse(value) ?? 0,
+      _ => 0,
+    };
   }
 
   Map<String, dynamic> _stringMapFrom(Object? value) {

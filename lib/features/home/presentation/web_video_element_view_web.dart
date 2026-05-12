@@ -11,6 +11,7 @@ Widget buildWebVideoElementView({
   required String viewType,
   required String objectUrl,
   required bool autoplay,
+  required bool muted,
   required bool fillAvailableHeight,
 }) {
   if (_registeredVideoViews.add(viewType)) {
@@ -20,7 +21,7 @@ Widget buildWebVideoElementView({
         ..controls = true
         ..autoplay = autoplay
         ..preload = 'metadata'
-        ..muted = false
+        ..muted = muted
         ..style.width = '100%'
         ..style.height = '100%'
         ..style.objectFit = fillAvailableHeight ? 'contain' : 'cover'

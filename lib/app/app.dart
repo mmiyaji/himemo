@@ -1,6 +1,7 @@
-import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 
+import 'package:flutter/material.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -241,7 +242,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       'runtime.cloud_sync_automatic_attempted_at';
   static const _cloudSyncDebounceDelay = Duration(seconds: 2);
   static const _automaticCloudSyncAttemptMinInterval = Duration(seconds: 30);
-  static const _automaticCloudSyncRemoteMinInterval = Duration(minutes: 5);
+  static const _automaticCloudSyncRemoteMinInterval = Duration(minutes: 2);
   static const _automaticCloudSyncLocalChangeMinInterval = Duration(
     seconds: 30,
   );
@@ -253,6 +254,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   bool _cloudSyncRescheduleRequested = false;
   bool _cloudSyncScheduledForLocalChanges = false;
   bool _initialPendingCloudSyncScheduled = false;
+  bool _cloudSyncForeground = true;
+  bool _lifecyclePrivacyProtectionEnabled = false;
+  bool _lifecyclePrivacyCoverVisible = false;
   Duration? _cloudSyncRescheduleDelay;
   DateTime? _backgroundedAt;
   DateTime? _lastAutomaticCloudSyncSucceededAt;
@@ -288,12 +292,17 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _cloudSyncForeground = true;
       unawaited(_handleAppResumed());
       return;
     }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
+      _cloudSyncForeground = false;
+      _cloudSyncDebounceTimer?.cancel();
+      _cloudSyncScheduled = false;
+      _activateAppLockPrivacyCoverIfEnabled();
       unawaited(_markAppBackgrounded());
       unawaited(_lockImmediatelyIfConfigured());
     }
@@ -305,9 +314,31 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       _lockProtectedSessions(lockAppSession: false);
     }
     await _syncLockState(triggerPrompt: true);
+    _deactivateAppLockPrivacyCover();
     _refreshPrivateSessionTimer();
     _scheduleSeamlessCloudSync(respectForegroundBurst: true);
     _scheduleInitialPendingCloudSyncProbe();
+  }
+
+  void _activateAppLockPrivacyCoverIfEnabled() {
+    if (ref.read(appLockSettingsControllerProvider)) {
+      _setLifecyclePrivacyProtection(enabled: true, showCover: true);
+    }
+    unawaited(
+      _resolveAppLockPolicy().then((policy) {
+        if (!mounted || !policy.enabled) {
+          return;
+        }
+        _setLifecyclePrivacyProtection(enabled: true, showCover: true);
+      }),
+    );
+  }
+
+  void _deactivateAppLockPrivacyCover() {
+    if (!_lifecyclePrivacyProtectionEnabled && !_lifecyclePrivacyCoverVisible) {
+      return;
+    }
+    _setLifecyclePrivacyProtection(enabled: false, showCover: false);
   }
 
   Future<void> _markAppBackgrounded() async {
@@ -482,6 +513,34 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     } catch (_) {}
   }
 
+  void _setLifecyclePrivacyProtection({
+    required bool enabled,
+    required bool showCover,
+  }) {
+    if (_lifecyclePrivacyProtectionEnabled == enabled &&
+        _lifecyclePrivacyCoverVisible == showCover) {
+      return;
+    }
+    if (mounted) {
+      setState(() {
+        _lifecyclePrivacyProtectionEnabled = enabled;
+        _lifecyclePrivacyCoverVisible = showCover;
+      });
+    } else {
+      _lifecyclePrivacyProtectionEnabled = enabled;
+      _lifecyclePrivacyCoverVisible = showCover;
+    }
+    unawaited(_refreshNativePrivacyScreen());
+  }
+
+  Future<void> _refreshNativePrivacyScreen({bool? privatePrivacyActive}) {
+    final privacyScreenActive =
+        privatePrivacyActive ?? (ref.read(privacyScreenActiveProvider) == true);
+    return _setPrivacyScreenEnabled(
+      privacyScreenActive || _lifecyclePrivacyProtectionEnabled,
+    );
+  }
+
   void _refreshPrivateSessionTimer() {
     _privateSessionTimer?.cancel();
     if (!_isPrivateOrAdminActive()) {
@@ -518,6 +577,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     bool respectForegroundBurst = false,
     bool localChanges = false,
   }) {
+    if (!_cloudSyncForeground) {
+      return;
+    }
     if (localChanges) {
       _cloudSyncScheduledForLocalChanges = true;
     }
@@ -564,6 +626,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   Future<void> _runSeamlessCloudSync() async {
     try {
       if (!mounted) {
+        return;
+      }
+      if (!_cloudSyncForeground) {
         return;
       }
       final provider = ref.read(syncProviderControllerProvider);
@@ -614,6 +679,11 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
           _cloudSyncRescheduleDelay = _automaticCloudSyncRetryDelay(
             hasPendingChanges: hasPendingChanges,
           );
+        } else {
+          _cloudSyncRescheduleRequested = true;
+          _cloudSyncRescheduleDelay = _automaticCloudSyncRetryDelay(
+            hasPendingChanges: false,
+          );
         }
         return;
       }
@@ -639,6 +709,11 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         );
         if (remainingPendingChanges) {
           _cloudSyncRescheduleRequested = true;
+        } else {
+          _cloudSyncRescheduleRequested = true;
+          _cloudSyncRescheduleDelay = _automaticCloudSyncRetryDelay(
+            hasPendingChanges: false,
+          );
         }
       }
     } finally {
@@ -833,7 +908,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     );
 
     ref.listen<bool>(privacyScreenActiveProvider, (previous, next) {
-      unawaited(_setPrivacyScreenEnabled(next));
+      unawaited(_refreshNativePrivacyScreen(privatePrivacyActive: next));
     });
     ref.listen<SyncProvider>(syncProviderControllerProvider, (previous, next) {
       if (next != SyncProvider.off && next != previous) {
@@ -863,7 +938,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       );
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_setPrivacyScreenEnabled(privacyScreenActive));
+      unawaited(
+        _refreshNativePrivacyScreen(privatePrivacyActive: privacyScreenActive),
+      );
       if (!_initialPendingCloudSyncScheduled &&
           _hasPendingNotes(ref.read(notesControllerProvider))) {
         _initialPendingCloudSyncScheduled = true;
@@ -876,7 +953,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
 
     if (!enabled || unlocked || bypassForQuickCapture) {
       _refreshPrivateSessionTimer();
-      return Focus(
+      final unlockedContent = Focus(
         canRequestFocus: false,
         onKeyEvent: (_, _) {
           _refreshPrivateSessionTimer();
@@ -889,6 +966,13 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
           onPointerSignal: (_) => _refreshPrivateSessionTimer(),
           child: widget.child ?? const SizedBox.shrink(),
         ),
+      );
+      if (!_lifecyclePrivacyCoverVisible) {
+        return unlockedContent;
+      }
+      return Stack(
+        fit: StackFit.expand,
+        children: [unlockedContent, const _AppPrivacyCover()],
       );
     }
 
@@ -1094,6 +1178,49 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         IgnorePointer(child: ExcludeFocus(child: child)),
         lockScreen,
       ],
+    );
+  }
+}
+
+class _AppPrivacyCover extends StatelessWidget {
+  const _AppPrivacyCover();
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: ColoredBox(
+            color: colorScheme.surface.withValues(alpha: 0.88),
+            child: Center(
+              child: Container(
+                width: 96,
+                height: 96,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.92,
+                  ),
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: [
+                    BoxShadow(
+                      color: colorScheme.shadow.withValues(alpha: 0.10),
+                      blurRadius: 28,
+                      offset: const Offset(0, 14),
+                    ),
+                  ],
+                ),
+                child: Image.asset(
+                  'assets/app-icon.png',
+                  filterQuality: FilterQuality.medium,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
