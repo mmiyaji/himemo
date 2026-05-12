@@ -16008,7 +16008,7 @@ class _EditableAttachmentTile extends StatelessWidget {
         _AttachmentListTile(
           attachment: attachment,
           showShareAction: false,
-          trailingActionWidth: 144,
+          trailingActionWidth: 108,
         ),
         Positioned(
           top: 8,
@@ -16019,16 +16019,37 @@ class _EditableAttachmentTile extends StatelessWidget {
                 onPressed: onMovePrevious,
                 icon: const Icon(Icons.chevron_left_rounded),
                 tooltip: context.strings.moveEarlier,
+                visualDensity: VisualDensity.compact,
+                iconSize: 18,
+                padding: const EdgeInsets.all(6),
+                constraints: const BoxConstraints.tightFor(
+                  width: 32,
+                  height: 32,
+                ),
               ),
               IconButton(
                 onPressed: onMoveNext,
                 icon: const Icon(Icons.chevron_right_rounded),
                 tooltip: context.strings.moveLater,
+                visualDensity: VisualDensity.compact,
+                iconSize: 18,
+                padding: const EdgeInsets.all(6),
+                constraints: const BoxConstraints.tightFor(
+                  width: 32,
+                  height: 32,
+                ),
               ),
               IconButton(
                 onPressed: onRemove,
                 icon: const Icon(Icons.close_rounded),
                 tooltip: context.strings.removeBlock,
+                visualDensity: VisualDensity.compact,
+                iconSize: 18,
+                padding: const EdgeInsets.all(6),
+                constraints: const BoxConstraints.tightFor(
+                  width: 32,
+                  height: 32,
+                ),
               ),
             ],
           ),
@@ -16051,55 +16072,71 @@ class _AttachmentListTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Container(
-      decoration: _sectionDecoration(context),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _openAttachmentViewer(context, ref, attachment),
-          borderRadius: BorderRadius.circular(6),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _AttachmentPreview(attachment: attachment),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        attachment.label,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact =
+            constraints.hasBoundedWidth &&
+            constraints.maxWidth < 340 &&
+            !showShareAction;
+        final previewSize = compact ? 56.0 : 72.0;
+        final previewGap = compact ? 8.0 : 12.0;
+        return Container(
+          decoration: _sectionDecoration(context),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => _openAttachmentViewer(context, ref, attachment),
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _AttachmentPreview(
+                      attachment: attachment,
+                      size: previewSize,
+                    ),
+                    SizedBox(width: previewGap),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            attachment.label,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _attachmentDescription(context, attachment),
+                            maxLines: compact ? 1 : null,
+                            overflow: compact ? TextOverflow.ellipsis : null,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: _mutedTextColor(context)),
+                          ),
+                          const SizedBox(height: 2),
+                          _AttachmentSizeText(attachment: attachment),
+                        ],
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _attachmentDescription(context, attachment),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: _mutedTextColor(context),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      _AttachmentSizeText(attachment: attachment),
-                    ],
-                  ),
+                    ),
+                    if (showShareAction)
+                      IconButton(
+                        onPressed: () =>
+                            _shareAttachment(context, ref, attachment),
+                        icon: const Icon(Icons.share_outlined),
+                        tooltip: context.strings.share,
+                      )
+                    else if (trailingActionWidth > 0)
+                      SizedBox(width: trailingActionWidth),
+                  ],
                 ),
-                if (showShareAction)
-                  IconButton(
-                    onPressed: () => _shareAttachment(context, ref, attachment),
-                    icon: const Icon(Icons.share_outlined),
-                    tooltip: context.strings.share,
-                  )
-                else if (trailingActionWidth > 0)
-                  SizedBox(width: trailingActionWidth),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -16142,7 +16179,11 @@ Future<void> _shareAttachment(
       await SharePlus.instance.share(
         ShareParams(
           files: [
-            XFile.fromData(Uint8List.fromList(bytes), name: attachment.label),
+            XFile.fromData(
+              Uint8List.fromList(bytes),
+              name: attachment.label,
+              mimeType: _mimeTypeForAttachment(attachment),
+            ),
           ],
           text: attachment.label,
         ),
@@ -16168,10 +16209,19 @@ Future<void> _shareAttachment(
     }
     try {
       await SharePlus.instance.share(
-        ShareParams(files: [XFile(tempFilePath)], text: attachment.label),
+        ShareParams(
+          files: [
+            XFile(
+              tempFilePath,
+              name: attachment.label,
+              mimeType: _mimeTypeForAttachment(attachment),
+            ),
+          ],
+          text: attachment.label,
+        ),
       );
     } finally {
-      await attachmentStore.deleteMaterializedFile(tempFilePath);
+      _scheduleSharedAttachmentCleanup(attachmentStore, tempFilePath);
     }
   } on HimemoDecryptionException {
     if (context.mounted) {
@@ -16183,6 +16233,68 @@ Future<void> _shareAttachment(
       );
     }
   }
+}
+
+void _scheduleSharedAttachmentCleanup(
+  EncryptedAttachmentStore attachmentStore,
+  String tempFilePath,
+) {
+  unawaited(
+    Future<void>.delayed(const Duration(minutes: 10), () async {
+      try {
+        await attachmentStore.deleteMaterializedFile(tempFilePath);
+      } catch (_) {}
+    }),
+  );
+}
+
+String _mimeTypeForAttachment(NoteAttachment attachment) {
+  return switch (attachment.type) {
+    AttachmentType.photo => _mimeTypeForPhotoAttachment(attachment),
+    AttachmentType.video => _mimeTypeForVideoAttachment(attachment),
+    AttachmentType.audio => _mimeTypeForAudioAttachment(attachment),
+    AttachmentType.file => _mimeTypeForFileAttachment(attachment),
+  };
+}
+
+String _mimeTypeForPhotoAttachment(NoteAttachment attachment) {
+  final label = attachment.label.toLowerCase();
+  if (label.endsWith('.png')) {
+    return 'image/png';
+  }
+  if (label.endsWith('.gif')) {
+    return 'image/gif';
+  }
+  if (label.endsWith('.webp')) {
+    return 'image/webp';
+  }
+  if (label.endsWith('.heic')) {
+    return 'image/heic';
+  }
+  if (label.endsWith('.heif')) {
+    return 'image/heif';
+  }
+  return 'image/jpeg';
+}
+
+String _mimeTypeForFileAttachment(NoteAttachment attachment) {
+  final label = attachment.label.toLowerCase();
+  if (label.endsWith('.pdf')) {
+    return 'application/pdf';
+  }
+  if (label.endsWith('.txt') || label.endsWith('.md')) {
+    return 'text/plain';
+  }
+  if (label.endsWith('.csv')) {
+    return 'text/csv';
+  }
+  if (label.endsWith('.json')) {
+    return 'application/json';
+  }
+  if (label.endsWith('.zip')) {
+    return 'application/zip';
+  }
+  return 'application/octet-stream';
 }
 
 class _EmbeddedAttachmentBlock extends ConsumerWidget {
@@ -20723,60 +20835,14 @@ class _LightboxTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.48),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        children: [
-          IconButton(
-            onPressed: onClose,
-            icon: const Icon(Icons.close_rounded, color: Colors.white),
-            tooltip: strings.close,
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  attachment.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (metadataLabel != null && metadataLabel!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      metadataLabel!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          IconButton(
-            onPressed: canMovePrevious ? onPrevious : null,
-            icon: const Icon(Icons.chevron_left_rounded, color: Colors.white),
-            tooltip: strings.previousImage,
-          ),
-          IconButton(
-            onPressed: canMoveNext ? onNext : null,
-            icon: const Icon(Icons.chevron_right_rounded, color: Colors.white),
-            tooltip: strings.nextImage,
-          ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : double.infinity;
+        final compact = width < 390;
+        final veryCompact = width < 330;
+        final zoomActions = <Widget>[
           if (onZoomOut != null)
             IconButton(
               onPressed: onZoomOut,
@@ -20798,28 +20864,140 @@ class _LightboxTopBar extends StatelessWidget {
               ),
               tooltip: strings.fitToScreen,
             ),
-          if (onToggleEdgeToEdge != null)
-            IconButton(
-              onPressed: onToggleEdgeToEdge,
-              icon: Icon(
-                edgeToEdge
-                    ? Icons.fullscreen_exit_rounded
-                    : Icons.fullscreen_rounded,
-                color: Colors.white,
+        ];
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.48),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: [
+              IconButton(
+                onPressed: onClose,
+                icon: const Icon(Icons.close_rounded, color: Colors.white),
+                tooltip: strings.close,
               ),
-              tooltip: edgeToEdge ? strings.restoreFrame : strings.maximize,
-            ),
-          if (onShare != null)
-            IconButton(
-              onPressed: onShare,
-              icon: const Icon(Icons.share_outlined, color: Colors.white),
-              tooltip: strings.share,
-            ),
-        ],
-      ),
+              if (!compact) ...[
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        attachment.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (metadataLabel != null && metadataLabel!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            metadataLabel!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ] else
+                const Spacer(),
+              IconButton(
+                onPressed: canMovePrevious ? onPrevious : null,
+                icon: const Icon(
+                  Icons.chevron_left_rounded,
+                  color: Colors.white,
+                ),
+                tooltip: strings.previousImage,
+              ),
+              IconButton(
+                onPressed: canMoveNext ? onNext : null,
+                icon: const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Colors.white,
+                ),
+                tooltip: strings.nextImage,
+              ),
+              if (veryCompact && zoomActions.isNotEmpty)
+                PopupMenuButton<_LightboxOverflowAction>(
+                  tooltip: strings.localized(
+                    en: 'More',
+                    ja: 'その他',
+                    zh: '更多',
+                    ko: '더보기',
+                    es: 'Mas',
+                    de: 'Mehr',
+                  ),
+                  icon: const Icon(
+                    Icons.more_horiz_rounded,
+                    color: Colors.white,
+                  ),
+                  onSelected: (action) {
+                    switch (action) {
+                      case _LightboxOverflowAction.zoomOut:
+                        onZoomOut?.call();
+                      case _LightboxOverflowAction.zoomIn:
+                        onZoomIn?.call();
+                      case _LightboxOverflowAction.reset:
+                        onReset?.call();
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    if (onZoomOut != null)
+                      PopupMenuItem(
+                        value: _LightboxOverflowAction.zoomOut,
+                        child: Text(strings.zoomOut),
+                      ),
+                    if (onZoomIn != null)
+                      PopupMenuItem(
+                        value: _LightboxOverflowAction.zoomIn,
+                        child: Text(strings.zoomIn),
+                      ),
+                    if (onReset != null)
+                      PopupMenuItem(
+                        value: _LightboxOverflowAction.reset,
+                        child: Text(strings.fitToScreen),
+                      ),
+                  ],
+                )
+              else
+                ...zoomActions,
+              if (onToggleEdgeToEdge != null)
+                IconButton(
+                  onPressed: onToggleEdgeToEdge,
+                  icon: Icon(
+                    edgeToEdge
+                        ? Icons.fullscreen_exit_rounded
+                        : Icons.fullscreen_rounded,
+                    color: Colors.white,
+                  ),
+                  tooltip: edgeToEdge ? strings.restoreFrame : strings.maximize,
+                ),
+              if (onShare != null)
+                IconButton(
+                  onPressed: onShare,
+                  icon: const Icon(Icons.share_outlined, color: Colors.white),
+                  tooltip: strings.share,
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
+
+enum _LightboxOverflowAction { zoomOut, zoomIn, reset }
 
 class _LightboxEdgeButton extends StatelessWidget {
   const _LightboxEdgeButton({

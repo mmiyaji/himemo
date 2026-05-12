@@ -76,4 +76,21 @@ void main() {
     expect(iCloudTransport, contains('fetchStorageBreakdown'));
     expect(iCloudTransport, contains('pruneObsoleteData'));
   });
+
+  test('native attachment sharing keeps materialized files readable', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+
+    expect(homePage, contains('_scheduleSharedAttachmentCleanup'));
+    expect(homePage, contains('mimeType: _mimeTypeForAttachment(attachment)'));
+    expect(
+      homePage,
+      isNot(
+        contains(
+          'finally {\n      await attachmentStore.deleteMaterializedFile(tempFilePath);',
+        ),
+      ),
+    );
+  });
 }

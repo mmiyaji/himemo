@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +12,7 @@ import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
 import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -382,6 +385,89 @@ void main() {
       trigger: find.text('Help and FAQ'),
       expectedUrl: 'https://mmiyaji.github.io/himemo/help.html',
     );
+  });
+
+  testWidgets('video attachment share opens Android share sheet', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const HiMemoApp(flavor: AppFlavor.development),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+
+    final source = File('${Directory.systemTemp.path}/himemo-share-test.mp4');
+    await source.writeAsBytes(<int>[
+      0,
+      0,
+      0,
+      24,
+      102,
+      116,
+      121,
+      112,
+      109,
+      112,
+      52,
+      50,
+    ]);
+    final attachmentStore = container.read(encryptedAttachmentStoreProvider);
+    final storedPath = await attachmentStore.storeAttachment(
+      XFile(source.path, name: 'himemo-share-test.mp4', mimeType: 'video/mp4'),
+      type: AttachmentType.video,
+    );
+    expect(storedPath, isNotNull);
+    final attachment = NoteAttachment(
+      type: AttachmentType.video,
+      label: 'himemo-share-test.mp4',
+      filePath: storedPath,
+    );
+
+    await container
+        .read(notesControllerProvider.notifier)
+        .upsert(
+          NoteEntry(
+            id: 'android-share-video-note',
+            vaultId: 'everyday',
+            title: 'Android share video note',
+            body: 'Video attachment share verification.',
+            createdAt: DateTime.utc(2026, 5, 13, 0, 0),
+            updatedAt: DateTime.utc(2026, 5, 13, 0, 1),
+            attachments: [attachment],
+            editorMode: NoteEditorMode.quick,
+          ),
+        );
+    await tester.pumpAndSettle();
+
+    container.read(appRouterProvider).go('/notes');
+    await tester.pumpAndSettle();
+    await _scrollIntoViewIfNeeded(
+      tester,
+      find.text('Android share video note'),
+    );
+    await tester.tap(find.text('Android share video note').first);
+    await tester.pumpAndSettle();
+
+    await _waitForFinder(tester, find.byTooltip('Share'));
+    await tester.tap(find.byTooltip('Share').last, warnIfMissed: false);
+    await tester.pump(const Duration(seconds: 3));
+    debugPrint('E2E step: video attachment share tapped');
   });
 }
 
