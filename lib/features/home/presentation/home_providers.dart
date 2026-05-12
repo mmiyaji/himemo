@@ -735,20 +735,26 @@ class DeviceAuthState {
     required this.availability,
     required this.methods,
     this.lastError,
+    this.isAuthenticating = false,
   });
 
   const DeviceAuthState.unknown()
     : availability = DeviceAuthAvailability.unknown,
       methods = const [],
-      lastError = null;
+      lastError = null,
+      isAuthenticating = false;
 
   final DeviceAuthAvailability availability;
   final List<String> methods;
   final String? lastError;
+  final bool isAuthenticating;
 
   bool get isAvailable => availability == DeviceAuthAvailability.available;
 
   String get summary {
+    if (isAuthenticating) {
+      return 'Waiting for device authentication...';
+    }
     if (isAvailable && methods.isNotEmpty) {
       return methods.join(', ');
     }
@@ -759,6 +765,21 @@ class DeviceAuthState {
       return lastError!;
     }
     return 'Biometric or device credential is not available on this device.';
+  }
+
+  DeviceAuthState copyWith({
+    DeviceAuthAvailability? availability,
+    List<String>? methods,
+    String? lastError,
+    bool clearLastError = false,
+    bool? isAuthenticating,
+  }) {
+    return DeviceAuthState(
+      availability: availability ?? this.availability,
+      methods: methods ?? this.methods,
+      lastError: clearLastError ? null : (lastError ?? this.lastError),
+      isAuthenticating: isAuthenticating ?? this.isAuthenticating,
+    );
   }
 }
 
@@ -2576,7 +2597,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     _startBusy(SyncTransferProgress.preparingBundle);
     try {
       await logFirebaseBreadcrumb('sync upload requested');
-      await ref.read(notesControllerProvider.notifier).queueCurrentStateForSync();
+      await ref
+          .read(notesControllerProvider.notifier)
+          .queueCurrentStateForSync();
       final pendingChanges = await ref
           .read(syncEngineProvider)
           .loadPendingChanges();
@@ -4806,6 +4829,8 @@ final deviceAuthControllerProvider =
     );
 
 class DeviceAuthController extends Notifier<DeviceAuthState> {
+  Future<bool>? _pendingAuthentication;
+
   @override
   DeviceAuthState build() {
     unawaited(refresh());
@@ -4813,21 +4838,48 @@ class DeviceAuthController extends Notifier<DeviceAuthState> {
   }
 
   Future<void> refresh() async {
-    state = await ref.read(deviceAuthGatewayProvider).checkAvailability();
+    final refreshed = await ref
+        .read(deviceAuthGatewayProvider)
+        .checkAvailability();
+    state = refreshed.copyWith(
+      isAuthenticating: _pendingAuthentication != null,
+    );
   }
 
   Future<bool> authenticate({
     required String reason,
     bool biometricOnly = false,
   }) async {
-    final authenticated = await ref
-        .read(deviceAuthGatewayProvider)
-        .authenticate(reason: reason, biometricOnly: biometricOnly);
-    await refresh();
-    if (authenticated) {
-      ref.read(appSessionUnlockControllerProvider.notifier).unlock();
+    final pendingAuthentication = _pendingAuthentication;
+    if (pendingAuthentication != null) {
+      return pendingAuthentication;
     }
-    return authenticated;
+    state = state.copyWith(isAuthenticating: true);
+    final future = _runAuthentication(
+      reason: reason,
+      biometricOnly: biometricOnly,
+    );
+    _pendingAuthentication = future;
+    return future;
+  }
+
+  Future<bool> _runAuthentication({
+    required String reason,
+    required bool biometricOnly,
+  }) async {
+    var authenticated = false;
+    try {
+      authenticated = await ref
+          .read(deviceAuthGatewayProvider)
+          .authenticate(reason: reason, biometricOnly: biometricOnly);
+      if (authenticated) {
+        ref.read(appSessionUnlockControllerProvider.notifier).unlock();
+      }
+      return authenticated;
+    } finally {
+      _pendingAuthentication = null;
+      await refresh();
+    }
   }
 }
 

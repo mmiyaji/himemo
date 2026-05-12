@@ -303,6 +303,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       _cloudSyncDebounceTimer?.cancel();
       _cloudSyncScheduled = false;
       _activateAppLockPrivacyCoverIfEnabled();
+      if (ref.read(deviceAuthControllerProvider).isAuthenticating) {
+        return;
+      }
       unawaited(_markAppBackgrounded());
       unawaited(_lockImmediatelyIfConfigured());
     }
@@ -1101,19 +1104,44 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                                     const _PinUnlockPanel()
                                   else if (canUseDeviceAuth)
                                     FilledButton.icon(
-                                      onPressed: () async {
-                                        await ref
-                                            .read(
-                                              deviceAuthControllerProvider
-                                                  .notifier,
+                                      onPressed: authState.isAuthenticating
+                                          ? null
+                                          : () async {
+                                              await ref
+                                                  .read(
+                                                    deviceAuthControllerProvider
+                                                        .notifier,
+                                                  )
+                                                  .authenticate(
+                                                    reason:
+                                                        'Unlock HiMemo with device authentication',
+                                                  );
+                                            },
+                                      icon: authState.isAuthenticating
+                                          ? SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2.2,
+                                                valueColor:
+                                                    AlwaysStoppedAnimation<
+                                                      Color
+                                                    >(colorScheme.onPrimary),
+                                              ),
                                             )
-                                            .authenticate(
-                                              reason:
-                                                  'Unlock HiMemo with device authentication',
-                                            );
-                                      },
-                                      icon: const Icon(Icons.lock_open_rounded),
-                                      label: Text(strings.authenticate),
+                                          : const Icon(Icons.lock_open_rounded),
+                                      label: Text(
+                                        authState.isAuthenticating
+                                            ? strings.localized(
+                                                en: 'Authenticating...',
+                                                ja: '認証中...',
+                                                zh: '正在认证...',
+                                                ko: '인증 중...',
+                                                es: 'Autenticando...',
+                                                de: 'Authentifizierung...',
+                                              )
+                                            : strings.authenticate,
+                                      ),
                                     )
                                   else
                                     Text(
