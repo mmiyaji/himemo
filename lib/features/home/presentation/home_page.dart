@@ -8165,6 +8165,22 @@ class _NoteListTile extends StatelessWidget {
     final tags = note.normalizedTags;
     final previewFacts = _notePreviewFacts(note);
     final hasLocationPreview = _firstLocationPreview(note) != null;
+    final showLocationPreviewIconOnly =
+        attachmentPreviewFit == AttachmentPreviewFit.icon && hasLocationPreview;
+    final visiblePreviewFacts =
+        (showLocationPreviewIconOnly
+                ? previewFacts.where(
+                    (fact) => fact.icon != Icons.location_on_outlined,
+                  )
+                : previewFacts)
+            .take(3)
+            .toList(growable: false);
+    final hasCompactMediaAttachment = note.attachments.any(
+      (attachment) =>
+          attachment.type == AttachmentType.photo ||
+          attachment.type == AttachmentType.video ||
+          attachment.type == AttachmentType.audio,
+    );
     final hasDistinctBody =
         bodyPreview.isNotEmpty && bodyPreview != note.title.trim();
     final showAttachmentPreviews = density != NotesListDensity.compact;
@@ -8234,6 +8250,14 @@ class _NoteListTile extends StatelessWidget {
                     color: _mutedTextColor(context),
                   ),
                 ],
+                if (hasCompactMediaAttachment) ...[
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.perm_media_outlined,
+                    size: 14,
+                    color: _mutedTextColor(context),
+                  ),
+                ],
               ],
             ),
           ),
@@ -8291,14 +8315,19 @@ class _NoteListTile extends StatelessWidget {
                     color: _strongMutedTextColor(context),
                   ),
                 ),
-              if (previewFacts.isNotEmpty) ...[
+              if (visiblePreviewFacts.isNotEmpty ||
+                  showLocationPreviewIconOnly) ...[
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
                   children: [
-                    for (final fact in previewFacts.take(3))
+                    for (final fact in visiblePreviewFacts)
                       _NotePreviewFactChip(fact: fact),
+                    if (showLocationPreviewIconOnly)
+                      const _NotePreviewFactIcon(
+                        icon: Icons.location_on_outlined,
+                      ),
                   ],
                 ),
               ],
@@ -8639,6 +8668,21 @@ class _NotePreviewFactChip extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _NotePreviewFactIcon extends StatelessWidget {
+  const _NotePreviewFactIcon({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+      child: Icon(icon, size: 16, color: colorScheme.onSurfaceVariant),
     );
   }
 }
