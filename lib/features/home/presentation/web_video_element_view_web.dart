@@ -6,6 +6,7 @@ import 'dart:ui_web' as ui_web;
 import 'package:flutter/widgets.dart';
 
 final _registeredVideoViews = <String>{};
+final _videoElementsByViewType = <String, html.VideoElement>{};
 
 Widget buildWebVideoElementView({
   required String viewType,
@@ -27,8 +28,13 @@ Widget buildWebVideoElementView({
         ..style.objectFit = fillAvailableHeight ? 'contain' : 'cover'
         ..style.backgroundColor = 'black';
       video.setAttribute('playsinline', 'true');
+      _videoElementsByViewType[viewType] = video;
       return video;
     });
   }
   return HtmlElementView(viewType: viewType);
+}
+
+void updateWebVideoElementMuted(String viewType, bool muted) {
+  _videoElementsByViewType[viewType]?.muted = muted;
 }

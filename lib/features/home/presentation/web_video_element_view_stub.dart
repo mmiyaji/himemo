@@ -9,3 +9,5 @@ Widget buildWebVideoElementView({
 }) {
   return const SizedBox.shrink();
 }
+
+void updateWebVideoElementMuted(String viewType, bool muted) {}

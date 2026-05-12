@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:himemo/app/app.dart';
@@ -11,6 +13,76 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets(
+    'device auth stays single-flight while lifecycle changes during unlock',
+    (tester) async {
+      tester.view.physicalSize = const Size(430, 932);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      SharedPreferences.setMockInitialValues({
+        'app.onboarding_completed': true,
+        'app.onboarding_completed_version': 2,
+        'settings.locale': 'english',
+        'settings.app_lock_enabled': true,
+        'settings.app_lock_relock_delay': 'immediate',
+      });
+      final fakeDeviceAuthGateway = _DelayedDeviceAuthGateway();
+      final container = ProviderContainer(
+        overrides: [
+          deviceAuthGatewayProvider.overrideWithValue(fakeDeviceAuthGateway),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      configureFlavor(AppFlavor.development);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const TooltipVisibility(
+            visible: false,
+            child: HiMemoApp(flavor: AppFlavor.development),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 1200));
+      await tester.pump();
+
+      expect(find.text('Unlock HiMemo'), findsOneWidget);
+      expect(fakeDeviceAuthGateway.authenticateCallCount, 1);
+      expect(
+        container.read(deviceAuthControllerProvider).isAuthenticating,
+        isTrue,
+      );
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+
+      expect(fakeDeviceAuthGateway.authenticateCallCount, 1);
+      expect(
+        container.read(deviceAuthControllerProvider).isAuthenticating,
+        isTrue,
+      );
+
+      fakeDeviceAuthGateway.complete(true);
+      await tester.pumpAndSettle();
+
+      expect(fakeDeviceAuthGateway.authenticateCallCount, 1);
+      expect(container.read(appSessionUnlockControllerProvider), isTrue);
+      expect(find.text('Unlock HiMemo'), findsNothing);
+    },
+  );
 
   testWidgets(
     'private profiles unlock hidden save targets and app relock closes them again',
@@ -213,5 +285,34 @@ class _FakeDeviceAuthGateway implements DeviceAuthGateway {
       availability: DeviceAuthAvailability.available,
       methods: ['Fingerprint', 'Device credential'],
     );
+  }
+}
+
+class _DelayedDeviceAuthGateway implements DeviceAuthGateway {
+  final Completer<bool> _authenticateCompleter = Completer<bool>();
+  int authenticateCallCount = 0;
+
+  @override
+  Future<bool> authenticate({
+    required String reason,
+    bool biometricOnly = false,
+  }) {
+    authenticateCallCount += 1;
+    return _authenticateCompleter.future;
+  }
+
+  @override
+  Future<DeviceAuthState> checkAvailability() async {
+    return const DeviceAuthState(
+      availability: DeviceAuthAvailability.available,
+      methods: ['Fingerprint', 'Device credential'],
+    );
+  }
+
+  void complete(bool value) {
+    if (_authenticateCompleter.isCompleted) {
+      return;
+    }
+    _authenticateCompleter.complete(value);
   }
 }

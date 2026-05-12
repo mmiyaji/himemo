@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
@@ -892,6 +893,39 @@ void main() {
     expect(container.read(privateVaultLockOnAppLockControllerProvider), isTrue);
   });
 
+  test(
+    'device auth controller serializes concurrent unlock attempts',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final gateway = _FakeDeviceAuthGateway();
+      final container = ProviderContainer(
+        overrides: [deviceAuthGatewayProvider.overrideWithValue(gateway)],
+      );
+      addTearDown(container.dispose);
+
+      final controller = container.read(deviceAuthControllerProvider.notifier);
+      final firstAttempt = controller.authenticate(reason: 'Unlock HiMemo');
+      final secondAttempt = controller.authenticate(reason: 'Unlock HiMemo');
+
+      expect(
+        container.read(deviceAuthControllerProvider).isAuthenticating,
+        isTrue,
+      );
+      expect(gateway.authenticateCalls, 1);
+
+      gateway.completeAuthentication(true);
+
+      expect(await firstAttempt, isTrue);
+      expect(await secondAttempt, isTrue);
+      expect(gateway.authenticateCalls, 1);
+      expect(
+        container.read(deviceAuthControllerProvider).isAuthenticating,
+        isFalse,
+      );
+      expect(container.read(appSessionUnlockControllerProvider), isTrue);
+    },
+  );
+
   testWidgets('app renders HiMemo shell', (tester) async {
     SharedPreferences.setMockInitialValues({
       'app.onboarding_completed': true,
@@ -1364,4 +1398,33 @@ class MemoryHomeRepository implements HomeRepository {
   List<VaultBucket> get vaults => const [
     VaultBucket(id: 'everyday', name: 'Notes', description: ''),
   ];
+}
+
+class _FakeDeviceAuthGateway implements DeviceAuthGateway {
+  int authenticateCalls = 0;
+  final Completer<bool> _authenticateCompleter = Completer<bool>();
+
+  @override
+  Future<DeviceAuthState> checkAvailability() async {
+    return const DeviceAuthState(
+      availability: DeviceAuthAvailability.available,
+      methods: ['Face ID'],
+    );
+  }
+
+  @override
+  Future<bool> authenticate({
+    required String reason,
+    bool biometricOnly = false,
+  }) {
+    authenticateCalls += 1;
+    return _authenticateCompleter.future;
+  }
+
+  void completeAuthentication(bool value) {
+    if (_authenticateCompleter.isCompleted) {
+      return;
+    }
+    _authenticateCompleter.complete(value);
+  }
 }
