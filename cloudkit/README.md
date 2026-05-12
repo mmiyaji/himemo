@@ -8,6 +8,7 @@ Authoritative files:
 - `../ios/Runner/AppDelegate.swift`: the native CloudKit field names used at runtime.
 
 The app uses the CloudKit private database in container `iCloud.org.ruhenheim.himemo`.
+Sync records are stored in the custom zone `HiMemoSyncZone`; the app creates this zone if it is missing.
 
 ## Current Record Types
 

@@ -13,6 +13,7 @@ import Network
   private let appGroupIdentifier = "group.org.ruhenheim.himemo"
   private let pendingQuickCaptureFileName = "pending_quick_capture.json"
   private let cloudKitContainerIdentifier = "iCloud.org.ruhenheim.himemo"
+  private let cloudKitZoneName = "HiMemoSyncZone"
   private let cloudKitRecordType = "HiMemoSyncBundle"
   private let cloudKitAttachmentRecordType = "HiMemoSyncAttachment"
   private let cloudKitAssetField = "bundleAsset"
@@ -33,6 +34,10 @@ import Network
   private var pendingQuickCapturePayload: [String: Any]?
   private var privacyProtectionEnabled = false
   private var privacyOverlayView: UIVisualEffectView?
+
+  private var cloudKitSyncZoneID: CKRecordZone.ID {
+    CKRecordZone.ID(zoneName: cloudKitZoneName, ownerName: CKCurrentUserDefaultName)
+  }
 
   override func application(
     _ application: UIApplication,
@@ -574,7 +579,10 @@ import Network
     result: @escaping FlutterResult
   ) {
     withAvailableCloudKit(result: result) { database in
-      let recordID = CKRecord.ID(recordName: "sync-\(UUID().uuidString)")
+      let recordID = CKRecord.ID(
+        recordName: "sync-\(UUID().uuidString)",
+        zoneID: self.cloudKitSyncZoneID
+      )
       let record = CKRecord(recordType: self.cloudKitRecordType, recordID: recordID)
       let temporaryURL = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("\(recordID.recordName).enc")
@@ -643,7 +651,12 @@ import Network
 
   private func downloadCloudKitBundle(recordName: String, result: @escaping FlutterResult) {
     withAvailableCloudKit(result: result) { database in
-      database.fetch(withRecordID: CKRecord.ID(recordName: recordName)) { record, error in
+      database.fetch(
+        withRecordID: CKRecord.ID(
+          recordName: recordName,
+          zoneID: self.cloudKitSyncZoneID
+        )
+      ) { record, error in
         if let error {
           DispatchQueue.main.async {
             result(self.flutterError(from: error))
@@ -670,7 +683,10 @@ import Network
     result: @escaping FlutterResult
   ) {
     withAvailableCloudKit(result: result) { database in
-      let recordID = CKRecord.ID(recordName: "attachment-\(contentHash)")
+      let recordID = CKRecord.ID(
+        recordName: "attachment-\(contentHash)",
+        zoneID: self.cloudKitSyncZoneID
+      )
       database.fetch(withRecordID: recordID) { existingRecord, fetchError in
         if existingRecord != nil {
           DispatchQueue.main.async {
@@ -740,7 +756,10 @@ import Network
     result: @escaping FlutterResult
   ) {
     withAvailableCloudKit(result: result) { database in
-      let recordID = CKRecord.ID(recordName: "attachment-\(contentHash)")
+      let recordID = CKRecord.ID(
+        recordName: "attachment-\(contentHash)",
+        zoneID: self.cloudKitSyncZoneID
+      )
       database.fetch(withRecordID: recordID) { record, error in
         if let error = error as? CKError, error.code == .unknownItem {
           DispatchQueue.main.async {
@@ -934,7 +953,37 @@ import Network
         }
         return
       }
-      action(container.privateCloudDatabase)
+      let database = container.privateCloudDatabase
+      self.ensureCloudKitSyncZone(database: database) { error in
+        if let error {
+          DispatchQueue.main.async {
+            result(self.flutterError(from: error))
+          }
+          return
+        }
+        action(database)
+      }
+    }
+  }
+
+  private func ensureCloudKitSyncZone(
+    database: CKDatabase,
+    completion: @escaping (Error?) -> Void
+  ) {
+    let zoneID = cloudKitSyncZoneID
+    database.fetch(withRecordZoneID: zoneID) { zone, error in
+      if zone != nil {
+        completion(nil)
+        return
+      }
+      if let cloudError = error as? CKError, cloudError.code != .zoneNotFound {
+        completion(cloudError)
+        return
+      }
+      let zone = CKRecordZone(zoneID: zoneID)
+      database.save(zone) { _, saveError in
+        completion(saveError)
+      }
     }
   }
 
@@ -943,22 +992,13 @@ import Network
     limit: Int,
     completion: @escaping ([CKRecord], Error?) -> Void
   ) {
-    let query = CKQuery(
+    fetchAllCloudKitRecords(
+      database: database,
       recordType: cloudKitRecordType,
-      predicate: NSPredicate(value: true)
-    )
-    query.sortDescriptors = [NSSortDescriptor(key: "modificationDate", ascending: false)]
-
-    let operation = CKQueryOperation(query: query)
-    operation.resultsLimit = limit
-    var records: [CKRecord] = []
-    operation.recordFetchedBlock = { record in
-      records.append(record)
+      sortedByModificationDate: true
+    ) { records, error in
+      completion(Array(records.prefix(limit)), error)
     }
-    operation.queryCompletionBlock = { _, error in
-      completion(records, error)
-    }
-    database.add(operation)
   }
 
   private func fetchAllCloudKitRecords(
@@ -983,7 +1023,7 @@ import Network
     }
 
     func fetchChanges(after token: CKServerChangeToken?) {
-      let zoneID = CKRecordZone.ID.default
+      let zoneID = cloudKitSyncZoneID
       let options = CKFetchRecordZoneChangesOperation.ZoneOptions()
       options.previousServerChangeToken = token
       let operation = CKFetchRecordZoneChangesOperation(
