@@ -296,6 +296,14 @@ class EncryptedAttachmentStore {
     return total;
   }
 
+  Future<int?> attachmentByteLength(
+    String storedReference, {
+    required AttachmentType type,
+  }) async {
+    final bytes = await readAttachment(storedReference, type: type);
+    return bytes?.length;
+  }
+
   Future<int> deleteUnreferencedAttachments(
     Set<String> retainedReferences,
   ) async {

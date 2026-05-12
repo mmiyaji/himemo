@@ -6039,11 +6039,8 @@ class SettingsScreen extends ConsumerWidget {
             ),
             OutlinedButton.icon(
               key: diagnosticICloudStorageBreakdownKey,
-              onPressed: () => _showICloudStorageBreakdown(
-                context,
-                ref,
-                strings,
-              ),
+              onPressed: () =>
+                  _showICloudStorageBreakdown(context, ref, strings),
               icon: const Icon(Icons.cloud_queue_rounded),
               label: Text(
                 strings.localized(
@@ -6058,11 +6055,8 @@ class SettingsScreen extends ConsumerWidget {
             ),
             OutlinedButton.icon(
               key: diagnosticICloudPruneBundlesKey,
-              onPressed: () => _confirmCompactICloudStorage(
-                context,
-                ref,
-                strings,
-              ),
+              onPressed: () =>
+                  _confirmCompactICloudStorage(context, ref, strings),
               icon: const Icon(Icons.cleaning_services_outlined),
               label: Text(
                 strings.localized(
@@ -6144,9 +6138,9 @@ class SettingsScreen extends ConsumerWidget {
       if (!context.mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(showCloseIcon: true, content: Text('$error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(showCloseIcon: true, content: Text('$error')));
     }
   }
 
@@ -6219,9 +6213,9 @@ class SettingsScreen extends ConsumerWidget {
       if (!context.mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(showCloseIcon: true, content: Text('$error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(showCloseIcon: true, content: Text('$error')));
     }
   }
 
@@ -16035,6 +16029,8 @@ class _AttachmentListTile extends ConsumerWidget {
                           color: _mutedTextColor(context),
                         ),
                       ),
+                      const SizedBox(height: 2),
+                      _AttachmentSizeText(attachment: attachment),
                     ],
                   ),
                 ),
@@ -16568,6 +16564,111 @@ String _attachmentDescription(BuildContext context, NoteAttachment attachment) {
           : strings.tapToOpenFile;
   }
 }
+
+class _AttachmentSizeText extends ConsumerStatefulWidget {
+  const _AttachmentSizeText({required this.attachment});
+
+  final NoteAttachment attachment;
+
+  @override
+  ConsumerState<_AttachmentSizeText> createState() =>
+      _AttachmentSizeTextState();
+}
+
+class _AttachmentSizeTextState extends ConsumerState<_AttachmentSizeText> {
+  Future<int?>? _sizeFuture;
+  String? _futureKey;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _primeFutureIfNeeded();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AttachmentSizeText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _primeFutureIfNeeded();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final future = _sizeFuture;
+    if (future == null) {
+      return const SizedBox.shrink();
+    }
+    return FutureBuilder<int?>(
+      future: future,
+      builder: (context, snapshot) {
+        final sizeBytes = snapshot.data;
+        if (sizeBytes == null || sizeBytes <= 0) {
+          return const SizedBox.shrink();
+        }
+        return Text(
+          context.strings.byteCount(sizeBytes),
+          style: Theme.of(
+            context,
+          ).textTheme.labelSmall?.copyWith(color: _mutedTextColor(context)),
+        );
+      },
+    );
+  }
+
+  void _primeFutureIfNeeded() {
+    final filePath = widget.attachment.filePath;
+    if (filePath == null || filePath.isEmpty) {
+      _futureKey = null;
+      _sizeFuture = null;
+      return;
+    }
+    final key = '${widget.attachment.type.name}:$filePath';
+    if (_futureKey == key && _sizeFuture != null) {
+      return;
+    }
+    _futureKey = key;
+    _sizeFuture = _resolveAttachmentSize();
+  }
+
+  Future<int?> _resolveAttachmentSize() async {
+    final filePath = widget.attachment.filePath;
+    if (filePath == null || filePath.isEmpty) {
+      return null;
+    }
+    if (filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
+      final bytes = await _readDisplayAttachmentBytes(ref, widget.attachment);
+      return bytes?.length;
+    }
+    return ref
+        .read(encryptedAttachmentStoreProvider)
+        .attachmentByteLength(filePath, type: widget.attachment.type);
+  }
+}
+
+Future<int?> _attachmentSizeFuture(
+  WidgetRef ref,
+  NoteAttachment attachment,
+) async {
+  final filePath = attachment.filePath;
+  if (filePath == null || filePath.isEmpty) {
+    return null;
+  }
+  if (filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
+    final bytes = await _readDisplayAttachmentBytes(ref, attachment);
+    return bytes?.length;
+  }
+  return ref
+      .read(encryptedAttachmentStoreProvider)
+      .attachmentByteLength(filePath, type: attachment.type);
+}
+
+String? _attachmentSizeLabel(BuildContext context, int? sizeBytes) {
+  if (sizeBytes == null || sizeBytes <= 0) {
+    return null;
+  }
+  return context.strings.byteCount(sizeBytes);
+}
+
+String _videoMuteTooltip(bool muted) => muted ? 'Unmute video' : 'Mute video';
 
 String _formatDateTime(DateTime value, AppStrings strings) {
   final normalized = strings.isJapanese
@@ -19495,6 +19596,8 @@ class _AttachmentViewerSheet extends ConsumerWidget {
             context,
           ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
         ),
+        const SizedBox(height: 4),
+        _AttachmentSizeText(attachment: attachment),
         const SizedBox(height: 16),
         Expanded(
           child: switch (attachment.type) {
@@ -19572,6 +19675,7 @@ class _VideoLightboxDialog extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
+    final sizeFuture = _attachmentSizeFuture(ref, attachment);
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
@@ -19585,41 +19689,67 @@ class _VideoLightboxDialog extends ConsumerWidget {
           SafeArea(
             child: Column(
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close, color: Colors.white),
-                        tooltip: MaterialLocalizations.of(
-                          context,
-                        ).closeButtonTooltip,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          attachment.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
+                FutureBuilder<int?>(
+                  future: sizeFuture,
+                  builder: (context, snapshot) {
+                    final sizeLabel = _attachmentSizeLabel(
+                      context,
+                      snapshot.data,
+                    );
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              IconButton(
+                                onPressed: () => Navigator.of(context).pop(),
+                                icon: const Icon(
+                                  Icons.close,
+                                  color: Colors.white,
+                                ),
+                                tooltip: MaterialLocalizations.of(
+                                  context,
+                                ).closeButtonTooltip,
                               ),
-                        ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  attachment.label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.titleMedium
+                                      ?.copyWith(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () =>
+                                    _shareAttachment(context, ref, attachment),
+                                icon: const Icon(
+                                  Icons.ios_share_outlined,
+                                  color: Colors.white,
+                                ),
+                                tooltip: strings.share,
+                              ),
+                            ],
+                          ),
+                          if (sizeLabel != null)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 56, top: 2),
+                              child: Text(
+                                sizeLabel,
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(color: Colors.white70),
+                              ),
+                            ),
+                        ],
                       ),
-                      IconButton(
-                        onPressed: () =>
-                            _shareAttachment(context, ref, attachment),
-                        icon: const Icon(
-                          Icons.ios_share_outlined,
-                          color: Colors.white,
-                        ),
-                        tooltip: strings.share,
-                      ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
                 Expanded(
                   child: Padding(
@@ -19646,11 +19776,17 @@ class _VideoControllerLightboxDialog extends StatefulWidget {
   const _VideoControllerLightboxDialog({
     required this.attachment,
     required this.controller,
+    required this.initialMuted,
+    this.sizeLabel,
+    this.onMutedChanged,
     this.onShare,
   });
 
   final NoteAttachment attachment;
   final VideoPlayerController controller;
+  final bool initialMuted;
+  final String? sizeLabel;
+  final ValueChanged<bool>? onMutedChanged;
   final VoidCallback? onShare;
 
   @override
@@ -19661,12 +19797,14 @@ class _VideoControllerLightboxDialog extends StatefulWidget {
 class _VideoControllerLightboxDialogState
     extends State<_VideoControllerLightboxDialog> {
   Duration? _dragPosition;
+  late bool _muted;
 
   VideoPlayerController get _controller => widget.controller;
 
   @override
   void initState() {
     super.initState();
+    _muted = widget.initialMuted;
     _controller.addListener(_handleControllerChanged);
   }
 
@@ -19705,36 +19843,50 @@ class _VideoControllerLightboxDialogState
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close, color: Colors.white),
-                        tooltip: MaterialLocalizations.of(
-                          context,
-                        ).closeButtonTooltip,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          widget.attachment.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                              ),
-                        ),
-                      ),
-                      if (widget.onShare != null)
-                        IconButton(
-                          onPressed: widget.onShare,
-                          icon: const Icon(
-                            Icons.ios_share_outlined,
-                            color: Colors.white,
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.close, color: Colors.white),
+                            tooltip: MaterialLocalizations.of(
+                              context,
+                            ).closeButtonTooltip,
                           ),
-                          tooltip: strings.share,
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              widget.attachment.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                          ),
+                          if (widget.onShare != null)
+                            IconButton(
+                              onPressed: widget.onShare,
+                              icon: const Icon(
+                                Icons.ios_share_outlined,
+                                color: Colors.white,
+                              ),
+                              tooltip: strings.share,
+                            ),
+                        ],
+                      ),
+                      if (widget.sizeLabel != null)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 56, top: 2),
+                          child: Text(
+                            widget.sizeLabel!,
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(color: Colors.white70),
+                          ),
                         ),
                     ],
                   ),
@@ -19790,6 +19942,16 @@ class _VideoControllerLightboxDialogState
                                         : Icons.play_circle_outline,
                                     color: Colors.white,
                                   ),
+                                ),
+                                IconButton(
+                                  onPressed: _toggleMuted,
+                                  icon: Icon(
+                                    _muted
+                                        ? Icons.volume_off_rounded
+                                        : Icons.volume_up_rounded,
+                                    color: Colors.white,
+                                  ),
+                                  tooltip: _videoMuteTooltip(_muted),
                                 ),
                                 Expanded(
                                   child: Slider(
@@ -19873,25 +20035,53 @@ class _VideoControllerLightboxDialogState
       _dragPosition = null;
     });
   }
+
+  void _toggleMuted() {
+    final nextMuted = !_muted;
+    unawaited(_controller.setVolume(nextMuted ? 0.0 : 1.0));
+    widget.onMutedChanged?.call(nextMuted);
+    setState(() {
+      _muted = nextMuted;
+    });
+  }
 }
 
-class _WebVideoLightboxDialog extends StatelessWidget {
+class _WebVideoLightboxDialog extends StatefulWidget {
   const _WebVideoLightboxDialog({
     required this.attachment,
     required this.objectUrl,
     required this.muted,
+    this.sizeLabel,
+    this.onMutedChanged,
     this.onShare,
   });
 
   final NoteAttachment attachment;
   final String objectUrl;
   final bool muted;
+  final String? sizeLabel;
+  final ValueChanged<bool>? onMutedChanged;
   final VoidCallback? onShare;
+
+  @override
+  State<_WebVideoLightboxDialog> createState() =>
+      _WebVideoLightboxDialogState();
+}
+
+class _WebVideoLightboxDialogState extends State<_WebVideoLightboxDialog> {
+  late bool _muted;
+  late final String _viewType;
+
+  @override
+  void initState() {
+    super.initState();
+    _muted = widget.muted;
+    _viewType = 'himemo-video-lightbox-${identityHashCode(this)}';
+  }
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final viewType = 'himemo-video-lightbox-${identityHashCode(this)}';
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
@@ -19907,36 +20097,60 @@ class _WebVideoLightboxDialog extends StatelessWidget {
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close, color: Colors.white),
-                        tooltip: MaterialLocalizations.of(
-                          context,
-                        ).closeButtonTooltip,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          attachment.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                              ),
-                        ),
-                      ),
-                      if (onShare != null)
-                        IconButton(
-                          onPressed: onShare,
-                          icon: const Icon(
-                            Icons.ios_share_outlined,
-                            color: Colors.white,
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.close, color: Colors.white),
+                            tooltip: MaterialLocalizations.of(
+                              context,
+                            ).closeButtonTooltip,
                           ),
-                          tooltip: strings.share,
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              widget.attachment.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                          ),
+                          if (widget.onShare != null)
+                            IconButton(
+                              onPressed: widget.onShare,
+                              icon: const Icon(
+                                Icons.ios_share_outlined,
+                                color: Colors.white,
+                              ),
+                              tooltip: strings.share,
+                            ),
+                          IconButton(
+                            onPressed: _toggleMuted,
+                            icon: Icon(
+                              _muted
+                                  ? Icons.volume_off_rounded
+                                  : Icons.volume_up_rounded,
+                              color: Colors.white,
+                            ),
+                            tooltip: _videoMuteTooltip(_muted),
+                          ),
+                        ],
+                      ),
+                      if (widget.sizeLabel != null)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 56, top: 2),
+                          child: Text(
+                            widget.sizeLabel!,
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(color: Colors.white70),
+                          ),
                         ),
                     ],
                   ),
@@ -19950,10 +20164,10 @@ class _WebVideoLightboxDialog extends StatelessWidget {
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(8),
                           child: buildWebVideoElementView(
-                            viewType: viewType,
-                            objectUrl: objectUrl,
+                            viewType: _viewType,
+                            objectUrl: widget.objectUrl,
                             autoplay: true,
-                            muted: muted,
+                            muted: _muted,
                             fillAvailableHeight: true,
                           ),
                         ),
@@ -19967,6 +20181,15 @@ class _WebVideoLightboxDialog extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  void _toggleMuted() {
+    final nextMuted = !_muted;
+    updateWebVideoElementMuted(_viewType, nextMuted);
+    widget.onMutedChanged?.call(nextMuted);
+    setState(() {
+      _muted = nextMuted;
+    });
   }
 }
 
@@ -20278,6 +20501,10 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                           right: 16,
                           child: _LightboxTopBar(
                             attachment: _attachment,
+                            metadataLabel: _attachmentSizeLabel(
+                              context,
+                              bytes.length,
+                            ),
                             edgeToEdge: _edgeToEdge,
                             canMovePrevious: _selectedIndex > 0,
                             canMoveNext:
@@ -20412,6 +20639,7 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
 class _LightboxTopBar extends StatelessWidget {
   const _LightboxTopBar({
     required this.attachment,
+    this.metadataLabel,
     required this.edgeToEdge,
     required this.canMovePrevious,
     required this.canMoveNext,
@@ -20426,6 +20654,7 @@ class _LightboxTopBar extends StatelessWidget {
   });
 
   final NoteAttachment attachment;
+  final String? metadataLabel;
   final bool edgeToEdge;
   final bool canMovePrevious;
   final bool canMoveNext;
@@ -20456,14 +20685,33 @@ class _LightboxTopBar extends StatelessWidget {
           ),
           const SizedBox(width: 4),
           Expanded(
-            child: Text(
-              attachment.label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  attachment.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (metadataLabel != null && metadataLabel!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      metadataLabel!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           IconButton(
@@ -20830,10 +21078,12 @@ class _VideoAttachmentViewerState
   int _videoViewGeneration = 0;
   bool _loading = false;
   bool _playWhenLoaded = false;
+  late bool _muted;
 
   @override
   void initState() {
     super.initState();
+    _muted = ref.read(videoPlaybackMutedByDefaultControllerProvider);
     if (widget.autoLoad) {
       unawaited(_load(playWhenLoaded: false));
     }
@@ -20889,6 +21139,7 @@ class _VideoAttachmentViewerState
       _dragPosition = null;
       _loading = false;
       _playWhenLoaded = false;
+      _muted = ref.read(videoPlaybackMutedByDefaultControllerProvider);
     });
     controller?.removeListener(_handleControllerChanged);
     await controller?.dispose();
@@ -21016,7 +21267,7 @@ class _VideoAttachmentViewerState
         controller = VideoPlayerController.networkUrl(Uri.file(tempFilePath));
       }
       await controller.initialize();
-      await _applyDefaultVideoVolume(controller);
+      await _applyMutedState(controller);
       controller.addListener(_handleControllerChanged);
       if (!mounted || generation != _loadGeneration) {
         await controller.dispose();
@@ -21081,13 +21332,7 @@ class _VideoAttachmentViewerState
 
   @override
   Widget build(BuildContext context) {
-    final mutedByDefault = ref.watch(
-      videoPlaybackMutedByDefaultControllerProvider,
-    );
     final controller = _controller;
-    if (controller != null && controller.value.isInitialized) {
-      unawaited(_applyDefaultVideoVolume(controller));
-    }
     final errorMessage = _errorMessage;
     if (errorMessage != null) {
       return Center(child: Text(errorMessage));
@@ -21097,7 +21342,7 @@ class _VideoAttachmentViewerState
         context,
         _webObjectUrl!,
         _webVideoViewType!,
-        muted: mutedByDefault,
+        muted: _muted,
       );
     }
     if (controller == null || !controller.value.isInitialized) {
@@ -21186,6 +21431,14 @@ class _VideoAttachmentViewerState
                         : Icons.play_circle_outline,
                     color: controlColor,
                   ),
+                ),
+                IconButton(
+                  onPressed: _toggleMuted,
+                  icon: Icon(
+                    _muted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                    color: controlColor,
+                  ),
+                  tooltip: _videoMuteTooltip(_muted),
                 ),
                 Expanded(
                   child: Slider(
@@ -21302,6 +21555,14 @@ class _VideoAttachmentViewerState
             if (!widget.fillAvailableHeight) const SizedBox(height: 8),
             Row(
               children: [
+                IconButton(
+                  onPressed: _toggleMuted,
+                  icon: Icon(
+                    _muted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                    color: controlColor,
+                  ),
+                  tooltip: _videoMuteTooltip(_muted),
+                ),
                 const Spacer(),
                 if (widget.showFullScreenAction &&
                     widget.onOpenFullScreen != null)
@@ -21486,9 +21747,14 @@ class _VideoAttachmentViewerState
   }
 
   Future<void> _openFullScreen() async {
-    final mutedByDefault = ref.read(
-      videoPlaybackMutedByDefaultControllerProvider,
-    );
+    final strings = context.strings;
+    final sizeBytes = await _attachmentSizeFuture(ref, widget.attachment);
+    if (!mounted) {
+      return;
+    }
+    final sizeLabel = sizeBytes == null || sizeBytes <= 0
+        ? null
+        : strings.byteCount(sizeBytes);
     if (kIsWeb && _webObjectUrl != null) {
       await showGeneralDialog<void>(
         context: context,
@@ -21500,7 +21766,9 @@ class _VideoAttachmentViewerState
         pageBuilder: (context, _, _) => _WebVideoLightboxDialog(
           attachment: widget.attachment,
           objectUrl: _webObjectUrl!,
-          muted: mutedByDefault,
+          muted: _muted,
+          sizeLabel: sizeLabel,
+          onMutedChanged: _handleMutedChanged,
           onShare: widget.showShareAction
               ? () => _shareAttachment(context, ref, widget.attachment)
               : null,
@@ -21525,6 +21793,9 @@ class _VideoAttachmentViewerState
       pageBuilder: (context, _, _) => _VideoControllerLightboxDialog(
         attachment: widget.attachment,
         controller: controller,
+        initialMuted: _muted,
+        sizeLabel: sizeLabel,
+        onMutedChanged: _handleMutedChanged,
         onShare: widget.showShareAction
             ? () => _shareAttachment(context, ref, widget.attachment)
             : null,
@@ -21544,13 +21815,8 @@ class _VideoAttachmentViewerState
     }
   }
 
-  Future<void> _applyDefaultVideoVolume(
-    VideoPlayerController controller,
-  ) async {
-    final mutedByDefault = ref.read(
-      videoPlaybackMutedByDefaultControllerProvider,
-    );
-    final desiredVolume = mutedByDefault ? 0.0 : 1.0;
+  Future<void> _applyMutedState(VideoPlayerController controller) async {
+    final desiredVolume = _muted ? 0.0 : 1.0;
     if ((controller.value.volume - desiredVolume).abs() < 0.01) {
       return;
     }
@@ -21573,6 +21839,27 @@ class _VideoAttachmentViewerState
       }
     }
     setState(() {});
+  }
+
+  void _toggleMuted() {
+    _handleMutedChanged(!_muted);
+  }
+
+  void _handleMutedChanged(bool muted) {
+    if (kIsWeb && _webVideoViewType != null) {
+      updateWebVideoElementMuted(_webVideoViewType!, muted);
+    }
+    final controller = _controller;
+    if (controller != null && controller.value.isInitialized) {
+      unawaited(controller.setVolume(muted ? 0.0 : 1.0));
+    }
+    if (!mounted) {
+      _muted = muted;
+      return;
+    }
+    setState(() {
+      _muted = muted;
+    });
   }
 
   Future<void> _seekFromSlider(
