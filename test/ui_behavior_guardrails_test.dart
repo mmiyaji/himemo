@@ -82,7 +82,12 @@ void main() {
       'lib/features/home/presentation/home_page.dart',
     ).readAsStringSync();
 
-    expect(homePage, contains('_scheduleSharedAttachmentCleanup'));
+    expect(homePage, contains('_markSharedAttachmentForCleanup'));
+    expect(homePage, contains('markMaterializedFileForCleanup'));
+    expect(
+      homePage,
+      contains('const _sharedAttachmentCleanupDelay = Duration(hours: 24);'),
+    );
     expect(homePage, contains('mimeType: _mimeTypeForAttachment(attachment)'));
     expect(
       homePage,

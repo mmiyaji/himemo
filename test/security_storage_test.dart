@@ -637,6 +637,48 @@ void main() {
       expect(await File(keptReference).exists(), isTrue);
       expect(await File(orphanReference!).exists(), isFalse);
     });
+
+    test('cleans materialized files after persisted marker expires', () async {
+      final source = File(
+        '${tempDirectory.path}${Platform.pathSeparator}clip.mp4',
+      );
+      await source.writeAsBytes(const [1, 2, 3, 4], flush: true);
+      final storedReference = await attachmentStore.storeAttachment(
+        XFile(source.path, name: 'clip.mp4', mimeType: 'video/mp4'),
+        type: AttachmentType.video,
+      );
+      final materializedPath = await attachmentStore.materializeDecryptedFile(
+        storedReference!,
+        type: AttachmentType.video,
+        preferredFileName: 'clip.mp4',
+      );
+      expect(materializedPath, isNotNull);
+
+      await attachmentStore.markMaterializedFileForCleanup(
+        materializedPath!,
+        deleteAfter: DateTime.utc(2026, 5, 13, 12),
+      );
+
+      expect(
+        await attachmentStore.cleanupExpiredMaterializedFiles(
+          now: DateTime.utc(2026, 5, 13, 11, 59),
+        ),
+        0,
+      );
+      expect(await File(materializedPath).exists(), isTrue);
+
+      expect(
+        await attachmentStore.cleanupExpiredMaterializedFiles(
+          now: DateTime.utc(2026, 5, 13, 12),
+        ),
+        1,
+      );
+      expect(await File(materializedPath).exists(), isFalse);
+      expect(
+        await File('$materializedPath.himemo-delete-after').exists(),
+        isFalse,
+      );
+    });
   });
 
   test('NotesController deletes attachments removed during edit', () async {

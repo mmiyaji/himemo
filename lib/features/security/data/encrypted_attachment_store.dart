@@ -44,6 +44,7 @@ class EncryptedAttachmentStore {
   final String webStoragePrefix;
   final String vaultStoragePrefix;
   static const _webIndexedDbMarker = 'indexeddb:';
+  static const _materializedDeleteMarkerExtension = '.himemo-delete-after';
 
   Future<String?> storeAttachment(
     XFile sourceFile, {
@@ -255,6 +256,67 @@ class EncryptedAttachmentStore {
     if (await file.exists()) {
       await file.delete();
     }
+    final marker = File(_materializedDeleteMarkerPath(filePath));
+    if (await marker.exists()) {
+      await marker.delete();
+    }
+  }
+
+  Future<void> markMaterializedFileForCleanup(
+    String filePath, {
+    required DateTime deleteAfter,
+  }) async {
+    if (kIsWeb || filePath.isEmpty) {
+      return;
+    }
+    await cleanupExpiredMaterializedFiles();
+    final file = File(filePath);
+    if (!await file.exists()) {
+      return;
+    }
+    final marker = File(_materializedDeleteMarkerPath(filePath));
+    await marker.create(recursive: true);
+    await marker.writeAsString(deleteAfter.toUtc().toIso8601String());
+  }
+
+  Future<int> cleanupExpiredMaterializedFiles({DateTime? now}) async {
+    if (kIsWeb) {
+      return 0;
+    }
+    final directory = await _directoryProvider();
+    final tmpDirectory = Directory(
+      path.join(directory.path, 'attachments', 'tmp'),
+    );
+    if (!await tmpDirectory.exists()) {
+      return 0;
+    }
+    final nowUtc = (now ?? DateTime.now()).toUtc();
+    var deletedCount = 0;
+    await for (final entity in tmpDirectory.list()) {
+      if (entity is! File ||
+          !entity.path.endsWith(_materializedDeleteMarkerExtension)) {
+        continue;
+      }
+      final targetPath = entity.path.substring(
+        0,
+        entity.path.length - _materializedDeleteMarkerExtension.length,
+      );
+      try {
+        final deleteAfter = DateTime.tryParse(await entity.readAsString());
+        final target = File(targetPath);
+        if (deleteAfter == null || !await target.exists()) {
+          await entity.delete();
+          continue;
+        }
+        if (deleteAfter.toUtc().isAfter(nowUtc)) {
+          continue;
+        }
+        await target.delete();
+        await entity.delete();
+        deletedCount += 1;
+      } catch (_) {}
+    }
+    return deletedCount;
   }
 
   Future<int> storagePayloadSizeBytes() async {
@@ -294,6 +356,10 @@ class EncryptedAttachmentStore {
       total += await entity.length();
     }
     return total;
+  }
+
+  String _materializedDeleteMarkerPath(String filePath) {
+    return '$filePath$_materializedDeleteMarkerExtension';
   }
 
   Future<int?> attachmentByteLength(

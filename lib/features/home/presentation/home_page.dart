@@ -16221,7 +16221,7 @@ Future<void> _shareAttachment(
         ),
       );
     } finally {
-      _scheduleSharedAttachmentCleanup(attachmentStore, tempFilePath);
+      await _markSharedAttachmentForCleanup(attachmentStore, tempFilePath);
     }
   } on HimemoDecryptionException {
     if (context.mounted) {
@@ -16235,18 +16235,19 @@ Future<void> _shareAttachment(
   }
 }
 
-void _scheduleSharedAttachmentCleanup(
+Future<void> _markSharedAttachmentForCleanup(
   EncryptedAttachmentStore attachmentStore,
   String tempFilePath,
-) {
-  unawaited(
-    Future<void>.delayed(const Duration(minutes: 10), () async {
-      try {
-        await attachmentStore.deleteMaterializedFile(tempFilePath);
-      } catch (_) {}
-    }),
-  );
+) async {
+  try {
+    await attachmentStore.markMaterializedFileForCleanup(
+      tempFilePath,
+      deleteAfter: DateTime.now().add(_sharedAttachmentCleanupDelay),
+    );
+  } catch (_) {}
 }
+
+const _sharedAttachmentCleanupDelay = Duration(hours: 24);
 
 String _mimeTypeForAttachment(NoteAttachment attachment) {
   return switch (attachment.type) {

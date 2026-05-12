@@ -272,6 +272,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncLockState(triggerPrompt: true);
       _checkForInAppUpdate();
+      _cleanupExpiredSharedAttachments();
       _scheduleSeamlessCloudSync(respectForegroundBurst: true);
       _scheduleInitialPendingCloudSyncProbe();
     });
@@ -318,9 +319,18 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     }
     await _syncLockState(triggerPrompt: true);
     _deactivateAppLockPrivacyCover();
+    _cleanupExpiredSharedAttachments();
     _refreshPrivateSessionTimer();
     _scheduleSeamlessCloudSync(respectForegroundBurst: true);
     _scheduleInitialPendingCloudSyncProbe();
+  }
+
+  void _cleanupExpiredSharedAttachments() {
+    unawaited(
+      ref
+          .read(encryptedAttachmentStoreProvider)
+          .cleanupExpiredMaterializedFiles(),
+    );
   }
 
   void _activateAppLockPrivacyCoverIfEnabled() {
