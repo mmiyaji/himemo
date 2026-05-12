@@ -205,12 +205,12 @@ import Network
     }
     if visible {
       if privacyOverlayView == nil {
-        let effect = UIBlurEffect(style: .systemThinMaterial)
+        let effect = UIBlurEffect(style: .systemUltraThinMaterialLight)
         let overlay = UIVisualEffectView(effect: effect)
         overlay.frame = window.bounds
         overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         overlay.isUserInteractionEnabled = false
-        overlay.backgroundColor = UIColor.black.withAlphaComponent(0.18)
+        overlay.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.72)
         privacyOverlayView = overlay
       }
       guard let privacyOverlayView else {

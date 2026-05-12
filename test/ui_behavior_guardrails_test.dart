@@ -50,4 +50,16 @@ void main() {
     expect(homePage, contains('_ensureTrailingRichParagraph(drafts);'));
     expect(homePage, contains('_ensureTrailingRichParagraph(_richBlocks);'));
   });
+
+  test('app lock background privacy cover prevents delayed relock flashes', () {
+    final appShell = File('lib/app/app.dart').readAsStringSync();
+
+    expect(appShell, contains('_activateAppLockPrivacyCoverIfEnabled'));
+    expect(appShell, contains('_lifecyclePrivacyCoverVisible'));
+    expect(appShell, contains('_AppPrivacyCover'));
+    expect(
+      appShell,
+      contains('privacyScreenActive || _lifecyclePrivacyProtectionEnabled'),
+    );
+  });
 }
