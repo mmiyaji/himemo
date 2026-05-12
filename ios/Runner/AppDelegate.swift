@@ -473,10 +473,16 @@ import Network
       downloadCloudKitBundle(recordName: recordName, result: result)
     case "cloudKitStorageBreakdown":
       cloudKitStorageBreakdown(result: result)
-    case "cloudKitPruneOldBundles":
+    case "cloudKitPruneObsoleteData":
       let args = call.arguments as? [String: Any]
       let keepLatest = args?["keepLatest"] as? Int ?? 1
-      pruneOldCloudKitBundles(keepLatest: max(keepLatest, 1), result: result)
+      let referencedAttachmentHashes =
+        Set(args?["referencedAttachmentHashes"] as? [String] ?? [])
+      pruneObsoleteCloudKitData(
+        keepLatest: max(keepLatest, 1),
+        referencedAttachmentHashes: referencedAttachmentHashes,
+        result: result
+      )
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -813,34 +819,82 @@ import Network
     }
   }
 
-  private func pruneOldCloudKitBundles(keepLatest: Int, result: @escaping FlutterResult) {
+  private func pruneObsoleteCloudKitData(
+    keepLatest: Int,
+    referencedAttachmentHashes: Set<String>,
+    result: @escaping FlutterResult
+  ) {
     withAvailableCloudKit(result: result) { database in
+      let group = DispatchGroup()
+      var bundleRecords: [CKRecord] = []
+      var attachmentRecords: [CKRecord] = []
+      var firstError: Error?
+
+      group.enter()
       self.fetchAllCloudKitRecords(
         database: database,
         recordType: self.cloudKitRecordType,
         sortedByModificationDate: true
       ) { records, error in
-        if let error {
+        if let error, firstError == nil {
+          firstError = error
+        }
+        bundleRecords = records
+        group.leave()
+      }
+
+      group.enter()
+      self.fetchAllCloudKitRecords(
+        database: database,
+        recordType: self.cloudKitAttachmentRecordType,
+        sortedByModificationDate: false
+      ) { records, error in
+        if let error, firstError == nil {
+          firstError = error
+        }
+        attachmentRecords = records
+        group.leave()
+      }
+
+      group.notify(queue: .global(qos: .utility)) {
+        if let firstError {
           DispatchQueue.main.async {
-            result(self.flutterError(from: error))
+            result(self.flutterError(from: firstError))
           }
           return
         }
 
-        let recordsToDelete = Array(records.dropFirst(keepLatest))
-        if recordsToDelete.isEmpty {
-          DispatchQueue.main.async {
-            result(["deletedBundleCount": 0, "deletedBundleBytes": 0])
+        let bundleRecordsToDelete = Array(bundleRecords.dropFirst(keepLatest))
+        let attachmentRecordsToDelete = attachmentRecords.filter { record in
+          guard let contentHash = record[self.cloudKitContentHashField] as? String else {
+            return true
           }
-          return
+          return !referencedAttachmentHashes.contains(contentHash)
         }
-
-        let deletedBytes = recordsToDelete.reduce(0) { total, record in
+        let deletedBundleBytes = bundleRecordsToDelete.reduce(0) { total, record in
           total + (self.assetFileSize(for: record, field: self.cloudKitAssetField) ?? 0)
         }
+        let deletedAttachmentBytes = attachmentRecordsToDelete.reduce(0) { total, record in
+          total + (self.assetFileSize(for: record, field: self.cloudKitAttachmentAssetField) ?? 0)
+        }
+        let recordIDsToDelete =
+          bundleRecordsToDelete.map { $0.recordID } +
+          attachmentRecordsToDelete.map { $0.recordID }
+        if recordIDsToDelete.isEmpty {
+          DispatchQueue.main.async {
+            result([
+              "deletedBundleCount": 0,
+              "deletedBundleBytes": 0,
+              "deletedAttachmentCount": 0,
+              "deletedAttachmentBytes": 0,
+            ])
+          }
+          return
+        }
+
         self.deleteCloudKitRecords(
           database: database,
-          recordIDs: recordsToDelete.map { $0.recordID }
+          recordIDs: recordIDsToDelete
         ) { error in
           DispatchQueue.main.async {
             if let error {
@@ -848,8 +902,10 @@ import Network
               return
             }
             result([
-              "deletedBundleCount": recordsToDelete.count,
-              "deletedBundleBytes": deletedBytes,
+              "deletedBundleCount": bundleRecordsToDelete.count,
+              "deletedBundleBytes": deletedBundleBytes,
+              "deletedAttachmentCount": attachmentRecordsToDelete.count,
+              "deletedAttachmentBytes": deletedAttachmentBytes,
             ])
           }
         }

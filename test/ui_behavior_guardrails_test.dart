@@ -74,6 +74,6 @@ void main() {
     expect(homePage, contains('diagnosticICloudStorageBreakdownKey'));
     expect(homePage, contains('diagnosticICloudPruneBundlesKey'));
     expect(iCloudTransport, contains('fetchStorageBreakdown'));
-    expect(iCloudTransport, contains('pruneOldBundles'));
+    expect(iCloudTransport, contains('pruneObsoleteData'));
   });
 }

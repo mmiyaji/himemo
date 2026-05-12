@@ -2461,7 +2461,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     return breakdown;
   }
 
-  Future<ICloudMaintenanceResult> pruneOldICloudBundles({
+  Future<ICloudMaintenanceResult> compactICloudStorage({
     int keepLatest = 1,
   }) async {
     final provider = ref.read(syncProviderControllerProvider);
@@ -2469,30 +2469,69 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       throw StateError('iCloud sync is not selected.');
     }
     _diagnostic(
-      'icloud old bundle prune requested',
+      'icloud storage compact requested',
       data: {'keepLatest': keepLatest},
     );
+    await ref.read(notesControllerProvider.notifier).queueCurrentStateForSync();
+    await uploadCurrentBundle(force: true, pruneAfterUpload: false);
+    final localBundle = state.localBundle;
+    if (localBundle == null) {
+      throw StateError('sync.error.local_bundle_prepare_failed');
+    }
+    final referencedHashes = await _referencedAttachmentHashesFromBundle(
+      localBundle.reference,
+    );
     final result = await runFirebaseTrace(
-      'sync_icloud_prune_old_bundles',
+      'sync_icloud_prune_obsolete_data',
       () => ref
           .read(iCloudSyncTransportProvider)
-          .pruneOldBundles(keepLatest: keepLatest),
+          .pruneObsoleteData(
+            keepLatest: keepLatest,
+            referencedAttachmentHashes: referencedHashes,
+          ),
     );
     _diagnostic(
-      'icloud old bundle prune completed',
+      'icloud storage compact completed',
       data: {
         'deletedBundleCount': result.deletedBundleCount,
         'deletedBundleBytes': result.deletedBundleBytes,
+        'deletedAttachmentCount': result.deletedAttachmentCount,
+        'deletedAttachmentBytes': result.deletedAttachmentBytes,
+        'referencedAttachmentHashes': referencedHashes.length,
       },
     );
     await refreshRemoteStatus();
     return result;
   }
 
+  Future<Set<String>> _referencedAttachmentHashesFromBundle(
+    String reference,
+  ) async {
+    final decoded = await ref
+        .read(secureSyncBundleStoreProvider)
+        .readBundleJson(reference);
+    if (decoded == null) {
+      return const <String>{};
+    }
+    final hashes = <String>{};
+    for (final rawAttachment
+        in (decoded['attachments'] as List<dynamic>? ?? const <dynamic>[])) {
+      if (rawAttachment is! Map) {
+        continue;
+      }
+      final contentHash = rawAttachment['contentHash'] as String?;
+      if (contentHash != null && contentHash.isNotEmpty) {
+        hashes.add(contentHash);
+      }
+    }
+    return hashes;
+  }
+
   Future<void> uploadCurrentBundle({
     bool force = false,
     bool allowLargeMobileTransfer = false,
     bool silentLargeMobileSkip = false,
+    bool pruneAfterUpload = true,
   }) async {
     final provider = ref.read(syncProviderControllerProvider);
     _diagnostic(
@@ -2537,6 +2576,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     _startBusy(SyncTransferProgress.preparingBundle);
     try {
       await logFirebaseBreadcrumb('sync upload requested');
+      await ref.read(notesControllerProvider.notifier).queueCurrentStateForSync();
       final pendingChanges = await ref
           .read(syncEngineProvider)
           .loadPendingChanges();
@@ -2649,6 +2689,39 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       await ref.read(syncBundleStateStoreProvider).recordUpload(remoteStatus);
       ref.invalidate(syncBundleStateProvider);
+      if (provider == SyncProvider.iCloud && pruneAfterUpload) {
+        try {
+          final referencedHashes = await _referencedAttachmentHashesFromBundle(
+            bundle.reference,
+          );
+          final maintenance = await ref
+              .read(iCloudSyncTransportProvider)
+              .pruneObsoleteData(
+                keepLatest: 1,
+                referencedAttachmentHashes: referencedHashes,
+              );
+          _diagnostic(
+            'icloud post upload storage prune completed',
+            data: {
+              'deletedBundleCount': maintenance.deletedBundleCount,
+              'deletedBundleBytes': maintenance.deletedBundleBytes,
+              'deletedAttachmentCount': maintenance.deletedAttachmentCount,
+              'deletedAttachmentBytes': maintenance.deletedAttachmentBytes,
+              'referencedAttachmentHashes': referencedHashes.length,
+            },
+          );
+        } catch (error, stackTrace) {
+          _diagnostic(
+            'icloud post upload storage prune failed',
+            data: {'error': error},
+          );
+          await recordNonFatalError(
+            error,
+            stackTrace,
+            reason: 'icloud_post_upload_storage_prune_failed',
+          );
+        }
+      }
     } catch (error) {
       _diagnostic('upload failed', data: {'error': error});
       state = _failureState(

@@ -6058,7 +6058,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             OutlinedButton.icon(
               key: diagnosticICloudPruneBundlesKey,
-              onPressed: () => _confirmPruneOldICloudBundles(
+              onPressed: () => _confirmCompactICloudStorage(
                 context,
                 ref,
                 strings,
@@ -6067,7 +6067,7 @@ class SettingsScreen extends ConsumerWidget {
               label: Text(
                 strings.localized(
                   en: 'Clean old iCloud bundles',
-                  ja: '古い iCloud バンドルを整理',
+                  ja: 'iCloud 同期データを整理',
                   zh: '清理旧 iCloud 包',
                   ko: '이전 iCloud 번들 정리',
                   es: 'Limpiar paquetes iCloud antiguos',
@@ -6150,7 +6150,7 @@ class SettingsScreen extends ConsumerWidget {
     }
   }
 
-  Future<void> _confirmPruneOldICloudBundles(
+  Future<void> _confirmCompactICloudStorage(
     BuildContext context,
     WidgetRef ref,
     AppStrings strings,
@@ -6161,7 +6161,7 @@ class SettingsScreen extends ConsumerWidget {
         title: Text(
           strings.localized(
             en: 'Clean old iCloud sync bundles?',
-            ja: '古い iCloud 同期バンドルを整理しますか？',
+            ja: 'iCloud 同期データを整理しますか？',
             zh: '清理旧的 iCloud 同步包？',
             ko: '이전 iCloud 동기화 번들을 정리할까요?',
             es: '¿Limpiar paquetes antiguos de iCloud?',
@@ -6170,12 +6170,12 @@ class SettingsScreen extends ConsumerWidget {
         ),
         content: Text(
           strings.localized(
-            en: 'This keeps the latest iCloud sync bundle and deletes older bundle snapshots. Attachment objects are not deleted by this command.',
-            ja: '最新の iCloud 同期バンドルを 1 件残し、古いバンドル履歴を削除します。このコマンドでは添付オブジェクトは削除しません。',
+            en: 'This uploads the current state as a fresh full snapshot, keeps that latest iCloud bundle, and deletes older bundles plus attachment objects no longer referenced by the latest snapshot.',
+            ja: '現在の状態を新しいフルスナップショットとしてアップロードし、その最新 iCloud バンドルだけを残します。古いバンドルと、最新スナップショットから参照されない添付オブジェクトも削除します。',
             zh: '这会保留最新的 iCloud 同步包并删除旧的包快照。此命令不会删除附件对象。',
             ko: '최신 iCloud 동기화 번들 1개를 남기고 이전 번들 스냅샷을 삭제합니다. 이 명령은 첨부 파일 객체를 삭제하지 않습니다.',
-            es: 'Conserva el paquete de sincronizacion mas reciente de iCloud y elimina instantaneas antiguas. Este comando no elimina adjuntos.',
-            de: 'Behaelt das neueste iCloud-Sync-Paket und loescht aeltere Paket-Snapshots. Anhangsobjekte werden nicht geloescht.',
+            es: 'Sube el estado actual como una instantanea completa, conserva el paquete mas reciente y elimina paquetes antiguos y adjuntos sin referencia.',
+            de: 'Laedt den aktuellen Stand als vollstaendigen Snapshot hoch, behaelt das neueste Paket und loescht alte Pakete sowie nicht referenzierte Anhaenge.',
           ),
         ),
         actions: [
@@ -6196,7 +6196,7 @@ class SettingsScreen extends ConsumerWidget {
     try {
       final result = await ref
           .read(syncTransferControllerProvider.notifier)
-          .pruneOldICloudBundles();
+          .compactICloudStorage();
       if (!context.mounted) {
         return;
       }
@@ -6205,12 +6205,12 @@ class SettingsScreen extends ConsumerWidget {
           showCloseIcon: true,
           content: Text(
             strings.localized(
-              en: 'Deleted ${result.deletedBundleCount} old iCloud bundles (${strings.byteCount(result.deletedBundleBytes)}).',
-              ja: '古い iCloud バンドル ${result.deletedBundleCount} 件（${strings.byteCount(result.deletedBundleBytes)}）を削除しました。',
+              en: 'Deleted ${result.deletedBundleCount} old bundles and ${result.deletedAttachmentCount} unreferenced attachments (${strings.byteCount(result.deletedBytes)}).',
+              ja: '古いバンドル ${result.deletedBundleCount} 件と未参照の添付 ${result.deletedAttachmentCount} 件（${strings.byteCount(result.deletedBytes)}）を削除しました。',
               zh: '已删除 ${result.deletedBundleCount} 个旧 iCloud 包（${strings.byteCount(result.deletedBundleBytes)}）。',
               ko: '이전 iCloud 번들 ${result.deletedBundleCount}개(${strings.byteCount(result.deletedBundleBytes)})를 삭제했습니다.',
-              es: 'Se eliminaron ${result.deletedBundleCount} paquetes antiguos de iCloud (${strings.byteCount(result.deletedBundleBytes)}).',
-              de: '${result.deletedBundleCount} alte iCloud-Pakete geloescht (${strings.byteCount(result.deletedBundleBytes)}).',
+              es: 'Se eliminaron ${result.deletedBundleCount} paquetes antiguos y ${result.deletedAttachmentCount} adjuntos sin referencia (${strings.byteCount(result.deletedBytes)}).',
+              de: '${result.deletedBundleCount} alte Pakete und ${result.deletedAttachmentCount} nicht referenzierte Anhaenge geloescht (${strings.byteCount(result.deletedBytes)}).',
             ),
           ),
         ),

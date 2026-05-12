@@ -65,10 +65,16 @@ class ICloudMaintenanceResult {
   const ICloudMaintenanceResult({
     required this.deletedBundleCount,
     required this.deletedBundleBytes,
+    required this.deletedAttachmentCount,
+    required this.deletedAttachmentBytes,
   });
 
   final int deletedBundleCount;
   final int deletedBundleBytes;
+  final int deletedAttachmentCount;
+  final int deletedAttachmentBytes;
+
+  int get deletedBytes => deletedBundleBytes + deletedAttachmentBytes;
 }
 
 abstract class ICloudSyncTransport {
@@ -104,7 +110,10 @@ abstract class ICloudSyncTransport {
 
   Future<ICloudStorageBreakdown> fetchStorageBreakdown();
 
-  Future<ICloudMaintenanceResult> pruneOldBundles({int keepLatest = 1});
+  Future<ICloudMaintenanceResult> pruneObsoleteData({
+    int keepLatest = 1,
+    required Set<String> referencedAttachmentHashes,
+  });
 }
 
 class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
@@ -298,9 +307,13 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
   }
 
   @override
-  Future<ICloudMaintenanceResult> pruneOldBundles({int keepLatest = 1}) async {
-    final result = await _invokeMap('cloudKitPruneOldBundles', {
+  Future<ICloudMaintenanceResult> pruneObsoleteData({
+    int keepLatest = 1,
+    required Set<String> referencedAttachmentHashes,
+  }) async {
+    final result = await _invokeMap('cloudKitPruneObsoleteData', {
       'keepLatest': keepLatest,
+      'referencedAttachmentHashes': referencedAttachmentHashes.toList()..sort(),
     });
     if (result == null) {
       throw const FormatException('CloudKit did not return cleanup metadata.');
@@ -308,6 +321,8 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
     return ICloudMaintenanceResult(
       deletedBundleCount: _intFrom(result['deletedBundleCount']),
       deletedBundleBytes: _intFrom(result['deletedBundleBytes']),
+      deletedAttachmentCount: _intFrom(result['deletedAttachmentCount']),
+      deletedAttachmentBytes: _intFrom(result['deletedAttachmentBytes']),
     );
   }
 
