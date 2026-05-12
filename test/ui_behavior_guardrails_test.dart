@@ -62,4 +62,18 @@ void main() {
       contains('privacyScreenActive || _lifecyclePrivacyProtectionEnabled'),
     );
   });
+
+  test('diagnostic mode exposes iCloud storage maintenance actions', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+    final iCloudTransport = File(
+      'lib/features/sync/data/icloud_sync_transport.dart',
+    ).readAsStringSync();
+
+    expect(homePage, contains('diagnosticICloudStorageBreakdownKey'));
+    expect(homePage, contains('diagnosticICloudPruneBundlesKey'));
+    expect(iCloudTransport, contains('fetchStorageBreakdown'));
+    expect(iCloudTransport, contains('pruneOldBundles'));
+  });
 }

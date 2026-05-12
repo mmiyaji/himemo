@@ -471,6 +471,12 @@ import Network
         return
       }
       downloadCloudKitBundle(recordName: recordName, result: result)
+    case "cloudKitStorageBreakdown":
+      cloudKitStorageBreakdown(result: result)
+    case "cloudKitPruneOldBundles":
+      let args = call.arguments as? [String: Any]
+      let keepLatest = args?["keepLatest"] as? Int ?? 1
+      pruneOldCloudKitBundles(keepLatest: max(keepLatest, 1), result: result)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -753,6 +759,104 @@ import Network
     }
   }
 
+  private func cloudKitStorageBreakdown(result: @escaping FlutterResult) {
+    withAvailableCloudKit(result: result) { database in
+      let group = DispatchGroup()
+      var bundleRecords: [CKRecord] = []
+      var attachmentRecords: [CKRecord] = []
+      var firstError: Error?
+
+      group.enter()
+      self.fetchAllCloudKitRecords(
+        database: database,
+        recordType: self.cloudKitRecordType,
+        sortedByModificationDate: false
+      ) { records, error in
+        if let error, firstError == nil {
+          firstError = error
+        }
+        bundleRecords = records
+        group.leave()
+      }
+
+      group.enter()
+      self.fetchAllCloudKitRecords(
+        database: database,
+        recordType: self.cloudKitAttachmentRecordType,
+        sortedByModificationDate: false
+      ) { records, error in
+        if let error, firstError == nil {
+          firstError = error
+        }
+        attachmentRecords = records
+        group.leave()
+      }
+
+      group.notify(queue: .main) {
+        if let firstError {
+          result(self.flutterError(from: firstError))
+          return
+        }
+        let bundleBytes = bundleRecords.reduce(0) { total, record in
+          total + (self.assetFileSize(for: record, field: self.cloudKitAssetField) ?? 0)
+        }
+        let attachmentBytes = attachmentRecords.reduce(0) { total, record in
+          total + (self.assetFileSize(for: record, field: self.cloudKitAttachmentAssetField) ?? 0)
+        }
+        result([
+          "bundleCount": bundleRecords.count,
+          "bundleBytes": bundleBytes,
+          "attachmentCount": attachmentRecords.count,
+          "attachmentBytes": attachmentBytes,
+        ])
+      }
+    }
+  }
+
+  private func pruneOldCloudKitBundles(keepLatest: Int, result: @escaping FlutterResult) {
+    withAvailableCloudKit(result: result) { database in
+      self.fetchAllCloudKitRecords(
+        database: database,
+        recordType: self.cloudKitRecordType,
+        sortedByModificationDate: true
+      ) { records, error in
+        if let error {
+          DispatchQueue.main.async {
+            result(self.flutterError(from: error))
+          }
+          return
+        }
+
+        let recordsToDelete = Array(records.dropFirst(keepLatest))
+        if recordsToDelete.isEmpty {
+          DispatchQueue.main.async {
+            result(["deletedBundleCount": 0, "deletedBundleBytes": 0])
+          }
+          return
+        }
+
+        let deletedBytes = recordsToDelete.reduce(0) { total, record in
+          total + (self.assetFileSize(for: record, field: self.cloudKitAssetField) ?? 0)
+        }
+        self.deleteCloudKitRecords(
+          database: database,
+          recordIDs: recordsToDelete.map { $0.recordID }
+        ) { error in
+          DispatchQueue.main.async {
+            if let error {
+              result(self.flutterError(from: error))
+              return
+            }
+            result([
+              "deletedBundleCount": recordsToDelete.count,
+              "deletedBundleBytes": deletedBytes,
+            ])
+          }
+        }
+      }
+    }
+  }
+
   private func withAvailableCloudKit(
     result: @escaping FlutterResult,
     action: @escaping (CKDatabase) -> Void
@@ -799,6 +903,80 @@ import Network
       completion(records, error)
     }
     database.add(operation)
+  }
+
+  private func fetchAllCloudKitRecords(
+    database: CKDatabase,
+    recordType: String,
+    sortedByModificationDate: Bool,
+    completion: @escaping ([CKRecord], Error?) -> Void
+  ) {
+    let query = CKQuery(recordType: recordType, predicate: NSPredicate(value: true))
+    if sortedByModificationDate {
+      query.sortDescriptors = [NSSortDescriptor(key: "modificationDate", ascending: false)]
+    }
+
+    var records: [CKRecord] = []
+
+    func run(cursor: CKQueryOperation.Cursor?) {
+      let operation: CKQueryOperation
+      if let cursor {
+        operation = CKQueryOperation(cursor: cursor)
+      } else {
+        operation = CKQueryOperation(query: query)
+      }
+      operation.resultsLimit = CKQueryOperation.maximumResults
+      operation.recordFetchedBlock = { record in
+        records.append(record)
+      }
+      operation.queryCompletionBlock = { nextCursor, error in
+        if let error {
+          completion(records, error)
+          return
+        }
+        if let nextCursor {
+          run(cursor: nextCursor)
+          return
+        }
+        completion(records, nil)
+      }
+      database.add(operation)
+    }
+
+    run(cursor: nil)
+  }
+
+  private func deleteCloudKitRecords(
+    database: CKDatabase,
+    recordIDs: [CKRecord.ID],
+    completion: @escaping (Error?) -> Void
+  ) {
+    if recordIDs.isEmpty {
+      completion(nil)
+      return
+    }
+
+    var index = 0
+    func deleteNextBatch() {
+      if index >= recordIDs.count {
+        completion(nil)
+        return
+      }
+      let end = min(index + 200, recordIDs.count)
+      let batch = Array(recordIDs[index..<end])
+      index = end
+      let operation = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: batch)
+      operation.modifyRecordsCompletionBlock = { _, _, error in
+        if let error {
+          completion(error)
+          return
+        }
+        deleteNextBatch()
+      }
+      database.add(operation)
+    }
+
+    deleteNextBatch()
   }
 
   private func readBundlePayload(from record: CKRecord, result: @escaping FlutterResult) {
@@ -904,8 +1082,12 @@ import Network
   }
 
   private func bundleFileSize(for record: CKRecord) -> Int? {
+    return assetFileSize(for: record, field: cloudKitAssetField)
+  }
+
+  private func assetFileSize(for record: CKRecord, field: String) -> Int? {
     guard
-      let asset = record[cloudKitAssetField] as? CKAsset,
+      let asset = record[field] as? CKAsset,
       let fileURL = asset.fileURL,
       let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey])
     else {

@@ -2438,6 +2438,57 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
+  Future<ICloudStorageBreakdown> fetchICloudStorageBreakdown() async {
+    final provider = ref.read(syncProviderControllerProvider);
+    if (provider != SyncProvider.iCloud) {
+      throw StateError('iCloud sync is not selected.');
+    }
+    _diagnostic('icloud storage breakdown requested');
+    final breakdown = await runFirebaseTrace(
+      'sync_icloud_storage_breakdown',
+      () => ref.read(iCloudSyncTransportProvider).fetchStorageBreakdown(),
+    );
+    _diagnostic(
+      'icloud storage breakdown loaded',
+      data: {
+        'bundleCount': breakdown.bundleCount,
+        'bundleBytes': breakdown.bundleBytes,
+        'attachmentCount': breakdown.attachmentCount,
+        'attachmentBytes': breakdown.attachmentBytes,
+        'totalBytes': breakdown.totalBytes,
+      },
+    );
+    return breakdown;
+  }
+
+  Future<ICloudMaintenanceResult> pruneOldICloudBundles({
+    int keepLatest = 1,
+  }) async {
+    final provider = ref.read(syncProviderControllerProvider);
+    if (provider != SyncProvider.iCloud) {
+      throw StateError('iCloud sync is not selected.');
+    }
+    _diagnostic(
+      'icloud old bundle prune requested',
+      data: {'keepLatest': keepLatest},
+    );
+    final result = await runFirebaseTrace(
+      'sync_icloud_prune_old_bundles',
+      () => ref
+          .read(iCloudSyncTransportProvider)
+          .pruneOldBundles(keepLatest: keepLatest),
+    );
+    _diagnostic(
+      'icloud old bundle prune completed',
+      data: {
+        'deletedBundleCount': result.deletedBundleCount,
+        'deletedBundleBytes': result.deletedBundleBytes,
+      },
+    );
+    await refreshRemoteStatus();
+    return result;
+  }
+
   Future<void> uploadCurrentBundle({
     bool force = false,
     bool allowLargeMobileTransfer = false,

@@ -2749,6 +2749,12 @@ class SettingsScreen extends ConsumerWidget {
   static const syncUploadBundleKey = Key('sync-upload-bundle-button');
   static const syncDownloadBundleKey = Key('sync-download-bundle-button');
   static const syncApplyBundleKey = Key('sync-apply-bundle-button');
+  static const diagnosticICloudStorageBreakdownKey = Key(
+    'diagnostic-icloud-storage-breakdown-button',
+  );
+  static const diagnosticICloudPruneBundlesKey = Key(
+    'diagnostic-icloud-prune-bundles-button',
+  );
   static const privateVaultSetKey = Key('private-vault-set-key');
   static const privateVaultUnlockKey = Key('private-vault-unlock-key');
   static const privateVaultLockKey = Key('private-vault-lock-key');
@@ -6032,6 +6038,44 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
             OutlinedButton.icon(
+              key: diagnosticICloudStorageBreakdownKey,
+              onPressed: () => _showICloudStorageBreakdown(
+                context,
+                ref,
+                strings,
+              ),
+              icon: const Icon(Icons.cloud_queue_rounded),
+              label: Text(
+                strings.localized(
+                  en: 'iCloud usage',
+                  ja: 'iCloud 使用量',
+                  zh: 'iCloud 使用量',
+                  ko: 'iCloud 사용량',
+                  es: 'Uso de iCloud',
+                  de: 'iCloud-Nutzung',
+                ),
+              ),
+            ),
+            OutlinedButton.icon(
+              key: diagnosticICloudPruneBundlesKey,
+              onPressed: () => _confirmPruneOldICloudBundles(
+                context,
+                ref,
+                strings,
+              ),
+              icon: const Icon(Icons.cleaning_services_outlined),
+              label: Text(
+                strings.localized(
+                  en: 'Clean old iCloud bundles',
+                  ja: '古い iCloud バンドルを整理',
+                  zh: '清理旧 iCloud 包',
+                  ko: '이전 iCloud 번들 정리',
+                  es: 'Limpiar paquetes iCloud antiguos',
+                  de: 'Alte iCloud-Pakete bereinigen',
+                ),
+              ),
+            ),
+            OutlinedButton.icon(
               onPressed: () => ref
                   .read(diagnosticLogControllerProvider.notifier)
                   .setEnabled(false),
@@ -6051,6 +6095,134 @@ class SettingsScreen extends ConsumerWidget {
         ),
       ],
     );
+  }
+
+  Future<void> _showICloudStorageBreakdown(
+    BuildContext context,
+    WidgetRef ref,
+    AppStrings strings,
+  ) async {
+    try {
+      final breakdown = await ref
+          .read(syncTransferControllerProvider.notifier)
+          .fetchICloudStorageBreakdown();
+      if (!context.mounted) {
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(
+            strings.localized(
+              en: 'iCloud storage usage',
+              ja: 'iCloud ストレージ使用量',
+              zh: 'iCloud 存储使用量',
+              ko: 'iCloud 저장 공간 사용량',
+              es: 'Uso de almacenamiento de iCloud',
+              de: 'iCloud-Speichernutzung',
+            ),
+          ),
+          content: SelectableText(
+            strings.localized(
+              en: 'Total: ${strings.byteCount(breakdown.totalBytes)}\nSync bundles: ${breakdown.bundleCount} / ${strings.byteCount(breakdown.bundleBytes)}\nAttachments: ${breakdown.attachmentCount} / ${strings.byteCount(breakdown.attachmentBytes)}',
+              ja: '合計: ${strings.byteCount(breakdown.totalBytes)}\n同期バンドル: ${breakdown.bundleCount} 件 / ${strings.byteCount(breakdown.bundleBytes)}\n添付オブジェクト: ${breakdown.attachmentCount} 件 / ${strings.byteCount(breakdown.attachmentBytes)}',
+              zh: '总计：${strings.byteCount(breakdown.totalBytes)}\n同步包：${breakdown.bundleCount} / ${strings.byteCount(breakdown.bundleBytes)}\n附件：${breakdown.attachmentCount} / ${strings.byteCount(breakdown.attachmentBytes)}',
+              ko: '합계: ${strings.byteCount(breakdown.totalBytes)}\n동기화 번들: ${breakdown.bundleCount}개 / ${strings.byteCount(breakdown.bundleBytes)}\n첨부 파일: ${breakdown.attachmentCount}개 / ${strings.byteCount(breakdown.attachmentBytes)}',
+              es: 'Total: ${strings.byteCount(breakdown.totalBytes)}\nPaquetes de sincronizacion: ${breakdown.bundleCount} / ${strings.byteCount(breakdown.bundleBytes)}\nAdjuntos: ${breakdown.attachmentCount} / ${strings.byteCount(breakdown.attachmentBytes)}',
+              de: 'Gesamt: ${strings.byteCount(breakdown.totalBytes)}\nSync-Pakete: ${breakdown.bundleCount} / ${strings.byteCount(breakdown.bundleBytes)}\nAnhaenge: ${breakdown.attachmentCount} / ${strings.byteCount(breakdown.attachmentBytes)}',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(strings.close),
+            ),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(showCloseIcon: true, content: Text('$error')),
+      );
+    }
+  }
+
+  Future<void> _confirmPruneOldICloudBundles(
+    BuildContext context,
+    WidgetRef ref,
+    AppStrings strings,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          strings.localized(
+            en: 'Clean old iCloud sync bundles?',
+            ja: '古い iCloud 同期バンドルを整理しますか？',
+            zh: '清理旧的 iCloud 同步包？',
+            ko: '이전 iCloud 동기화 번들을 정리할까요?',
+            es: '¿Limpiar paquetes antiguos de iCloud?',
+            de: 'Alte iCloud-Sync-Pakete bereinigen?',
+          ),
+        ),
+        content: Text(
+          strings.localized(
+            en: 'This keeps the latest iCloud sync bundle and deletes older bundle snapshots. Attachment objects are not deleted by this command.',
+            ja: '最新の iCloud 同期バンドルを 1 件残し、古いバンドル履歴を削除します。このコマンドでは添付オブジェクトは削除しません。',
+            zh: '这会保留最新的 iCloud 同步包并删除旧的包快照。此命令不会删除附件对象。',
+            ko: '최신 iCloud 동기화 번들 1개를 남기고 이전 번들 스냅샷을 삭제합니다. 이 명령은 첨부 파일 객체를 삭제하지 않습니다.',
+            es: 'Conserva el paquete de sincronizacion mas reciente de iCloud y elimina instantaneas antiguas. Este comando no elimina adjuntos.',
+            de: 'Behaelt das neueste iCloud-Sync-Paket und loescht aeltere Paket-Snapshots. Anhangsobjekte werden nicht geloescht.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(strings.text('home.cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(strings.delete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+    try {
+      final result = await ref
+          .read(syncTransferControllerProvider.notifier)
+          .pruneOldICloudBundles();
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(
+            strings.localized(
+              en: 'Deleted ${result.deletedBundleCount} old iCloud bundles (${strings.byteCount(result.deletedBundleBytes)}).',
+              ja: '古い iCloud バンドル ${result.deletedBundleCount} 件（${strings.byteCount(result.deletedBundleBytes)}）を削除しました。',
+              zh: '已删除 ${result.deletedBundleCount} 个旧 iCloud 包（${strings.byteCount(result.deletedBundleBytes)}）。',
+              ko: '이전 iCloud 번들 ${result.deletedBundleCount}개(${strings.byteCount(result.deletedBundleBytes)})를 삭제했습니다.',
+              es: 'Se eliminaron ${result.deletedBundleCount} paquetes antiguos de iCloud (${strings.byteCount(result.deletedBundleBytes)}).',
+              de: '${result.deletedBundleCount} alte iCloud-Pakete geloescht (${strings.byteCount(result.deletedBundleBytes)}).',
+            ),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(showCloseIcon: true, content: Text('$error')),
+      );
+    }
   }
 
   Future<void> _downloadDiagnosticLog(
