@@ -131,7 +131,10 @@ void main() {
     expect(homePage, contains('shape: BoxShape.circle'));
     expect(homePage, contains('enabled: false'));
     expect(homePage, contains('if (index == 2)'));
-    expect(homePage, contains('icon: _CreateNoteNavButton('));
+    expect(homePage, contains('Positioned('));
+    expect(homePage, contains('bottom: 4'));
+    expect(homePage, contains('icon: SizedBox.shrink()'));
+    expect(homePage, contains('child: _CreateNoteNavButton('));
     expect(homePage, contains('showNoteEditorSheet(context, ref);'));
     expect(createNoteIcon, contains('<svg'));
     expect(createNoteIcon, contains('#FFF7F4'));
