@@ -588,13 +588,7 @@ class _CreateNoteNavButton extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: Center(
-                  child: SvgPicture.asset(
-                    'assets/actions/create-note.svg',
-                    width: 38,
-                    height: 38,
-                  ),
-                ),
+                child: Center(child: const _CreateNoteIcon(size: 38)),
               ),
             ),
           ),
@@ -602,6 +596,64 @@ class _CreateNoteNavButton extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CreateNoteIcon extends StatelessWidget {
+  const _CreateNoteIcon({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return SvgPicture.asset(
+      'assets/actions/create-note.svg',
+      width: size,
+      height: size,
+      colorMapper: _CreateNoteIconColorMapper(Theme.of(context).colorScheme),
+    );
+  }
+}
+
+@immutable
+class _CreateNoteIconColorMapper extends ColorMapper {
+  const _CreateNoteIconColorMapper(this.colorScheme);
+
+  final ColorScheme colorScheme;
+
+  @override
+  Color substitute(
+    String? id,
+    String elementName,
+    String attributeName,
+    Color color,
+  ) {
+    if (color == const Color(0xFFFFF7F4)) {
+      return colorScheme.onPrimary;
+    }
+    if (color == const Color(0xFFF7DADF)) {
+      return Color.alphaBlend(
+        colorScheme.primary.withValues(alpha: 0.14),
+        colorScheme.onPrimary,
+      );
+    }
+    if (color == const Color(0xFF9F5261)) {
+      return colorScheme.primary;
+    }
+    if (color == const Color(0xFFD77E8D)) {
+      return colorScheme.primary.withValues(alpha: 0.72);
+    }
+    return color;
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is _CreateNoteIconColorMapper &&
+        other.colorScheme.primary == colorScheme.primary &&
+        other.colorScheme.onPrimary == colorScheme.onPrimary;
+  }
+
+  @override
+  int get hashCode => Object.hash(colorScheme.primary, colorScheme.onPrimary);
 }
 
 class _AppBrandTitle extends StatelessWidget {
@@ -2875,6 +2927,7 @@ class SettingsScreen extends ConsumerWidget {
   static const memoStandardListKey = Key('memo-standard-list-option');
   static const memoCompactListKey = Key('memo-compact-list-option');
   static const memoAutoLocationKey = Key('memo-auto-location-toggle');
+  static const memoSpotlightIndexKey = Key('memo-spotlight-index-toggle');
   static const konjyoColorThemeKey = Key('color-theme-konjyo-option');
   static const moegiColorThemeKey = Key('color-theme-moegi-option');
   static const yamabukiColorThemeKey = Key('color-theme-yamabuki-option');
@@ -3273,6 +3326,9 @@ class SettingsScreen extends ConsumerWidget {
     final lastNoteEditorSettings = ref.watch(
       lastNoteEditorSettingsControllerProvider,
     );
+    final spotlightNoteIndexEnabled = ref.watch(
+      spotlightNoteIndexEnabledControllerProvider,
+    );
     final notesListDensity = ref.watch(notesListDensityControllerProvider);
     final attachmentPreviewFit = ref.watch(
       attachmentPreviewFitControllerProvider,
@@ -3515,6 +3571,37 @@ class SettingsScreen extends ConsumerWidget {
           assetPath: 'assets/settings/appearance.svg',
           semanticLabel: 'settings-memo',
           children: [
+            if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) ...[
+              SwitchListTile.adaptive(
+                key: memoSpotlightIndexKey,
+                value: spotlightNoteIndexEnabled,
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  strings.localized(
+                    en: 'Show standard notes in Spotlight',
+                    ja: '標準メモをSpotlight検索に表示',
+                    zh: '在 Spotlight 中显示标准笔记',
+                    ko: '표준 메모를 Spotlight 검색에 표시',
+                    es: 'Mostrar notas estandar en Spotlight',
+                    de: 'Standardnotizen in Spotlight anzeigen',
+                  ),
+                ),
+                subtitle: Text(
+                  strings.localized(
+                    en: 'When enabled, only normal Notes are indexed on this device. Turning it off removes HiMemo notes from Spotlight.',
+                    ja: 'オンにすると、この端末の通常のノートだけを検索対象にします。オフにするとHiMemoのメモをSpotlightから削除します。',
+                    zh: '开启后，仅在此设备上索引普通笔记。关闭后会从 Spotlight 中移除 HiMemo 笔记。',
+                    ko: '켜면 이 기기의 일반 노트만 인덱싱합니다. 끄면 Spotlight에서 HiMemo 메모를 제거합니다.',
+                    es: 'Al activarlo, solo se indexan las notas normales en este dispositivo. Al desactivarlo, se quitan las notas de HiMemo de Spotlight.',
+                    de: 'Wenn aktiviert, werden nur normale Notizen auf diesem Geraet indexiert. Beim Deaktivieren entfernt HiMemo seine Notizen aus Spotlight.',
+                  ),
+                ),
+                onChanged: (enabled) => ref
+                    .read(spotlightNoteIndexEnabledControllerProvider.notifier)
+                    .setEnabled(enabled),
+              ),
+              const SizedBox(height: 8),
+            ],
             _SettingsSectionLabel(
               label: strings.localized(
                 en: 'Default input',
@@ -7602,11 +7689,7 @@ class _SidebarCreateNoteButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final colorScheme = Theme.of(context).colorScheme;
-    final icon = SvgPicture.asset(
-      'assets/actions/create-note.svg',
-      width: collapsed ? 30 : 26,
-      height: collapsed ? 30 : 26,
-    );
+    final icon = _CreateNoteIcon(size: collapsed ? 30 : 26);
     if (collapsed) {
       return Center(
         child: Tooltip(
@@ -16869,7 +16952,11 @@ class _AttachmentImageBox extends StatelessWidget {
                 attachment,
                 'image decode failed',
                 source: diagnosticSource ?? 'attachment image',
-                data: {'error': error, 'bytes': bytes.length},
+                data: {
+                  'error': error,
+                  'bytes': bytes.length,
+                  ..._attachmentByteDiagnosticData(bytes),
+                },
               );
             }
             return _AttachmentImageErrorBox(size: size);
@@ -21366,7 +21453,7 @@ Future<List<int>?> _readPhotoAttachmentBytes(
         attachment,
         'attachment byte read completed',
         source: 'display',
-        data: {'bytes': bytes.length},
+        data: {'bytes': bytes.length, ..._attachmentByteDiagnosticData(bytes)},
       );
       return bytes;
     }
@@ -21403,7 +21490,7 @@ List<int>? _decodeAttachmentPreviewBytes(NoteAttachment attachment) {
       attachment,
       'attachment preview bytes decoded',
       source: 'preview',
-      data: {'bytes': bytes.length},
+      data: {'bytes': bytes.length, ..._attachmentByteDiagnosticData(bytes)},
     );
     return bytes;
   } on FormatException catch (error) {
@@ -21437,6 +21524,62 @@ void _logAttachmentDisplayDiagnostic(
       ...data,
     },
   );
+}
+
+Map<String, Object?> _attachmentByteDiagnosticData(List<int> bytes) {
+  final header = bytes.take(16).toList(growable: false);
+  return {
+    'byteSignature': header
+        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join(' '),
+    'detectedImageFormat': _detectImageFormat(bytes),
+  };
+}
+
+String _detectImageFormat(List<int> bytes) {
+  bool startsWith(List<int> signature) {
+    if (bytes.length < signature.length) {
+      return false;
+    }
+    for (var i = 0; i < signature.length; i++) {
+      if (bytes[i] != signature[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  String asciiAt(int start, int end) {
+    if (bytes.length < end) {
+      return '';
+    }
+    return String.fromCharCodes(bytes.sublist(start, end));
+  }
+
+  if (startsWith(const [0xff, 0xd8, 0xff])) {
+    return 'jpeg';
+  }
+  if (startsWith(const [0x89, 0x50, 0x4e, 0x47])) {
+    return 'png';
+  }
+  if (startsWith(const [0x47, 0x49, 0x46, 0x38])) {
+    return 'gif';
+  }
+  if (asciiAt(0, 4) == 'RIFF' && asciiAt(8, 12) == 'WEBP') {
+    return 'webp';
+  }
+  final boxType = asciiAt(4, 12);
+  if (boxType.startsWith('ftypheic') ||
+      boxType.startsWith('ftypheix') ||
+      boxType.startsWith('ftyphevc') ||
+      boxType.startsWith('ftyphevx') ||
+      boxType.startsWith('ftypheim') ||
+      boxType.startsWith('ftypheis') ||
+      boxType.startsWith('ftypmif1') ||
+      boxType.startsWith('ftypmsf1')) {
+    return 'heic';
+  }
+  return 'unknown';
 }
 
 String _attachmentDiagnosticFileRef(String? filePath) {
@@ -21724,7 +21867,11 @@ class _PhotoAttachmentViewer extends ConsumerWidget {
                   attachment,
                   'image decode failed',
                   source: 'viewer',
-                  data: {'error': error, 'bytes': bytes.length},
+                  data: {
+                    'error': error,
+                    'bytes': bytes.length,
+                    ..._attachmentByteDiagnosticData(bytes),
+                  },
                 );
                 return const _AttachmentImageErrorPanel(height: 180);
               },

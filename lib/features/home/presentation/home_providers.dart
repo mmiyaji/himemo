@@ -5701,6 +5701,223 @@ class AppLockSettingsController extends Notifier<bool> {
   }
 }
 
+class SpotlightNoteIndexBridge {
+  SpotlightNoteIndexBridge(this._onOpenRequested);
+
+  static const MethodChannel _channel = MethodChannel(
+    'org.ruhenheim.himemo/spotlight',
+  );
+
+  final void Function(String noteId) _onOpenRequested;
+  bool _attached = false;
+
+  bool get _isSupported =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  void attach() {
+    if (_attached || !_isSupported) {
+      return;
+    }
+    _attached = true;
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'openSpotlightNote') {
+        final arguments = Map<String, dynamic>.from(
+          (call.arguments as Map?)?.cast<String, dynamic>() ??
+              const <String, dynamic>{},
+        );
+        final noteId = '${arguments['noteId'] ?? ''}'.trim();
+        if (noteId.isNotEmpty) {
+          _onOpenRequested(noteId);
+          unawaited(_invoke('clearPendingSpotlightNote'));
+        }
+      }
+    });
+    unawaited(_consumePendingOpen());
+  }
+
+  Future<void> replaceAllStandardNotes(List<NoteEntry> notes) async {
+    if (!_isSupported) {
+      return;
+    }
+    await _invoke('replaceAllNotes', {
+      'items': [
+        for (final note in notes)
+          if (_isSpotlightIndexableStandardNote(note))
+            _spotlightItemArguments(note),
+      ],
+    });
+  }
+
+  Future<void> upsert(NoteEntry note) async {
+    if (!_isSupported) {
+      return;
+    }
+    if (!_isSpotlightIndexableStandardNote(note)) {
+      await delete(note.id);
+      return;
+    }
+    await _invoke('indexNotes', {
+      'items': [_spotlightItemArguments(note)],
+    });
+  }
+
+  Future<void> delete(String noteId) async {
+    if (!_isSupported || noteId.trim().isEmpty) {
+      return;
+    }
+    await _invoke('deleteNotes', {
+      'ids': [noteId],
+    });
+  }
+
+  Future<void> clearNotes() async {
+    if (!_isSupported) {
+      return;
+    }
+    await _invoke('clearNotes');
+  }
+
+  Future<void> _consumePendingOpen() async {
+    try {
+      final pending = await _channel.invokeMethod<dynamic>(
+        'consumePendingSpotlightNote',
+      );
+      if (pending is String && pending.trim().isNotEmpty) {
+        _onOpenRequested(pending.trim());
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _invoke(String method, [Object? arguments]) async {
+    try {
+      await _channel.invokeMethod<void>(method, arguments);
+    } catch (_) {}
+  }
+}
+
+bool _isSpotlightIndexableStandardNote(NoteEntry note) {
+  return note.vaultId == 'everyday' &&
+      note.deletedAt == null &&
+      note.archivedAt == null &&
+      !isGeneratedSampleNote(note);
+}
+
+Map<String, Object?> _spotlightItemArguments(NoteEntry note) {
+  final body = _spotlightSearchableText(note);
+  final title = note.title.trim().isNotEmpty
+      ? note.title.trim()
+      : _spotlightFallbackTitle(note, body);
+  return <String, Object?>{
+    'id': note.id,
+    'title': title,
+    'body': body,
+    'createdAt': note.createdAt.toIso8601String(),
+    'updatedAt': note.updatedAt?.toIso8601String(),
+    'tags': note.normalizedTags,
+  };
+}
+
+String _spotlightSearchableText(NoteEntry note) {
+  final parts = <String>[
+    if (note.body.trim().isNotEmpty) note.body.trim(),
+    for (final block in note.blocks)
+      if (block.type == NoteBlockType.paragraph &&
+          block.text != null &&
+          block.text!.trim().isNotEmpty)
+        block.text!.trim(),
+    if (note.normalizedTags.isNotEmpty) note.normalizedTags.join(' '),
+  ];
+  return parts.join('\n\n').trim();
+}
+
+String _spotlightFallbackTitle(NoteEntry note, String body) {
+  final firstLine = body
+      .split(RegExp(r'\r?\n'))
+      .map((line) => line.trim())
+      .firstWhere((line) => line.isNotEmpty, orElse: () => '');
+  if (firstLine.isNotEmpty) {
+    return firstLine.length <= 48
+        ? firstLine
+        : '${firstLine.substring(0, 48)}...';
+  }
+  return '${note.createdAt.year.toString().padLeft(4, '0')}/'
+      '${note.createdAt.month.toString().padLeft(2, '0')}/'
+      '${note.createdAt.day.toString().padLeft(2, '0')}';
+}
+
+class SpotlightNoteOpenRequestController extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void open(String noteId) => state = noteId;
+
+  void clear() => state = null;
+}
+
+final spotlightNoteOpenRequestControllerProvider =
+    NotifierProvider<SpotlightNoteOpenRequestController, String?>(
+      SpotlightNoteOpenRequestController.new,
+    );
+
+final spotlightNoteIndexBridgeProvider = Provider<SpotlightNoteIndexBridge>((
+  ref,
+) {
+  final bridge = SpotlightNoteIndexBridge(
+    (noteId) => ref
+        .read(spotlightNoteOpenRequestControllerProvider.notifier)
+        .open(noteId),
+  );
+  bridge.attach();
+  return bridge;
+});
+
+final spotlightNoteIndexEnabledControllerProvider =
+    NotifierProvider<SpotlightNoteIndexEnabledController, bool>(
+      SpotlightNoteIndexEnabledController.new,
+    );
+
+class SpotlightNoteIndexEnabledController extends Notifier<bool> {
+  static const _storageKey = 'settings.ios_spotlight_standard_notes_enabled';
+  bool _restored = false;
+
+  @override
+  bool build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return false;
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    state = enabled;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_storageKey, enabled);
+    } catch (_) {}
+    await _applyIndexState(enabled);
+  }
+
+  Future<void> _restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final enabled = prefs.getBool(_storageKey) ?? false;
+      state = enabled;
+      await _applyIndexState(enabled);
+    } catch (_) {}
+  }
+
+  Future<void> _applyIndexState(bool enabled) async {
+    final bridge = ref.read(spotlightNoteIndexBridgeProvider);
+    if (!enabled) {
+      await bridge.clearNotes();
+      return;
+    }
+    await ref.read(notesControllerProvider.notifier).restoreCompleted;
+    await bridge.replaceAllStandardNotes(ref.read(notesControllerProvider));
+  }
+}
+
 @Riverpod(keepAlive: true)
 class WidgetQuickCaptureSettingsController
     extends _$WidgetQuickCaptureSettingsController {
@@ -6924,6 +7141,7 @@ class NotesController extends _$NotesController {
           .toSet(),
     );
     await ref.read(encryptedNoteStoreProvider).save(const <NoteEntry>[]);
+    await _syncSpotlightIndexForAll();
     ref.invalidate(storageUsageSummaryProvider);
     return removedCount;
   }
@@ -7454,6 +7672,7 @@ class NotesController extends _$NotesController {
     try {
       await ref.read(encryptedNoteStoreProvider).save(state);
       ref.invalidate(syncQueueSummaryProvider);
+      await _syncSpotlightIndexForAll();
       stopwatch?.stop();
       _debugHomePerf(
         'notes persist full count=${state.length} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms',
@@ -7483,6 +7702,7 @@ class NotesController extends _$NotesController {
     try {
       await ref.read(encryptedNoteStoreProvider).saveOne(note);
       ref.invalidate(syncQueueSummaryProvider);
+      await _syncSpotlightIndexForNote(note);
       stopwatch?.stop();
       _debugHomePerf(
         'notes persist one id=${note.id} attachments=${note.attachments.length} elapsed=${stopwatch?.elapsedMilliseconds ?? 0}ms',
@@ -7499,6 +7719,22 @@ class NotesController extends _$NotesController {
       );
       await _persist();
     }
+  }
+
+  Future<void> _syncSpotlightIndexForAll() async {
+    if (!ref.read(spotlightNoteIndexEnabledControllerProvider)) {
+      return;
+    }
+    await ref
+        .read(spotlightNoteIndexBridgeProvider)
+        .replaceAllStandardNotes(state);
+  }
+
+  Future<void> _syncSpotlightIndexForNote(NoteEntry note) async {
+    if (!ref.read(spotlightNoteIndexEnabledControllerProvider)) {
+      return;
+    }
+    await ref.read(spotlightNoteIndexBridgeProvider).upsert(note);
   }
 
   Future<void> _cleanupRemovedAttachments(
