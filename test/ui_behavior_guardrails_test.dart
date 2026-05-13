@@ -110,8 +110,11 @@ void main() {
     ).readAsStringSync();
 
     expect(homePage, contains('class _CreateNoteNavButton'));
+    expect(homePage, contains('class _CreateNoteIcon'));
+    expect(homePage, contains('class _CreateNoteIconColorMapper'));
     expect(homePage, contains('key: AppShell.addNoteKey'));
     expect(homePage, contains('assets/actions/create-note.svg'));
+    expect(homePage, contains('colorMapper: _CreateNoteIconColorMapper'));
     expect(homePage, contains('width: 52'));
     expect(homePage, contains('height: 52'));
     expect(homePage, contains('shape: BoxShape.circle'));

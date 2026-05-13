@@ -588,13 +588,7 @@ class _CreateNoteNavButton extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: Center(
-                  child: SvgPicture.asset(
-                    'assets/actions/create-note.svg',
-                    width: 38,
-                    height: 38,
-                  ),
-                ),
+                child: Center(child: const _CreateNoteIcon(size: 38)),
               ),
             ),
           ),
@@ -602,6 +596,64 @@ class _CreateNoteNavButton extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CreateNoteIcon extends StatelessWidget {
+  const _CreateNoteIcon({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return SvgPicture.asset(
+      'assets/actions/create-note.svg',
+      width: size,
+      height: size,
+      colorMapper: _CreateNoteIconColorMapper(Theme.of(context).colorScheme),
+    );
+  }
+}
+
+@immutable
+class _CreateNoteIconColorMapper extends ColorMapper {
+  const _CreateNoteIconColorMapper(this.colorScheme);
+
+  final ColorScheme colorScheme;
+
+  @override
+  Color substitute(
+    String? id,
+    String elementName,
+    String attributeName,
+    Color color,
+  ) {
+    if (color == const Color(0xFFFFF7F4)) {
+      return colorScheme.onPrimary;
+    }
+    if (color == const Color(0xFFF7DADF)) {
+      return Color.alphaBlend(
+        colorScheme.primary.withValues(alpha: 0.14),
+        colorScheme.onPrimary,
+      );
+    }
+    if (color == const Color(0xFF9F5261)) {
+      return colorScheme.primary;
+    }
+    if (color == const Color(0xFFD77E8D)) {
+      return colorScheme.primary.withValues(alpha: 0.72);
+    }
+    return color;
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is _CreateNoteIconColorMapper &&
+        other.colorScheme.primary == colorScheme.primary &&
+        other.colorScheme.onPrimary == colorScheme.onPrimary;
+  }
+
+  @override
+  int get hashCode => Object.hash(colorScheme.primary, colorScheme.onPrimary);
 }
 
 class _AppBrandTitle extends StatelessWidget {
@@ -7637,11 +7689,7 @@ class _SidebarCreateNoteButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final colorScheme = Theme.of(context).colorScheme;
-    final icon = SvgPicture.asset(
-      'assets/actions/create-note.svg',
-      width: collapsed ? 30 : 26,
-      height: collapsed ? 30 : 26,
-    );
+    final icon = _CreateNoteIcon(size: collapsed ? 30 : 26);
     if (collapsed) {
       return Center(
         child: Tooltip(
