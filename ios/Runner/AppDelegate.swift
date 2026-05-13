@@ -2,6 +2,8 @@ import UIKit
 import Flutter
 import CloudKit
 import Network
+import CoreSpotlight
+import UniformTypeIdentifiers
 
 @UIApplicationMain
 @objc class AppDelegate: FlutterAppDelegate {
@@ -9,6 +11,8 @@ import Network
   private let cloudKitChannelName = "org.ruhenheim.himemo/cloudkit"
   private let privacyChannelName = "org.ruhenheim.himemo/privacy"
   private let networkChannelName = "org.ruhenheim.himemo/network"
+  private let spotlightChannelName = "org.ruhenheim.himemo/spotlight"
+  private let spotlightDomainIdentifier = "org.ruhenheim.himemo.notes.standard"
   private let quickCaptureUrl = "himemo://widget-capture"
   private let appGroupIdentifier = "group.org.ruhenheim.himemo"
   private let pendingQuickCaptureFileName = "pending_quick_capture.json"
@@ -31,7 +35,9 @@ import Network
   private var cloudKitChannel: FlutterMethodChannel?
   private var privacyChannel: FlutterMethodChannel?
   private var networkChannel: FlutterMethodChannel?
+  private var spotlightChannel: FlutterMethodChannel?
   private var pendingQuickCapturePayload: [String: Any]?
+  private var pendingSpotlightNoteId: String?
   private var privacyProtectionEnabled = false
   private var privacyOverlayView: UIVisualEffectView?
 
@@ -61,6 +67,10 @@ import Network
       )
       networkChannel = FlutterMethodChannel(
         name: networkChannelName,
+        binaryMessenger: controller.binaryMessenger
+      )
+      spotlightChannel = FlutterMethodChannel(
+        name: spotlightChannelName,
         binaryMessenger: controller.binaryMessenger
       )
 
@@ -112,10 +122,20 @@ import Network
         }
         self.handleNetworkMethod(call: call, result: result)
       }
+
+      spotlightChannel?.setMethodCallHandler { [weak self] call, result in
+        guard let self else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        self.handleSpotlightMethod(call: call, result: result)
+      }
     }
 
     if let url = launchOptions?[.url] as? URL {
-      _ = handleQuickCaptureURL(url)
+      if !handleQuickCaptureURL(url) {
+        _ = handleSpotlightURL(url)
+      }
     }
     return result
   }
@@ -128,7 +148,28 @@ import Network
     if handleQuickCaptureURL(url) {
       return true
     }
+    if handleSpotlightURL(url) {
+      return true
+    }
     return super.application(app, open: url, options: options)
+  }
+
+  override func application(
+    _ application: UIApplication,
+    continue userActivity: NSUserActivity,
+    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+  ) -> Bool {
+    if userActivity.activityType == CSSearchableItemActionType,
+       let noteId = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+       !noteId.isEmpty {
+      openSpotlightNote(noteId: noteId)
+      return true
+    }
+    return super.application(
+      application,
+      continue: userActivity,
+      restorationHandler: restorationHandler
+    )
   }
 
   override func applicationWillResignActive(_ application: UIApplication) {
@@ -170,6 +211,151 @@ import Network
     default:
       result(FlutterMethodNotImplemented)
     }
+  }
+
+  private func handleSpotlightMethod(call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "replaceAllNotes":
+      let args = call.arguments as? [String: Any]
+      let items = args?["items"] as? [[String: Any]] ?? []
+      replaceSpotlightNotes(items: items, result: result)
+    case "indexNotes":
+      let args = call.arguments as? [String: Any]
+      let items = args?["items"] as? [[String: Any]] ?? []
+      indexSpotlightNotes(items: items, result: result)
+    case "deleteNotes":
+      let args = call.arguments as? [String: Any]
+      let ids = args?["ids"] as? [String] ?? []
+      deleteSpotlightNotes(ids: ids, result: result)
+    case "clearNotes":
+      clearSpotlightNotes(result: result)
+    case "consumePendingSpotlightNote":
+      let noteId = pendingSpotlightNoteId
+      pendingSpotlightNoteId = nil
+      result(noteId ?? false)
+    case "clearPendingSpotlightNote":
+      pendingSpotlightNoteId = nil
+      result(nil)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private func replaceSpotlightNotes(items: [[String: Any]], result: @escaping FlutterResult) {
+    CSSearchableIndex.default().deleteSearchableItems(
+      withDomainIdentifiers: [spotlightDomainIdentifier]
+    ) { [weak self] error in
+      guard let self else {
+        result(nil)
+        return
+      }
+      if let error {
+        result(FlutterError(
+          code: "spotlight_clear_failed",
+          message: error.localizedDescription,
+          details: nil
+        ))
+        return
+      }
+      self.indexSpotlightNotes(items: items, result: result)
+    }
+  }
+
+  private func indexSpotlightNotes(items: [[String: Any]], result: @escaping FlutterResult) {
+    let searchableItems = items.compactMap { spotlightSearchableItem(from: $0) }
+    if searchableItems.isEmpty {
+      result(nil)
+      return
+    }
+    CSSearchableIndex.default().indexSearchableItems(searchableItems) { error in
+      if let error {
+        result(FlutterError(
+          code: "spotlight_index_failed",
+          message: error.localizedDescription,
+          details: nil
+        ))
+        return
+      }
+      result(nil)
+    }
+  }
+
+  private func deleteSpotlightNotes(ids: [String], result: @escaping FlutterResult) {
+    let identifiers = ids
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+    if identifiers.isEmpty {
+      result(nil)
+      return
+    }
+    CSSearchableIndex.default().deleteSearchableItems(
+      withIdentifiers: identifiers
+    ) { error in
+      if let error {
+        result(FlutterError(
+          code: "spotlight_delete_failed",
+          message: error.localizedDescription,
+          details: nil
+        ))
+        return
+      }
+      result(nil)
+    }
+  }
+
+  private func clearSpotlightNotes(result: @escaping FlutterResult) {
+    CSSearchableIndex.default().deleteSearchableItems(
+      withDomainIdentifiers: [spotlightDomainIdentifier]
+    ) { error in
+      if let error {
+        result(FlutterError(
+          code: "spotlight_clear_failed",
+          message: error.localizedDescription,
+          details: nil
+        ))
+        return
+      }
+      result(nil)
+    }
+  }
+
+  private func spotlightSearchableItem(from payload: [String: Any]) -> CSSearchableItem? {
+    guard let id = payload["id"] as? String, !id.isEmpty else {
+      return nil
+    }
+    let title = (payload["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let body = (payload["body"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let attributeSet = CSSearchableItemAttributeSet(contentType: .text)
+    attributeSet.title = title?.isEmpty == false ? title : "HiMemo"
+    attributeSet.contentDescription = body
+    attributeSet.keywords = payload["tags"] as? [String]
+    attributeSet.contentCreationDate = dateFromIsoString(payload["createdAt"] as? String)
+    attributeSet.contentModificationDate = dateFromIsoString(payload["updatedAt"] as? String)
+    if let encodedId = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+       let url = URL(string: "himemo://note?id=\(encodedId)") {
+      attributeSet.contentURL = url
+    }
+
+    let item = CSSearchableItem(
+      uniqueIdentifier: id,
+      domainIdentifier: spotlightDomainIdentifier,
+      attributeSet: attributeSet
+    )
+    item.expirationDate = Date.distantFuture
+    return item
+  }
+
+  private func dateFromIsoString(_ value: String?) -> Date? {
+    guard let value else {
+      return nil
+    }
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = formatter.date(from: value) {
+      return date
+    }
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter.date(from: value)
   }
 
   private func currentConnectionKind() -> String {
@@ -252,6 +438,32 @@ import Network
       "files": []
     ])
     return true
+  }
+
+  private func handleSpotlightURL(_ url: URL) -> Bool {
+    guard url.scheme == "himemo", url.host == "note" else {
+      return false
+    }
+    let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    let queryNoteId = components?.queryItems?.first(where: { $0.name == "id" })?.value
+    let pathNoteId = url.pathComponents.dropFirst().first
+    let noteId = (queryNoteId ?? pathNoteId ?? "").trimmingCharacters(
+      in: .whitespacesAndNewlines
+    )
+    guard !noteId.isEmpty else {
+      return false
+    }
+    openSpotlightNote(noteId: noteId)
+    return true
+  }
+
+  private func openSpotlightNote(noteId: String) {
+    pendingSpotlightNoteId = noteId
+    if spotlightChannel != nil {
+      spotlightChannel?.invokeMethod("openSpotlightNote", arguments: [
+        "noteId": noteId
+      ])
+    }
   }
 
   private func openQuickCapture(payload: [String: Any]) {

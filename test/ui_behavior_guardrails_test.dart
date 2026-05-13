@@ -138,6 +138,32 @@ void main() {
     expect(homePage, contains('strings.addNote'));
   });
 
+  test('iOS Spotlight indexing is opt-in and clears when disabled', () {
+    final homeProviders = File(
+      'lib/features/home/presentation/home_providers.dart',
+    ).readAsStringSync();
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+    final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+    final app = File('lib/app/app.dart').readAsStringSync();
+
+    expect(homeProviders, contains('SpotlightNoteIndexEnabledController'));
+    expect(
+      homeProviders,
+      contains('settings.ios_spotlight_standard_notes_enabled'),
+    );
+    expect(homeProviders, contains('replaceAllStandardNotes'));
+    expect(homeProviders, contains("note.vaultId == 'everyday'"));
+    expect(homeProviders, contains('bridge.clearNotes();'));
+    expect(homePage, contains('memoSpotlightIndexKey'));
+    expect(homePage, contains('TargetPlatform.iOS'));
+    expect(appDelegate, contains('import CoreSpotlight'));
+    expect(appDelegate, contains('spotlightDomainIdentifier'));
+    expect(appDelegate, contains('CSSearchableItemActionType'));
+    expect(app, contains('spotlightNoteOpenRequestControllerProvider'));
+  });
+
   test('quick capture bypasses app lock auto prompts while active', () {
     final appShell = File('lib/app/app.dart').readAsStringSync();
 

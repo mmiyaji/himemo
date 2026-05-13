@@ -53,12 +53,23 @@ class HiMemoApp extends ConsumerWidget {
     };
 
     ref.watch(widgetQuickCaptureBridgeProvider);
+    ref.watch(spotlightNoteIndexBridgeProvider);
     ref.watch(inAppUpdateControllerProvider);
     ref.listen(widgetQuickCaptureRequestControllerProvider, (previous, next) {
       if (previous == next || next == null) {
         return;
       }
       router.go('/widget-capture');
+    });
+    ref.listen(spotlightNoteOpenRequestControllerProvider, (previous, next) {
+      if (previous == next || next == null || next.isEmpty) {
+        return;
+      }
+      ref.read(searchQueryProvider.notifier).setQuery('');
+      ref.read(searchFiltersControllerProvider.notifier).reset();
+      ref.read(selectedNoteIdProvider.notifier).select(next);
+      ref.read(spotlightNoteOpenRequestControllerProvider.notifier).clear();
+      router.go('/notes');
     });
 
     return FlavorBanner(

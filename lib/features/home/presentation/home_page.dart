@@ -2875,6 +2875,7 @@ class SettingsScreen extends ConsumerWidget {
   static const memoStandardListKey = Key('memo-standard-list-option');
   static const memoCompactListKey = Key('memo-compact-list-option');
   static const memoAutoLocationKey = Key('memo-auto-location-toggle');
+  static const memoSpotlightIndexKey = Key('memo-spotlight-index-toggle');
   static const konjyoColorThemeKey = Key('color-theme-konjyo-option');
   static const moegiColorThemeKey = Key('color-theme-moegi-option');
   static const yamabukiColorThemeKey = Key('color-theme-yamabuki-option');
@@ -3273,6 +3274,9 @@ class SettingsScreen extends ConsumerWidget {
     final lastNoteEditorSettings = ref.watch(
       lastNoteEditorSettingsControllerProvider,
     );
+    final spotlightNoteIndexEnabled = ref.watch(
+      spotlightNoteIndexEnabledControllerProvider,
+    );
     final notesListDensity = ref.watch(notesListDensityControllerProvider);
     final attachmentPreviewFit = ref.watch(
       attachmentPreviewFitControllerProvider,
@@ -3515,6 +3519,37 @@ class SettingsScreen extends ConsumerWidget {
           assetPath: 'assets/settings/appearance.svg',
           semanticLabel: 'settings-memo',
           children: [
+            if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) ...[
+              SwitchListTile.adaptive(
+                key: memoSpotlightIndexKey,
+                value: spotlightNoteIndexEnabled,
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  strings.localized(
+                    en: 'Show standard notes in Spotlight',
+                    ja: '標準メモをSpotlight検索に表示',
+                    zh: '在 Spotlight 中显示标准笔记',
+                    ko: '표준 메모를 Spotlight 검색에 표시',
+                    es: 'Mostrar notas estandar en Spotlight',
+                    de: 'Standardnotizen in Spotlight anzeigen',
+                  ),
+                ),
+                subtitle: Text(
+                  strings.localized(
+                    en: 'When enabled, only normal Notes are indexed on this device. Turning it off removes HiMemo notes from Spotlight.',
+                    ja: 'オンにすると、この端末の通常のノートだけを検索対象にします。オフにするとHiMemoのメモをSpotlightから削除します。',
+                    zh: '开启后，仅在此设备上索引普通笔记。关闭后会从 Spotlight 中移除 HiMemo 笔记。',
+                    ko: '켜면 이 기기의 일반 노트만 인덱싱합니다. 끄면 Spotlight에서 HiMemo 메모를 제거합니다.',
+                    es: 'Al activarlo, solo se indexan las notas normales en este dispositivo. Al desactivarlo, se quitan las notas de HiMemo de Spotlight.',
+                    de: 'Wenn aktiviert, werden nur normale Notizen auf diesem Geraet indexiert. Beim Deaktivieren entfernt HiMemo seine Notizen aus Spotlight.',
+                  ),
+                ),
+                onChanged: (enabled) => ref
+                    .read(spotlightNoteIndexEnabledControllerProvider.notifier)
+                    .setEnabled(enabled),
+              ),
+              const SizedBox(height: 8),
+            ],
             _SettingsSectionLabel(
               label: strings.localized(
                 en: 'Default input',
