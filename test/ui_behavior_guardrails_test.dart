@@ -115,6 +115,8 @@ void main() {
     expect(homePage, contains('key: AppShell.addNoteKey'));
     expect(homePage, contains('assets/actions/create-note.svg'));
     expect(homePage, contains('colorMapper: _CreateNoteIconColorMapper'));
+    expect(homePage, contains('static const _verticalOffset = 4.0'));
+    expect(homePage, contains('Transform.translate'));
     expect(homePage, contains('width: 52'));
     expect(homePage, contains('height: 52'));
     expect(homePage, contains('shape: BoxShape.circle'));

@@ -544,6 +544,8 @@ class _CreateNoteNavButton extends StatelessWidget {
     required this.tooltip,
   });
 
+  static const _verticalOffset = 4.0;
+
   final VoidCallback onPressed;
   final String tooltip;
 
@@ -556,28 +558,31 @@ class _CreateNoteNavButton extends StatelessWidget {
         button: true,
         label: tooltip,
         onTap: onPressed,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onPressed,
-          child: SizedBox(
-            width: 64,
-            height: 64,
-            child: Center(
-              child: Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: colorScheme.primary,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: colorScheme.shadow.withValues(alpha: 0.10),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
+        child: Transform.translate(
+          offset: const Offset(0, _verticalOffset),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onPressed,
+            child: SizedBox(
+              width: 64,
+              height: 64,
+              child: Center(
+                child: Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: colorScheme.primary,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: colorScheme.shadow.withValues(alpha: 0.10),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Center(child: const _CreateNoteIcon(size: 38)),
                 ),
-                child: Center(child: const _CreateNoteIcon(size: 38)),
               ),
             ),
           ),
