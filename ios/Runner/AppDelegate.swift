@@ -3,7 +3,7 @@ import Flutter
 import CloudKit
 import Network
 import CoreSpotlight
-import UniformTypeIdentifiers
+import MobileCoreServices
 
 @UIApplicationMain
 @objc class AppDelegate: FlutterAppDelegate {
@@ -325,7 +325,7 @@ import UniformTypeIdentifiers
     }
     let title = (payload["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
     let body = (payload["body"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let attributeSet = CSSearchableItemAttributeSet(contentType: .text)
+    let attributeSet = CSSearchableItemAttributeSet(itemContentType: kUTTypeText as String)
     attributeSet.title = title?.isEmpty == false ? title : "HiMemo"
     attributeSet.contentDescription = body
     attributeSet.keywords = payload["tags"] as? [String]
