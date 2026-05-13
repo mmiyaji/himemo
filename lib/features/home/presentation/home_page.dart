@@ -747,6 +747,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         vault.id: _vaultDisplayName(context, vault),
     };
     final listDensity = ref.watch(notesListDensityControllerProvider);
+    final sortField = ref.watch(notesListSortControllerProvider);
     final attachmentPreviewFit = ref.watch(
       attachmentPreviewFitControllerProvider,
     );
@@ -765,6 +766,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         allVisibleNotes: visibleNotes,
         selectedNoteId: selectedNoteId,
         density: listDensity,
+        sortField: sortField,
         attachmentPreviewFit: attachmentPreviewFit,
         query: query,
         onRefresh: syncProvider == SyncProvider.off
@@ -808,6 +810,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 vaultNameById: vaultNameById,
                 showVaultName: visibleVaults.length > 1,
                 density: listDensity,
+                sortField: sortField,
                 attachmentPreviewFit: attachmentPreviewFit,
                 query: query,
                 onAddNote: () => showNoteEditorSheet(context, ref),
@@ -7744,12 +7747,23 @@ String _vaultDisplayName(BuildContext context, VaultBucket vault) {
   return vault.name;
 }
 
-bool _isSameNoteDay(NoteEntry left, NoteEntry right) {
-  final leftCreatedAt = left.createdAt.toLocal();
-  final rightCreatedAt = right.createdAt.toLocal();
-  return leftCreatedAt.year == rightCreatedAt.year &&
-      leftCreatedAt.month == rightCreatedAt.month &&
-      leftCreatedAt.day == rightCreatedAt.day;
+DateTime _noteListMoment(NoteEntry note, NotesListSortField sortField) {
+  return switch (sortField) {
+    NotesListSortField.updatedAt => note.updatedAt ?? note.createdAt,
+    NotesListSortField.createdAt => note.createdAt,
+  };
+}
+
+bool _isSameNoteDay(
+  NoteEntry left,
+  NoteEntry right,
+  NotesListSortField sortField,
+) {
+  final leftMoment = _noteListMoment(left, sortField).toLocal();
+  final rightMoment = _noteListMoment(right, sortField).toLocal();
+  return leftMoment.year == rightMoment.year &&
+      leftMoment.month == rightMoment.month &&
+      leftMoment.day == rightMoment.day;
 }
 
 class _MobileNotesList extends StatefulWidget {
@@ -7762,6 +7776,7 @@ class _MobileNotesList extends StatefulWidget {
     required this.allVisibleNotes,
     required this.selectedNoteId,
     required this.density,
+    required this.sortField,
     required this.attachmentPreviewFit,
     required this.query,
     required this.onRefresh,
@@ -7776,6 +7791,7 @@ class _MobileNotesList extends StatefulWidget {
   final List<NoteEntry> allVisibleNotes;
   final String? selectedNoteId;
   final NotesListDensity density;
+  final NotesListSortField sortField;
   final AttachmentPreviewFit attachmentPreviewFit;
   final String query;
   final Future<void> Function()? onRefresh;
@@ -7802,6 +7818,7 @@ class _MobileNotesListState extends State<_MobileNotesList> {
         oldWidget.showPrivateVaultNotice != widget.showPrivateVaultNotice ||
         oldWidget.compactHeader != widget.compactHeader ||
         oldWidget.density != widget.density ||
+        oldWidget.sortField != widget.sortField ||
         oldWidget.attachmentPreviewFit != widget.attachmentPreviewFit ||
         oldWidget.showVaultName != widget.showVaultName ||
         oldWidget.vaultNameById.length != widget.vaultNameById.length) {
@@ -7817,6 +7834,7 @@ class _MobileNotesListState extends State<_MobileNotesList> {
       compactHeader: widget.compactHeader,
       notes: widget.allVisibleNotes,
       density: widget.density,
+      sortField: widget.sortField,
     );
     if (watch != null) {
       watch.stop();
@@ -7891,6 +7909,7 @@ List<_MobileNoteRow> _buildMobileNoteRows({
   required bool compactHeader,
   required List<NoteEntry> notes,
   required NotesListDensity density,
+  required NotesListSortField sortField,
 }) {
   final rows = <_MobileNoteRow>[
     if (activeIdentity.id != 'daily') const _MobileIdentityRow(),
@@ -7905,13 +7924,13 @@ List<_MobileNoteRow> _buildMobileNoteRows({
   final noteRows = <_MobileNoteRow>[];
   for (var i = 0; i < notes.length; i++) {
     if (density != NotesListDensity.compact &&
-        (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i]))) {
-      noteRows.add(_MobileDayRow(notes[i].createdAt));
+        (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i], sortField))) {
+      noteRows.add(_MobileDayRow(_noteListMoment(notes[i], sortField)));
     }
     noteRows.add(_MobileTileRow(notes[i]));
     if (density != NotesListDensity.compact &&
         i != notes.length - 1 &&
-        _isSameNoteDay(notes[i], notes[i + 1])) {
+        _isSameNoteDay(notes[i], notes[i + 1], sortField)) {
       noteRows.add(const _MobileDividerRow());
     }
   }
@@ -8889,6 +8908,7 @@ class _SplitNotesListPane extends StatefulWidget {
     required this.vaultNameById,
     required this.showVaultName,
     required this.density,
+    required this.sortField,
     required this.attachmentPreviewFit,
     required this.query,
     required this.onAddNote,
@@ -8903,6 +8923,7 @@ class _SplitNotesListPane extends StatefulWidget {
   final Map<String, String> vaultNameById;
   final bool showVaultName;
   final NotesListDensity density;
+  final NotesListSortField sortField;
   final AttachmentPreviewFit attachmentPreviewFit;
   final String query;
   final VoidCallback onAddNote;
@@ -8927,6 +8948,7 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.notes, widget.notes) ||
         oldWidget.density != widget.density ||
+        oldWidget.sortField != widget.sortField ||
         oldWidget.attachmentPreviewFit != widget.attachmentPreviewFit ||
         oldWidget.showPrivateVaultNotice != widget.showPrivateVaultNotice ||
         oldWidget.activeIdentity.id != widget.activeIdentity.id) {
@@ -8940,6 +8962,7 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
       showPrivateVaultNotice: widget.showPrivateVaultNotice,
       notes: widget.notes,
       density: widget.density,
+      sortField: widget.sortField,
     );
   }
 
@@ -9006,6 +9029,7 @@ List<_SplitNoteRow> _buildSplitNoteRows({
   required bool showPrivateVaultNotice,
   required List<NoteEntry> notes,
   required NotesListDensity density,
+  required NotesListSortField sortField,
 }) {
   final rows = <_SplitNoteRow>[
     if (activeIdentity.id != 'daily') const _SplitNoteIdentityRow(),
@@ -9020,13 +9044,13 @@ List<_SplitNoteRow> _buildSplitNoteRows({
   final noteRows = <_SplitNoteRow>[];
   for (var i = 0; i < notes.length; i++) {
     if (density != NotesListDensity.compact &&
-        (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i]))) {
-      noteRows.add(_SplitNoteDayRow(notes[i].createdAt));
+        (i == 0 || !_isSameNoteDay(notes[i - 1], notes[i], sortField))) {
+      noteRows.add(_SplitNoteDayRow(_noteListMoment(notes[i], sortField)));
     }
     noteRows.add(_SplitNoteTileRow(notes[i]));
     if (density != NotesListDensity.compact &&
         i != notes.length - 1 &&
-        _isSameNoteDay(notes[i], notes[i + 1])) {
+        _isSameNoteDay(notes[i], notes[i + 1], sortField)) {
       noteRows.add(const _SplitNoteDividerRow());
     }
   }

@@ -396,6 +396,11 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       return;
     }
 
+    if (_isQuickCaptureActive) {
+      _refreshPrivateSessionTimer();
+      return;
+    }
+
     if (_shouldRelockAfterBackground(policy.relockDelay)) {
       _lockProtectedSessions(lockAppSession: true);
     }
@@ -423,6 +428,10 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       });
     }
   }
+
+  bool get _isQuickCaptureActive =>
+      widget.currentLocation.startsWith('/widget-capture') ||
+      ref.read(widgetQuickCaptureRequestControllerProvider) != null;
 
   Future<void> _lockImmediatelyIfConfigured() async {
     final policy = await _resolveAppLockPolicy();
@@ -918,9 +927,11 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     final pinState = ref.watch(appPinLockControllerProvider);
     final canUseDeviceAuth = !kIsWeb && authState.isAvailable;
     final usePinUnlock = kIsWeb || (!canUseDeviceAuth && pinState.isConfigured);
-    final bypassForQuickCapture = widget.currentLocation.startsWith(
-      '/widget-capture',
-    );
+    final hasQuickCaptureRequest =
+        ref.watch(widgetQuickCaptureRequestControllerProvider) != null;
+    final bypassForQuickCapture =
+        hasQuickCaptureRequest ||
+        widget.currentLocation.startsWith('/widget-capture');
 
     ref.listen<bool>(privacyScreenActiveProvider, (previous, next) {
       unawaited(_refreshNativePrivacyScreen(privatePrivacyActive: next));

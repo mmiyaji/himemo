@@ -63,6 +63,45 @@ void main() {
     );
   });
 
+  test('quick capture bypasses app lock auto prompts while active', () {
+    final appShell = File('lib/app/app.dart').readAsStringSync();
+
+    expect(appShell, contains('bool get _isQuickCaptureActive'));
+    expect(
+      appShell,
+      contains('ref.read(widgetQuickCaptureRequestControllerProvider) != null'),
+    );
+    expect(
+      appShell,
+      contains(
+        'ref.watch(widgetQuickCaptureRequestControllerProvider) != null',
+      ),
+    );
+    expect(appShell, contains('if (_isQuickCaptureActive)'));
+  });
+
+  test('note list day dividers follow the active sort field', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+
+    expect(homePage, contains('DateTime _noteListMoment'));
+    expect(
+      homePage,
+      contains(
+        'NotesListSortField.updatedAt => note.updatedAt ?? note.createdAt',
+      ),
+    );
+    expect(
+      homePage,
+      contains('_MobileDayRow(_noteListMoment(notes[i], sortField))'),
+    );
+    expect(
+      homePage,
+      contains('_SplitNoteDayRow(_noteListMoment(notes[i], sortField))'),
+    );
+  });
+
   test('diagnostic mode exposes iCloud storage maintenance actions', () {
     final homePage = File(
       'lib/features/home/presentation/home_page.dart',
