@@ -115,11 +115,11 @@ void main() {
     expect(homePage, contains('key: AppShell.addNoteKey'));
     expect(homePage, contains('assets/actions/create-note.svg'));
     expect(homePage, contains('colorMapper: _CreateNoteIconColorMapper'));
-    expect(homePage, contains('static const _verticalOffset = 8.0'));
+    expect(homePage, contains('static const _verticalOffset = 10.0'));
     expect(homePage, contains('Transform.translate'));
-    expect(homePage, contains('_CreateNoteIcon(size: 40)'));
-    expect(homePage, contains('width: 52'));
-    expect(homePage, contains('height: 52'));
+    expect(homePage, contains('_CreateNoteIcon(size: 44)'));
+    expect(homePage, contains('width: 56'));
+    expect(homePage, contains('height: 56'));
     expect(homePage, contains('shape: BoxShape.circle'));
     expect(homePage, contains('if (index == 2)'));
     expect(homePage, contains('icon: _CreateNoteNavButton('));
