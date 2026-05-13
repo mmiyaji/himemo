@@ -81,6 +81,8 @@ void main() {
     expect(appShell, contains('_activateAppLockPrivacyCoverIfEnabled'));
     expect(appShell, contains('_lifecyclePrivacyCoverVisible'));
     expect(appShell, contains('_AppPrivacyCover'));
+    expect(appShell, contains('assets/privacy-icon.png'));
+    expect(appShell, contains('dimension: 152'));
     expect(
       appShell,
       contains('privacyScreenActive || _lifecyclePrivacyProtectionEnabled'),
@@ -195,7 +197,11 @@ void main() {
     expect(homePage, contains('TargetPlatform.iOS'));
     expect(appDelegate, contains('import CoreSpotlight'));
     expect(appDelegate, contains('spotlightDomainIdentifier'));
+    expect(appDelegate, contains('CSSearchableIndex.isIndexingAvailable()'));
+    expect(appDelegate, contains('"indexedCount"'));
     expect(appDelegate, contains('CSSearchableItemActionType'));
+    expect(homeProviders, contains("logDiagnostic('spotlight'"));
+    expect(homeProviders, contains('replace all requested'));
     expect(app, contains('spotlightNoteOpenRequestControllerProvider'));
   });
 

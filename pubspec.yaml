@@ -130,6 +130,7 @@ flutter:
 
   assets:
     - assets/app-icon.png
+    - assets/privacy-icon.png
     - assets/actions/
     - assets/onboarding/
     - assets/settings/

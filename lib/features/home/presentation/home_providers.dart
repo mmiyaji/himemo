@@ -5754,25 +5754,28 @@ class SpotlightNoteIndexBridge {
 
   Future<void> replaceAllStandardNotes(List<NoteEntry> notes) async {
     if (!_isSupported) {
+      _diagnostic('replace all skipped unsupported');
       return;
     }
-    await _invoke('replaceAllNotes', {
-      'items': [
-        for (final note in notes)
-          if (_isSpotlightIndexableStandardNote(note))
-            _spotlightItemArguments(note),
-      ],
-    });
+    final items = [
+      for (final note in notes)
+        if (_isSpotlightIndexableStandardNote(note))
+          _spotlightItemArguments(note),
+    ];
+    _diagnostic('replace all requested', data: {'items': items.length});
+    await _invoke('replaceAllNotes', {'items': items});
   }
 
   Future<void> upsert(NoteEntry note) async {
     if (!_isSupported) {
+      _diagnostic('upsert skipped unsupported', data: {'noteId': note.id});
       return;
     }
     if (!_isSpotlightIndexableStandardNote(note)) {
       await delete(note.id);
       return;
     }
+    _diagnostic('upsert requested', data: {'noteId': note.id});
     await _invoke('indexNotes', {
       'items': [_spotlightItemArguments(note)],
     });
@@ -5782,6 +5785,7 @@ class SpotlightNoteIndexBridge {
     if (!_isSupported || noteId.trim().isEmpty) {
       return;
     }
+    _diagnostic('delete requested', data: {'noteId': noteId});
     await _invoke('deleteNotes', {
       'ids': [noteId],
     });
@@ -5789,8 +5793,10 @@ class SpotlightNoteIndexBridge {
 
   Future<void> clearNotes() async {
     if (!_isSupported) {
+      _diagnostic('clear skipped unsupported');
       return;
     }
+    _diagnostic('clear requested');
     await _invoke('clearNotes');
   }
 
@@ -5807,8 +5813,18 @@ class SpotlightNoteIndexBridge {
 
   Future<void> _invoke(String method, [Object? arguments]) async {
     try {
-      await _channel.invokeMethod<void>(method, arguments);
-    } catch (_) {}
+      final result = await _channel.invokeMethod<Object?>(method, arguments);
+      _diagnostic('$method completed', data: {'result': result});
+    } catch (error) {
+      _diagnostic('$method failed', data: {'error': error});
+    }
+  }
+
+  void _diagnostic(
+    String message, {
+    Map<String, Object?> data = const <String, Object?>{},
+  }) {
+    logDiagnostic('spotlight', message, data: data);
   }
 }
 

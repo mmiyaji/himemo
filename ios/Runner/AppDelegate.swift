@@ -262,9 +262,19 @@ import MobileCoreServices
   }
 
   private func indexSpotlightNotes(items: [[String: Any]], result: @escaping FlutterResult) {
+    guard CSSearchableIndex.isIndexingAvailable() else {
+      result([
+        "indexedCount": 0,
+        "indexingAvailable": false
+      ])
+      return
+    }
     let searchableItems = items.compactMap { spotlightSearchableItem(from: $0) }
     if searchableItems.isEmpty {
-      result(nil)
+      result([
+        "indexedCount": 0,
+        "indexingAvailable": true
+      ])
       return
     }
     CSSearchableIndex.default().indexSearchableItems(searchableItems) { error in
@@ -276,7 +286,10 @@ import MobileCoreServices
         ))
         return
       }
-      result(nil)
+      result([
+        "indexedCount": searchableItems.count,
+        "indexingAvailable": true
+      ])
     }
   }
 
@@ -299,7 +312,9 @@ import MobileCoreServices
         ))
         return
       }
-      result(nil)
+      result([
+        "deletedCount": identifiers.count
+      ])
     }
   }
 
@@ -315,7 +330,9 @@ import MobileCoreServices
         ))
         return
       }
-      result(nil)
+      result([
+        "clearedDomain": self.spotlightDomainIdentifier
+      ])
     }
   }
 
@@ -325,10 +342,16 @@ import MobileCoreServices
     }
     let title = (payload["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
     let body = (payload["body"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let tags = payload["tags"] as? [String] ?? []
     let attributeSet = CSSearchableItemAttributeSet(itemContentType: kUTTypeText as String)
     attributeSet.title = title?.isEmpty == false ? title : "HiMemo"
-    attributeSet.contentDescription = body
-    attributeSet.keywords = payload["tags"] as? [String]
+    attributeSet.contentDescription = [body, tags.joined(separator: " ")]
+      .compactMap { value in
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+      }
+      .joined(separator: "\n\n")
+    attributeSet.keywords = tags
     attributeSet.contentCreationDate = dateFromIsoString(payload["createdAt"] as? String)
     attributeSet.contentModificationDate = dateFromIsoString(payload["updatedAt"] as? String)
     if let encodedId = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),

@@ -1268,25 +1268,10 @@ class _AppPrivacyCover extends StatelessWidget {
           child: ColoredBox(
             color: colorScheme.surface.withValues(alpha: 0.88),
             child: Center(
-              child: Container(
-                width: 96,
-                height: 96,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerHighest.withValues(
-                    alpha: 0.92,
-                  ),
-                  borderRadius: BorderRadius.circular(28),
-                  boxShadow: [
-                    BoxShadow(
-                      color: colorScheme.shadow.withValues(alpha: 0.10),
-                      blurRadius: 28,
-                      offset: const Offset(0, 14),
-                    ),
-                  ],
-                ),
+              child: SizedBox.square(
+                dimension: 152,
                 child: Image.asset(
-                  'assets/app-icon.png',
+                  'assets/privacy-icon.png',
                   filterQuality: FilterQuality.medium,
                 ),
               ),
