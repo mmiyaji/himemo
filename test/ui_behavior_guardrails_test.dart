@@ -245,4 +245,16 @@ void main() {
       ),
     );
   });
+
+  test('attachment diagnostics include image byte signatures', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+
+    expect(homePage, contains('_attachmentByteDiagnosticData'));
+    expect(homePage, contains('byteSignature'));
+    expect(homePage, contains('detectedImageFormat'));
+    expect(homePage, contains("return 'heic';"));
+    expect(homePage, contains("return 'jpeg';"));
+  });
 }

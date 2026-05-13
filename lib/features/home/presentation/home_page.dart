@@ -16904,7 +16904,11 @@ class _AttachmentImageBox extends StatelessWidget {
                 attachment,
                 'image decode failed',
                 source: diagnosticSource ?? 'attachment image',
-                data: {'error': error, 'bytes': bytes.length},
+                data: {
+                  'error': error,
+                  'bytes': bytes.length,
+                  ..._attachmentByteDiagnosticData(bytes),
+                },
               );
             }
             return _AttachmentImageErrorBox(size: size);
@@ -21401,7 +21405,7 @@ Future<List<int>?> _readPhotoAttachmentBytes(
         attachment,
         'attachment byte read completed',
         source: 'display',
-        data: {'bytes': bytes.length},
+        data: {'bytes': bytes.length, ..._attachmentByteDiagnosticData(bytes)},
       );
       return bytes;
     }
@@ -21438,7 +21442,7 @@ List<int>? _decodeAttachmentPreviewBytes(NoteAttachment attachment) {
       attachment,
       'attachment preview bytes decoded',
       source: 'preview',
-      data: {'bytes': bytes.length},
+      data: {'bytes': bytes.length, ..._attachmentByteDiagnosticData(bytes)},
     );
     return bytes;
   } on FormatException catch (error) {
@@ -21472,6 +21476,62 @@ void _logAttachmentDisplayDiagnostic(
       ...data,
     },
   );
+}
+
+Map<String, Object?> _attachmentByteDiagnosticData(List<int> bytes) {
+  final header = bytes.take(16).toList(growable: false);
+  return {
+    'byteSignature': header
+        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join(' '),
+    'detectedImageFormat': _detectImageFormat(bytes),
+  };
+}
+
+String _detectImageFormat(List<int> bytes) {
+  bool startsWith(List<int> signature) {
+    if (bytes.length < signature.length) {
+      return false;
+    }
+    for (var i = 0; i < signature.length; i++) {
+      if (bytes[i] != signature[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  String asciiAt(int start, int end) {
+    if (bytes.length < end) {
+      return '';
+    }
+    return String.fromCharCodes(bytes.sublist(start, end));
+  }
+
+  if (startsWith(const [0xff, 0xd8, 0xff])) {
+    return 'jpeg';
+  }
+  if (startsWith(const [0x89, 0x50, 0x4e, 0x47])) {
+    return 'png';
+  }
+  if (startsWith(const [0x47, 0x49, 0x46, 0x38])) {
+    return 'gif';
+  }
+  if (asciiAt(0, 4) == 'RIFF' && asciiAt(8, 12) == 'WEBP') {
+    return 'webp';
+  }
+  final boxType = asciiAt(4, 12);
+  if (boxType.startsWith('ftypheic') ||
+      boxType.startsWith('ftypheix') ||
+      boxType.startsWith('ftyphevc') ||
+      boxType.startsWith('ftyphevx') ||
+      boxType.startsWith('ftypheim') ||
+      boxType.startsWith('ftypheis') ||
+      boxType.startsWith('ftypmif1') ||
+      boxType.startsWith('ftypmsf1')) {
+    return 'heic';
+  }
+  return 'unknown';
 }
 
 String _attachmentDiagnosticFileRef(String? filePath) {
@@ -21759,7 +21819,11 @@ class _PhotoAttachmentViewer extends ConsumerWidget {
                   attachment,
                   'image decode failed',
                   source: 'viewer',
-                  data: {'error': error, 'bytes': bytes.length},
+                  data: {
+                    'error': error,
+                    'bytes': bytes.length,
+                    ..._attachmentByteDiagnosticData(bytes),
+                  },
                 );
                 return const _AttachmentImageErrorPanel(height: 180);
               },
