@@ -444,7 +444,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                       ],
                     ),
                     Positioned(
-                      bottom: 4,
+                      bottom: 8,
                       child: _CreateNoteNavButton(
                         key: AppShell.addNoteKey,
                         onPressed: () => showNoteEditorSheet(context, ref),
