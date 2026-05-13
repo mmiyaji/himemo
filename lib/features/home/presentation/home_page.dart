@@ -15703,13 +15703,12 @@ class _RichBlockEditorTile extends StatelessWidget {
                 ),
                 decoration: InputDecoration(
                   semanticCounterText: '',
-                  labelText: strings.memoLabel,
-                  floatingLabelBehavior: FloatingLabelBehavior.never,
                   hintText: showPrompt ? strings.memoFirstLineHint : null,
                   hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: _mutedTextColor(context),
                   ),
                   border: InputBorder.none,
+                  isCollapsed: true,
                   contentPadding: EdgeInsets.zero,
                 ),
                 style: Theme.of(context).textTheme.bodyLarge,
