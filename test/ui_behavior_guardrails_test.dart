@@ -142,6 +142,9 @@ void main() {
     expect(homePage, contains("hideBottomNavLabels ? '' : label"));
     expect(homePage, contains('NavigationDestinationLabelBehavior.alwaysHide'));
     expect(homePage, contains('NavigationDestinationLabelBehavior.alwaysShow'));
+    expect(homePage, contains("tooltip: ''"));
+    expect(homePage, contains('tooltip: strings.notes'));
+    expect(homePage, contains('tooltip: strings.calendar'));
     expect(homePage, contains('if (index == 2)'));
     expect(homePage, contains('Positioned('));
     expect(homePage, contains('bottom: 4'));
