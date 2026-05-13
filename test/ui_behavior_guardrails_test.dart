@@ -101,6 +101,18 @@ void main() {
     expect(homePage, contains('controller: _scrollController'));
   });
 
+  test('mobile create note action is a centered pen navigation button', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+
+    expect(homePage, contains('class _CreateNoteNavButton'));
+    expect(homePage, contains('key: AppShell.addNoteKey'));
+    expect(homePage, contains('Icons.edit_outlined'));
+    expect(homePage, contains('if (index == 2)'));
+    expect(homePage, contains('showNoteEditorSheet(context, ref);'));
+  });
+
   test('quick capture bypasses app lock auto prompts while active', () {
     final appShell = File('lib/app/app.dart').readAsStringSync();
 

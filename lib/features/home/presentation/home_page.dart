@@ -376,9 +376,13 @@ class _AppShellState extends ConsumerState<AppShell> {
       bottomNavigationBar: useRail
           ? null
           : NavigationBar(
-              selectedIndex: AppSection.values.indexOf(section),
+              selectedIndex: _bottomNavIndexForSection(section),
               onDestinationSelected: (index) {
-                _goToSection(context, ref, AppSection.values[index]);
+                if (index == 2) {
+                  showNoteEditorSheet(context, ref);
+                  return;
+                }
+                _goToSection(context, ref, _sectionForBottomNavIndex(index));
               },
               destinations: [
                 NavigationDestination(
@@ -394,6 +398,18 @@ class _AppShellState extends ConsumerState<AppShell> {
                   label: strings.calendar,
                 ),
                 NavigationDestination(
+                  icon: _CreateNoteNavButton(
+                    key: AppShell.addNoteKey,
+                    selected: false,
+                    tooltip: strings.addNote,
+                  ),
+                  selectedIcon: _CreateNoteNavButton(
+                    selected: true,
+                    tooltip: strings.addNote,
+                  ),
+                  label: '',
+                ),
+                NavigationDestination(
                   key: AppShell.insightsNavKey,
                   icon: const Icon(Icons.insert_chart_outlined_rounded),
                   selectedIcon: const Icon(Icons.insert_chart_rounded),
@@ -407,17 +423,34 @@ class _AppShellState extends ConsumerState<AppShell> {
                 ),
               ],
             ),
-      floatingActionButton:
-          !noteOverlayOpen &&
-              (section == AppSection.notes || section == AppSection.calendar)
+      floatingActionButton: useRail && !noteOverlayOpen
           ? FloatingActionButton.small(
               key: AppShell.addNoteKey,
               onPressed: () => showNoteEditorSheet(context, ref),
               tooltip: context.strings.addNote,
-              child: const Icon(Icons.add),
+              child: const Icon(Icons.edit_rounded),
             )
           : null,
     );
+  }
+
+  int _bottomNavIndexForSection(AppSection section) {
+    return switch (section) {
+      AppSection.notes => 0,
+      AppSection.calendar => 1,
+      AppSection.insights => 3,
+      AppSection.settings => 4,
+    };
+  }
+
+  AppSection _sectionForBottomNavIndex(int index) {
+    return switch (index) {
+      0 => AppSection.notes,
+      1 => AppSection.calendar,
+      3 => AppSection.insights,
+      4 => AppSection.settings,
+      _ => AppSection.notes,
+    };
   }
 
   void _goToSection(BuildContext context, WidgetRef ref, AppSection section) {
@@ -508,6 +541,49 @@ class _AppShellState extends ConsumerState<AppShell> {
       return AppSection.settings;
     }
     return AppSection.notes;
+  }
+}
+
+class _CreateNoteNavButton extends StatelessWidget {
+  const _CreateNoteNavButton({
+    super.key,
+    required this.selected,
+    required this.tooltip,
+  });
+
+  final bool selected;
+  final String tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        label: tooltip,
+        child: Container(
+          width: 52,
+          height: 40,
+          decoration: BoxDecoration(
+            color: colorScheme.primary,
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: [
+              BoxShadow(
+                color: colorScheme.shadow.withValues(alpha: 0.18),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Icon(
+            selected ? Icons.edit_rounded : Icons.edit_outlined,
+            color: colorScheme.onPrimary,
+            size: 24,
+          ),
+        ),
+      ),
+    );
   }
 }
 
