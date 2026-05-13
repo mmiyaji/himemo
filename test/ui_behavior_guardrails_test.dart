@@ -130,9 +130,16 @@ void main() {
     final iCloudTransport = File(
       'lib/features/sync/data/icloud_sync_transport.dart',
     ).readAsStringSync();
+    final networkConnection = File(
+      'lib/app/network_connection.dart',
+    ).readAsStringSync();
 
     expect(homePage, contains('diagnosticICloudStorageBreakdownKey'));
     expect(homePage, contains('diagnosticICloudPruneBundlesKey'));
+    expect(homePage, contains("'attachment'"));
+    expect(homePage, contains('image decode failed'));
+    expect(networkConnection, contains("'network'"));
+    expect(networkConnection, contains('connection kind read'));
     expect(iCloudTransport, contains('fetchStorageBreakdown'));
     expect(iCloudTransport, contains('pruneObsoleteData'));
   });

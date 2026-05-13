@@ -5927,7 +5927,7 @@ class SettingsScreen extends ConsumerWidget {
         de: 'Diagnoseprotokolle',
       ),
       summary: strings.localized(
-        en: '${entries.length} entries. Sync steps and CloudKit calls are recorded.',
+        en: '${entries.length} entries. Sync, attachment display, and network checks are recorded.',
         ja: '${entries.length}件。同期ステップとCloudKit呼び出しを記録します。',
         zh: '${entries.length} 条。记录同步步骤和 CloudKit 调用。',
         ko: '${entries.length}개 항목. 동기화 단계와 CloudKit 호출을 기록합니다.',
@@ -5938,7 +5938,7 @@ class SettingsScreen extends ConsumerWidget {
       children: [
         Text(
           strings.localized(
-            en: 'Hidden diagnostic mode is active. Logs may include device IDs, remote bundle IDs, timestamps, counts, sizes, and error messages, but not note bodies or attachment bytes.',
+            en: 'Hidden diagnostic mode is active. Logs may include device IDs, remote bundle IDs, attachment labels, file references, connection types, timestamps, counts, sizes, and error messages, but not note bodies or attachment bytes.',
             ja: '隠し診断モードが有効です。ログには端末ID、リモートバンドルID、時刻、件数、サイズ、エラー文言が含まれる場合がありますが、メモ本文や添付データは含めません。',
             zh: '隐藏诊断模式已启用。日志可能包含设备 ID、远程包 ID、时间、数量、大小和错误信息，但不包含笔记正文或附件数据。',
             ko: '숨겨진 진단 모드가 켜져 있습니다. 로그에는 기기 ID, 원격 번들 ID, 시각, 개수, 크기, 오류 메시지가 포함될 수 있지만 메모 본문이나 첨부 데이터는 포함하지 않습니다.',
@@ -16459,6 +16459,12 @@ class _EmbeddedPhotoAttachmentState
                   fit: BoxFit.contain,
                   gaplessPlayback: true,
                   errorBuilder: (context, error, stackTrace) {
+                    _logAttachmentDisplayDiagnostic(
+                      widget.attachment,
+                      'image decode failed',
+                      source: 'detail',
+                      data: {'error': error, 'bytes': bytes.length},
+                    );
                     return const _AttachmentImageErrorPanel(height: 180);
                   },
                 ),
@@ -16547,7 +16553,12 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
       if (attachment.type == AttachmentType.video) {
         return _AttachmentVideoImageBox(bytes: bytes, size: size);
       }
-      return _AttachmentImageBox(bytes: bytes, size: size);
+      return _AttachmentImageBox(
+        bytes: bytes,
+        size: size,
+        attachment: attachment,
+        diagnosticSource: 'preview',
+      );
     }
 
     if (attachment.type != AttachmentType.photo) {
@@ -16569,6 +16580,8 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
         return _AttachmentImageBox(
           bytes: Uint8List.fromList(bytes),
           size: size,
+          attachment: attachment,
+          diagnosticSource: 'attachment preview',
         );
       },
     );
@@ -16582,17 +16595,30 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
     _previewBytesBase64 = encoded;
     try {
       return _previewBytes = base64Decode(encoded);
-    } on FormatException {
+    } on FormatException catch (error) {
+      _logAttachmentDisplayDiagnostic(
+        widget.attachment,
+        'inline preview bytes decode failed',
+        source: 'attachment preview',
+        data: {'error': error},
+      );
       return _previewBytes = Uint8List(0);
     }
   }
 }
 
 class _AttachmentImageBox extends StatelessWidget {
-  const _AttachmentImageBox({required this.bytes, this.size = 72});
+  const _AttachmentImageBox({
+    required this.bytes,
+    this.size = 72,
+    this.attachment,
+    this.diagnosticSource,
+  });
 
   final Uint8List bytes;
   final double size;
+  final NoteAttachment? attachment;
+  final String? diagnosticSource;
 
   @override
   Widget build(BuildContext context) {
@@ -16609,6 +16635,15 @@ class _AttachmentImageBox extends StatelessWidget {
           gaplessPlayback: true,
           cacheHeight: imageCacheHeight,
           errorBuilder: (context, error, stackTrace) {
+            final attachment = this.attachment;
+            if (attachment != null) {
+              _logAttachmentDisplayDiagnostic(
+                attachment,
+                'image decode failed',
+                source: diagnosticSource ?? 'attachment image',
+                data: {'error': error, 'bytes': bytes.length},
+              );
+            }
             return _AttachmentImageErrorBox(size: size);
           },
         ),
@@ -21087,25 +21122,105 @@ Future<List<int>?> _readPhotoAttachmentBytes(
 ) async {
   final filePath = attachment.filePath;
   if (filePath != null && filePath.isNotEmpty) {
-    final bytes = await _readDisplayAttachmentBytes(ref, attachment);
+    List<int>? bytes;
+    try {
+      bytes = await _readDisplayAttachmentBytes(ref, attachment);
+    } catch (error) {
+      _logAttachmentDisplayDiagnostic(
+        attachment,
+        'attachment byte read failed',
+        source: 'display',
+        data: {'error': error},
+      );
+    }
     if (bytes != null && bytes.isNotEmpty) {
+      _logAttachmentDisplayDiagnostic(
+        attachment,
+        'attachment byte read completed',
+        source: 'display',
+        data: {'bytes': bytes.length},
+      );
       return bytes;
     }
+    _logAttachmentDisplayDiagnostic(
+      attachment,
+      'attachment byte read returned empty',
+      source: 'display',
+      data: {'hasPreview': attachment.previewBytesBase64?.isNotEmpty == true},
+    );
     return _decodeAttachmentPreviewBytes(attachment);
   }
+  _logAttachmentDisplayDiagnostic(
+    attachment,
+    'attachment has no file path for display',
+    source: 'display',
+    data: {'hasPreview': attachment.previewBytesBase64?.isNotEmpty == true},
+  );
   return _decodeAttachmentPreviewBytes(attachment);
 }
 
 List<int>? _decodeAttachmentPreviewBytes(NoteAttachment attachment) {
   final previewBytesBase64 = attachment.previewBytesBase64;
   if (previewBytesBase64 == null || previewBytesBase64.isEmpty) {
+    _logAttachmentDisplayDiagnostic(
+      attachment,
+      'attachment preview bytes missing',
+      source: 'preview',
+    );
     return null;
   }
   try {
-    return base64Decode(previewBytesBase64);
-  } on FormatException {
+    final bytes = base64Decode(previewBytesBase64);
+    _logAttachmentDisplayDiagnostic(
+      attachment,
+      'attachment preview bytes decoded',
+      source: 'preview',
+      data: {'bytes': bytes.length},
+    );
+    return bytes;
+  } on FormatException catch (error) {
+    _logAttachmentDisplayDiagnostic(
+      attachment,
+      'attachment preview bytes decode failed',
+      source: 'preview',
+      data: {'error': error},
+    );
     return null;
   }
+}
+
+void _logAttachmentDisplayDiagnostic(
+  NoteAttachment attachment,
+  String message, {
+  required String source,
+  Map<String, Object?> data = const <String, Object?>{},
+}) {
+  final filePath = attachment.filePath;
+  logDiagnostic(
+    'attachment',
+    message,
+    data: {
+      'source': source,
+      'type': attachment.type.name,
+      'label': attachment.label,
+      'fileRef': _attachmentDiagnosticFileRef(filePath),
+      'hasPreview': attachment.previewBytesBase64?.isNotEmpty == true,
+      'previewBytesBase64Length': attachment.previewBytesBase64?.length,
+      ...data,
+    },
+  );
+}
+
+String _attachmentDiagnosticFileRef(String? filePath) {
+  if (filePath == null || filePath.isEmpty) {
+    return 'none';
+  }
+  if (filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
+    final hash = filePath.substring(_remoteSyncAttachmentObjectPrefix.length);
+    final shortHash = hash.length <= 12 ? hash : hash.substring(0, 12);
+    return '$_remoteSyncAttachmentObjectPrefix$shortHash';
+  }
+  return path.basename(filePath);
 }
 
 Future<List<int>?> _readDisplayAttachmentBytes(
@@ -21114,14 +21229,27 @@ Future<List<int>?> _readDisplayAttachmentBytes(
 ) async {
   final filePath = attachment.filePath;
   if (filePath == null || filePath.isEmpty) {
+    _logAttachmentDisplayDiagnostic(
+      attachment,
+      'attachment display read skipped missing file path',
+      source: 'display',
+    );
     return null;
   }
   if (filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
     return _downloadRemoteSyncAttachmentBytes(ref, attachment);
   }
-  return ref
+  final bytes = await ref
       .read(encryptedAttachmentStoreProvider)
       .readAttachment(filePath, type: attachment.type);
+  if (bytes == null || bytes.isEmpty) {
+    _logAttachmentDisplayDiagnostic(
+      attachment,
+      'local attachment read returned empty',
+      source: 'display',
+    );
+  }
+  return bytes;
 }
 
 Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
@@ -21140,6 +21268,12 @@ Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
     return null;
   }
   final provider = ref.read(syncProviderControllerProvider);
+  _logAttachmentDisplayDiagnostic(
+    attachment,
+    'remote attachment object display download start',
+    source: 'remote',
+    data: {'provider': provider.name, 'contentHash': contentHash},
+  );
   Future<String?> download() => switch (provider) {
     SyncProvider.iCloud =>
       ref
@@ -21167,37 +21301,93 @@ Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
     }
   }
   if (encodedPayload == null || encodedPayload.isEmpty) {
-    logDiagnostic(
-      'sync',
+    _logAttachmentDisplayDiagnostic(
+      attachment,
       'remote attachment object unavailable for display',
+      source: 'remote',
+      data: {'provider': provider.name, 'contentHash': contentHash},
+    );
+    return null;
+  }
+  late final Map<String, dynamic> decoded;
+  try {
+    decoded = await ref
+        .read(secureSyncBundleStoreProvider)
+        .readAttachmentObjectPayload(encodedPayload);
+  } catch (error) {
+    _logAttachmentDisplayDiagnostic(
+      attachment,
+      'remote attachment object decrypt failed',
+      source: 'remote',
       data: {
         'provider': provider.name,
         'contentHash': contentHash,
-        'type': attachment.type.name,
-        'label': attachment.label,
+        'error': error,
       },
     );
     return null;
   }
-  final decoded = await ref
-      .read(secureSyncBundleStoreProvider)
-      .readAttachmentObjectPayload(encodedPayload);
   final payloadHash = decoded['contentHash'] as String? ?? contentHash;
   if (payloadHash != contentHash) {
+    _logAttachmentDisplayDiagnostic(
+      attachment,
+      'remote attachment object hash mismatch',
+      source: 'remote',
+      data: {'expectedHash': contentHash, 'payloadHash': payloadHash},
+    );
     return null;
   }
   final payloadType = decoded['type'] as String?;
   if (payloadType != null && payloadType != attachment.type.name) {
+    _logAttachmentDisplayDiagnostic(
+      attachment,
+      'remote attachment object type mismatch',
+      source: 'remote',
+      data: {'expectedType': attachment.type.name, 'payloadType': payloadType},
+    );
     return null;
   }
   final bytesBase64 = decoded['bytesBase64'] as String?;
   if (bytesBase64 == null || bytesBase64.isEmpty) {
+    _logAttachmentDisplayDiagnostic(
+      attachment,
+      'remote attachment object bytes missing',
+      source: 'remote',
+      data: {'contentHash': contentHash},
+    );
     return null;
   }
-  final bytes = base64Decode(bytesBase64);
+  late final List<int> bytes;
+  try {
+    bytes = base64Decode(bytesBase64);
+  } on FormatException catch (error) {
+    _logAttachmentDisplayDiagnostic(
+      attachment,
+      'remote attachment object base64 decode failed',
+      source: 'remote',
+      data: {'contentHash': contentHash, 'error': error},
+    );
+    return null;
+  }
   if (sha256.convert(bytes).toString() != contentHash) {
+    _logAttachmentDisplayDiagnostic(
+      attachment,
+      'remote attachment object clear hash mismatch',
+      source: 'remote',
+      data: {'contentHash': contentHash, 'bytes': bytes.length},
+    );
     return null;
   }
+  _logAttachmentDisplayDiagnostic(
+    attachment,
+    'remote attachment object display download completed',
+    source: 'remote',
+    data: {
+      'provider': provider.name,
+      'contentHash': contentHash,
+      'bytes': bytes.length,
+    },
+  );
   return bytes;
 }
 
@@ -21208,8 +21398,21 @@ Future<List<int>?> _readPhotoAttachmentDetailBytes(
   final previewBytesBase64 = attachment.previewBytesBase64;
   if (previewBytesBase64 != null && previewBytesBase64.isNotEmpty) {
     try {
-      return Future<List<int>?>.value(base64Decode(previewBytesBase64));
-    } on FormatException {
+      final bytes = base64Decode(previewBytesBase64);
+      _logAttachmentDisplayDiagnostic(
+        attachment,
+        'detail preview bytes decoded',
+        source: 'detail',
+        data: {'bytes': bytes.length},
+      );
+      return Future<List<int>?>.value(bytes);
+    } on FormatException catch (error) {
+      _logAttachmentDisplayDiagnostic(
+        attachment,
+        'detail preview bytes decode failed',
+        source: 'detail',
+        data: {'error': error},
+      );
       return Future<List<int>?>.value(null);
     }
   }
@@ -21289,6 +21492,12 @@ class _PhotoAttachmentViewer extends ConsumerWidget {
               Uint8List.fromList(bytes),
               fit: BoxFit.contain,
               errorBuilder: (context, error, stackTrace) {
+                _logAttachmentDisplayDiagnostic(
+                  attachment,
+                  'image decode failed',
+                  source: 'viewer',
+                  data: {'error': error, 'bytes': bytes.length},
+                );
                 return const _AttachmentImageErrorPanel(height: 180);
               },
             ),
