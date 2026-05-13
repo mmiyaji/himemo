@@ -1845,15 +1845,57 @@ class _InsightChartSection extends StatelessWidget {
   }
 }
 
-class _InsightBarChart extends StatelessWidget {
+class _InsightBarChart extends StatefulWidget {
   const _InsightBarChart({required this.buckets, required this.valueSuffix});
 
   final List<_InsightBucket> buckets;
   final String valueSuffix;
 
   @override
+  State<_InsightBarChart> createState() => _InsightBarChartState();
+}
+
+class _InsightBarChartState extends State<_InsightBarChart> {
+  final ScrollController _scrollController = ScrollController();
+  Object? _lastScrolledBuckets;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleScrollToLatest();
+  }
+
+  @override
+  void didUpdateWidget(covariant _InsightBarChart oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.buckets, widget.buckets)) {
+      _scheduleScrollToLatest();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scheduleScrollToLatest() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) {
+        return;
+      }
+      if (identical(_lastScrolledBuckets, widget.buckets)) {
+        return;
+      }
+      _lastScrolledBuckets = widget.buckets;
+      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final buckets = widget.buckets;
     final maxValue = buckets.fold<int>(
       0,
       (max, bucket) => math.max(max, bucket.value),
@@ -1874,6 +1916,7 @@ class _InsightBarChart extends StatelessWidget {
             : 640.0;
         final itemWidth = math.max(44.0, (chartWidth / buckets.length) - 8);
         return SingleChildScrollView(
+          controller: _scrollController,
           scrollDirection: Axis.horizontal,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -1887,7 +1930,7 @@ class _InsightBarChart extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
                         Text(
-                          '${bucket.value}$valueSuffix',
+                          '${bucket.value}${widget.valueSuffix}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.labelSmall

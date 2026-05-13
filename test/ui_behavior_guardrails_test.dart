@@ -74,6 +74,9 @@ void main() {
 
   test('app lock background privacy cover prevents delayed relock flashes', () {
     final appShell = File('lib/app/app.dart').readAsStringSync();
+    final androidMainActivity = File(
+      'android/app/src/main/kotlin/org/ruhenheim/himemo/MainActivity.kt',
+    ).readAsStringSync();
 
     expect(appShell, contains('_activateAppLockPrivacyCoverIfEnabled'));
     expect(appShell, contains('_lifecyclePrivacyCoverVisible'));
@@ -82,6 +85,20 @@ void main() {
       appShell,
       contains('privacyScreenActive || _lifecyclePrivacyProtectionEnabled'),
     );
+    expect(appShell, contains("'showCover': showCover"));
+    expect(androidMainActivity, contains('override fun onPause()'));
+    expect(androidMainActivity, contains('setPrivacyOverlayVisible(true)'));
+    expect(androidMainActivity, contains('buildPrivacyOverlay'));
+  });
+
+  test('recent daily trend chart starts at the latest day', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+
+    expect(homePage, contains('class _InsightBarChartState'));
+    expect(homePage, contains('_scrollController.position.maxScrollExtent'));
+    expect(homePage, contains('controller: _scrollController'));
   });
 
   test('quick capture bypasses app lock auto prompts while active', () {
