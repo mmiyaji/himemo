@@ -122,6 +122,22 @@ void main() {
     expect(createNoteIcon, contains('#9F5261'));
   });
 
+  test('tablet create note action lives at the bottom of the sidebar', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+
+    expect(homePage, contains('class _SidebarCreateNoteButton'));
+    expect(
+      homePage,
+      contains('onAddNote: () => showNoteEditorSheet(context, ref)'),
+    );
+    expect(homePage, contains('key: AppShell.addNoteKey'));
+    expect(homePage, contains('floatingActionButton: null'));
+    expect(homePage, contains('FilledButton.icon'));
+    expect(homePage, contains('strings.addNote'));
+  });
+
   test('quick capture bypasses app lock auto prompts while active', () {
     final appShell = File('lib/app/app.dart').readAsStringSync();
 

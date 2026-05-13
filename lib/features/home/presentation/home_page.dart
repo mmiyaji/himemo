@@ -188,7 +188,6 @@ class _AppShellState extends ConsumerState<AppShell> {
     final useRail = width >= 840;
     final section = _sectionForLocation(GoRouterState.of(context).uri.path);
     _closeNotesOverlayOnRouteSectionChange(context, ref, section);
-    final noteOverlayOpen = _noteOverlaySheetDepth.value > 0;
     final activeIdentity = ref.watch(activeIdentityDataProvider);
     final activePrivateProfileLabel = ref.watch(
       activePrivateProfileLabelProvider,
@@ -363,6 +362,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                         _goToSection(context, ref, target),
                     onShowAllNotes: () => _showAllNotes(context, ref),
                     onTagSelected: (tag) => _openTagFilter(context, ref, tag),
+                    onAddNote: () => showNoteEditorSheet(context, ref),
                   ),
                   VerticalDivider(
                     width: 1,
@@ -434,14 +434,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                 ),
               ],
             ),
-      floatingActionButton: useRail && !noteOverlayOpen
-          ? FloatingActionButton.small(
-              key: AppShell.addNoteKey,
-              onPressed: () => showNoteEditorSheet(context, ref),
-              tooltip: context.strings.addNote,
-              child: const Icon(Icons.edit_rounded),
-            )
-          : null,
+      floatingActionButton: null,
     );
   }
 
@@ -7450,6 +7443,7 @@ class _Sidebar extends StatelessWidget {
     required this.onSectionSelected,
     required this.onShowAllNotes,
     required this.onTagSelected,
+    required this.onAddNote,
   });
 
   final AppSection section;
@@ -7461,6 +7455,7 @@ class _Sidebar extends StatelessWidget {
   final ValueChanged<AppSection> onSectionSelected;
   final VoidCallback onShowAllNotes;
   final ValueChanged<String> onTagSelected;
+  final VoidCallback onAddNote;
 
   @override
   Widget build(BuildContext context) {
@@ -7563,6 +7558,14 @@ class _Sidebar extends StatelessWidget {
           ),
           Divider(height: 1, color: Theme.of(context).dividerColor),
           Padding(
+            padding: EdgeInsets.fromLTRB(10, 12, 10, collapsed ? 8 : 10),
+            child: _SidebarCreateNoteButton(
+              key: AppShell.addNoteKey,
+              collapsed: collapsed,
+              onPressed: onAddNote,
+            ),
+          ),
+          Padding(
             padding: const EdgeInsets.all(10),
             child: Align(
               alignment: collapsed ? Alignment.center : Alignment.centerRight,
@@ -7580,6 +7583,65 @@ class _Sidebar extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SidebarCreateNoteButton extends StatelessWidget {
+  const _SidebarCreateNoteButton({
+    super.key,
+    required this.collapsed,
+    required this.onPressed,
+  });
+
+  final bool collapsed;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final colorScheme = Theme.of(context).colorScheme;
+    final icon = SvgPicture.asset(
+      'assets/actions/create-note.svg',
+      width: collapsed ? 30 : 26,
+      height: collapsed ? 30 : 26,
+    );
+    if (collapsed) {
+      return Center(
+        child: Tooltip(
+          message: strings.addNote,
+          child: SizedBox(
+            width: 48,
+            height: 48,
+            child: FilledButton(
+              onPressed: onPressed,
+              style: FilledButton.styleFrom(
+                padding: EdgeInsets.zero,
+                shape: const CircleBorder(),
+                backgroundColor: colorScheme.primary,
+                foregroundColor: colorScheme.onPrimary,
+              ),
+              child: icon,
+            ),
+          ),
+        ),
+      );
+    }
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        onPressed: onPressed,
+        icon: icon,
+        label: Text(strings.addNote),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size.fromHeight(48),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          alignment: Alignment.centerLeft,
+          textStyle: Theme.of(
+            context,
+          ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+        ),
       ),
     );
   }
