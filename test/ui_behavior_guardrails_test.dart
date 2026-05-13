@@ -105,15 +105,21 @@ void main() {
     final homePage = File(
       'lib/features/home/presentation/home_page.dart',
     ).readAsStringSync();
+    final createNoteIcon = File(
+      'assets/actions/create-note.svg',
+    ).readAsStringSync();
 
     expect(homePage, contains('class _CreateNoteNavButton'));
     expect(homePage, contains('key: AppShell.addNoteKey'));
-    expect(homePage, contains('Icons.edit_outlined'));
+    expect(homePage, contains('assets/actions/create-note.svg'));
     expect(homePage, contains('width: 52'));
     expect(homePage, contains('height: 52'));
     expect(homePage, contains('shape: BoxShape.circle'));
     expect(homePage, contains('if (index == 2)'));
     expect(homePage, contains('showNoteEditorSheet(context, ref);'));
+    expect(createNoteIcon, contains('<svg'));
+    expect(createNoteIcon, contains('#FFF7F4'));
+    expect(createNoteIcon, contains('#9F5261'));
   });
 
   test('quick capture bypasses app lock auto prompts while active', () {

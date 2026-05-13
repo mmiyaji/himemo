@@ -595,10 +595,12 @@ class _CreateNoteNavButton extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: Icon(
-                  Icons.edit_outlined,
-                  color: colorScheme.onPrimary,
-                  size: 28,
+                child: Center(
+                  child: SvgPicture.asset(
+                    'assets/actions/create-note.svg',
+                    width: 38,
+                    height: 38,
+                  ),
                 ),
               ),
             ),
