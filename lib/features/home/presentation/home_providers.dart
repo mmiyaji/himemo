@@ -2746,6 +2746,22 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           );
         }
       }
+    } on SyncAttachmentMissingException catch (error) {
+      _diagnostic(
+        'upload blocked by missing local attachment',
+        data: {
+          'noteId': error.noteId,
+          'attachmentLabel': error.attachmentLabel,
+          'attachmentType': error.attachmentType.name,
+          'fileRef': path.basename(error.filePath),
+          'index': error.index,
+        },
+      );
+      state = _failureState(
+        error,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
     } catch (error) {
       _diagnostic('upload failed', data: {'error': error});
       state = _failureState(

@@ -340,11 +340,24 @@ void main() {
     final homePage = File(
       'lib/features/home/presentation/home_page.dart',
     ).readAsStringSync();
+    final syncEngine = File(
+      'lib/features/sync/data/sync_engine.dart',
+    ).readAsStringSync();
+    final homeProviders = File(
+      'lib/features/home/presentation/home_providers.dart',
+    ).readAsStringSync();
 
     expect(homePage, contains('_attachmentByteDiagnosticData'));
     expect(homePage, contains('byteSignature'));
     expect(homePage, contains('detectedImageFormat'));
     expect(homePage, contains("return 'heic';"));
     expect(homePage, contains("return 'jpeg';"));
+    expect(syncEngine, contains('class SyncAttachmentMissingException'));
+    expect(syncEngine, contains('sync.error.local_attachment_missing'));
+    expect(homeProviders, contains('SyncAttachmentMissingException'));
+    expect(
+      homeProviders,
+      contains('upload blocked by missing local attachment'),
+    );
   });
 }

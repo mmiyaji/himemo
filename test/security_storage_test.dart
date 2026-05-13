@@ -1221,6 +1221,83 @@ void main() {
   );
 
   test(
+    'SyncEngine blocks upload snapshots when pending attachments are missing',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-engine-missing-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(44));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final attachmentStore = EncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+      final noteStore = EncryptedNoteStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        database: database,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final missingPath =
+          '${tempDirectory.path}${Platform.pathSeparator}attachments'
+          '${Platform.pathSeparator}missing-photo.png.enc';
+      final note = NoteEntry(
+        id: 'sync-missing-attachment',
+        vaultId: 'everyday',
+        title: 'Missing attachment',
+        body: 'This note should not upload without its photo.',
+        createdAt: DateTime(2026, 5, 13, 17, 17),
+        updatedAt: DateTime(2026, 5, 13, 17, 18),
+        syncState: NoteSyncState.pendingUpload,
+        attachments: [
+          NoteAttachment(
+            type: AttachmentType.photo,
+            label: 'missing-photo.png',
+            filePath: missingPath,
+          ),
+        ],
+      );
+      await noteStore.save([note]);
+      final engine = SyncEngine(
+        database: database,
+        attachmentStore: attachmentStore,
+        deviceIdentityStore: DeviceIdentityStore(
+          sharedPreferencesProvider: SharedPreferences.getInstance,
+          random: Random(45),
+        ),
+      );
+
+      await expectLater(
+        engine.prepareSnapshot([note]),
+        throwsA(
+          isA<SyncAttachmentMissingException>()
+              .having((error) => error.noteId, 'noteId', note.id)
+              .having(
+                (error) => error.attachmentLabel,
+                'attachmentLabel',
+                'missing-photo.png',
+              )
+              .having((error) => error.filePath, 'filePath', missingPath),
+        ),
+      );
+
+      await database.close();
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
     'SecureSyncBundleStore writes encrypted bundle without plaintext note leakage',
     () async {
       SharedPreferences.setMockInitialValues({});

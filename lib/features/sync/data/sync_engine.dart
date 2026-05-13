@@ -109,6 +109,32 @@ class PreparedSyncSnapshot {
   }
 }
 
+class SyncAttachmentMissingException implements Exception {
+  const SyncAttachmentMissingException({
+    required this.noteId,
+    required this.attachmentLabel,
+    required this.attachmentType,
+    required this.filePath,
+    required this.index,
+  });
+
+  final String noteId;
+  final String attachmentLabel;
+  final AttachmentType attachmentType;
+  final String filePath;
+  final int index;
+
+  @override
+  String toString() {
+    return 'sync.error.local_attachment_missing '
+        'noteId=$noteId '
+        'attachmentLabel=$attachmentLabel '
+        'attachmentType=${attachmentType.name} '
+        'filePath=$filePath '
+        'index=$index';
+  }
+}
+
 class SyncEngine {
   SyncEngine({
     required EncryptedNoteDatabase database,
@@ -167,7 +193,19 @@ class SyncEngine {
           type: attachment.type,
         );
         if (bytes == null || bytes.isEmpty) {
-          return attachment.copyWith(filePath: null, previewBytesBase64: null);
+          if (change.action == PendingNoteChangeAction.delete) {
+            return attachment.copyWith(
+              filePath: null,
+              previewBytesBase64: null,
+            );
+          }
+          throw SyncAttachmentMissingException(
+            noteId: note.id,
+            attachmentLabel: attachment.label,
+            attachmentType: attachment.type,
+            filePath: filePath,
+            index: index,
+          );
         }
         final attachmentHash = sha256.convert(bytes).toString();
         final attachmentId = attachmentHash;
