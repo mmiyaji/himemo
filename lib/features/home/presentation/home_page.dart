@@ -544,7 +544,7 @@ class _CreateNoteNavButton extends StatelessWidget {
     required this.tooltip,
   });
 
-  static const _verticalOffset = 4.0;
+  static const _verticalOffset = 6.0;
 
   final VoidCallback onPressed;
   final String tooltip;
