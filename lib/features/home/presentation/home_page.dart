@@ -544,7 +544,7 @@ class _CreateNoteNavButton extends StatelessWidget {
     required this.tooltip,
   });
 
-  static const _verticalOffset = 6.0;
+  static const _verticalOffset = 8.0;
 
   final VoidCallback onPressed;
   final String tooltip;
@@ -581,7 +581,7 @@ class _CreateNoteNavButton extends StatelessWidget {
                       ),
                     ],
                   ),
-                  child: Center(child: const _CreateNoteIcon(size: 38)),
+                  child: Center(child: const _CreateNoteIcon(size: 40)),
                 ),
               ),
             ),
