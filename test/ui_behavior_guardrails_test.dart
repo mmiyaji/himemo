@@ -109,6 +109,9 @@ void main() {
     expect(homePage, contains('class _CreateNoteNavButton'));
     expect(homePage, contains('key: AppShell.addNoteKey'));
     expect(homePage, contains('Icons.edit_outlined'));
+    expect(homePage, contains('width: 52'));
+    expect(homePage, contains('height: 52'));
+    expect(homePage, contains('shape: BoxShape.circle'));
     expect(homePage, contains('if (index == 2)'));
     expect(homePage, contains('showNoteEditorSheet(context, ref);'));
   });

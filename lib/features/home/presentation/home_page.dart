@@ -562,24 +562,30 @@ class _CreateNoteNavButton extends StatelessWidget {
       child: Semantics(
         button: true,
         label: tooltip,
-        child: Container(
-          width: 52,
-          height: 40,
-          decoration: BoxDecoration(
-            color: colorScheme.primary,
-            borderRadius: BorderRadius.circular(999),
-            boxShadow: [
-              BoxShadow(
-                color: colorScheme.shadow.withValues(alpha: 0.18),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
+        child: SizedBox(
+          width: 64,
+          height: 64,
+          child: Center(
+            child: Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: colorScheme.primary,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: colorScheme.shadow.withValues(alpha: 0.20),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
               ),
-            ],
-          ),
-          child: Icon(
-            selected ? Icons.edit_rounded : Icons.edit_outlined,
-            color: colorScheme.onPrimary,
-            size: 24,
+              child: Icon(
+                selected ? Icons.edit_rounded : Icons.edit_outlined,
+                color: colorScheme.onPrimary,
+                size: 28,
+              ),
+            ),
           ),
         ),
       ),
