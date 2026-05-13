@@ -148,6 +148,32 @@ void main() {
     expect(note.blocks.single.text, 'Body line');
   });
 
+  test(
+    'widget quick capture is enabled by default but respects opt out',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final firstContainer = ProviderContainer();
+
+      expect(
+        firstContainer.read(widgetQuickCaptureSettingsControllerProvider),
+        isTrue,
+      );
+      await pumpEventQueue();
+      expect(
+        firstContainer.read(widgetQuickCaptureSettingsControllerProvider),
+        isTrue,
+      );
+      await firstContainer
+          .read(widgetQuickCaptureSettingsControllerProvider.notifier)
+          .setEnabled(false);
+      expect(
+        firstContainer.read(widgetQuickCaptureSettingsControllerProvider),
+        isFalse,
+      );
+      firstContainer.dispose();
+    },
+  );
+
   test('app strings support Chinese and Korean locales', () {
     final zh = AppStrings(const Locale('zh'));
     final ko = AppStrings(const Locale('ko'));

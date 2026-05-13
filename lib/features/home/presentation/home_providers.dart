@@ -5713,7 +5713,7 @@ class WidgetQuickCaptureSettingsController
       _restored = true;
       unawaited(_restore());
     }
-    return false;
+    return true;
   }
 
   Future<void> setEnabled(bool enabled) async {
@@ -5727,7 +5727,7 @@ class WidgetQuickCaptureSettingsController
   Future<void> _restore() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      state = prefs.getBool(_storageKey) ?? false;
+      state = prefs.getBool(_storageKey) ?? true;
     } catch (_) {}
   }
 }
