@@ -375,51 +375,62 @@ class _AppShellState extends ConsumerState<AppShell> {
       ),
       bottomNavigationBar: useRail
           ? null
-          : NavigationBar(
-              selectedIndex: _bottomNavIndexForSection(section),
-              onDestinationSelected: (index) {
-                if (index == 2) {
-                  showNoteEditorSheet(context, ref);
-                  return;
-                }
-                _goToSection(context, ref, _sectionForBottomNavIndex(index));
-              },
-              destinations: [
-                NavigationDestination(
-                  key: AppShell.notesNavKey,
-                  icon: const Icon(Icons.notes_outlined),
-                  selectedIcon: const Icon(Icons.notes_rounded),
-                  label: strings.notes,
+          : Stack(
+              alignment: Alignment.center,
+              children: [
+                NavigationBar(
+                  selectedIndex: _bottomNavIndexForSection(section),
+                  onDestinationSelected: (index) {
+                    if (index == 2) {
+                      showNoteEditorSheet(context, ref);
+                      return;
+                    }
+                    _goToSection(
+                      context,
+                      ref,
+                      _sectionForBottomNavIndex(index),
+                    );
+                  },
+                  destinations: [
+                    NavigationDestination(
+                      key: AppShell.notesNavKey,
+                      icon: const Icon(Icons.notes_outlined),
+                      selectedIcon: const Icon(Icons.notes_rounded),
+                      label: strings.notes,
+                    ),
+                    NavigationDestination(
+                      key: AppShell.calendarNavKey,
+                      icon: const Icon(Icons.calendar_month_outlined),
+                      selectedIcon: const Icon(Icons.calendar_month_rounded),
+                      label: strings.calendar,
+                    ),
+                    const NavigationDestination(
+                      icon: SizedBox(width: 64, height: 64),
+                      selectedIcon: SizedBox(width: 64, height: 64),
+                      label: '',
+                    ),
+                    NavigationDestination(
+                      key: AppShell.insightsNavKey,
+                      icon: const Icon(Icons.insert_chart_outlined_rounded),
+                      selectedIcon: const Icon(Icons.insert_chart_rounded),
+                      label: strings.insights,
+                    ),
+                    NavigationDestination(
+                      key: AppShell.settingsNavKey,
+                      icon: const Icon(Icons.settings_outlined),
+                      selectedIcon: const Icon(Icons.settings_rounded),
+                      label: strings.settings,
+                    ),
+                  ],
                 ),
-                NavigationDestination(
-                  key: AppShell.calendarNavKey,
-                  icon: const Icon(Icons.calendar_month_outlined),
-                  selectedIcon: const Icon(Icons.calendar_month_rounded),
-                  label: strings.calendar,
-                ),
-                NavigationDestination(
-                  icon: _CreateNoteNavButton(
-                    key: AppShell.addNoteKey,
-                    selected: false,
-                    tooltip: strings.addNote,
+                Positioned.fill(
+                  child: Center(
+                    child: _CreateNoteNavButton(
+                      key: AppShell.addNoteKey,
+                      onPressed: () => showNoteEditorSheet(context, ref),
+                      tooltip: strings.addNote,
+                    ),
                   ),
-                  selectedIcon: _CreateNoteNavButton(
-                    selected: true,
-                    tooltip: strings.addNote,
-                  ),
-                  label: '',
-                ),
-                NavigationDestination(
-                  key: AppShell.insightsNavKey,
-                  icon: const Icon(Icons.insert_chart_outlined_rounded),
-                  selectedIcon: const Icon(Icons.insert_chart_rounded),
-                  label: strings.insights,
-                ),
-                NavigationDestination(
-                  key: AppShell.settingsNavKey,
-                  icon: const Icon(Icons.settings_outlined),
-                  selectedIcon: const Icon(Icons.settings_rounded),
-                  label: strings.settings,
                 ),
               ],
             ),
@@ -547,11 +558,11 @@ class _AppShellState extends ConsumerState<AppShell> {
 class _CreateNoteNavButton extends StatelessWidget {
   const _CreateNoteNavButton({
     super.key,
-    required this.selected,
+    required this.onPressed,
     required this.tooltip,
   });
 
-  final bool selected;
+  final VoidCallback onPressed;
   final String tooltip;
 
   @override
@@ -562,28 +573,33 @@ class _CreateNoteNavButton extends StatelessWidget {
       child: Semantics(
         button: true,
         label: tooltip,
-        child: SizedBox(
-          width: 64,
-          height: 64,
-          child: Center(
-            child: Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: colorScheme.primary,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: colorScheme.shadow.withValues(alpha: 0.20),
-                    blurRadius: 16,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Icon(
-                selected ? Icons.edit_rounded : Icons.edit_outlined,
-                color: colorScheme.onPrimary,
-                size: 28,
+        onTap: onPressed,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onPressed,
+          child: SizedBox(
+            width: 64,
+            height: 64,
+            child: Center(
+              child: Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: colorScheme.primary,
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: colorScheme.shadow.withValues(alpha: 0.10),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  Icons.edit_outlined,
+                  color: colorScheme.onPrimary,
+                  size: 28,
+                ),
               ),
             ),
           ),
