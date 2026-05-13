@@ -21610,14 +21610,17 @@ Future<List<int>?> _readDisplayAttachmentBytes(
   if (filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
     return _downloadRemoteSyncAttachmentBytes(ref, attachment);
   }
-  final bytes = await ref
-      .read(encryptedAttachmentStoreProvider)
-      .readAttachment(filePath, type: attachment.type);
+  final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+  final bytes = await attachmentStore.readAttachment(
+    filePath,
+    type: attachment.type,
+  );
   if (bytes == null || bytes.isEmpty) {
     _logAttachmentDisplayDiagnostic(
       attachment,
       'local attachment read returned empty',
       source: 'display',
+      data: await attachmentStore.storedPayloadDiagnostics(filePath),
     );
   }
   return bytes;

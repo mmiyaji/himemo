@@ -523,6 +523,28 @@ void main() {
     });
 
     test(
+      'reports payload diagnostics for missing native attachments',
+      () async {
+        final missingReference = path.join(
+          tempDirectory.path,
+          'attachments',
+          'missing-photo.png.enc',
+        );
+
+        final diagnostics = await attachmentStore.storedPayloadDiagnostics(
+          missingReference,
+        );
+
+        expect(diagnostics['payloadLocation'], 'file');
+        expect(diagnostics['originalFileExists'], isFalse);
+        expect(diagnostics['resolvedFileExists'], isFalse);
+        expect(diagnostics['resolvedFileRef'], 'missing-photo.png.enc');
+        expect(diagnostics['encryptedFileBytes'], isNull);
+        expect(diagnostics['encryptedPayloadChars'], isNull);
+      },
+    );
+
+    test(
       'reads private attachments when vault metadata uses stale path',
       () async {
         const vaultId = '$customPrivateVaultPrefix photos';

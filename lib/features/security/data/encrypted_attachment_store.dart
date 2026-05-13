@@ -370,6 +370,55 @@ class EncryptedAttachmentStore {
     return bytes?.length;
   }
 
+  Future<Map<String, Object?>> storedPayloadDiagnostics(
+    String storedReference,
+  ) async {
+    if (storedReference.startsWith(webPrefix)) {
+      final id = storedReference.substring(webPrefix.length);
+      final prefs = await _sharedPreferencesProvider();
+      final stored = prefs.getString('$webStoragePrefix$id');
+      String? payload;
+      if (stored != null && stored.startsWith(_webIndexedDbMarker)) {
+        payload = await _webPayloadStore.get(
+          stored.substring(_webIndexedDbMarker.length),
+        );
+      } else {
+        payload = stored;
+      }
+      return {
+        'payloadLocation': 'web',
+        'payloadExists': payload != null,
+        'encryptedPayloadChars': payload?.length,
+      };
+    }
+
+    if (kIsWeb) {
+      return const {
+        'payloadLocation': 'unsupported-web-reference',
+        'payloadExists': false,
+      };
+    }
+
+    final originalFile = File(storedReference);
+    final originalExists = await originalFile.exists();
+    final resolvedFile = await _resolveStoredFile(storedReference);
+    final resolvedExists = await resolvedFile.exists();
+    int? resolvedBytes;
+    int? encryptedPayloadChars;
+    if (resolvedExists) {
+      resolvedBytes = await resolvedFile.length();
+      encryptedPayloadChars = (await resolvedFile.readAsString()).length;
+    }
+    return {
+      'payloadLocation': 'file',
+      'originalFileExists': originalExists,
+      'resolvedFileExists': resolvedExists,
+      'resolvedFileRef': path.basename(resolvedFile.path),
+      'encryptedFileBytes': resolvedBytes,
+      'encryptedPayloadChars': encryptedPayloadChars,
+    };
+  }
+
   Future<int> deleteUnreferencedAttachments(
     Set<String> retainedReferences,
   ) async {
