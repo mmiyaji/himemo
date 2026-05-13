@@ -460,7 +460,7 @@ class QuickCaptureRequest {
     this.rejectedFiles = const <QuickCaptureRejectedFile>[],
   });
 
-  final int nonce;
+  final String nonce;
   final QuickCaptureSource source;
   final String initialText;
   final List<QuickCaptureFile> files;
@@ -506,7 +506,7 @@ class WidgetQuickCaptureBridge {
         if (pending) {
           _onOpenRequested(
             QuickCaptureRequest(
-              nonce: DateTime.now().microsecondsSinceEpoch,
+              nonce: DateTime.now().microsecondsSinceEpoch.toString(),
               source: QuickCaptureSource.widget,
             ),
           );
@@ -563,7 +563,8 @@ class WidgetQuickCaptureBridge {
             .where((file) => file.name.isNotEmpty || file.reason.isNotEmpty)
             .toList(growable: false);
     return QuickCaptureRequest(
-      nonce: DateTime.now().microsecondsSinceEpoch,
+      nonce: '${arguments['nonce'] ?? DateTime.now().microsecondsSinceEpoch}'
+          .trim(),
       source: source,
       initialText: initialText,
       files: files,
@@ -5952,10 +5953,20 @@ class WidgetQuickCaptureSettingsController
 @Riverpod(keepAlive: true)
 class WidgetQuickCaptureRequestController
     extends _$WidgetQuickCaptureRequestController {
+  final Set<String> _seenNonces = <String>{};
+
   @override
   QuickCaptureRequest? build() => null;
 
-  void open(QuickCaptureRequest request) => state = request;
+  void open(QuickCaptureRequest request) {
+    if (request.nonce.isNotEmpty && !_seenNonces.add(request.nonce)) {
+      return;
+    }
+    if (_seenNonces.length > 32) {
+      _seenNonces.remove(_seenNonces.first);
+    }
+    state = request;
+  }
 
   void clear() => state = null;
 }

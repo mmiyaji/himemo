@@ -33,6 +33,7 @@ class MainActivity : FlutterFragmentActivity() {
         private const val INTEGRITY_CHANNEL = "org.ruhenheim.himemo/integrity"
         private const val PRIVACY_CHANNEL = "org.ruhenheim.himemo/privacy"
         private const val NETWORK_CHANNEL = "org.ruhenheim.himemo/network"
+        private const val EXTRA_QUICK_CAPTURE_NONCE = "org.ruhenheim.himemo.extra.QUICK_CAPTURE_NONCE"
     }
 
     private var widgetChannel: MethodChannel? = null
@@ -60,13 +61,13 @@ class MainActivity : FlutterFragmentActivity() {
             when (call.method) {
                 "consumePendingQuickCapture" -> {
                     val currentIntent = intent
-                    result.success(
-                        if (shouldOpenQuickCapture(currentIntent)) {
-                            buildQuickCapturePayload(currentIntent)
-                        } else {
-                            null
-                        },
-                    )
+                    if (shouldOpenQuickCapture(currentIntent)) {
+                        val payload = buildQuickCapturePayload(currentIntent)
+                        consumeQuickCaptureIntent(currentIntent)
+                        result.success(payload)
+                    } else {
+                        result.success(null)
+                    }
                 }
                 "deleteSharedImportFiles" -> {
                     val paths = call.argument<List<String>>("paths").orEmpty()
@@ -121,6 +122,7 @@ class MainActivity : FlutterFragmentActivity() {
         setIntent(intent)
         if (shouldOpenQuickCapture(intent)) {
             widgetChannel?.invokeMethod("openQuickCapture", buildQuickCapturePayload(intent))
+            consumeQuickCaptureIntent(intent)
         }
     }
 
@@ -169,10 +171,35 @@ class MainActivity : FlutterFragmentActivity() {
             .trim()
         val sharedFiles = sharedFilePayloadFromIntent(intent)
         return mapOf(
+            "nonce" to quickCaptureNonce(intent),
             "source" to if (isShare) "share" else "widget",
             "text" to combined,
             "files" to sharedFiles.first,
             "rejectedFiles" to sharedFiles.second,
+        )
+    }
+
+    private fun quickCaptureNonce(intent: Intent?): String {
+        if (intent == null) {
+            return UUID.randomUUID().toString()
+        }
+        val existing = intent.getStringExtra(EXTRA_QUICK_CAPTURE_NONCE)
+        if (!existing.isNullOrBlank()) {
+            return existing
+        }
+        val nonce = UUID.randomUUID().toString()
+        intent.putExtra(EXTRA_QUICK_CAPTURE_NONCE, nonce)
+        return nonce
+    }
+
+    private fun consumeQuickCaptureIntent(consumedIntent: Intent?) {
+        if (consumedIntent == null || intent !== consumedIntent) {
+            return
+        }
+        setIntent(
+            Intent(this, MainActivity::class.java)
+                .setAction(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_LAUNCHER),
         )
     }
 

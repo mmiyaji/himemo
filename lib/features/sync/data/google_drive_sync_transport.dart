@@ -193,6 +193,7 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
       ..name = '$_bundleFilePrefix$stamp.enc'
       ..parents = ['appDataFolder']
       ..appProperties = {
+        'kind': 'bundle',
         'deviceId': deviceId,
         'noteCount': '$noteCount',
         'attachmentCount': '$attachmentCount',
@@ -576,7 +577,7 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     final response = await _withDriveRetry(
       () => api.files.list(
         spaces: _spaces,
-        q: "name = '$_bundleFileName' or name contains '$_bundleFilePrefix'",
+        q: "trashed = false and (appProperties has { key='kind' and value='bundle' } or name = '$_bundleFileName' or name contains '$_bundleFilePrefix')",
         orderBy: 'modifiedTime desc',
         pageSize: limit,
         $fields: 'files(id,name,modifiedTime,size,appProperties)',

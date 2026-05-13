@@ -207,7 +207,7 @@ import MobileCoreServices
   private func handleNetworkMethod(call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
     case "currentConnectionKind":
-      result(currentConnectionKind())
+      currentConnectionKind(result: result)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -358,12 +358,27 @@ import MobileCoreServices
     return formatter.date(from: value)
   }
 
-  private func currentConnectionKind() -> String {
+  private func currentConnectionKind(result: @escaping FlutterResult) {
     let monitor = NWPathMonitor()
     let queue = DispatchQueue(label: "org.ruhenheim.himemo.network-kind")
-    let semaphore = DispatchSemaphore(value: 0)
-    var kind = "unknown"
+    let completionQueue = DispatchQueue(label: "org.ruhenheim.himemo.network-kind-completion")
+    var completed = false
+
+    func complete(_ kind: String) {
+      completionQueue.async {
+        if completed {
+          return
+        }
+        completed = true
+        monitor.cancel()
+        DispatchQueue.main.async {
+          result(kind)
+        }
+      }
+    }
+
     monitor.pathUpdateHandler = { path in
+      let kind: String
       if path.status != .satisfied {
         kind = "none"
       } else if path.usesInterfaceType(.cellular) || path.isExpensive {
@@ -375,12 +390,12 @@ import MobileCoreServices
       } else {
         kind = "other"
       }
-      semaphore.signal()
+      complete(kind)
     }
     monitor.start(queue: queue)
-    _ = semaphore.wait(timeout: .now() + 0.8)
-    monitor.cancel()
-    return kind
+    queue.asyncAfter(deadline: .now() + 0.8) {
+      complete("unknown")
+    }
   }
 
   private func setPrivacyProtectionEnabled(_ enabled: Bool) {

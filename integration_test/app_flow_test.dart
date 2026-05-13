@@ -104,7 +104,7 @@ void main() {
         .read(widgetQuickCaptureRequestControllerProvider.notifier)
         .open(
           const QuickCaptureRequest(
-            nonce: 1,
+            nonce: 'integration-share-1',
             source: QuickCaptureSource.share,
             initialText: 'Shared note from integration test',
           ),

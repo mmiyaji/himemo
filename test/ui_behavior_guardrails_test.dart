@@ -200,6 +200,9 @@ void main() {
 
   test('quick capture bypasses app lock auto prompts while active', () {
     final appShell = File('lib/app/app.dart').readAsStringSync();
+    final quickCaptureScreen = File(
+      'lib/features/home/presentation/widget_quick_capture_screen.dart',
+    ).readAsStringSync();
 
     expect(appShell, contains('bool get _isQuickCaptureActive'));
     expect(
@@ -213,6 +216,59 @@ void main() {
       ),
     );
     expect(appShell, contains('if (_isQuickCaptureActive)'));
+    expect(
+      quickCaptureScreen.indexOf(
+        'ref.read(widgetQuickCaptureRequestControllerProvider.notifier).clear();',
+      ),
+      lessThan(quickCaptureScreen.indexOf("router.go('/notes');")),
+    );
+  });
+
+  test('quick capture native and dart paths ignore duplicate requests', () {
+    final androidMainActivity = File(
+      'android/app/src/main/kotlin/org/ruhenheim/himemo/MainActivity.kt',
+    ).readAsStringSync();
+    final homeProviders = File(
+      'lib/features/home/presentation/home_providers.dart',
+    ).readAsStringSync();
+
+    expect(androidMainActivity, contains('EXTRA_QUICK_CAPTURE_NONCE'));
+    expect(
+      androidMainActivity,
+      contains('"nonce" to quickCaptureNonce(intent)'),
+    );
+    expect(
+      androidMainActivity,
+      contains('consumeQuickCaptureIntent(currentIntent)'),
+    );
+    expect(androidMainActivity, contains('consumeQuickCaptureIntent(intent)'));
+    expect(androidMainActivity, contains('setAction(Intent.ACTION_MAIN)'));
+    expect(homeProviders, contains('final Set<String> _seenNonces'));
+    expect(homeProviders, contains('!_seenNonces.add(request.nonce)'));
+    expect(homeProviders, contains('arguments[\'nonce\']'));
+  });
+
+  test('google drive bundle lookup excludes trash and tags new bundles', () {
+    final googleDriveTransport = File(
+      'lib/features/sync/data/google_drive_sync_transport.dart',
+    ).readAsStringSync();
+
+    expect(googleDriveTransport, contains("'kind': 'bundle'"));
+    expect(googleDriveTransport, contains('trashed = false and'));
+    expect(
+      googleDriveTransport,
+      contains("appProperties has { key='kind' and value='bundle' }"),
+    );
+  });
+
+  test('iOS network kind lookup returns asynchronously', () {
+    final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+
+    expect(appDelegate, contains('currentConnectionKind(result: result)'));
+    expect(appDelegate, contains('private func currentConnectionKind(result:'));
+    expect(appDelegate, contains('queue.asyncAfter(deadline: .now() + 0.8)'));
+    expect(appDelegate, isNot(contains('DispatchSemaphore')));
+    expect(appDelegate, isNot(contains('wait(timeout:')));
   });
 
   test('note list day dividers follow the active sort field', () {
