@@ -248,6 +248,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   );
 
   bool _privacyScreenEnabled = false;
+  bool _privacyScreenShowCover = false;
   bool _autoPrompted = false;
   bool _updateChecked = false;
   bool _cloudSyncScheduled = false;
@@ -517,21 +518,28 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         ref.read(adminModeSessionControllerProvider);
   }
 
-  Future<void> _setPrivacyScreenEnabled(bool enabled) async {
-    if (_privacyScreenEnabled == enabled) {
+  Future<void> _setPrivacyScreenEnabled(
+    bool enabled, {
+    bool showCover = false,
+  }) async {
+    if (_privacyScreenEnabled == enabled &&
+        _privacyScreenShowCover == showCover) {
       return;
     }
     if (kIsWeb ||
         !(defaultTargetPlatform == TargetPlatform.iOS ||
             defaultTargetPlatform == TargetPlatform.android)) {
       _privacyScreenEnabled = enabled;
+      _privacyScreenShowCover = showCover;
       return;
     }
     try {
       await _privacyChannel.invokeMethod<void>('setProtected', {
         'enabled': enabled,
+        'showCover': showCover,
       });
       _privacyScreenEnabled = enabled;
+      _privacyScreenShowCover = showCover;
     } catch (_) {}
   }
 
@@ -560,9 +568,12 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         privatePrivacyActive ?? (ref.read(privacyScreenActiveProvider) == true);
     final shouldEnableNativePrivacy =
         defaultTargetPlatform == TargetPlatform.android
-        ? privacyScreenActive
+        ? (privacyScreenActive || _lifecyclePrivacyProtectionEnabled)
         : (privacyScreenActive || _lifecyclePrivacyProtectionEnabled);
-    return _setPrivacyScreenEnabled(shouldEnableNativePrivacy);
+    return _setPrivacyScreenEnabled(
+      shouldEnableNativePrivacy,
+      showCover: privacyScreenActive || _lifecyclePrivacyCoverVisible,
+    );
   }
 
   void _refreshPrivateSessionTimer() {

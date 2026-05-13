@@ -7,8 +7,12 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.view.Gravity
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.util.Base64
+import android.widget.FrameLayout
+import android.widget.ImageView
 import com.google.android.play.core.integrity.IntegrityManagerFactory
 import com.google.android.play.core.integrity.IntegrityTokenRequest
 import io.flutter.embedding.android.FlutterFragmentActivity
@@ -35,6 +39,8 @@ class MainActivity : FlutterFragmentActivity() {
     private var integrityChannel: MethodChannel? = null
     private var privacyChannel: MethodChannel? = null
     private var networkChannel: MethodChannel? = null
+    private var privacyProtectionEnabled = false
+    private var privacyOverlayView: FrameLayout? = null
 
     override fun getInitialRoute(): String? {
         return if (shouldOpenQuickCapture(intent)) {
@@ -95,7 +101,8 @@ class MainActivity : FlutterFragmentActivity() {
             when (call.method) {
                 "setProtected" -> {
                     val enabled = call.argument<Boolean>("enabled") ?: false
-                    setPrivacyProtected(enabled)
+                    val showCover = call.argument<Boolean>("showCover") ?: false
+                    setPrivacyProtected(enabled, showCover)
                     result.success(null)
                 }
                 else -> result.notImplemented()
@@ -115,6 +122,18 @@ class MainActivity : FlutterFragmentActivity() {
         if (shouldOpenQuickCapture(intent)) {
             widgetChannel?.invokeMethod("openQuickCapture", buildQuickCapturePayload(intent))
         }
+    }
+
+    override fun onPause() {
+        if (privacyProtectionEnabled) {
+            setPrivacyOverlayVisible(true)
+        }
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        setPrivacyOverlayVisible(false)
     }
 
     private fun shouldOpenQuickCapture(intent: Intent?): Boolean {
@@ -395,13 +414,54 @@ class MainActivity : FlutterFragmentActivity() {
             }
     }
 
-    private fun setPrivacyProtected(enabled: Boolean) {
+    private fun setPrivacyProtected(enabled: Boolean, showCover: Boolean) {
         runOnUiThread {
-            if (enabled) {
-                window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-            } else {
-                window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            privacyProtectionEnabled = enabled && showCover
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            if (!privacyProtectionEnabled) {
+                setPrivacyOverlayVisible(false)
             }
+        }
+    }
+
+    private fun setPrivacyOverlayVisible(visible: Boolean) {
+        runOnUiThread {
+            val root = window.decorView as? ViewGroup ?: return@runOnUiThread
+            if (visible) {
+                val overlay = privacyOverlayView ?: buildPrivacyOverlay().also {
+                    privacyOverlayView = it
+                }
+                if (overlay.parent == null) {
+                    root.addView(
+                        overlay,
+                        ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        ),
+                    )
+                }
+                overlay.bringToFront()
+            } else {
+                privacyOverlayView?.let { overlay ->
+                    (overlay.parent as? ViewGroup)?.removeView(overlay)
+                }
+            }
+        }
+    }
+
+    private fun buildPrivacyOverlay(): FrameLayout {
+        return FrameLayout(this).apply {
+            setBackgroundColor(0xFFFFF4ED.toInt())
+            isClickable = false
+            isFocusable = false
+            addView(
+                ImageView(context).apply {
+                    setImageResource(R.mipmap.ic_launcher)
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    alpha = 0.96f
+                },
+                FrameLayout.LayoutParams(128, 128, Gravity.CENTER),
+            )
         }
     }
 }

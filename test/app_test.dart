@@ -148,6 +148,32 @@ void main() {
     expect(note.blocks.single.text, 'Body line');
   });
 
+  test(
+    'widget quick capture is enabled by default but respects opt out',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final firstContainer = ProviderContainer();
+
+      expect(
+        firstContainer.read(widgetQuickCaptureSettingsControllerProvider),
+        isTrue,
+      );
+      await pumpEventQueue();
+      expect(
+        firstContainer.read(widgetQuickCaptureSettingsControllerProvider),
+        isTrue,
+      );
+      await firstContainer
+          .read(widgetQuickCaptureSettingsControllerProvider.notifier)
+          .setEnabled(false);
+      expect(
+        firstContainer.read(widgetQuickCaptureSettingsControllerProvider),
+        isFalse,
+      );
+      firstContainer.dispose();
+    },
+  );
+
   test('app strings support Chinese and Korean locales', () {
     final zh = AppStrings(const Locale('zh'));
     final ko = AppStrings(const Locale('ko'));
@@ -378,6 +404,25 @@ void main() {
       container.read(syncAuthControllerProvider)[SyncProvider.iCloud]?.stage,
       SyncAuthStage.idle,
     );
+  });
+
+  test('last note editor location capture setting is restored', () async {
+    SharedPreferences.setMockInitialValues({
+      'notes.last_editor_mode': NoteEditorMode.quick.name,
+      'notes.last_vault_id': 'everyday',
+      'notes.last_capture_location': true,
+    });
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    await container
+        .read(lastNoteEditorSettingsControllerProvider.notifier)
+        .ensureRestored();
+
+    final settings = container.read(lastNoteEditorSettingsControllerProvider);
+    expect(settings.mode, NoteEditorMode.quick);
+    expect(settings.vaultId, 'everyday');
+    expect(settings.captureLocation, isTrue);
   });
 
   test('iCloud connect does not require an Apple sign-in plugin', () async {

@@ -51,8 +51,32 @@ void main() {
     expect(homePage, contains('_ensureTrailingRichParagraph(_richBlocks);'));
   });
 
+  test('mobile note editor keeps keyboard footer compact', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+
+    expect(
+      homePage,
+      contains(
+        'final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;',
+      ),
+    );
+    expect(
+      homePage,
+      contains(
+        '? 16.0\n        : (_editorMode == NoteEditorMode.rich ? 16.0 : 96.0);',
+      ),
+    );
+    expect(homePage, contains('bottom: !keyboardVisible'));
+    expect(homePage, contains('height: _attachmentImportBusy ? 56 : 0'));
+  });
+
   test('app lock background privacy cover prevents delayed relock flashes', () {
     final appShell = File('lib/app/app.dart').readAsStringSync();
+    final androidMainActivity = File(
+      'android/app/src/main/kotlin/org/ruhenheim/himemo/MainActivity.kt',
+    ).readAsStringSync();
 
     expect(appShell, contains('_activateAppLockPrivacyCoverIfEnabled'));
     expect(appShell, contains('_lifecyclePrivacyCoverVisible'));
@@ -61,6 +85,57 @@ void main() {
       appShell,
       contains('privacyScreenActive || _lifecyclePrivacyProtectionEnabled'),
     );
+    expect(appShell, contains("'showCover': showCover"));
+    expect(androidMainActivity, contains('override fun onPause()'));
+    expect(androidMainActivity, contains('setPrivacyOverlayVisible(true)'));
+    expect(androidMainActivity, contains('buildPrivacyOverlay'));
+  });
+
+  test('recent daily trend chart starts at the latest day', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+
+    expect(homePage, contains('class _InsightBarChartState'));
+    expect(homePage, contains('_scrollController.position.maxScrollExtent'));
+    expect(homePage, contains('controller: _scrollController'));
+  });
+
+  test('mobile create note action is a centered pen navigation button', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+    final createNoteIcon = File(
+      'assets/actions/create-note.svg',
+    ).readAsStringSync();
+
+    expect(homePage, contains('class _CreateNoteNavButton'));
+    expect(homePage, contains('key: AppShell.addNoteKey'));
+    expect(homePage, contains('assets/actions/create-note.svg'));
+    expect(homePage, contains('width: 52'));
+    expect(homePage, contains('height: 52'));
+    expect(homePage, contains('shape: BoxShape.circle'));
+    expect(homePage, contains('if (index == 2)'));
+    expect(homePage, contains('showNoteEditorSheet(context, ref);'));
+    expect(createNoteIcon, contains('<svg'));
+    expect(createNoteIcon, contains('#FFF7F4'));
+    expect(createNoteIcon, contains('#9F5261'));
+  });
+
+  test('tablet create note action lives at the bottom of the sidebar', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+
+    expect(homePage, contains('class _SidebarCreateNoteButton'));
+    expect(
+      homePage,
+      contains('onAddNote: () => showNoteEditorSheet(context, ref)'),
+    );
+    expect(homePage, contains('key: AppShell.addNoteKey'));
+    expect(homePage, contains('floatingActionButton: null'));
+    expect(homePage, contains('FilledButton.icon'));
+    expect(homePage, contains('strings.addNote'));
   });
 
   test('quick capture bypasses app lock auto prompts while active', () {
@@ -109,9 +184,16 @@ void main() {
     final iCloudTransport = File(
       'lib/features/sync/data/icloud_sync_transport.dart',
     ).readAsStringSync();
+    final networkConnection = File(
+      'lib/app/network_connection.dart',
+    ).readAsStringSync();
 
     expect(homePage, contains('diagnosticICloudStorageBreakdownKey'));
     expect(homePage, contains('diagnosticICloudPruneBundlesKey'));
+    expect(homePage, contains("'attachment'"));
+    expect(homePage, contains('image decode failed'));
+    expect(networkConnection, contains("'network'"));
+    expect(networkConnection, contains('connection kind read'));
     expect(iCloudTransport, contains('fetchStorageBreakdown'));
     expect(iCloudTransport, contains('pruneObsoleteData'));
   });
