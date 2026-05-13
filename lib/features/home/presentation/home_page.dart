@@ -545,6 +545,9 @@ class _CreateNoteNavButton extends StatelessWidget {
   });
 
   static const _verticalOffset = 10.0;
+  static const _tapSize = 68.0;
+  static const _buttonSize = 56.0;
+  static const _iconSize = 44.0;
 
   final VoidCallback onPressed;
   final String tooltip;
@@ -558,30 +561,35 @@ class _CreateNoteNavButton extends StatelessWidget {
         button: true,
         label: tooltip,
         onTap: onPressed,
-        child: Transform.translate(
-          offset: const Offset(0, _verticalOffset),
+        child: SizedBox(
+          width: _tapSize,
+          height: _tapSize + _verticalOffset,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: onPressed,
-            child: SizedBox(
-              width: 68,
-              height: 68,
-              child: Center(
-                child: Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: colorScheme.primary,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: colorScheme.shadow.withValues(alpha: 0.10),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: SizedBox.square(
+                dimension: _tapSize,
+                child: Center(
+                  child: Container(
+                    width: _buttonSize,
+                    height: _buttonSize,
+                    decoration: BoxDecoration(
+                      color: colorScheme.primary,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: colorScheme.shadow.withValues(alpha: 0.10),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Center(
+                      child: _CreateNoteIcon(size: _iconSize),
+                    ),
                   ),
-                  child: Center(child: const _CreateNoteIcon(size: 44)),
                 ),
               ),
             ),

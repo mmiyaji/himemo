@@ -116,10 +116,18 @@ void main() {
     expect(homePage, contains('assets/actions/create-note.svg'));
     expect(homePage, contains('colorMapper: _CreateNoteIconColorMapper'));
     expect(homePage, contains('static const _verticalOffset = 10.0'));
-    expect(homePage, contains('Transform.translate'));
-    expect(homePage, contains('_CreateNoteIcon(size: 44)'));
-    expect(homePage, contains('width: 56'));
-    expect(homePage, contains('height: 56'));
+    expect(homePage, contains('static const _tapSize = 68.0'));
+    expect(homePage, contains('static const _buttonSize = 56.0'));
+    expect(homePage, contains('static const _iconSize = 44.0'));
+    expect(
+      homePage,
+      isNot(contains('offset: const Offset(0, _verticalOffset)')),
+    );
+    expect(homePage, contains('_CreateNoteIcon(size: _iconSize)'));
+    expect(homePage, contains('width: _buttonSize'));
+    expect(homePage, contains('height: _buttonSize'));
+    expect(homePage, contains('height: _tapSize + _verticalOffset'));
+    expect(homePage, contains('alignment: Alignment.bottomCenter'));
     expect(homePage, contains('shape: BoxShape.circle'));
     expect(homePage, contains('if (index == 2)'));
     expect(homePage, contains('icon: _CreateNoteNavButton('));
