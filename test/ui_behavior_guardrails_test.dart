@@ -51,6 +51,27 @@ void main() {
     expect(homePage, contains('_ensureTrailingRichParagraph(_richBlocks);'));
   });
 
+  test('mobile note editor keeps keyboard footer compact', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+
+    expect(
+      homePage,
+      contains(
+        'final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;',
+      ),
+    );
+    expect(
+      homePage,
+      contains(
+        '? 16.0\n        : (_editorMode == NoteEditorMode.rich ? 16.0 : 96.0);',
+      ),
+    );
+    expect(homePage, contains('bottom: !keyboardVisible'));
+    expect(homePage, contains('height: _attachmentImportBusy ? 56 : 0'));
+  });
+
   test('app lock background privacy cover prevents delayed relock flashes', () {
     final appShell = File('lib/app/app.dart').readAsStringSync();
 

@@ -13282,13 +13282,17 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     final isPrivateSelection = _selectedVaultId != 'everyday';
     final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
     final editorListBottomPadding = keyboardVisible
-        ? 120.0
+        ? 16.0
         : (_editorMode == NoteEditorMode.rich ? 16.0 : 96.0);
+    final footerTopGap = keyboardVisible
+        ? 4.0
+        : (_editorMode == NoteEditorMode.rich ? 8.0 : 16.0);
 
     return SafeArea(
       top: false,
+      bottom: !keyboardVisible,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+        padding: EdgeInsets.fromLTRB(16, 6, 16, keyboardVisible ? 6 : 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -13688,9 +13692,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                 ],
               ),
             ),
-            SizedBox(height: _editorMode == NoteEditorMode.rich ? 8 : 16),
+            SizedBox(height: footerTopGap),
             SizedBox(
-              height: 56,
+              height: _attachmentImportBusy ? 56 : 0,
               child: Center(
                 child: AnimatedOpacity(
                   opacity: _attachmentImportBusy ? 1 : 0,
@@ -13749,7 +13753,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                 ),
               ),
             ),
-            const SizedBox(height: 6),
+            if (_attachmentImportBusy) const SizedBox(height: 6),
             Row(
               children: [
                 TextButton(
