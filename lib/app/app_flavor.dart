@@ -30,8 +30,9 @@ enum AppFlavor {
 }
 
 void configureFlavor(AppFlavor flavor) {
+  const hideFlavorBanner = bool.fromEnvironment('HIMEMO_HIDE_FLAVOR_BANNER');
   FlavorConfig(
-    name: kDebugMode ? flavor.bannerName : '',
+    name: kDebugMode && !hideFlavorBanner ? flavor.bannerName : '',
     color: flavor.bannerColor,
     location: BannerLocation.topStart,
     variables: {'flavor': flavor.name, 'displayName': flavor.displayName},

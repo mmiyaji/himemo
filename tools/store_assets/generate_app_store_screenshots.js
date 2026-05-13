@@ -199,6 +199,8 @@ async function captureRaw(browser, target, locale, scene, outputPath) {
   await completeOnboarding(page, locale);
   await ensureDemoNotes(page, locale);
   await scene.prepare(page, locale);
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(700);
   await page.screenshot({ path: outputPath, fullPage: false });
   await context.close();
 }
@@ -311,6 +313,7 @@ async function ensureServer() {
     'build',
     'web',
     '--no-wasm-dry-run',
+    '--dart-define=HIMEMO_HIDE_FLAVOR_BANNER=true',
     '-t',
     'lib/main_development.dart',
   ]);
