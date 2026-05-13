@@ -130,6 +130,18 @@ void main() {
     expect(homePage, contains('alignment: Alignment.bottomCenter'));
     expect(homePage, contains('shape: BoxShape.circle'));
     expect(homePage, contains('enabled: false'));
+    expect(
+      homePage,
+      contains('static const _compactBottomNavLabelBreakpoint = 380.0'),
+    );
+    expect(homePage, contains('LayoutBuilder('));
+    expect(
+      homePage,
+      contains('constraints.maxWidth < _compactBottomNavLabelBreakpoint'),
+    );
+    expect(homePage, contains("hideBottomNavLabels ? '' : label"));
+    expect(homePage, contains('NavigationDestinationLabelBehavior.alwaysHide'));
+    expect(homePage, contains('NavigationDestinationLabelBehavior.alwaysShow'));
     expect(homePage, contains('if (index == 2)'));
     expect(homePage, contains('Positioned('));
     expect(homePage, contains('bottom: 4'));
