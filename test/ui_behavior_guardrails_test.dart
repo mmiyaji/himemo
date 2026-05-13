@@ -147,7 +147,8 @@ void main() {
     expect(homePage, contains('tooltip: strings.calendar'));
     expect(homePage, contains('if (index == 2)'));
     expect(homePage, contains('Positioned('));
-    expect(homePage, contains('bottom: 8'));
+    expect(homePage, contains('static const _createNoteNavTopOffset = -4.0'));
+    expect(homePage, contains('top: _createNoteNavTopOffset'));
     expect(homePage, contains('icon: SizedBox.shrink()'));
     expect(homePage, contains('child: _CreateNoteNavButton('));
     expect(homePage, contains('showNoteEditorSheet(context, ref);'));

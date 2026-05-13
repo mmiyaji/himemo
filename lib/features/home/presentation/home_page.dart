@@ -124,6 +124,7 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   static const _compactBottomNavLabelBreakpoint = 380.0;
+  static const _createNoteNavTopOffset = -4.0;
 
   bool _sidebarCollapsed = false;
   AppSection? _lastObservedSection;
@@ -444,7 +445,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                       ],
                     ),
                     Positioned(
-                      bottom: 8,
+                      top: _createNoteNavTopOffset,
                       child: _CreateNoteNavButton(
                         key: AppShell.addNoteKey,
                         onPressed: () => showNoteEditorSheet(context, ref),
