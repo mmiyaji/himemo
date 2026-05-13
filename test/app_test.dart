@@ -380,6 +380,25 @@ void main() {
     );
   });
 
+  test('last note editor location capture setting is restored', () async {
+    SharedPreferences.setMockInitialValues({
+      'notes.last_editor_mode': NoteEditorMode.quick.name,
+      'notes.last_vault_id': 'everyday',
+      'notes.last_capture_location': true,
+    });
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    await container
+        .read(lastNoteEditorSettingsControllerProvider.notifier)
+        .ensureRestored();
+
+    final settings = container.read(lastNoteEditorSettingsControllerProvider);
+    expect(settings.mode, NoteEditorMode.quick);
+    expect(settings.vaultId, 'everyday');
+    expect(settings.captureLocation, isTrue);
+  });
+
   test('iCloud connect does not require an Apple sign-in plugin', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);

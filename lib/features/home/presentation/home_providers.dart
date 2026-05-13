@@ -6398,14 +6398,22 @@ class LastNoteEditorSettingsController
   static const _vaultKey = 'notes.last_vault_id';
   static const _captureLocationKey = 'notes.last_capture_location';
   bool _restored = false;
+  bool _changedBeforeRestoreCompleted = false;
+  Future<void>? _restoreTask;
 
   @override
   LastNoteEditorSettings build() {
     if (!_restored) {
-      _restored = true;
-      unawaited(_restore());
+      _restoreTask ??= _restore();
     }
     return const LastNoteEditorSettings();
+  }
+
+  Future<void> ensureRestored() {
+    if (_restored) {
+      return Future<void>.value();
+    }
+    return _restoreTask ??= _restore();
   }
 
   Future<void> remember({
@@ -6413,6 +6421,9 @@ class LastNoteEditorSettingsController
     required String vaultId,
     bool? captureLocation,
   }) async {
+    if (!_restored) {
+      _changedBeforeRestoreCompleted = true;
+    }
     state = LastNoteEditorSettings(
       mode: mode,
       vaultId: vaultId,
@@ -6425,6 +6436,9 @@ class LastNoteEditorSettingsController
   }
 
   Future<void> setCaptureLocation(bool enabled) async {
+    if (!_restored) {
+      _changedBeforeRestoreCompleted = true;
+    }
     state = LastNoteEditorSettings(
       mode: state.mode,
       vaultId: state.vaultId,
@@ -6439,13 +6453,16 @@ class LastNoteEditorSettingsController
     final modeName = prefs.getString(_modeKey);
     final vaultId = prefs.getString(_vaultKey);
     final captureLocation = prefs.getBool(_captureLocationKey) ?? false;
-    state = LastNoteEditorSettings(
-      mode: modeName == null || modeName.isEmpty
-          ? NoteEditorMode.rich
-          : NoteEditorMode.values.byName(modeName),
-      vaultId: vaultId == null || vaultId.isEmpty ? 'everyday' : vaultId,
-      captureLocation: captureLocation,
-    );
+    if (!_changedBeforeRestoreCompleted) {
+      state = LastNoteEditorSettings(
+        mode: modeName == null || modeName.isEmpty
+            ? NoteEditorMode.rich
+            : NoteEditorMode.values.byName(modeName),
+        vaultId: vaultId == null || vaultId.isEmpty ? 'everyday' : vaultId,
+        captureLocation: captureLocation,
+      );
+    }
+    _restored = true;
   }
 }
 

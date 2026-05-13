@@ -12741,6 +12741,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     _selectedVaultId = widget.note?.vaultId ?? _initialNewNoteVaultId();
     _scheduleInitialEditorFocus();
     if (widget.note == null) {
+      unawaited(_applyRestoredEditorSettings());
       unawaited(_restoreDraftIfAny());
       if (_captureLocationEnabled) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -12749,6 +12750,28 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
           }
         });
       }
+    }
+  }
+
+  Future<void> _applyRestoredEditorSettings() async {
+    final controller = ref.read(
+      lastNoteEditorSettingsControllerProvider.notifier,
+    );
+    await controller.ensureRestored();
+    if (!mounted || widget.note != null) {
+      return;
+    }
+    final restored = ref.read(lastNoteEditorSettingsControllerProvider);
+    final shouldEnableLocation =
+        restored.captureLocation && !_captureLocationEnabled;
+    setState(() {
+      _captureLocationEnabled = restored.captureLocation;
+      if (_selectedVaultId == null || _selectedVaultId == 'everyday') {
+        _selectedVaultId = restored.vaultId;
+      }
+    });
+    if (shouldEnableLocation && _location == null) {
+      await _captureCurrentLocationForNote(showErrors: false);
     }
   }
 
