@@ -115,7 +115,7 @@ void main() {
     expect(homePage, contains('key: AppShell.addNoteKey'));
     expect(homePage, contains('assets/actions/create-note.svg'));
     expect(homePage, contains('colorMapper: _CreateNoteIconColorMapper'));
-    expect(homePage, contains('static const _verticalOffset = 10.0'));
+    expect(homePage, contains('static const _verticalOffset = 12.0'));
     expect(homePage, contains('static const _tapSize = 68.0'));
     expect(homePage, contains('static const _buttonSize = 56.0'));
     expect(homePage, contains('static const _iconSize = 44.0'));
@@ -129,6 +129,7 @@ void main() {
     expect(homePage, contains('height: _tapSize + _verticalOffset'));
     expect(homePage, contains('alignment: Alignment.bottomCenter'));
     expect(homePage, contains('shape: BoxShape.circle'));
+    expect(homePage, contains('enabled: false'));
     expect(homePage, contains('if (index == 2)'));
     expect(homePage, contains('icon: _CreateNoteNavButton('));
     expect(homePage, contains('showNoteEditorSheet(context, ref);'));

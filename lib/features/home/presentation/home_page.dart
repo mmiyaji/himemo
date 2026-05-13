@@ -398,6 +398,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                   label: strings.calendar,
                 ),
                 NavigationDestination(
+                  enabled: false,
                   icon: _CreateNoteNavButton(
                     key: AppShell.addNoteKey,
                     onPressed: () => showNoteEditorSheet(context, ref),
@@ -544,7 +545,7 @@ class _CreateNoteNavButton extends StatelessWidget {
     required this.tooltip,
   });
 
-  static const _verticalOffset = 10.0;
+  static const _verticalOffset = 12.0;
   static const _tapSize = 68.0;
   static const _buttonSize = 56.0;
   static const _iconSize = 44.0;
