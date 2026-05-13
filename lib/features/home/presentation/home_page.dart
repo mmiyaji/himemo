@@ -375,62 +375,51 @@ class _AppShellState extends ConsumerState<AppShell> {
       ),
       bottomNavigationBar: useRail
           ? null
-          : Stack(
-              alignment: Alignment.center,
-              children: [
-                NavigationBar(
-                  selectedIndex: _bottomNavIndexForSection(section),
-                  onDestinationSelected: (index) {
-                    if (index == 2) {
-                      showNoteEditorSheet(context, ref);
-                      return;
-                    }
-                    _goToSection(
-                      context,
-                      ref,
-                      _sectionForBottomNavIndex(index),
-                    );
-                  },
-                  destinations: [
-                    NavigationDestination(
-                      key: AppShell.notesNavKey,
-                      icon: const Icon(Icons.notes_outlined),
-                      selectedIcon: const Icon(Icons.notes_rounded),
-                      label: strings.notes,
-                    ),
-                    NavigationDestination(
-                      key: AppShell.calendarNavKey,
-                      icon: const Icon(Icons.calendar_month_outlined),
-                      selectedIcon: const Icon(Icons.calendar_month_rounded),
-                      label: strings.calendar,
-                    ),
-                    const NavigationDestination(
-                      icon: SizedBox(width: 64, height: 64),
-                      selectedIcon: SizedBox(width: 64, height: 64),
-                      label: '',
-                    ),
-                    NavigationDestination(
-                      key: AppShell.insightsNavKey,
-                      icon: const Icon(Icons.insert_chart_outlined_rounded),
-                      selectedIcon: const Icon(Icons.insert_chart_rounded),
-                      label: strings.insights,
-                    ),
-                    NavigationDestination(
-                      key: AppShell.settingsNavKey,
-                      icon: const Icon(Icons.settings_outlined),
-                      selectedIcon: const Icon(Icons.settings_rounded),
-                      label: strings.settings,
-                    ),
-                  ],
+          : NavigationBar(
+              selectedIndex: _bottomNavIndexForSection(section),
+              onDestinationSelected: (index) {
+                if (index == 2) {
+                  showNoteEditorSheet(context, ref);
+                  return;
+                }
+                _goToSection(context, ref, _sectionForBottomNavIndex(index));
+              },
+              destinations: [
+                NavigationDestination(
+                  key: AppShell.notesNavKey,
+                  icon: const Icon(Icons.notes_outlined),
+                  selectedIcon: const Icon(Icons.notes_rounded),
+                  label: strings.notes,
                 ),
-                Positioned.fill(
-                  child: Center(
-                    child: _CreateNoteNavButton(
-                      key: AppShell.addNoteKey,
-                      onPressed: () => showNoteEditorSheet(context, ref),
-                      tooltip: strings.addNote,
-                    ),
+                NavigationDestination(
+                  key: AppShell.calendarNavKey,
+                  icon: const Icon(Icons.calendar_month_outlined),
+                  selectedIcon: const Icon(Icons.calendar_month_rounded),
+                  label: strings.calendar,
+                ),
+                NavigationDestination(
+                  icon: _CreateNoteNavButton(
+                    key: AppShell.addNoteKey,
+                    onPressed: () => showNoteEditorSheet(context, ref),
+                    tooltip: strings.addNote,
                   ),
+                  selectedIcon: _CreateNoteNavButton(
+                    onPressed: () => showNoteEditorSheet(context, ref),
+                    tooltip: strings.addNote,
+                  ),
+                  label: '',
+                ),
+                NavigationDestination(
+                  key: AppShell.insightsNavKey,
+                  icon: const Icon(Icons.insert_chart_outlined_rounded),
+                  selectedIcon: const Icon(Icons.insert_chart_rounded),
+                  label: strings.insights,
+                ),
+                NavigationDestination(
+                  key: AppShell.settingsNavKey,
+                  icon: const Icon(Icons.settings_outlined),
+                  selectedIcon: const Icon(Icons.settings_rounded),
+                  label: strings.settings,
                 ),
               ],
             ),

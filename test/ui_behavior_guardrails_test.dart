@@ -119,6 +119,7 @@ void main() {
     expect(homePage, contains('height: 52'));
     expect(homePage, contains('shape: BoxShape.circle'));
     expect(homePage, contains('if (index == 2)'));
+    expect(homePage, contains('icon: _CreateNoteNavButton('));
     expect(homePage, contains('showNoteEditorSheet(context, ref);'));
     expect(createNoteIcon, contains('<svg'));
     expect(createNoteIcon, contains('#FFF7F4'));
