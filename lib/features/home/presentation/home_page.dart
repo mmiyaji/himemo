@@ -49,6 +49,8 @@ import 'web_video_element_view_stub.dart'
     if (dart.library.html) 'web_video_element_view_web.dart';
 import 'web_video_object_url_stub.dart'
     if (dart.library.html) 'web_video_object_url_web.dart';
+import 'video_player_controller_factory_stub.dart'
+    if (dart.library.io) 'video_player_controller_factory_io.dart';
 
 const _appStoreId = String.fromEnvironment('HIMEMO_APP_STORE_ID');
 const _androidStorePackageName = 'org.ruhenheim.himemo';
@@ -13840,6 +13842,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late List<_RichBlockDraft> _richBlocks;
   late final Set<String> _initialAttachmentPaths;
   late final ValueNotifier<bool> _canSubmitNotifier;
+  late final String _newNoteId;
   late bool _captureLocationEnabled;
   final Set<String> _pendingAttachmentDeletes = <String>{};
   int? _activeRichParagraphIndex;
@@ -13851,6 +13854,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   bool _editorDisposed = false;
   bool _attachmentPickerBusy = false;
   bool _attachmentImportBusy = false;
+  int _pendingAttachmentPlaceholderCount = 0;
   bool _saveBusy = false;
   bool _tagSuggestionsBusy = false;
   List<String> _tagSuggestions = const [];
@@ -13865,6 +13869,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     super.initState();
     _draftStore = ref.read(noteEditorDraftStoreProvider);
     _attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+    _newNoteId = DateTime.now().microsecondsSinceEpoch.toString();
     final lastSettings = ref.read(lastNoteEditorSettingsControllerProvider);
     _contentController = TextEditingController(text: _composeEditorContent());
     _canSubmitNotifier = ValueNotifier<bool>(false);
@@ -14787,6 +14792,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       child: _RichMemoEditor(
                         blocks: _richBlocks,
                         strings: strings,
+                        pendingAttachmentCount:
+                            _pendingAttachmentPlaceholderCount,
                         onRemoveBlock: _removeRichBlock,
                         onBackspaceAtParagraphStart:
                             _removeMediaBeforeParagraph,
@@ -15004,6 +15011,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                     _QuickAttachmentSection(
                       strings: strings,
                       attachments: _attachments,
+                      pendingAttachmentCount:
+                          _pendingAttachmentPlaceholderCount,
                       onRemove: _removeQuickAttachmentAt,
                       onMove: _moveQuickAttachment,
                     ),
@@ -15348,6 +15357,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         setState(() {
           _attachmentPickerBusy = false;
           _attachmentImportBusy = false;
+          _pendingAttachmentPlaceholderCount = 0;
         });
         _updateCanSubmit();
       }
@@ -15361,6 +15371,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     setState(() {
       _attachmentPickerBusy = false;
       _attachmentImportBusy = true;
+      _pendingAttachmentPlaceholderCount = 1;
     });
     _updateCanSubmit();
   }
@@ -15474,12 +15485,13 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   Future<void> _save() async {
-    if (!_canSave || _saveBusy) {
+    if (!_canSave || _saveBusy || _saved || _attachmentActionBusy) {
       return;
     }
     setState(() {
       _saveBusy = true;
     });
+    _updateCanSubmit();
     try {
       final pendingTag = _tagFieldKey.currentState?.consumePendingTag();
       final saveTags = pendingTag == null
@@ -15495,7 +15507,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
           ? const <NoteBlock>[]
           : richContent!.blocks;
       final note = NoteEntry(
-        id: widget.note?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
+        id: widget.note?.id ?? _newNoteId,
         vaultId: _selectedVaultId!,
         title: content.title,
         body: content.body,
@@ -15571,6 +15583,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         setState(() {
           _saveBusy = false;
         });
+        _updateCanSubmit();
       }
     }
   }
@@ -16933,6 +16946,7 @@ class _RichMemoEditor extends StatelessWidget {
   const _RichMemoEditor({
     required this.blocks,
     required this.strings,
+    required this.pendingAttachmentCount,
     required this.onRemoveBlock,
     required this.onBackspaceAtParagraphStart,
     required this.onMoveBlock,
@@ -16940,6 +16954,7 @@ class _RichMemoEditor extends StatelessWidget {
 
   final List<_RichBlockDraft> blocks;
   final AppStrings strings;
+  final int pendingAttachmentCount;
   final ValueChanged<int> onRemoveBlock;
   final ValueChanged<int> onBackspaceAtParagraphStart;
   final void Function(int index, int delta) onMoveBlock;
@@ -16962,6 +16977,10 @@ class _RichMemoEditor extends StatelessWidget {
             canMoveNext: i < blocks.length - 1,
           ),
           if (i != blocks.length - 1) const SizedBox(height: 8),
+        ],
+        for (var i = 0; i < pendingAttachmentCount; i++) ...[
+          if (blocks.isNotEmpty || i > 0) const SizedBox(height: 8),
+          const _AttachmentProcessingPlaceholder(),
         ],
       ],
     );
@@ -17274,12 +17293,14 @@ class _QuickAttachmentSection extends StatefulWidget {
   const _QuickAttachmentSection({
     required this.strings,
     required this.attachments,
+    required this.pendingAttachmentCount,
     required this.onRemove,
     required this.onMove,
   });
 
   final AppStrings strings;
   final List<NoteAttachment> attachments;
+  final int pendingAttachmentCount;
   final ValueChanged<int> onRemove;
   final void Function(int index, int delta) onMove;
 
@@ -17326,8 +17347,13 @@ class _QuickAttachmentSectionState extends State<_QuickAttachmentSection> {
               context,
             ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
           ),
-          if (attachments.isNotEmpty) ...[
+          if (attachments.isNotEmpty || widget.pendingAttachmentCount > 0) ...[
             const SizedBox(height: 10),
+            for (var i = 0; i < widget.pendingAttachmentCount; i++)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 12),
+                child: _AttachmentProcessingPlaceholder(),
+              ),
             for (var i = 0; i < visibleCount; i++)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -17449,6 +17475,81 @@ class _EditableAttachmentTile extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _AttachmentProcessingPlaceholder extends StatelessWidget {
+  const _AttachmentProcessingPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.46),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.26)),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: theme.dividerColor),
+            ),
+            child: Center(
+              child: SizedBox.square(
+                dimension: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.4,
+                  color: scheme.primary,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  context.strings.localized(
+                    en: 'Preparing attachment',
+                    ja: '添付を準備中',
+                    zh: '正在准备附件',
+                    ko: '첨부 준비 중',
+                    es: 'Preparando adjunto',
+                    de: 'Anhang wird vorbereitet',
+                  ),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  context.strings.localized(
+                    en: 'Keep this screen open while HiMemo encrypts and saves the file.',
+                    ja: 'ファイルの暗号化と保存が終わるまで、この画面を開いたままにしてください。',
+                    zh: 'HiMemo 加密并保存文件时，请保持此画面打开。',
+                    ko: 'HiMemo가 파일을 암호화하고 저장하는 동안 이 화면을 열어 두세요.',
+                    es: 'Mantén esta pantalla abierta mientras HiMemo cifra y guarda el archivo.',
+                    de: 'Lasse diesen Bildschirm offen, waehrend HiMemo die Datei verschluesselt und speichert.',
+                  ),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: _mutedTextColor(context),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -23166,9 +23267,9 @@ class _VideoAttachmentViewerState
           });
           return;
         }
-        controller = VideoPlayerController.networkUrl(Uri.file(tempFilePath));
+        controller = createLocalVideoController(tempFilePath);
       }
-      await controller.initialize();
+      await controller.initialize().timeout(const Duration(seconds: 15));
       await _applyMutedState(controller);
       controller.addListener(_handleControllerChanged);
       if (!mounted || generation != _loadGeneration) {

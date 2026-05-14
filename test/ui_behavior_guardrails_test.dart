@@ -506,6 +506,31 @@ void main() {
     );
   });
 
+  test('note editor guards slow attachment saves and video playback', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+    final videoFactory = File(
+      'lib/features/home/presentation/video_player_controller_factory_io.dart',
+    ).readAsStringSync();
+
+    expect(homePage, contains('late final String _newNoteId'));
+    expect(homePage, contains('id: widget.note?.id ?? _newNoteId'));
+    expect(
+      homePage,
+      contains(
+        'if (!_canSave || _saveBusy || _saved || _attachmentActionBusy)',
+      ),
+    );
+    expect(homePage, contains('int _pendingAttachmentPlaceholderCount = 0'));
+    expect(homePage, contains('class _AttachmentProcessingPlaceholder'));
+    expect(homePage, contains('Preparing attachment'));
+    expect(homePage, contains('pendingAttachmentCount'));
+    expect(homePage, contains('createLocalVideoController(tempFilePath)'));
+    expect(homePage, contains('timeout(const Duration(seconds: 15))'));
+    expect(videoFactory, contains('VideoPlayerController.file'));
+  });
+
   test('attachment diagnostics include image byte signatures', () {
     final homePage = File(
       'lib/features/home/presentation/home_page.dart',
