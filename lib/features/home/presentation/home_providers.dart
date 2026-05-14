@@ -8706,6 +8706,180 @@ List<String> visibleTagSuggestions(Ref ref) {
   return List.unmodifiable(tags);
 }
 
+class TagSuggestionRequest {
+  const TagSuggestionRequest({
+    required this.title,
+    required this.body,
+    required this.existingTags,
+    required this.knownTags,
+    required this.attachmentLabels,
+  });
+
+  final String title;
+  final String body;
+  final List<String> existingTags;
+  final List<String> knownTags;
+  final List<String> attachmentLabels;
+}
+
+class TagSuggestionResult {
+  const TagSuggestionResult({
+    required this.tags,
+    required this.source,
+    required this.usedAppleIntelligence,
+  });
+
+  final List<String> tags;
+  final String source;
+  final bool usedAppleIntelligence;
+}
+
+abstract class TagSuggestionGateway {
+  Future<TagSuggestionResult> suggestTags(TagSuggestionRequest request);
+}
+
+final tagSuggestionGatewayProvider = Provider<TagSuggestionGateway>((ref) {
+  return MethodChannelTagSuggestionGateway();
+});
+
+class MethodChannelTagSuggestionGateway implements TagSuggestionGateway {
+  MethodChannelTagSuggestionGateway({
+    MethodChannel channel = const MethodChannel(
+      'org.ruhenheim.himemo/intelligence',
+    ),
+  }) : _channel = channel;
+
+  final MethodChannel _channel;
+
+  @override
+  Future<TagSuggestionResult> suggestTags(TagSuggestionRequest request) async {
+    final fallbackTags = suggestLocalNoteTags(request);
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
+      return TagSuggestionResult(
+        tags: fallbackTags,
+        source: 'local',
+        usedAppleIntelligence: false,
+      );
+    }
+    try {
+      final response = await _channel
+          .invokeMapMethod<String, Object?>('suggestTags', {
+            'title': request.title,
+            'body': request.body,
+            'existingTags': request.existingTags,
+            'knownTags': request.knownTags,
+            'attachmentLabels': request.attachmentLabels,
+          });
+      final nativeTags = dedupeNoteTags([
+        for (final tag in response?['tags'] as List? ?? const []) '$tag',
+      ]);
+      final existingKeys = {
+        for (final tag in request.existingTags) canonicalizeNoteTag(tag),
+      };
+      final tags = [
+        for (final tag in nativeTags)
+          if (!existingKeys.contains(canonicalizeNoteTag(tag))) tag,
+      ];
+      if (tags.isNotEmpty) {
+        return TagSuggestionResult(
+          tags: tags,
+          source: '${response?['source'] ?? 'apple_intelligence'}',
+          usedAppleIntelligence: response?['usedAppleIntelligence'] == true,
+        );
+      }
+    } on MissingPluginException {
+      // Fall through to the deterministic local model.
+    } on PlatformException {
+      // Apple Intelligence is unavailable on many devices and OS versions.
+    }
+    return TagSuggestionResult(
+      tags: fallbackTags,
+      source: 'local',
+      usedAppleIntelligence: false,
+    );
+  }
+}
+
+List<String> suggestLocalNoteTags(TagSuggestionRequest request) {
+  final existingKeys = {
+    for (final tag in request.existingTags) canonicalizeNoteTag(tag),
+  };
+  final text = [
+    request.title,
+    request.body,
+    ...request.attachmentLabels,
+  ].join('\n').toLowerCase();
+  final scored = <String, int>{};
+  final displayName = <String, String>{};
+
+  void addCandidate(String rawTag, int score) {
+    final normalized = normalizeNoteTag(rawTag);
+    if (normalized.isEmpty) {
+      return;
+    }
+    final key = canonicalizeNoteTag(normalized);
+    if (key.isEmpty || existingKeys.contains(key)) {
+      return;
+    }
+    scored[key] = (scored[key] ?? 0) + score;
+    displayName.putIfAbsent(key, () => normalized);
+  }
+
+  for (final knownTag in request.knownTags) {
+    final normalized = normalizeNoteTag(knownTag);
+    final key = canonicalizeNoteTag(normalized);
+    if (key.isEmpty || existingKeys.contains(key)) {
+      continue;
+    }
+    if (text.contains(key)) {
+      addCandidate(normalized, 20 + key.length);
+    }
+  }
+
+  final sourceText = '${request.title}\n${request.body}';
+  for (final match in RegExp(
+    r'[A-Za-z0-9][A-Za-z0-9_-]{2,}|[一-龠々ぁ-んァ-ヶー]{2,}',
+  ).allMatches(sourceText)) {
+    final token = match.group(0) ?? '';
+    if (_localTagStopWords.contains(token.toLowerCase())) {
+      continue;
+    }
+    addCandidate(token, request.title.contains(token) ? 10 : 4);
+  }
+
+  final entries = scored.entries.toList()
+    ..sort((left, right) {
+      final scoreOrder = right.value.compareTo(left.value);
+      if (scoreOrder != 0) {
+        return scoreOrder;
+      }
+      return displayName[left.key]!.compareTo(displayName[right.key]!);
+    });
+  return List.unmodifiable([
+    for (final entry in entries.take(8)) displayName[entry.key]!,
+  ]);
+}
+
+const _localTagStopWords = <String>{
+  'the',
+  'and',
+  'for',
+  'with',
+  'from',
+  'this',
+  'that',
+  'memo',
+  'note',
+  'について',
+  'です',
+  'ます',
+  'する',
+  'した',
+  'ある',
+  'これ',
+  'それ',
+};
+
 class VisibleTagSummary {
   const VisibleTagSummary({
     required this.name,

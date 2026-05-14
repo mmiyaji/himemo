@@ -12,6 +12,7 @@ import MobileCoreServices
   private let privacyChannelName = "org.ruhenheim.himemo/privacy"
   private let networkChannelName = "org.ruhenheim.himemo/network"
   private let spotlightChannelName = "org.ruhenheim.himemo/spotlight"
+  private let intelligenceChannelName = "org.ruhenheim.himemo/intelligence"
   private let spotlightDomainIdentifier = "org.ruhenheim.himemo.notes.standard"
   private let quickCaptureUrl = "himemo://widget-capture"
   private let appGroupIdentifier = "group.org.ruhenheim.himemo"
@@ -36,6 +37,7 @@ import MobileCoreServices
   private var privacyChannel: FlutterMethodChannel?
   private var networkChannel: FlutterMethodChannel?
   private var spotlightChannel: FlutterMethodChannel?
+  private var intelligenceChannel: FlutterMethodChannel?
   private var pendingQuickCapturePayload: [String: Any]?
   private var pendingSpotlightNoteId: String?
   private var privacyProtectionEnabled = false
@@ -71,6 +73,10 @@ import MobileCoreServices
       )
       spotlightChannel = FlutterMethodChannel(
         name: spotlightChannelName,
+        binaryMessenger: controller.binaryMessenger
+      )
+      intelligenceChannel = FlutterMethodChannel(
+        name: intelligenceChannelName,
         binaryMessenger: controller.binaryMessenger
       )
 
@@ -129,6 +135,14 @@ import MobileCoreServices
           return
         }
         self.handleSpotlightMethod(call: call, result: result)
+      }
+
+      intelligenceChannel?.setMethodCallHandler { [weak self] call, result in
+        guard let self else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        self.handleIntelligenceMethod(call: call, result: result)
       }
     }
 
@@ -213,6 +227,19 @@ import MobileCoreServices
     switch call.method {
     case "currentConnectionKind":
       currentConnectionKind(result: result)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private func handleIntelligenceMethod(call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "suggestTags":
+      result(FlutterError(
+        code: "apple_intelligence_unavailable",
+        message: "Apple Intelligence tag suggestions are not available in this build.",
+        details: nil
+      ))
     default:
       result(FlutterMethodNotImplemented)
     }

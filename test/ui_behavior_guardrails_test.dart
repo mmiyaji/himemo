@@ -311,6 +311,29 @@ void main() {
     expect(app, contains('spotlightNoteOpenRequestControllerProvider'));
   });
 
+  test('AI tag suggestions keep an iOS bridge and local fallback', () {
+    final homeProviders = File(
+      'lib/features/home/presentation/home_providers.dart',
+    ).readAsStringSync();
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+    final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+
+    expect(homeProviders, contains('class TagSuggestionRequest'));
+    expect(homeProviders, contains('tagSuggestionGatewayProvider'));
+    expect(homeProviders, contains('suggestLocalNoteTags'));
+    expect(homeProviders, contains('org.ruhenheim.himemo/intelligence'));
+    expect(homeProviders, contains("'suggestTags'"));
+    expect(homePage, contains('_tagSuggestionsBusy'));
+    expect(homePage, contains('_applySuggestedTag'));
+    expect(homePage, contains('visibleTagSuggestionsProvider'));
+    expect(homePage, contains('Icons.auto_awesome_rounded'));
+    expect(appDelegate, contains('intelligenceChannelName'));
+    expect(appDelegate, contains('handleIntelligenceMethod'));
+    expect(appDelegate, contains('apple_intelligence_unavailable'));
+  });
+
   test('quick capture bypasses app lock auto prompts while active', () {
     final appShell = File('lib/app/app.dart').readAsStringSync();
     final quickCaptureScreen = File(
