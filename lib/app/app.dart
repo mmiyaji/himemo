@@ -1259,15 +1259,16 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
 class _AppPrivacyCover extends StatelessWidget {
   const _AppPrivacyCover();
 
+  static const _coverColor = Color(0xFFFDFCFF);
+
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     return Positioned.fill(
       child: IgnorePointer(
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
           child: ColoredBox(
-            color: colorScheme.surface.withValues(alpha: 0.88),
+            color: _coverColor.withValues(alpha: 0.94),
             child: Center(
               child: SizedBox.square(
                 dimension: 152,

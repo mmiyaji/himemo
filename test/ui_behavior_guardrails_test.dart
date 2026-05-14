@@ -81,6 +81,7 @@ void main() {
     expect(appShell, contains('_activateAppLockPrivacyCoverIfEnabled'));
     expect(appShell, contains('_lifecyclePrivacyCoverVisible'));
     expect(appShell, contains('_AppPrivacyCover'));
+    expect(appShell, contains('Color(0xFFFDFCFF)'));
     expect(appShell, contains('assets/privacy-icon.png'));
     expect(appShell, contains('dimension: 152'));
     expect(
@@ -89,7 +90,9 @@ void main() {
     );
     expect(appShell, contains("'showCover': showCover"));
     expect(androidMainActivity, contains('override fun onPause()'));
+    expect(androidMainActivity, contains('override fun onStop()'));
     expect(androidMainActivity, contains('setPrivacyOverlayVisible(true)'));
+    expect(androidMainActivity, contains('PRIVACY_OVERLAY_COLOR'));
     expect(androidMainActivity, contains('buildPrivacyOverlay'));
   });
 
@@ -200,6 +203,11 @@ void main() {
     expect(appDelegate, contains('CSSearchableIndex.isIndexingAvailable()'));
     expect(appDelegate, contains('"indexedCount"'));
     expect(appDelegate, contains('CSSearchableItemActionType'));
+    expect(appDelegate, contains('.userActivityDictionary'));
+    expect(appDelegate, contains('handleSpotlightUserActivity'));
+    expect(appDelegate, contains('attributeSet.textContent'));
+    expect(appDelegate, contains('attributeSet.displayName'));
+    expect(appDelegate, contains('attributeSet.alternateNames'));
     expect(homeProviders, contains("logDiagnostic('spotlight'"));
     expect(homeProviders, contains('replace all requested'));
     expect(app, contains('spotlightNoteOpenRequestControllerProvider'));

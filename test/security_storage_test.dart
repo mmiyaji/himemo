@@ -775,6 +775,88 @@ void main() {
   });
 
   test(
+    'NotesController keeps attachment files still referenced by blocks',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-notes-block-attachment-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(23));
+      final fakeAttachmentStore = _TrackingEncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: MasterKeyService(
+          secureStore: secureStore,
+          keyFactory: encryptionService.generateKeyBytes,
+        ),
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(
+            MasterKeyService(
+              secureStore: secureStore,
+              keyFactory: encryptionService.generateKeyBytes,
+            ),
+          ),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: MasterKeyService(
+                secureStore: secureStore,
+                keyFactory: encryptionService.generateKeyBytes,
+              ),
+              database: noteDatabase,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedAttachmentStoreProvider.overrideWithValue(
+            fakeAttachmentStore,
+          ),
+          deviceIdentityStoreProvider.overrideWithValue(
+            DeviceIdentityStore(
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+              random: Random(2),
+            ),
+          ),
+          homeRepositoryProvider.overrideWithValue(_SingleNoteRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+
+      final controller = container.read(notesControllerProvider.notifier);
+      await controller.seedIfEmpty();
+      final original = container.read(notesControllerProvider).single;
+      final attachment = original.attachments.single;
+      await controller.upsert(
+        original.copyWith(
+          attachments: const <NoteAttachment>[],
+          blocks: [
+            NoteBlock(type: NoteBlockType.photo, attachment: attachment),
+          ],
+        ),
+      );
+
+      expect(fakeAttachmentStore.deletedReferences, isEmpty);
+    },
+  );
+
+  test(
     'NotesController cleanup removes orphaned attachment payloads',
     () async {
       SharedPreferences.setMockInitialValues({});
@@ -1289,6 +1371,71 @@ void main() {
               .having((error) => error.filePath, 'filePath', missingPath),
         ),
       );
+
+      await database.close();
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'SyncEngine skips stale upserts and exports orphaned delete tombstones',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-engine-stale-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(46));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final attachmentStore = EncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+      final engine = SyncEngine(
+        database: database,
+        attachmentStore: attachmentStore,
+        deviceIdentityStore: DeviceIdentityStore(
+          sharedPreferencesProvider: SharedPreferences.getInstance,
+          random: Random(47),
+        ),
+      );
+      final queuedAt = DateTime(2026, 5, 14, 3, 12);
+
+      final snapshot = await engine.prepareSnapshot(
+        const <NoteEntry>[],
+        pendingChanges: [
+          PendingNoteChangeRecord(
+            noteId: 'missing-upsert',
+            vaultId: 'everyday',
+            revision: 1,
+            action: PendingNoteChangeAction.upsert,
+            queuedAt: queuedAt,
+          ),
+          PendingNoteChangeRecord(
+            noteId: 'missing-delete',
+            vaultId: 'everyday',
+            revision: 2,
+            action: PendingNoteChangeAction.delete,
+            queuedAt: queuedAt,
+            deletedAt: queuedAt,
+          ),
+        ],
+      );
+
+      expect(snapshot.summary.totalChanges, 1);
+      expect(snapshot.summary.upserts, 0);
+      expect(snapshot.summary.deletes, 1);
+      expect(snapshot.notes.single.action, PendingNoteChangeAction.delete);
+      expect(snapshot.notes.single.note.id, 'missing-delete');
+      expect(snapshot.notes.single.note.deletedAt, queuedAt);
 
       await database.close();
       if (await tempDirectory.exists()) {
@@ -2376,6 +2523,13 @@ class _TrackingEncryptedAttachmentStore extends EncryptedAttachmentStore {
   Future<void> deleteAttachment(String storedReference) async {
     deletedReferences.add(storedReference);
   }
+
+  @override
+  Future<void> protectAttachmentForVault(
+    String storedReference, {
+    required AttachmentType type,
+    required String vaultId,
+  }) async {}
 }
 
 class _MemoryCloudSyncBundleKeyStore implements CloudSyncBundleKeyStore {

@@ -327,6 +327,15 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
     });
   }
 
+  Future<void> deletePendingChangesByIds(Set<String> noteIds) async {
+    if (noteIds.isEmpty) {
+      return;
+    }
+    await (delete(
+      pendingNoteChanges,
+    )..where((table) => table.noteId.isIn(noteIds))).go();
+  }
+
   EncryptedNoteRecord _mapRow(EncryptedNote row) {
     return EncryptedNoteRecord(
       id: row.id,

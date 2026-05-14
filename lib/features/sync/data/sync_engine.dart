@@ -162,16 +162,26 @@ class SyncEngine {
     List<PendingNoteChangeRecord>? pendingChanges,
   }) async {
     final changes = pendingChanges ?? await loadPendingChanges();
-    final summary = _summarize(changes);
-    final pendingById = {for (final change in changes) change.noteId: change};
+    final notesById = {for (final note in notes) note.id: note};
+    final preparedChanges = <PendingNoteChangeRecord>[];
     final attachmentPayloads = <PreparedSyncAttachment>[];
     final preparedNotes = <PreparedSyncNote>[];
 
-    for (final note in notes) {
-      final change = pendingById[note.id];
-      if (change == null) {
+    for (final change in changes) {
+      final note = notesById[change.noteId];
+      if (note == null) {
+        if (change.action == PendingNoteChangeAction.delete) {
+          preparedChanges.add(change);
+          preparedNotes.add(
+            PreparedSyncNote(
+              note: _deletedTombstoneFor(change),
+              action: PendingNoteChangeAction.delete,
+            ),
+          );
+        }
         continue;
       }
+      preparedChanges.add(change);
 
       final attachmentIdsByPath = <String, String>{};
 
@@ -262,9 +272,25 @@ class SyncEngine {
     return PreparedSyncSnapshot(
       deviceId: await _deviceIdentityStore.obtain(),
       exportedAt: DateTime.now(),
-      summary: summary,
+      summary: _summarize(preparedChanges),
       notes: preparedNotes,
       attachments: attachmentPayloads,
+    );
+  }
+
+  NoteEntry _deletedTombstoneFor(PendingNoteChangeRecord change) {
+    final deletedAt = change.deletedAt ?? change.queuedAt;
+    return NoteEntry(
+      id: change.noteId,
+      vaultId: change.vaultId,
+      title: '',
+      body: '',
+      createdAt: change.queuedAt,
+      updatedAt: change.queuedAt,
+      deletedAt: deletedAt,
+      revision: change.revision,
+      syncState: NoteSyncState.synced,
+      contentHash: change.contentHash,
     );
   }
 

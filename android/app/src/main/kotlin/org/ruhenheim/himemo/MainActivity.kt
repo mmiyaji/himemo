@@ -34,6 +34,7 @@ class MainActivity : FlutterFragmentActivity() {
         private const val PRIVACY_CHANNEL = "org.ruhenheim.himemo/privacy"
         private const val NETWORK_CHANNEL = "org.ruhenheim.himemo/network"
         private const val EXTRA_QUICK_CAPTURE_NONCE = "org.ruhenheim.himemo.extra.QUICK_CAPTURE_NONCE"
+        private const val PRIVACY_OVERLAY_COLOR = 0xFFFDFCFF.toInt()
     }
 
     private var widgetChannel: MethodChannel? = null
@@ -131,6 +132,13 @@ class MainActivity : FlutterFragmentActivity() {
             setPrivacyOverlayVisible(true)
         }
         super.onPause()
+    }
+
+    override fun onStop() {
+        if (privacyProtectionEnabled) {
+            setPrivacyOverlayVisible(true)
+        }
+        super.onStop()
     }
 
     override fun onResume() {
@@ -478,7 +486,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun buildPrivacyOverlay(): FrameLayout {
         return FrameLayout(this).apply {
-            setBackgroundColor(0xFFFFF4ED.toInt())
+            setBackgroundColor(PRIVACY_OVERLAY_COLOR)
             isClickable = false
             isFocusable = false
             addView(

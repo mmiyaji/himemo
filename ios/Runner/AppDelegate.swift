@@ -39,7 +39,7 @@ import MobileCoreServices
   private var pendingQuickCapturePayload: [String: Any]?
   private var pendingSpotlightNoteId: String?
   private var privacyProtectionEnabled = false
-  private var privacyOverlayView: UIVisualEffectView?
+  private var privacyOverlayView: UIView?
 
   private var cloudKitSyncZoneID: CKRecordZone.ID {
     CKRecordZone.ID(zoneName: cloudKitZoneName, ownerName: CKCurrentUserDefaultName)
@@ -137,6 +137,14 @@ import MobileCoreServices
         _ = handleSpotlightURL(url)
       }
     }
+    if let activities = launchOptions?[.userActivityDictionary] as? [AnyHashable: Any] {
+      for value in activities.values {
+        if let activity = value as? NSUserActivity,
+           handleSpotlightUserActivity(activity) {
+          break
+        }
+      }
+    }
     return result
   }
 
@@ -159,10 +167,7 @@ import MobileCoreServices
     continue userActivity: NSUserActivity,
     restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
   ) -> Bool {
-    if userActivity.activityType == CSSearchableItemActionType,
-       let noteId = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
-       !noteId.isEmpty {
-      openSpotlightNote(noteId: noteId)
+    if handleSpotlightUserActivity(userActivity) {
       return true
     }
     return super.application(
@@ -343,15 +348,28 @@ import MobileCoreServices
     let title = (payload["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
     let body = (payload["body"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
     let tags = payload["tags"] as? [String] ?? []
+    let resolvedTitle = title?.isEmpty == false ? title! : "HiMemo"
+    let searchableText = [resolvedTitle, body ?? "", tags.joined(separator: " "), "HiMemo"]
+      .compactMap { value in
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+      }
+      .joined(separator: "\n\n")
     let attributeSet = CSSearchableItemAttributeSet(itemContentType: kUTTypeText as String)
-    attributeSet.title = title?.isEmpty == false ? title : "HiMemo"
+    attributeSet.title = resolvedTitle
+    attributeSet.displayName = resolvedTitle
+    attributeSet.textContent = searchableText
     attributeSet.contentDescription = [body, tags.joined(separator: " ")]
       .compactMap { value in
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
       }
       .joined(separator: "\n\n")
-    attributeSet.keywords = tags
+    attributeSet.keywords = ([resolvedTitle, "HiMemo"] + tags)
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+    attributeSet.alternateNames = attributeSet.keywords
+    attributeSet.kind = "HiMemo Note"
     attributeSet.contentCreationDate = dateFromIsoString(payload["createdAt"] as? String)
     attributeSet.contentModificationDate = dateFromIsoString(payload["updatedAt"] as? String)
     if let encodedId = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
@@ -434,12 +452,21 @@ import MobileCoreServices
     }
     if visible {
       if privacyOverlayView == nil {
-        let effect = UIBlurEffect(style: .systemUltraThinMaterialLight)
-        let overlay = UIVisualEffectView(effect: effect)
+        let overlay = UIView(frame: window.bounds)
         overlay.frame = window.bounds
         overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         overlay.isUserInteractionEnabled = false
-        overlay.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.72)
+        overlay.backgroundColor = UIColor(
+          red: 0.992,
+          green: 0.988,
+          blue: 1.0,
+          alpha: 0.96
+        )
+        let blur = UIVisualEffectView(effect: UIBlurEffect(style: .extraLight))
+        blur.frame = overlay.bounds
+        blur.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        blur.alpha = 0.28
+        overlay.addSubview(blur)
         privacyOverlayView = overlay
       }
       guard let privacyOverlayView else {
@@ -476,6 +503,22 @@ import MobileCoreServices
       "files": []
     ])
     return true
+  }
+
+  private func handleSpotlightUserActivity(_ userActivity: NSUserActivity) -> Bool {
+    guard userActivity.activityType == CSSearchableItemActionType else {
+      return false
+    }
+    if let noteId = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+       !noteId.isEmpty {
+      openSpotlightNote(noteId: noteId)
+      return true
+    }
+    if let url = userActivity.webpageURL ?? userActivity.referrerURL,
+       handleSpotlightURL(url) {
+      return true
+    }
+    return false
   }
 
   private func handleSpotlightURL(_ url: URL) -> Bool {

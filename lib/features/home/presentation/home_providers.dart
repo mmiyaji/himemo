@@ -2601,16 +2601,37 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await ref
           .read(notesControllerProvider.notifier)
           .queueCurrentStateForSync();
-      final pendingChanges = await ref
+      var pendingChanges = await ref
           .read(syncEngineProvider)
           .loadPendingChanges();
       final pendingIds = pendingChanges.map((change) => change.noteId).toSet();
-      final pendingHashes = {
-        for (final change in pendingChanges) change.noteId: change.contentHash,
-      };
       final notes = await ref
           .read(notesControllerProvider.notifier)
           .notesForSyncSnapshot(pendingNoteIds: pendingIds);
+      final uploadableNoteIds = notes.map((note) => note.id).toSet();
+      final stalePendingUpsertIds = pendingChanges
+          .where(
+            (change) =>
+                change.action == PendingNoteChangeAction.upsert &&
+                !uploadableNoteIds.contains(change.noteId),
+          )
+          .map((change) => change.noteId)
+          .toSet();
+      if (stalePendingUpsertIds.isNotEmpty) {
+        _diagnostic(
+          'stale pending upserts pruned before upload',
+          data: {'count': stalePendingUpsertIds.length},
+        );
+        await ref
+            .read(encryptedNoteDatabaseProvider)
+            .deletePendingChangesByIds(stalePendingUpsertIds);
+        pendingChanges = pendingChanges
+            .where((change) => !stalePendingUpsertIds.contains(change.noteId))
+            .toList(growable: false);
+      }
+      final pendingHashes = {
+        for (final change in pendingChanges) change.noteId: change.contentHash,
+      };
       final snapshot = await runFirebaseTrace(
         'sync_prepare_snapshot',
         () => ref
@@ -7158,7 +7179,7 @@ class NotesController extends _$NotesController {
       ref.read(selectedNoteIdProvider.notifier).select(null);
     }
     await _deleteAttachments([
-      for (final note in removedNotes) ...note.attachments,
+      for (final note in removedNotes) ..._attachmentsIn(note),
     ]);
     await _rememberDeletedSeedNoteIds({...seedIds, ...idsToDelete});
     await _persist();
@@ -7172,7 +7193,9 @@ class NotesController extends _$NotesController {
         .where((note) => note.deletedAt == null)
         .toList(growable: false);
     final removedCount = removedNotes.length;
-    await _deleteAttachments([for (final note in state) ...note.attachments]);
+    await _deleteAttachments([
+      for (final note in state) ..._attachmentsIn(note),
+    ]);
     state = const <NoteEntry>[];
     ref.read(selectedNoteIdProvider.notifier).select(null);
     await ref.read(noteEditorDraftStoreProvider).clear();
@@ -7194,15 +7217,7 @@ class NotesController extends _$NotesController {
     _ensureRestoreSucceeded();
     final retainedAttachmentReferences = <String>{
       for (final note in state)
-        if (note.deletedAt == null) ...[
-          for (final attachment in note.attachments)
-            if (attachment.filePath != null && attachment.filePath!.isNotEmpty)
-              attachment.filePath!,
-          for (final block in note.blocks)
-            if (block.attachment?.filePath != null &&
-                block.attachment!.filePath!.isNotEmpty)
-              block.attachment!.filePath!,
-        ],
+        if (note.deletedAt == null) ..._attachmentFilePathsIn(note),
     };
     return ref
         .read(encryptedAttachmentStoreProvider)
@@ -7212,14 +7227,12 @@ class NotesController extends _$NotesController {
   Future<void> replaceFromSync(List<NoteEntry> notes) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
-    final incomingPaths = notes
-        .expand((note) => note.attachments)
-        .map((attachment) => attachment.filePath)
-        .whereType<String>()
-        .toSet();
+    final incomingPaths = {
+      for (final note in notes) ..._attachmentFilePathsIn(note),
+    };
     final removedAttachments = [
       for (final existing in state)
-        for (final attachment in existing.attachments)
+        for (final attachment in _attachmentsIn(existing))
           if (attachment.filePath != null &&
               !incomingPaths.contains(attachment.filePath))
             attachment,
@@ -7279,14 +7292,12 @@ class NotesController extends _$NotesController {
         next.add(applied);
       } else {
         next[index] = applied;
-        removedAttachments.addAll(current.attachments);
+        removedAttachments.addAll(_attachmentsIn(current));
       }
     }
 
     final stillRetained = <String>{
-      for (final note in next)
-        for (final attachment in note.attachments)
-          if (attachment.filePath != null) attachment.filePath!,
+      for (final note in next) ..._attachmentFilePathsIn(note),
     };
     await _deleteAttachments(
       removedAttachments
@@ -7331,13 +7342,11 @@ class NotesController extends _$NotesController {
     if (index == -1) {
       next.add(applied);
     } else {
-      removedAttachments.addAll(next[index].attachments);
+      removedAttachments.addAll(_attachmentsIn(next[index]));
       next[index] = applied;
     }
     final retained = <String>{
-      for (final note in next)
-        for (final attachment in note.attachments)
-          if (attachment.filePath != null) attachment.filePath!,
+      for (final note in next) ..._attachmentFilePathsIn(note),
     };
     await _deleteAttachments(
       removedAttachments
@@ -7787,17 +7796,32 @@ class NotesController extends _$NotesController {
     if (previous == null) {
       return;
     }
-    final retained = next.attachments
-        .map((attachment) => attachment.filePath)
-        .whereType<String>()
-        .toSet();
-    final removed = previous.attachments
+    final retained = _attachmentFilePathsIn(next);
+    final removed = _attachmentsIn(previous)
         .where((attachment) {
           final filePath = attachment.filePath;
           return filePath != null && !retained.contains(filePath);
         })
         .toList(growable: false);
     await _deleteAttachments(removed);
+  }
+
+  Iterable<NoteAttachment> _attachmentsIn(NoteEntry note) sync* {
+    yield* note.attachments;
+    for (final block in note.blocks) {
+      final attachment = block.attachment;
+      if (attachment != null) {
+        yield attachment;
+      }
+    }
+  }
+
+  Set<String> _attachmentFilePathsIn(NoteEntry note) {
+    return {
+      for (final attachment in _attachmentsIn(note))
+        if (attachment.filePath != null && attachment.filePath!.isNotEmpty)
+          attachment.filePath!,
+    };
   }
 
   Future<void> _deleteAttachments(List<NoteAttachment> attachments) async {
