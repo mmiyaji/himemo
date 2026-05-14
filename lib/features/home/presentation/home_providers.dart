@@ -5868,6 +5868,11 @@ Map<String, Object?> _spotlightItemArguments(NoteEntry note) {
     'createdAt': note.createdAt.toIso8601String(),
     'updatedAt': note.updatedAt?.toIso8601String(),
     'tags': note.normalizedTags,
+    'searchTerms': _spotlightSearchTerms(
+      title: title,
+      body: body,
+      tags: note.normalizedTags,
+    ),
   };
 }
 
@@ -5897,6 +5902,49 @@ String _spotlightFallbackTitle(NoteEntry note, String body) {
   return '${note.createdAt.year.toString().padLeft(4, '0')}/'
       '${note.createdAt.month.toString().padLeft(2, '0')}/'
       '${note.createdAt.day.toString().padLeft(2, '0')}';
+}
+
+List<String> _spotlightSearchTerms({
+  required String title,
+  required String body,
+  required List<String> tags,
+}) {
+  final terms = <String>{};
+
+  void addTerm(String raw) {
+    final term = raw.trim().toLowerCase();
+    if (term.length < 2) {
+      return;
+    }
+    terms.add(term.length > 64 ? term.substring(0, 64) : term);
+  }
+
+  void addText(String text) {
+    final normalized = text.replaceAll(
+      RegExp(r'[\s,.;:!?，。、！？「」『』（）()\[\]［］【】#]+'),
+      ' ',
+    );
+    for (final raw in normalized.split(' ')) {
+      addTerm(raw);
+    }
+    final compact = normalized.replaceAll(' ', '');
+    if (compact.length >= 4) {
+      for (var i = 0; i < compact.length && terms.length < 80; i++) {
+        for (final length in const [2, 3, 4]) {
+          if (i + length <= compact.length) {
+            addTerm(compact.substring(i, i + length));
+          }
+        }
+      }
+    }
+  }
+
+  addText(title);
+  addText(body);
+  for (final tag in tags) {
+    addText(tag);
+  }
+  return terms.take(80).toList(growable: false);
 }
 
 class SpotlightNoteOpenRequestController extends Notifier<String?> {

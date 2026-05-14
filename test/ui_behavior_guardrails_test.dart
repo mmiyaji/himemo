@@ -195,6 +195,8 @@ void main() {
     );
     expect(homeProviders, contains('replaceAllStandardNotes'));
     expect(homeProviders, contains("note.vaultId == 'everyday'"));
+    expect(homeProviders, contains('_spotlightSearchTerms'));
+    expect(homeProviders, contains("'searchTerms'"));
     expect(homeProviders, contains('bridge.clearNotes();'));
     expect(homePage, contains('memoSpotlightIndexKey'));
     expect(homePage, contains('TargetPlatform.iOS'));
@@ -208,6 +210,7 @@ void main() {
     expect(appDelegate, contains('attributeSet.textContent'));
     expect(appDelegate, contains('attributeSet.displayName'));
     expect(appDelegate, contains('attributeSet.alternateNames'));
+    expect(appDelegate, contains('searchTerms'));
     expect(homeProviders, contains("logDiagnostic('spotlight'"));
     expect(homeProviders, contains('replace all requested'));
     expect(app, contains('spotlightNoteOpenRequestControllerProvider'));

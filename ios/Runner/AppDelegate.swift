@@ -348,8 +348,15 @@ import MobileCoreServices
     let title = (payload["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
     let body = (payload["body"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
     let tags = payload["tags"] as? [String] ?? []
+    let searchTerms = payload["searchTerms"] as? [String] ?? []
     let resolvedTitle = title?.isEmpty == false ? title! : "HiMemo"
-    let searchableText = [resolvedTitle, body ?? "", tags.joined(separator: " "), "HiMemo"]
+    let searchableText = [
+      resolvedTitle,
+      body ?? "",
+      tags.joined(separator: " "),
+      searchTerms.joined(separator: " "),
+      "HiMemo"
+    ]
       .compactMap { value in
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -365,7 +372,7 @@ import MobileCoreServices
         return trimmed?.isEmpty == false ? trimmed : nil
       }
       .joined(separator: "\n\n")
-    attributeSet.keywords = ([resolvedTitle, "HiMemo"] + tags)
+    attributeSet.keywords = ([resolvedTitle, "HiMemo"] + tags + searchTerms)
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
       .filter { !$0.isEmpty }
     attributeSet.alternateNames = attributeSet.keywords
