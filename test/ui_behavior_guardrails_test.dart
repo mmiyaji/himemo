@@ -82,9 +82,14 @@ void main() {
     expect(appShell, contains('_activateAppLockPrivacyCoverIfEnabled'));
     expect(appShell, contains('_lifecyclePrivacyCoverVisible'));
     expect(appShell, contains('_AppPrivacyCover'));
+    expect(appShell, contains('class _AppLockIcon'));
     expect(appShell, contains('Color(0xFFFDFCFF)'));
     expect(appShell, contains('assets/privacy-icon.png'));
+    expect(appShell, contains('dimension: wide ? 136 : 128'));
     expect(appShell, contains('dimension: 152'));
+    expect(appShell.contains('width: 104'), isFalse);
+    expect(appShell.contains('height: 104'), isFalse);
+    expect(appShell.contains('EdgeInsets.all(4)'), isFalse);
     expect(
       appShell,
       contains('privacyScreenActive || _lifecyclePrivacyProtectionEnabled'),
@@ -168,6 +173,36 @@ void main() {
     expect(createNoteIcon, contains('<svg'));
     expect(createNoteIcon, contains('#FFF7F4'));
     expect(createNoteIcon, contains('#9F5261'));
+  });
+
+  test('private profile access action uses unified Lucide SVG icons', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+    final privateLockIcon = File(
+      'assets/settings/private-lock.svg',
+    ).readAsStringSync();
+    final privateUnlockIcon = File(
+      'assets/settings/private-unlock.svg',
+    ).readAsStringSync();
+    final privateAdminIcon = File(
+      'assets/settings/private-admin.svg',
+    ).readAsStringSync();
+
+    expect(homePage, contains('class _PrivateProfileAccessIcon'));
+    expect(homePage, contains('_PrivateProfileAccessIconKind.locked'));
+    expect(homePage, contains('_PrivateProfileAccessIconKind.unlocked'));
+    expect(homePage, contains('_PrivateProfileAccessIconKind.admin'));
+    expect(homePage, contains('assets/settings/private-lock.svg'));
+    expect(homePage, contains('assets/settings/private-unlock.svg'));
+    expect(homePage, contains('assets/settings/private-admin.svg'));
+    expect(homePage, contains('colorFilter: ColorFilter.mode'));
+    expect(privateLockIcon, contains('lucide-static'));
+    expect(privateUnlockIcon, contains('lucide-static'));
+    expect(privateAdminIcon, contains('lucide-static'));
+    expect(privateLockIcon, contains('stroke-width="1.5"'));
+    expect(privateUnlockIcon, contains('stroke-width="1.5"'));
+    expect(privateAdminIcon, contains('stroke-width="1.5"'));
   });
 
   test('tablet create note action lives at the bottom of the sidebar', () {

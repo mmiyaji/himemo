@@ -265,8 +265,8 @@ class _AppShellState extends ConsumerState<AppShell> {
                                 ),
                               )
                             else
-                              Icon(
-                                Icons.lock_open_rounded,
+                              _PrivateProfileAccessIcon(
+                                kind: _PrivateProfileAccessIconKind.unlocked,
                                 size: 20,
                                 color: privateProfileActiveColor,
                               ),
@@ -325,12 +325,13 @@ class _AppShellState extends ConsumerState<AppShell> {
                                       strokeWidth: 2.3,
                                     ),
                                   )
-                                : Icon(
-                                    adminMode
-                                        ? Icons.admin_panel_settings_rounded
+                                : _PrivateProfileAccessIcon(
+                                    kind: adminMode
+                                        ? _PrivateProfileAccessIconKind.admin
                                         : activePrivateProfileLabel != null
-                                        ? Icons.lock_open_rounded
-                                        : Icons.lock_rounded,
+                                        ? _PrivateProfileAccessIconKind.unlocked
+                                        : _PrivateProfileAccessIconKind.locked,
+                                    size: 22,
                                   ),
                           ),
                         ),
@@ -629,6 +630,46 @@ class _CreateNoteNavButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+enum _PrivateProfileAccessIconKind { locked, unlocked, admin }
+
+class _PrivateProfileAccessIcon extends StatelessWidget {
+  const _PrivateProfileAccessIcon({
+    required this.kind,
+    required this.size,
+    this.color,
+  });
+
+  final _PrivateProfileAccessIconKind kind;
+  final double size;
+  final Color? color;
+
+  String get _assetPath {
+    switch (kind) {
+      case _PrivateProfileAccessIconKind.locked:
+        return 'assets/settings/private-lock.svg';
+      case _PrivateProfileAccessIconKind.unlocked:
+        return 'assets/settings/private-unlock.svg';
+      case _PrivateProfileAccessIconKind.admin:
+        return 'assets/settings/private-admin.svg';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final effectiveColor =
+        color ??
+        IconTheme.of(context).color ??
+        Theme.of(context).colorScheme.onSurface;
+
+    return SvgPicture.asset(
+      _assetPath,
+      width: size,
+      height: size,
+      colorFilter: ColorFilter.mode(effectiveColor, BlendMode.srcIn),
     );
   }
 }

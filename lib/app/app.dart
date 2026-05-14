@@ -1059,27 +1059,10 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                                 ),
                               ),
                               const Spacer(),
-                              Container(
-                                width: 104,
-                                height: 104,
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  color: colorScheme.surfaceContainerHighest,
-                                  borderRadius: BorderRadius.circular(24),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: colorScheme.primary.withValues(
-                                        alpha: 0.16,
-                                      ),
-                                      blurRadius: 30,
-                                      spreadRadius: 2,
-                                      offset: const Offset(0, 14),
-                                    ),
-                                  ],
-                                ),
-                                child: Image.asset(
-                                  'assets/privacy-icon.png',
-                                  filterQuality: FilterQuality.medium,
+                              _AppLockIcon(
+                                dimension: wide ? 136 : 128,
+                                shadowColor: colorScheme.primary.withValues(
+                                  alpha: 0.2,
                                 ),
                               ),
                               const SizedBox(height: 20),
@@ -1272,15 +1255,50 @@ class _AppPrivacyCover extends StatelessWidget {
             child: Center(
               child: SizedBox.square(
                 dimension: 152,
-                child: Image.asset(
-                  'assets/privacy-icon.png',
-                  filterQuality: FilterQuality.medium,
-                ),
+                child: const _AppLockIcon(dimension: 152),
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _AppLockIcon extends StatelessWidget {
+  const _AppLockIcon({required this.dimension, this.shadowColor});
+
+  final double dimension;
+  final Color? shadowColor;
+
+  static const _assetPath = 'assets/privacy-icon.png';
+
+  @override
+  Widget build(BuildContext context) {
+    final image = Image.asset(
+      _assetPath,
+      width: dimension,
+      height: dimension,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.medium,
+    );
+    final effectiveShadowColor = shadowColor;
+    if (effectiveShadowColor == null) {
+      return image;
+    }
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(dimension * 0.24),
+        boxShadow: [
+          BoxShadow(
+            color: effectiveShadowColor,
+            blurRadius: dimension * 0.32,
+            spreadRadius: dimension * 0.02,
+            offset: Offset(0, dimension * 0.12),
+          ),
+        ],
+      ),
+      child: image,
     );
   }
 }
