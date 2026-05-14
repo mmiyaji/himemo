@@ -1277,6 +1277,24 @@ void main() {
     expect(dedupeNoteTags([' Alpha ', '#alpha', 'HOME']), ['Alpha', 'HOME']);
   });
 
+  test(
+    'local tag suggestions prefer visible known tags and avoid duplicates',
+    () {
+      final suggestions = suggestLocalNoteTags(
+        const TagSuggestionRequest(
+          title: 'Project Alpha review',
+          body: 'Discussed client onboarding and release checklist.',
+          existingTags: ['Work'],
+          knownTags: ['Alpha', 'Work', 'Client', 'Release'],
+          attachmentLabels: ['alpha-outline.pdf'],
+        ),
+      );
+
+      expect(suggestions.take(3), containsAllInOrder(['Alpha', 'Release']));
+      expect(suggestions, isNot(contains('Work')));
+    },
+  );
+
   test('search filters can partition notes by year', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();

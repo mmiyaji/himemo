@@ -13446,6 +13446,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   bool _editorDisposed = false;
   bool _attachmentPickerBusy = false;
   bool _attachmentImportBusy = false;
+  bool _saveBusy = false;
+  bool _tagSuggestionsBusy = false;
+  List<String> _tagSuggestions = const [];
+  String? _tagSuggestionSource;
   Timer? _draftSaveTimer;
   bool _discardingDraft = false;
   bool _draftRestoreSnackBarActive = false;
@@ -14019,6 +14023,71 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         _isPinned;
   }
 
+  ({String title, String body}) _currentTagSuggestionContent() {
+    if (_editorMode == NoteEditorMode.quick) {
+      return _splitMemoContent(_contentController.text);
+    }
+    final richContent = _deriveRichSaveContent();
+    return (title: richContent.title, body: richContent.body);
+  }
+
+  Future<void> _suggestTags() async {
+    if (_tagSuggestionsBusy) {
+      return;
+    }
+    final content = _currentTagSuggestionContent();
+    if (content.title.trim().isEmpty && content.body.trim().isEmpty) {
+      return;
+    }
+    setState(() {
+      _tagSuggestionsBusy = true;
+      _tagSuggestions = const [];
+      _tagSuggestionSource = null;
+    });
+    final knownTags = ref.read(visibleTagSuggestionsProvider);
+    final attachments = _allCurrentAttachments;
+    try {
+      final result = await ref
+          .read(tagSuggestionGatewayProvider)
+          .suggestTags(
+            TagSuggestionRequest(
+              title: content.title,
+              body: content.body,
+              existingTags: _tags,
+              knownTags: knownTags,
+              attachmentLabels: [
+                for (final attachment in attachments) attachment.label,
+              ],
+            ),
+          );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _tagSuggestions = result.tags;
+        _tagSuggestionSource = result.source;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _tagSuggestionsBusy = false;
+        });
+      }
+    }
+  }
+
+  void _applySuggestedTag(String tag) {
+    setState(() {
+      _tags = dedupeNoteTags([..._tags, tag]);
+      _tagSuggestions = [
+        for (final suggestion in _tagSuggestions)
+          if (canonicalizeNoteTag(suggestion) != canonicalizeNoteTag(tag))
+            suggestion,
+      ];
+    });
+    _scheduleDraftPersist();
+  }
+
   void _queueAttachmentDelete(NoteAttachment attachment) {
     final filePath = attachment.filePath;
     if (filePath == null || _initialAttachmentPaths.contains(filePath)) {
@@ -14327,9 +14396,39 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          strings.text('home.tags'),
-                          style: Theme.of(context).textTheme.titleSmall,
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                strings.text('home.tags'),
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                            ),
+                            TextButton.icon(
+                              onPressed: _tagSuggestionsBusy
+                                  ? null
+                                  : _suggestTags,
+                              icon: _tagSuggestionsBusy
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.auto_awesome_rounded),
+                              label: Text(
+                                strings.localized(
+                                  en: 'Suggest',
+                                  ja: '提案',
+                                  zh: '建议',
+                                  ko: '추천',
+                                  es: 'Sugerir',
+                                  de: 'Vorschlagen',
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 8),
                         _TagAutocompleteField(
@@ -14349,6 +14448,47 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                             _scheduleDraftPersist();
                           },
                         ),
+                        if (_tagSuggestions.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final tag in _tagSuggestions)
+                                ActionChip(
+                                  avatar: Icon(
+                                    Icons.auto_awesome_rounded,
+                                    size: 16,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
+                                  label: Text('#$tag'),
+                                  tooltip: strings.localized(
+                                    en: _tagSuggestionSource == 'local'
+                                        ? 'Local suggestion'
+                                        : 'Apple Intelligence suggestion',
+                                    ja: _tagSuggestionSource == 'local'
+                                        ? 'ローカル提案'
+                                        : 'Apple Intelligence提案',
+                                    zh: _tagSuggestionSource == 'local'
+                                        ? '本地建议'
+                                        : 'Apple Intelligence 建议',
+                                    ko: _tagSuggestionSource == 'local'
+                                        ? '로컬 추천'
+                                        : 'Apple Intelligence 추천',
+                                    es: _tagSuggestionSource == 'local'
+                                        ? 'Sugerencia local'
+                                        : 'Sugerencia de Apple Intelligence',
+                                    de: _tagSuggestionSource == 'local'
+                                        ? 'Lokaler Vorschlag'
+                                        : 'Apple Intelligence-Vorschlag',
+                                  ),
+                                  onPressed: () => _applySuggestedTag(tag),
+                                ),
+                            ],
+                          ),
+                        ],
                         if (_tags.isNotEmpty) ...[
                           const SizedBox(height: 10),
                           Wrap(
@@ -14543,14 +14683,21 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       onPressed:
                           canSubmit &&
                               _selectedVaultId != null &&
-                              !_attachmentActionBusy
+                              !_attachmentActionBusy &&
+                              !_saveBusy
                           ? _save
                           : null,
-                      child: Text(
-                        widget.note == null
-                            ? strings.createNote
-                            : strings.saveChanges,
-                      ),
+                      child: _saveBusy
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Text(
+                              widget.note == null
+                                  ? strings.createNote
+                                  : strings.saveChanges,
+                            ),
                     );
                   },
                 ),
@@ -14922,63 +15069,104 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   Future<void> _save() async {
-    if (!_canSave) {
+    if (!_canSave || _saveBusy) {
       return;
     }
-    final pendingTag = _tagFieldKey.currentState?.consumePendingTag();
-    final saveTags = pendingTag == null
-        ? dedupeNoteTags(_tags)
-        : dedupeNoteTags([..._tags, pendingTag]);
-    final richContent = _editorMode == NoteEditorMode.rich
-        ? _deriveRichSaveContent()
-        : null;
-    final content = _editorMode == NoteEditorMode.quick
-        ? _splitMemoContent(_contentController.text)
-        : (title: richContent!.title, body: richContent.body);
-    final blocks = _editorMode == NoteEditorMode.quick
-        ? const <NoteBlock>[]
-        : richContent!.blocks;
-    final note = NoteEntry(
-      id: widget.note?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
-      vaultId: _selectedVaultId!,
-      title: content.title,
-      body: content.body,
-      createdAt: _createdAt,
-      updatedAt: widget.note == null ? _createdAt : DateTime.now(),
-      attachments: _editorMode == NoteEditorMode.quick
-          ? _attachments
-          : _richBlocks
-                .map((block) => block.attachment)
-                .whereType<NoteAttachment>()
-                .toList(growable: false),
-      blocks: blocks,
-      tags: saveTags,
-      isPinned: _isPinned,
-      revision: widget.note?.revision ?? 1,
-      deviceId: widget.note?.deviceId,
-      syncState: widget.note?.syncState ?? NoteSyncState.localOnly,
-      editorMode: _editorMode,
-      location: _location,
-    );
-    final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
-    for (final filePath in _pendingAttachmentDeletes) {
-      await attachmentStore.deleteAttachment(filePath);
-    }
-    _pendingAttachmentDeletes.clear();
-    await ref
-        .read(lastNoteEditorSettingsControllerProvider.notifier)
-        .remember(
-          mode: _editorMode,
-          vaultId: _selectedVaultId!,
-          captureLocation: _captureLocationEnabled,
+    setState(() {
+      _saveBusy = true;
+    });
+    try {
+      final pendingTag = _tagFieldKey.currentState?.consumePendingTag();
+      final saveTags = pendingTag == null
+          ? dedupeNoteTags(_tags)
+          : dedupeNoteTags([..._tags, pendingTag]);
+      final richContent = _editorMode == NoteEditorMode.rich
+          ? _deriveRichSaveContent()
+          : null;
+      final content = _editorMode == NoteEditorMode.quick
+          ? _splitMemoContent(_contentController.text)
+          : (title: richContent!.title, body: richContent.body);
+      final blocks = _editorMode == NoteEditorMode.quick
+          ? const <NoteBlock>[]
+          : richContent!.blocks;
+      final note = NoteEntry(
+        id: widget.note?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
+        vaultId: _selectedVaultId!,
+        title: content.title,
+        body: content.body,
+        createdAt: _createdAt,
+        updatedAt: widget.note == null ? _createdAt : DateTime.now(),
+        attachments: _editorMode == NoteEditorMode.quick
+            ? _attachments
+            : _richBlocks
+                  .map((block) => block.attachment)
+                  .whereType<NoteAttachment>()
+                  .toList(growable: false),
+        blocks: blocks,
+        tags: saveTags,
+        isPinned: _isPinned,
+        revision: widget.note?.revision ?? 1,
+        deviceId: widget.note?.deviceId,
+        syncState: widget.note?.syncState ?? NoteSyncState.localOnly,
+        editorMode: _editorMode,
+        location: _location,
+      );
+      final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+      for (final filePath in _pendingAttachmentDeletes) {
+        await attachmentStore.deleteAttachment(filePath);
+      }
+      _pendingAttachmentDeletes.clear();
+      await ref
+          .read(lastNoteEditorSettingsControllerProvider.notifier)
+          .remember(
+            mode: _editorMode,
+            vaultId: _selectedVaultId!,
+            captureLocation: _captureLocationEnabled,
+          );
+      await ref.read(notesControllerProvider.notifier).upsert(note);
+      if (widget.note == null) {
+        await ref.read(noteEditorDraftStoreProvider).clear();
+      }
+      _saved = true;
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    } catch (error, stackTrace) {
+      logDiagnostic(
+        'note_editor',
+        'save failed',
+        data: {
+          'error': error,
+          'editorMode': _editorMode.name,
+          'vaultId': _selectedVaultId,
+          'attachments': _allCurrentAttachments.length,
+          'hasText': _hasSubmitContent,
+        },
+      );
+      debugPrintStack(
+        label: 'HiMemo note save failed: $error',
+        stackTrace: stackTrace,
+      );
+      if (mounted) {
+        _showEditorSnackBar(
+          content: Text(
+            context.strings.localized(
+              en: 'Could not save this note. Check diagnostic logs for details. ($error)',
+              ja: 'このメモを保存できませんでした。詳細は診断ログを確認してください。($error)',
+              zh: '无法保存此备忘录。请查看诊断日志了解详细信息。($error)',
+              ko: '이 메모를 저장할 수 없습니다. 자세한 내용은 진단 로그를 확인하세요. ($error)',
+              es: 'No se pudo guardar esta nota. Revisa los registros de diagnóstico. ($error)',
+              de: 'Diese Notiz konnte nicht gespeichert werden. Details stehen im Diagnoseprotokoll. ($error)',
+            ),
+          ),
         );
-    await ref.read(notesControllerProvider.notifier).upsert(note);
-    if (widget.note == null) {
-      await ref.read(noteEditorDraftStoreProvider).clear();
-    }
-    _saved = true;
-    if (mounted) {
-      Navigator.of(context).pop();
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saveBusy = false;
+        });
+      }
     }
   }
 
