@@ -1458,7 +1458,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       title: strings.onboardingFinishTitle,
       body: strings.onboardingFinishBody,
       icon: Icons.key_rounded,
-      imagePath: 'assets/onboarding/private.png',
+      imagePath: 'assets/onboarding/private-illustration.png',
       imageSemanticLabel: strings.onboardingFinishImageLabel,
       isSetupPage: true,
     ),
