@@ -1060,24 +1060,25 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                               ),
                               const Spacer(),
                               Container(
-                                width: 88,
-                                height: 88,
-                                padding: const EdgeInsets.all(14),
+                                width: 104,
+                                height: 104,
+                                padding: const EdgeInsets.all(4),
                                 decoration: BoxDecoration(
                                   color: colorScheme.surfaceContainerHighest,
                                   borderRadius: BorderRadius.circular(24),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.12,
+                                      color: colorScheme.primary.withValues(
+                                        alpha: 0.16,
                                       ),
-                                      blurRadius: 24,
-                                      offset: const Offset(0, 12),
+                                      blurRadius: 30,
+                                      spreadRadius: 2,
+                                      offset: const Offset(0, 14),
                                     ),
                                   ],
                                 ),
                                 child: Image.asset(
-                                  'assets/app-icon.png',
+                                  'assets/privacy-icon.png',
                                   filterQuality: FilterQuality.medium,
                                 ),
                               ),
