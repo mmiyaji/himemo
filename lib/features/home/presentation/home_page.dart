@@ -202,7 +202,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     final profileAccessBlocked = _profileAccessBlocked;
     final privateProfileActive =
         !adminMode && activePrivateProfileLabel != null;
-    final privateProfileActiveColor = Theme.of(context).colorScheme.primary;
+    final colorScheme = Theme.of(context).colorScheme;
+    final privateProfileActiveColor = colorScheme.primary;
     final profileAccessBusyTooltip = strings.localized(
       en: 'Opening private profile...',
       ja: 'プライベートプロファイルを開いています...',
@@ -216,6 +217,9 @@ class _AppShellState extends ConsumerState<AppShell> {
         : (activePrivateProfileLabel != null
               ? context.strings.viewingPrivateProfile(activePrivateProfileLabel)
               : (context.strings.text('home.unlock.private.profile')));
+    final profileAccessPillLabel = adminMode
+        ? profileAccessTooltip
+        : activePrivateProfileLabel;
     final effectiveProfileAccessTooltip = profileUnlocking
         ? profileAccessBusyTooltip
         : profileAccessTooltip;
@@ -224,7 +228,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       appBar: AppBar(
         title: const _AppBrandTitle(),
         actions: [
-          if (privateProfileActive)
+          if (privateProfileActive || adminMode)
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 28),
               child: ConstrainedBox(
@@ -232,11 +236,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                   maxWidth: math.min(220, width * 0.42),
                 ),
                 child: Tooltip(
-                  message: profileUnlocking
-                      ? profileAccessBusyTooltip
-                      : context.strings.viewingPrivateProfile(
-                          activePrivateProfileLabel,
-                        ),
+                  message: effectiveProfileAccessTooltip,
                   child: Material(
                     color: privateProfileActiveColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(999),
@@ -266,14 +266,16 @@ class _AppShellState extends ConsumerState<AppShell> {
                               )
                             else
                               _PrivateProfileAccessIcon(
-                                kind: _PrivateProfileAccessIconKind.unlocked,
+                                kind: adminMode
+                                    ? _PrivateProfileAccessIconKind.admin
+                                    : _PrivateProfileAccessIconKind.unlocked,
                                 size: 20,
                                 color: privateProfileActiveColor,
                               ),
                             const SizedBox(width: 6),
                             Flexible(
                               child: Text(
-                                activePrivateProfileLabel,
+                                profileAccessPillLabel ?? '',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.labelLarge
@@ -3447,6 +3449,7 @@ class SettingsScreen extends ConsumerWidget {
     final inAppUpdateState = ref.watch(inAppUpdateControllerProvider);
     final packageInfo = ref.watch(packageInfoProvider);
     final diagnosticLog = ref.watch(diagnosticLogControllerProvider);
+    final auditLog = ref.watch(auditLogControllerProvider);
     final storageUsageSummary = ref.watch(storageUsageSummaryProvider);
     const showLegacyAccessSettings = bool.fromEnvironment(
       'HIMEMO_SHOW_LEGACY_ACCESS_SETTINGS',
@@ -3572,6 +3575,7 @@ class SettingsScreen extends ConsumerWidget {
         ? strings.appUpdatesDesc
         : _appUpdatesUnavailableDescription(strings);
     final diagnosticLogSnapshot = diagnosticLog.asData?.value;
+    final auditLogSnapshot = auditLog.asData?.value;
     final inAppUpdateSummary = switch (inAppUpdateState.stage) {
       InAppUpdateStage.checking => strings.updateStatusChecking,
       InAppUpdateStage.ready => strings.updateStatusAvailable,
@@ -4019,6 +4023,29 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                   ),
               ],
+            ),
+            const SizedBox(height: 12),
+            _AdminModeAuditNotice(
+              text: strings.localized(
+                en: adminMode
+                    ? 'Admin mode can view every profile. Admin sign-ins and profile or note operations are recorded in Audit logs, so use it only when necessary.'
+                    : 'Admin mode grants access to view every profile. Admin sign-ins are recorded in Audit logs; use normal private profile unlock for everyday work.',
+                ja: adminMode
+                    ? '管理者モードでは全プロファイルを閲覧できます。管理者ログインとプロファイル/ノート操作は監査ログに記録されるため、必要な時だけ使用してください。'
+                    : '管理者モードでは全プロファイルの閲覧権限が付与されます。管理者ログインは監査ログに記録されるため、普段は通常のプライベートプロファイル解除を使ってください。',
+                zh: adminMode
+                    ? 'Admin mode can view every profile. Admin sign-ins and profile or note operations are recorded in Audit logs, so use it only when necessary.'
+                    : 'Admin mode grants access to view every profile. Admin sign-ins are recorded in Audit logs; use normal private profile unlock for everyday work.',
+                ko: adminMode
+                    ? 'Admin mode can view every profile. Admin sign-ins and profile or note operations are recorded in Audit logs, so use it only when necessary.'
+                    : 'Admin mode grants access to view every profile. Admin sign-ins are recorded in Audit logs; use normal private profile unlock for everyday work.',
+                es: adminMode
+                    ? 'Admin mode can view every profile. Admin sign-ins and profile or note operations are recorded in Audit logs, so use it only when necessary.'
+                    : 'Admin mode grants access to view every profile. Admin sign-ins are recorded in Audit logs; use normal private profile unlock for everyday work.',
+                de: adminMode
+                    ? 'Admin mode can view every profile. Admin sign-ins and profile or note operations are recorded in Audit logs, so use it only when necessary.'
+                    : 'Admin mode grants access to view every profile. Admin sign-ins are recorded in Audit logs; use normal private profile unlock for everyday work.',
+              ),
             ),
           ],
         ),
@@ -6153,7 +6180,9 @@ class SettingsScreen extends ConsumerWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.contact_support_outlined),
+              leading: const _SettingsListIcon(
+                assetPath: 'assets/settings/contact.svg',
+              ),
               title: Text(strings.contact),
               subtitle: Text(strings.contactDesc),
               trailing: const Icon(Icons.open_in_new_rounded, size: 18),
@@ -6162,7 +6191,9 @@ class SettingsScreen extends ConsumerWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.help_outline_rounded),
+              leading: const _SettingsListIcon(
+                assetPath: 'assets/settings/help.svg',
+              ),
               title: Text(strings.help),
               subtitle: Text(strings.helpDesc),
               trailing: const Icon(Icons.open_in_new_rounded, size: 18),
@@ -6185,6 +6216,13 @@ class SettingsScreen extends ConsumerWidget {
               },
             ),
           ],
+        ),
+        const SizedBox(height: 16),
+        _buildAuditLogSettingsGroup(
+          context: context,
+          ref: ref,
+          strings: strings,
+          snapshot: auditLogSnapshot,
         ),
         if (diagnosticLogSnapshot?.enabled == true) ...[
           const SizedBox(height: 16),
@@ -6393,6 +6431,112 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
+  Widget _buildAuditLogSettingsGroup({
+    required BuildContext context,
+    required WidgetRef ref,
+    required AppStrings strings,
+    required AuditLogSnapshot? snapshot,
+  }) {
+    final entries = snapshot?.entries ?? const <String>[];
+    final previewEntries = entries.reversed.take(120).toList(growable: false);
+    final emptyMessage = strings.localized(
+      en: 'No audit log entries yet.',
+      ja: '監査ログはまだありません。',
+      zh: 'No audit log entries yet.',
+      ko: 'No audit log entries yet.',
+      es: 'No audit log entries yet.',
+      de: 'No audit log entries yet.',
+    );
+    return _SettingsGroup(
+      title: strings.localized(
+        en: 'Audit logs',
+        ja: '監査ログ',
+        zh: 'Audit logs',
+        ko: 'Audit logs',
+        es: 'Audit logs',
+        de: 'Audit logs',
+      ),
+      summary: strings.localized(
+        en: '${entries.length} entries. Admin sign-ins, profile use, and note changes are recorded separately from diagnostic logs.',
+        ja: '${entries.length}件。管理者ログイン、プロファイル利用、ノート変更を診断ログとは別に記録します。',
+        zh: '${entries.length} entries. Admin sign-ins, profile use, and note changes are recorded separately from diagnostic logs.',
+        ko: '${entries.length} entries. Admin sign-ins, profile use, and note changes are recorded separately from diagnostic logs.',
+        es: '${entries.length} entries. Admin sign-ins, profile use, and note changes are recorded separately from diagnostic logs.',
+        de: '${entries.length} entries. Admin sign-ins, profile use, and note changes are recorded separately from diagnostic logs.',
+      ),
+      assetPath: 'assets/settings/security.svg',
+      children: [
+        Text(
+          strings.localized(
+            en: 'Audit logs are always kept locally. They include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
+            ja: '監査ログは端末内に常時保存されます。イベント種別、プロファイル/保管庫ID、ノートID、リビジョン、添付数、時刻を含みますが、ノート本文や添付データは含めません。',
+            zh: 'Audit logs are always kept locally. They include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
+            ko: 'Audit logs are always kept locally. They include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
+            es: 'Audit logs are always kept locally. They include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
+            de: 'Audit logs are always kept locally. They include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
+          ),
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+        ),
+        const SizedBox(height: 12),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Theme.of(context).dividerColor),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 220),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(12),
+              child: _AuditLogPreview(
+                entries: previewEntries,
+                emptyMessage: emptyMessage,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: () =>
+                  ref.read(auditLogControllerProvider.notifier).refresh(),
+              icon: const Icon(Icons.refresh_rounded),
+              label: Text(
+                strings.localized(
+                  en: 'Refresh',
+                  ja: '更新',
+                  zh: 'Refresh',
+                  ko: 'Refresh',
+                  es: 'Refresh',
+                  de: 'Refresh',
+                ),
+              ),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => _downloadAuditLog(context, ref, strings),
+              icon: const Icon(Icons.download_outlined),
+              label: Text(
+                strings.localized(
+                  en: 'Download',
+                  ja: 'ダウンロード',
+                  zh: 'Download',
+                  ko: 'Download',
+                  es: 'Download',
+                  de: 'Download',
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   Future<void> _showICloudStorageBreakdown(
     BuildContext context,
     WidgetRef ref,
@@ -6592,6 +6736,83 @@ class SettingsScreen extends ConsumerWidget {
             ko: '진단 로그를 다운로드했습니다.',
             es: 'Se descargo el registro de diagnostico.',
             de: 'Diagnoseprotokoll wurde heruntergeladen.',
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _downloadAuditLog(
+    BuildContext context,
+    WidgetRef ref,
+    AppStrings strings,
+  ) async {
+    final text = await ref
+        .read(auditLogControllerProvider.notifier)
+        .exportText();
+    final bytes = Uint8List.fromList(utf8.encode(text));
+    final timestamp = DateTime.now().toUtc().toIso8601String().replaceAll(
+      RegExp(r'[:.]'),
+      '-',
+    );
+    final fileName = 'himemo-audit-log-$timestamp.txt';
+    final savedPath = await FilePicker.saveFile(
+      dialogTitle: strings.localized(
+        en: 'Download audit log',
+        ja: '監査ログをダウンロード',
+        zh: 'Download audit log',
+        ko: 'Download audit log',
+        es: 'Download audit log',
+        de: 'Download audit log',
+      ),
+      fileName: fileName,
+      type: FileType.custom,
+      allowedExtensions: const ['txt'],
+      bytes: bytes,
+    );
+    if (!context.mounted) {
+      return;
+    }
+    if (kIsWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(
+            strings.localized(
+              en: 'Audit log download was started.',
+              ja: '監査ログのダウンロードを開始しました。',
+              zh: 'Audit log download was started.',
+              ko: 'Audit log download was started.',
+              es: 'Audit log download was started.',
+              de: 'Audit log download was started.',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    if (savedPath == null || savedPath.isEmpty) {
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [
+            XFile.fromData(bytes, name: fileName, mimeType: 'text/plain'),
+          ],
+          text: 'HiMemo audit log',
+        ),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(
+          strings.localized(
+            en: 'Audit log was downloaded.',
+            ja: '監査ログをダウンロードしました。',
+            zh: 'Audit log was downloaded.',
+            ko: 'Audit log was downloaded.',
+            es: 'Audit log was downloaded.',
+            de: 'Audit log was downloaded.',
           ),
         ),
       ),
@@ -10907,6 +11128,166 @@ class _SettingsSectionIcon extends StatelessWidget {
   }
 }
 
+class _SettingsListIcon extends StatelessWidget {
+  const _SettingsListIcon({required this.assetPath});
+
+  final String assetPath;
+
+  @override
+  Widget build(BuildContext context) {
+    final color =
+        IconTheme.of(context).color ?? Theme.of(context).iconTheme.color;
+    return SizedBox.square(
+      dimension: 24,
+      child: FutureBuilder<bool>(
+        future: _isSettingsIconAssetAvailable(assetPath),
+        builder: (context, snapshot) {
+          if (snapshot.data == true) {
+            return SvgPicture.asset(
+              assetPath,
+              width: 24,
+              height: 24,
+              colorFilter: color == null
+                  ? null
+                  : ColorFilter.mode(color, BlendMode.srcIn),
+            );
+          }
+          return Icon(_settingsFallbackIcon(assetPath));
+        },
+      ),
+    );
+  }
+}
+
+class _AdminModeAuditNotice extends StatelessWidget {
+  const _AdminModeAuditNotice({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final tooltip = Tooltip(
+      message: text,
+      child: Icon(
+        Icons.info_outline_rounded,
+        size: 18,
+        color: colorScheme.primary,
+      ),
+    );
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.22)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            tooltip,
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                text,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurface,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AuditLogPreview extends StatelessWidget {
+  const _AuditLogPreview({required this.entries, required this.emptyMessage});
+
+  final List<String> entries;
+  final String emptyMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    final baseStyle = Theme.of(
+      context,
+    ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace', height: 1.35);
+    if (entries.isEmpty) {
+      return SelectableText(emptyMessage, style: baseStyle);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final entry in entries) _AuditLogPreviewLine(entry: entry),
+      ],
+    );
+  }
+}
+
+class _AuditLogPreviewLine extends StatelessWidget {
+  const _AuditLogPreviewLine({required this.entry});
+
+  final String entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final style = Theme.of(context).textTheme.bodySmall?.copyWith(
+      fontFamily: 'monospace',
+      height: 1.35,
+      color: _textColor(colorScheme),
+      fontWeight: _isAdminModeAuditEvent ? FontWeight.w700 : null,
+    );
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: _isAdminModeAuditEvent
+          ? const EdgeInsets.symmetric(horizontal: 8, vertical: 5)
+          : EdgeInsets.zero,
+      decoration: _isAdminModeAuditEvent
+          ? BoxDecoration(
+              color: _backgroundColor(colorScheme),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: _borderColor(colorScheme)),
+            )
+          : null,
+      child: SelectableText(entry, style: style),
+    );
+  }
+
+  bool get _isAdminModeLogin => entry.contains('admin_mode_login');
+
+  bool get _isAdminModeLogout => entry.contains('admin_mode_logout');
+
+  bool get _isAdminModeAuditEvent => _isAdminModeLogin || _isAdminModeLogout;
+
+  Color? _textColor(ColorScheme colorScheme) {
+    if (_isAdminModeLogin) {
+      return colorScheme.error;
+    }
+    if (_isAdminModeLogout) {
+      return colorScheme.primary;
+    }
+    return null;
+  }
+
+  Color _backgroundColor(ColorScheme colorScheme) {
+    if (_isAdminModeLogin) {
+      return colorScheme.errorContainer.withValues(alpha: 0.55);
+    }
+    return colorScheme.primaryContainer.withValues(alpha: 0.48);
+  }
+
+  Color _borderColor(ColorScheme colorScheme) {
+    if (_isAdminModeLogin) {
+      return colorScheme.error.withValues(alpha: 0.28);
+    }
+    return colorScheme.primary.withValues(alpha: 0.24);
+  }
+}
+
 IconData _settingsFallbackIcon(String assetPath) {
   if (assetPath.contains('sync')) {
     return Icons.sync_rounded;
@@ -10922,6 +11303,12 @@ IconData _settingsFallbackIcon(String assetPath) {
   }
   if (assetPath.contains('about')) {
     return Icons.info_outline_rounded;
+  }
+  if (assetPath.contains('contact')) {
+    return Icons.chat_bubble_outline_rounded;
+  }
+  if (assetPath.contains('help')) {
+    return Icons.help_outline_rounded;
   }
   return Icons.tune_rounded;
 }

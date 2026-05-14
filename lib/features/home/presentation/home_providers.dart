@@ -22,6 +22,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../app/firebase_observability.dart';
 import '../../../app/app_flavor.dart';
+import '../../../app/audit_log.dart';
 import '../../../app/diagnostic_log.dart';
 import '../../../app/in_app_update_service.dart';
 import '../../../app/network_connection.dart';
@@ -1100,6 +1101,14 @@ class DiagnosticLogSnapshot {
   String get text => entries.join('\n');
 }
 
+class AuditLogSnapshot {
+  const AuditLogSnapshot({required this.entries});
+
+  final List<String> entries;
+
+  String get text => entries.join('\n');
+}
+
 class LocalNoteArchive {
   const LocalNoteArchive({
     required this.bytes,
@@ -1992,6 +2001,10 @@ final diagnosticLogServiceProvider = Provider<DiagnosticLogService>((ref) {
   return DiagnosticLogService.instance;
 });
 
+final auditLogServiceProvider = Provider<AuditLogService>((ref) {
+  return AuditLogService.instance;
+});
+
 final networkConnectionServiceProvider = Provider<NetworkConnectionService>((
   ref,
 ) {
@@ -2033,6 +2046,30 @@ class DiagnosticLogController extends _$DiagnosticLogController {
   Future<void> clear() async {
     await ref.read(diagnosticLogServiceProvider).clear();
     ref.invalidateSelf();
+  }
+}
+
+final auditLogControllerProvider =
+    AsyncNotifierProvider<AuditLogController, AuditLogSnapshot>(
+      AuditLogController.new,
+    );
+
+class AuditLogController extends AsyncNotifier<AuditLogSnapshot> {
+  @override
+  Future<AuditLogSnapshot> build() async {
+    final service = ref.watch(auditLogServiceProvider);
+    void onRevisionChanged() => ref.invalidateSelf();
+    service.revision.addListener(onRevisionChanged);
+    ref.onDispose(() => service.revision.removeListener(onRevisionChanged));
+    return AuditLogSnapshot(entries: await service.entries());
+  }
+
+  Future<void> refresh() async {
+    ref.invalidateSelf();
+  }
+
+  Future<String> exportText() {
+    return ref.read(auditLogServiceProvider).exportText();
   }
 }
 
@@ -4755,9 +4792,21 @@ class AppSessionUnlockController extends Notifier<bool> {
   @override
   bool build() => false;
 
-  void unlock() => state = true;
+  void unlock() {
+    final changed = !state;
+    state = true;
+    if (changed) {
+      logAudit('session_unlock');
+    }
+  }
 
-  void lock() => state = false;
+  void lock() {
+    final changed = state;
+    state = false;
+    if (changed) {
+      logAudit('session_lock');
+    }
+  }
 }
 
 final appPinLockControllerProvider =
@@ -6343,7 +6392,18 @@ class ActiveIdentity extends _$ActiveIdentity {
   }
 
   Future<void> switchTo(String identityId) async {
+    final previousIdentityId = state;
     state = identityId;
+    if (previousIdentityId != identityId) {
+      logAudit(
+        'profile_switch',
+        data: {
+          'from': previousIdentityId,
+          'to': identityId,
+          'adminMode': ref.read(adminModeSessionControllerProvider),
+        },
+      );
+    }
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_storageKey, identityId);
@@ -6817,12 +6877,15 @@ class NotesController extends _$NotesController {
   Future<void> upsert(NoteEntry note) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
+    NoteEntry? savedNote;
+    var created = false;
     await runFirebaseTrace(
       'notes_upsert',
       () async {
         final next = [...state];
         final index = next.indexWhere((entry) => entry.id == note.id);
         final existing = index == -1 ? null : next[index];
+        created = existing == null;
         final prepared = await _prepareForSave(note, previous: existing);
         if (index == -1) {
           next.add(prepared);
@@ -6833,6 +6896,7 @@ class NotesController extends _$NotesController {
         state = next;
         await _cleanupRemovedAttachments(existing, prepared);
         await _persistOne(prepared);
+        savedNote = prepared;
       },
       attributes: {
         'editor_mode': note.editorMode.name,
@@ -6840,11 +6904,20 @@ class NotesController extends _$NotesController {
         'has_media': note.attachments.isNotEmpty ? 'true' : 'false',
       },
     );
+    final auditedNote = savedNote;
+    if (auditedNote != null) {
+      logAudit(
+        created ? 'note_create' : 'note_update',
+        data: _auditNoteData(auditedNote),
+      );
+    }
   }
 
   Future<void> delete(String noteId) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
+    NoteEntry? deletedNote;
+    var lockedPlaceholder = false;
     await runFirebaseTrace('notes_delete', () async {
       final next = [...state];
       for (var i = 0; i < next.length; i++) {
@@ -6856,6 +6929,8 @@ class NotesController extends _$NotesController {
           next.removeAt(i);
           state = next;
           await ref.read(encryptedNoteStoreProvider).deleteById(noteId);
+          deletedNote = note;
+          lockedPlaceholder = true;
           return;
         }
         final now = DateTime.now();
@@ -6872,9 +6947,20 @@ class NotesController extends _$NotesController {
         _sort(next);
         state = next;
         await _persistOne(prepared);
+        deletedNote = prepared;
         return;
       }
     });
+    final auditedNote = deletedNote;
+    if (auditedNote != null) {
+      logAudit(
+        'note_delete',
+        data: {
+          ..._auditNoteData(auditedNote),
+          'lockedPlaceholder': lockedPlaceholder,
+        },
+      );
+    }
   }
 
   Future<void> archive(String noteId) async {
@@ -6908,8 +6994,21 @@ class NotesController extends _$NotesController {
       _sort(next);
       state = next;
       await _persistOne(prepared);
+      logAudit('note_pin_toggle', data: _auditNoteData(prepared));
       return;
     }
+  }
+
+  Map<String, Object?> _auditNoteData(NoteEntry note) {
+    return {
+      'noteId': note.id,
+      'vaultId': note.vaultId,
+      'revision': note.revision,
+      'editorMode': note.editorMode.name,
+      'attachments': note.attachments.length,
+      'tags': note.tags.length,
+      'adminMode': ref.read(adminModeSessionControllerProvider),
+    };
   }
 
   Future<int> archiveNotesOlderThan(Duration age) async {
@@ -6942,6 +7041,7 @@ class NotesController extends _$NotesController {
     _sort(next);
     state = next;
     await _persist();
+    logAudit('note_bulk_archive', data: {'count': changed});
     return changed;
   }
 
@@ -6971,6 +7071,7 @@ class NotesController extends _$NotesController {
     _sort(next);
     state = next;
     await _persist();
+    logAudit('note_bulk_unarchive', data: {'count': changed});
     return changed;
   }
 
@@ -6997,6 +7098,10 @@ class NotesController extends _$NotesController {
       _sort(next);
       state = next;
       await _persistOne(prepared);
+      logAudit(
+        archived ? 'note_archive' : 'note_unarchive',
+        data: _auditNoteData(prepared),
+      );
       return;
     }
   }
@@ -8052,7 +8157,14 @@ class UnlockedPrivateProfileVaultIdController extends Notifier<String?> {
   String? build() => null;
 
   void unlock(String vaultId) {
+    final previousVaultId = state;
     state = vaultId;
+    if (previousVaultId != vaultId) {
+      logAudit(
+        'private_profile_unlock',
+        data: {'vaultId': vaultId, 'adminMode': false},
+      );
+    }
     ref.read(searchFiltersControllerProvider.notifier).setVault(vaultId);
   }
 
@@ -8066,6 +8178,9 @@ class UnlockedPrivateProfileVaultIdController extends Notifier<String?> {
       }
     }
     state = null;
+    if (vaultId != null) {
+      logAudit('private_profile_lock', data: {'vaultId': vaultId});
+    }
   }
 }
 
@@ -8078,9 +8193,21 @@ class AdminModeSessionController extends Notifier<bool> {
   @override
   bool build() => false;
 
-  void unlock() => state = true;
+  void unlock() {
+    final changed = !state;
+    state = true;
+    if (changed) {
+      logAudit('admin_mode_login', data: {'allProfilesReadable': true});
+    }
+  }
 
-  void lock() => state = false;
+  void lock() {
+    final changed = state;
+    state = false;
+    if (changed) {
+      logAudit('admin_mode_logout');
+    }
+  }
 }
 
 final privateProfileUnlockControllerProvider =

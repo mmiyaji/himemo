@@ -197,12 +197,64 @@ void main() {
     expect(homePage, contains('assets/settings/private-unlock.svg'));
     expect(homePage, contains('assets/settings/private-admin.svg'));
     expect(homePage, contains('colorFilter: ColorFilter.mode'));
+    expect(homePage, contains('profileAccessPillLabel'));
+    expect(homePage, contains('privateProfileActive || adminMode'));
+    expect(homePage, contains('_PrivateProfileAccessIconKind.admin'));
     expect(privateLockIcon, contains('lucide-static'));
     expect(privateUnlockIcon, contains('lucide-static'));
     expect(privateAdminIcon, contains('lucide-static'));
     expect(privateLockIcon, contains('stroke-width="1.5"'));
     expect(privateUnlockIcon, contains('stroke-width="1.5"'));
     expect(privateAdminIcon, contains('stroke-width="1.5"'));
+  });
+
+  test('support links use distinct Lucide list icons', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+    final contactIcon = File('assets/settings/contact.svg').readAsStringSync();
+    final helpIcon = File('assets/settings/help.svg').readAsStringSync();
+
+    expect(homePage, contains('class _SettingsListIcon'));
+    expect(homePage, contains('assets/settings/contact.svg'));
+    expect(homePage, contains('assets/settings/help.svg'));
+    expect(homePage, isNot(contains('Icons.contact_support_outlined')));
+    expect(contactIcon, contains('lucide-static'));
+    expect(contactIcon, contains('M2.992 16.342'));
+    expect(contactIcon, contains('stroke-width="1.5"'));
+    expect(helpIcon, contains('lucide-static'));
+    expect(helpIcon, contains('M9.09 9'));
+    expect(helpIcon, contains('stroke-width="1.5"'));
+    expect(contactIcon, isNot(equals(helpIcon)));
+  });
+
+  test('admin mode and note operations are covered by audit logs', () {
+    final auditLog = File('lib/app/audit_log.dart').readAsStringSync();
+    final homeProviders = File(
+      'lib/features/home/presentation/home_providers.dart',
+    ).readAsStringSync();
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+
+    expect(auditLog, contains('class AuditLogService'));
+    expect(auditLog, contains('HiMemo audit log'));
+    expect(homeProviders, contains('AuditLogController'));
+    expect(homeProviders, contains("'admin_mode_login'"));
+    expect(homeProviders, contains("'profile_switch'"));
+    expect(homeProviders, contains("'private_profile_unlock'"));
+    expect(homeProviders, contains("created ? 'note_create' : 'note_update'"));
+    expect(homeProviders, contains("logAudit(\n        'note_delete'"));
+    expect(homePage, contains('_buildAuditLogSettingsGroup'));
+    expect(homePage, contains('class _AuditLogPreviewLine'));
+    expect(homePage, contains("entry.contains('admin_mode_login')"));
+    expect(homePage, contains("entry.contains('admin_mode_logout')"));
+    expect(homePage, contains('colorScheme.errorContainer'));
+    expect(homePage, contains('colorScheme.primaryContainer'));
+    expect(homePage, contains('_AdminModeAuditNotice'));
+    expect(homePage, contains('Admin mode can view every profile'));
+    expect(homePage, contains('管理者モードでは全プロファイル'));
+    expect(homePage, contains('診断ログとは別に記録'));
   });
 
   test('tablet create note action lives at the bottom of the sidebar', () {
