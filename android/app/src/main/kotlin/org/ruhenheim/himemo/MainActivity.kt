@@ -452,7 +452,11 @@ class MainActivity : FlutterFragmentActivity() {
     private fun setPrivacyProtected(enabled: Boolean, showCover: Boolean) {
         runOnUiThread {
             privacyProtectionEnabled = enabled && showCover
-            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            if (privacyProtectionEnabled) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            } else {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
             if (!privacyProtectionEnabled) {
                 setPrivacyOverlayVisible(false)
             }

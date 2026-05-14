@@ -77,6 +77,7 @@ void main() {
     final androidMainActivity = File(
       'android/app/src/main/kotlin/org/ruhenheim/himemo/MainActivity.kt',
     ).readAsStringSync();
+    final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
 
     expect(appShell, contains('_activateAppLockPrivacyCoverIfEnabled'));
     expect(appShell, contains('_lifecyclePrivacyCoverVisible'));
@@ -91,9 +92,16 @@ void main() {
     expect(appShell, contains("'showCover': showCover"));
     expect(androidMainActivity, contains('override fun onPause()'));
     expect(androidMainActivity, contains('override fun onStop()'));
+    expect(androidMainActivity, contains('window.addFlags'));
+    expect(
+      androidMainActivity,
+      contains('WindowManager.LayoutParams.FLAG_SECURE'),
+    );
     expect(androidMainActivity, contains('setPrivacyOverlayVisible(true)'));
     expect(androidMainActivity, contains('PRIVACY_OVERLAY_COLOR'));
     expect(androidMainActivity, contains('buildPrivacyOverlay'));
+    expect(appDelegate, contains('alpha: 1.0'));
+    expect(appDelegate.contains('UIBlurEffect(style: .extraLight)'), isFalse);
   });
 
   test('recent daily trend chart starts at the latest day', () {

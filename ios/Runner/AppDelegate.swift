@@ -467,13 +467,8 @@ import MobileCoreServices
           red: 0.992,
           green: 0.988,
           blue: 1.0,
-          alpha: 0.96
+          alpha: 1.0
         )
-        let blur = UIVisualEffectView(effect: UIBlurEffect(style: .extraLight))
-        blur.frame = overlay.bounds
-        blur.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        blur.alpha = 0.28
-        overlay.addSubview(blur)
         privacyOverlayView = overlay
       }
       guard let privacyOverlayView else {
