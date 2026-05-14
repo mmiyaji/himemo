@@ -13446,6 +13446,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   bool _editorDisposed = false;
   bool _attachmentPickerBusy = false;
   bool _attachmentImportBusy = false;
+  bool _saveBusy = false;
   bool _tagSuggestionsBusy = false;
   List<String> _tagSuggestions = const [];
   String? _tagSuggestionSource;
@@ -14682,14 +14683,21 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                       onPressed:
                           canSubmit &&
                               _selectedVaultId != null &&
-                              !_attachmentActionBusy
+                              !_attachmentActionBusy &&
+                              !_saveBusy
                           ? _save
                           : null,
-                      child: Text(
-                        widget.note == null
-                            ? strings.createNote
-                            : strings.saveChanges,
-                      ),
+                      child: _saveBusy
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Text(
+                              widget.note == null
+                                  ? strings.createNote
+                                  : strings.saveChanges,
+                            ),
                     );
                   },
                 ),
@@ -15061,63 +15069,104 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   }
 
   Future<void> _save() async {
-    if (!_canSave) {
+    if (!_canSave || _saveBusy) {
       return;
     }
-    final pendingTag = _tagFieldKey.currentState?.consumePendingTag();
-    final saveTags = pendingTag == null
-        ? dedupeNoteTags(_tags)
-        : dedupeNoteTags([..._tags, pendingTag]);
-    final richContent = _editorMode == NoteEditorMode.rich
-        ? _deriveRichSaveContent()
-        : null;
-    final content = _editorMode == NoteEditorMode.quick
-        ? _splitMemoContent(_contentController.text)
-        : (title: richContent!.title, body: richContent.body);
-    final blocks = _editorMode == NoteEditorMode.quick
-        ? const <NoteBlock>[]
-        : richContent!.blocks;
-    final note = NoteEntry(
-      id: widget.note?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
-      vaultId: _selectedVaultId!,
-      title: content.title,
-      body: content.body,
-      createdAt: _createdAt,
-      updatedAt: widget.note == null ? _createdAt : DateTime.now(),
-      attachments: _editorMode == NoteEditorMode.quick
-          ? _attachments
-          : _richBlocks
-                .map((block) => block.attachment)
-                .whereType<NoteAttachment>()
-                .toList(growable: false),
-      blocks: blocks,
-      tags: saveTags,
-      isPinned: _isPinned,
-      revision: widget.note?.revision ?? 1,
-      deviceId: widget.note?.deviceId,
-      syncState: widget.note?.syncState ?? NoteSyncState.localOnly,
-      editorMode: _editorMode,
-      location: _location,
-    );
-    final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
-    for (final filePath in _pendingAttachmentDeletes) {
-      await attachmentStore.deleteAttachment(filePath);
-    }
-    _pendingAttachmentDeletes.clear();
-    await ref
-        .read(lastNoteEditorSettingsControllerProvider.notifier)
-        .remember(
-          mode: _editorMode,
-          vaultId: _selectedVaultId!,
-          captureLocation: _captureLocationEnabled,
+    setState(() {
+      _saveBusy = true;
+    });
+    try {
+      final pendingTag = _tagFieldKey.currentState?.consumePendingTag();
+      final saveTags = pendingTag == null
+          ? dedupeNoteTags(_tags)
+          : dedupeNoteTags([..._tags, pendingTag]);
+      final richContent = _editorMode == NoteEditorMode.rich
+          ? _deriveRichSaveContent()
+          : null;
+      final content = _editorMode == NoteEditorMode.quick
+          ? _splitMemoContent(_contentController.text)
+          : (title: richContent!.title, body: richContent.body);
+      final blocks = _editorMode == NoteEditorMode.quick
+          ? const <NoteBlock>[]
+          : richContent!.blocks;
+      final note = NoteEntry(
+        id: widget.note?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
+        vaultId: _selectedVaultId!,
+        title: content.title,
+        body: content.body,
+        createdAt: _createdAt,
+        updatedAt: widget.note == null ? _createdAt : DateTime.now(),
+        attachments: _editorMode == NoteEditorMode.quick
+            ? _attachments
+            : _richBlocks
+                  .map((block) => block.attachment)
+                  .whereType<NoteAttachment>()
+                  .toList(growable: false),
+        blocks: blocks,
+        tags: saveTags,
+        isPinned: _isPinned,
+        revision: widget.note?.revision ?? 1,
+        deviceId: widget.note?.deviceId,
+        syncState: widget.note?.syncState ?? NoteSyncState.localOnly,
+        editorMode: _editorMode,
+        location: _location,
+      );
+      final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+      for (final filePath in _pendingAttachmentDeletes) {
+        await attachmentStore.deleteAttachment(filePath);
+      }
+      _pendingAttachmentDeletes.clear();
+      await ref
+          .read(lastNoteEditorSettingsControllerProvider.notifier)
+          .remember(
+            mode: _editorMode,
+            vaultId: _selectedVaultId!,
+            captureLocation: _captureLocationEnabled,
+          );
+      await ref.read(notesControllerProvider.notifier).upsert(note);
+      if (widget.note == null) {
+        await ref.read(noteEditorDraftStoreProvider).clear();
+      }
+      _saved = true;
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    } catch (error, stackTrace) {
+      logDiagnostic(
+        'note_editor',
+        'save failed',
+        data: {
+          'error': error,
+          'editorMode': _editorMode.name,
+          'vaultId': _selectedVaultId,
+          'attachments': _allCurrentAttachments.length,
+          'hasText': _hasSubmitContent,
+        },
+      );
+      debugPrintStack(
+        label: 'HiMemo note save failed: $error',
+        stackTrace: stackTrace,
+      );
+      if (mounted) {
+        _showEditorSnackBar(
+          content: Text(
+            context.strings.localized(
+              en: 'Could not save this note. Check diagnostic logs for details. ($error)',
+              ja: 'このメモを保存できませんでした。詳細は診断ログを確認してください。($error)',
+              zh: '无法保存此备忘录。请查看诊断日志了解详细信息。($error)',
+              ko: '이 메모를 저장할 수 없습니다. 자세한 내용은 진단 로그를 확인하세요. ($error)',
+              es: 'No se pudo guardar esta nota. Revisa los registros de diagnóstico. ($error)',
+              de: 'Diese Notiz konnte nicht gespeichert werden. Details stehen im Diagnoseprotokoll. ($error)',
+            ),
+          ),
         );
-    await ref.read(notesControllerProvider.notifier).upsert(note);
-    if (widget.note == null) {
-      await ref.read(noteEditorDraftStoreProvider).clear();
-    }
-    _saved = true;
-    if (mounted) {
-      Navigator.of(context).pop();
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saveBusy = false;
+        });
+      }
     }
   }
 

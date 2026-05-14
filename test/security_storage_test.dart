@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:drift/native.dart';
@@ -772,6 +773,92 @@ void main() {
     );
 
     expect(fakeAttachmentStore.deletedReferences, ['secure-attachment://old']);
+  });
+
+  test('NotesController creates notes that only contain attachments', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-attachment-only-note-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(31));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final attachmentStore = EncryptedAttachmentStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    final noteStore = EncryptedNoteStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      database: noteDatabase,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteStoreProvider.overrideWithValue(noteStore),
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+        encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+        deviceIdentityStoreProvider.overrideWithValue(
+          DeviceIdentityStore(
+            sharedPreferencesProvider: SharedPreferences.getInstance,
+            random: Random(31),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(noteDatabase.close);
+    addTearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    final filePath = await attachmentStore.storeAttachment(
+      XFile.fromData(Uint8List.fromList([1, 2, 3, 4]), name: 'only.png'),
+      type: AttachmentType.photo,
+    );
+    final attachment = NoteAttachment(
+      type: AttachmentType.photo,
+      label: 'only.png',
+      filePath: filePath,
+    );
+
+    await container
+        .read(notesControllerProvider.notifier)
+        .upsert(
+          NoteEntry(
+            id: 'attachment-only',
+            vaultId: 'everyday',
+            title: '',
+            body: '',
+            createdAt: DateTime(2026, 5, 15, 9),
+            attachments: [attachment],
+            blocks: [
+              NoteBlock(type: NoteBlockType.photo, attachment: attachment),
+            ],
+            editorMode: NoteEditorMode.rich,
+          ),
+        );
+
+    expect(
+      container.read(notesControllerProvider).single.id,
+      'attachment-only',
+    );
+    final restored = await noteStore.load(fallbackNotes: const []);
+    expect(restored.single.attachments.single.label, 'only.png');
   });
 
   test(
