@@ -6859,6 +6859,7 @@ class LastNoteEditorSettingsController
 class NotesController extends _$NotesController {
   static const _deletedSeedNoteIdsKey = 'notes.deleted_seed_note_ids.v1';
   static const _storeAssetsSeedDemoNotesKey = 'store_assets.seed_demo_notes.v1';
+  static const trashRetention = Duration(days: 7);
 
   bool _restored = false;
   bool _restoreFailed = false;
@@ -6961,6 +6962,69 @@ class NotesController extends _$NotesController {
         },
       );
     }
+  }
+
+  Future<void> restoreFromTrash(String noteId) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    NoteEntry? restoredNote;
+    final next = [...state];
+    for (var i = 0; i < next.length; i++) {
+      final note = next[i];
+      if (note.id != noteId || note.deletedAt == null) {
+        continue;
+      }
+      final now = DateTime.now();
+      final restored = note.copyWith(
+        deletedAt: null,
+        updatedAt: now,
+        revision: note.revision + 1,
+        syncState: NoteSyncState.pendingUpload,
+      );
+      final prepared = await _protectAttachmentsForVault(restored);
+      final withHash = prepared.copyWith(
+        contentHash: _computeContentHash(prepared),
+      );
+      next[i] = withHash;
+      restoredNote = withHash;
+      break;
+    }
+    if (restoredNote == null) {
+      return;
+    }
+    _sort(next);
+    state = next;
+    await _persistOne(restoredNote);
+    logAudit('note_restore', data: _auditNoteData(restoredNote));
+  }
+
+  Future<void> deletePermanently(String noteId) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    NoteEntry? note;
+    for (final entry in state) {
+      if (entry.id == noteId) {
+        note = entry;
+        break;
+      }
+    }
+    if (note == null || note.deletedAt == null) {
+      return;
+    }
+    state = state.where((entry) => entry.id != noteId).toList(growable: false);
+    if (ref.read(selectedNoteIdProvider) == noteId) {
+      ref.read(selectedNoteIdProvider.notifier).select(null);
+    }
+    await _deleteAttachments([..._attachmentsIn(note)]);
+    await ref.read(encryptedNoteStoreProvider).deleteById(noteId);
+    ref.invalidate(storageUsageSummaryProvider);
+    logAudit('note_permanent_delete', data: _auditNoteData(note));
+  }
+
+  Future<int> purgeTrashOlderThan([Duration retention = trashRetention]) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    return _purgeTrashOlderThan(retention);
   }
 
   Future<void> archive(String noteId) async {
@@ -7369,8 +7433,7 @@ class NotesController extends _$NotesController {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     final retainedAttachmentReferences = <String>{
-      for (final note in state)
-        if (note.deletedAt == null) ..._attachmentFilePathsIn(note),
+      for (final note in state) ..._attachmentFilePathsIn(note),
     };
     return ref
         .read(encryptedAttachmentStoreProvider)
@@ -7800,6 +7863,8 @@ class NotesController extends _$NotesController {
       }
       _sort(next);
       state = next;
+      final purgedTrash = await _purgeTrashOlderThan(trashRetention);
+      changed = changed || purgedTrash > 0;
       _restoreFailed = false;
       stopwatch?.stop();
       _debugHomePerf(
@@ -7844,6 +7909,32 @@ class NotesController extends _$NotesController {
       return;
     }
     await prefs.setStringList(_deletedSeedNoteIdsKey, ids.toList()..sort());
+  }
+
+  Future<int> _purgeTrashOlderThan(Duration retention) async {
+    final cutoff = DateTime.now().subtract(retention);
+    final expired = [
+      for (final note in state)
+        if (note.deletedAt != null && note.deletedAt!.isBefore(cutoff)) note,
+    ];
+    if (expired.isEmpty) {
+      return 0;
+    }
+    final expiredIds = {for (final note in expired) note.id};
+    state = [
+      for (final note in state)
+        if (!expiredIds.contains(note.id)) note,
+    ];
+    await _deleteAttachments([
+      for (final note in expired) ..._attachmentsIn(note),
+    ]);
+    final store = ref.read(encryptedNoteStoreProvider);
+    for (final noteId in expiredIds) {
+      await store.deleteById(noteId);
+    }
+    ref.invalidate(storageUsageSummaryProvider);
+    logAudit('note_trash_purge', data: {'count': expired.length});
+    return expired.length;
   }
 
   Future<void> _waitForInitialRestore() async {
@@ -7979,9 +8070,13 @@ class NotesController extends _$NotesController {
 
   Future<void> _deleteAttachments(List<NoteAttachment> attachments) async {
     final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+    final deleted = <String>{};
     for (final attachment in attachments) {
       final filePath = attachment.filePath;
       if (filePath == null || filePath.isEmpty) {
+        continue;
+      }
+      if (!deleted.add(filePath)) {
         continue;
       }
       await attachmentStore.deleteAttachment(filePath);
@@ -8517,6 +8612,28 @@ List<NoteEntry> visibleNotes(Ref ref) {
   results.sort((left, right) => _compareVisibleNotes(left, right, sortField));
   return List.unmodifiable(results);
 }
+
+final trashedNotesProvider = Provider<List<NoteEntry>>((ref) {
+  final visibleIds = ref
+      .watch(visibleVaultsProvider)
+      .map((vault) => vault.id)
+      .toSet();
+  final results = [
+    for (final note in ref.watch(notesControllerProvider))
+      if (note.deletedAt != null && visibleIds.contains(note.vaultId)) note,
+  ];
+  results.sort((left, right) {
+    final leftDeletedAt = left.deletedAt ?? left.updatedAt ?? left.createdAt;
+    final rightDeletedAt =
+        right.deletedAt ?? right.updatedAt ?? right.createdAt;
+    final dateOrder = rightDeletedAt.compareTo(leftDeletedAt);
+    if (dateOrder != 0) {
+      return dateOrder;
+    }
+    return right.createdAt.compareTo(left.createdAt);
+  });
+  return List<NoteEntry>.unmodifiable(results);
+});
 
 int _compareVisibleNotes(
   NoteEntry left,

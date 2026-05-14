@@ -62,7 +62,7 @@ const _appAuthor = '@mmiyaji';
 const _appAuthorUrl = 'https://ruhenheim.org/';
 const _remoteSyncAttachmentObjectPrefix = 'sync-attachment-object://';
 
-enum AppSection { notes, calendar, insights, settings }
+enum AppSection { notes, calendar, insights, trash, settings }
 
 final _noteOverlaySheetDepth = ValueNotifier<int>(0);
 final _mobileNoteDetailSheetDepth = ValueNotifier<int>(0);
@@ -468,6 +468,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       AppSection.notes => 0,
       AppSection.calendar => 1,
       AppSection.insights => 3,
+      AppSection.trash => 4,
       AppSection.settings => 4,
     };
   }
@@ -499,6 +500,8 @@ class _AppShellState extends ConsumerState<AppShell> {
         context.go('/calendar');
       case AppSection.insights:
         context.go('/insights');
+      case AppSection.trash:
+        context.go('/trash');
       case AppSection.settings:
         context.go('/settings');
     }
@@ -565,6 +568,9 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
     if (location.startsWith('/insights')) {
       return AppSection.insights;
+    }
+    if (location.startsWith('/trash')) {
+      return AppSection.trash;
     }
     if (location.startsWith('/settings')) {
       return AppSection.settings;
@@ -1251,6 +1257,168 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
       SnackBar(
         showCloseIcon: true,
         content: Text(context.strings.filteredByTag(tag)),
+      ),
+    );
+  }
+}
+
+class TrashScreen extends ConsumerStatefulWidget {
+  const TrashScreen({super.key});
+
+  @override
+  ConsumerState<TrashScreen> createState() => _TrashScreenState();
+}
+
+class _TrashScreenState extends ConsumerState<TrashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() {
+      if (!mounted) {
+        return;
+      }
+      ref
+          .read(notesControllerProvider.notifier)
+          .purgeTrashOlderThan(NotesController.trashRetention);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final notes = ref.watch(trashedNotesProvider);
+    final visibleVaults = ref.watch(visibleVaultsProvider);
+    final vaultNameById = {
+      for (final vault in visibleVaults)
+        vault.id: _vaultDisplayName(context, vault),
+    };
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text(
+          strings.localized(
+            en: 'Trash',
+            ja: 'ゴミ箱',
+            zh: '废纸篓',
+            ko: '휴지통',
+            es: 'Papelera',
+            de: 'Papierkorb',
+          ),
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          strings.localized(
+            en: 'Deleted notes are hidden from normal lists, search, and Spotlight. Notes older than 7 days are permanently deleted with their attachments.',
+            ja: '削除したメモは通常の一覧、検索、Spotlightから除外されます。7日を過ぎたメモは添付と一緒に完全削除されます。',
+            zh: '已删除的备忘录不会出现在普通列表、搜索和 Spotlight 中。超过 7 天的备忘录及其附件会被永久删除。',
+            ko: '삭제한 메모는 일반 목록, 검색, Spotlight에서 제외됩니다. 7일이 지난 메모는 첨부와 함께 완전히 삭제됩니다.',
+            es: 'Las notas eliminadas se ocultan de las listas normales, busqueda y Spotlight. Tras 7 dias se borran definitivamente con sus adjuntos.',
+            de: 'Geloeschte Notizen werden aus normalen Listen, Suche und Spotlight ausgeblendet. Nach 7 Tagen werden sie mit ihren Anhaengen endgueltig geloescht.',
+          ),
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (notes.isEmpty)
+          _EmptyTrashState(strings: strings)
+        else
+          for (final note in notes) ...[
+            _TrashNoteTile(
+              note: note,
+              vaultName: vaultNameById[note.vaultId],
+              onRestore: () => _restoreNote(context, note),
+              onDeletePermanently: () => _deletePermanently(context, note),
+            ),
+            const SizedBox(height: 10),
+          ],
+      ],
+    );
+  }
+
+  Future<void> _restoreNote(BuildContext context, NoteEntry note) async {
+    final strings = context.strings;
+    await ref.read(notesControllerProvider.notifier).restoreFromTrash(note.id);
+    if (!context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(
+          strings.localized(
+            en: 'Restored note.',
+            ja: 'メモを復元しました。',
+            zh: '已恢复备忘录。',
+            ko: '메모를 복원했습니다.',
+            es: 'Nota restaurada.',
+            de: 'Notiz wiederhergestellt.',
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deletePermanently(BuildContext context, NoteEntry note) async {
+    final strings = context.strings;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          strings.localized(
+            en: 'Delete permanently?',
+            ja: '完全に削除しますか？',
+            zh: '要永久删除吗？',
+            ko: '완전히 삭제할까요?',
+            es: 'Borrar definitivamente?',
+            de: 'Endgueltig loeschen?',
+          ),
+        ),
+        content: Text(
+          strings.localized(
+            en: 'This removes the note and its attachments from this device. This cannot be undone.',
+            ja: 'この端末からメモと添付を削除します。この操作は元に戻せません。',
+            zh: '这会从此设备删除备忘录及其附件。此操作无法撤销。',
+            ko: '이 기기에서 메모와 첨부를 삭제합니다. 이 작업은 되돌릴 수 없습니다.',
+            es: 'Esto elimina la nota y sus adjuntos de este dispositivo. No se puede deshacer.',
+            de: 'Dies entfernt die Notiz und ihre Anhaenge von diesem Geraet. Das kann nicht rueckgaengig gemacht werden.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(strings.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(strings.delete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+    await ref.read(notesControllerProvider.notifier).deletePermanently(note.id);
+    if (!context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(
+          strings.localized(
+            en: 'Deleted permanently.',
+            ja: '完全に削除しました。',
+            zh: '已永久删除。',
+            ko: '완전히 삭제했습니다.',
+            es: 'Borrada definitivamente.',
+            de: 'Endgueltig geloescht.',
+          ),
+        ),
       ),
     );
   }
@@ -3651,6 +3819,33 @@ class SettingsScreen extends ConsumerWidget {
           assetPath: 'assets/settings/appearance.svg',
           semanticLabel: 'settings-memo',
           children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.delete_outline_rounded),
+              title: Text(
+                strings.localized(
+                  en: 'Trash',
+                  ja: 'ゴミ箱',
+                  zh: '废纸篓',
+                  ko: '휴지통',
+                  es: 'Papelera',
+                  de: 'Papierkorb',
+                ),
+              ),
+              subtitle: Text(
+                strings.localized(
+                  en: 'Deleted notes are kept for 7 days before permanent deletion.',
+                  ja: '削除したメモは7日間保持され、その後完全に削除されます。',
+                  zh: '已删除的备忘录会保留 7 天，然后永久删除。',
+                  ko: '삭제한 메모는 7일 동안 보관된 뒤 완전히 삭제됩니다.',
+                  es: 'Las notas eliminadas se conservan 7 dias antes de borrarse definitivamente.',
+                  de: 'Geloeschte Notizen bleiben 7 Tage erhalten und werden danach endgueltig geloescht.',
+                ),
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => context.go('/trash'),
+            ),
+            const SizedBox(height: 8),
             if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) ...[
               SwitchListTile.adaptive(
                 key: memoSpotlightIndexKey,
@@ -7816,6 +8011,201 @@ class _AddPrivateProfileDialogState extends State<_AddPrivateProfileDialog> {
   }
 }
 
+class _EmptyTrashState extends StatelessWidget {
+  const _EmptyTrashState({required this.strings});
+
+  final AppStrings strings;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 48),
+      child: Column(
+        children: [
+          Icon(
+            Icons.delete_outline_rounded,
+            size: 44,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            strings.localized(
+              en: 'Trash is empty',
+              ja: 'ゴミ箱は空です',
+              zh: '废纸篓是空的',
+              ko: '휴지통이 비어 있습니다',
+              es: 'La papelera esta vacia',
+              de: 'Der Papierkorb ist leer',
+            ),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TrashNoteTile extends StatelessWidget {
+  const _TrashNoteTile({
+    required this.note,
+    required this.vaultName,
+    required this.onRestore,
+    required this.onDeletePermanently,
+  });
+
+  final NoteEntry note;
+  final String? vaultName;
+  final VoidCallback onRestore;
+  final VoidCallback onDeletePermanently;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final deletedAt = note.deletedAt?.toLocal();
+    final title = note.title.trim().isEmpty
+        ? strings.localized(
+            en: 'Untitled note',
+            ja: '無題のメモ',
+            zh: '无标题备忘录',
+            ko: '제목 없는 메모',
+            es: 'Nota sin titulo',
+            de: 'Unbenannte Notiz',
+          )
+        : note.title.trim();
+    final body = note.body.trim();
+    return DecoratedBox(
+      decoration: _sectionDecoration(context),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                if (note.attachments.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.attach_file_rounded,
+                    size: 18,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  Text('${note.attachments.length}'),
+                ],
+              ],
+            ),
+            if (body.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                body,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                if (deletedAt != null)
+                  _TrashMetaChip(
+                    icon: Icons.schedule_rounded,
+                    label: strings.localized(
+                      en: 'Deleted ${deletedAt.year}/${deletedAt.month.toString().padLeft(2, '0')}/${deletedAt.day.toString().padLeft(2, '0')}',
+                      ja: '削除 ${deletedAt.year}/${deletedAt.month.toString().padLeft(2, '0')}/${deletedAt.day.toString().padLeft(2, '0')}',
+                      zh: '删除 ${deletedAt.year}/${deletedAt.month.toString().padLeft(2, '0')}/${deletedAt.day.toString().padLeft(2, '0')}',
+                      ko: '삭제 ${deletedAt.year}/${deletedAt.month.toString().padLeft(2, '0')}/${deletedAt.day.toString().padLeft(2, '0')}',
+                      es: 'Borrada ${deletedAt.year}/${deletedAt.month.toString().padLeft(2, '0')}/${deletedAt.day.toString().padLeft(2, '0')}',
+                      de: 'Geloescht ${deletedAt.year}/${deletedAt.month.toString().padLeft(2, '0')}/${deletedAt.day.toString().padLeft(2, '0')}',
+                    ),
+                  ),
+                if (vaultName != null)
+                  _TrashMetaChip(
+                    icon: Icons.folder_outlined,
+                    label: vaultName!,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: onRestore,
+                  icon: const Icon(Icons.restore_rounded),
+                  label: Text(
+                    strings.localized(
+                      en: 'Restore',
+                      ja: '復元',
+                      zh: '恢复',
+                      ko: '복원',
+                      es: 'Restaurar',
+                      de: 'Wiederherstellen',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: onDeletePermanently,
+                  icon: const Icon(Icons.delete_forever_outlined),
+                  label: Text(
+                    strings.localized(
+                      en: 'Delete',
+                      ja: '削除',
+                      zh: '删除',
+                      ko: '삭제',
+                      es: 'Borrar',
+                      de: 'Loeschen',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TrashMetaChip extends StatelessWidget {
+  const _TrashMetaChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14),
+          const SizedBox(width: 4),
+          Text(label, style: Theme.of(context).textTheme.labelSmall),
+        ],
+      ),
+    );
+  }
+}
+
 class _Sidebar extends StatelessWidget {
   const _Sidebar({
     required this.section,
@@ -7928,6 +8318,21 @@ class _Sidebar extends StatelessWidget {
                   showLabel: !collapsed,
                   selected: section == AppSection.insights,
                   onTap: () => onSectionSelected(AppSection.insights),
+                ),
+                _SidebarItem(
+                  icon: Icons.delete_outline_rounded,
+                  selectedIcon: Icons.delete_rounded,
+                  label: strings.localized(
+                    en: 'Trash',
+                    ja: 'ゴミ箱',
+                    zh: '废纸篓',
+                    ko: '휴지통',
+                    es: 'Papelera',
+                    de: 'Papierkorb',
+                  ),
+                  showLabel: !collapsed,
+                  selected: section == AppSection.trash,
+                  onTap: () => onSectionSelected(AppSection.trash),
                 ),
                 _SidebarItem(
                   icon: Icons.settings_outlined,

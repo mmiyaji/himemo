@@ -1010,6 +1010,92 @@ void main() {
     },
   );
 
+  test('NotesController cleanup keeps attachments held in trash', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-trash-cleanup-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(24));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final attachmentStore = EncryptedAttachmentStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: noteDatabase,
+            directoryProvider: () async => tempDirectory,
+            sharedPreferencesProvider: SharedPreferences.getInstance,
+          ),
+        ),
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+        encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+        deviceIdentityStoreProvider.overrideWithValue(
+          DeviceIdentityStore(
+            sharedPreferencesProvider: SharedPreferences.getInstance,
+            random: Random(24),
+          ),
+        ),
+        homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(noteDatabase.close);
+    addTearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    final storedReference = await attachmentStore.storeAttachment(
+      XFile.fromData(Uint8List.fromList([9, 8, 7, 6]), name: 'trash.png'),
+      type: AttachmentType.photo,
+    );
+    final attachment = NoteAttachment(
+      type: AttachmentType.photo,
+      label: 'trash.png',
+      filePath: storedReference,
+    );
+    final controller = container.read(notesControllerProvider.notifier);
+    await controller.upsert(
+      NoteEntry(
+        id: 'trash-cleanup',
+        vaultId: 'everyday',
+        title: 'Trashed attachment',
+        body: '',
+        createdAt: DateTime(2026, 5, 15, 11),
+        attachments: [attachment],
+        blocks: [NoteBlock(type: NoteBlockType.photo, attachment: attachment)],
+      ),
+    );
+    await controller.delete('trash-cleanup');
+
+    expect(await controller.cleanupUnreferencedAttachments(), 0);
+    expect(
+      await attachmentStore.readAttachment(
+        storedReference!,
+        type: AttachmentType.photo,
+      ),
+      [9, 8, 7, 6],
+    );
+  });
+
   test('NotesController writes sync metadata and tombstones deletes', () async {
     SharedPreferences.setMockInitialValues({});
     final tempDirectory = await Directory.systemTemp.createTemp(
@@ -1091,6 +1177,204 @@ void main() {
     expect(pendingChanges, hasLength(1));
     expect(pendingChanges.single.noteId, 'sync-1');
     expect(pendingChanges.single.action, PendingNoteChangeAction.delete);
+  });
+
+  test(
+    'NotesController restores trashed notes and permanent delete removes files',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-trash-restore-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(32));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final noteStore = EncryptedNoteStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        database: noteDatabase,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final attachmentStore = _TrackingEncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteStoreProvider.overrideWithValue(noteStore),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+          deviceIdentityStoreProvider.overrideWithValue(
+            DeviceIdentityStore(
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+              random: Random(32),
+            ),
+          ),
+          homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+
+      final controller = container.read(notesControllerProvider.notifier);
+      final attachment = NoteAttachment(
+        type: AttachmentType.photo,
+        label: 'trash-proof.jpg',
+        filePath: 'secure-attachment://trash-proof',
+      );
+      await controller.upsert(
+        NoteEntry(
+          id: 'trash-1',
+          vaultId: 'everyday',
+          title: 'Trash note',
+          body: 'Can be restored',
+          createdAt: DateTime(2026, 5, 15, 10),
+          attachments: [attachment],
+          blocks: [
+            NoteBlock(type: NoteBlockType.photo, attachment: attachment),
+          ],
+        ),
+      );
+
+      await controller.delete('trash-1');
+      expect(
+        container
+            .read(visibleNotesProvider)
+            .any((note) => note.id == 'trash-1'),
+        isFalse,
+      );
+      expect(container.read(trashedNotesProvider).single.id, 'trash-1');
+
+      await controller.restoreFromTrash('trash-1');
+      final restored = container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'trash-1');
+      expect(restored.deletedAt, isNull);
+      expect(restored.syncState, NoteSyncState.pendingUpload);
+      expect(container.read(trashedNotesProvider), isEmpty);
+      expect(attachmentStore.deletedReferences, isEmpty);
+
+      await controller.delete('trash-1');
+      await controller.deletePermanently('trash-1');
+      expect(
+        container
+            .read(notesControllerProvider)
+            .any((note) => note.id == 'trash-1'),
+        isFalse,
+      );
+      expect(
+        (await noteStore.load(
+          fallbackNotes: const <NoteEntry>[],
+        )).any((note) => note.id == 'trash-1'),
+        isFalse,
+      );
+      expect(attachmentStore.deletedReferences, [
+        'secure-attachment://trash-proof',
+      ]);
+    },
+  );
+
+  test('NotesController purges trash after the retention window', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-trash-purge-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(33));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    final noteStore = EncryptedNoteStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      database: noteDatabase,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final attachmentStore = _TrackingEncryptedAttachmentStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final expiredAttachment = NoteAttachment(
+      type: AttachmentType.photo,
+      label: 'expired.jpg',
+      filePath: 'secure-attachment://expired',
+    );
+    await noteStore.save([
+      NoteEntry(
+        id: 'trash-expired',
+        vaultId: 'everyday',
+        title: 'Expired',
+        body: 'Old trash',
+        createdAt: DateTime(2026, 5, 1, 10),
+        deletedAt: DateTime.now().subtract(const Duration(days: 8)),
+        attachments: [expiredAttachment],
+      ),
+      NoteEntry(
+        id: 'trash-recent',
+        vaultId: 'everyday',
+        title: 'Recent',
+        body: 'Still restorable',
+        createdAt: DateTime(2026, 5, 14, 10),
+        deletedAt: DateTime.now().subtract(const Duration(days: 2)),
+      ),
+    ]);
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteStoreProvider.overrideWithValue(noteStore),
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+        encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+        homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(noteDatabase.close);
+    addTearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    final controller = container.read(notesControllerProvider.notifier);
+    await controller.restoreCompleted;
+
+    expect(container.read(notesControllerProvider).map((note) => note.id), [
+      'trash-recent',
+    ]);
+    expect(container.read(trashedNotesProvider).single.id, 'trash-recent');
+    expect(attachmentStore.deletedReferences, ['secure-attachment://expired']);
+    expect(
+      (await noteStore.load(
+        fallbackNotes: const <NoteEntry>[],
+      )).map((note) => note.id),
+      ['trash-recent'],
+    );
   });
 
   test(

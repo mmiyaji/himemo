@@ -273,6 +273,40 @@ void main() {
     expect(homePage, contains('strings.addNote'));
   });
 
+  test('soft-deleted notes stay restorable from the trash screen', () {
+    final appRouter = File('lib/app/app_router.dart').readAsStringSync();
+    final homeProviders = File(
+      'lib/features/home/presentation/home_providers.dart',
+    ).readAsStringSync();
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+
+    expect(appRouter, contains("path: '/trash'"));
+    expect(appRouter, contains('TrashScreen'));
+    expect(
+      homePage,
+      contains('AppSection { notes, calendar, insights, trash, settings }'),
+    );
+    expect(homePage, contains("context.go('/trash')"));
+    expect(homePage, contains('class TrashScreen'));
+    expect(homePage, contains('class _TrashNoteTile'));
+    expect(homePage, contains('deletePermanently(note.id)'));
+    expect(homePage, contains('restoreFromTrash(note.id)'));
+    expect(homePage, contains('NotesController.trashRetention'));
+    expect(
+      homeProviders,
+      contains('static const trashRetention = Duration(days: 7)'),
+    );
+    expect(homeProviders, contains('Future<void> restoreFromTrash'));
+    expect(homeProviders, contains('Future<void> deletePermanently'));
+    expect(homeProviders, contains('Future<int> purgeTrashOlderThan'));
+    expect(homeProviders, contains('final trashedNotesProvider'));
+    expect(homeProviders, contains("'note_restore'"));
+    expect(homeProviders, contains("'note_permanent_delete'"));
+    expect(homeProviders, contains("'note_trash_purge'"));
+  });
+
   test('iOS Spotlight indexing is opt-in and clears when disabled', () {
     final homeProviders = File(
       'lib/features/home/presentation/home_providers.dart',

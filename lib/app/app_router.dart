@@ -36,6 +36,11 @@ GoRouter appRouter(Ref ref) {
                 const NoTransitionPage(child: InsightsScreen()),
           ),
           GoRoute(
+            path: '/trash',
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: TrashScreen()),
+          ),
+          GoRoute(
             path: '/settings',
             pageBuilder: (context, state) =>
                 const NoTransitionPage(child: SettingsScreen()),
