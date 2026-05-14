@@ -1628,6 +1628,19 @@ class DefaultMediaImportService implements MediaImportService {
     required String importFailedPrefix,
     VoidCallback? onProcessingStarted,
   }) async {
+    if (!kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.iOS &&
+        (type == AttachmentType.photo || type == AttachmentType.video)) {
+      return _pickIOSPhotoLibraryMedia(
+        type: type,
+        maxBytes: maxBytes,
+        tooLargeMessage: tooLargeMessage,
+        openFailureMessage: openFailureMessage,
+        importNotConfiguredMessage: importNotConfiguredMessage,
+        importFailedPrefix: importFailedPrefix,
+        onProcessingStarted: onProcessingStarted,
+      );
+    }
     FilePickerResult? result;
     try {
       result = await FilePicker.pickFiles(
@@ -1656,6 +1669,56 @@ class DefaultMediaImportService implements MediaImportService {
       final bytes = file.bytes;
       if (bytes != null && bytes.length > maxBytes) {
         return MediaImportResult.failure(tooLargeMessage);
+      }
+      final tooLarge = await _validateFileSize(
+        sourceFile,
+        maxBytes: maxBytes,
+        tooLargeMessage: tooLargeMessage,
+      );
+      if (tooLarge != null) {
+        return tooLarge;
+      }
+      attachments.add(
+        await _buildAttachment(type: type, sourceFile: sourceFile),
+      );
+    }
+    if (attachments.length == 1) {
+      return MediaImportResult.success(attachments.single);
+    }
+    return MediaImportResult.successMany(attachments);
+  }
+
+  Future<MediaImportResult> _pickIOSPhotoLibraryMedia({
+    required AttachmentType type,
+    required int maxBytes,
+    required String tooLargeMessage,
+    required String openFailureMessage,
+    required String importNotConfiguredMessage,
+    required String importFailedPrefix,
+    VoidCallback? onProcessingStarted,
+  }) async {
+    List<XFile> files;
+    try {
+      final picker = ImagePicker();
+      files = type == AttachmentType.photo
+          ? await picker.pickMultiImage(imageQuality: 88, maxWidth: 1800)
+          : await picker.pickMultiVideo();
+    } on MissingPluginException {
+      return MediaImportResult.failure(importNotConfiguredMessage);
+    } on PlatformException catch (error) {
+      return MediaImportResult.failure(error.message ?? importFailedPrefix);
+    } catch (error) {
+      return MediaImportResult.failure('$importFailedPrefix ($error)');
+    }
+    if (files.isEmpty) {
+      return const MediaImportResult.cancelled();
+    }
+
+    onProcessingStarted?.call();
+    final attachments = <NoteAttachment>[];
+    for (final sourceFile in files) {
+      if (sourceFile.path.isEmpty) {
+        return MediaImportResult.failure(openFailureMessage);
       }
       final tooLarge = await _validateFileSize(
         sourceFile,

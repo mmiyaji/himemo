@@ -510,6 +510,9 @@ void main() {
     final homePage = File(
       'lib/features/home/presentation/home_page.dart',
     ).readAsStringSync();
+    final homeProviders = File(
+      'lib/features/home/presentation/home_providers.dart',
+    ).readAsStringSync();
     final videoFactory = File(
       'lib/features/home/presentation/video_player_controller_factory_io.dart',
     ).readAsStringSync();
@@ -529,6 +532,13 @@ void main() {
     expect(homePage, contains('createLocalVideoController(tempFilePath)'));
     expect(homePage, contains('timeout(const Duration(seconds: 15))'));
     expect(videoFactory, contains('VideoPlayerController.file'));
+    expect(homeProviders, contains('_pickIOSPhotoLibraryMedia'));
+    expect(
+      homeProviders,
+      contains('defaultTargetPlatform == TargetPlatform.iOS'),
+    );
+    expect(homeProviders, contains('picker.pickMultiImage'));
+    expect(homeProviders, contains('picker.pickMultiVideo'));
   });
 
   test('attachment diagnostics include image byte signatures', () {
