@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
@@ -45,6 +46,7 @@ class EncryptedAttachmentStore {
   final String vaultStoragePrefix;
   static const _webIndexedDbMarker = 'indexeddb:';
   static const _materializedDeleteMarkerExtension = '.himemo-delete-after';
+  static const _backgroundEncryptionThresholdBytes = 8 * 1024 * 1024;
 
   Future<String?> storeAttachment(
     XFile sourceFile, {
@@ -52,10 +54,10 @@ class EncryptedAttachmentStore {
   }) async {
     final bytes = await sourceFile.readAsBytes();
     final key = await _masterKeyService.obtainOrCreate();
-    final encrypted = await _encryptionService.encryptBytes(
-      clearBytes: bytes,
-      secretKey: key,
-      additionalData: _aad(type),
+    final encrypted = await _encryptAttachmentBytesForStorage(
+      bytes: bytes,
+      key: key,
+      type: type,
     );
 
     if (kIsWeb) {
@@ -586,4 +588,48 @@ class EncryptedAttachmentStore {
   }
 
   List<int> _aad(AttachmentType type) => type.name.codeUnits;
+
+  Future<String> _encryptAttachmentBytesForStorage({
+    required Uint8List bytes,
+    required SecretKey key,
+    required AttachmentType type,
+  }) async {
+    final additionalData = _aad(type);
+    if (kIsWeb || bytes.lengthInBytes < _backgroundEncryptionThresholdBytes) {
+      return _encryptionService.encryptBytes(
+        clearBytes: bytes,
+        secretKey: key,
+        additionalData: additionalData,
+      );
+    }
+
+    final keyBytes = await key.extractBytes();
+    final request = _AttachmentEncryptionRequest(
+      clearBytes: TransferableTypedData.fromList([bytes]),
+      keyBytes: keyBytes,
+      additionalData: additionalData,
+    );
+    return Isolate.run(() => _encryptAttachmentPayload(request));
+  }
+}
+
+class _AttachmentEncryptionRequest {
+  const _AttachmentEncryptionRequest({
+    required this.clearBytes,
+    required this.keyBytes,
+    required this.additionalData,
+  });
+
+  final TransferableTypedData clearBytes;
+  final List<int> keyBytes;
+  final List<int> additionalData;
+}
+
+Future<String> _encryptAttachmentPayload(_AttachmentEncryptionRequest request) {
+  final bytes = request.clearBytes.materialize().asUint8List();
+  return EncryptionService().encryptBytes(
+    clearBytes: bytes,
+    secretKey: SecretKey(request.keyBytes),
+    additionalData: request.additionalData,
+  );
 }

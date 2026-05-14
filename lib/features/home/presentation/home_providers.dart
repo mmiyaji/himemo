@@ -706,6 +706,16 @@ Future<int?> _mediaDurationMs({
   };
 }
 
+const _largeVideoPreviewSkipThresholdBytes = 32 * 1024 * 1024;
+
+Future<int?> _sourceFileLength(XFile sourceFile) async {
+  try {
+    return await sourceFile.length();
+  } catch (_) {
+    return null;
+  }
+}
+
 Future<String?> _videoPreviewBytesBase64ForSourceFile(XFile sourceFile) async {
   try {
     final bytes = await generateVideoThumbnailBytes(sourceFile);
@@ -1868,22 +1878,61 @@ class DefaultMediaImportService implements MediaImportService {
     required AttachmentType type,
     required XFile sourceFile,
   }) async {
+    final label = sourceFile.name.isEmpty
+        ? path.basename(sourceFile.path)
+        : sourceFile.name;
+    final sourceBytes = await _sourceFileLength(sourceFile);
+    logDiagnostic(
+      'attachment',
+      'attachment import build start',
+      data: {'type': type.name, 'label': label, 'bytes': sourceBytes},
+    );
+    final stopwatch = Stopwatch()..start();
     final durationMs = await _mediaDurationMs(
       type: type,
       sourceFile: sourceFile,
     );
-    final previewBytesBase64 = type == AttachmentType.video
+    final previewBytesBase64 =
+        type == AttachmentType.video &&
+            (sourceBytes == null ||
+                sourceBytes <= _largeVideoPreviewSkipThresholdBytes)
         ? await _videoPreviewBytesBase64ForSourceFile(sourceFile)
         : null;
+    if (type == AttachmentType.video &&
+        sourceBytes != null &&
+        sourceBytes > _largeVideoPreviewSkipThresholdBytes) {
+      logDiagnostic(
+        'attachment',
+        'video preview skipped for large file',
+        data: {
+          'label': label,
+          'bytes': sourceBytes,
+          'thresholdBytes': _largeVideoPreviewSkipThresholdBytes,
+        },
+      );
+    }
+    final storeStopwatch = Stopwatch()..start();
     final storedPath = await _attachmentStore.storeAttachment(
       sourceFile,
       type: type,
     );
+    storeStopwatch.stop();
+    stopwatch.stop();
+    logDiagnostic(
+      'attachment',
+      'attachment import build completed',
+      data: {
+        'type': type.name,
+        'label': label,
+        'bytes': sourceBytes,
+        'elapsedMs': stopwatch.elapsedMilliseconds,
+        'storeElapsedMs': storeStopwatch.elapsedMilliseconds,
+        'hasPreview': previewBytesBase64 != null,
+      },
+    );
     return NoteAttachment(
       type: type,
-      label: sourceFile.name.isEmpty
-          ? path.basename(sourceFile.path)
-          : sourceFile.name,
+      label: label,
       filePath: storedPath,
       previewBytesBase64: previewBytesBase64,
       durationMs: durationMs,

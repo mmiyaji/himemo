@@ -539,6 +539,15 @@ void main() {
     );
     expect(homeProviders, contains('picker.pickMultiImage'));
     expect(homeProviders, contains('picker.pickMultiVideo'));
+    expect(homeProviders, contains('_largeVideoPreviewSkipThresholdBytes'));
+    expect(homeProviders, contains('video preview skipped for large file'));
+    expect(homeProviders, contains('attachment import build completed'));
+    final attachmentStore = File(
+      'lib/features/security/data/encrypted_attachment_store.dart',
+    ).readAsStringSync();
+    expect(attachmentStore, contains('_backgroundEncryptionThresholdBytes'));
+    expect(attachmentStore, contains('TransferableTypedData'));
+    expect(attachmentStore, contains('Isolate.run'));
   });
 
   test('attachment diagnostics include image byte signatures', () {
