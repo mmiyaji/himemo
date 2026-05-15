@@ -16,6 +16,9 @@ String _homePresentationSource() => [
   'lib/features/home/presentation/home_note_detail.dart',
   'lib/features/home/presentation/home_calendar_screen.dart',
   'lib/features/home/presentation/home_insights_screen.dart',
+  'lib/features/home/presentation/home_notes_screen.dart',
+  'lib/features/home/presentation/home_trash_screen.dart',
+  'lib/features/home/presentation/home_google_drive_panel.dart',
 ].map((path) => File(path).readAsStringSync()).join('\n');
 
 void main() {
