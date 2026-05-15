@@ -608,46 +608,166 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 }
 
-class _HeaderSyncIndicator extends StatelessWidget {
+class _HeaderSyncIndicator extends StatefulWidget {
   const _HeaderSyncIndicator({required this.state, required this.provider});
 
   final SyncTransferState state;
   final SyncProvider provider;
 
   @override
+  State<_HeaderSyncIndicator> createState() => _HeaderSyncIndicatorState();
+}
+
+class _HeaderSyncIndicatorState extends State<_HeaderSyncIndicator>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _rotationController;
+
+  @override
+  void initState() {
+    super.initState();
+    _rotationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _rotationController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final strings = context.strings;
     final colorScheme = Theme.of(context).colorScheme;
-    final label = _syncProgressLabel(strings, state);
-    final description = _syncProgressDescription(strings, state, provider);
+    final label = _syncProgressLabel(strings, widget.state);
+    final description = _syncProgressDescription(
+      strings,
+      widget.state,
+      widget.provider,
+    );
+    final tooltip = strings.localized(
+      en: '$label\n$description\nTap to show sync progress.',
+      ja: '$label\n$description\nタップすると同期の進捗を表示します。',
+      zh: '$label\n$description\n点按可显示同步进度。',
+      ko: '$label\n$description\n탭하면 동기화 진행 상황을 표시합니다.',
+      es: '$label\n$description\nToca para ver el progreso de sincronización.',
+      de: '$label\n$description\nTippe, um den Synchronisierungsfortschritt anzuzeigen.',
+    );
+    final disableAnimations = MediaQuery.disableAnimationsOf(context);
     return Tooltip(
-      message: '$label\n$description',
+      message: tooltip,
       child: Semantics(
+        button: true,
         label: label,
         value: description,
+        onTap: () => _showHeaderSyncProgressDialog(context),
         child: SizedBox.square(
           dimension: 40,
-          child: Center(
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox.square(
-                  dimension: 24,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.2,
-                    value: _syncProgressValueForState(state),
-                    color: colorScheme.primary,
-                    backgroundColor: colorScheme.primary.withValues(
-                      alpha: 0.12,
+          child: InkResponse(
+            radius: 20,
+            onTap: () => _showHeaderSyncProgressDialog(context),
+            child: Center(
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox.square(
+                    dimension: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      value: _syncProgressValueForState(widget.state),
+                      color: colorScheme.primary,
+                      backgroundColor: colorScheme.primary.withValues(
+                        alpha: 0.12,
+                      ),
                     ),
                   ),
-                ),
-                Icon(Icons.sync_rounded, size: 14, color: colorScheme.primary),
-              ],
+                  RotationTransition(
+                    turns: disableAnimations
+                        ? const AlwaysStoppedAnimation<double>(0)
+                        : _rotationController,
+                    child: Icon(
+                      Icons.sync_rounded,
+                      size: 14,
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Future<void> _showHeaderSyncProgressDialog(BuildContext context) {
+    final strings = context.strings;
+    return showDialog<void>(
+      context: context,
+      builder: (context) {
+        return Consumer(
+          builder: (context, ref, _) {
+            final state = ref.watch(syncTransferControllerProvider);
+            final provider = ref.watch(syncProviderControllerProvider);
+            final label = _syncProgressLabel(strings, state);
+            final description = _syncProgressDescription(
+              strings,
+              state,
+              provider,
+            );
+            final itemProgress = _syncProgressItemProgressText(strings, state);
+            final progressValue = _syncProgressValueForState(state);
+            return AlertDialog(
+              title: Text(
+                strings.localized(
+                  en: 'Sync progress',
+                  ja: '同期の進捗',
+                  zh: '同步进度',
+                  ko: '동기화 진행 상황',
+                  es: 'Progreso de sincronización',
+                  de: 'Synchronisierungsfortschritt',
+                ),
+              ),
+              content: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    Text(
+                      description,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    LinearProgressIndicator(value: progressValue),
+                    if (itemProgress != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        itemProgress,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text(strings.cancel),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }

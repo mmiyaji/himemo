@@ -213,6 +213,25 @@ String _localizedSyncProgressDetail(AppStrings strings, String detail) {
   };
 }
 
+String? _syncProgressItemProgressText(
+  AppStrings strings,
+  SyncTransferState state,
+) {
+  final completed = state.completedItems;
+  final total = state.totalItems;
+  if (completed == null || total == null || total <= 0) {
+    return null;
+  }
+  return strings.localized(
+    en: 'Items: $completed / $total',
+    ja: '件数: $completed / $total',
+    zh: '项目: $completed / $total',
+    ko: '항목: $completed / $total',
+    es: 'Elementos: $completed / $total',
+    de: 'Elemente: $completed / $total',
+  );
+}
+
 String _localizedSyncTransferMessage(
   AppStrings strings,
   String message,

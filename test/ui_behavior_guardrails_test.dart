@@ -611,7 +611,15 @@ void main() {
       isNot(contains('math.min(3, pendingUploads.length)')),
     );
     expect(homePage, contains('class _HeaderSyncIndicator'));
+    expect(homePage, contains('class _HeaderSyncIndicatorState'));
+    expect(homePage, contains('AnimationController'));
+    expect(homePage, contains('RotationTransition'));
+    expect(homePage, contains('Tap to show sync progress'));
+    expect(homePage, contains('_showHeaderSyncProgressDialog'));
+    expect(homePage, contains('showDialog<void>'));
+    expect(homePage, contains('LinearProgressIndicator'));
     expect(homePage, contains('syncTransferControllerProvider'));
     expect(homePage, contains('_syncProgressValueForState'));
+    expect(homePage, contains('_syncProgressItemProgressText'));
   });
 }
