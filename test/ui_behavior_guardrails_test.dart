@@ -14,6 +14,8 @@ String _homePresentationSource() => [
   'lib/features/home/presentation/home_sidebar.dart',
   'lib/features/home/presentation/home_note_lists.dart',
   'lib/features/home/presentation/home_note_detail.dart',
+  'lib/features/home/presentation/home_calendar_screen.dart',
+  'lib/features/home/presentation/home_insights_screen.dart',
 ].map((path) => File(path).readAsStringSync()).join('\n');
 
 void main() {
