@@ -71,7 +71,7 @@ void main() {
     expect(strings.videoPreviewUnavailableWeb, 'Web では動画プレビューを利用できません。');
     expect(strings.languageSystemOption, 'システムに合わせる (System)');
     expect(strings.languageJapaneseOption, '日本語 (Japanese)');
-    expect(strings.appearanceWithControls, '表示（言語・フォント・カラー）');
+    expect(strings.appearanceWithControls, '表示（言語・フォント・色）');
     expect(
       strings.appearanceSummary(
         language: '日本語 (Japanese)',

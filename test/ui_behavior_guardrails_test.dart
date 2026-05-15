@@ -177,7 +177,9 @@ void main() {
       homePage,
       contains('constraints.maxWidth < _compactBottomNavLabelBreakpoint'),
     );
-    expect(homePage, contains("hideBottomNavLabels ? '' : label"));
+    expect(homePage, contains('String bottomNavLabel(String label)'));
+    expect(homePage, contains("return '';"));
+    expect(homePage, contains('label: bottomNavLabel(strings.notes)'));
     expect(homePage, contains('NavigationDestinationLabelBehavior.alwaysHide'));
     expect(homePage, contains('NavigationDestinationLabelBehavior.alwaysShow'));
     expect(homePage, contains("tooltip: ''"));

@@ -286,17 +286,8 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text(strings.deleteNote),
-          content: Text(
-            strings.localized(
-              en: 'Move "${note.title}" to Trash? It will be kept for 7 days before permanent deletion.',
-              ja: '「${note.title}」をゴミ箱に移動しますか？7日間保持されたあと完全に削除されます。',
-              zh: '要将“${note.title}”移到废纸篓吗？7 天后会永久删除。',
-              ko: '"${note.title}"을(를) 휴지통으로 이동할까요? 7일 동안 보관한 뒤 영구 삭제됩니다.',
-              es: '¿Mover "${note.title}" a la papelera? Se conservará 7 días antes de eliminarse definitivamente.',
-              de: '"${note.title}" in den Papierkorb verschieben? Die Notiz wird 7 Tage aufbewahrt und danach dauerhaft gelöscht.',
-            ),
-          ),
+          title: Text(strings.moveNoteToTrash),
+          content: Text(strings.moveNoteToTrashConfirmation(note.title)),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -305,7 +296,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             FilledButton(
               key: const Key('delete-note-button'),
               onPressed: () => Navigator.of(context).pop(true),
-              child: Text(strings.delete),
+              child: Text(strings.moveNoteToTrash),
             ),
           ],
         );
@@ -323,16 +314,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           showCloseIcon: true,
-          content: Text(
-            strings.localized(
-              en: '"${note.title}" moved to Trash',
-              ja: '「${note.title}」をゴミ箱に移動しました',
-              zh: '已将“${note.title}”移到废纸篓',
-              ko: '"${note.title}"을(를) 휴지통으로 이동했습니다',
-              es: '"${note.title}" se movió a la papelera',
-              de: '"${note.title}" wurde in den Papierkorb verschoben',
-            ),
-          ),
+          content: Text(strings.movedNoteToTrash(note.title)),
           action: SnackBarAction(
             label: strings.undo,
             onPressed: () {

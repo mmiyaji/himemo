@@ -1931,6 +1931,30 @@ class AppStrings {
     es: '¿Eliminar "$title" permanentemente de este dispositivo?',
     de: '"$title" dauerhaft von diesem Gerät löschen?',
   );
+  String moveNoteToTrashConfirmation(String title) => localized(
+    en: 'Move "$title" to Trash? It will be kept for 7 days before permanent deletion.',
+    ja: '「$title」をゴミ箱に移動しますか？7日間保持されたあと完全に削除されます。',
+    zh: '要将“$title”移到废纸篓吗？7 天后会永久删除。',
+    ko: '"$title"을(를) 휴지통으로 이동할까요? 7일 동안 보관한 뒤 영구 삭제됩니다.',
+    es: '¿Mover "$title" a la papelera? Se conservará 7 días antes de eliminarse definitivamente.',
+    de: '"$title" in den Papierkorb verschieben? Die Notiz wird 7 Tage aufbewahrt und danach dauerhaft gelöscht.',
+  );
+  String get moveNoteToTrash => localized(
+    en: 'Move to Trash',
+    ja: 'ゴミ箱へ移動',
+    zh: '移到废纸篓',
+    ko: '휴지통으로 이동',
+    es: 'Mover a la papelera',
+    de: 'In den Papierkorb verschieben',
+  );
+  String movedNoteToTrash(String title) => localized(
+    en: '"$title" moved to Trash',
+    ja: '「$title」をゴミ箱に移動しました',
+    zh: '已将“$title”移到废纸篓',
+    ko: '"$title"을(를) 휴지통으로 이동했습니다',
+    es: '"$title" se movió a la papelera',
+    de: '"$title" wurde in den Papierkorb verschoben',
+  );
   String get deleteNote => localized(
     en: 'Delete note',
     ja: 'ノートを削除',

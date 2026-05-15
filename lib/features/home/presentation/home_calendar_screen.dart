@@ -348,9 +348,9 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                           final confirmed = await showDialog<bool>(
                             context: hostContext,
                             builder: (context) => AlertDialog(
-                              title: Text(strings.text('home.delete.note')),
+                              title: Text(strings.moveNoteToTrash),
                               content: Text(
-                                strings.deleteNoteConfirmation(
+                                strings.moveNoteToTrashConfirmation(
                                   selectedNote.title,
                                 ),
                               ),
@@ -363,7 +363,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                                 FilledButton(
                                   onPressed: () =>
                                       Navigator.of(context).pop(true),
-                                  child: Text(strings.text('home.delete')),
+                                  child: Text(strings.moveNoteToTrash),
                                 ),
                               ],
                             ),
