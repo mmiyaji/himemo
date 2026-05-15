@@ -731,8 +731,6 @@ Future<int?> _mediaDurationMs({
   };
 }
 
-const _largeVideoPreviewSkipThresholdBytes = 32 * 1024 * 1024;
-
 Future<int?> _sourceFileLength(XFile sourceFile) async {
   try {
     return await sourceFile.length();
@@ -1773,6 +1771,7 @@ class DefaultMediaImportService implements MediaImportService {
 
     onProcessingStarted?.call();
     final attachments = <NoteAttachment>[];
+    final deferredPreviews = <String, Future<String?>>{};
     for (final sourceFile in files) {
       if (sourceFile.path.isEmpty) {
         return MediaImportResult.failure(openFailureMessage);
@@ -1785,8 +1784,23 @@ class DefaultMediaImportService implements MediaImportService {
       if (tooLarge != null) {
         return tooLarge;
       }
-      attachments.add(
-        await _buildAttachment(type: type, sourceFile: sourceFile),
+      final built =
+          await _buildAttachment(type: type, sourceFile: sourceFile);
+      attachments.add(built.attachment);
+      if (built.deferredPreview != null && built.attachment.filePath != null) {
+        deferredPreviews[built.attachment.filePath!] = built.deferredPreview!;
+      }
+    }
+    if (deferredPreviews.isNotEmpty) {
+      if (attachments.length == 1) {
+        return MediaImportResult.successWithDeferredPreview(
+          attachments.single,
+          deferredPreviews: deferredPreviews,
+        );
+      }
+      return MediaImportResult.successManyWithDeferredPreviews(
+        attachments,
+        deferredPreviews: deferredPreviews,
       );
     }
     if (attachments.length == 1) {

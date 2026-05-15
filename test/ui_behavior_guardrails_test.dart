@@ -69,7 +69,7 @@ void main() {
       ),
     );
     expect(homePage, contains('bottom: !keyboardVisible'));
-    expect(homePage, contains('height: _attachmentImportBusy ? 56 : 0'));
+    expect(homePage, contains('height: _attachmentActionBusy ? 56 : 0'));
   });
 
   test('app lock background privacy cover prevents delayed relock flashes', () {
@@ -539,8 +539,8 @@ void main() {
     );
     expect(homeProviders, contains('picker.pickMultiImage'));
     expect(homeProviders, contains('picker.pickMultiVideo'));
-    expect(homeProviders, contains('_largeVideoPreviewSkipThresholdBytes'));
-    expect(homeProviders, contains('video preview skipped for large file'));
+    expect(homeProviders, contains('_deferredVideoPreviewThresholdBytes'));
+    expect(homeProviders, contains('video preview deferred for large file'));
     expect(homeProviders, contains('attachment import build completed'));
     final attachmentStore = File(
       'lib/features/security/data/encrypted_attachment_store.dart',
