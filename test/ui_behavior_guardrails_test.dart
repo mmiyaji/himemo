@@ -551,6 +551,10 @@ void main() {
     ).readAsStringSync();
     expect(attachmentStore, contains('_backgroundEncryptionThresholdBytes'));
     expect(attachmentStore, contains('_backgroundDecryptionThresholdChars'));
+    expect(attachmentStore, contains('_attachmentBinaryMagic'));
+    expect(attachmentStore, contains('_encryptAttachmentPayloadBinary'));
+    expect(attachmentStore, contains('_decryptAttachmentPayloadBinary'));
+    expect(attachmentStore, contains('file.writeAsBytes(encrypted'));
     expect(attachmentStore, contains('TransferableTypedData'));
     expect(attachmentStore, contains('Isolate.run'));
     expect(attachmentStore, contains('_decryptAttachmentBytesFromStorage'));

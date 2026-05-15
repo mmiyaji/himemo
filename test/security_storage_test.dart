@@ -487,8 +487,9 @@ void main() {
 
       expect(storedReference, isNotNull);
       final encryptedFile = File(storedReference!);
-      final rawContents = await encryptedFile.readAsString();
-      expect(rawContents.contains('1, 2, 3'), isFalse);
+      final rawContents = await encryptedFile.readAsBytes();
+      expect(rawContents, isNot(containsAllInOrder([1, 2, 3])));
+      expect(String.fromCharCodes(rawContents.take(4)), 'HMA2');
 
       final restored = await attachmentStore.readAttachment(
         storedReference,
