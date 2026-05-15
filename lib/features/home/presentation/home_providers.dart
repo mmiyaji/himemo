@@ -2719,6 +2719,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   Future<void> _yieldToUi() => Future<void>.delayed(Duration.zero);
 
+  Future<T> _measureSyncStep<T>(
+    String message,
+    Future<T> Function() operation, {
+    Map<String, Object?> data = const <String, Object?>{},
+  }) async {
+    final stopwatch = Stopwatch()..start();
+    try {
+      return await operation();
+    } finally {
+      stopwatch.stop();
+      _diagnostic(
+        message,
+        data: {...data, 'elapsedMs': stopwatch.elapsedMilliseconds},
+      );
+    }
+  }
+
   Future<void> refreshRemoteStatus() async {
     final provider = ref.read(syncProviderControllerProvider);
     if (!_supportsRemoteTransport(provider)) {
@@ -2731,9 +2748,19 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     _startBusy(SyncTransferProgress.checkingRemote);
     await _yieldToUi();
     try {
-      final remoteStatus = await runFirebaseTrace(
-        'sync_refresh_remote_status',
-        _fetchLatestRemoteStatus,
+      _setProgressDetail(
+        progress: SyncTransferProgress.checkingRemote,
+        detail: 'Checking cloud status',
+        completedItems: 0,
+        totalItems: 1,
+      );
+      await _yieldToUi();
+      final remoteStatus = await _measureSyncStep(
+        'remote status check completed',
+        () => runFirebaseTrace(
+          'sync_refresh_remote_status',
+          _fetchLatestRemoteStatus,
+        ),
       );
       state = SyncTransferState(
         stage: SyncTransferStage.success,
@@ -3163,11 +3190,32 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     await _yieldToUi();
     try {
       await logFirebaseBreadcrumb('sync now requested');
-      final remoteStatus = await runFirebaseTrace(
-        'sync_refresh_remote_status',
-        _fetchLatestRemoteStatus,
+      const checkingStepCount = 4;
+      _setProgressDetail(
+        progress: SyncTransferProgress.checkingRemote,
+        detail: 'Checking cloud status',
+        completedItems: 0,
+        totalItems: checkingStepCount,
       );
-      final bundleState = await ref.read(syncBundleStateProvider.future);
+      await _yieldToUi();
+      final remoteStatus = await _measureSyncStep(
+        'remote status check completed',
+        () => runFirebaseTrace(
+          'sync_refresh_remote_status',
+          _fetchLatestRemoteStatus,
+        ),
+      );
+      _setProgressDetail(
+        progress: SyncTransferProgress.checkingRemote,
+        detail: 'Reading sync history',
+        completedItems: 1,
+        totalItems: checkingStepCount,
+      );
+      await _yieldToUi();
+      final bundleState = await _measureSyncStep(
+        'sync state check completed',
+        () => ref.read(syncBundleStateProvider.future),
+      );
       _diagnostic(
         'remote status refreshed',
         data: {
@@ -3192,18 +3240,38 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       }
       state = state.copyWith(remoteStatus: remoteStatus);
 
-      if (await _shouldBlockLargeMobileTransfer(
-        allowLargeMobileTransfer: allowLargeMobileTransfer,
-        silentLargeMobileSkip: silentLargeMobileSkip,
-        includeUpload: false,
-        includeDownload:
-            remoteStatus != null &&
-            _remoteBundleNeedsApply(remoteStatus, bundleState),
+      _setProgressDetail(
+        progress: SyncTransferProgress.checkingRemote,
+        detail: 'Checking transfer size',
+        completedItems: 2,
+        totalItems: checkingStepCount,
+      );
+      await _yieldToUi();
+      if (await _measureSyncStep(
+        'transfer size check completed',
+        () => _shouldBlockLargeMobileTransfer(
+          allowLargeMobileTransfer: allowLargeMobileTransfer,
+          silentLargeMobileSkip: silentLargeMobileSkip,
+          includeUpload: false,
+          includeDownload:
+              remoteStatus != null &&
+              _remoteBundleNeedsApply(remoteStatus, bundleState),
+        ),
       )) {
         return;
       }
 
-      final queue = await _readLocalSyncQueueSummary();
+      _setProgressDetail(
+        progress: SyncTransferProgress.checkingRemote,
+        detail: 'Checking local changes',
+        completedItems: 3,
+        totalItems: checkingStepCount,
+      );
+      await _yieldToUi();
+      final queue = await _measureSyncStep(
+        'local queue check completed',
+        _readLocalSyncQueueSummary,
+      );
       final hadPendingChangesBeforeRemoteApply = queue.hasPendingChanges;
       var appliedRemoteDuringSync = false;
       _diagnostic(

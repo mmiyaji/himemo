@@ -180,6 +180,22 @@ String _syncProgressDescription(
 
 String _localizedSyncProgressDetail(AppStrings strings, String detail) {
   return switch (detail) {
+    'Checking cloud status' => strings.localized(
+      en: 'Checking cloud status',
+      ja: 'クラウドの状態を確認中',
+    ),
+    'Reading sync history' => strings.localized(
+      en: 'Reading sync history',
+      ja: '同期履歴を確認中',
+    ),
+    'Checking transfer size' => strings.localized(
+      en: 'Checking transfer size',
+      ja: '転送サイズを確認中',
+    ),
+    'Checking local changes' => strings.localized(
+      en: 'Checking local changes',
+      ja: 'この端末の変更を確認中',
+    ),
     'Applying note' => strings.localized(en: 'Applying notes', ja: 'ノートを反映中'),
     'Applying attachment for note' => strings.localized(
       en: 'Applying note attachments',

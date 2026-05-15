@@ -633,6 +633,12 @@ void main() {
     expect(homeProviders, contains('completedItems'));
     expect(homeProviders, contains('totalItems'));
     expect(homeProviders, contains('_setProgressDetail'));
+    expect(homeProviders, contains('_measureSyncStep'));
+    expect(homeProviders, contains('Checking cloud status'));
+    expect(homeProviders, contains('Reading sync history'));
+    expect(homeProviders, contains('Checking transfer size'));
+    expect(homeProviders, contains('Checking local changes'));
+    expect(homeProviders, contains('elapsedMs'));
     expect(homeProviders, contains('_decodeSyncAttachmentBytes'));
     expect(homeProviders, contains('Uploading attachment'));
     expect(homeProviders, contains('Applying attachment'));
