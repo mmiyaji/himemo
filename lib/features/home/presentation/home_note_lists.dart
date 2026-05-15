@@ -722,7 +722,7 @@ class _NoteListTile extends StatelessWidget {
                     ),
                   const Spacer(),
                   Text(
-                    isEdited ? strings.editedAt(dateLabel) : dateLabel,
+                    isEdited ? strings.noteEditedAt(dateLabel) : dateLabel,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: _mutedTextColor(context),
                     ),

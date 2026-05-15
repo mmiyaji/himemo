@@ -484,6 +484,8 @@ class AppStrings {
       'home.external.quick.memo': 'Nota rápida externa',
       'home.backup.and.sync': 'Copia de seguridad y sincronización',
       'home.storage': 'Almacenamiento',
+      'home.list.layout': 'Diseño de lista',
+      'home.filters': 'Filtros',
       'home.standard.list': 'Lista estándar',
       'home.compact.list': 'Lista compacta',
       'home.off.turning.this.on.asks.for.a.password.or.device.authen':
@@ -616,6 +618,8 @@ class AppStrings {
       'home.external.quick.memo': 'Externe Schnellnotiz',
       'home.backup.and.sync': 'Backup und Synchronisierung',
       'home.storage': 'Speicher',
+      'home.list.layout': 'Listenlayout',
+      'home.filters': 'Filter',
       'home.standard.list': 'Standardliste',
       'home.compact.list': 'Kompakte Liste',
       'home.off.turning.this.on.asks.for.a.password.or.device.authen':
@@ -2026,6 +2030,22 @@ class AppStrings {
     ko: '잠금 해제된 노트',
     es: 'Notas desbloqueadas',
     de: 'Entsperrte Notizen',
+  );
+  String noteEditedAt(String label) => localized(
+    en: 'Edited $label',
+    ja: '編集済み $label',
+    zh: '已编辑 $label',
+    ko: '편집됨 $label',
+    es: 'Editada $label',
+    de: 'Bearbeitet $label',
+  );
+  String noteCreatedRevision(String createdLabel, int revision) => localized(
+    en: 'Created $createdLabel · Revision $revision',
+    ja: '作成 $createdLabel ・ リビジョン $revision',
+    zh: '创建 $createdLabel · 修订 $revision',
+    ko: '작성 $createdLabel · 리비전 $revision',
+    es: 'Creada $createdLabel · Revisión $revision',
+    de: 'Erstellt $createdLabel · Revision $revision',
   );
   String get photoPlaceholder => localized(
     en: 'Photo placeholder',

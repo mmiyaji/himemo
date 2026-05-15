@@ -707,7 +707,7 @@ class _NoteDetailPane extends ConsumerWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  isEdited ? strings.editedAt(updatedLabel) : createdLabel,
+                  isEdited ? strings.noteEditedAt(updatedLabel) : createdLabel,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: _mutedTextColor(context),
                   ),
@@ -737,7 +737,7 @@ class _NoteDetailPane extends ConsumerWidget {
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
                     child: Text(
-                      strings.createdRevision(createdLabel, note.revision),
+                      strings.noteCreatedRevision(createdLabel, note.revision),
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: _mutedTextColor(context),
                       ),

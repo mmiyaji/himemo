@@ -415,8 +415,16 @@ class _AppShellState extends ConsumerState<AppShell> {
               builder: (context, constraints) {
                 final hideBottomNavLabels =
                     constraints.maxWidth < _compactBottomNavLabelBreakpoint;
-                String bottomNavLabel(String label) =>
-                    hideBottomNavLabels ? '' : label;
+                String bottomNavLabel(String label) {
+                  if (hideBottomNavLabels) {
+                    return '';
+                  }
+                  if (constraints.maxWidth < 420 && label == 'Einstellungen') {
+                    return 'Einstell.';
+                  }
+                  return label;
+                }
+
                 return Stack(
                   clipBehavior: Clip.none,
                   alignment: Alignment.bottomCenter,
