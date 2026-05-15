@@ -1295,6 +1295,29 @@ void main() {
     },
   );
 
+  test(
+    'local tag suggestions boost frequently used known tags above ad-hoc tokens',
+    () {
+      final suggestions = suggestLocalNoteTags(
+        const TagSuggestionRequest(
+          title: 'planning long_term_strategy and review',
+          body: 'planning planning long_term_strategy long_term_strategy',
+          existingTags: <String>[],
+          knownTags: ['planning'],
+          attachmentLabels: <String>[],
+          knownTagCounts: {'planning': 8},
+        ),
+      );
+
+      // Known/used tag must rank ahead of an ad-hoc compound token like
+      // long_term_strategy that appears more times in the text.
+      expect(suggestions.first, 'planning');
+      final planningIndex = suggestions.indexOf('planning');
+      final compoundIndex = suggestions.indexOf('long_term_strategy');
+      expect(planningIndex, lessThan(compoundIndex));
+    },
+  );
+
   test('search filters can partition notes by year', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();

@@ -9082,6 +9082,7 @@ class TagSuggestionRequest {
     required this.existingTags,
     required this.knownTags,
     required this.attachmentLabels,
+    this.knownTagCounts = const <String, int>{},
   });
 
   final String title;
@@ -9089,6 +9090,10 @@ class TagSuggestionRequest {
   final List<String> existingTags;
   final List<String> knownTags;
   final List<String> attachmentLabels;
+
+  /// Canonicalized tag key -> usage count among visible notes. Used to give
+  /// frequently-used tags a higher priority in suggestions.
+  final Map<String, int> knownTagCounts;
 }
 
 class TagSuggestionResult {
@@ -9137,6 +9142,7 @@ class MethodChannelTagSuggestionGateway implements TagSuggestionGateway {
             'body': request.body,
             'existingTags': request.existingTags,
             'knownTags': request.knownTags,
+            'knownTagCounts': request.knownTagCounts,
             'attachmentLabels': request.attachmentLabels,
           });
       final nativeTags = dedupeNoteTags([
@@ -9181,7 +9187,7 @@ List<String> suggestLocalNoteTags(TagSuggestionRequest request) {
   final scored = <String, int>{};
   final displayName = <String, String>{};
 
-  void addCandidate(String rawTag, int score) {
+  void addCandidate(String rawTag, int baseScore) {
     final normalized = normalizeNoteTag(rawTag);
     if (normalized.isEmpty) {
       return;
@@ -9189,6 +9195,18 @@ List<String> suggestLocalNoteTags(TagSuggestionRequest request) {
     final key = canonicalizeNoteTag(normalized);
     if (key.isEmpty || existingKeys.contains(key)) {
       return;
+    }
+    var score = baseScore;
+    // Prefer single-word style tags: short, no internal separators.
+    final length = key.length;
+    final hasSeparator = key.contains('_') || key.contains('-');
+    if (hasSeparator) {
+      score -= 4;
+    }
+    if (length <= 4) {
+      score += 3;
+    } else if (length >= 9) {
+      score -= 4;
     }
     scored[key] = (scored[key] ?? 0) + score;
     displayName.putIfAbsent(key, () => normalized);
@@ -9201,7 +9219,11 @@ List<String> suggestLocalNoteTags(TagSuggestionRequest request) {
       continue;
     }
     if (text.contains(key)) {
-      addCandidate(normalized, 20 + key.length);
+      // Strongly prefer known/already-used tags. Tags used more often get an
+      // additional boost (capped to avoid one runaway tag dominating).
+      final count = request.knownTagCounts[key] ?? 0;
+      final usageBoost = (count * 3).clamp(0, 30);
+      addCandidate(normalized, 40 + usageBoost);
     }
   }
 
@@ -9213,7 +9235,7 @@ List<String> suggestLocalNoteTags(TagSuggestionRequest request) {
     if (_localTagStopWords.contains(token.toLowerCase())) {
       continue;
     }
-    addCandidate(token, request.title.contains(token) ? 10 : 4);
+    addCandidate(token, request.title.contains(token) ? 12 : 5);
   }
 
   final entries = scored.entries.toList()

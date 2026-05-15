@@ -14454,7 +14454,12 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       _tagSuggestions = const [];
       _tagSuggestionSource = null;
     });
-    final knownTags = ref.read(visibleTagSuggestionsProvider);
+    final knownSummaries = ref.read(visibleTagSummariesProvider);
+    final knownTags = [for (final summary in knownSummaries) summary.name];
+    final knownTagCounts = <String, int>{
+      for (final summary in knownSummaries)
+        canonicalizeNoteTag(summary.name): summary.count,
+    };
     final attachments = _allCurrentAttachments;
     try {
       final result = await ref
@@ -14465,6 +14470,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
               body: content.body,
               existingTags: _tags,
               knownTags: knownTags,
+              knownTagCounts: knownTagCounts,
               attachmentLabels: [
                 for (final attachment in attachments) attachment.label,
               ],
@@ -14862,43 +14868,63 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                         ),
                         if (_tagSuggestions.isNotEmpty) ...[
                           const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              for (final tag in _tagSuggestions)
-                                ActionChip(
-                                  avatar: Icon(
-                                    Icons.auto_awesome_rounded,
-                                    size: 16,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                  ),
-                                  label: Text('#$tag'),
-                                  tooltip: strings.localized(
-                                    en: _tagSuggestionSource == 'local'
-                                        ? 'Local suggestion'
-                                        : 'Apple Intelligence suggestion',
-                                    ja: _tagSuggestionSource == 'local'
-                                        ? 'ローカル提案'
-                                        : 'Apple Intelligence提案',
-                                    zh: _tagSuggestionSource == 'local'
-                                        ? '本地建议'
-                                        : 'Apple Intelligence 建议',
-                                    ko: _tagSuggestionSource == 'local'
-                                        ? '로컬 추천'
-                                        : 'Apple Intelligence 추천',
-                                    es: _tagSuggestionSource == 'local'
-                                        ? 'Sugerencia local'
-                                        : 'Sugerencia de Apple Intelligence',
-                                    de: _tagSuggestionSource == 'local'
-                                        ? 'Lokaler Vorschlag'
-                                        : 'Apple Intelligence-Vorschlag',
-                                  ),
-                                  onPressed: () => _applySuggestedTag(tag),
-                                ),
-                            ],
+                          Builder(
+                            builder: (context) {
+                              final tagCounts = <String, int>{
+                                for (final summary in ref.watch(
+                                  visibleTagSummariesProvider,
+                                ))
+                                  canonicalizeNoteTag(summary.name):
+                                      summary.count,
+                              };
+                              return Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  for (final tag in _tagSuggestions)
+                                    ActionChip(
+                                      avatar: Icon(
+                                        Icons.auto_awesome_rounded,
+                                        size: 16,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.primary,
+                                      ),
+                                      label: Text(() {
+                                        final count =
+                                            tagCounts[canonicalizeNoteTag(
+                                              tag,
+                                            )] ??
+                                            0;
+                                        return count > 0
+                                            ? '#$tag ($count)'
+                                            : '#$tag';
+                                      }()),
+                                      tooltip: strings.localized(
+                                        en: _tagSuggestionSource == 'local'
+                                            ? 'Local suggestion'
+                                            : 'Apple Intelligence suggestion',
+                                        ja: _tagSuggestionSource == 'local'
+                                            ? 'ローカル提案'
+                                            : 'Apple Intelligence提案',
+                                        zh: _tagSuggestionSource == 'local'
+                                            ? '本地建议'
+                                            : 'Apple Intelligence 建议',
+                                        ko: _tagSuggestionSource == 'local'
+                                            ? '로컬 추천'
+                                            : 'Apple Intelligence 추천',
+                                        es: _tagSuggestionSource == 'local'
+                                            ? 'Sugerencia local'
+                                            : 'Sugerencia de Apple Intelligence',
+                                        de: _tagSuggestionSource == 'local'
+                                            ? 'Lokaler Vorschlag'
+                                            : 'Apple Intelligence-Vorschlag',
+                                      ),
+                                      onPressed: () => _applySuggestedTag(tag),
+                                    ),
+                                ],
+                              );
+                            },
                           ),
                         ],
                         if (_tags.isNotEmpty) ...[
