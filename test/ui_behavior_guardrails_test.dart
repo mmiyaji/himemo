@@ -2,14 +2,19 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+String _homePresentationSource() => [
+  'lib/features/home/presentation/home_page.dart',
+  'lib/features/home/presentation/home_settings_screen.dart',
+  'lib/features/home/presentation/home_settings_components.dart',
+  'lib/features/home/presentation/home_private_profile_settings.dart',
+].map((path) => File(path).readAsStringSync()).join('\n');
+
 void main() {
   test('web video playback stays enabled through the native video element', () {
     final webVideoElement = File(
       'lib/features/home/presentation/web_video_element_view_web.dart',
     ).readAsStringSync();
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
 
     expect(webVideoElement, contains('html.VideoElement'));
     expect(webVideoElement, contains('..controls = true'));
@@ -42,9 +47,7 @@ void main() {
   );
 
   test('rich editor restores a text block after trailing attachments', () {
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
 
     expect(homePage, contains('void _ensureTrailingRichParagraph'));
     expect(homePage, contains('_ensureTrailingRichParagraph(drafts);'));
@@ -52,9 +55,7 @@ void main() {
   });
 
   test('mobile note editor keeps keyboard footer compact', () {
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
 
     expect(
       homePage,
@@ -110,9 +111,7 @@ void main() {
   });
 
   test('recent daily trend chart starts at the latest day', () {
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
 
     expect(homePage, contains('class _InsightBarChartState'));
     expect(homePage, contains('_scrollController.position.maxScrollExtent'));
@@ -120,9 +119,7 @@ void main() {
   });
 
   test('mobile create note action is a centered pen navigation button', () {
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
     final createNoteIcon = File(
       'assets/actions/create-note.svg',
     ).readAsStringSync();
@@ -176,9 +173,7 @@ void main() {
   });
 
   test('private profile access action uses Material icons', () {
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
 
     expect(homePage, contains('class _PrivateProfileAccessIcon'));
     expect(homePage, contains('_PrivateProfileAccessIconKind.locked'));
@@ -196,9 +191,7 @@ void main() {
   });
 
   test('support links use distinct Material list icons', () {
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
 
     expect(homePage, contains('class _SettingsListIcon'));
     expect(homePage, contains('icon: Icons.email_outlined'));
@@ -212,9 +205,7 @@ void main() {
     final homeProviders = File(
       'lib/features/home/presentation/home_providers.dart',
     ).readAsStringSync();
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
 
     expect(auditLog, contains('class AuditLogService'));
     expect(auditLog, contains('HiMemo audit log'));
@@ -247,9 +238,7 @@ void main() {
   });
 
   test('tablet create note action lives at the bottom of the sidebar', () {
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
 
     expect(homePage, contains('class _SidebarCreateNoteButton'));
     expect(
@@ -267,9 +256,7 @@ void main() {
     final homeProviders = File(
       'lib/features/home/presentation/home_providers.dart',
     ).readAsStringSync();
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
 
     expect(appRouter, contains("path: '/trash'"));
     expect(appRouter, contains('TrashScreen'));
@@ -300,9 +287,7 @@ void main() {
     final homeProviders = File(
       'lib/features/home/presentation/home_providers.dart',
     ).readAsStringSync();
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
     final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
     final app = File('lib/app/app.dart').readAsStringSync();
 
@@ -335,9 +320,7 @@ void main() {
   });
 
   test('Spotlight indexing warns when app lock is also enabled', () {
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
 
     expect(homePage, contains('showSpotlightAppLockWarning'));
     expect(homePage, contains('spotlightNoteIndexEnabled &&'));
@@ -357,9 +340,7 @@ void main() {
     final homeProviders = File(
       'lib/features/home/presentation/home_providers.dart',
     ).readAsStringSync();
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
     final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
 
     expect(homeProviders, contains('class TagSuggestionRequest'));
@@ -450,9 +431,7 @@ void main() {
   });
 
   test('note list day dividers follow the active sort field', () {
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
 
     expect(homePage, contains('DateTime _noteListMoment'));
     expect(
@@ -472,9 +451,7 @@ void main() {
   });
 
   test('diagnostic mode exposes iCloud storage maintenance actions', () {
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
     final iCloudTransport = File(
       'lib/features/sync/data/icloud_sync_transport.dart',
     ).readAsStringSync();
@@ -493,9 +470,7 @@ void main() {
   });
 
   test('native attachment sharing keeps materialized files readable', () {
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
 
     expect(homePage, contains('_markSharedAttachmentForCleanup'));
     expect(homePage, contains('markMaterializedFileForCleanup'));
@@ -515,9 +490,7 @@ void main() {
   });
 
   test('note editor guards slow attachment saves and video playback', () {
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
     final homeProviders = File(
       'lib/features/home/presentation/home_providers.dart',
     ).readAsStringSync();
@@ -559,9 +532,7 @@ void main() {
   });
 
   test('attachment diagnostics include image byte signatures', () {
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = _homePresentationSource();
     final syncEngine = File(
       'lib/features/sync/data/sync_engine.dart',
     ).readAsStringSync();
