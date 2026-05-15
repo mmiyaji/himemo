@@ -337,6 +337,25 @@ void main() {
     expect(app, contains('spotlightNoteOpenRequestControllerProvider'));
   });
 
+  test('Spotlight indexing warns when app lock is also enabled', () {
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+
+    expect(homePage, contains('showSpotlightAppLockWarning'));
+    expect(homePage, contains('spotlightNoteIndexEnabled &&'));
+    expect(homePage, contains('appLockEnabled'));
+    expect(homePage, contains('_SettingsWarningBox'));
+    expect(homePage, contains('_spotlightAppLockWarningText'));
+    expect(homePage, contains('_showSpotlightAppLockWarningDialog'));
+    expect(homePage, contains('enabled && appLockEnabled'));
+    expect(homePage, contains('spotlightNoteIndexEnabled && context.mounted'));
+    expect(
+      homePage,
+      contains('App lock does not hide notes from iOS Spotlight.'),
+    );
+  });
+
   test('AI tag suggestions keep an iOS bridge and local fallback', () {
     final homeProviders = File(
       'lib/features/home/presentation/home_providers.dart',

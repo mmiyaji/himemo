@@ -3577,6 +3577,11 @@ class SettingsScreen extends ConsumerWidget {
     final spotlightNoteIndexEnabled = ref.watch(
       spotlightNoteIndexEnabledControllerProvider,
     );
+    final showSpotlightAppLockWarning =
+        !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.iOS &&
+        spotlightNoteIndexEnabled &&
+        appLockEnabled;
     final notesListDensity = ref.watch(notesListDensityControllerProvider);
     final attachmentPreviewFit = ref.watch(
       attachmentPreviewFitControllerProvider,
@@ -3873,10 +3878,23 @@ class SettingsScreen extends ConsumerWidget {
                     de: 'Wenn aktiviert, werden nur normale Notizen auf diesem Geraet indexiert. Beim Deaktivieren entfernt HiMemo seine Notizen aus Spotlight.',
                   ),
                 ),
-                onChanged: (enabled) => ref
-                    .read(spotlightNoteIndexEnabledControllerProvider.notifier)
-                    .setEnabled(enabled),
+                onChanged: (enabled) async {
+                  await ref
+                      .read(
+                        spotlightNoteIndexEnabledControllerProvider.notifier,
+                      )
+                      .setEnabled(enabled);
+                  if (enabled && appLockEnabled && context.mounted) {
+                    await _showSpotlightAppLockWarningDialog(context, strings);
+                  }
+                },
               ),
+              if (showSpotlightAppLockWarning) ...[
+                _SettingsWarningBox(
+                  text: _spotlightAppLockWarningText(strings),
+                ),
+                const SizedBox(height: 8),
+              ],
               const SizedBox(height: 8),
             ],
             _SettingsSectionLabel(
@@ -4390,8 +4408,15 @@ class SettingsScreen extends ConsumerWidget {
                 await ref
                     .read(appLockSettingsControllerProvider.notifier)
                     .setEnabled(true);
+                if (spotlightNoteIndexEnabled && context.mounted) {
+                  await _showSpotlightAppLockWarningDialog(context, strings);
+                }
               },
             ),
+            if (showSpotlightAppLockWarning) ...[
+              _SettingsWarningBox(text: _spotlightAppLockWarningText(strings)),
+              const SizedBox(height: 8),
+            ],
             if (syncProvider == SyncProvider.iCloud)
               Padding(
                 padding: const EdgeInsets.only(top: 4, bottom: 8),
@@ -6377,9 +6402,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const _SettingsListIcon(
-                icon: Icons.email_rounded,
-              ),
+              leading: const _SettingsListIcon(icon: Icons.email_rounded),
               title: Text(strings.contact),
               subtitle: Text(strings.contactDesc),
               trailing: const Icon(Icons.open_in_new_rounded, size: 18),
@@ -6388,9 +6411,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const _SettingsListIcon(
-                icon: Icons.help_rounded,
-              ),
+              leading: const _SettingsListIcon(icon: Icons.help_rounded),
               title: Text(strings.help),
               subtitle: Text(strings.helpDesc),
               trailing: const Icon(Icons.open_in_new_rounded, size: 18),
@@ -11483,6 +11504,44 @@ class _SettingsSectionLabel extends StatelessWidget {
   }
 }
 
+class _SettingsWarningBox extends StatelessWidget {
+  const _SettingsWarningBox({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: colorScheme.error),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.warning_amber_rounded,
+            color: colorScheme.onErrorContainer,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onErrorContainer,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SettingsSectionIcon extends StatelessWidget {
   const _SettingsSectionIcon({required this.icon});
 
@@ -11499,11 +11558,7 @@ class _SettingsSectionIcon extends StatelessWidget {
         color: colorScheme.primary.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Icon(
-        icon,
-        size: 22,
-        color: colorScheme.primary,
-      ),
+      child: Icon(icon, size: 22, color: colorScheme.primary),
     );
   }
 }
@@ -11515,10 +11570,7 @@ class _SettingsListIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox.square(
-      dimension: 24,
-      child: Icon(icon),
-    );
+    return SizedBox.square(dimension: 24, child: Icon(icon));
   }
 }
 
@@ -15025,9 +15077,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                           vertical: 8,
                         ),
                         decoration: BoxDecoration(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.primaryContainer.withValues(alpha: 0.72),
+                          color: Theme.of(context).colorScheme.primaryContainer
+                              .withValues(alpha: 0.72),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: Theme.of(
@@ -24638,6 +24689,46 @@ String _mimeTypeForAudioAttachment(NoteAttachment attachment) {
     return 'audio/ogg';
   }
   return 'audio/mpeg';
+}
+
+String _spotlightAppLockWarningText(AppStrings strings) {
+  return strings.localized(
+    en: 'App lock does not hide notes from iOS Spotlight. If Spotlight indexing is enabled, standard note titles and text can appear in system search results before HiMemo is unlocked.',
+    ja: 'アプリロックはiOS Spotlight上のメモを隠しません。Spotlight検索を許可すると、HiMemoのロック解除前でも標準メモのタイトルや本文がシステム検索結果に表示される場合があります。',
+    zh: 'App lock does not hide notes from iOS Spotlight. If Spotlight indexing is enabled, standard note titles and text can appear in system search results before HiMemo is unlocked.',
+    ko: 'App lock does not hide notes from iOS Spotlight. If Spotlight indexing is enabled, standard note titles and text can appear in system search results before HiMemo is unlocked.',
+    es: 'App lock does not hide notes from iOS Spotlight. If Spotlight indexing is enabled, standard note titles and text can appear in system search results before HiMemo is unlocked.',
+    de: 'App lock does not hide notes from iOS Spotlight. If Spotlight indexing is enabled, standard note titles and text can appear in system search results before HiMemo is unlocked.',
+  );
+}
+
+Future<void> _showSpotlightAppLockWarningDialog(
+  BuildContext context,
+  AppStrings strings,
+) {
+  return showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      icon: const Icon(Icons.warning_amber_rounded),
+      title: Text(
+        strings.localized(
+          en: 'Spotlight may show locked notes',
+          ja: 'Spotlightにロック中のメモが表示される場合があります',
+          zh: 'Spotlight may show locked notes',
+          ko: 'Spotlight may show locked notes',
+          es: 'Spotlight may show locked notes',
+          de: 'Spotlight may show locked notes',
+        ),
+      ),
+      content: Text(_spotlightAppLockWarningText(strings)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(strings.close),
+        ),
+      ],
+    ),
+  );
 }
 
 BoxDecoration _sectionDecoration(BuildContext context) {
