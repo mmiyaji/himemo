@@ -14378,6 +14378,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     }
     final content = _currentTagSuggestionContent();
     if (content.title.trim().isEmpty && content.body.trim().isEmpty) {
+      _showTagSuggestionEmptyMessage();
       return;
     }
     setState(() {
@@ -14414,6 +14415,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         _tagSuggestions = result.tags;
         _tagSuggestionSource = result.source;
       });
+      if (result.tags.isEmpty) {
+        _showTagSuggestionEmptyMessage();
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -14421,6 +14425,34 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         });
       }
     }
+  }
+
+  void _showTagSuggestionEmptyMessage() {
+    if (!mounted) {
+      return;
+    }
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) {
+      return;
+    }
+    final strings = context.strings;
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        behavior: SnackBarBehavior.floating,
+        content: Text(
+          strings.localized(
+            en: 'No tag suggestions found.',
+            ja: '推奨タグが見つかりませんでした。',
+            zh: '未找到推荐标签。',
+            ko: '추천 태그를 찾을 수 없습니다.',
+            es: 'No se encontraron sugerencias de etiquetas.',
+            de: 'Keine Tag-Vorschläge gefunden.',
+          ),
+        ),
+      ),
+    );
   }
 
   void _applySuggestedTag(String tag) {
