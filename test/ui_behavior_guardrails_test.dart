@@ -10,6 +10,8 @@ String _homePresentationSource() => [
   'lib/features/home/presentation/home_note_content.dart',
   'lib/features/home/presentation/home_sync_support.dart',
   'lib/features/home/presentation/home_media_viewers.dart',
+  'lib/features/home/presentation/home_trash_widgets.dart',
+  'lib/features/home/presentation/home_sidebar.dart',
 ].map((path) => File(path).readAsStringSync()).join('\n');
 
 void main() {
