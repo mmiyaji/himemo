@@ -377,6 +377,11 @@ void main() {
     expect(homePage, contains('Icons.auto_awesome_rounded'));
     expect(appDelegate, contains('intelligenceChannelName'));
     expect(appDelegate, contains('handleIntelligenceMethod'));
+    expect(appDelegate, contains('canImport(FoundationModels)'));
+    expect(appDelegate, contains('LanguageModelSession'));
+    expect(appDelegate, contains('SystemLanguageModel.default'));
+    expect(appDelegate, contains('usedAppleIntelligence'));
+    expect(appDelegate, contains('suggestTagsWithFoundationModels'));
     expect(appDelegate, contains('apple_intelligence_unavailable'));
   });
 

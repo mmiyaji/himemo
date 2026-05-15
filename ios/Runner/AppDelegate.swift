@@ -4,6 +4,9 @@ import CloudKit
 import Network
 import CoreSpotlight
 import MobileCoreServices
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 @UIApplicationMain
 @objc class AppDelegate: FlutterAppDelegate {
@@ -235,15 +238,146 @@ import MobileCoreServices
   private func handleIntelligenceMethod(call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
     case "suggestTags":
-      result(FlutterError(
-        code: "apple_intelligence_unavailable",
-        message: "Apple Intelligence tag suggestions are not available in this build.",
-        details: nil
-      ))
+      let args = call.arguments as? [String: Any] ?? [:]
+#if canImport(FoundationModels)
+      if #available(iOS 26.0, *) {
+        suggestTagsWithFoundationModels(arguments: args, result: result)
+      } else {
+        result(appleIntelligenceUnavailable("Foundation Models requires iOS 26 or later."))
+      }
+#else
+      result(appleIntelligenceUnavailable("Foundation Models is not available in this build."))
+#endif
     default:
       result(FlutterMethodNotImplemented)
     }
   }
+
+  private func appleIntelligenceUnavailable(_ message: String) -> FlutterError {
+    FlutterError(
+      code: "apple_intelligence_unavailable",
+      message: message,
+      details: nil
+    )
+  }
+
+#if canImport(FoundationModels)
+  @available(iOS 26.0, *)
+  private func suggestTagsWithFoundationModels(
+    arguments: [String: Any],
+    result: @escaping FlutterResult
+  ) {
+    Task {
+      do {
+        let tags = try await generateFoundationModelTags(arguments: arguments)
+        DispatchQueue.main.async {
+          result([
+            "tags": tags,
+            "source": "apple_intelligence",
+            "usedAppleIntelligence": true
+          ])
+        }
+      } catch {
+        DispatchQueue.main.async {
+          result(FlutterError(
+            code: "apple_intelligence_unavailable",
+            message: "\(error)",
+            details: nil
+          ))
+        }
+      }
+    }
+  }
+
+  @available(iOS 26.0, *)
+  private func generateFoundationModelTags(arguments: [String: Any]) async throws -> [String] {
+    let title = arguments["title"] as? String ?? ""
+    let body = arguments["body"] as? String ?? ""
+    let existingTags = arguments["existingTags"] as? [String] ?? []
+    let knownTags = arguments["knownTags"] as? [String] ?? []
+    let attachmentLabels = arguments["attachmentLabels"] as? [String] ?? []
+
+    let model = SystemLanguageModel.default
+    guard case .available = model.availability else {
+      throw NSError(
+        domain: "HiMemoAppleIntelligence",
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "Apple Intelligence is not available: \(model.availability)"]
+      )
+    }
+
+    let instructions = """
+    You suggest concise memo tags. Infer topics from context instead of copying arbitrary words.
+    Prefer the language of the memo. Return only tags that are useful for future filtering.
+    Do not include tags already present in the memo.
+    """
+    let session = LanguageModelSession(model: model, instructions: instructions)
+    let prompt = """
+    Suggest up to 5 short tags for this memo.
+    Return a JSON array of strings only, with no markdown and no explanation.
+
+    Existing tags:
+    \(existingTags.joined(separator: ", "))
+
+    Known tags that may be reused when relevant:
+    \(knownTags.prefix(80).joined(separator: ", "))
+
+    Attachment labels:
+    \(attachmentLabels.prefix(20).joined(separator: ", "))
+
+    Title:
+    \(title)
+
+    Body:
+    \(body.prefix(4000))
+    """
+    let response = try await session.respond(to: prompt)
+    return sanitizeFoundationModelTags(
+      rawText: response.content,
+      existingTags: existingTags
+    )
+  }
+
+  private func sanitizeFoundationModelTags(rawText: String, existingTags: [String]) -> [String] {
+    let existing = Set(existingTags.map { canonicalTag($0) }.filter { !$0.isEmpty })
+    var rawTags: [String] = []
+    if let data = rawText.data(using: .utf8),
+       let decoded = try? JSONSerialization.jsonObject(with: data) as? [Any] {
+      rawTags = decoded.compactMap { $0 as? String }
+    } else {
+      rawTags = rawText
+        .replacingOccurrences(of: "[", with: "")
+        .replacingOccurrences(of: "]", with: "")
+        .replacingOccurrences(of: "\"", with: "")
+        .components(separatedBy: CharacterSet(charactersIn: ",\n"))
+    }
+
+    var seen = Set<String>()
+    var tags: [String] = []
+    for raw in rawTags {
+      let tag = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+      let canonical = canonicalTag(tag)
+      if tag.isEmpty || canonical.isEmpty || existing.contains(canonical) || !seen.insert(canonical).inserted {
+        continue
+      }
+      tags.append(String(tag.prefix(24)))
+      if tags.count >= 5 {
+        break
+      }
+    }
+    return tags
+  }
+
+  private func canonicalTag(_ tag: String) -> String {
+    tag
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+      .replacingOccurrences(of: "#", with: "")
+      .replacingOccurrences(of: " ", with: "")
+      .replacingOccurrences(of: "_", with: "")
+      .replacingOccurrences(of: "-", with: "")
+  }
+#endif
 
   private func handleSpotlightMethod(call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
