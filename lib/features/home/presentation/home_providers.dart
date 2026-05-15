@@ -660,6 +660,7 @@ class MediaImportResult {
     this.attachments = const <NoteAttachment>[],
     this.errorMessage,
     required this.wasCancelled,
+    this.deferredPreviews = const <String, Future<String?>>{},
   });
 
   const MediaImportResult.success(NoteAttachment attachment)
@@ -668,6 +669,25 @@ class MediaImportResult {
         attachments: const <NoteAttachment>[],
         wasCancelled: false,
       );
+
+  MediaImportResult.successWithDeferredPreview(
+    NoteAttachment attachment, {
+    required Map<String, Future<String?>> deferredPreviews,
+  }) : this._(
+         attachment: attachment,
+         attachments: const <NoteAttachment>[],
+         wasCancelled: false,
+         deferredPreviews: deferredPreviews,
+       );
+
+  MediaImportResult.successManyWithDeferredPreviews(
+    List<NoteAttachment> attachments, {
+    required Map<String, Future<String?>> deferredPreviews,
+  }) : this._(
+         attachments: attachments,
+         wasCancelled: false,
+         deferredPreviews: deferredPreviews,
+       );
 
   const MediaImportResult.successMany(List<NoteAttachment> attachments)
     : this._(attachments: attachments, wasCancelled: false);
@@ -683,6 +703,9 @@ class MediaImportResult {
   final String? errorMessage;
   final bool wasCancelled;
 
+  /// Keyed by attachment filePath; value resolves to preview base64.
+  final Map<String, Future<String?>> deferredPreviews;
+
   List<NoteAttachment> get allAttachments {
     if (attachments.isNotEmpty) {
       return attachments;
@@ -691,6 +714,8 @@ class MediaImportResult {
     return single == null ? const <NoteAttachment>[] : <NoteAttachment>[single];
   }
 }
+
+const _deferredVideoPreviewThresholdBytes = 32 * 1024 * 1024;
 
 Future<int?> _mediaDurationMs({
   required AttachmentType type,
@@ -1532,9 +1557,9 @@ class DefaultMediaImportService implements MediaImportService {
     if (tooLarge != null) {
       return tooLarge;
     }
-    return MediaImportResult.success(
-      await _buildAttachment(type: AttachmentType.photo, sourceFile: picked),
-    );
+    final result =
+        await _buildAttachment(type: AttachmentType.photo, sourceFile: picked);
+    return MediaImportResult.success(result.attachment);
   }
 
   Future<MediaImportResult> _pickVideo(
@@ -1582,9 +1607,15 @@ class DefaultMediaImportService implements MediaImportService {
       return tooLarge;
     }
     try {
-      return MediaImportResult.success(
-        await _buildAttachment(type: AttachmentType.video, sourceFile: picked),
-      );
+      final result =
+          await _buildAttachment(type: AttachmentType.video, sourceFile: picked);
+      if (result.deferredPreview != null) {
+        return MediaImportResult.successWithDeferredPreview(
+          result.attachment,
+          deferredPreviews: {result.attachment.filePath!: result.deferredPreview!},
+        );
+      }
+      return MediaImportResult.success(result.attachment);
     } catch (error) {
       return MediaImportResult.failure(
         'The recorded video could not be attached on this device. ($error)',
@@ -1648,6 +1679,7 @@ class DefaultMediaImportService implements MediaImportService {
 
     onProcessingStarted?.call();
     final attachments = <NoteAttachment>[];
+    final deferredPreviews = <String, Future<String?>>{};
     for (final file in result.files) {
       final sourceFile = _xFileFromPlatformFile(file);
       if (sourceFile == null) {
@@ -1665,8 +1697,23 @@ class DefaultMediaImportService implements MediaImportService {
       if (tooLarge != null) {
         return tooLarge;
       }
-      attachments.add(
-        await _buildAttachment(type: type, sourceFile: sourceFile),
+      final built =
+          await _buildAttachment(type: type, sourceFile: sourceFile);
+      attachments.add(built.attachment);
+      if (built.deferredPreview != null && built.attachment.filePath != null) {
+        deferredPreviews[built.attachment.filePath!] = built.deferredPreview!;
+      }
+    }
+    if (deferredPreviews.isNotEmpty) {
+      if (attachments.length == 1) {
+        return MediaImportResult.successWithDeferredPreview(
+          attachments.single,
+          deferredPreviews: deferredPreviews,
+        );
+      }
+      return MediaImportResult.successManyWithDeferredPreviews(
+        attachments,
+        deferredPreviews: deferredPreviews,
       );
     }
     if (attachments.length == 1) {
@@ -1741,12 +1788,11 @@ class DefaultMediaImportService implements MediaImportService {
     if (tooLarge != null) {
       return tooLarge;
     }
-    return MediaImportResult.success(
-      await _buildAttachment(
-        type: AttachmentType.audio,
-        sourceFile: sourceFile,
-      ),
+    final built = await _buildAttachment(
+      type: AttachmentType.audio,
+      sourceFile: sourceFile,
     );
+    return MediaImportResult.success(built.attachment);
   }
 
   Future<MediaImportResult> _pickFile({
@@ -1796,12 +1842,13 @@ class DefaultMediaImportService implements MediaImportService {
     if (tooLarge != null) {
       return tooLarge;
     }
-    return MediaImportResult.success(
-      await _buildAttachment(type: AttachmentType.file, sourceFile: sourceFile),
-    );
+    final built =
+        await _buildAttachment(type: AttachmentType.file, sourceFile: sourceFile);
+    return MediaImportResult.success(built.attachment);
   }
 
-  Future<NoteAttachment> _buildAttachment({
+  Future<({NoteAttachment attachment, Future<String?>? deferredPreview})>
+      _buildAttachment({
     required AttachmentType type,
     required XFile sourceFile,
   }) async {
@@ -1809,21 +1856,36 @@ class DefaultMediaImportService implements MediaImportService {
       type: type,
       sourceFile: sourceFile,
     );
-    final previewBytesBase64 = type == AttachmentType.video
-        ? await _videoPreviewBytesBase64ForSourceFile(sourceFile)
-        : null;
+    String? previewBytesBase64;
+    Future<String?>? deferredPreview;
+    if (type == AttachmentType.video) {
+      int? sourceBytes;
+      try {
+        sourceBytes = await sourceFile.length();
+      } catch (_) {}
+      if (sourceBytes != null &&
+          sourceBytes > _deferredVideoPreviewThresholdBytes) {
+        deferredPreview = _videoPreviewBytesBase64ForSourceFile(sourceFile);
+      } else {
+        previewBytesBase64 =
+            await _videoPreviewBytesBase64ForSourceFile(sourceFile);
+      }
+    }
     final storedPath = await _attachmentStore.storeAttachment(
       sourceFile,
       type: type,
     );
-    return NoteAttachment(
-      type: type,
-      label: sourceFile.name.isEmpty
-          ? path.basename(sourceFile.path)
-          : sourceFile.name,
-      filePath: storedPath,
-      previewBytesBase64: previewBytesBase64,
-      durationMs: durationMs,
+    return (
+      attachment: NoteAttachment(
+        type: type,
+        label: sourceFile.name.isEmpty
+            ? path.basename(sourceFile.path)
+            : sourceFile.name,
+        filePath: storedPath,
+        previewBytesBase64: previewBytesBase64,
+        durationMs: durationMs,
+      ),
+      deferredPreview: deferredPreview,
     );
   }
 
@@ -2335,16 +2397,18 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       var remoteStatus = state.remoteStatus;
       if (remoteStatus == null &&
           _supportsRemoteTransport(ref.read(syncProviderControllerProvider))) {
-        remoteStatus = await runFirebaseTrace(
-          'sync_large_mobile_remote_status',
-          _fetchLatestRemoteStatus,
-        );
-        if (remoteStatus != null) {
-          await ref
-              .read(syncBundleStateStoreProvider)
-              .recordRemoteStatus(remoteStatus);
+        final bundleState = await ref.read(syncBundleStateProvider.future);
+        if (bundleState.lastRemoteFileId != null &&
+            bundleState.lastRemoteFileId!.isNotEmpty) {
+          remoteStatus = RemoteSyncBundleStatus(
+            fileId: bundleState.lastRemoteFileId!,
+            fileName: '',
+            modifiedAt: bundleState.lastRemoteModifiedAt,
+            deviceId: bundleState.lastRemoteDeviceId,
+          );
           state = state.copyWith(remoteStatus: remoteStatus);
         }
+        unawaited(_refreshRemoteStatusInBackground());
       }
       final remoteSize = remoteStatus?.sizeBytes;
       final bundleState = await ref.read(syncBundleStateProvider.future);
@@ -4133,6 +4197,18 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       ),
       SyncProvider.off => Future.value(null),
     };
+  }
+
+  Future<void> _refreshRemoteStatusInBackground() async {
+    try {
+      final remoteStatus = await _fetchLatestRemoteStatus();
+      if (remoteStatus != null) {
+        await ref
+            .read(syncBundleStateStoreProvider)
+            .recordRemoteStatus(remoteStatus);
+        state = state.copyWith(remoteStatus: remoteStatus);
+      }
+    } catch (_) {}
   }
 
   Future<List<RemoteSyncBundleStatus>> _listRemoteHistory() {
@@ -7697,6 +7773,7 @@ class NotesController extends _$NotesController {
     final now = DateTime.now();
     final content = _splitExternalCaptureText(text, validFiles);
     final attachments = <NoteAttachment>[];
+    final deferredPreviews = <String, Future<String?>>{};
     final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
     for (final file in validFiles) {
       final attachmentType = file.attachmentType;
@@ -7716,22 +7793,37 @@ class NotesController extends _$NotesController {
         type: attachmentType,
         sourceFile: sourceFile,
       );
-      final previewBytesBase64 = attachmentType == AttachmentType.video
-          ? await _videoPreviewBytesBase64ForSourceFile(sourceFile)
-          : null;
-      attachments.add(
-        NoteAttachment(
-          type: attachmentType,
-          label: sourceFile.name,
-          filePath: storedPath,
-          previewBytesBase64: previewBytesBase64,
-          durationMs: durationMs,
-        ),
+      String? previewBytesBase64;
+      Future<String?>? deferredPreview;
+      if (attachmentType == AttachmentType.video) {
+        int? sourceBytes;
+        try {
+          sourceBytes = await sourceFile.length();
+        } catch (_) {}
+        if (sourceBytes != null &&
+            sourceBytes > _deferredVideoPreviewThresholdBytes) {
+          deferredPreview = _videoPreviewBytesBase64ForSourceFile(sourceFile);
+        } else {
+          previewBytesBase64 =
+              await _videoPreviewBytesBase64ForSourceFile(sourceFile);
+        }
+      }
+      final attachment = NoteAttachment(
+        type: attachmentType,
+        label: sourceFile.name,
+        filePath: storedPath,
+        previewBytesBase64: previewBytesBase64,
+        durationMs: durationMs,
       );
+      attachments.add(attachment);
+      if (deferredPreview != null && storedPath != null) {
+        deferredPreviews[storedPath] = deferredPreview;
+      }
     }
+    final noteId = now.microsecondsSinceEpoch.toString();
     await upsert(
       NoteEntry(
-        id: now.microsecondsSinceEpoch.toString(),
+        id: noteId,
         vaultId: 'everyday',
         title: content.title,
         body: content.body,
@@ -7753,6 +7845,52 @@ class NotesController extends _$NotesController {
             ),
         ],
         editorMode: NoteEditorMode.quick,
+      ),
+    );
+    if (deferredPreviews.isNotEmpty) {
+      unawaited(_applyDeferredPreviewsToNote(noteId, deferredPreviews));
+    }
+  }
+
+  Future<void> _applyDeferredPreviewsToNote(
+    String noteId,
+    Map<String, Future<String?>> deferredPreviews,
+  ) async {
+    final resolved = <String, String>{};
+    for (final entry in deferredPreviews.entries) {
+      try {
+        final preview = await entry.value;
+        if (preview != null) {
+          resolved[entry.key] = preview;
+        }
+      } catch (_) {}
+    }
+    if (resolved.isEmpty) {
+      return;
+    }
+    final note = state.cast<NoteEntry?>().firstWhere(
+      (n) => n?.id == noteId,
+      orElse: () => null,
+    );
+    if (note == null) {
+      return;
+    }
+    NoteAttachment applyPreview(NoteAttachment a) {
+      final preview = a.filePath != null ? resolved[a.filePath] : null;
+      return preview != null
+          ? a.copyWith(previewBytesBase64: preview)
+          : a;
+    }
+    await upsert(
+      note.copyWith(
+        attachments: note.attachments.map(applyPreview).toList(),
+        blocks: note.blocks
+            .map(
+              (b) => b.attachment != null
+                  ? b.copyWith(attachment: applyPreview(b.attachment!))
+                  : b,
+            )
+            .toList(),
       ),
     );
   }
