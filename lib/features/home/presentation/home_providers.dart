@@ -2866,7 +2866,55 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         hashes.add(contentHash);
       }
     }
+    for (final rawEntry
+        in (decoded['notes'] as List<dynamic>? ?? const <dynamic>[])) {
+      if (rawEntry is! Map) {
+        continue;
+      }
+      final rawNote = rawEntry['note'];
+      if (rawNote is! Map) {
+        continue;
+      }
+      hashes.addAll(_remoteAttachmentHashesInNoteJson(rawNote));
+    }
     return hashes;
+  }
+
+  Set<String> _remoteAttachmentHashesInNoteJson(Map rawNote) {
+    final hashes = <String>{};
+
+    void addFromAttachmentJson(Object? rawAttachment) {
+      if (rawAttachment is! Map) {
+        return;
+      }
+      final filePath = rawAttachment['filePath'] as String?;
+      final contentHash = _remoteAttachmentHashFromRef(filePath);
+      if (contentHash != null) {
+        hashes.add(contentHash);
+      }
+    }
+
+    for (final rawAttachment
+        in (rawNote['attachments'] as List<dynamic>? ?? const <dynamic>[])) {
+      addFromAttachmentJson(rawAttachment);
+    }
+    for (final rawBlock
+        in (rawNote['blocks'] as List<dynamic>? ?? const <dynamic>[])) {
+      if (rawBlock is! Map) {
+        continue;
+      }
+      addFromAttachmentJson(rawBlock['attachment']);
+    }
+    return hashes;
+  }
+
+  String? _remoteAttachmentHashFromRef(String? filePath) {
+    const prefix = 'sync-attachment-object://';
+    if (filePath == null || !filePath.startsWith(prefix)) {
+      return null;
+    }
+    final contentHash = filePath.substring(prefix.length);
+    return contentHash.isEmpty ? null : contentHash;
   }
 
   Future<void> uploadCurrentBundle({

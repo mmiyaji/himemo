@@ -232,6 +232,17 @@ class SyncEngine {
         if (filePath == null || filePath.isEmpty) {
           return attachment.copyWith(filePath: null, previewBytesBase64: null);
         }
+        if (_isRemoteSyncAttachmentObjectRef(filePath)) {
+          preparedAttachmentCount += 1;
+          await onProgress?.call(
+            SyncSnapshotPreparationProgress(
+              detail: 'Prepared attachment',
+              completedItems: preparedAttachmentCount,
+              totalItems: totalAttachments,
+            ),
+          );
+          return attachment;
+        }
         if (attachmentIdsByPath[filePath] case final existingId?) {
           preparedAttachmentCount += 1;
           await onProgress?.call(
@@ -419,6 +430,10 @@ class SyncEngine {
       lastQueuedAt: lastQueuedAt,
     );
   }
+}
+
+bool _isRemoteSyncAttachmentObjectRef(String filePath) {
+  return filePath.startsWith('sync-attachment-object://');
 }
 
 Future<Map<String, String>> _encodeSyncAttachmentBytes(List<int> bytes) {

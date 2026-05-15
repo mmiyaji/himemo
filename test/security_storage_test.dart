@@ -1675,6 +1675,80 @@ void main() {
   );
 
   test(
+    'SyncEngine preserves remote attachment object refs without local reads',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-engine-remote-ref-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(44));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final attachmentStore = EncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+      final engine = SyncEngine(
+        database: database,
+        attachmentStore: attachmentStore,
+        deviceIdentityStore: DeviceIdentityStore(
+          sharedPreferencesProvider: SharedPreferences.getInstance,
+          random: Random(45),
+        ),
+      );
+      const remoteRef =
+          'sync-attachment-object://513e1430ad6bd63eba1ec515317dac8dec689c74d8dd409012b448093cb64cfa';
+      final queuedAt = DateTime(2026, 5, 15, 23, 45);
+      final note = NoteEntry(
+        id: 'remote-ref-note',
+        vaultId: 'everyday',
+        title: 'Remote video',
+        body: 'Edited after deferred download.',
+        createdAt: queuedAt,
+        updatedAt: queuedAt.add(const Duration(minutes: 1)),
+        revision: 3,
+        syncState: NoteSyncState.pendingUpload,
+        attachments: const [
+          NoteAttachment(
+            type: AttachmentType.video,
+            label: 'IMG_5470.mov',
+            filePath: remoteRef,
+          ),
+        ],
+      );
+
+      final snapshot = await engine.prepareSnapshot(
+        [note],
+        pendingChanges: [
+          PendingNoteChangeRecord(
+            noteId: note.id,
+            vaultId: note.vaultId,
+            revision: note.revision,
+            action: PendingNoteChangeAction.upsert,
+            queuedAt: queuedAt,
+            contentHash: note.contentHash,
+          ),
+        ],
+      );
+
+      expect(snapshot.notes, hasLength(1));
+      expect(snapshot.notes.single.note.attachments.single.filePath, remoteRef);
+      expect(snapshot.attachments, isEmpty);
+
+      await database.close();
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
     'SyncEngine blocks upload snapshots when pending attachments are missing',
     () async {
       SharedPreferences.setMockInitialValues({});

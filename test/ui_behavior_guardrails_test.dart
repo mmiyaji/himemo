@@ -649,6 +649,10 @@ void main() {
     expect(homeProviders, contains('_decodeSyncAttachmentBytes'));
     expect(homeProviders, contains('Uploading attachment'));
     expect(homeProviders, contains('Applying attachment'));
+    expect(homeProviders, contains('_remoteAttachmentHashesInNoteJson'));
+    expect(homeProviders, contains('_remoteAttachmentHashFromRef'));
+    expect(homeProviders, contains("rawBlock['attachment']"));
+    expect(syncEngine, contains('_isRemoteSyncAttachmentObjectRef'));
     expect(
       homeProviders,
       isNot(contains('math.min(3, pendingUploads.length)')),
