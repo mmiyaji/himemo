@@ -657,14 +657,14 @@ class _PrivateProfileAccessIcon extends StatelessWidget {
   final double size;
   final Color? color;
 
-  String get _assetPath {
+  IconData get _icon {
     switch (kind) {
       case _PrivateProfileAccessIconKind.locked:
-        return 'assets/settings/private-lock.svg';
+        return Icons.lock_outline;
       case _PrivateProfileAccessIconKind.unlocked:
-        return 'assets/settings/private-unlock.svg';
+        return Icons.lock_open_outlined;
       case _PrivateProfileAccessIconKind.admin:
-        return 'assets/settings/private-admin.svg';
+        return Icons.admin_panel_settings_outlined;
     }
   }
 
@@ -675,12 +675,7 @@ class _PrivateProfileAccessIcon extends StatelessWidget {
         IconTheme.of(context).color ??
         Theme.of(context).colorScheme.onSurface;
 
-    return SvgPicture.asset(
-      _assetPath,
-      width: size,
-      height: size,
-      colorFilter: ColorFilter.mode(effectiveColor, BlendMode.srcIn),
-    );
+    return Icon(_icon, size: size, color: effectiveColor);
   }
 }
 
@@ -3656,6 +3651,22 @@ class SettingsScreen extends ConsumerWidget {
     final currentModeLabel = activeIdentity == 'daily'
         ? (strings.text('home.normal.memo.mode'))
         : ref.watch(activeIdentityDataProvider).name;
+    final currentProfileLabel = adminMode
+        ? strings.adminModeActiveLabel
+        : (activePrivateProfileLabel ??
+              strings.localized(
+                en: 'Normal notes',
+                ja: '通常メモ',
+                zh: '普通备忘录',
+                ko: '일반 메모',
+                es: 'Notas normales',
+                de: 'Normale Notizen',
+              ));
+    final currentProfileIcon = adminMode
+        ? Icons.admin_panel_settings_outlined
+        : (activePrivateProfileLabel != null
+              ? Icons.lock_open_outlined
+              : Icons.lock_outline);
     final lockSummary = !appLockEnabled
         ? (strings.text(
             'home.off.turning.this.on.asks.for.a.password.or.device.authen',
@@ -3773,28 +3784,42 @@ class SettingsScreen extends ConsumerWidget {
         _SettingsOverviewCard(
           items: [
             _SettingsOverviewItem(
-              label: strings.text('home.mode'),
-              value: currentModeLabel,
-              icon: Icons.vpn_key_rounded,
+              label: strings.localized(
+                en: 'Profile',
+                ja: 'プロファイル',
+                zh: '配置文件',
+                ko: '프로필',
+                es: 'Perfil',
+                de: 'Profil',
+              ),
+              value: currentProfileLabel,
+              icon: currentProfileIcon,
             ),
             _SettingsOverviewItem(
-              label: strings.text('home.unlock'),
+              label: strings.localized(
+                en: 'App lock',
+                ja: 'アプリ保護',
+                zh: '应用锁',
+                ko: '앱 잠금',
+                es: 'Bloqueo de app',
+                de: 'App-Sperre',
+              ),
               value: appLockEnabled
                   ? (strings.text('home.enabled'))
                   : (strings.text('home.disabled')),
-              icon: Icons.shield_rounded,
+              icon: Icons.enhanced_encryption_outlined,
             ),
             _SettingsOverviewItem(
               label: strings.syncLabel,
               value: syncProvider == SyncProvider.off
                   ? (strings.text('home.off'))
                   : (strings.text('home.configured')),
-              icon: Icons.sync_rounded,
+              icon: Icons.sync_outlined,
             ),
             _SettingsOverviewItem(
               label: strings.text('home.theme'),
               value: _themeModeLabel(context, activeThemeMode),
-              icon: Icons.palette_rounded,
+              icon: Icons.palette_outlined,
             ),
           ],
         ),
@@ -3823,7 +3848,7 @@ class SettingsScreen extends ConsumerWidget {
             de: 'Notiz-Einstellungen',
           ),
           summary: memoSettingsSummary,
-          icon: Icons.palette_rounded,
+          icon: Icons.edit_note_outlined,
           semanticLabel: 'settings-memo',
           children: [
             ListTile(
@@ -4165,7 +4190,7 @@ class SettingsScreen extends ConsumerWidget {
                         activePrivateProfileLabel,
                       )
                     : strings.privateProfilesSettingsDefaultSummary),
-          icon: Icons.shield_rounded,
+          icon: Icons.key_outlined,
           children: [
             Text(
               strings.privateProfilesSettingsBody,
@@ -4269,7 +4294,7 @@ class SettingsScreen extends ConsumerWidget {
           _SettingsGroup(
             title: strings.text('home.access.modes'),
             summary: strings.accessModeSummary(currentModeLabel),
-            icon: Icons.vpn_key_rounded,
+            icon: Icons.vpn_key_outlined,
             children: [
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -4336,7 +4361,7 @@ class SettingsScreen extends ConsumerWidget {
         _SettingsGroup(
           title: strings.text('home.app.security'),
           summary: lockSummary,
-          icon: Icons.shield_rounded,
+          icon: Icons.enhanced_encryption_outlined,
           children: [
             SwitchListTile.adaptive(
               key: appLockToggleKey,
@@ -4731,7 +4756,7 @@ class SettingsScreen extends ConsumerWidget {
                   'home.widget.quick.writes.are.allowed.while.the.app.is.locked',
                 ))
               : (strings.text('home.widget.quick.writes.are.off')),
-          icon: Icons.storage_rounded,
+          icon: Icons.quickreply_outlined,
           children: [
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
@@ -4764,7 +4789,7 @@ class SettingsScreen extends ConsumerWidget {
                       ? (strings.text('home.configured.and.currently.unlocked'))
                       : (strings.text('home.configured.and.locked')))
                 : (strings.text('home.no.private.vault.key.has.been.set.yet')),
-            icon: Icons.shield_rounded,
+            icon: Icons.shield_outlined,
             children: [
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -4823,7 +4848,7 @@ class SettingsScreen extends ConsumerWidget {
         _SettingsGroup(
           title: strings.text('home.backup.and.sync'),
           summary: syncSummary,
-          icon: Icons.sync_rounded,
+          icon: Icons.sync_outlined,
           children: [
             if (syncConflictWarning != null)
               Container(
@@ -6057,7 +6082,7 @@ class SettingsScreen extends ConsumerWidget {
         _SettingsGroup(
           title: strings.text('home.storage'),
           summary: strings.noteCountSummary(noteCount),
-          icon: Icons.storage_rounded,
+          icon: Icons.storage_outlined,
           children: [
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -6238,7 +6263,7 @@ class SettingsScreen extends ConsumerWidget {
         _SettingsGroup(
           title: strings.about,
           summary: aboutSummary,
-          icon: Icons.info_rounded,
+          icon: Icons.info_outlined,
           children: [
             if (showFlavorInfo)
               ListTile(
@@ -6402,7 +6427,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const _SettingsListIcon(icon: Icons.email_rounded),
+              leading: const _SettingsListIcon(icon: Icons.email_outlined),
               title: Text(strings.contact),
               subtitle: Text(strings.contactDesc),
               trailing: const Icon(Icons.open_in_new_rounded, size: 18),
@@ -6411,7 +6436,9 @@ class SettingsScreen extends ConsumerWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const _SettingsListIcon(icon: Icons.help_rounded),
+              leading: const _SettingsListIcon(
+                icon: Icons.help_outline_outlined,
+              ),
               title: Text(strings.help),
               subtitle: Text(strings.helpDesc),
               trailing: const Icon(Icons.open_in_new_rounded, size: 18),
@@ -6489,7 +6516,7 @@ class SettingsScreen extends ConsumerWidget {
         es: '${entries.length} entradas. Se registran pasos de sincronizacion y llamadas CloudKit.',
         de: '${entries.length} Eintraege. Synchronisierungsschritte und CloudKit-Aufrufe werden protokolliert.',
       ),
-      icon: Icons.storage_rounded,
+      icon: Icons.storage_outlined,
       children: [
         Text(
           strings.localized(
@@ -6675,23 +6702,23 @@ class SettingsScreen extends ConsumerWidget {
         de: 'Audit logs',
       ),
       summary: strings.localized(
-        en: '${entries.length} entries. Admin sign-ins, profile use, and note changes are recorded separately from diagnostic logs.',
-        ja: '${entries.length}件。管理者ログイン、プロファイル利用、ノート変更を診断ログとは別に記録します。',
-        zh: '${entries.length} entries. Admin sign-ins, profile use, and note changes are recorded separately from diagnostic logs.',
-        ko: '${entries.length} entries. Admin sign-ins, profile use, and note changes are recorded separately from diagnostic logs.',
-        es: '${entries.length} entries. Admin sign-ins, profile use, and note changes are recorded separately from diagnostic logs.',
-        de: '${entries.length} entries. Admin sign-ins, profile use, and note changes are recorded separately from diagnostic logs.',
+        en: '${entries.length} entries. Admin access, profile access, and note operations are recorded on this device.',
+        ja: '${entries.length}件。管理者アクセス、プロファイル利用、ノート操作をこの端末に記録します。',
+        zh: '${entries.length} entries. Admin access, profile access, and note operations are recorded on this device.',
+        ko: '${entries.length} entries. Admin access, profile access, and note operations are recorded on this device.',
+        es: '${entries.length} entries. Admin access, profile access, and note operations are recorded on this device.',
+        de: '${entries.length} entries. Admin access, profile access, and note operations are recorded on this device.',
       ),
-      icon: Icons.shield_rounded,
+      icon: Icons.admin_panel_settings_outlined,
       children: [
         Text(
           strings.localized(
-            en: 'Audit logs are always kept locally. They include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
-            ja: '監査ログは端末内に常時保存されます。イベント種別、プロファイル/保管庫ID、ノートID、リビジョン、添付数、時刻を含みますが、ノート本文や添付データは含めません。',
-            zh: 'Audit logs are always kept locally. They include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
-            ko: 'Audit logs are always kept locally. They include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
-            es: 'Audit logs are always kept locally. They include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
-            de: 'Audit logs are always kept locally. They include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
+            en: 'Stored locally, up to the latest 2,000 entries. Older entries are removed automatically. Logs include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
+            ja: 'この端末に最新2,000件まで保存します。上限を超えた古い記録は自動的に削除されます。記録には操作種別、プロファイル/保管庫ID、ノートID、リビジョン、添付数、時刻が含まれますが、ノート本文や添付データは含みません。',
+            zh: 'Stored locally, up to the latest 2,000 entries. Older entries are removed automatically. Logs include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
+            ko: 'Stored locally, up to the latest 2,000 entries. Older entries are removed automatically. Logs include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
+            es: 'Stored locally, up to the latest 2,000 entries. Older entries are removed automatically. Logs include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
+            de: 'Stored locally, up to the latest 2,000 entries. Older entries are removed automatically. Logs include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
           ),
           style: Theme.of(
             context,
@@ -7056,7 +7083,7 @@ class SettingsScreen extends ConsumerWidget {
     return _SettingsGroup(
       title: strings.appearanceWithControls,
       summary: appearanceSummary,
-      icon: Icons.palette_rounded,
+      icon: Icons.palette_outlined,
       semanticLabel: 'settings-appearance',
       children: [
         Padding(

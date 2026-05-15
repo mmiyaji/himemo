@@ -175,37 +175,24 @@ void main() {
     expect(createNoteIcon, contains('#9F5261'));
   });
 
-  test('private profile access action uses unified Lucide SVG icons', () {
+  test('private profile access action uses Material icons', () {
     final homePage = File(
       'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
-    final privateLockIcon = File(
-      'assets/settings/private-lock.svg',
-    ).readAsStringSync();
-    final privateUnlockIcon = File(
-      'assets/settings/private-unlock.svg',
-    ).readAsStringSync();
-    final privateAdminIcon = File(
-      'assets/settings/private-admin.svg',
     ).readAsStringSync();
 
     expect(homePage, contains('class _PrivateProfileAccessIcon'));
     expect(homePage, contains('_PrivateProfileAccessIconKind.locked'));
     expect(homePage, contains('_PrivateProfileAccessIconKind.unlocked'));
     expect(homePage, contains('_PrivateProfileAccessIconKind.admin'));
-    expect(homePage, contains('assets/settings/private-lock.svg'));
-    expect(homePage, contains('assets/settings/private-unlock.svg'));
-    expect(homePage, contains('assets/settings/private-admin.svg'));
-    expect(homePage, contains('colorFilter: ColorFilter.mode'));
+    expect(homePage, contains('Icons.lock_outline'));
+    expect(homePage, contains('Icons.lock_open_outlined'));
+    expect(homePage, contains('Icons.admin_panel_settings_outlined'));
+    expect(homePage, isNot(contains('assets/settings/private-lock.svg')));
+    expect(homePage, isNot(contains('assets/settings/private-unlock.svg')));
+    expect(homePage, isNot(contains('assets/settings/private-admin.svg')));
     expect(homePage, contains('profileAccessPillLabel'));
     expect(homePage, contains('privateProfileActive || adminMode'));
     expect(homePage, contains('_PrivateProfileAccessIconKind.admin'));
-    expect(privateLockIcon, contains('lucide-static'));
-    expect(privateUnlockIcon, contains('lucide-static'));
-    expect(privateAdminIcon, contains('lucide-static'));
-    expect(privateLockIcon, contains('stroke-width="1.5"'));
-    expect(privateUnlockIcon, contains('stroke-width="1.5"'));
-    expect(privateAdminIcon, contains('stroke-width="1.5"'));
   });
 
   test('support links use distinct Material list icons', () {
@@ -214,8 +201,8 @@ void main() {
     ).readAsStringSync();
 
     expect(homePage, contains('class _SettingsListIcon'));
-    expect(homePage, contains('icon: Icons.email_rounded'));
-    expect(homePage, contains('icon: Icons.help_rounded'));
+    expect(homePage, contains('icon: Icons.email_outlined'));
+    expect(homePage, contains('icon: Icons.help_outline_outlined'));
     expect(homePage, isNot(contains("assets/settings/contact.svg")));
     expect(homePage, isNot(contains("assets/settings/help.svg")));
   });
@@ -231,6 +218,11 @@ void main() {
 
     expect(auditLog, contains('class AuditLogService'));
     expect(auditLog, contains('HiMemo audit log'));
+    expect(auditLog, contains('static const _maxEntries = 2000'));
+    expect(
+      auditLog,
+      contains('_entries.sublist(_entries.length - _maxEntries)'),
+    );
     expect(homeProviders, contains('AuditLogController'));
     expect(homeProviders, contains("'admin_mode_login'"));
     expect(homeProviders, contains("'profile_switch'"));
@@ -246,7 +238,12 @@ void main() {
     expect(homePage, contains('_AdminModeAuditNotice'));
     expect(homePage, contains('Admin mode can view every profile'));
     expect(homePage, contains('管理者モードでは全プロファイル'));
-    expect(homePage, contains('診断ログとは別に記録'));
+    expect(homePage, contains('up to the latest 2,000 entries'));
+    expect(homePage, contains('最新2,000件まで保存'));
+    expect(
+      homePage,
+      isNot(contains('recorded separately from diagnostic logs')),
+    );
   });
 
   test('tablet create note action lives at the bottom of the sidebar', () {
