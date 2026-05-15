@@ -197,6 +197,14 @@ String _localizedSyncProgressDetail(AppStrings strings, String detail) {
       en: 'Checking cloud attachments',
       ja: 'クラウド上の添付ファイルを確認中',
     ),
+    'Preparing attachment' => strings.localized(
+      en: 'Preparing attachments',
+      ja: '添付ファイルを準備中',
+    ),
+    'Prepared attachment' => strings.localized(
+      en: 'Prepared attachments',
+      ja: '添付ファイルを準備済み',
+    ),
     'Attachments already uploaded' => strings.localized(
       en: 'Attachments already uploaded',
       ja: '添付ファイルはアップロード済み',

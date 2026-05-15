@@ -1809,9 +1809,9 @@ Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
     );
     return null;
   }
-  late final List<int> bytes;
+  late final _DecodedRemoteAttachmentBytes decodedBytes;
   try {
-    bytes = base64Decode(bytesBase64);
+    decodedBytes = await _decodeRemoteAttachmentBytes(bytesBase64);
   } on FormatException catch (error) {
     _logAttachmentDisplayDiagnostic(
       attachment,
@@ -1821,7 +1821,8 @@ Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
     );
     return null;
   }
-  if (sha256.convert(bytes).toString() != contentHash) {
+  final bytes = decodedBytes.bytes;
+  if (decodedBytes.contentHash != contentHash) {
     _logAttachmentDisplayDiagnostic(
       attachment,
       'remote attachment object clear hash mismatch',
@@ -1841,6 +1842,40 @@ Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
     },
   );
   return bytes;
+}
+
+class _DecodedRemoteAttachmentBytes {
+  const _DecodedRemoteAttachmentBytes({
+    required this.bytes,
+    required this.contentHash,
+  });
+
+  final Uint8List bytes;
+  final String contentHash;
+}
+
+Future<_DecodedRemoteAttachmentBytes> _decodeRemoteAttachmentBytes(
+  String bytesBase64,
+) async {
+  if (kIsWeb || bytesBase64.length < 512 * 1024) {
+    final bytes = Uint8List.fromList(base64Decode(bytesBase64));
+    return _DecodedRemoteAttachmentBytes(
+      bytes: bytes,
+      contentHash: sha256.convert(bytes).toString(),
+    );
+  }
+  final result = await Isolate.run(() {
+    final bytes = Uint8List.fromList(base64Decode(bytesBase64));
+    return <String, Object>{
+      'bytes': TransferableTypedData.fromList([bytes]),
+      'contentHash': sha256.convert(bytes).toString(),
+    };
+  });
+  final transferable = result['bytes']! as TransferableTypedData;
+  return _DecodedRemoteAttachmentBytes(
+    bytes: transferable.materialize().asUint8List(),
+    contentHash: result['contentHash']! as String,
+  );
 }
 
 Future<List<int>?> _readPhotoAttachmentDetailBytes(

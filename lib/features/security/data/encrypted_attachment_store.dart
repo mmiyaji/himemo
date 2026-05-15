@@ -114,10 +114,10 @@ class EncryptedAttachmentStore {
     if (key == null) {
       throw StateError('Attachment key is unavailable for $vaultId.');
     }
-    return _encryptionService.encryptBytes(
-      clearBytes: bytes,
-      secretKey: key,
-      additionalData: _aad(type),
+    return _encryptAttachmentBytesForStorage(
+      bytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+      key: key,
+      type: type,
     );
   }
 
@@ -241,10 +241,10 @@ class EncryptedAttachmentStore {
     if (key == null) {
       throw StateError('Attachment key is unavailable for $vaultId.');
     }
-    final encrypted = await _encryptionService.encryptBytes(
-      clearBytes: bytes,
-      secretKey: key,
-      additionalData: _aad(type),
+    final encrypted = await _encryptAttachmentBytesForStorage(
+      bytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+      key: key,
+      type: type,
     );
     await _writePayload(storedReference, encrypted);
     final prefs = await _sharedPreferencesProvider();
@@ -371,6 +371,34 @@ class EncryptedAttachmentStore {
   }) async {
     final bytes = await readAttachment(storedReference, type: type);
     return bytes?.length;
+  }
+
+  Future<int?> estimateStoredAttachmentPayloadBytes(
+    String storedReference,
+  ) async {
+    if (storedReference.startsWith(webPrefix)) {
+      final id = storedReference.substring(webPrefix.length);
+      final prefs = await _sharedPreferencesProvider();
+      final stored = prefs.getString('$webStoragePrefix$id');
+      if (stored == null) {
+        return null;
+      }
+      if (stored.startsWith(_webIndexedDbMarker)) {
+        final payload = await _webPayloadStore.get(
+          stored.substring(_webIndexedDbMarker.length),
+        );
+        return payload?.length;
+      }
+      return stored.length;
+    }
+    if (kIsWeb) {
+      return null;
+    }
+    final file = await _resolveStoredFile(storedReference);
+    if (!await file.exists()) {
+      return null;
+    }
+    return file.length();
   }
 
   Future<Map<String, Object?>> storedPayloadDiagnostics(

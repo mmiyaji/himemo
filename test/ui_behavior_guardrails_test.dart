@@ -555,6 +555,8 @@ void main() {
     expect(attachmentStore, contains('Isolate.run'));
     expect(attachmentStore, contains('_decryptAttachmentBytesFromStorage'));
     expect(attachmentStore, contains('_decryptAttachmentPayload'));
+    expect(attachmentStore, contains('estimateStoredAttachmentPayloadBytes'));
+    expect(homePage, contains('_decodeRemoteAttachmentBytes'));
   });
 
   test('attachment diagnostics include image byte signatures', () {
@@ -599,6 +601,8 @@ void main() {
     expect(syncEngine, contains('TransferableTypedData.fromList'));
     expect(syncEngine, contains('Isolate.run'));
     expect(syncEngine, contains('_base64EncodedLength'));
+    expect(syncEngine, contains('SyncSnapshotPreparationProgress'));
+    expect(syncEngine, contains('estimateStoredAttachmentPayloadBytes'));
     expect(secureBundleStore, contains('dart:isolate'));
     expect(secureBundleStore, contains('_encryptSyncBundleJson'));
     expect(secureBundleStore, contains('_decryptSyncBundleJson'));
@@ -608,6 +612,19 @@ void main() {
     expect(attachmentStore, contains('TransferableTypedData.fromList'));
     expect(homeProviders, contains('Future<void> _yieldToUi()'));
     expect(homeProviders, contains('await _yieldToUi();'));
+    expect(homeProviders, contains('_encodeLocalZipArchive'));
+    expect(homeProviders, contains('_decodeLocalZipArchive'));
+    expect(
+      homeProviders,
+      contains('_encodeLocalZipArchivePayloadInBackground'),
+    );
+    expect(
+      homeProviders,
+      contains('_decodeLocalZipArchivePayloadInBackground'),
+    );
+    expect(homeProviders, contains('onProgress: (progress) async'));
+    expect(homePage, contains('includeUpload: false'));
+    expect(homePage, contains('includeDownload: true'));
     expect(homeProviders, contains('detail'));
     expect(homeProviders, contains('completedItems'));
     expect(homeProviders, contains('totalItems'));

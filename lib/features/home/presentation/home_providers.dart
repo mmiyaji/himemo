@@ -1195,6 +1195,34 @@ class _DecodedLocalZipArchive {
   final Map<String, Uint8List> attachmentFiles;
 }
 
+class _LocalArchiveFilePayload {
+  const _LocalArchiveFilePayload({required this.name, required this.bytes});
+
+  final String name;
+  final TransferableTypedData bytes;
+}
+
+class _LocalZipEncodeRequest {
+  const _LocalZipEncodeRequest({
+    required this.manifest,
+    required this.notes,
+    required this.files,
+    this.password,
+  });
+
+  final Map<String, dynamic> manifest;
+  final List<Map<String, dynamic>> notes;
+  final List<_LocalArchiveFilePayload> files;
+  final String? password;
+}
+
+class _LocalZipDecodeRequest {
+  const _LocalZipDecodeRequest({required this.bytes, this.password});
+
+  final TransferableTypedData bytes;
+  final String? password;
+}
+
 enum InAppUpdateStage {
   idle,
   checking,
@@ -2594,10 +2622,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     final notes = await ref
         .read(notesControllerProvider.notifier)
         .notesForSyncSnapshot(pendingNoteIds: pendingIds);
-    final snapshot = await ref
-        .read(syncEngineProvider)
-        .prepareSnapshot(notes, pendingChanges: pendingChanges);
-    return snapshot.estimatedPayloadBytes;
+    return ref.read(syncEngineProvider).estimateNotesPayloadBytes(notes);
   }
 
   Future<int> estimateCurrentStateUploadBytes() async {
@@ -2905,7 +2930,19 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         'sync_prepare_snapshot',
         () => ref
             .read(syncEngineProvider)
-            .prepareSnapshot(notes, pendingChanges: pendingChanges),
+            .prepareSnapshot(
+              notes,
+              pendingChanges: pendingChanges,
+              onProgress: (progress) async {
+                _setProgressDetail(
+                  progress: SyncTransferProgress.preparingBundle,
+                  detail: progress.detail,
+                  completedItems: progress.completedItems,
+                  totalItems: progress.totalItems,
+                );
+                await _yieldToUi();
+              },
+            ),
       );
       final preparedUpserts = snapshot.notes
           .where((change) => change.action == PendingNoteChangeAction.upsert)
@@ -3327,7 +3364,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     _startBusy(SyncTransferProgress.preparingBundle);
     try {
       await logFirebaseBreadcrumb('local zip archive import selected');
-      final decoded = _decodeLocalZipArchive(bytes, password: password);
+      final decoded = await _decodeLocalZipArchive(bytes, password: password);
       final preview = buildSyncBundlePreview(
         decodedBundle: _zipArchiveAsSyncBundle(decoded),
         currentNotes: ref.read(notesControllerProvider),
@@ -3356,7 +3393,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     _startBusy(SyncTransferProgress.applyingBundle);
     try {
       await logFirebaseBreadcrumb('local zip archive apply selected');
-      final decoded = _decodeLocalZipArchive(bytes, password: password);
+      final decoded = await _decodeLocalZipArchive(bytes, password: password);
       final attachmentFiles = decoded.attachmentFiles;
       final importedChanges = <PreparedSyncNote>[];
       for (final rawNote in decoded.notes) {
@@ -4196,7 +4233,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         )
         .where((entry) => includeSampleNotes || !isGeneratedSampleNote(entry))
         .toList(growable: false);
-    final archive = Archive();
+    final archiveFiles = <_LocalArchiveFilePayload>[];
     final exportedNotes = <Map<String, dynamic>>[];
     var attachmentCount = 0;
 
@@ -4230,7 +4267,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           index: index,
           label: attachment.label,
         );
-        archive.addFile(ArchiveFile.bytes(archivePath, bytes));
+        archiveFiles.add(
+          _LocalArchiveFilePayload(
+            name: archivePath,
+            bytes: TransferableTypedData.fromList([
+              bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+            ]),
+          ),
+        );
         archivePathByAttachmentKey[key] = archivePath;
         attachmentCount += 1;
         return attachment.copyWith(
@@ -4270,32 +4314,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
     }
 
-    archive.addFile(
-      ArchiveFile.string(
-        'manifest.json',
-        jsonEncode({
-          'format': 'org.ruhenheim.himemo.notes.zip',
-          'version': 1,
-          'exportedAt': exportedAt.toIso8601String(),
-          'encryption': password == null || password.isEmpty
-              ? 'none'
-              : 'zip-aes-256',
-          'noteCount': exportedNotes.length,
-          'attachmentCount': attachmentCount,
-          'contents': ['notes.json', 'attachments/'],
-        }),
-      ),
+    final manifest = {
+      'format': 'org.ruhenheim.himemo.notes.zip',
+      'version': 1,
+      'exportedAt': exportedAt.toIso8601String(),
+      'encryption': password == null || password.isEmpty
+          ? 'none'
+          : 'zip-aes-256',
+      'noteCount': exportedNotes.length,
+      'attachmentCount': attachmentCount,
+      'contents': ['notes.json', 'attachments/'],
+    };
+    final encoded = await _encodeLocalZipArchive(
+      manifest: manifest,
+      notes: exportedNotes,
+      files: archiveFiles,
+      password: password,
     );
-    archive.addFile(
-      ArchiveFile.string(
-        'notes.json',
-        jsonEncode({'schemaVersion': 1, 'notes': exportedNotes}),
-      ),
-    );
-
-    final encoded = ZipEncoder(
-      password: password == null || password.isEmpty ? null : password,
-    ).encode(archive);
     if (encoded.isEmpty) {
       throw StateError('ZIP archive could not be encoded.');
     }
@@ -4311,39 +4346,49 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     );
   }
 
-  _DecodedLocalZipArchive _decodeLocalZipArchive(
+  Future<_DecodedLocalZipArchive> _decodeLocalZipArchive(
     List<int> bytes, {
     String? password,
-  }) {
-    final archive = ZipDecoder().decodeBytes(bytes, password: password);
-    final manifestFile = archive.findFile('manifest.json');
-    final notesFile = archive.findFile('notes.json');
-    if (manifestFile == null || notesFile == null) {
-      throw StateError('This file is not a HiMemo ZIP archive.');
+  }) async {
+    final source = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+    if (kIsWeb || source.lengthInBytes < 512 * 1024) {
+      return _decodeLocalZipArchivePayloadInBackground(
+        _LocalZipDecodeRequest(
+          bytes: TransferableTypedData.fromList([source]),
+          password: password,
+        ),
+      );
     }
-    final manifest = Map<String, dynamic>.from(
-      jsonDecode(utf8.decode(manifestFile.content)) as Map,
+    return Isolate.run(
+      () => _decodeLocalZipArchivePayloadInBackground(
+        _LocalZipDecodeRequest(
+          bytes: TransferableTypedData.fromList([source]),
+          password: password,
+        ),
+      ),
     );
-    final notesPayload = Map<String, dynamic>.from(
-      jsonDecode(utf8.decode(notesFile.content)) as Map,
-    );
-    final notes = [
-      for (final entry
-          in (notesPayload['notes'] as List<dynamic>? ?? const <dynamic>[]))
-        Map<String, dynamic>.from(entry as Map),
-    ];
-    final attachmentFiles = <String, Uint8List>{};
-    for (final file in archive.files) {
-      if (!file.isFile || !file.name.startsWith('attachments/')) {
-        continue;
-      }
-      attachmentFiles[file.name] = Uint8List.fromList(file.content);
-    }
-    return _DecodedLocalZipArchive(
+  }
+
+  Future<Uint8List> _encodeLocalZipArchive({
+    required Map<String, dynamic> manifest,
+    required List<Map<String, dynamic>> notes,
+    required List<_LocalArchiveFilePayload> files,
+    String? password,
+  }) async {
+    final request = _LocalZipEncodeRequest(
       manifest: manifest,
       notes: notes,
-      attachmentFiles: attachmentFiles,
+      files: files,
+      password: password == null || password.isEmpty ? null : password,
     );
+    if (kIsWeb) {
+      final encoded = _encodeLocalZipArchivePayloadInBackground(request);
+      return encoded.materialize().asUint8List();
+    }
+    final encoded = await Isolate.run(
+      () => _encodeLocalZipArchivePayloadInBackground(request),
+    );
+    return encoded.materialize().asUint8List();
   }
 
   Map<String, dynamic> _zipArchiveAsSyncBundle(
@@ -4826,6 +4871,67 @@ Future<_DecodedSyncAttachmentBytes> _decodeSyncAttachmentBytes(
     bytes: transferable.materialize().asUint8List(),
     contentHash: result['contentHash']! as String,
   );
+}
+
+_DecodedLocalZipArchive _decodeLocalZipArchivePayloadInBackground(
+  _LocalZipDecodeRequest request,
+) {
+  final archive = ZipDecoder().decodeBytes(
+    request.bytes.materialize().asUint8List(),
+    password: request.password,
+  );
+  final manifestFile = archive.findFile('manifest.json');
+  final notesFile = archive.findFile('notes.json');
+  if (manifestFile == null || notesFile == null) {
+    throw StateError('This file is not a HiMemo ZIP archive.');
+  }
+  final manifest = Map<String, dynamic>.from(
+    jsonDecode(utf8.decode(manifestFile.content)) as Map,
+  );
+  final notesPayload = Map<String, dynamic>.from(
+    jsonDecode(utf8.decode(notesFile.content)) as Map,
+  );
+  final notes = [
+    for (final entry
+        in (notesPayload['notes'] as List<dynamic>? ?? const <dynamic>[]))
+      Map<String, dynamic>.from(entry as Map),
+  ];
+  final attachmentFiles = <String, Uint8List>{};
+  for (final file in archive.files) {
+    if (!file.isFile || !file.name.startsWith('attachments/')) {
+      continue;
+    }
+    attachmentFiles[file.name] = Uint8List.fromList(file.content);
+  }
+  return _DecodedLocalZipArchive(
+    manifest: manifest,
+    notes: notes,
+    attachmentFiles: attachmentFiles,
+  );
+}
+
+TransferableTypedData _encodeLocalZipArchivePayloadInBackground(
+  _LocalZipEncodeRequest request,
+) {
+  final archive = Archive();
+  archive.addFile(
+    ArchiveFile.string('manifest.json', jsonEncode(request.manifest)),
+  );
+  archive.addFile(
+    ArchiveFile.string(
+      'notes.json',
+      jsonEncode({'schemaVersion': 1, 'notes': request.notes}),
+    ),
+  );
+  for (final file in request.files) {
+    archive.addFile(
+      ArchiveFile.bytes(file.name, file.bytes.materialize().asUint8List()),
+    );
+  }
+  final encoded = ZipEncoder(password: request.password).encode(archive);
+  return TransferableTypedData.fromList([
+    encoded is Uint8List ? encoded : Uint8List.fromList(encoded),
+  ]);
 }
 
 class PrivateMemoProfileStore {

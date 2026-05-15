@@ -111,6 +111,21 @@ class PreparedSyncSnapshot {
   }
 }
 
+class SyncSnapshotPreparationProgress {
+  const SyncSnapshotPreparationProgress({
+    required this.detail,
+    required this.completedItems,
+    required this.totalItems,
+  });
+
+  final String detail;
+  final int completedItems;
+  final int totalItems;
+}
+
+typedef SyncSnapshotPreparationProgressCallback =
+    Future<void> Function(SyncSnapshotPreparationProgress progress);
+
 class SyncAttachmentMissingException implements Exception {
   const SyncAttachmentMissingException({
     required this.noteId,
@@ -162,9 +177,31 @@ class SyncEngine {
   Future<PreparedSyncSnapshot> prepareSnapshot(
     List<NoteEntry> notes, {
     List<PendingNoteChangeRecord>? pendingChanges,
+    SyncSnapshotPreparationProgressCallback? onProgress,
   }) async {
     final changes = pendingChanges ?? await loadPendingChanges();
     final notesById = {for (final note in notes) note.id: note};
+    final noteIds = changes.map((change) => change.noteId).toSet();
+    final totalAttachments = notes
+        .where((note) => noteIds.contains(note.id))
+        .fold<int>(0, (total, note) {
+          var count = total;
+          for (final attachment in note.attachments) {
+            if (attachment.filePath != null &&
+                attachment.filePath!.isNotEmpty) {
+              count += 1;
+            }
+          }
+          for (final block in note.blocks) {
+            final attachment = block.attachment;
+            if (attachment?.filePath != null &&
+                attachment!.filePath!.isNotEmpty) {
+              count += 1;
+            }
+          }
+          return count;
+        });
+    var preparedAttachmentCount = 0;
     final preparedChanges = <PendingNoteChangeRecord>[];
     final attachmentPayloads = <PreparedSyncAttachment>[];
     final preparedNotes = <PreparedSyncNote>[];
@@ -196,16 +233,39 @@ class SyncEngine {
           return attachment.copyWith(filePath: null, previewBytesBase64: null);
         }
         if (attachmentIdsByPath[filePath] case final existingId?) {
+          preparedAttachmentCount += 1;
+          await onProgress?.call(
+            SyncSnapshotPreparationProgress(
+              detail: 'Prepared attachment',
+              completedItems: preparedAttachmentCount,
+              totalItems: totalAttachments,
+            ),
+          );
           return attachment.copyWith(
             filePath: 'sync-attachment-object://$existingId',
           );
         }
+        await onProgress?.call(
+          SyncSnapshotPreparationProgress(
+            detail: 'Preparing attachment',
+            completedItems: preparedAttachmentCount,
+            totalItems: totalAttachments,
+          ),
+        );
         final bytes = await _attachmentStore.readAttachment(
           filePath,
           type: attachment.type,
         );
         if (bytes == null || bytes.isEmpty) {
           if (change.action == PendingNoteChangeAction.delete) {
+            preparedAttachmentCount += 1;
+            await onProgress?.call(
+              SyncSnapshotPreparationProgress(
+                detail: 'Prepared attachment',
+                completedItems: preparedAttachmentCount,
+                totalItems: totalAttachments,
+              ),
+            );
             return attachment.copyWith(
               filePath: null,
               previewBytesBase64: null,
@@ -230,6 +290,14 @@ class SyncEngine {
             bytesBase64: encoded['bytesBase64']!,
             contentHash: encoded['contentHash']!,
             sizeBytes: bytes.length,
+          ),
+        );
+        preparedAttachmentCount += 1;
+        await onProgress?.call(
+          SyncSnapshotPreparationProgress(
+            detail: 'Prepared attachment',
+            completedItems: preparedAttachmentCount,
+            totalItems: totalAttachments,
           ),
         );
         return attachment.copyWith(
@@ -308,14 +376,12 @@ class SyncEngine {
             !countedPaths.add(filePath)) {
           return;
         }
-        final bytes = await _attachmentStore.readAttachment(
-          filePath,
-          type: attachment.type,
-        );
-        if (bytes == null || bytes.isEmpty) {
+        final estimatedBytes = await _attachmentStore
+            .estimateStoredAttachmentPayloadBytes(filePath);
+        if (estimatedBytes == null || estimatedBytes <= 0) {
           return;
         }
-        total += _base64EncodedLength(bytes.length);
+        total += _base64EncodedLength(estimatedBytes);
         total += utf8.encode(attachment.label).length + 64;
       }
 
