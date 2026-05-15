@@ -1366,6 +1366,42 @@ abstract class SyncAuthGateway {
   Future<void> disconnect(SyncProvider provider);
 }
 
+const _useFakeGoogleDriveSync = bool.fromEnvironment(
+  'HIMEMO_FAKE_GOOGLE_DRIVE_SYNC',
+);
+
+class FakeGoogleDriveSyncAuthGateway implements SyncAuthGateway {
+  FakeGoogleDriveSyncAuthGateway({required SyncAuthGateway fallback})
+    : _fallback = fallback;
+
+  final SyncAuthGateway _fallback;
+
+  @override
+  Future<SyncAuthState> connect(SyncProvider provider) {
+    if (provider != SyncProvider.googleDrive) {
+      return _fallback.connect(provider);
+    }
+    return Future.value(
+      const SyncAuthState(
+        provider: SyncProvider.googleDrive,
+        stage: SyncAuthStage.authenticated,
+        userId: 'fake-google-drive-user',
+        displayName: 'Fake Google Drive',
+        email: 'fake-google-drive@example.test',
+        message: 'Fake Google Drive sync is connected for local testing.',
+      ),
+    );
+  }
+
+  @override
+  Future<void> disconnect(SyncProvider provider) {
+    if (provider != SyncProvider.googleDrive) {
+      return _fallback.disconnect(provider);
+    }
+    return Future<void>.value();
+  }
+}
+
 class DefaultSyncAuthGateway implements SyncAuthGateway {
   DefaultSyncAuthGateway({
     this.googleDriveAuthConfig = const GoogleDriveAuthConfig(),
@@ -2098,11 +2134,15 @@ final googleDriveAuthConfigProvider = Provider<GoogleDriveAuthConfig>(
   (ref) => const GoogleDriveAuthConfig(),
 );
 
-final syncAuthGatewayProvider = Provider<SyncAuthGateway>(
-  (ref) => DefaultSyncAuthGateway(
+final syncAuthGatewayProvider = Provider<SyncAuthGateway>((ref) {
+  final gateway = DefaultSyncAuthGateway(
     googleDriveAuthConfig: ref.watch(googleDriveAuthConfigProvider),
-  ),
-);
+  );
+  if (_useFakeGoogleDriveSync) {
+    return FakeGoogleDriveSyncAuthGateway(fallback: gateway);
+  }
+  return gateway;
+});
 
 final mediaImportServiceProvider = Provider<MediaImportService>(
   (ref) => DefaultMediaImportService(
@@ -2362,6 +2402,9 @@ final packageInfoProvider = FutureProvider<AppPackageDetails>((ref) async {
 final googleDriveSyncTransportProvider = Provider<GoogleDriveSyncTransport>((
   ref,
 ) {
+  if (_useFakeGoogleDriveSync) {
+    return InMemoryGoogleDriveSyncTransport();
+  }
   return GoogleApisGoogleDriveSyncTransport(
     authConfig: ref.watch(googleDriveAuthConfigProvider),
   );

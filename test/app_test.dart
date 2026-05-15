@@ -454,6 +454,49 @@ void main() {
     );
   });
 
+  test('fake Google Drive transport stores bundles in memory', () async {
+    final transport = InMemoryGoogleDriveSyncTransport(
+      uploadDelay: Duration.zero,
+    );
+
+    final uploaded = await transport.uploadBundle(
+      encodedPayload: 'encrypted-payload',
+      deviceId: 'test-device',
+      noteCount: 2,
+      attachmentCount: 1,
+    );
+
+    expect(uploaded.deviceId, 'test-device');
+    expect(
+      (await transport.fetchLatestBundleStatus())?.fileId,
+      uploaded.fileId,
+    );
+    expect(
+      await transport.listBundleHistory(),
+      hasLength(greaterThanOrEqualTo(1)),
+    );
+    expect(
+      (await transport.downloadLatestBundle())?.encodedPayload,
+      'encrypted-payload',
+    );
+
+    await transport.uploadAttachmentObject(
+      contentHash: 'hash-a',
+      encodedPayload: 'attachment-payload',
+      type: 'photo',
+      label: 'photo.jpg',
+      sizeBytes: 10,
+    );
+    expect(
+      await transport.listAttachmentObjectContentHashes(),
+      contains('hash-a'),
+    );
+    expect(
+      await transport.downloadAttachmentObject('hash-a'),
+      'attachment-payload',
+    );
+  });
+
   test('effective color theme follows unlocked private profile', () async {
     SharedPreferences.setMockInitialValues({});
     final container = ProviderContainer();
