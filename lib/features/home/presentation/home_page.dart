@@ -241,11 +241,22 @@ class _AppShellState extends ConsumerState<AppShell> {
     final effectiveProfileAccessTooltip = profileUnlocking
         ? profileAccessBusyTooltip
         : profileAccessTooltip;
+    final syncTransferState = ref.watch(syncTransferControllerProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const _AppBrandTitle(),
         actions: [
+          if (syncTransferState.stage == SyncTransferStage.busy)
+            Padding(
+              padding: EdgeInsetsDirectional.only(
+                end: privateProfileActive || adminMode ? 8 : 4,
+              ),
+              child: _HeaderSyncIndicator(
+                state: syncTransferState,
+                provider: ref.watch(syncProviderControllerProvider),
+              ),
+            ),
           if (privateProfileActive || adminMode)
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 28),
@@ -594,6 +605,50 @@ class _AppShellState extends ConsumerState<AppShell> {
       return AppSection.settings;
     }
     return AppSection.notes;
+  }
+}
+
+class _HeaderSyncIndicator extends StatelessWidget {
+  const _HeaderSyncIndicator({required this.state, required this.provider});
+
+  final SyncTransferState state;
+  final SyncProvider provider;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final colorScheme = Theme.of(context).colorScheme;
+    final label = _syncProgressLabel(strings, state);
+    final description = _syncProgressDescription(strings, state, provider);
+    return Tooltip(
+      message: '$label\n$description',
+      child: Semantics(
+        label: label,
+        value: description,
+        child: SizedBox.square(
+          dimension: 40,
+          child: Center(
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox.square(
+                  dimension: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.2,
+                    value: _syncProgressValueForState(state),
+                    color: colorScheme.primary,
+                    backgroundColor: colorScheme.primary.withValues(
+                      alpha: 0.12,
+                    ),
+                  ),
+                ),
+                Icon(Icons.sync_rounded, size: 14, color: colorScheme.primary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

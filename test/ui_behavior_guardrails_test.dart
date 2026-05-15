@@ -576,6 +576,7 @@ void main() {
     final homeProviders = File(
       'lib/features/home/presentation/home_providers.dart',
     ).readAsStringSync();
+    final homePage = _homePresentationSource();
 
     expect(syncEngine, contains('dart:isolate'));
     expect(syncEngine, contains('TransferableTypedData.fromList'));
@@ -587,5 +588,19 @@ void main() {
     expect(secureBundleStore, contains('Isolate.run'));
     expect(homeProviders, contains('Future<void> _yieldToUi()'));
     expect(homeProviders, contains('await _yieldToUi();'));
+    expect(homeProviders, contains('detail'));
+    expect(homeProviders, contains('completedItems'));
+    expect(homeProviders, contains('totalItems'));
+    expect(homeProviders, contains('_setProgressDetail'));
+    expect(homeProviders, contains('_decodeSyncAttachmentBytes'));
+    expect(homeProviders, contains('Uploading attachment'));
+    expect(homeProviders, contains('Applying attachment'));
+    expect(
+      homeProviders,
+      isNot(contains('math.min(3, pendingUploads.length)')),
+    );
+    expect(homePage, contains('class _HeaderSyncIndicator'));
+    expect(homePage, contains('syncTransferControllerProvider'));
+    expect(homePage, contains('_syncProgressValueForState'));
   });
 }

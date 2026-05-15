@@ -77,6 +77,16 @@ String _syncProgressDescription(
   SyncProvider provider,
 ) {
   if (transferState.stage == SyncTransferStage.busy) {
+    final detail = transferState.detail;
+    final completed = transferState.completedItems;
+    final total = transferState.totalItems;
+    if (detail != null && detail.isNotEmpty) {
+      final localizedDetail = _localizedSyncProgressDetail(strings, detail);
+      final itemProgress = completed != null && total != null && total > 0
+          ? ' ($completed/$total)'
+          : '';
+      return '$localizedDetail$itemProgress';
+    }
     return switch (transferState.progress) {
       SyncTransferProgress.checkingRemote => strings.localized(
         en: 'Checking the latest cloud bundle and local queue.',
@@ -165,6 +175,41 @@ String _syncProgressDescription(
       es: 'La sincronizacion esta lista.',
       de: 'Synchronisierung ist bereit.',
     ),
+  };
+}
+
+String _localizedSyncProgressDetail(AppStrings strings, String detail) {
+  return switch (detail) {
+    'Applying note' => strings.localized(en: 'Applying notes', ja: 'ノートを反映中'),
+    'Applying attachment for note' => strings.localized(
+      en: 'Applying note attachments',
+      ja: 'ノートの添付ファイルを反映中',
+    ),
+    'Applying block attachment for note' => strings.localized(
+      en: 'Applying block attachments',
+      ja: 'ブロック添付ファイルを反映中',
+    ),
+    'Checking attachments' => strings.localized(
+      en: 'Checking attachments',
+      ja: '添付ファイルを確認中',
+    ),
+    'Checking attachment objects' => strings.localized(
+      en: 'Checking cloud attachments',
+      ja: 'クラウド上の添付ファイルを確認中',
+    ),
+    'Attachments already uploaded' => strings.localized(
+      en: 'Attachments already uploaded',
+      ja: '添付ファイルはアップロード済み',
+    ),
+    'Uploading attachment' => strings.localized(
+      en: 'Uploading attachments',
+      ja: '添付ファイルをアップロード中',
+    ),
+    'Uploaded attachment' => strings.localized(
+      en: 'Uploaded attachments',
+      ja: '添付ファイルをアップロード済み',
+    ),
+    _ => detail,
   };
 }
 
@@ -643,7 +688,27 @@ String _localizedSyncTransferMessage(
   return message;
 }
 
-double? _syncProgressValue(SyncTransferProgress progress) {
+double? _syncProgressValueForState(SyncTransferState state) {
+  final completed = state.completedItems;
+  final total = state.totalItems;
+  if (completed != null && total != null && total > 0) {
+    final base = _syncProgressBaseValue(state.progress) ?? 0;
+    final next = switch (state.progress) {
+      SyncTransferProgress.checkingRemote => 0.30,
+      SyncTransferProgress.preparingBundle => 0.55,
+      SyncTransferProgress.uploadingBundle => 0.76,
+      SyncTransferProgress.downloadingBundle => 0.64,
+      SyncTransferProgress.applyingBundle => 0.88,
+      SyncTransferProgress.finalizing => 0.98,
+      SyncTransferProgress.none => 1.0,
+    };
+    final ratio = (completed / total).clamp(0.0, 1.0);
+    return base + (next - base) * ratio;
+  }
+  return _syncProgressBaseValue(state.progress);
+}
+
+double? _syncProgressBaseValue(SyncTransferProgress progress) {
   return switch (progress) {
     SyncTransferProgress.checkingRemote => 0.18,
     SyncTransferProgress.preparingBundle => 0.38,

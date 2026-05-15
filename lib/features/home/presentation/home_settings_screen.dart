@@ -1801,8 +1801,8 @@ class SettingsScreen extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             LinearProgressIndicator(
-                              value: _syncProgressValue(
-                                syncTransferState.progress,
+                              value: _syncProgressValueForState(
+                                syncTransferState,
                               ),
                             ),
                             const SizedBox(height: 6),
