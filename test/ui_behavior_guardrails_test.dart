@@ -208,24 +208,16 @@ void main() {
     expect(privateAdminIcon, contains('stroke-width="1.5"'));
   });
 
-  test('support links use distinct Lucide list icons', () {
+  test('support links use distinct Material list icons', () {
     final homePage = File(
       'lib/features/home/presentation/home_page.dart',
     ).readAsStringSync();
-    final contactIcon = File('assets/settings/contact.svg').readAsStringSync();
-    final helpIcon = File('assets/settings/help.svg').readAsStringSync();
 
     expect(homePage, contains('class _SettingsListIcon'));
-    expect(homePage, contains('assets/settings/contact.svg'));
-    expect(homePage, contains('assets/settings/help.svg'));
-    expect(homePage, isNot(contains('Icons.contact_support_outlined')));
-    expect(contactIcon, contains('lucide-static'));
-    expect(contactIcon, contains('M2.992 16.342'));
-    expect(contactIcon, contains('stroke-width="1.5"'));
-    expect(helpIcon, contains('lucide-static'));
-    expect(helpIcon, contains('M9.09 9'));
-    expect(helpIcon, contains('stroke-width="1.5"'));
-    expect(contactIcon, isNot(equals(helpIcon)));
+    expect(homePage, contains('icon: Icons.email_rounded'));
+    expect(homePage, contains('icon: Icons.help_rounded'));
+    expect(homePage, isNot(contains("assets/settings/contact.svg")));
+    expect(homePage, isNot(contains("assets/settings/help.svg")));
   });
 
   test('admin mode and note operations are covered by audit logs', () {

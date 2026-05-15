@@ -3770,26 +3770,26 @@ class SettingsScreen extends ConsumerWidget {
             _SettingsOverviewItem(
               label: strings.text('home.mode'),
               value: currentModeLabel,
-              assetPath: 'assets/settings/access.svg',
+              icon: Icons.vpn_key_rounded,
             ),
             _SettingsOverviewItem(
               label: strings.text('home.unlock'),
               value: appLockEnabled
                   ? (strings.text('home.enabled'))
                   : (strings.text('home.disabled')),
-              assetPath: 'assets/settings/security.svg',
+              icon: Icons.shield_rounded,
             ),
             _SettingsOverviewItem(
               label: strings.syncLabel,
               value: syncProvider == SyncProvider.off
                   ? (strings.text('home.off'))
                   : (strings.text('home.configured')),
-              assetPath: 'assets/settings/sync.svg',
+              icon: Icons.sync_rounded,
             ),
             _SettingsOverviewItem(
               label: strings.text('home.theme'),
               value: _themeModeLabel(context, activeThemeMode),
-              assetPath: 'assets/settings/appearance.svg',
+              icon: Icons.palette_rounded,
             ),
           ],
         ),
@@ -3818,7 +3818,7 @@ class SettingsScreen extends ConsumerWidget {
             de: 'Notiz-Einstellungen',
           ),
           summary: memoSettingsSummary,
-          assetPath: 'assets/settings/appearance.svg',
+          icon: Icons.palette_rounded,
           semanticLabel: 'settings-memo',
           children: [
             ListTile(
@@ -4147,7 +4147,7 @@ class SettingsScreen extends ConsumerWidget {
                         activePrivateProfileLabel,
                       )
                     : strings.privateProfilesSettingsDefaultSummary),
-          assetPath: 'assets/settings/security.svg',
+          icon: Icons.shield_rounded,
           children: [
             Text(
               strings.privateProfilesSettingsBody,
@@ -4251,7 +4251,7 @@ class SettingsScreen extends ConsumerWidget {
           _SettingsGroup(
             title: strings.text('home.access.modes'),
             summary: strings.accessModeSummary(currentModeLabel),
-            assetPath: 'assets/settings/access.svg',
+            icon: Icons.vpn_key_rounded,
             children: [
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -4318,7 +4318,7 @@ class SettingsScreen extends ConsumerWidget {
         _SettingsGroup(
           title: strings.text('home.app.security'),
           summary: lockSummary,
-          assetPath: 'assets/settings/security.svg',
+          icon: Icons.shield_rounded,
           children: [
             SwitchListTile.adaptive(
               key: appLockToggleKey,
@@ -4706,7 +4706,7 @@ class SettingsScreen extends ConsumerWidget {
                   'home.widget.quick.writes.are.allowed.while.the.app.is.locked',
                 ))
               : (strings.text('home.widget.quick.writes.are.off')),
-          assetPath: 'assets/settings/storage.svg',
+          icon: Icons.storage_rounded,
           children: [
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
@@ -4739,7 +4739,7 @@ class SettingsScreen extends ConsumerWidget {
                       ? (strings.text('home.configured.and.currently.unlocked'))
                       : (strings.text('home.configured.and.locked')))
                 : (strings.text('home.no.private.vault.key.has.been.set.yet')),
-            assetPath: 'assets/settings/security.svg',
+            icon: Icons.shield_rounded,
             children: [
               ListTile(
                 contentPadding: EdgeInsets.zero,
@@ -4798,7 +4798,7 @@ class SettingsScreen extends ConsumerWidget {
         _SettingsGroup(
           title: strings.text('home.backup.and.sync'),
           summary: syncSummary,
-          assetPath: 'assets/settings/sync.svg',
+          icon: Icons.sync_rounded,
           children: [
             if (syncConflictWarning != null)
               Container(
@@ -6032,7 +6032,7 @@ class SettingsScreen extends ConsumerWidget {
         _SettingsGroup(
           title: strings.text('home.storage'),
           summary: strings.noteCountSummary(noteCount),
-          assetPath: 'assets/settings/storage.svg',
+          icon: Icons.storage_rounded,
           children: [
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -6213,7 +6213,7 @@ class SettingsScreen extends ConsumerWidget {
         _SettingsGroup(
           title: strings.about,
           summary: aboutSummary,
-          assetPath: 'assets/settings/about.svg',
+          icon: Icons.info_rounded,
           children: [
             if (showFlavorInfo)
               ListTile(
@@ -6378,7 +6378,7 @@ class SettingsScreen extends ConsumerWidget {
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const _SettingsListIcon(
-                assetPath: 'assets/settings/contact.svg',
+                icon: Icons.email_rounded,
               ),
               title: Text(strings.contact),
               subtitle: Text(strings.contactDesc),
@@ -6389,7 +6389,7 @@ class SettingsScreen extends ConsumerWidget {
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const _SettingsListIcon(
-                assetPath: 'assets/settings/help.svg',
+                icon: Icons.help_rounded,
               ),
               title: Text(strings.help),
               subtitle: Text(strings.helpDesc),
@@ -6468,7 +6468,7 @@ class SettingsScreen extends ConsumerWidget {
         es: '${entries.length} entradas. Se registran pasos de sincronizacion y llamadas CloudKit.',
         de: '${entries.length} Eintraege. Synchronisierungsschritte und CloudKit-Aufrufe werden protokolliert.',
       ),
-      assetPath: 'assets/settings/storage.svg',
+      icon: Icons.storage_rounded,
       children: [
         Text(
           strings.localized(
@@ -6661,7 +6661,7 @@ class SettingsScreen extends ConsumerWidget {
         es: '${entries.length} entries. Admin sign-ins, profile use, and note changes are recorded separately from diagnostic logs.',
         de: '${entries.length} entries. Admin sign-ins, profile use, and note changes are recorded separately from diagnostic logs.',
       ),
-      assetPath: 'assets/settings/security.svg',
+      icon: Icons.shield_rounded,
       children: [
         Text(
           strings.localized(
@@ -7035,7 +7035,7 @@ class SettingsScreen extends ConsumerWidget {
     return _SettingsGroup(
       title: strings.appearanceWithControls,
       summary: appearanceSummary,
-      assetPath: 'assets/settings/appearance.svg',
+      icon: Icons.palette_rounded,
       semanticLabel: 'settings-appearance',
       children: [
         Padding(
@@ -11320,12 +11320,12 @@ class _SettingsOverviewItem {
   const _SettingsOverviewItem({
     required this.label,
     required this.value,
-    required this.assetPath,
+    required this.icon,
   });
 
   final String label;
   final String value;
-  final String assetPath;
+  final IconData icon;
 }
 
 class _ColorThemeScopeOption {
@@ -11361,7 +11361,7 @@ class _SettingsOverviewCard extends StatelessWidget {
                   width: itemWidth,
                   child: Row(
                     children: [
-                      _SettingsSectionIcon(assetPath: item.assetPath),
+                      _SettingsSectionIcon(icon: item.icon),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
@@ -11398,14 +11398,14 @@ class _SettingsGroup extends StatelessWidget {
   const _SettingsGroup({
     required this.title,
     required this.summary,
-    required this.assetPath,
+    required this.icon,
     required this.children,
     this.semanticLabel,
   });
 
   final String title;
   final String summary;
-  final String assetPath;
+  final IconData icon;
   final List<Widget> children;
   final String? semanticLabel;
 
@@ -11434,7 +11434,7 @@ class _SettingsGroup extends StatelessWidget {
                   vertical: 10,
                 ),
                 childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-                leading: _SettingsSectionIcon(assetPath: assetPath),
+                leading: _SettingsSectionIcon(icon: icon),
                 title: Text(title, style: theme.textTheme.titleMedium),
                 subtitle: Padding(
                   padding: const EdgeInsets.only(top: 4),
@@ -11483,23 +11483,10 @@ class _SettingsSectionLabel extends StatelessWidget {
   }
 }
 
-final Map<String, Future<bool>> _settingsIconAssetAvailability = {};
-
-Future<bool> _isSettingsIconAssetAvailable(String assetPath) {
-  return _settingsIconAssetAvailability.putIfAbsent(assetPath, () async {
-    try {
-      final data = await rootBundle.load(assetPath);
-      return data.lengthInBytes > 0;
-    } catch (_) {
-      return false;
-    }
-  });
-}
-
 class _SettingsSectionIcon extends StatelessWidget {
-  const _SettingsSectionIcon({required this.assetPath});
+  const _SettingsSectionIcon({required this.icon});
 
-  final String assetPath;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
@@ -11512,56 +11499,25 @@ class _SettingsSectionIcon extends StatelessWidget {
         color: colorScheme.primary.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: FutureBuilder<bool>(
-        future: _isSettingsIconAssetAvailable(assetPath),
-        builder: (context, snapshot) {
-          if (snapshot.data == true) {
-            return SvgPicture.asset(
-              assetPath,
-              colorFilter: ColorFilter.mode(
-                colorScheme.primary,
-                BlendMode.srcIn,
-              ),
-            );
-          }
-          return Icon(
-            _settingsFallbackIcon(assetPath),
-            size: 22,
-            color: colorScheme.primary,
-          );
-        },
+      child: Icon(
+        icon,
+        size: 22,
+        color: colorScheme.primary,
       ),
     );
   }
 }
 
 class _SettingsListIcon extends StatelessWidget {
-  const _SettingsListIcon({required this.assetPath});
+  const _SettingsListIcon({required this.icon});
 
-  final String assetPath;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
-    final color =
-        IconTheme.of(context).color ?? Theme.of(context).iconTheme.color;
     return SizedBox.square(
       dimension: 24,
-      child: FutureBuilder<bool>(
-        future: _isSettingsIconAssetAvailable(assetPath),
-        builder: (context, snapshot) {
-          if (snapshot.data == true) {
-            return SvgPicture.asset(
-              assetPath,
-              width: 24,
-              height: 24,
-              colorFilter: color == null
-                  ? null
-                  : ColorFilter.mode(color, BlendMode.srcIn),
-            );
-          }
-          return Icon(_settingsFallbackIcon(assetPath));
-        },
-      ),
+      child: Icon(icon),
     );
   }
 }
@@ -11693,31 +11649,6 @@ class _AuditLogPreviewLine extends StatelessWidget {
     }
     return colorScheme.primary.withValues(alpha: 0.24);
   }
-}
-
-IconData _settingsFallbackIcon(String assetPath) {
-  if (assetPath.contains('sync')) {
-    return Icons.sync_rounded;
-  }
-  if (assetPath.contains('storage')) {
-    return Icons.inventory_2_rounded;
-  }
-  if (assetPath.contains('security') || assetPath.contains('access')) {
-    return Icons.lock_rounded;
-  }
-  if (assetPath.contains('appearance')) {
-    return Icons.palette_rounded;
-  }
-  if (assetPath.contains('about')) {
-    return Icons.info_outline_rounded;
-  }
-  if (assetPath.contains('contact')) {
-    return Icons.chat_bubble_outline_rounded;
-  }
-  if (assetPath.contains('help')) {
-    return Icons.help_outline_rounded;
-  }
-  return Icons.tune_rounded;
 }
 
 class _ColorThemePicker extends StatefulWidget {
