@@ -766,6 +766,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         if (remainingPendingChanges) {
           _cloudSyncRescheduleRequested = true;
         } else {
+          _cloudSyncScheduledForLocalChanges = false;
+          _cloudSyncRescheduleRequested = false;
+          _cloudSyncRescheduleDelay = null;
           logDiagnostic('sync', 'automatic sync idle without reschedule');
         }
       }

@@ -665,6 +665,9 @@ void main() {
 
     expect(appShell, contains('automatic sync idle without reschedule'));
     expect(appShell, contains('if (remainingPendingChanges)'));
+    expect(appShell, contains('_cloudSyncScheduledForLocalChanges = false;'));
+    expect(appShell, contains('_cloudSyncRescheduleRequested = false;'));
+    expect(appShell, contains('_cloudSyncRescheduleDelay = null;'));
     expect(
       appShell,
       isNot(
