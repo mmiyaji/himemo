@@ -282,29 +282,14 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
 
   Future<void> _deleteNote(BuildContext context, NoteEntry note) async {
     final strings = context.strings;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(strings.moveNoteToTrash),
-          content: Text(strings.moveNoteToTrashConfirmation(note.title)),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: Text(strings.cancel),
-            ),
-            FilledButton(
-              key: const Key('delete-note-button'),
-              onPressed: () => Navigator.of(context).pop(true),
-              child: Text(strings.moveNoteToTrash),
-            ),
-          ],
-        );
-      },
-    );
+    final result = await _showDeleteNoteDialog(context, note);
 
-    if (confirmed == true) {
-      await ref.read(notesControllerProvider.notifier).delete(note.id);
+    if (result != null) {
+      final controller = ref.read(notesControllerProvider.notifier);
+      await controller.delete(note.id);
+      if (result.deletePermanently) {
+        await controller.deletePermanently(note.id);
+      }
       if (ref.read(selectedNoteIdProvider) == note.id) {
         ref.read(selectedNoteIdProvider.notifier).select(null);
       }
@@ -314,22 +299,28 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           showCloseIcon: true,
-          content: Text(strings.movedNoteToTrash(note.title)),
-          action: SnackBarAction(
-            label: strings.undo,
-            onPressed: () {
-              ref
-                  .read(notesControllerProvider.notifier)
-                  .upsert(
-                    note.copyWith(
-                      deletedAt: null,
-                      syncState: NoteSyncState.pendingUpload,
-                      updatedAt: DateTime.now(),
-                      revision: note.revision + 1,
-                    ),
-                  );
-            },
+          content: Text(
+            result.deletePermanently
+                ? strings.noteDeleted(note.title)
+                : strings.movedNoteToTrash(note.title),
           ),
+          action: result.deletePermanently
+              ? null
+              : SnackBarAction(
+                  label: strings.undo,
+                  onPressed: () {
+                    ref
+                        .read(notesControllerProvider.notifier)
+                        .upsert(
+                          note.copyWith(
+                            deletedAt: null,
+                            syncState: NoteSyncState.pendingUpload,
+                            updatedAt: DateTime.now(),
+                            revision: note.revision + 1,
+                          ),
+                        );
+                  },
+                ),
         ),
       );
     }

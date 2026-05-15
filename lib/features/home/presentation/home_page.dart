@@ -1147,6 +1147,77 @@ String _spotlightAppLockWarningText(AppStrings strings) {
   );
 }
 
+class _DeleteNoteDialogResult {
+  const _DeleteNoteDialogResult({required this.deletePermanently});
+
+  final bool deletePermanently;
+}
+
+Future<_DeleteNoteDialogResult?> _showDeleteNoteDialog(
+  BuildContext context,
+  NoteEntry note,
+) {
+  final strings = context.strings;
+  var deletePermanently = false;
+  return showDialog<_DeleteNoteDialogResult>(
+    context: context,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Text(
+              deletePermanently
+                  ? strings.deletePermanently
+                  : strings.moveNoteToTrash,
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  deletePermanently
+                      ? strings.deleteNoteConfirmation(note.title)
+                      : strings.moveNoteToTrashConfirmation(note.title),
+                ),
+                const SizedBox(height: 12),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  value: deletePermanently,
+                  title: Text(strings.deletePermanently),
+                  subtitle: Text(strings.deletePermanentlyOptionDescription),
+                  onChanged: (value) {
+                    setDialogState(() {
+                      deletePermanently = value ?? false;
+                    });
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(strings.cancel),
+              ),
+              FilledButton(
+                key: const Key('delete-note-button'),
+                onPressed: () => Navigator.of(context).pop(
+                  _DeleteNoteDialogResult(deletePermanently: deletePermanently),
+                ),
+                child: Text(
+                  deletePermanently
+                      ? strings.deletePermanently
+                      : strings.moveNoteToTrash,
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
+
 Future<void> _showSpotlightAppLockWarningDialog(
   BuildContext context,
   AppStrings strings,

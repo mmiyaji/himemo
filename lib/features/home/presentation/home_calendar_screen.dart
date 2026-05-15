@@ -345,33 +345,20 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                         },
                         onDelete: (selectedNote) async {
                           Navigator.of(context).pop();
-                          final confirmed = await showDialog<bool>(
-                            context: hostContext,
-                            builder: (context) => AlertDialog(
-                              title: Text(strings.moveNoteToTrash),
-                              content: Text(
-                                strings.moveNoteToTrashConfirmation(
-                                  selectedNote.title,
-                                ),
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () =>
-                                      Navigator.of(context).pop(false),
-                                  child: Text(strings.cancel),
-                                ),
-                                FilledButton(
-                                  onPressed: () =>
-                                      Navigator.of(context).pop(true),
-                                  child: Text(strings.moveNoteToTrash),
-                                ),
-                              ],
-                            ),
+                          final result = await _showDeleteNoteDialog(
+                            hostContext,
+                            selectedNote,
                           );
-                          if (confirmed == true) {
-                            await ref
-                                .read(notesControllerProvider.notifier)
-                                .delete(selectedNote.id);
+                          if (result != null) {
+                            final controller = ref.read(
+                              notesControllerProvider.notifier,
+                            );
+                            await controller.delete(selectedNote.id);
+                            if (result.deletePermanently) {
+                              await controller.deletePermanently(
+                                selectedNote.id,
+                              );
+                            }
                           }
                         },
                         onClose: () => Navigator.of(context).pop(),

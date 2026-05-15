@@ -48,14 +48,7 @@ class _TrashScreenState extends ConsumerState<TrashScreen> {
         ),
         const SizedBox(height: 8),
         Text(
-          strings.localized(
-            en: 'Deleted notes are hidden from normal lists, search, and Spotlight. Notes older than 7 days are permanently deleted with their attachments.',
-            ja: '削除したメモは通常の一覧、検索、Spotlightから除外されます。7日を過ぎたメモは添付と一緒に完全削除されます。',
-            zh: '已删除的备忘录不会出现在普通列表、搜索和 Spotlight 中。超过 7 天的备忘录及其附件会被永久删除。',
-            ko: '삭제한 메모는 일반 목록, 검색, Spotlight에서 제외됩니다. 7일이 지난 메모는 첨부와 함께 완전히 삭제됩니다.',
-            es: 'Las notas eliminadas se ocultan de las listas normales, busqueda y Spotlight. Tras 7 dias se borran definitivamente con sus adjuntos.',
-            de: 'Geloeschte Notizen werden aus normalen Listen, Suche und Spotlight ausgeblendet. Nach 7 Tagen werden sie mit ihren Anhaengen endgueltig geloescht.',
-          ),
+          _trashDescription(strings),
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -160,4 +153,25 @@ class _TrashScreenState extends ConsumerState<TrashScreen> {
       ),
     );
   }
+}
+
+String _trashDescription(AppStrings strings) {
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+    return strings.localized(
+      en: 'Deleted notes are hidden from normal lists, search, and Spotlight. Notes older than 7 days are permanently deleted with their attachments.',
+      ja: '削除したメモは通常の一覧、検索、Spotlightから除外されます。7日を過ぎたメモは添付と一緒に完全削除されます。',
+      zh: '已删除的备忘录不会出现在普通列表、搜索和 Spotlight 中。超过 7 天的备忘录及其附件会被永久删除。',
+      ko: '삭제한 메모는 일반 목록, 검색, Spotlight에서 제외됩니다. 7일이 지난 메모는 첨부와 함께 완전히 삭제됩니다.',
+      es: 'Las notas eliminadas se ocultan de las listas normales, busqueda y Spotlight. Tras 7 dias se borran definitivamente con sus adjuntos.',
+      de: 'Geloeschte Notizen werden aus normalen Listen, Suche und Spotlight ausgeblendet. Nach 7 Tagen werden sie mit ihren Anhaengen endgueltig geloescht.',
+    );
+  }
+  return strings.localized(
+    en: 'Deleted notes are hidden from normal lists and search. Notes older than 7 days are permanently deleted with their attachments.',
+    ja: '削除したメモは通常の一覧と検索から除外されます。7日を過ぎたメモは添付と一緒に完全削除されます。',
+    zh: '已删除的备忘录不会出现在普通列表和搜索中。超过 7 天的备忘录及其附件会被永久删除。',
+    ko: '삭제한 메모는 일반 목록과 검색에서 제외됩니다. 7일이 지난 메모는 첨부와 함께 완전히 삭제됩니다.',
+    es: 'Las notas eliminadas se ocultan de las listas normales y la busqueda. Tras 7 dias se borran definitivamente con sus adjuntos.',
+    de: 'Geloeschte Notizen werden aus normalen Listen und der Suche ausgeblendet. Nach 7 Tagen werden sie mit ihren Anhaengen endgueltig geloescht.',
+  );
 }

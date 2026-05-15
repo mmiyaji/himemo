@@ -1947,6 +1947,22 @@ class AppStrings {
     es: 'Mover a la papelera',
     de: 'In den Papierkorb verschieben',
   );
+  String get deletePermanently => localized(
+    en: 'Delete permanently',
+    ja: '完全に削除',
+    zh: '永久删除',
+    ko: '영구 삭제',
+    es: 'Eliminar definitivamente',
+    de: 'Dauerhaft löschen',
+  );
+  String get deletePermanentlyOptionDescription => localized(
+    en: 'Skip Trash and remove this note and its attachments immediately.',
+    ja: 'ゴミ箱に残さず、このメモと添付ファイルをすぐに削除します。',
+    zh: '不移入废纸篓，立即删除此笔记及其附件。',
+    ko: '휴지통에 남기지 않고 이 노트와 첨부 파일을 즉시 삭제합니다.',
+    es: 'Omite la papelera y elimina esta nota y sus adjuntos de inmediato.',
+    de: 'Ueberspringt den Papierkorb und loescht diese Notiz samt Anhaengen sofort.',
+  );
   String movedNoteToTrash(String title) => localized(
     en: '"$title" moved to Trash',
     ja: '「$title」をゴミ箱に移動しました',
