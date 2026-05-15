@@ -8413,6 +8413,7 @@ class NotesController extends _$NotesController {
             'filePath': attachment.filePath,
           },
       ],
+      'location': note.location?.toJson(),
     });
     return sha256.convert(utf8.encode(payload)).toString();
   }

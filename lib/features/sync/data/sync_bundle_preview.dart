@@ -127,6 +127,7 @@ bool _isMeaningfullyDifferent(NoteEntry current, NoteEntry incoming) {
       current.title != incoming.title ||
       current.body != incoming.body ||
       current.isPinned != incoming.isPinned ||
+      current.location != incoming.location ||
       current.attachments.length != incoming.attachments.length) {
     return true;
   }
