@@ -2406,7 +2406,7 @@ class AppStrings {
   );
   String get appearanceWithControls => localized(
     en: 'Appearance (language, font, and color)',
-    ja: '表示（言語・フォント・カラー）',
+    ja: '表示（言語・フォント・色）',
     zh: '外观（语言、字体和颜色）',
     ko: '표시(언어, 글꼴, 색상)',
     es: 'Apariencia (idioma, fuente y color)',
