@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
+import 'package:cryptography/cryptography.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -52,29 +54,12 @@ class SecureSyncBundleStore {
     bool inlineAttachments = false,
   }) async {
     final key = await _syncBundleKeyService.obtainOrCreate();
-    final payload = await _encryptionService.encryptJson(
-      payload: {
-        'bundleVersion': inlineAttachments ? 2 : 3,
-        'mode': 'changes',
-        'deviceId': snapshot.deviceId,
-        'exportedAt': snapshot.exportedAt.toIso8601String(),
-        if (!inlineAttachments) 'attachmentStorage': 'objects',
-        'summary': {
-          'totalChanges': snapshot.summary.totalChanges,
-          'upserts': snapshot.summary.upserts,
-          'deletes': snapshot.summary.deletes,
-          'lastQueuedAt': snapshot.summary.lastQueuedAt?.toIso8601String(),
-        },
-        'notes': [
-          for (final entry in snapshot.notes)
-            {'action': entry.action.name, 'note': entry.note.toJson()},
-        ],
-        'privateProfiles': privateProfiles,
-        'attachments': [
-          for (final attachment in snapshot.attachments)
-            attachment.toJson(inlineBytes: inlineAttachments),
-        ],
-      },
+    final payload = await _encryptSyncBundleJson(
+      payload: _syncBundlePayload(
+        snapshot,
+        privateProfiles: privateProfiles,
+        inlineAttachments: inlineAttachments,
+      ),
       secretKey: key,
     );
 
@@ -144,7 +129,7 @@ class SecureSyncBundleStore {
     PreparedSyncAttachment attachment,
   ) async {
     final key = await _syncBundleKeyService.obtainOrCreate();
-    return _encryptionService.encryptJson(
+    return _encryptSyncBundleJson(
       payload: {
         'objectVersion': 1,
         'kind': 'attachment',
@@ -176,7 +161,7 @@ class SecureSyncBundleStore {
   Future<Map<String, dynamic>> _decryptBundleJson(String payload) async {
     final syncKey = await _syncBundleKeyService.requireExisting();
     try {
-      return await _encryptionService.decryptJson(
+      return await _decryptSyncBundleJson(
         encodedPayload: payload,
         secretKey: syncKey,
       );
@@ -186,10 +171,77 @@ class SecureSyncBundleStore {
         rethrow;
       }
       final legacyKey = await legacy.obtainOrCreate();
-      return _encryptionService.decryptJson(
+      return _decryptSyncBundleJson(
         encodedPayload: payload,
         secretKey: legacyKey,
       );
     }
+  }
+
+  Map<String, dynamic> _syncBundlePayload(
+    PreparedSyncSnapshot snapshot, {
+    required List<Map<String, dynamic>> privateProfiles,
+    required bool inlineAttachments,
+  }) {
+    return {
+      'bundleVersion': inlineAttachments ? 2 : 3,
+      'mode': 'changes',
+      'deviceId': snapshot.deviceId,
+      'exportedAt': snapshot.exportedAt.toIso8601String(),
+      if (!inlineAttachments) 'attachmentStorage': 'objects',
+      'summary': {
+        'totalChanges': snapshot.summary.totalChanges,
+        'upserts': snapshot.summary.upserts,
+        'deletes': snapshot.summary.deletes,
+        'lastQueuedAt': snapshot.summary.lastQueuedAt?.toIso8601String(),
+      },
+      'notes': [
+        for (final entry in snapshot.notes)
+          {'action': entry.action.name, 'note': entry.note.toJson()},
+      ],
+      'privateProfiles': privateProfiles,
+      'attachments': [
+        for (final attachment in snapshot.attachments)
+          attachment.toJson(inlineBytes: inlineAttachments),
+      ],
+    };
+  }
+
+  Future<String> _encryptSyncBundleJson({
+    required Map<String, dynamic> payload,
+    required SecretKey secretKey,
+  }) async {
+    if (kIsWeb) {
+      return _encryptionService.encryptJson(
+        payload: payload,
+        secretKey: secretKey,
+      );
+    }
+    final keyBytes = await secretKey.extractBytes();
+    return Isolate.run(
+      () => EncryptionService().encryptJson(
+        payload: payload,
+        secretKey: SecretKey(keyBytes),
+      ),
+    );
+  }
+
+  Future<Map<String, dynamic>> _decryptSyncBundleJson({
+    required String encodedPayload,
+    required SecretKey secretKey,
+  }) async {
+    if (kIsWeb) {
+      return _encryptionService.decryptJson(
+        encodedPayload: encodedPayload,
+        secretKey: secretKey,
+      );
+    }
+    final keyBytes = await secretKey.extractBytes();
+    return Isolate.run(
+      () => EncryptionService().decryptJson(
+        encodedPayload: encodedPayload,
+        secretKey: SecretKey(keyBytes),
+      ),
+    );
   }
 }

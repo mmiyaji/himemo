@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
@@ -217,16 +219,16 @@ class SyncEngine {
             index: index,
           );
         }
-        final attachmentHash = sha256.convert(bytes).toString();
-        final attachmentId = attachmentHash;
+        final encoded = await _encodeSyncAttachmentBytes(bytes);
+        final attachmentId = encoded['contentHash']!;
         attachmentIdsByPath[filePath] = attachmentId;
         attachmentPayloads.add(
           PreparedSyncAttachment(
             id: attachmentId,
             type: attachment.type,
             label: attachment.label,
-            bytesBase64: base64Encode(bytes),
-            contentHash: attachmentHash,
+            bytesBase64: encoded['bytesBase64']!,
+            contentHash: encoded['contentHash']!,
             sizeBytes: bytes.length,
           ),
         );
@@ -313,7 +315,7 @@ class SyncEngine {
         if (bytes == null || bytes.isEmpty) {
           return;
         }
-        total += base64Encode(bytes).length;
+        total += _base64EncodedLength(bytes.length);
         total += utf8.encode(attachment.label).length + 64;
       }
 
@@ -352,3 +354,18 @@ class SyncEngine {
     );
   }
 }
+
+Future<Map<String, String>> _encodeSyncAttachmentBytes(List<int> bytes) {
+  final transferable = TransferableTypedData.fromList([
+    bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+  ]);
+  return Isolate.run(() {
+    final materialized = transferable.materialize().asUint8List();
+    return {
+      'contentHash': sha256.convert(materialized).toString(),
+      'bytesBase64': base64Encode(materialized),
+    };
+  });
+}
+
+int _base64EncodedLength(int byteLength) => ((byteLength + 2) ~/ 3) * 4;

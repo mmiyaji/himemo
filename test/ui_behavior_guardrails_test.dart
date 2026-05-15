@@ -565,4 +565,27 @@ void main() {
       contains('upload blocked by missing local attachment'),
     );
   });
+
+  test('cloud sync heavy work does not run on the UI isolate', () {
+    final syncEngine = File(
+      'lib/features/sync/data/sync_engine.dart',
+    ).readAsStringSync();
+    final secureBundleStore = File(
+      'lib/features/sync/data/secure_sync_bundle_store.dart',
+    ).readAsStringSync();
+    final homeProviders = File(
+      'lib/features/home/presentation/home_providers.dart',
+    ).readAsStringSync();
+
+    expect(syncEngine, contains('dart:isolate'));
+    expect(syncEngine, contains('TransferableTypedData.fromList'));
+    expect(syncEngine, contains('Isolate.run'));
+    expect(syncEngine, contains('_base64EncodedLength'));
+    expect(secureBundleStore, contains('dart:isolate'));
+    expect(secureBundleStore, contains('_encryptSyncBundleJson'));
+    expect(secureBundleStore, contains('_decryptSyncBundleJson'));
+    expect(secureBundleStore, contains('Isolate.run'));
+    expect(homeProviders, contains('Future<void> _yieldToUi()'));
+    expect(homeProviders, contains('await _yieldToUi();'));
+  });
 }

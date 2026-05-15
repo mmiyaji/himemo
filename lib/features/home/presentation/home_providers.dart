@@ -1565,8 +1565,10 @@ class DefaultMediaImportService implements MediaImportService {
     if (tooLarge != null) {
       return tooLarge;
     }
-    final result =
-        await _buildAttachment(type: AttachmentType.photo, sourceFile: picked);
+    final result = await _buildAttachment(
+      type: AttachmentType.photo,
+      sourceFile: picked,
+    );
     return MediaImportResult.success(result.attachment);
   }
 
@@ -1615,12 +1617,16 @@ class DefaultMediaImportService implements MediaImportService {
       return tooLarge;
     }
     try {
-      final result =
-          await _buildAttachment(type: AttachmentType.video, sourceFile: picked);
+      final result = await _buildAttachment(
+        type: AttachmentType.video,
+        sourceFile: picked,
+      );
       if (result.deferredPreview != null) {
         return MediaImportResult.successWithDeferredPreview(
           result.attachment,
-          deferredPreviews: {result.attachment.filePath!: result.deferredPreview!},
+          deferredPreviews: {
+            result.attachment.filePath!: result.deferredPreview!,
+          },
         );
       }
       return MediaImportResult.success(result.attachment);
@@ -1718,8 +1724,7 @@ class DefaultMediaImportService implements MediaImportService {
       if (tooLarge != null) {
         return tooLarge;
       }
-      final built =
-          await _buildAttachment(type: type, sourceFile: sourceFile);
+      final built = await _buildAttachment(type: type, sourceFile: sourceFile);
       attachments.add(built.attachment);
       if (built.deferredPreview != null && built.attachment.filePath != null) {
         deferredPreviews[built.attachment.filePath!] = built.deferredPreview!;
@@ -1784,8 +1789,7 @@ class DefaultMediaImportService implements MediaImportService {
       if (tooLarge != null) {
         return tooLarge;
       }
-      final built =
-          await _buildAttachment(type: type, sourceFile: sourceFile);
+      final built = await _buildAttachment(type: type, sourceFile: sourceFile);
       attachments.add(built.attachment);
       if (built.deferredPreview != null && built.attachment.filePath != null) {
         deferredPreviews[built.attachment.filePath!] = built.deferredPreview!;
@@ -1929,13 +1933,15 @@ class DefaultMediaImportService implements MediaImportService {
     if (tooLarge != null) {
       return tooLarge;
     }
-    final built =
-        await _buildAttachment(type: AttachmentType.file, sourceFile: sourceFile);
+    final built = await _buildAttachment(
+      type: AttachmentType.file,
+      sourceFile: sourceFile,
+    );
     return MediaImportResult.success(built.attachment);
   }
 
   Future<({NoteAttachment attachment, Future<String?>? deferredPreview})>
-      _buildAttachment({
+  _buildAttachment({
     required AttachmentType type,
     required XFile sourceFile,
   }) async {
@@ -1969,8 +1975,9 @@ class DefaultMediaImportService implements MediaImportService {
         );
         deferredPreview = _videoPreviewBytesBase64ForSourceFile(sourceFile);
       } else {
-        previewBytesBase64 =
-            await _videoPreviewBytesBase64ForSourceFile(sourceFile);
+        previewBytesBase64 = await _videoPreviewBytesBase64ForSourceFile(
+          sourceFile,
+        );
       }
     }
     final storedPath = await _attachmentStore.storeAttachment(
@@ -2641,6 +2648,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     );
   }
 
+  Future<void> _yieldToUi() => Future<void>.delayed(Duration.zero);
+
   Future<void> refreshRemoteStatus() async {
     final provider = ref.read(syncProviderControllerProvider);
     if (!_supportsRemoteTransport(provider)) {
@@ -2651,6 +2660,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       return;
     }
     _startBusy(SyncTransferProgress.checkingRemote);
+    await _yieldToUi();
     try {
       final remoteStatus = await runFirebaseTrace(
         'sync_refresh_remote_status',
@@ -2810,6 +2820,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       return;
     }
     _startBusy(SyncTransferProgress.preparingBundle);
+    await _yieldToUi();
     try {
       await logFirebaseBreadcrumb('sync upload requested');
       await ref
@@ -2874,6 +2885,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       final provider = ref.read(syncProviderControllerProvider);
       if (provider != SyncProvider.off) {
         _setProgress(SyncTransferProgress.uploadingBundle);
+        await _yieldToUi();
         await runFirebaseTrace(
           'sync_upload_attachment_objects',
           () => _uploadRemoteAttachmentObjects(snapshot.attachments),
@@ -2927,6 +2939,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         },
       );
       _setProgress(SyncTransferProgress.finalizing);
+      await _yieldToUi();
       await ref
           .read(notesControllerProvider.notifier)
           .markSnapshotChangesSynced(pendingHashes);
@@ -3031,6 +3044,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       return;
     }
     _startBusy(SyncTransferProgress.preparingBundle);
+    await _yieldToUi();
     await ref.read(notesControllerProvider.notifier).queueCurrentStateForSync();
     await uploadCurrentBundle(
       force: true,
@@ -3065,6 +3079,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       return;
     }
     _startBusy(SyncTransferProgress.checkingRemote);
+    await _yieldToUi();
     try {
       await logFirebaseBreadcrumb('sync now requested');
       final remoteStatus = await runFirebaseTrace(
@@ -3138,6 +3153,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           );
         }
         _setProgress(SyncTransferProgress.downloadingBundle);
+        await _yieldToUi();
         final remoteBundle = await runFirebaseTrace(
           'sync_download_latest_bundle',
           _downloadLatestRemoteBundle,
@@ -3156,6 +3172,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         );
         if (remoteBundle != null) {
           _setProgress(SyncTransferProgress.applyingBundle);
+          await _yieldToUi();
           await applyDownloadedBundle();
           if (state.stage == SyncTransferStage.error) {
             return;
@@ -3190,6 +3207,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       if (refreshedQueue.hasPendingChanges) {
         _setProgress(SyncTransferProgress.preparingBundle);
+        await _yieldToUi();
         final forceConvergenceUpload =
             appliedRemoteDuringSync && !hadPendingChangesBeforeRemoteApply;
         await uploadCurrentBundle(
@@ -3200,6 +3218,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         return;
       }
       _setProgress(SyncTransferProgress.finalizing);
+      await _yieldToUi();
       state = SyncTransferState(
         stage: SyncTransferStage.success,
         message: 'sync.info.sync_success',
@@ -3498,7 +3517,12 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           (entry as Map)['id'] as String: Map<String, dynamic>.from(entry),
       };
       final importedChanges = <PreparedSyncNote>[];
+      var importedEntryCount = 0;
       for (final rawEntry in rawNoteEntries) {
+        if (importedEntryCount > 0 && importedEntryCount % 25 == 0) {
+          await _yieldToUi();
+        }
+        importedEntryCount++;
         final entry = Map<String, dynamic>.from(rawEntry as Map);
         final note = NoteEntry.fromJson(
           Map<String, dynamic>.from(entry['note'] as Map),
@@ -3593,8 +3617,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     _startBusy(SyncTransferProgress.downloadingBundle);
     try {
       var count = 0;
+      var scannedNoteCount = 0;
       final hydratedNotes = <NoteEntry>[];
       for (final note in ref.read(notesControllerProvider)) {
+        if (scannedNoteCount > 0 && scannedNoteCount % 25 == 0) {
+          await _yieldToUi();
+        }
+        scannedNoteCount++;
         final storedBySyncAttachmentId = <String, String?>{};
         final previewBySyncAttachmentId = <String, String?>{};
         Future<NoteAttachment> hydrate(NoteAttachment attachment) async {
@@ -7980,8 +8009,9 @@ class NotesController extends _$NotesController {
             sourceBytes > _deferredVideoPreviewThresholdBytes) {
           deferredPreview = _videoPreviewBytesBase64ForSourceFile(sourceFile);
         } else {
-          previewBytesBase64 =
-              await _videoPreviewBytesBase64ForSourceFile(sourceFile);
+          previewBytesBase64 = await _videoPreviewBytesBase64ForSourceFile(
+            sourceFile,
+          );
         }
       }
       final attachment = NoteAttachment(
@@ -8053,10 +8083,9 @@ class NotesController extends _$NotesController {
     }
     NoteAttachment applyPreview(NoteAttachment a) {
       final preview = a.filePath != null ? resolved[a.filePath] : null;
-      return preview != null
-          ? a.copyWith(previewBytesBase64: preview)
-          : a;
+      return preview != null ? a.copyWith(previewBytesBase64: preview) : a;
     }
+
     await upsert(
       note.copyWith(
         attachments: note.attachments.map(applyPreview).toList(),
