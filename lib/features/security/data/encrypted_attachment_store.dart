@@ -47,6 +47,7 @@ class EncryptedAttachmentStore {
   static const _webIndexedDbMarker = 'indexeddb:';
   static const _materializedDeleteMarkerExtension = '.himemo-delete-after';
   static const _backgroundEncryptionThresholdBytes = 8 * 1024 * 1024;
+  static const _backgroundDecryptionThresholdChars = 512 * 1024;
 
   Future<String?> storeAttachment(
     XFile sourceFile, {
@@ -134,9 +135,9 @@ class EncryptedAttachmentStore {
       throw StateError('Attachment key is unavailable for $vaultId.');
     }
     try {
-      return await _encryptionService.decryptBytes(
+      return await _decryptAttachmentBytesFromStorage(
         encodedPayload: encrypted,
-        secretKey: key,
+        key: key,
         additionalData: _aad(type),
       );
     } catch (_) {
@@ -144,9 +145,9 @@ class EncryptedAttachmentStore {
         rethrow;
       }
       final normalKey = await _masterKeyService.obtainOrCreate();
-      return _encryptionService.decryptBytes(
+      return _decryptAttachmentBytesFromStorage(
         encodedPayload: encrypted,
-        secretKey: normalKey,
+        key: normalKey,
         additionalData: _aad(type),
       );
     }
@@ -611,6 +612,31 @@ class EncryptedAttachmentStore {
     );
     return Isolate.run(() => _encryptAttachmentPayload(request));
   }
+
+  Future<List<int>> _decryptAttachmentBytesFromStorage({
+    required String encodedPayload,
+    required SecretKey key,
+    required List<int> additionalData,
+  }) async {
+    if (kIsWeb || encodedPayload.length < _backgroundDecryptionThresholdChars) {
+      return _encryptionService.decryptBytes(
+        encodedPayload: encodedPayload,
+        secretKey: key,
+        additionalData: additionalData,
+      );
+    }
+
+    final keyBytes = await key.extractBytes();
+    final request = _AttachmentDecryptionRequest(
+      encodedPayload: encodedPayload,
+      keyBytes: keyBytes,
+      additionalData: additionalData,
+    );
+    final transferable = await Isolate.run(
+      () => _decryptAttachmentPayload(request),
+    );
+    return transferable.materialize().asUint8List();
+  }
 }
 
 class _AttachmentEncryptionRequest {
@@ -632,4 +658,29 @@ Future<String> _encryptAttachmentPayload(_AttachmentEncryptionRequest request) {
     secretKey: SecretKey(request.keyBytes),
     additionalData: request.additionalData,
   );
+}
+
+class _AttachmentDecryptionRequest {
+  const _AttachmentDecryptionRequest({
+    required this.encodedPayload,
+    required this.keyBytes,
+    required this.additionalData,
+  });
+
+  final String encodedPayload;
+  final List<int> keyBytes;
+  final List<int> additionalData;
+}
+
+Future<TransferableTypedData> _decryptAttachmentPayload(
+  _AttachmentDecryptionRequest request,
+) async {
+  final bytes = await EncryptionService().decryptBytes(
+    encodedPayload: request.encodedPayload,
+    secretKey: SecretKey(request.keyBytes),
+    additionalData: request.additionalData,
+  );
+  return TransferableTypedData.fromList([
+    bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+  ]);
 }

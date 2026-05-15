@@ -550,8 +550,11 @@ void main() {
       'lib/features/security/data/encrypted_attachment_store.dart',
     ).readAsStringSync();
     expect(attachmentStore, contains('_backgroundEncryptionThresholdBytes'));
+    expect(attachmentStore, contains('_backgroundDecryptionThresholdChars'));
     expect(attachmentStore, contains('TransferableTypedData'));
     expect(attachmentStore, contains('Isolate.run'));
+    expect(attachmentStore, contains('_decryptAttachmentBytesFromStorage'));
+    expect(attachmentStore, contains('_decryptAttachmentPayload'));
   });
 
   test('attachment diagnostics include image byte signatures', () {
@@ -584,6 +587,9 @@ void main() {
     final secureBundleStore = File(
       'lib/features/sync/data/secure_sync_bundle_store.dart',
     ).readAsStringSync();
+    final attachmentStore = File(
+      'lib/features/security/data/encrypted_attachment_store.dart',
+    ).readAsStringSync();
     final homeProviders = File(
       'lib/features/home/presentation/home_providers.dart',
     ).readAsStringSync();
@@ -597,6 +603,9 @@ void main() {
     expect(secureBundleStore, contains('_encryptSyncBundleJson'));
     expect(secureBundleStore, contains('_decryptSyncBundleJson'));
     expect(secureBundleStore, contains('Isolate.run'));
+    expect(attachmentStore, contains('_decryptAttachmentBytesFromStorage'));
+    expect(attachmentStore, contains('_decryptAttachmentPayload'));
+    expect(attachmentStore, contains('TransferableTypedData.fromList'));
     expect(homeProviders, contains('Future<void> _yieldToUi()'));
     expect(homeProviders, contains('await _yieldToUi();'));
     expect(homeProviders, contains('detail'));
