@@ -3520,6 +3520,44 @@ class AppStrings {
     es: 'Reanuda esta sesión con la autenticación del dispositivo.',
     de: 'Setze diese Sitzung mit Geräteauthentifizierung fort.',
   );
+  String get unlockWithPinInstruction => localized(
+    en: 'Enter your PIN to unlock this session.',
+    ja: 'PIN を入力してこのセッションを解除します。',
+    zh: '输入 PIN 以解锁此会话。',
+    ko: 'PIN을 입력해 이 세션의 잠금을 해제하세요.',
+    es: 'Introduce tu PIN para desbloquear esta sesión.',
+    de: 'Gib deine PIN ein, um diese Sitzung zu entsperren.',
+  );
+  String get authenticating => localized(
+    en: 'Authenticating...',
+    ja: '認証中...',
+    zh: '正在认证...',
+    ko: '인증 중...',
+    es: 'Autenticando...',
+    de: 'Authentifizierung...',
+  );
+  String get noUnlockMethodConfigured => localized(
+    en: 'No unlock method is configured. Set a PIN from App security.',
+    ja: '解除方法が設定されていません。アプリ保護で PIN を設定してください。',
+    zh: '尚未设置解锁方式。请在应用安全中设置 PIN。',
+    ko: '잠금 해제 방법이 설정되어 있지 않습니다. 앱 보안에서 PIN을 설정하세요.',
+    es: 'No hay un método de desbloqueo configurado. Define un PIN en Seguridad de la app.',
+    de: 'Es ist keine Entsperrmethode eingerichtet. Lege unter App-Sicherheit eine PIN fest.',
+  );
+  String localizedPinLockError(String message) {
+    if (message == 'The PIN did not match.') {
+      return localized(
+        en: message,
+        ja: 'PIN が一致しません。',
+        zh: 'PIN 不匹配。',
+        ko: 'PIN이 일치하지 않습니다.',
+        es: 'El PIN no coincide.',
+        de: 'Die PIN stimmt nicht überein.',
+      );
+    }
+    return message;
+  }
+
   String pinLockSummary({required bool isConfigured, String? lastError}) {
     if (isConfigured) {
       return localized(
@@ -3532,7 +3570,7 @@ class AppStrings {
       );
     }
     if (lastError != null && lastError.isNotEmpty) {
-      return lastError;
+      return localizedPinLockError(lastError);
     }
     return localized(
       en: 'No unlock PIN is configured yet.',
@@ -3544,9 +3582,14 @@ class AppStrings {
     );
   }
 
-  String get privateVaultLockedMessage => isJapanese
-      ? 'private vault と同期状態は、セッションを戻すまでロックされたままです。'
-      : 'Private vault access and sync state remain locked until the session is restored.';
+  String get privateVaultLockedMessage => localized(
+    en: 'Private vault access and sync state remain locked until the session is restored.',
+    ja: 'プライベート領域と同期状態は、セッションを再開するまでロックされたままです。',
+    zh: '私密区域和同步状态会保持锁定，直到会话恢复。',
+    ko: '비공개 영역과 동기화 상태는 세션이 복원될 때까지 잠긴 상태로 유지됩니다.',
+    es: 'El acceso al área privada y el estado de sincronización permanecen bloqueados hasta restaurar la sesión.',
+    de: 'Der Zugriff auf den privaten Bereich und der Synchronisierungsstatus bleiben gesperrt, bis die Sitzung wiederhergestellt ist.',
+  );
 
   String get onboardingWelcome =>
       isJapanese ? 'HiMemo へようこそ' : 'Welcome to HiMemo';

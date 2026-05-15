@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:ui' show ImageFilter;
+import 'dart:ui' show ImageFilter, PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
@@ -27,6 +27,18 @@ const _performanceSeedNoteCount = int.fromEnvironment('HIMEMO_PERF_NOTE_COUNT');
 const _performanceSeedAttachmentsPerNote = int.fromEnvironment(
   'HIMEMO_PERF_ATTACHMENTS_PER_NOTE',
 );
+
+Locale _localeForAppLocaleSetting(AppLocaleSetting setting) {
+  return switch (setting) {
+    AppLocaleSetting.system => PlatformDispatcher.instance.locale,
+    AppLocaleSetting.japanese => const Locale('ja'),
+    AppLocaleSetting.english => const Locale('en'),
+    AppLocaleSetting.chinese => const Locale('zh'),
+    AppLocaleSetting.korean => const Locale('ko'),
+    AppLocaleSetting.spanish => const Locale('es'),
+    AppLocaleSetting.german => const Locale('de'),
+  };
+}
 
 class HiMemoApp extends ConsumerWidget {
   const HiMemoApp({super.key, required this.flavor});
@@ -430,9 +442,12 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       return;
     }
     _autoPrompted = true;
+    final strings = AppStrings(
+      _localeForAppLocaleSetting(ref.read(effectiveAppLocaleProvider)),
+    );
     await ref
         .read(deviceAuthControllerProvider.notifier)
-        .authenticate(reason: 'Unlock HiMemo with device authentication');
+        .authenticate(reason: strings.unlockWithDeviceAuthReason);
     if (mounted && ref.read(appSessionUnlockControllerProvider)) {
       unawaited(_clearBackgroundedAt());
       setState(() {
@@ -1075,14 +1090,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                               const SizedBox(height: 12),
                               Text(
                                 usePinUnlock
-                                    ? strings.localized(
-                                        en: 'Enter your PIN to unlock this session.',
-                                        ja: 'PIN を入力してこのセッションを解除します。',
-                                        zh: '輸入 PIN 以解鎖此工作階段。',
-                                        ko: 'PIN을 입력해 이 세션의 잠금을 해제하세요.',
-                                        es: 'Introduce tu PIN para desbloquear esta sesión.',
-                                        de: 'Gib deine PIN ein, um diese Sitzung zu entsperren.',
-                                      )
+                                    ? strings.unlockWithPinInstruction
                                     : strings.deviceAuthGate,
                                 style: Theme.of(context).textTheme.bodyLarge
                                     ?.copyWith(
@@ -1140,8 +1148,8 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                                                         .notifier,
                                                   )
                                                   .authenticate(
-                                                    reason:
-                                                        'Unlock HiMemo with device authentication',
+                                                    reason: strings
+                                                        .unlockWithDeviceAuthReason,
                                                   );
                                             },
                                       icon: authState.isAuthenticating
@@ -1159,27 +1167,13 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                                           : const Icon(Icons.lock_open_rounded),
                                       label: Text(
                                         authState.isAuthenticating
-                                            ? strings.localized(
-                                                en: 'Authenticating...',
-                                                ja: '認証中...',
-                                                zh: '正在认证...',
-                                                ko: '인증 중...',
-                                                es: 'Autenticando...',
-                                                de: 'Authentifizierung...',
-                                              )
+                                            ? strings.authenticating
                                             : strings.authenticate,
                                       ),
                                     )
                                   else
                                     Text(
-                                      strings.localized(
-                                        en: 'No unlock method is configured. Set a PIN from App security.',
-                                        ja: '解除方法が設定されていません。アプリ保護で PIN を設定してください。',
-                                        zh: '尚未設定解鎖方式。請在應用程式安全性中設定 PIN。',
-                                        ko: '잠금 해제 방법이 설정되어 있지 않습니다. 앱 보안에서 PIN을 설정하세요.',
-                                        es: 'No hay un método de desbloqueo configurado. Define un PIN en Seguridad de la app.',
-                                        de: 'Es ist keine Entsperrmethode eingerichtet. Lege unter App-Sicherheit eine PIN fest.',
-                                      ),
+                                      strings.noUnlockMethodConfigured,
                                       textAlign: TextAlign.center,
                                       style: Theme.of(context)
                                           .textTheme
@@ -1382,7 +1376,7 @@ class _PinUnlockPanelState extends ConsumerState<_PinUnlockPanel> {
         if (pinState.lastError != null) ...[
           const SizedBox(height: 12),
           Text(
-            pinState.lastError!,
+            strings.localizedPinLockError(pinState.lastError!),
             style: Theme.of(
               context,
             ).textTheme.bodySmall?.copyWith(color: colorScheme.error),

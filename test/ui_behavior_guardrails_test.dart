@@ -87,6 +87,7 @@ void main() {
 
   test('app lock background privacy cover prevents delayed relock flashes', () {
     final appShell = File('lib/app/app.dart').readAsStringSync();
+    final appStrings = File('lib/l10n/app_strings.dart').readAsStringSync();
     final androidMainActivity = File(
       'android/app/src/main/kotlin/org/ruhenheim/himemo/MainActivity.kt',
     ).readAsStringSync();
@@ -120,6 +121,16 @@ void main() {
     expect(androidMainActivity, contains('buildPrivacyOverlay'));
     expect(appDelegate, contains('alpha: 1.0'));
     expect(appDelegate.contains('UIBlurEffect(style: .extraLight)'), isFalse);
+    expect(appShell, contains('strings.unlockWithPinInstruction'));
+    expect(appShell, contains('strings.noUnlockMethodConfigured'));
+    expect(appShell, contains('strings.authenticating'));
+    expect(appShell, contains('strings.localizedPinLockError'));
+    expect(appShell, contains('strings.unlockWithDeviceAuthReason'));
+    expect(appStrings, contains('String get unlockWithPinInstruction'));
+    expect(appStrings, contains('String get noUnlockMethodConfigured'));
+    expect(appStrings, contains('String get authenticating'));
+    expect(appStrings, contains('String localizedPinLockError'));
+    expect(appStrings, contains('String get privateVaultLockedMessage'));
   });
 
   test('recent daily trend chart starts at the latest day', () {
