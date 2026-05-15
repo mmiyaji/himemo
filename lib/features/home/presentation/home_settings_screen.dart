@@ -1801,8 +1801,8 @@ class SettingsScreen extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             LinearProgressIndicator(
-                              value: _syncProgressValue(
-                                syncTransferState.progress,
+                              value: _syncProgressValueForState(
+                                syncTransferState,
                               ),
                             ),
                             const SizedBox(height: 6),
@@ -2143,6 +2143,16 @@ class SettingsScreen extends ConsumerWidget {
                                         context,
                                       );
                                       try {
+                                        final confirmed =
+                                            await _confirmLargeMobileSyncIfNeeded(
+                                              context,
+                                              ref,
+                                              includeUpload: false,
+                                              includeDownload: true,
+                                            );
+                                        if (!confirmed || !context.mounted) {
+                                          return;
+                                        }
                                         await ref
                                             .read(
                                               syncTransferControllerProvider

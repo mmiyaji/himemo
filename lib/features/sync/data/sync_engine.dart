@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 
@@ -109,6 +111,21 @@ class PreparedSyncSnapshot {
   }
 }
 
+class SyncSnapshotPreparationProgress {
+  const SyncSnapshotPreparationProgress({
+    required this.detail,
+    required this.completedItems,
+    required this.totalItems,
+  });
+
+  final String detail;
+  final int completedItems;
+  final int totalItems;
+}
+
+typedef SyncSnapshotPreparationProgressCallback =
+    Future<void> Function(SyncSnapshotPreparationProgress progress);
+
 class SyncAttachmentMissingException implements Exception {
   const SyncAttachmentMissingException({
     required this.noteId,
@@ -160,9 +177,31 @@ class SyncEngine {
   Future<PreparedSyncSnapshot> prepareSnapshot(
     List<NoteEntry> notes, {
     List<PendingNoteChangeRecord>? pendingChanges,
+    SyncSnapshotPreparationProgressCallback? onProgress,
   }) async {
     final changes = pendingChanges ?? await loadPendingChanges();
     final notesById = {for (final note in notes) note.id: note};
+    final noteIds = changes.map((change) => change.noteId).toSet();
+    final totalAttachments = notes
+        .where((note) => noteIds.contains(note.id))
+        .fold<int>(0, (total, note) {
+          var count = total;
+          for (final attachment in note.attachments) {
+            if (attachment.filePath != null &&
+                attachment.filePath!.isNotEmpty) {
+              count += 1;
+            }
+          }
+          for (final block in note.blocks) {
+            final attachment = block.attachment;
+            if (attachment?.filePath != null &&
+                attachment!.filePath!.isNotEmpty) {
+              count += 1;
+            }
+          }
+          return count;
+        });
+    var preparedAttachmentCount = 0;
     final preparedChanges = <PendingNoteChangeRecord>[];
     final attachmentPayloads = <PreparedSyncAttachment>[];
     final preparedNotes = <PreparedSyncNote>[];
@@ -193,17 +232,51 @@ class SyncEngine {
         if (filePath == null || filePath.isEmpty) {
           return attachment.copyWith(filePath: null, previewBytesBase64: null);
         }
+        if (_isRemoteSyncAttachmentObjectRef(filePath)) {
+          preparedAttachmentCount += 1;
+          await onProgress?.call(
+            SyncSnapshotPreparationProgress(
+              detail: 'Prepared attachment',
+              completedItems: preparedAttachmentCount,
+              totalItems: totalAttachments,
+            ),
+          );
+          return attachment;
+        }
         if (attachmentIdsByPath[filePath] case final existingId?) {
+          preparedAttachmentCount += 1;
+          await onProgress?.call(
+            SyncSnapshotPreparationProgress(
+              detail: 'Prepared attachment',
+              completedItems: preparedAttachmentCount,
+              totalItems: totalAttachments,
+            ),
+          );
           return attachment.copyWith(
             filePath: 'sync-attachment-object://$existingId',
           );
         }
+        await onProgress?.call(
+          SyncSnapshotPreparationProgress(
+            detail: 'Preparing attachment',
+            completedItems: preparedAttachmentCount,
+            totalItems: totalAttachments,
+          ),
+        );
         final bytes = await _attachmentStore.readAttachment(
           filePath,
           type: attachment.type,
         );
         if (bytes == null || bytes.isEmpty) {
           if (change.action == PendingNoteChangeAction.delete) {
+            preparedAttachmentCount += 1;
+            await onProgress?.call(
+              SyncSnapshotPreparationProgress(
+                detail: 'Prepared attachment',
+                completedItems: preparedAttachmentCount,
+                totalItems: totalAttachments,
+              ),
+            );
             return attachment.copyWith(
               filePath: null,
               previewBytesBase64: null,
@@ -217,17 +290,25 @@ class SyncEngine {
             index: index,
           );
         }
-        final attachmentHash = sha256.convert(bytes).toString();
-        final attachmentId = attachmentHash;
+        final encoded = await _encodeSyncAttachmentBytes(bytes);
+        final attachmentId = encoded['contentHash']!;
         attachmentIdsByPath[filePath] = attachmentId;
         attachmentPayloads.add(
           PreparedSyncAttachment(
             id: attachmentId,
             type: attachment.type,
             label: attachment.label,
-            bytesBase64: base64Encode(bytes),
-            contentHash: attachmentHash,
+            bytesBase64: encoded['bytesBase64']!,
+            contentHash: encoded['contentHash']!,
             sizeBytes: bytes.length,
+          ),
+        );
+        preparedAttachmentCount += 1;
+        await onProgress?.call(
+          SyncSnapshotPreparationProgress(
+            detail: 'Prepared attachment',
+            completedItems: preparedAttachmentCount,
+            totalItems: totalAttachments,
           ),
         );
         return attachment.copyWith(
@@ -306,14 +387,12 @@ class SyncEngine {
             !countedPaths.add(filePath)) {
           return;
         }
-        final bytes = await _attachmentStore.readAttachment(
-          filePath,
-          type: attachment.type,
-        );
-        if (bytes == null || bytes.isEmpty) {
+        final estimatedBytes = await _attachmentStore
+            .estimateStoredAttachmentPayloadBytes(filePath);
+        if (estimatedBytes == null || estimatedBytes <= 0) {
           return;
         }
-        total += base64Encode(bytes).length;
+        total += _base64EncodedLength(estimatedBytes);
         total += utf8.encode(attachment.label).length + 64;
       }
 
@@ -352,3 +431,22 @@ class SyncEngine {
     );
   }
 }
+
+bool _isRemoteSyncAttachmentObjectRef(String filePath) {
+  return filePath.startsWith('sync-attachment-object://');
+}
+
+Future<Map<String, String>> _encodeSyncAttachmentBytes(List<int> bytes) {
+  final transferable = TransferableTypedData.fromList([
+    bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+  ]);
+  return Isolate.run(() {
+    final materialized = transferable.materialize().asUint8List();
+    return {
+      'contentHash': sha256.convert(materialized).toString(),
+      'bytesBase64': base64Encode(materialized),
+    };
+  });
+}
+
+int _base64EncodedLength(int byteLength) => ((byteLength + 2) ~/ 3) * 4;

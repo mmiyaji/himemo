@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -1056,6 +1057,9 @@ class SyncTransferState {
     required this.stage,
     this.progress = SyncTransferProgress.none,
     this.message,
+    this.detail,
+    this.completedItems,
+    this.totalItems,
     this.remoteStatus,
     this.localBundle,
     this.cooldownUntil,
@@ -1065,6 +1069,9 @@ class SyncTransferState {
     : stage = SyncTransferStage.idle,
       progress = SyncTransferProgress.none,
       message = null,
+      detail = null,
+      completedItems = null,
+      totalItems = null,
       remoteStatus = null,
       localBundle = null,
       cooldownUntil = null;
@@ -1072,6 +1079,9 @@ class SyncTransferState {
   final SyncTransferStage stage;
   final SyncTransferProgress progress;
   final String? message;
+  final String? detail;
+  final int? completedItems;
+  final int? totalItems;
   final RemoteSyncBundleStatus? remoteStatus;
   final StoredSyncBundle? localBundle;
   final DateTime? cooldownUntil;
@@ -1087,10 +1097,14 @@ class SyncTransferState {
     SyncTransferStage? stage,
     SyncTransferProgress? progress,
     String? message,
+    String? detail,
+    int? completedItems,
+    int? totalItems,
     RemoteSyncBundleStatus? remoteStatus,
     StoredSyncBundle? localBundle,
     DateTime? cooldownUntil,
     bool clearMessage = false,
+    bool clearDetail = false,
     bool clearCooldown = false,
     bool clearLocalBundle = false,
   }) {
@@ -1102,6 +1116,17 @@ class SyncTransferState {
               ? SyncTransferProgress.none
               : this.progress),
       message: clearMessage ? null : (message ?? this.message),
+      detail: clearDetail || (stage != null && stage != SyncTransferStage.busy)
+          ? null
+          : (detail ?? this.detail),
+      completedItems:
+          clearDetail || (stage != null && stage != SyncTransferStage.busy)
+          ? null
+          : (completedItems ?? this.completedItems),
+      totalItems:
+          clearDetail || (stage != null && stage != SyncTransferStage.busy)
+          ? null
+          : (totalItems ?? this.totalItems),
       remoteStatus: remoteStatus ?? this.remoteStatus,
       localBundle: clearLocalBundle ? null : (localBundle ?? this.localBundle),
       cooldownUntil: clearCooldown
@@ -1168,6 +1193,34 @@ class _DecodedLocalZipArchive {
   final Map<String, dynamic> manifest;
   final List<Map<String, dynamic>> notes;
   final Map<String, Uint8List> attachmentFiles;
+}
+
+class _LocalArchiveFilePayload {
+  const _LocalArchiveFilePayload({required this.name, required this.bytes});
+
+  final String name;
+  final TransferableTypedData bytes;
+}
+
+class _LocalZipEncodeRequest {
+  const _LocalZipEncodeRequest({
+    required this.manifest,
+    required this.notes,
+    required this.files,
+    this.password,
+  });
+
+  final Map<String, dynamic> manifest;
+  final List<Map<String, dynamic>> notes;
+  final List<_LocalArchiveFilePayload> files;
+  final String? password;
+}
+
+class _LocalZipDecodeRequest {
+  const _LocalZipDecodeRequest({required this.bytes, this.password});
+
+  final TransferableTypedData bytes;
+  final String? password;
 }
 
 enum InAppUpdateStage {
@@ -1565,8 +1618,10 @@ class DefaultMediaImportService implements MediaImportService {
     if (tooLarge != null) {
       return tooLarge;
     }
-    final result =
-        await _buildAttachment(type: AttachmentType.photo, sourceFile: picked);
+    final result = await _buildAttachment(
+      type: AttachmentType.photo,
+      sourceFile: picked,
+    );
     return MediaImportResult.success(result.attachment);
   }
 
@@ -1615,12 +1670,16 @@ class DefaultMediaImportService implements MediaImportService {
       return tooLarge;
     }
     try {
-      final result =
-          await _buildAttachment(type: AttachmentType.video, sourceFile: picked);
+      final result = await _buildAttachment(
+        type: AttachmentType.video,
+        sourceFile: picked,
+      );
       if (result.deferredPreview != null) {
         return MediaImportResult.successWithDeferredPreview(
           result.attachment,
-          deferredPreviews: {result.attachment.filePath!: result.deferredPreview!},
+          deferredPreviews: {
+            result.attachment.filePath!: result.deferredPreview!,
+          },
         );
       }
       return MediaImportResult.success(result.attachment);
@@ -1718,8 +1777,7 @@ class DefaultMediaImportService implements MediaImportService {
       if (tooLarge != null) {
         return tooLarge;
       }
-      final built =
-          await _buildAttachment(type: type, sourceFile: sourceFile);
+      final built = await _buildAttachment(type: type, sourceFile: sourceFile);
       attachments.add(built.attachment);
       if (built.deferredPreview != null && built.attachment.filePath != null) {
         deferredPreviews[built.attachment.filePath!] = built.deferredPreview!;
@@ -1784,8 +1842,7 @@ class DefaultMediaImportService implements MediaImportService {
       if (tooLarge != null) {
         return tooLarge;
       }
-      final built =
-          await _buildAttachment(type: type, sourceFile: sourceFile);
+      final built = await _buildAttachment(type: type, sourceFile: sourceFile);
       attachments.add(built.attachment);
       if (built.deferredPreview != null && built.attachment.filePath != null) {
         deferredPreviews[built.attachment.filePath!] = built.deferredPreview!;
@@ -1929,13 +1986,15 @@ class DefaultMediaImportService implements MediaImportService {
     if (tooLarge != null) {
       return tooLarge;
     }
-    final built =
-        await _buildAttachment(type: AttachmentType.file, sourceFile: sourceFile);
+    final built = await _buildAttachment(
+      type: AttachmentType.file,
+      sourceFile: sourceFile,
+    );
     return MediaImportResult.success(built.attachment);
   }
 
   Future<({NoteAttachment attachment, Future<String?>? deferredPreview})>
-      _buildAttachment({
+  _buildAttachment({
     required AttachmentType type,
     required XFile sourceFile,
   }) async {
@@ -1969,8 +2028,9 @@ class DefaultMediaImportService implements MediaImportService {
         );
         deferredPreview = _videoPreviewBytesBase64ForSourceFile(sourceFile);
       } else {
-        previewBytesBase64 =
-            await _videoPreviewBytesBase64ForSourceFile(sourceFile);
+        previewBytesBase64 = await _videoPreviewBytesBase64ForSourceFile(
+          sourceFile,
+        );
       }
     }
     final storedPath = await _attachmentStore.storeAttachment(
@@ -2466,6 +2526,7 @@ final syncTransferControllerProvider =
 
 class SyncTransferController extends Notifier<SyncTransferState> {
   static const largeMobileSyncThresholdBytes = 50 * 1024 * 1024;
+  static const _remoteStatusCacheTtl = Duration(seconds: 90);
   static const _syncBundleDecryptionMessage =
       'sync.error.bundle_decryption_failed';
   static const _syncBundleKeyMissingMessage = 'sync.error.bundle_key_missing';
@@ -2475,10 +2536,17 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       'sync.info.private_profile_notes_pending_unlock';
 
   Timer? _cooldownTimer;
+  Timer? _remoteStatusWaitTimer;
+  RemoteSyncBundleStatus? _cachedRemoteStatus;
+  DateTime? _cachedRemoteStatusFetchedAt;
+  SyncProvider? _cachedRemoteStatusProvider;
 
   @override
   SyncTransferState build() {
-    ref.onDispose(() => _cooldownTimer?.cancel());
+    ref.onDispose(() {
+      _cooldownTimer?.cancel();
+      _remoteStatusWaitTimer?.cancel();
+    });
     return const SyncTransferState.idle();
   }
 
@@ -2562,10 +2630,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     final notes = await ref
         .read(notesControllerProvider.notifier)
         .notesForSyncSnapshot(pendingNoteIds: pendingIds);
-    final snapshot = await ref
-        .read(syncEngineProvider)
-        .prepareSnapshot(notes, pendingChanges: pendingChanges);
-    return snapshot.estimatedPayloadBytes;
+    return ref.read(syncEngineProvider).estimateNotesPayloadBytes(notes);
   }
 
   Future<int> estimateCurrentStateUploadBytes() async {
@@ -2629,6 +2694,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       stage: SyncTransferStage.busy,
       progress: progress,
       clearMessage: true,
+      clearDetail: true,
       clearCooldown: true,
     );
   }
@@ -2641,7 +2707,129 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     );
   }
 
-  Future<void> refreshRemoteStatus() async {
+  void _setProgressDetail({
+    required SyncTransferProgress progress,
+    String? detail,
+    int? completedItems,
+    int? totalItems,
+  }) {
+    state = state.copyWith(
+      stage: SyncTransferStage.busy,
+      progress: progress,
+      detail: detail,
+      completedItems: completedItems,
+      totalItems: totalItems,
+      clearMessage: true,
+      clearDetail:
+          detail == null && completedItems == null && totalItems == null,
+    );
+  }
+
+  Future<void> _yieldToUi() => Future<void>.delayed(Duration.zero);
+
+  Future<T> _measureSyncStep<T>(
+    String message,
+    Future<T> Function() operation, {
+    Map<String, Object?> data = const <String, Object?>{},
+  }) async {
+    final stopwatch = Stopwatch()..start();
+    try {
+      return await operation();
+    } finally {
+      stopwatch.stop();
+      _diagnostic(
+        message,
+        data: {...data, 'elapsedMs': stopwatch.elapsedMilliseconds},
+      );
+    }
+  }
+
+  bool _canUseCachedRemoteStatus(SyncProvider provider) {
+    final fetchedAt = _cachedRemoteStatusFetchedAt;
+    return fetchedAt != null &&
+        _cachedRemoteStatusProvider == provider &&
+        DateTime.now().difference(fetchedAt) < _remoteStatusCacheTtl;
+  }
+
+  void _cacheRemoteStatus(
+    SyncProvider provider,
+    RemoteSyncBundleStatus? remoteStatus,
+  ) {
+    _cachedRemoteStatusProvider = provider;
+    _cachedRemoteStatusFetchedAt = DateTime.now();
+    _cachedRemoteStatus = remoteStatus;
+  }
+
+  void _startRemoteStatusWaitProgress({
+    required SyncProvider provider,
+    required int totalItems,
+  }) {
+    _remoteStatusWaitTimer?.cancel();
+    final startedAt = DateTime.now();
+
+    void update() {
+      final elapsed = DateTime.now().difference(startedAt).inSeconds;
+      _setProgressDetail(
+        progress: SyncTransferProgress.checkingRemote,
+        detail: elapsed <= 0
+            ? 'Waiting for ${provider.name} response'
+            : 'Waiting for ${provider.name} response (${elapsed}s)',
+        completedItems: 0,
+        totalItems: totalItems,
+      );
+    }
+
+    update();
+    _remoteStatusWaitTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => update(),
+    );
+  }
+
+  Future<RemoteSyncBundleStatus?> _fetchLatestRemoteStatusWithCache({
+    required String traceName,
+    required bool allowCached,
+    required int totalItems,
+  }) async {
+    final provider = ref.read(syncProviderControllerProvider);
+    if (allowCached && _canUseCachedRemoteStatus(provider)) {
+      _diagnostic(
+        'remote status cache hit',
+        data: {
+          'provider': provider.name,
+          'ageMs': DateTime.now()
+              .difference(_cachedRemoteStatusFetchedAt!)
+              .inMilliseconds,
+          'hasRemote': _cachedRemoteStatus != null,
+          'fileId': _cachedRemoteStatus?.fileId,
+        },
+      );
+      _setProgressDetail(
+        progress: SyncTransferProgress.checkingRemote,
+        detail: 'Using recent cloud status',
+        completedItems: 1,
+        totalItems: totalItems,
+      );
+      await _yieldToUi();
+      return _cachedRemoteStatus;
+    }
+    _startRemoteStatusWaitProgress(provider: provider, totalItems: totalItems);
+    try {
+      final remoteStatus = await runFirebaseTrace(
+        traceName,
+        _fetchLatestRemoteStatus,
+      );
+      _cacheRemoteStatus(provider, remoteStatus);
+      return remoteStatus;
+    } finally {
+      _remoteStatusWaitTimer?.cancel();
+      _remoteStatusWaitTimer = null;
+    }
+  }
+
+  Future<void> refreshRemoteStatus({
+    bool allowCachedRemoteStatus = false,
+  }) async {
     final provider = ref.read(syncProviderControllerProvider);
     if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
@@ -2651,10 +2839,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       return;
     }
     _startBusy(SyncTransferProgress.checkingRemote);
+    await _yieldToUi();
     try {
-      final remoteStatus = await runFirebaseTrace(
-        'sync_refresh_remote_status',
-        _fetchLatestRemoteStatus,
+      _setProgressDetail(
+        progress: SyncTransferProgress.checkingRemote,
+        detail: 'Checking cloud status',
+        completedItems: 0,
+        totalItems: 1,
+      );
+      await _yieldToUi();
+      final remoteStatus = await _measureSyncStep(
+        'remote status check completed',
+        () => _fetchLatestRemoteStatusWithCache(
+          traceName: 'sync_refresh_remote_status',
+          allowCached: allowCachedRemoteStatus,
+          totalItems: 1,
+        ),
+        data: {'cachedAllowed': allowCachedRemoteStatus},
       );
       state = SyncTransferState(
         stage: SyncTransferStage.success,
@@ -2760,7 +2961,55 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         hashes.add(contentHash);
       }
     }
+    for (final rawEntry
+        in (decoded['notes'] as List<dynamic>? ?? const <dynamic>[])) {
+      if (rawEntry is! Map) {
+        continue;
+      }
+      final rawNote = rawEntry['note'];
+      if (rawNote is! Map) {
+        continue;
+      }
+      hashes.addAll(_remoteAttachmentHashesInNoteJson(rawNote));
+    }
     return hashes;
+  }
+
+  Set<String> _remoteAttachmentHashesInNoteJson(Map rawNote) {
+    final hashes = <String>{};
+
+    void addFromAttachmentJson(Object? rawAttachment) {
+      if (rawAttachment is! Map) {
+        return;
+      }
+      final filePath = rawAttachment['filePath'] as String?;
+      final contentHash = _remoteAttachmentHashFromRef(filePath);
+      if (contentHash != null) {
+        hashes.add(contentHash);
+      }
+    }
+
+    for (final rawAttachment
+        in (rawNote['attachments'] as List<dynamic>? ?? const <dynamic>[])) {
+      addFromAttachmentJson(rawAttachment);
+    }
+    for (final rawBlock
+        in (rawNote['blocks'] as List<dynamic>? ?? const <dynamic>[])) {
+      if (rawBlock is! Map) {
+        continue;
+      }
+      addFromAttachmentJson(rawBlock['attachment']);
+    }
+    return hashes;
+  }
+
+  String? _remoteAttachmentHashFromRef(String? filePath) {
+    const prefix = 'sync-attachment-object://';
+    if (filePath == null || !filePath.startsWith(prefix)) {
+      return null;
+    }
+    final contentHash = filePath.substring(prefix.length);
+    return contentHash.isEmpty ? null : contentHash;
   }
 
   Future<void> uploadCurrentBundle({
@@ -2810,6 +3059,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       return;
     }
     _startBusy(SyncTransferProgress.preparingBundle);
+    await _yieldToUi();
     try {
       await logFirebaseBreadcrumb('sync upload requested');
       await ref
@@ -2850,7 +3100,19 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         'sync_prepare_snapshot',
         () => ref
             .read(syncEngineProvider)
-            .prepareSnapshot(notes, pendingChanges: pendingChanges),
+            .prepareSnapshot(
+              notes,
+              pendingChanges: pendingChanges,
+              onProgress: (progress) async {
+                _setProgressDetail(
+                  progress: SyncTransferProgress.preparingBundle,
+                  detail: progress.detail,
+                  completedItems: progress.completedItems,
+                  totalItems: progress.totalItems,
+                );
+                await _yieldToUi();
+              },
+            ),
       );
       final preparedUpserts = snapshot.notes
           .where((change) => change.action == PendingNoteChangeAction.upsert)
@@ -2874,6 +3136,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       final provider = ref.read(syncProviderControllerProvider);
       if (provider != SyncProvider.off) {
         _setProgress(SyncTransferProgress.uploadingBundle);
+        await _yieldToUi();
         await runFirebaseTrace(
           'sync_upload_attachment_objects',
           () => _uploadRemoteAttachmentObjects(snapshot.attachments),
@@ -2915,6 +3178,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           attachmentCount: bundle.attachmentCount,
         ),
       );
+      _cacheRemoteStatus(provider, remoteStatus);
       _diagnostic(
         'remote bundle uploaded',
         data: {
@@ -2927,6 +3191,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         },
       );
       _setProgress(SyncTransferProgress.finalizing);
+      await _yieldToUi();
       await ref
           .read(notesControllerProvider.notifier)
           .markSnapshotChangesSynced(pendingHashes);
@@ -3031,6 +3296,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       return;
     }
     _startBusy(SyncTransferProgress.preparingBundle);
+    await _yieldToUi();
     await ref.read(notesControllerProvider.notifier).queueCurrentStateForSync();
     await uploadCurrentBundle(
       force: true,
@@ -3043,6 +3309,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     bool forceUpload = false,
     bool allowLargeMobileTransfer = false,
     bool silentLargeMobileSkip = false,
+    bool allowCachedRemoteStatus = false,
   }) async {
     final provider = ref.read(syncProviderControllerProvider);
     _diagnostic(
@@ -3051,6 +3318,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         'provider': provider.name,
         'forceUpload': forceUpload,
         'busy': state.isBusy,
+        'allowCachedRemoteStatus': allowCachedRemoteStatus,
       },
     );
     if (!_supportsRemoteTransport(provider)) {
@@ -3065,13 +3333,37 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       return;
     }
     _startBusy(SyncTransferProgress.checkingRemote);
+    await _yieldToUi();
     try {
       await logFirebaseBreadcrumb('sync now requested');
-      final remoteStatus = await runFirebaseTrace(
-        'sync_refresh_remote_status',
-        _fetchLatestRemoteStatus,
+      const checkingStepCount = 4;
+      _setProgressDetail(
+        progress: SyncTransferProgress.checkingRemote,
+        detail: 'Checking cloud status',
+        completedItems: 0,
+        totalItems: checkingStepCount,
       );
-      final bundleState = await ref.read(syncBundleStateProvider.future);
+      await _yieldToUi();
+      final remoteStatus = await _measureSyncStep(
+        'remote status check completed',
+        () => _fetchLatestRemoteStatusWithCache(
+          traceName: 'sync_refresh_remote_status',
+          allowCached: allowCachedRemoteStatus,
+          totalItems: checkingStepCount,
+        ),
+        data: {'cachedAllowed': allowCachedRemoteStatus},
+      );
+      _setProgressDetail(
+        progress: SyncTransferProgress.checkingRemote,
+        detail: 'Reading sync history',
+        completedItems: 1,
+        totalItems: checkingStepCount,
+      );
+      await _yieldToUi();
+      final bundleState = await _measureSyncStep(
+        'sync state check completed',
+        () => ref.read(syncBundleStateProvider.future),
+      );
       _diagnostic(
         'remote status refreshed',
         data: {
@@ -3096,18 +3388,38 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       }
       state = state.copyWith(remoteStatus: remoteStatus);
 
-      if (await _shouldBlockLargeMobileTransfer(
-        allowLargeMobileTransfer: allowLargeMobileTransfer,
-        silentLargeMobileSkip: silentLargeMobileSkip,
-        includeUpload: false,
-        includeDownload:
-            remoteStatus != null &&
-            _remoteBundleNeedsApply(remoteStatus, bundleState),
+      _setProgressDetail(
+        progress: SyncTransferProgress.checkingRemote,
+        detail: 'Checking transfer size',
+        completedItems: 2,
+        totalItems: checkingStepCount,
+      );
+      await _yieldToUi();
+      if (await _measureSyncStep(
+        'transfer size check completed',
+        () => _shouldBlockLargeMobileTransfer(
+          allowLargeMobileTransfer: allowLargeMobileTransfer,
+          silentLargeMobileSkip: silentLargeMobileSkip,
+          includeUpload: false,
+          includeDownload:
+              remoteStatus != null &&
+              _remoteBundleNeedsApply(remoteStatus, bundleState),
+        ),
       )) {
         return;
       }
 
-      final queue = await _readLocalSyncQueueSummary();
+      _setProgressDetail(
+        progress: SyncTransferProgress.checkingRemote,
+        detail: 'Checking local changes',
+        completedItems: 3,
+        totalItems: checkingStepCount,
+      );
+      await _yieldToUi();
+      final queue = await _measureSyncStep(
+        'local queue check completed',
+        _readLocalSyncQueueSummary,
+      );
       final hadPendingChangesBeforeRemoteApply = queue.hasPendingChanges;
       var appliedRemoteDuringSync = false;
       _diagnostic(
@@ -3138,6 +3450,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           );
         }
         _setProgress(SyncTransferProgress.downloadingBundle);
+        await _yieldToUi();
         final remoteBundle = await runFirebaseTrace(
           'sync_download_latest_bundle',
           _downloadLatestRemoteBundle,
@@ -3156,6 +3469,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         );
         if (remoteBundle != null) {
           _setProgress(SyncTransferProgress.applyingBundle);
+          await _yieldToUi();
           await applyDownloadedBundle();
           if (state.stage == SyncTransferStage.error) {
             return;
@@ -3190,6 +3504,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       if (refreshedQueue.hasPendingChanges) {
         _setProgress(SyncTransferProgress.preparingBundle);
+        await _yieldToUi();
         final forceConvergenceUpload =
             appliedRemoteDuringSync && !hadPendingChangesBeforeRemoteApply;
         await uploadCurrentBundle(
@@ -3200,6 +3515,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         return;
       }
       _setProgress(SyncTransferProgress.finalizing);
+      await _yieldToUi();
       state = SyncTransferState(
         stage: SyncTransferStage.success,
         message: 'sync.info.sync_success',
@@ -3264,7 +3580,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     _startBusy(SyncTransferProgress.preparingBundle);
     try {
       await logFirebaseBreadcrumb('local zip archive import selected');
-      final decoded = _decodeLocalZipArchive(bytes, password: password);
+      final decoded = await _decodeLocalZipArchive(bytes, password: password);
       final preview = buildSyncBundlePreview(
         decodedBundle: _zipArchiveAsSyncBundle(decoded),
         currentNotes: ref.read(notesControllerProvider),
@@ -3293,7 +3609,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     _startBusy(SyncTransferProgress.applyingBundle);
     try {
       await logFirebaseBreadcrumb('local zip archive apply selected');
-      final decoded = _decodeLocalZipArchive(bytes, password: password);
+      final decoded = await _decodeLocalZipArchive(bytes, password: password);
       final attachmentFiles = decoded.attachmentFiles;
       final importedChanges = <PreparedSyncNote>[];
       for (final rawNote in decoded.notes) {
@@ -3498,7 +3814,19 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           (entry as Map)['id'] as String: Map<String, dynamic>.from(entry),
       };
       final importedChanges = <PreparedSyncNote>[];
+      var importedEntryCount = 0;
+      final totalEntries = rawNoteEntries.length;
       for (final rawEntry in rawNoteEntries) {
+        if (importedEntryCount > 0 && importedEntryCount % 25 == 0) {
+          await _yieldToUi();
+        }
+        importedEntryCount++;
+        _setProgressDetail(
+          progress: SyncTransferProgress.applyingBundle,
+          detail: 'Applying note',
+          completedItems: importedEntryCount - 1,
+          totalItems: totalEntries,
+        );
         final entry = Map<String, dynamic>.from(rawEntry as Map);
         final note = NoteEntry.fromJson(
           Map<String, dynamic>.from(entry['note'] as Map),
@@ -3521,6 +3849,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
         final importedAttachments = <NoteAttachment>[];
         for (final attachment in note.attachments) {
+          _setProgressDetail(
+            progress: SyncTransferProgress.applyingBundle,
+            detail: 'Applying attachment for note',
+            completedItems: importedEntryCount - 1,
+            totalItems: totalEntries,
+          );
+          await _yieldToUi();
           importedAttachments.add(
             await _importRemoteSyncAttachment(
               attachment: attachment,
@@ -3534,6 +3869,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         final importedBlocks = <NoteBlock>[];
         for (final block in note.blocks) {
           final attachment = block.attachment;
+          if (attachment != null) {
+            _setProgressDetail(
+              progress: SyncTransferProgress.applyingBundle,
+              detail: 'Applying block attachment for note',
+              completedItems: importedEntryCount - 1,
+              totalItems: totalEntries,
+            );
+            await _yieldToUi();
+          }
           importedBlocks.add(
             attachment == null
                 ? block
@@ -3593,8 +3937,21 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     _startBusy(SyncTransferProgress.downloadingBundle);
     try {
       var count = 0;
+      var scannedNoteCount = 0;
+      final currentNotes = ref.read(notesControllerProvider);
+      final totalNotes = currentNotes.length;
       final hydratedNotes = <NoteEntry>[];
-      for (final note in ref.read(notesControllerProvider)) {
+      for (final note in currentNotes) {
+        if (scannedNoteCount > 0 && scannedNoteCount % 25 == 0) {
+          await _yieldToUi();
+        }
+        scannedNoteCount++;
+        _setProgressDetail(
+          progress: SyncTransferProgress.downloadingBundle,
+          detail: 'Checking attachments',
+          completedItems: scannedNoteCount - 1,
+          totalItems: totalNotes,
+        );
         final storedBySyncAttachmentId = <String, String?>{};
         final previewBySyncAttachmentId = <String, String?>{};
         Future<NoteAttachment> hydrate(NoteAttachment attachment) async {
@@ -3822,11 +4179,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             previewBySyncAttachmentId[contentHash] =
                 attachment.previewBytesBase64;
           } else {
-            final clearBytes = base64Decode(bytesBase64);
-            final clearHash = sha256.convert(clearBytes).toString();
-            if (clearHash != contentHash) {
+            final decodedBytes = await _decodeSyncAttachmentBytes(bytesBase64);
+            if (decodedBytes.contentHash != contentHash) {
               throw StateError('sync.error.attachment_object_hash_mismatch');
             }
+            final clearBytes = decodedBytes.bytes;
             previewBySyncAttachmentId[contentHash] =
                 payloadType == AttachmentType.video
                 ? await _videoPreviewBytesBase64ForBytes(
@@ -3895,7 +4252,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       final label = payload['label'] as String? ?? attachment.label;
       final bytesBase64 = payload['bytesBase64'] as String?;
       if (bytesBase64 != null && bytesBase64.isNotEmpty) {
-        final clearBytes = base64Decode(bytesBase64);
+        final decodedBytes = await _decodeSyncAttachmentBytes(bytesBase64);
+        final clearBytes = decodedBytes.bytes;
         previewBySyncAttachmentId[attachmentId] =
             payloadType == AttachmentType.video
             ? await _videoPreviewBytesBase64ForBytes(
@@ -4091,7 +4449,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         )
         .where((entry) => includeSampleNotes || !isGeneratedSampleNote(entry))
         .toList(growable: false);
-    final archive = Archive();
+    final archiveFiles = <_LocalArchiveFilePayload>[];
     final exportedNotes = <Map<String, dynamic>>[];
     var attachmentCount = 0;
 
@@ -4125,7 +4483,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           index: index,
           label: attachment.label,
         );
-        archive.addFile(ArchiveFile.bytes(archivePath, bytes));
+        archiveFiles.add(
+          _LocalArchiveFilePayload(
+            name: archivePath,
+            bytes: TransferableTypedData.fromList([
+              bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+            ]),
+          ),
+        );
         archivePathByAttachmentKey[key] = archivePath;
         attachmentCount += 1;
         return attachment.copyWith(
@@ -4165,32 +4530,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
     }
 
-    archive.addFile(
-      ArchiveFile.string(
-        'manifest.json',
-        jsonEncode({
-          'format': 'org.ruhenheim.himemo.notes.zip',
-          'version': 1,
-          'exportedAt': exportedAt.toIso8601String(),
-          'encryption': password == null || password.isEmpty
-              ? 'none'
-              : 'zip-aes-256',
-          'noteCount': exportedNotes.length,
-          'attachmentCount': attachmentCount,
-          'contents': ['notes.json', 'attachments/'],
-        }),
-      ),
+    final manifest = {
+      'format': 'org.ruhenheim.himemo.notes.zip',
+      'version': 1,
+      'exportedAt': exportedAt.toIso8601String(),
+      'encryption': password == null || password.isEmpty
+          ? 'none'
+          : 'zip-aes-256',
+      'noteCount': exportedNotes.length,
+      'attachmentCount': attachmentCount,
+      'contents': ['notes.json', 'attachments/'],
+    };
+    final encoded = await _encodeLocalZipArchive(
+      manifest: manifest,
+      notes: exportedNotes,
+      files: archiveFiles,
+      password: password,
     );
-    archive.addFile(
-      ArchiveFile.string(
-        'notes.json',
-        jsonEncode({'schemaVersion': 1, 'notes': exportedNotes}),
-      ),
-    );
-
-    final encoded = ZipEncoder(
-      password: password == null || password.isEmpty ? null : password,
-    ).encode(archive);
     if (encoded.isEmpty) {
       throw StateError('ZIP archive could not be encoded.');
     }
@@ -4206,39 +4562,49 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     );
   }
 
-  _DecodedLocalZipArchive _decodeLocalZipArchive(
+  Future<_DecodedLocalZipArchive> _decodeLocalZipArchive(
     List<int> bytes, {
     String? password,
-  }) {
-    final archive = ZipDecoder().decodeBytes(bytes, password: password);
-    final manifestFile = archive.findFile('manifest.json');
-    final notesFile = archive.findFile('notes.json');
-    if (manifestFile == null || notesFile == null) {
-      throw StateError('This file is not a HiMemo ZIP archive.');
+  }) async {
+    final source = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+    if (kIsWeb || source.lengthInBytes < 512 * 1024) {
+      return _decodeLocalZipArchivePayloadInBackground(
+        _LocalZipDecodeRequest(
+          bytes: TransferableTypedData.fromList([source]),
+          password: password,
+        ),
+      );
     }
-    final manifest = Map<String, dynamic>.from(
-      jsonDecode(utf8.decode(manifestFile.content)) as Map,
+    return Isolate.run(
+      () => _decodeLocalZipArchivePayloadInBackground(
+        _LocalZipDecodeRequest(
+          bytes: TransferableTypedData.fromList([source]),
+          password: password,
+        ),
+      ),
     );
-    final notesPayload = Map<String, dynamic>.from(
-      jsonDecode(utf8.decode(notesFile.content)) as Map,
-    );
-    final notes = [
-      for (final entry
-          in (notesPayload['notes'] as List<dynamic>? ?? const <dynamic>[]))
-        Map<String, dynamic>.from(entry as Map),
-    ];
-    final attachmentFiles = <String, Uint8List>{};
-    for (final file in archive.files) {
-      if (!file.isFile || !file.name.startsWith('attachments/')) {
-        continue;
-      }
-      attachmentFiles[file.name] = Uint8List.fromList(file.content);
-    }
-    return _DecodedLocalZipArchive(
+  }
+
+  Future<Uint8List> _encodeLocalZipArchive({
+    required Map<String, dynamic> manifest,
+    required List<Map<String, dynamic>> notes,
+    required List<_LocalArchiveFilePayload> files,
+    String? password,
+  }) async {
+    final request = _LocalZipEncodeRequest(
       manifest: manifest,
       notes: notes,
-      attachmentFiles: attachmentFiles,
+      files: files,
+      password: password == null || password.isEmpty ? null : password,
     );
+    if (kIsWeb) {
+      final encoded = _encodeLocalZipArchivePayloadInBackground(request);
+      return encoded.materialize().asUint8List();
+    }
+    final encoded = await Isolate.run(
+      () => _encodeLocalZipArchivePayloadInBackground(request),
+    );
+    return encoded.materialize().asUint8List();
   }
 
   Map<String, dynamic> _zipArchiveAsSyncBundle(
@@ -4314,7 +4680,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   Future<void> _refreshRemoteStatusInBackground() async {
     try {
+      final provider = ref.read(syncProviderControllerProvider);
       final remoteStatus = await _fetchLatestRemoteStatus();
+      _cacheRemoteStatus(provider, remoteStatus);
       if (remoteStatus != null) {
         await ref
             .read(syncBundleStateStoreProvider)
@@ -4402,6 +4770,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               )
               .toList(growable: false);
     final skipped = unique.length - pendingUploads.length;
+    _setProgressDetail(
+      progress: SyncTransferProgress.uploadingBundle,
+      detail: 'Checking attachment objects',
+      completedItems: skipped,
+      totalItems: unique.length,
+    );
+    await _yieldToUi();
     if (existingHashes != null) {
       _diagnostic(
         'attachment object upload existing checked',
@@ -4413,6 +4788,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
     }
     if (pendingUploads.isEmpty) {
+      _setProgressDetail(
+        progress: SyncTransferProgress.uploadingBundle,
+        detail: 'Attachments already uploaded',
+        completedItems: unique.length,
+        totalItems: unique.length,
+      );
+      await _yieldToUi();
       _diagnostic(
         'attachment object upload progress',
         data: {
@@ -4424,45 +4806,48 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       return;
     }
     final bundleStore = ref.read(secureSyncBundleStoreProvider);
-    var nextIndex = 0;
     var uploaded = 0;
-    final parallelism = math.min(3, pendingUploads.length);
-
-    Future<void> worker() async {
-      while (true) {
-        final index = nextIndex;
-        nextIndex += 1;
-        if (index >= pendingUploads.length) {
-          return;
-        }
-        final attachment = pendingUploads[index];
-        final encodedPayload = await bundleStore.writeAttachmentObjectPayload(
-          attachment,
+    for (final attachment in pendingUploads) {
+      final completedBefore = skipped + uploaded;
+      _setProgressDetail(
+        progress: SyncTransferProgress.uploadingBundle,
+        detail: 'Uploading attachment',
+        completedItems: completedBefore,
+        totalItems: unique.length,
+      );
+      await _yieldToUi();
+      final encodedPayload = await bundleStore.writeAttachmentObjectPayload(
+        attachment,
+      );
+      await _yieldToUi();
+      await _uploadRemoteAttachmentObject(
+        contentHash: attachment.contentHash,
+        encodedPayload: encodedPayload,
+        type: attachment.type.name,
+        label: attachment.label,
+        sizeBytes: attachment.sizeBytes,
+        skipExistingCheck: existingHashes != null,
+      );
+      uploaded += 1;
+      final completed = skipped + uploaded;
+      _setProgressDetail(
+        progress: SyncTransferProgress.uploadingBundle,
+        detail: 'Uploaded attachment',
+        completedItems: completed,
+        totalItems: unique.length,
+      );
+      await _yieldToUi();
+      if (completed % 5 == 0 || completed == unique.length) {
+        _diagnostic(
+          'attachment object upload progress',
+          data: {
+            'uploaded': completed,
+            'total': unique.length,
+            'skipped': skipped,
+          },
         );
-        await _uploadRemoteAttachmentObject(
-          contentHash: attachment.contentHash,
-          encodedPayload: encodedPayload,
-          type: attachment.type.name,
-          label: attachment.label,
-          sizeBytes: attachment.sizeBytes,
-          skipExistingCheck: existingHashes != null,
-        );
-        uploaded += 1;
-        final completed = skipped + uploaded;
-        if (completed % 25 == 0 || completed == unique.length) {
-          _diagnostic(
-            'attachment object upload progress',
-            data: {
-              'uploaded': completed,
-              'total': unique.length,
-              'skipped': skipped,
-            },
-          );
-        }
       }
     }
-
-    await Future.wait([for (var i = 0; i < parallelism; i += 1) worker()]);
   }
 
   Future<Set<String>?> _listExistingRemoteAttachmentHashes() {
@@ -4670,6 +5055,101 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       state = state.copyWith(clearCooldown: true);
     });
   }
+}
+
+class _DecodedSyncAttachmentBytes {
+  const _DecodedSyncAttachmentBytes({
+    required this.bytes,
+    required this.contentHash,
+  });
+
+  final Uint8List bytes;
+  final String contentHash;
+}
+
+Future<_DecodedSyncAttachmentBytes> _decodeSyncAttachmentBytes(
+  String bytesBase64,
+) async {
+  if (kIsWeb) {
+    final bytes = Uint8List.fromList(base64Decode(bytesBase64));
+    return _DecodedSyncAttachmentBytes(
+      bytes: bytes,
+      contentHash: sha256.convert(bytes).toString(),
+    );
+  }
+  final result = await Isolate.run(() {
+    final bytes = Uint8List.fromList(base64Decode(bytesBase64));
+    return <String, Object>{
+      'bytes': TransferableTypedData.fromList([bytes]),
+      'contentHash': sha256.convert(bytes).toString(),
+    };
+  });
+  final transferable = result['bytes']! as TransferableTypedData;
+  return _DecodedSyncAttachmentBytes(
+    bytes: transferable.materialize().asUint8List(),
+    contentHash: result['contentHash']! as String,
+  );
+}
+
+_DecodedLocalZipArchive _decodeLocalZipArchivePayloadInBackground(
+  _LocalZipDecodeRequest request,
+) {
+  final archive = ZipDecoder().decodeBytes(
+    request.bytes.materialize().asUint8List(),
+    password: request.password,
+  );
+  final manifestFile = archive.findFile('manifest.json');
+  final notesFile = archive.findFile('notes.json');
+  if (manifestFile == null || notesFile == null) {
+    throw StateError('This file is not a HiMemo ZIP archive.');
+  }
+  final manifest = Map<String, dynamic>.from(
+    jsonDecode(utf8.decode(manifestFile.content)) as Map,
+  );
+  final notesPayload = Map<String, dynamic>.from(
+    jsonDecode(utf8.decode(notesFile.content)) as Map,
+  );
+  final notes = [
+    for (final entry
+        in (notesPayload['notes'] as List<dynamic>? ?? const <dynamic>[]))
+      Map<String, dynamic>.from(entry as Map),
+  ];
+  final attachmentFiles = <String, Uint8List>{};
+  for (final file in archive.files) {
+    if (!file.isFile || !file.name.startsWith('attachments/')) {
+      continue;
+    }
+    attachmentFiles[file.name] = Uint8List.fromList(file.content);
+  }
+  return _DecodedLocalZipArchive(
+    manifest: manifest,
+    notes: notes,
+    attachmentFiles: attachmentFiles,
+  );
+}
+
+TransferableTypedData _encodeLocalZipArchivePayloadInBackground(
+  _LocalZipEncodeRequest request,
+) {
+  final archive = Archive();
+  archive.addFile(
+    ArchiveFile.string('manifest.json', jsonEncode(request.manifest)),
+  );
+  archive.addFile(
+    ArchiveFile.string(
+      'notes.json',
+      jsonEncode({'schemaVersion': 1, 'notes': request.notes}),
+    ),
+  );
+  for (final file in request.files) {
+    archive.addFile(
+      ArchiveFile.bytes(file.name, file.bytes.materialize().asUint8List()),
+    );
+  }
+  final encoded = ZipEncoder(password: request.password).encode(archive);
+  return TransferableTypedData.fromList([
+    encoded is Uint8List ? encoded : Uint8List.fromList(encoded),
+  ]);
 }
 
 class PrivateMemoProfileStore {
@@ -7980,8 +8460,9 @@ class NotesController extends _$NotesController {
             sourceBytes > _deferredVideoPreviewThresholdBytes) {
           deferredPreview = _videoPreviewBytesBase64ForSourceFile(sourceFile);
         } else {
-          previewBytesBase64 =
-              await _videoPreviewBytesBase64ForSourceFile(sourceFile);
+          previewBytesBase64 = await _videoPreviewBytesBase64ForSourceFile(
+            sourceFile,
+          );
         }
       }
       final attachment = NoteAttachment(
@@ -8053,10 +8534,9 @@ class NotesController extends _$NotesController {
     }
     NoteAttachment applyPreview(NoteAttachment a) {
       final preview = a.filePath != null ? resolved[a.filePath] : null;
-      return preview != null
-          ? a.copyWith(previewBytesBase64: preview)
-          : a;
+      return preview != null ? a.copyWith(previewBytesBase64: preview) : a;
     }
+
     await upsert(
       note.copyWith(
         attachments: note.attachments.map(applyPreview).toList(),

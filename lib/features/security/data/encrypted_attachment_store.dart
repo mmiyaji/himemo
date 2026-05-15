@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
@@ -45,8 +46,10 @@ class EncryptedAttachmentStore {
   final String webStoragePrefix;
   final String vaultStoragePrefix;
   static const _webIndexedDbMarker = 'indexeddb:';
+  static const _binaryPayloadStringPrefix = 'binary:';
   static const _materializedDeleteMarkerExtension = '.himemo-delete-after';
   static const _backgroundEncryptionThresholdBytes = 8 * 1024 * 1024;
+  static const _backgroundDecryptionThresholdChars = 512 * 1024;
 
   Future<String?> storeAttachment(
     XFile sourceFile, {
@@ -63,7 +66,7 @@ class EncryptedAttachmentStore {
     if (kIsWeb) {
       final id = _attachmentId(type, sourceFile.name);
       final prefs = await _sharedPreferencesProvider();
-      await _writeWebPayload(id, encrypted, prefs);
+      await _writeWebPayload(id, utf8.decode(encrypted), prefs);
       final reference = '$webPrefix$id';
       await prefs.setString('$vaultStoragePrefix$reference', 'everyday');
       return reference;
@@ -73,7 +76,7 @@ class EncryptedAttachmentStore {
     final fileName = _attachmentId(type, sourceFile.name);
     final file = File(path.join(directory.path, 'attachments', fileName));
     await file.create(recursive: true);
-    await file.writeAsString(encrypted, flush: true);
+    await file.writeAsBytes(encrypted, flush: true);
     final prefs = await _sharedPreferencesProvider();
     await prefs.setString('$vaultStoragePrefix${file.path}', 'everyday');
     return file.path;
@@ -98,7 +101,10 @@ class EncryptedAttachmentStore {
     final fileName = _attachmentId(type, fileNameHint);
     final file = File(path.join(directory.path, 'attachments', fileName));
     await file.create(recursive: true);
-    await file.writeAsString(encodedPayload, flush: true);
+    await file.writeAsBytes(
+      _attachmentPayloadStringToBytes(encodedPayload),
+      flush: true,
+    );
     final prefs = await _sharedPreferencesProvider();
     await prefs.setString('$vaultStoragePrefix${file.path}', vaultId);
     return file.path;
@@ -113,19 +119,20 @@ class EncryptedAttachmentStore {
     if (key == null) {
       throw StateError('Attachment key is unavailable for $vaultId.');
     }
-    return _encryptionService.encryptBytes(
-      clearBytes: bytes,
-      secretKey: key,
-      additionalData: _aad(type),
+    final encrypted = await _encryptAttachmentBytesForStorage(
+      bytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+      key: key,
+      type: type,
     );
+    return _attachmentPayloadBytesToString(encrypted);
   }
 
   Future<List<int>?> readAttachment(
     String storedReference, {
     required AttachmentType type,
   }) async {
-    final encrypted = await _readPayload(storedReference);
-    if (encrypted == null || encrypted.isEmpty) {
+    final encryptedPayload = await _readPayload(storedReference);
+    if (encryptedPayload == null || encryptedPayload.isEmpty) {
       return null;
     }
     final vaultId = await _attachmentVaultId(storedReference);
@@ -134,9 +141,9 @@ class EncryptedAttachmentStore {
       throw StateError('Attachment key is unavailable for $vaultId.');
     }
     try {
-      return await _encryptionService.decryptBytes(
-        encodedPayload: encrypted,
-        secretKey: key,
+      return await _decryptAttachmentBytesFromStorage(
+        encodedPayload: encryptedPayload,
+        key: key,
         additionalData: _aad(type),
       );
     } catch (_) {
@@ -144,9 +151,9 @@ class EncryptedAttachmentStore {
         rethrow;
       }
       final normalKey = await _masterKeyService.obtainOrCreate();
-      return _encryptionService.decryptBytes(
-        encodedPayload: encrypted,
-        secretKey: normalKey,
+      return _decryptAttachmentBytesFromStorage(
+        encodedPayload: encryptedPayload,
+        key: normalKey,
         additionalData: _aad(type),
       );
     }
@@ -240,10 +247,10 @@ class EncryptedAttachmentStore {
     if (key == null) {
       throw StateError('Attachment key is unavailable for $vaultId.');
     }
-    final encrypted = await _encryptionService.encryptBytes(
-      clearBytes: bytes,
-      secretKey: key,
-      additionalData: _aad(type),
+    final encrypted = await _encryptAttachmentBytesForStorage(
+      bytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+      key: key,
+      type: type,
     );
     await _writePayload(storedReference, encrypted);
     final prefs = await _sharedPreferencesProvider();
@@ -372,6 +379,34 @@ class EncryptedAttachmentStore {
     return bytes?.length;
   }
 
+  Future<int?> estimateStoredAttachmentPayloadBytes(
+    String storedReference,
+  ) async {
+    if (storedReference.startsWith(webPrefix)) {
+      final id = storedReference.substring(webPrefix.length);
+      final prefs = await _sharedPreferencesProvider();
+      final stored = prefs.getString('$webStoragePrefix$id');
+      if (stored == null) {
+        return null;
+      }
+      if (stored.startsWith(_webIndexedDbMarker)) {
+        final payload = await _webPayloadStore.get(
+          stored.substring(_webIndexedDbMarker.length),
+        );
+        return payload?.length;
+      }
+      return stored.length;
+    }
+    if (kIsWeb) {
+      return null;
+    }
+    final file = await _resolveStoredFile(storedReference);
+    if (!await file.exists()) {
+      return null;
+    }
+    return file.length();
+  }
+
   Future<Map<String, Object?>> storedPayloadDiagnostics(
     String storedReference,
   ) async {
@@ -409,7 +444,9 @@ class EncryptedAttachmentStore {
     int? encryptedPayloadChars;
     if (resolvedExists) {
       resolvedBytes = await resolvedFile.length();
-      encryptedPayloadChars = (await resolvedFile.readAsString()).length;
+      encryptedPayloadChars = _isBinaryAttachmentPayloadFile(resolvedFile)
+          ? null
+          : (await resolvedFile.readAsString()).length;
     }
     return {
       'payloadLocation': 'file',
@@ -475,11 +512,12 @@ class EncryptedAttachmentStore {
     return deletedCount;
   }
 
-  Future<String?> _readPayload(String storedReference) async {
+  Future<Uint8List?> _readPayload(String storedReference) async {
     if (storedReference.startsWith(webPrefix)) {
       final id = storedReference.substring(webPrefix.length);
       final prefs = await _sharedPreferencesProvider();
-      return _readWebPayload(id, prefs);
+      final payload = await _readWebPayload(id, prefs);
+      return payload == null ? null : Uint8List.fromList(utf8.encode(payload));
     }
 
     if (kIsWeb) {
@@ -490,14 +528,18 @@ class EncryptedAttachmentStore {
     if (!await file.exists()) {
       return null;
     }
-    return file.readAsString();
+    return file.readAsBytes();
   }
 
-  Future<void> _writePayload(String storedReference, String payload) async {
+  Future<void> _writePayload(String storedReference, Uint8List payload) async {
     if (storedReference.startsWith(webPrefix)) {
       final id = storedReference.substring(webPrefix.length);
       final prefs = await _sharedPreferencesProvider();
-      await _writeWebPayload(id, payload, prefs);
+      await _writeWebPayload(
+        id,
+        _attachmentPayloadBytesToString(payload),
+        prefs,
+      );
       return;
     }
 
@@ -507,11 +549,12 @@ class EncryptedAttachmentStore {
 
     final file = await _resolveStoredFile(storedReference);
     await file.create(recursive: true);
-    await file.writeAsString(payload, flush: true);
+    await file.writeAsBytes(payload, flush: true);
   }
 
-  Future<String?> readStoredPayload(String storedReference) {
-    return _readPayload(storedReference);
+  Future<String?> readStoredPayload(String storedReference) async {
+    final payload = await _readPayload(storedReference);
+    return payload == null ? null : _attachmentPayloadBytesToString(payload);
   }
 
   Future<void> _writeWebPayload(
@@ -589,16 +632,25 @@ class EncryptedAttachmentStore {
 
   List<int> _aad(AttachmentType type) => type.name.codeUnits;
 
-  Future<String> _encryptAttachmentBytesForStorage({
+  Future<Uint8List> _encryptAttachmentBytesForStorage({
     required Uint8List bytes,
     required SecretKey key,
     required AttachmentType type,
   }) async {
     final additionalData = _aad(type);
-    if (kIsWeb || bytes.lengthInBytes < _backgroundEncryptionThresholdBytes) {
-      return _encryptionService.encryptBytes(
+    if (kIsWeb) {
+      final encoded = await _encryptionService.encryptBytes(
         clearBytes: bytes,
         secretKey: key,
+        additionalData: additionalData,
+      );
+      return Uint8List.fromList(utf8.encode(encoded));
+    }
+    if (bytes.lengthInBytes < _backgroundEncryptionThresholdBytes) {
+      final keyBytes = await key.extractBytes();
+      return _encryptAttachmentPayloadBinary(
+        bytes: bytes,
+        keyBytes: keyBytes,
         additionalData: additionalData,
       );
     }
@@ -609,7 +661,57 @@ class EncryptedAttachmentStore {
       keyBytes: keyBytes,
       additionalData: additionalData,
     );
-    return Isolate.run(() => _encryptAttachmentPayload(request));
+    final transferable = await Isolate.run(
+      () => _encryptAttachmentPayload(request),
+    );
+    return transferable.materialize().asUint8List();
+  }
+
+  Future<List<int>> _decryptAttachmentBytesFromStorage({
+    required Uint8List encodedPayload,
+    required SecretKey key,
+    required List<int> additionalData,
+  }) async {
+    if (_isBinaryAttachmentPayload(encodedPayload)) {
+      final keyBytes = await key.extractBytes();
+      if (kIsWeb ||
+          encodedPayload.lengthInBytes < _backgroundDecryptionThresholdChars) {
+        return _decryptAttachmentPayloadBinary(
+          encodedPayload: encodedPayload,
+          keyBytes: keyBytes,
+          additionalData: additionalData,
+        );
+      }
+      final request = _AttachmentDecryptionRequest(
+        encodedPayload: TransferableTypedData.fromList([encodedPayload]),
+        keyBytes: keyBytes,
+        additionalData: additionalData,
+      );
+      final transferable = await Isolate.run(
+        () => _decryptAttachmentPayload(request),
+      );
+      return transferable.materialize().asUint8List();
+    }
+
+    final legacyPayload = utf8.decode(encodedPayload);
+    if (kIsWeb || legacyPayload.length < _backgroundDecryptionThresholdChars) {
+      return _encryptionService.decryptBytes(
+        encodedPayload: legacyPayload,
+        secretKey: key,
+        additionalData: additionalData,
+      );
+    }
+
+    final keyBytes = await key.extractBytes();
+    final request = _AttachmentDecryptionRequest(
+      encodedPayload: TransferableTypedData.fromList([encodedPayload]),
+      keyBytes: keyBytes,
+      additionalData: additionalData,
+    );
+    final transferable = await Isolate.run(
+      () => _decryptAttachmentPayload(request),
+    );
+    return transferable.materialize().asUint8List();
   }
 }
 
@@ -625,11 +727,153 @@ class _AttachmentEncryptionRequest {
   final List<int> additionalData;
 }
 
-Future<String> _encryptAttachmentPayload(_AttachmentEncryptionRequest request) {
+final Uint8List _attachmentBinaryMagic = Uint8List.fromList([
+  0x48,
+  0x4d,
+  0x41,
+  0x32,
+]);
+
+String _attachmentPayloadBytesToString(Uint8List payload) {
+  if (_isBinaryAttachmentPayload(payload)) {
+    return '${EncryptedAttachmentStore._binaryPayloadStringPrefix}${base64Encode(payload)}';
+  }
+  return utf8.decode(payload);
+}
+
+Uint8List _attachmentPayloadStringToBytes(String payload) {
+  if (payload.startsWith(EncryptedAttachmentStore._binaryPayloadStringPrefix)) {
+    return Uint8List.fromList(
+      base64Decode(
+        payload.substring(
+          EncryptedAttachmentStore._binaryPayloadStringPrefix.length,
+        ),
+      ),
+    );
+  }
+  return Uint8List.fromList(utf8.encode(payload));
+}
+
+bool _isBinaryAttachmentPayload(Uint8List payload) {
+  if (payload.lengthInBytes < _attachmentBinaryMagic.length + 2) {
+    return false;
+  }
+  for (var i = 0; i < _attachmentBinaryMagic.length; i++) {
+    if (payload[i] != _attachmentBinaryMagic[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool _isBinaryAttachmentPayloadFile(File file) {
+  final reader = file.openSync();
+  try {
+    final bytes = reader.readSync(_attachmentBinaryMagic.length + 2);
+    return _isBinaryAttachmentPayload(Uint8List.fromList(bytes));
+  } finally {
+    reader.closeSync();
+  }
+}
+
+Future<Uint8List> _encryptAttachmentPayloadBinary({
+  required Uint8List bytes,
+  required List<int> keyBytes,
+  required List<int> additionalData,
+}) async {
+  final algorithm = AesGcm.with256bits();
+  final random = Random.secure();
+  final nonce = Uint8List.fromList(
+    List<int>.generate(algorithm.nonceLength, (_) => random.nextInt(256)),
+  );
+  final box = await algorithm.encrypt(
+    bytes,
+    secretKey: SecretKey(keyBytes),
+    nonce: nonce,
+    aad: additionalData,
+  );
+  final mac = box.mac.bytes;
+  return Uint8List.fromList([
+    ..._attachmentBinaryMagic,
+    nonce.length,
+    mac.length,
+    ...nonce,
+    ...mac,
+    ...box.cipherText,
+  ]);
+}
+
+Future<Uint8List> _decryptAttachmentPayloadBinary({
+  required Uint8List encodedPayload,
+  required List<int> keyBytes,
+  required List<int> additionalData,
+}) async {
+  if (!_isBinaryAttachmentPayload(encodedPayload)) {
+    throw const HimemoDecryptionException();
+  }
+  final nonceLength = encodedPayload[4];
+  final macLength = encodedPayload[5];
+  final nonceStart = _attachmentBinaryMagic.length + 2;
+  final macStart = nonceStart + nonceLength;
+  final cipherStart = macStart + macLength;
+  if (nonceLength <= 0 ||
+      macLength <= 0 ||
+      cipherStart > encodedPayload.lengthInBytes) {
+    throw const HimemoDecryptionException();
+  }
+  final secretBox = SecretBox(
+    encodedPayload.sublist(cipherStart),
+    nonce: encodedPayload.sublist(nonceStart, macStart),
+    mac: Mac(encodedPayload.sublist(macStart, cipherStart)),
+  );
+  final clearBytes = await AesGcm.with256bits().decrypt(
+    secretBox,
+    secretKey: SecretKey(keyBytes),
+    aad: additionalData,
+  );
+  return clearBytes is Uint8List ? clearBytes : Uint8List.fromList(clearBytes);
+}
+
+Future<TransferableTypedData> _encryptAttachmentPayload(
+  _AttachmentEncryptionRequest request,
+) async {
   final bytes = request.clearBytes.materialize().asUint8List();
-  return EncryptionService().encryptBytes(
-    clearBytes: bytes,
-    secretKey: SecretKey(request.keyBytes),
+  final encrypted = await _encryptAttachmentPayloadBinary(
+    bytes: bytes,
+    keyBytes: request.keyBytes,
     additionalData: request.additionalData,
   );
+  return TransferableTypedData.fromList([encrypted]);
+}
+
+class _AttachmentDecryptionRequest {
+  const _AttachmentDecryptionRequest({
+    required this.encodedPayload,
+    required this.keyBytes,
+    required this.additionalData,
+  });
+
+  final TransferableTypedData encodedPayload;
+  final List<int> keyBytes;
+  final List<int> additionalData;
+}
+
+Future<TransferableTypedData> _decryptAttachmentPayload(
+  _AttachmentDecryptionRequest request,
+) async {
+  final payload = request.encodedPayload.materialize().asUint8List();
+  final bytes = _isBinaryAttachmentPayload(payload)
+      ? await _decryptAttachmentPayloadBinary(
+          encodedPayload: payload,
+          keyBytes: request.keyBytes,
+          additionalData: request.additionalData,
+        )
+      : await EncryptionService().decryptBytes(
+          encodedPayload: utf8.decode(payload),
+          secretKey: SecretKey(request.keyBytes),
+          additionalData: request.additionalData,
+        );
+  return TransferableTypedData.fromList([
+    bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+  ]);
 }

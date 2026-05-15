@@ -1614,6 +1614,25 @@ Map<String, Object?> _attachmentByteDiagnosticData(List<int> bytes) {
   };
 }
 
+Map<String, Object?> _videoByteDiagnosticData(List<int> bytes) {
+  final data = _attachmentByteDiagnosticData(bytes);
+  data['detectedVideoBrand'] = _detectVideoBrand(bytes);
+  return data;
+}
+
+void _logVideoPlaybackDiagnostic(
+  NoteAttachment attachment,
+  String message, {
+  Map<String, Object?> data = const <String, Object?>{},
+}) {
+  _logAttachmentDisplayDiagnostic(
+    attachment,
+    message,
+    source: 'video',
+    data: data,
+  );
+}
+
 String _detectImageFormat(List<int> bytes) {
   bool startsWith(List<int> signature) {
     if (bytes.length < signature.length) {
@@ -1658,6 +1677,30 @@ String _detectImageFormat(List<int> bytes) {
     return 'heic';
   }
   return 'unknown';
+}
+
+String _detectVideoBrand(List<int> bytes) {
+  if (bytes.length < 12) {
+    return 'unknown';
+  }
+  final boxType = String.fromCharCodes(bytes.sublist(4, 8));
+  if (boxType != 'ftyp') {
+    return 'unknown';
+  }
+  final majorBrand = String.fromCharCodes(bytes.sublist(8, 12));
+  final compatibleBrandBytes = bytes.length >= 32
+      ? bytes.sublist(16, 32)
+      : bytes.sublist(16);
+  final compatibleBrands = <String>[];
+  for (var index = 0; index + 4 <= compatibleBrandBytes.length; index += 4) {
+    compatibleBrands.add(
+      String.fromCharCodes(compatibleBrandBytes.sublist(index, index + 4)),
+    );
+  }
+  return ([
+    majorBrand,
+    ...compatibleBrands,
+  ]..removeWhere((brand) => brand.isEmpty)).join(',');
 }
 
 String _attachmentDiagnosticFileRef(String? filePath) {
@@ -1809,9 +1852,9 @@ Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
     );
     return null;
   }
-  late final List<int> bytes;
+  late final _DecodedRemoteAttachmentBytes decodedBytes;
   try {
-    bytes = base64Decode(bytesBase64);
+    decodedBytes = await _decodeRemoteAttachmentBytes(bytesBase64);
   } on FormatException catch (error) {
     _logAttachmentDisplayDiagnostic(
       attachment,
@@ -1821,7 +1864,8 @@ Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
     );
     return null;
   }
-  if (sha256.convert(bytes).toString() != contentHash) {
+  final bytes = decodedBytes.bytes;
+  if (decodedBytes.contentHash != contentHash) {
     _logAttachmentDisplayDiagnostic(
       attachment,
       'remote attachment object clear hash mismatch',
@@ -1841,6 +1885,40 @@ Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
     },
   );
   return bytes;
+}
+
+class _DecodedRemoteAttachmentBytes {
+  const _DecodedRemoteAttachmentBytes({
+    required this.bytes,
+    required this.contentHash,
+  });
+
+  final Uint8List bytes;
+  final String contentHash;
+}
+
+Future<_DecodedRemoteAttachmentBytes> _decodeRemoteAttachmentBytes(
+  String bytesBase64,
+) async {
+  if (kIsWeb || bytesBase64.length < 512 * 1024) {
+    final bytes = Uint8List.fromList(base64Decode(bytesBase64));
+    return _DecodedRemoteAttachmentBytes(
+      bytes: bytes,
+      contentHash: sha256.convert(bytes).toString(),
+    );
+  }
+  final result = await Isolate.run(() {
+    final bytes = Uint8List.fromList(base64Decode(bytesBase64));
+    return <String, Object>{
+      'bytes': TransferableTypedData.fromList([bytes]),
+      'contentHash': sha256.convert(bytes).toString(),
+    };
+  });
+  final transferable = result['bytes']! as TransferableTypedData;
+  return _DecodedRemoteAttachmentBytes(
+    bytes: transferable.materialize().asUint8List(),
+    contentHash: result['contentHash']! as String,
+  );
 }
 
 Future<List<int>?> _readPhotoAttachmentDetailBytes(
@@ -2105,6 +2183,11 @@ class _VideoAttachmentViewerState
   }) async {
     final filePath = widget.attachment.filePath;
     if (filePath == null || filePath.isEmpty) {
+      _logVideoPlaybackDiagnostic(
+        widget.attachment,
+        'video playback skipped missing file path',
+        data: {'playWhenLoaded': playWhenLoaded},
+      );
       if (mounted && generation == _loadGeneration) {
         setState(() {
           _errorMessage = context.strings.videoPreviewUnavailableWeb;
@@ -2119,12 +2202,28 @@ class _VideoAttachmentViewerState
     try {
       final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
       final VideoPlayerController controller;
+      _logVideoPlaybackDiagnostic(
+        widget.attachment,
+        'video playback load requested',
+        data: {
+          'playWhenLoaded': playWhenLoaded,
+          'isRemoteObject': filePath.startsWith(
+            _remoteSyncAttachmentObjectPrefix,
+          ),
+          'platform': kIsWeb ? 'web' : 'native',
+        },
+      );
       if (kIsWeb) {
         final bytes = await _readDisplayAttachmentBytes(ref, widget.attachment);
         if (!mounted || generation != _loadGeneration) {
           return;
         }
         if (bytes == null || bytes.isEmpty) {
+          _logVideoPlaybackDiagnostic(
+            widget.attachment,
+            'video playback bytes unavailable',
+            data: {'platform': 'web'},
+          );
           setState(() {
             _errorMessage = context.strings.videoPreviewUnavailableWeb;
             _loading = false;
@@ -2138,6 +2237,15 @@ class _VideoAttachmentViewerState
           mimeType,
         );
         if (webObjectUrl == null) {
+          _logVideoPlaybackDiagnostic(
+            widget.attachment,
+            'video playback web object url unavailable',
+            data: {
+              'mimeType': mimeType,
+              'bytes': bytes.length,
+              ..._videoByteDiagnosticData(bytes),
+            },
+          );
           setState(() {
             _errorMessage = context.strings.videoPreviewUnavailableWeb;
             _loading = false;
@@ -2153,6 +2261,15 @@ class _VideoAttachmentViewerState
           _loading = false;
           _playWhenLoaded = false;
         });
+        _logVideoPlaybackDiagnostic(
+          widget.attachment,
+          'video playback web object url ready',
+          data: {
+            'mimeType': mimeType,
+            'bytes': bytes.length,
+            ..._videoByteDiagnosticData(bytes),
+          },
+        );
         return;
       } else {
         if (filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
@@ -2161,6 +2278,11 @@ class _VideoAttachmentViewerState
             widget.attachment,
           );
           if (bytes != null && bytes.isNotEmpty) {
+            _logVideoPlaybackDiagnostic(
+              widget.attachment,
+              'video playback remote bytes read',
+              data: {'bytes': bytes.length, ..._videoByteDiagnosticData(bytes)},
+            );
             tempFilePath = await attachmentStore.materializeDecryptedBytes(
               bytes,
               type: widget.attachment.type,
@@ -2168,6 +2290,11 @@ class _VideoAttachmentViewerState
             );
           }
         } else {
+          _logVideoPlaybackDiagnostic(
+            widget.attachment,
+            'video playback local materialize requested',
+            data: await attachmentStore.storedPayloadDiagnostics(filePath),
+          );
           tempFilePath = await attachmentStore.materializeDecryptedFile(
             filePath,
             type: widget.attachment.type,
@@ -2181,6 +2308,15 @@ class _VideoAttachmentViewerState
           return;
         }
         if (tempFilePath == null) {
+          _logVideoPlaybackDiagnostic(
+            widget.attachment,
+            'video playback materialized file unavailable',
+            data: {
+              'isRemoteObject': filePath.startsWith(
+                _remoteSyncAttachmentObjectPrefix,
+              ),
+            },
+          );
           setState(() {
             _errorMessage = context.strings.videoPreviewUnavailableWeb;
             _loading = false;
@@ -2188,6 +2324,11 @@ class _VideoAttachmentViewerState
           });
           return;
         }
+        _logVideoPlaybackDiagnostic(
+          widget.attachment,
+          'video playback materialized file ready',
+          data: {'tempFile': path.basename(tempFilePath)},
+        );
         controller = createLocalVideoController(tempFilePath);
       }
       await controller.initialize().timeout(const Duration(seconds: 15));
@@ -2201,6 +2342,16 @@ class _VideoAttachmentViewerState
       if (playWhenLoaded) {
         unawaited(controller.play());
       }
+      _logVideoPlaybackDiagnostic(
+        widget.attachment,
+        'video controller initialized',
+        data: {
+          'durationMs': controller.value.duration.inMilliseconds,
+          'width': controller.value.size.width,
+          'height': controller.value.size.height,
+          'isInitialized': controller.value.isInitialized,
+        },
+      );
       setState(() {
         _tempFilePath = tempFilePath;
         _webObjectUrl = webObjectUrl;
@@ -2213,6 +2364,15 @@ class _VideoAttachmentViewerState
       });
     } catch (error, stackTrace) {
       debugPrint('Video playback load failed: $error\n$stackTrace');
+      _logVideoPlaybackDiagnostic(
+        widget.attachment,
+        'video playback load failed',
+        data: {
+          'error': error,
+          'tempFileCreated': tempFilePath != null,
+          'webObjectUrlCreated': webObjectUrl != null,
+        },
+      );
       if (tempFilePath != null) {
         unawaited(
           ref

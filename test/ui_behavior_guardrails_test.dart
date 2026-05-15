@@ -87,6 +87,7 @@ void main() {
 
   test('app lock background privacy cover prevents delayed relock flashes', () {
     final appShell = File('lib/app/app.dart').readAsStringSync();
+    final appStrings = File('lib/l10n/app_strings.dart').readAsStringSync();
     final androidMainActivity = File(
       'android/app/src/main/kotlin/org/ruhenheim/himemo/MainActivity.kt',
     ).readAsStringSync();
@@ -120,6 +121,16 @@ void main() {
     expect(androidMainActivity, contains('buildPrivacyOverlay'));
     expect(appDelegate, contains('alpha: 1.0'));
     expect(appDelegate.contains('UIBlurEffect(style: .extraLight)'), isFalse);
+    expect(appShell, contains('strings.unlockWithPinInstruction'));
+    expect(appShell, contains('strings.noUnlockMethodConfigured'));
+    expect(appShell, contains('strings.authenticating'));
+    expect(appShell, contains('strings.localizedPinLockError'));
+    expect(appShell, contains('strings.unlockWithDeviceAuthReason'));
+    expect(appStrings, contains('String get unlockWithPinInstruction'));
+    expect(appStrings, contains('String get noUnlockMethodConfigured'));
+    expect(appStrings, contains('String get authenticating'));
+    expect(appStrings, contains('String localizedPinLockError'));
+    expect(appStrings, contains('String get privateVaultLockedMessage'));
   });
 
   test('recent daily trend chart starts at the latest day', () {
@@ -539,8 +550,17 @@ void main() {
       'lib/features/security/data/encrypted_attachment_store.dart',
     ).readAsStringSync();
     expect(attachmentStore, contains('_backgroundEncryptionThresholdBytes'));
+    expect(attachmentStore, contains('_backgroundDecryptionThresholdChars'));
+    expect(attachmentStore, contains('_attachmentBinaryMagic'));
+    expect(attachmentStore, contains('_encryptAttachmentPayloadBinary'));
+    expect(attachmentStore, contains('_decryptAttachmentPayloadBinary'));
+    expect(attachmentStore, contains('file.writeAsBytes(encrypted'));
     expect(attachmentStore, contains('TransferableTypedData'));
     expect(attachmentStore, contains('Isolate.run'));
+    expect(attachmentStore, contains('_decryptAttachmentBytesFromStorage'));
+    expect(attachmentStore, contains('_decryptAttachmentPayload'));
+    expect(attachmentStore, contains('estimateStoredAttachmentPayloadBytes'));
+    expect(homePage, contains('_decodeRemoteAttachmentBytes'));
   });
 
   test('attachment diagnostics include image byte signatures', () {
@@ -553,16 +573,136 @@ void main() {
     ).readAsStringSync();
 
     expect(homePage, contains('_attachmentByteDiagnosticData'));
+    expect(homePage, contains('_logVideoPlaybackDiagnostic'));
+    expect(homePage, contains('_videoByteDiagnosticData'));
     expect(homePage, contains('byteSignature'));
     expect(homePage, contains('detectedImageFormat'));
+    expect(homePage, contains('detectedVideoBrand'));
     expect(homePage, contains("return 'heic';"));
     expect(homePage, contains("return 'jpeg';"));
+    expect(homePage, contains('video playback load requested'));
+    expect(homePage, contains('video playback materialized file unavailable'));
+    expect(homePage, contains('video playback load failed'));
+    expect(homePage, contains('video controller initialized'));
     expect(syncEngine, contains('class SyncAttachmentMissingException'));
     expect(syncEngine, contains('sync.error.local_attachment_missing'));
     expect(homeProviders, contains('SyncAttachmentMissingException'));
     expect(
       homeProviders,
       contains('upload blocked by missing local attachment'),
+    );
+  });
+
+  test('cloud sync heavy work does not run on the UI isolate', () {
+    final syncEngine = File(
+      'lib/features/sync/data/sync_engine.dart',
+    ).readAsStringSync();
+    final secureBundleStore = File(
+      'lib/features/sync/data/secure_sync_bundle_store.dart',
+    ).readAsStringSync();
+    final attachmentStore = File(
+      'lib/features/security/data/encrypted_attachment_store.dart',
+    ).readAsStringSync();
+    final homeProviders = File(
+      'lib/features/home/presentation/home_providers.dart',
+    ).readAsStringSync();
+    final homePage = _homePresentationSource();
+
+    expect(syncEngine, contains('dart:isolate'));
+    expect(syncEngine, contains('TransferableTypedData.fromList'));
+    expect(syncEngine, contains('Isolate.run'));
+    expect(syncEngine, contains('_base64EncodedLength'));
+    expect(syncEngine, contains('SyncSnapshotPreparationProgress'));
+    expect(syncEngine, contains('estimateStoredAttachmentPayloadBytes'));
+    expect(secureBundleStore, contains('dart:isolate'));
+    expect(secureBundleStore, contains('_encryptSyncBundleJson'));
+    expect(secureBundleStore, contains('_decryptSyncBundleJson'));
+    expect(secureBundleStore, contains('Isolate.run'));
+    expect(attachmentStore, contains('_decryptAttachmentBytesFromStorage'));
+    expect(attachmentStore, contains('_decryptAttachmentPayload'));
+    expect(attachmentStore, contains('TransferableTypedData.fromList'));
+    expect(homeProviders, contains('Future<void> _yieldToUi()'));
+    expect(homeProviders, contains('await _yieldToUi();'));
+    expect(homeProviders, contains('_encodeLocalZipArchive'));
+    expect(homeProviders, contains('_decodeLocalZipArchive'));
+    expect(
+      homeProviders,
+      contains('_encodeLocalZipArchivePayloadInBackground'),
+    );
+    expect(
+      homeProviders,
+      contains('_decodeLocalZipArchivePayloadInBackground'),
+    );
+    expect(homeProviders, contains('onProgress: (progress) async'));
+    expect(homePage, contains('includeUpload: false'));
+    expect(homePage, contains('includeDownload: true'));
+    expect(homeProviders, contains('detail'));
+    expect(homeProviders, contains('completedItems'));
+    expect(homeProviders, contains('totalItems'));
+    expect(homeProviders, contains('_setProgressDetail'));
+    expect(homeProviders, contains('_measureSyncStep'));
+    expect(homeProviders, contains('Checking cloud status'));
+    expect(homeProviders, contains('_remoteStatusCacheTtl'));
+    expect(homeProviders, contains('_fetchLatestRemoteStatusWithCache'));
+    expect(homeProviders, contains('remote status cache hit'));
+    expect(homeProviders, contains(r'Waiting for ${provider.name} response'));
+    expect(homeProviders, contains('Using recent cloud status'));
+    expect(homeProviders, contains('Reading sync history'));
+    expect(homeProviders, contains('Checking transfer size'));
+    expect(homeProviders, contains('Checking local changes'));
+    expect(homeProviders, contains('elapsedMs'));
+    expect(homeProviders, contains('_decodeSyncAttachmentBytes'));
+    expect(homeProviders, contains('Uploading attachment'));
+    expect(homeProviders, contains('Applying attachment'));
+    expect(homeProviders, contains('_remoteAttachmentHashesInNoteJson'));
+    expect(homeProviders, contains('_remoteAttachmentHashFromRef'));
+    expect(homeProviders, contains("rawBlock['attachment']"));
+    expect(syncEngine, contains('_isRemoteSyncAttachmentObjectRef'));
+    expect(
+      homeProviders,
+      isNot(contains('math.min(3, pendingUploads.length)')),
+    );
+    expect(homePage, contains('class _HeaderSyncIndicator'));
+    expect(homePage, contains('class _HeaderSyncIndicatorState'));
+    expect(homePage, contains('AnimationController'));
+    expect(homePage, contains('RotationTransition'));
+    expect(homePage, contains('ReverseAnimation(_rotationController)'));
+    expect(homePage, contains('Tap to show sync progress'));
+    expect(homePage, contains('_showHeaderSyncProgressDialog'));
+    expect(homePage, contains('showDialog<void>'));
+    expect(homePage, contains('LinearProgressIndicator'));
+    expect(homePage, contains('syncTransferControllerProvider'));
+    expect(homePage, contains('_syncProgressValueForState'));
+    expect(homePage, contains('_syncProgressItemProgressText'));
+  });
+
+  test('automatic cloud sync does not loop while idle', () {
+    final appShell = File('lib/app/app.dart').readAsStringSync();
+
+    expect(appShell, contains('automatic sync idle without reschedule'));
+    expect(
+      appShell,
+      contains(
+        'static const _automaticCloudSyncRemoteMinInterval = Duration(minutes: 10);',
+      ),
+    );
+    expect(appShell, contains('allowCachedRemoteStatus: !hasPendingChanges'));
+    expect(appShell, contains('if (remainingPendingChanges)'));
+    expect(appShell, contains('_cloudSyncScheduledForLocalChanges = false;'));
+    expect(appShell, contains('_cloudSyncRescheduleRequested = false;'));
+    expect(appShell, contains('_cloudSyncRescheduleDelay = null;'));
+    expect(
+      appShell,
+      isNot(
+        contains(
+          "else {\n"
+          "          _cloudSyncRescheduleRequested = true;\n"
+          "          _cloudSyncRescheduleDelay = _automaticCloudSyncRetryDelay(\n"
+          "            hasPendingChanges: false,\n"
+          "          );\n"
+          "        }",
+        ),
+      ),
     );
   });
 }
