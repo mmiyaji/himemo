@@ -2526,6 +2526,7 @@ final syncTransferControllerProvider =
 
 class SyncTransferController extends Notifier<SyncTransferState> {
   static const largeMobileSyncThresholdBytes = 50 * 1024 * 1024;
+  static const _remoteStatusCacheTtl = Duration(seconds: 90);
   static const _syncBundleDecryptionMessage =
       'sync.error.bundle_decryption_failed';
   static const _syncBundleKeyMissingMessage = 'sync.error.bundle_key_missing';
@@ -2535,10 +2536,17 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       'sync.info.private_profile_notes_pending_unlock';
 
   Timer? _cooldownTimer;
+  Timer? _remoteStatusWaitTimer;
+  RemoteSyncBundleStatus? _cachedRemoteStatus;
+  DateTime? _cachedRemoteStatusFetchedAt;
+  SyncProvider? _cachedRemoteStatusProvider;
 
   @override
   SyncTransferState build() {
-    ref.onDispose(() => _cooldownTimer?.cancel());
+    ref.onDispose(() {
+      _cooldownTimer?.cancel();
+      _remoteStatusWaitTimer?.cancel();
+    });
     return const SyncTransferState.idle();
   }
 
@@ -2736,7 +2744,92 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  Future<void> refreshRemoteStatus() async {
+  bool _canUseCachedRemoteStatus(SyncProvider provider) {
+    final fetchedAt = _cachedRemoteStatusFetchedAt;
+    return fetchedAt != null &&
+        _cachedRemoteStatusProvider == provider &&
+        DateTime.now().difference(fetchedAt) < _remoteStatusCacheTtl;
+  }
+
+  void _cacheRemoteStatus(
+    SyncProvider provider,
+    RemoteSyncBundleStatus? remoteStatus,
+  ) {
+    _cachedRemoteStatusProvider = provider;
+    _cachedRemoteStatusFetchedAt = DateTime.now();
+    _cachedRemoteStatus = remoteStatus;
+  }
+
+  void _startRemoteStatusWaitProgress({
+    required SyncProvider provider,
+    required int totalItems,
+  }) {
+    _remoteStatusWaitTimer?.cancel();
+    final startedAt = DateTime.now();
+
+    void update() {
+      final elapsed = DateTime.now().difference(startedAt).inSeconds;
+      _setProgressDetail(
+        progress: SyncTransferProgress.checkingRemote,
+        detail: elapsed <= 0
+            ? 'Waiting for ${provider.name} response'
+            : 'Waiting for ${provider.name} response (${elapsed}s)',
+        completedItems: 0,
+        totalItems: totalItems,
+      );
+    }
+
+    update();
+    _remoteStatusWaitTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => update(),
+    );
+  }
+
+  Future<RemoteSyncBundleStatus?> _fetchLatestRemoteStatusWithCache({
+    required String traceName,
+    required bool allowCached,
+    required int totalItems,
+  }) async {
+    final provider = ref.read(syncProviderControllerProvider);
+    if (allowCached && _canUseCachedRemoteStatus(provider)) {
+      _diagnostic(
+        'remote status cache hit',
+        data: {
+          'provider': provider.name,
+          'ageMs': DateTime.now()
+              .difference(_cachedRemoteStatusFetchedAt!)
+              .inMilliseconds,
+          'hasRemote': _cachedRemoteStatus != null,
+          'fileId': _cachedRemoteStatus?.fileId,
+        },
+      );
+      _setProgressDetail(
+        progress: SyncTransferProgress.checkingRemote,
+        detail: 'Using recent cloud status',
+        completedItems: 1,
+        totalItems: totalItems,
+      );
+      await _yieldToUi();
+      return _cachedRemoteStatus;
+    }
+    _startRemoteStatusWaitProgress(provider: provider, totalItems: totalItems);
+    try {
+      final remoteStatus = await runFirebaseTrace(
+        traceName,
+        _fetchLatestRemoteStatus,
+      );
+      _cacheRemoteStatus(provider, remoteStatus);
+      return remoteStatus;
+    } finally {
+      _remoteStatusWaitTimer?.cancel();
+      _remoteStatusWaitTimer = null;
+    }
+  }
+
+  Future<void> refreshRemoteStatus({
+    bool allowCachedRemoteStatus = false,
+  }) async {
     final provider = ref.read(syncProviderControllerProvider);
     if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
@@ -2757,10 +2850,12 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await _yieldToUi();
       final remoteStatus = await _measureSyncStep(
         'remote status check completed',
-        () => runFirebaseTrace(
-          'sync_refresh_remote_status',
-          _fetchLatestRemoteStatus,
+        () => _fetchLatestRemoteStatusWithCache(
+          traceName: 'sync_refresh_remote_status',
+          allowCached: allowCachedRemoteStatus,
+          totalItems: 1,
         ),
+        data: {'cachedAllowed': allowCachedRemoteStatus},
       );
       state = SyncTransferState(
         stage: SyncTransferStage.success,
@@ -3083,6 +3178,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           attachmentCount: bundle.attachmentCount,
         ),
       );
+      _cacheRemoteStatus(provider, remoteStatus);
       _diagnostic(
         'remote bundle uploaded',
         data: {
@@ -3213,6 +3309,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     bool forceUpload = false,
     bool allowLargeMobileTransfer = false,
     bool silentLargeMobileSkip = false,
+    bool allowCachedRemoteStatus = false,
   }) async {
     final provider = ref.read(syncProviderControllerProvider);
     _diagnostic(
@@ -3221,6 +3318,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         'provider': provider.name,
         'forceUpload': forceUpload,
         'busy': state.isBusy,
+        'allowCachedRemoteStatus': allowCachedRemoteStatus,
       },
     );
     if (!_supportsRemoteTransport(provider)) {
@@ -3248,10 +3346,12 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await _yieldToUi();
       final remoteStatus = await _measureSyncStep(
         'remote status check completed',
-        () => runFirebaseTrace(
-          'sync_refresh_remote_status',
-          _fetchLatestRemoteStatus,
+        () => _fetchLatestRemoteStatusWithCache(
+          traceName: 'sync_refresh_remote_status',
+          allowCached: allowCachedRemoteStatus,
+          totalItems: checkingStepCount,
         ),
+        data: {'cachedAllowed': allowCachedRemoteStatus},
       );
       _setProgressDetail(
         progress: SyncTransferProgress.checkingRemote,
@@ -4580,7 +4680,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   Future<void> _refreshRemoteStatusInBackground() async {
     try {
+      final provider = ref.read(syncProviderControllerProvider);
       final remoteStatus = await _fetchLatestRemoteStatus();
+      _cacheRemoteStatus(provider, remoteStatus);
       if (remoteStatus != null) {
         await ref
             .read(syncBundleStateStoreProvider)

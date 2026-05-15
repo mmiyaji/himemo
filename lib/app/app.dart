@@ -265,7 +265,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       'runtime.cloud_sync_automatic_attempted_at';
   static const _cloudSyncDebounceDelay = Duration(seconds: 2);
   static const _automaticCloudSyncAttemptMinInterval = Duration(seconds: 30);
-  static const _automaticCloudSyncRemoteMinInterval = Duration(minutes: 2);
+  static const _automaticCloudSyncRemoteMinInterval = Duration(minutes: 10);
   static const _automaticCloudSyncLocalChangeMinInterval = Duration(
     seconds: 30,
   );
@@ -748,7 +748,10 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       );
       await ref
           .read(syncTransferControllerProvider.notifier)
-          .syncNow(silentLargeMobileSkip: true);
+          .syncNow(
+            silentLargeMobileSkip: true,
+            allowCachedRemoteStatus: !hasPendingChanges,
+          );
       final result = ref.read(syncTransferControllerProvider);
       if (result.stage == SyncTransferStage.success) {
         if (result.message ==

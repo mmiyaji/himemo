@@ -642,6 +642,11 @@ void main() {
     expect(homeProviders, contains('_setProgressDetail'));
     expect(homeProviders, contains('_measureSyncStep'));
     expect(homeProviders, contains('Checking cloud status'));
+    expect(homeProviders, contains('_remoteStatusCacheTtl'));
+    expect(homeProviders, contains('_fetchLatestRemoteStatusWithCache'));
+    expect(homeProviders, contains('remote status cache hit'));
+    expect(homeProviders, contains(r'Waiting for ${provider.name} response'));
+    expect(homeProviders, contains('Using recent cloud status'));
     expect(homeProviders, contains('Reading sync history'));
     expect(homeProviders, contains('Checking transfer size'));
     expect(homeProviders, contains('Checking local changes'));
@@ -675,6 +680,13 @@ void main() {
     final appShell = File('lib/app/app.dart').readAsStringSync();
 
     expect(appShell, contains('automatic sync idle without reschedule'));
+    expect(
+      appShell,
+      contains(
+        'static const _automaticCloudSyncRemoteMinInterval = Duration(minutes: 10);',
+      ),
+    );
+    expect(appShell, contains('allowCachedRemoteStatus: !hasPendingChanges'));
     expect(appShell, contains('if (remainingPendingChanges)'));
     expect(appShell, contains('_cloudSyncScheduledForLocalChanges = false;'));
     expect(appShell, contains('_cloudSyncRescheduleRequested = false;'));
