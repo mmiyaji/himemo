@@ -573,10 +573,17 @@ void main() {
     ).readAsStringSync();
 
     expect(homePage, contains('_attachmentByteDiagnosticData'));
+    expect(homePage, contains('_logVideoPlaybackDiagnostic'));
+    expect(homePage, contains('_videoByteDiagnosticData'));
     expect(homePage, contains('byteSignature'));
     expect(homePage, contains('detectedImageFormat'));
+    expect(homePage, contains('detectedVideoBrand'));
     expect(homePage, contains("return 'heic';"));
     expect(homePage, contains("return 'jpeg';"));
+    expect(homePage, contains('video playback load requested'));
+    expect(homePage, contains('video playback materialized file unavailable'));
+    expect(homePage, contains('video playback load failed'));
+    expect(homePage, contains('video controller initialized'));
     expect(syncEngine, contains('class SyncAttachmentMissingException'));
     expect(syncEngine, contains('sync.error.local_attachment_missing'));
     expect(homeProviders, contains('SyncAttachmentMissingException'));
