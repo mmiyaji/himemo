@@ -740,11 +740,6 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
           _cloudSyncRescheduleDelay = _automaticCloudSyncRetryDelay(
             hasPendingChanges: hasPendingChanges,
           );
-        } else {
-          _cloudSyncRescheduleRequested = true;
-          _cloudSyncRescheduleDelay = _automaticCloudSyncRetryDelay(
-            hasPendingChanges: false,
-          );
         }
         return;
       }
@@ -771,10 +766,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         if (remainingPendingChanges) {
           _cloudSyncRescheduleRequested = true;
         } else {
-          _cloudSyncRescheduleRequested = true;
-          _cloudSyncRescheduleDelay = _automaticCloudSyncRetryDelay(
-            hasPendingChanges: false,
-          );
+          logDiagnostic('sync', 'automatic sync idle without reschedule');
         }
       }
     } finally {

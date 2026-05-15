@@ -652,4 +652,24 @@ void main() {
     expect(homePage, contains('_syncProgressValueForState'));
     expect(homePage, contains('_syncProgressItemProgressText'));
   });
+
+  test('automatic cloud sync does not loop while idle', () {
+    final appShell = File('lib/app/app.dart').readAsStringSync();
+
+    expect(appShell, contains('automatic sync idle without reschedule'));
+    expect(appShell, contains('if (remainingPendingChanges)'));
+    expect(
+      appShell,
+      isNot(
+        contains(
+          "else {\n"
+          "          _cloudSyncRescheduleRequested = true;\n"
+          "          _cloudSyncRescheduleDelay = _automaticCloudSyncRetryDelay(\n"
+          "            hasPendingChanges: false,\n"
+          "          );\n"
+          "        }",
+        ),
+      ),
+    );
+  });
 }
