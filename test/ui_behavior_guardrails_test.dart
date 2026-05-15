@@ -9,6 +9,7 @@ String _homePresentationSource() => [
   'lib/features/home/presentation/home_private_profile_settings.dart',
   'lib/features/home/presentation/home_note_content.dart',
   'lib/features/home/presentation/home_sync_support.dart',
+  'lib/features/home/presentation/home_media_viewers.dart',
 ].map((path) => File(path).readAsStringSync()).join('\n');
 
 void main() {
