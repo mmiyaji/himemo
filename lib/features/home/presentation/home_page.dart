@@ -687,7 +687,7 @@ class _HeaderSyncIndicatorState extends State<_HeaderSyncIndicator>
                   RotationTransition(
                     turns: disableAnimations
                         ? const AlwaysStoppedAnimation<double>(0)
-                        : _rotationController,
+                        : ReverseAnimation(_rotationController),
                     child: Icon(
                       Icons.sync_rounded,
                       size: 14,

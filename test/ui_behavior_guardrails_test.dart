@@ -650,6 +650,7 @@ void main() {
     expect(homePage, contains('class _HeaderSyncIndicatorState'));
     expect(homePage, contains('AnimationController'));
     expect(homePage, contains('RotationTransition'));
+    expect(homePage, contains('ReverseAnimation(_rotationController)'));
     expect(homePage, contains('Tap to show sync progress'));
     expect(homePage, contains('_showHeaderSyncProgressDialog'));
     expect(homePage, contains('showDialog<void>'));
