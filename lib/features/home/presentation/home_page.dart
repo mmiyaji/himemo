@@ -15021,67 +15021,79 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
               ),
             ),
             SizedBox(height: footerTopGap),
-            SizedBox(
-              height: _attachmentImportBusy ? 56 : 0,
-              child: Center(
-                child: AnimatedOpacity(
-                  opacity: _attachmentImportBusy ? 1 : 0,
-                  duration: const Duration(milliseconds: 120),
-                  child: IgnorePointer(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.primaryContainer.withValues(alpha: 0.36),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
+            AnimatedSize(
+              duration: const Duration(milliseconds: 150),
+              child: SizedBox(
+                height: _attachmentActionBusy ? 56 : 0,
+                child: Center(
+                  child: AnimatedOpacity(
+                    opacity: _attachmentActionBusy ? 1 : 0,
+                    duration: const Duration(milliseconds: 100),
+                    child: IgnorePointer(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
                           color: Theme.of(
                             context,
-                          ).colorScheme.primary.withValues(alpha: 0.24),
+                          ).colorScheme.primaryContainer.withValues(alpha: 0.72),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.48),
+                          ),
                         ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                          const SizedBox(width: 8),
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 180),
-                            child: Text(
-                              strings.localized(
-                                en: 'Processing attachment...',
-                                ja: '添付処理中...',
-                                zh: '正在附加...',
-                                ko: '첨부 중...',
-                                es: 'Adjuntando...',
-                                de: 'Wird angehängt...',
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.labelMedium
-                                  ?.copyWith(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onPrimaryContainer,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 8),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 180),
+                              child: Text(
+                                _attachmentImportBusy
+                                    ? strings.localized(
+                                        en: 'Processing attachment...',
+                                        ja: '添付処理中...',
+                                        zh: '正在附加...',
+                                        ko: '첨부 중...',
+                                        es: 'Adjuntando...',
+                                        de: 'Wird angehängt...',
+                                      )
+                                    : strings.localized(
+                                        en: 'Selecting file...',
+                                        ja: 'ファイル選択中...',
+                                        zh: '选择文件中...',
+                                        ko: '파일 선택 중...',
+                                        es: 'Seleccionando...',
+                                        de: 'Datei auswählen...',
+                                      ),
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.labelMedium
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onPrimaryContainer,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-            if (_attachmentImportBusy) const SizedBox(height: 6),
+            if (_attachmentActionBusy) const SizedBox(height: 6),
             Row(
               children: [
                 TextButton(
@@ -15337,6 +15349,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         _cancelAttachmentDelete(attachment);
       }
       _scheduleDraftPersist();
+      if (result.deferredPreviews.isNotEmpty) {
+        _applyDeferredPreviews(result.deferredPreviews);
+      }
     } catch (error) {
       if (mounted) {
         _showEditorSnackBar(
@@ -15374,6 +15389,34 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       _pendingAttachmentPlaceholderCount = 1;
     });
     _updateCanSubmit();
+  }
+
+  Future<void> _applyDeferredPreviews(
+    Map<String, Future<String?>> deferredPreviews,
+  ) async {
+    for (final entry in deferredPreviews.entries) {
+      try {
+        final preview = await entry.value;
+        if (preview == null || !mounted) continue;
+        setState(() {
+          _attachments = _attachments.map((a) {
+            return a.filePath == entry.key
+                ? a.copyWith(previewBytesBase64: preview)
+                : a;
+          }).toList();
+          _richBlocks = [
+            for (final b in _richBlocks)
+              if (b.attachment != null && b.attachment!.filePath == entry.key)
+                _RichBlockDraft.attachment(
+                  b.attachment!.copyWith(previewBytesBase64: preview),
+                )
+              else
+                b,
+          ];
+        });
+        _scheduleDraftPersist();
+      } catch (_) {}
+    }
   }
 
   Future<void> _toggleLocationCapture() async {
