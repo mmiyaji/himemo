@@ -80,7 +80,6 @@ const _helpUrl = 'https://mmiyaji.github.io/himemo/help.html';
 const _httpUserAgent = 'HiMemo/1.0 (+$_contactUrl)';
 const _appAuthor = '@mmiyaji';
 const _appAuthorUrl = 'https://ruhenheim.org/';
-const _remoteSyncAttachmentObjectPrefix = syncAttachmentObjectRefPrefix;
 
 enum AppSection { notes, calendar, insights, trash, settings }
 

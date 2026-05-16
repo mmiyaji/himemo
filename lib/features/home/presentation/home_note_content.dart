@@ -6339,7 +6339,7 @@ class _AttachmentSizeTextState extends ConsumerState<_AttachmentSizeText> {
     if (filePath == null || filePath.isEmpty) {
       return null;
     }
-    if (filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
+    if (isSyncAttachmentObjectRef(filePath)) {
       final bytes = await _readDisplayAttachmentBytes(ref, widget.attachment);
       return bytes?.length;
     }
@@ -6357,7 +6357,7 @@ Future<int?> _attachmentSizeFuture(
   if (filePath == null || filePath.isEmpty) {
     return null;
   }
-  if (filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
+  if (isSyncAttachmentObjectRef(filePath)) {
     final bytes = await _readDisplayAttachmentBytes(ref, attachment);
     return bytes?.length;
   }
