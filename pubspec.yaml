@@ -133,6 +133,7 @@ flutter:
     - assets/privacy-icon.png
     - assets/actions/
     - assets/onboarding/
+    - assets/release_notes/
     - assets/settings/
 
   # To add assets to your application, add an assets section, like this:

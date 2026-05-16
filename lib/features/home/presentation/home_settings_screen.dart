@@ -480,6 +480,8 @@ class SettingsScreen extends ConsumerWidget {
     final syncConflictWarning = ref.watch(syncConflictWarningProvider);
     final inAppUpdateState = ref.watch(inAppUpdateControllerProvider);
     final packageInfo = ref.watch(packageInfoProvider);
+    final currentReleaseNote = ref.watch(currentReleaseNoteProvider);
+    final releaseNotes = ref.watch(releaseNotesProvider);
     final diagnosticLog = ref.watch(diagnosticLogControllerProvider);
     final auditLog = ref.watch(auditLogControllerProvider);
     final storageUsageSummary = ref.watch(storageUsageSummaryProvider);
@@ -3155,6 +3157,71 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
               onTap: () => _handleVersionTap(context, ref, strings),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.new_releases_outlined),
+              title: Text(
+                strings.localized(
+                  en: 'Update history',
+                  ja: '\u66f4\u65b0\u5c65\u6b74',
+                  zh: '\u66f4\u65b0\u5386\u53f2',
+                  ko: '\uc5c5\ub370\uc774\ud2b8 \uae30\ub85d',
+                  es: 'Historial de novedades',
+                  de: 'Versionsverlauf',
+                ),
+              ),
+              subtitle: Text(
+                releaseNotes.when(
+                  data: (releases) {
+                    final current = currentReleaseNote.asData?.value;
+                    if (current != null) {
+                      return current.localizedSummary(strings.locale);
+                    }
+                    if (releases.isNotEmpty) {
+                      return strings.localized(
+                        en: '${releases.length} release notes are available.',
+                        ja: '${releases.length}\u4ef6\u306e\u66f4\u65b0\u5c65\u6b74\u304c\u3042\u308a\u307e\u3059\u3002',
+                        zh: '\u53ef\u67e5\u770b ${releases.length} \u6761\u66f4\u65b0\u8bf4\u660e\u3002',
+                        ko: '${releases.length}\uac1c\uc758 \uc5c5\ub370\uc774\ud2b8 \uae30\ub85d\uc774 \uc788\uc2b5\ub2c8\ub2e4.',
+                        es: 'Hay ${releases.length} notas de version disponibles.',
+                        de: '${releases.length} Versionshinweise sind verfuegbar.',
+                      );
+                    }
+                    return strings.localized(
+                      en: 'No release notes are available.',
+                      ja: '\u66f4\u65b0\u5c65\u6b74\u306f\u307e\u3060\u3042\u308a\u307e\u305b\u3093\u3002',
+                      zh: '\u5c1a\u65e0\u66f4\u65b0\u8bf4\u660e\u3002',
+                      ko: '\uc5c5\ub370\uc774\ud2b8 \uae30\ub85d\uc774 \uc544\uc9c1 \uc5c6\uc2b5\ub2c8\ub2e4.',
+                      es: 'No hay notas de version disponibles.',
+                      de: 'Es sind keine Versionshinweise verfuegbar.',
+                    );
+                  },
+                  loading: () => strings.localized(
+                    en: 'Reading release notes...',
+                    ja: '\u66f4\u65b0\u5c65\u6b74\u3092\u8aad\u307f\u8fbc\u307f\u4e2d...',
+                    zh: '\u6b63\u5728\u8bfb\u53d6\u66f4\u65b0\u8bf4\u660e...',
+                    ko: '\uc5c5\ub370\uc774\ud2b8 \uae30\ub85d\uc744 \uc77d\ub294 \uc911...',
+                    es: 'Leyendo novedades...',
+                    de: 'Versionshinweise werden gelesen...',
+                  ),
+                  error: (_, _) => strings.localized(
+                    en: 'Release notes could not be loaded.',
+                    ja: '\u66f4\u65b0\u5c65\u6b74\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f\u3002',
+                    zh: '\u65e0\u6cd5\u8bfb\u53d6\u66f4\u65b0\u8bf4\u660e\u3002',
+                    ko: '\uc5c5\ub370\uc774\ud2b8 \uae30\ub85d\uc744 \uc77d\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.',
+                    es: 'No se pudieron cargar las novedades.',
+                    de: 'Versionshinweise konnten nicht geladen werden.',
+                  ),
+                ),
+              ),
+              onTap: releaseNotes.asData?.value.isEmpty ?? true
+                  ? null
+                  : () => _showReleaseNotesHistoryDialog(
+                      context,
+                      releaseNotes.asData!.value,
+                      currentReleaseNote.asData?.value?.version,
+                    ),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,

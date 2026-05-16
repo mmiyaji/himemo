@@ -48,6 +48,7 @@ import '../../security/data/secure_key_value_store.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/google_sign_in_initializer.dart';
 import '../../sync/data/icloud_sync_transport.dart';
+import '../../sync/data/sync_attachment_refs.dart';
 import '../../sync/data/sync_conflict_policy.dart';
 import '../../sync/data/sync_bundle_preview.dart';
 import '../../sync/data/secure_sync_bundle_store.dart';
@@ -303,6 +304,95 @@ class AppPackageDetails {
   final String buildNumber;
 
   String get displayVersion => '$version ($buildNumber)';
+
+  String get releaseKey => '$version+$buildNumber';
+}
+
+enum ReleaseNoteItemType { feature, improvement, fix, security }
+
+class ReleaseNoteItem {
+  const ReleaseNoteItem({
+    required this.type,
+    required this.title,
+    required this.body,
+  });
+
+  final ReleaseNoteItemType type;
+  final Map<String, String> title;
+  final Map<String, String> body;
+
+  String localizedTitle(Locale locale) => _localizedReleaseText(title, locale);
+
+  String localizedBody(Locale locale) => _localizedReleaseText(body, locale);
+}
+
+class ReleaseNote {
+  const ReleaseNote({
+    required this.version,
+    required this.date,
+    required this.importance,
+    required this.title,
+    required this.summary,
+    required this.items,
+  });
+
+  final String version;
+  final DateTime? date;
+  final String importance;
+  final Map<String, String> title;
+  final Map<String, String> summary;
+  final List<ReleaseNoteItem> items;
+
+  String localizedTitle(Locale locale) => _localizedReleaseText(title, locale);
+
+  String localizedSummary(Locale locale) =>
+      _localizedReleaseText(summary, locale);
+}
+
+String _localizedReleaseText(Map<String, String> values, Locale locale) {
+  return values[locale.languageCode] ??
+      values['en'] ??
+      (values.values.isEmpty ? null : values.values.first) ??
+      '';
+}
+
+ReleaseNote? releaseNoteFromJson(Map<String, dynamic> json) {
+  final items = <ReleaseNoteItem>[];
+  for (final rawItem in json['items'] as List<dynamic>? ?? const <dynamic>[]) {
+    final item = Map<String, dynamic>.from(rawItem as Map);
+    final typeName = '${item['type'] ?? 'improvement'}';
+    items.add(
+      ReleaseNoteItem(
+        type: ReleaseNoteItemType.values.firstWhere(
+          (type) => type.name == typeName,
+          orElse: () => ReleaseNoteItemType.improvement,
+        ),
+        title: _localizedMapFromJson(item['title']),
+        body: _localizedMapFromJson(item['body']),
+      ),
+    );
+  }
+  final version = '${json['version'] ?? ''}'.trim();
+  if (version.isEmpty || items.isEmpty) {
+    return null;
+  }
+  return ReleaseNote(
+    version: version,
+    date: DateTime.tryParse('${json['date'] ?? ''}'),
+    importance: '${json['importance'] ?? 'normal'}',
+    title: _localizedMapFromJson(json['title']),
+    summary: _localizedMapFromJson(json['summary']),
+    items: List.unmodifiable(items),
+  );
+}
+
+Map<String, String> _localizedMapFromJson(Object? value) {
+  if (value is! Map) {
+    return const <String, String>{};
+  }
+  return {
+    for (final entry in value.entries) '${entry.key}': '${entry.value}'.trim(),
+  }..removeWhere((_, text) => text.isEmpty);
 }
 
 enum SearchDateRange { all, last7Days, last30Days, thisMonth }
@@ -2401,6 +2491,65 @@ final packageInfoProvider = FutureProvider<AppPackageDetails>((ref) async {
   }
 });
 
+final releaseNotesProvider = FutureProvider<List<ReleaseNote>>((ref) async {
+  final raw = await rootBundle.loadString(
+    'assets/release_notes/release_notes.json',
+  );
+  final decoded = jsonDecode(raw) as Map<String, dynamic>;
+  final releases = <ReleaseNote>[];
+  for (final rawRelease
+      in decoded['releases'] as List<dynamic>? ?? const <dynamic>[]) {
+    final release = releaseNoteFromJson(
+      Map<String, dynamic>.from(rawRelease as Map),
+    );
+    if (release != null) {
+      releases.add(release);
+    }
+  }
+  return List.unmodifiable(releases);
+});
+
+final currentReleaseNoteProvider = FutureProvider<ReleaseNote?>((ref) async {
+  final packageInfo = await ref.watch(packageInfoProvider.future);
+  final releases = await ref.watch(releaseNotesProvider.future);
+  for (final release in releases) {
+    if (release.version == packageInfo.version) {
+      return release;
+    }
+  }
+  return null;
+});
+
+final unseenReleaseNoteProvider = FutureProvider<ReleaseNote?>((ref) async {
+  final releaseNote = await ref.watch(currentReleaseNoteProvider.future);
+  if (releaseNote == null || releaseNote.items.isEmpty) {
+    return null;
+  }
+  final packageInfo = await ref.watch(packageInfoProvider.future);
+  final prefs = await SharedPreferences.getInstance();
+  final seenKey = prefs.getString('release_notes.last_seen');
+  return seenKey == packageInfo.releaseKey ? null : releaseNote;
+});
+
+final releaseNotesSeenControllerProvider = Provider<ReleaseNotesSeenController>(
+  (ref) {
+    return ReleaseNotesSeenController(ref);
+  },
+);
+
+class ReleaseNotesSeenController {
+  const ReleaseNotesSeenController(this._ref);
+
+  final Ref _ref;
+
+  Future<void> markCurrentSeen() async {
+    final packageInfo = await _ref.read(packageInfoProvider.future);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('release_notes.last_seen', packageInfo.releaseKey);
+    _ref.invalidate(unseenReleaseNoteProvider);
+  }
+}
+
 final googleDriveSyncTransportProvider = Provider<GoogleDriveSyncTransport>((
   ref,
 ) {
@@ -3029,46 +3178,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       if (rawNote is! Map) {
         continue;
       }
-      hashes.addAll(_remoteAttachmentHashesInNoteJson(rawNote));
+      hashes.addAll(syncAttachmentObjectHashesInNoteJson(rawNote));
     }
     return hashes;
-  }
-
-  Set<String> _remoteAttachmentHashesInNoteJson(Map rawNote) {
-    final hashes = <String>{};
-
-    void addFromAttachmentJson(Object? rawAttachment) {
-      if (rawAttachment is! Map) {
-        return;
-      }
-      final filePath = rawAttachment['filePath'] as String?;
-      final contentHash = _remoteAttachmentHashFromRef(filePath);
-      if (contentHash != null) {
-        hashes.add(contentHash);
-      }
-    }
-
-    for (final rawAttachment
-        in (rawNote['attachments'] as List<dynamic>? ?? const <dynamic>[])) {
-      addFromAttachmentJson(rawAttachment);
-    }
-    for (final rawBlock
-        in (rawNote['blocks'] as List<dynamic>? ?? const <dynamic>[])) {
-      if (rawBlock is! Map) {
-        continue;
-      }
-      addFromAttachmentJson(rawBlock['attachment']);
-    }
-    return hashes;
-  }
-
-  String? _remoteAttachmentHashFromRef(String? filePath) {
-    const prefix = 'sync-attachment-object://';
-    if (filePath == null || !filePath.startsWith(prefix)) {
-      return null;
-    }
-    final contentHash = filePath.substring(prefix.length);
-    return contentHash.isEmpty ? null : contentHash;
   }
 
   Future<void> uploadCurrentBundle({
@@ -4015,8 +4127,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         final previewBySyncAttachmentId = <String, String?>{};
         Future<NoteAttachment> hydrate(NoteAttachment attachment) async {
           final remoteRef = attachment.filePath;
-          if (remoteRef == null ||
-              !remoteRef.startsWith('sync-attachment-object://')) {
+          if (!isSyncAttachmentObjectRef(remoteRef)) {
             return attachment;
           }
           final imported = await _importRemoteSyncAttachment(
@@ -4164,11 +4275,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (filePath == null) {
       return attachment;
     }
-    if (filePath.startsWith('sync-attachment-object://')) {
-      final contentHash = filePath.substring(
-        'sync-attachment-object://'.length,
-      );
-      if (contentHash.isEmpty) {
+    if (isSyncAttachmentObjectRef(filePath)) {
+      final contentHash = syncAttachmentObjectContentHash(filePath);
+      if (contentHash == null) {
         return attachment.copyWith(filePath: null, previewBytesBase64: null);
       }
       final inlinePayload = inlinePayloads[contentHash];
@@ -5953,9 +6062,11 @@ class AppLaunchController extends Notifier<AppLaunchSurface> {
     _completedInSession = true;
     state = AppLaunchSurface.ready;
     try {
+      final packageInfo = await ref.read(packageInfoProvider.future);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_storageKey, true);
       await prefs.setInt(_versionStorageKey, _currentOnboardingVersion);
+      await prefs.setString('release_notes.last_seen', packageInfo.releaseKey);
     } catch (_) {}
   }
 
@@ -9738,12 +9849,13 @@ List<String> sanitizeSuggestedTags(
   final expanded = <String>[];
   for (final raw in values) {
     var value = raw
-        .replaceAll(RegExp(r'```(?:json)?', caseSensitive: false), '')
-        .replaceAll('```', '')
+        .replaceAll(RegExp(r'```\s*json', caseSensitive: false), '')
+        .replaceAll(RegExp(r'```+'), '')
         .replaceAll('[', '')
         .replaceAll(']', '')
         .replaceAll('"', '')
         .replaceAll("'", '')
+        .replaceAll(RegExp(r'[\n\r，、]'), ',')
         .trim();
     if (value.contains(':')) {
       final parts = value.split(':');
@@ -9770,6 +9882,8 @@ List<String> sanitizeSuggestedTags(
         key.isEmpty ||
         existingKeys.contains(key) ||
         rejectedKeys.contains(key) ||
+        normalized.contains('```') ||
+        key.contains('```') ||
         normalized.startsWith('{') ||
         normalized.endsWith('}') ||
         !seen.add(key)) {

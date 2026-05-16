@@ -1532,6 +1532,11 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                           final page = pages[index];
                           return LayoutBuilder(
                             builder: (context, constraints) {
+                              final compactCard =
+                                  constraints.maxHeight.isFinite &&
+                                  constraints.maxHeight < 460;
+                              final iconSize = compactCard ? 48.0 : 56.0;
+                              final sectionGap = compactCard ? 16.0 : 24.0;
                               return Container(
                                 margin: const EdgeInsets.only(bottom: 12),
                                 padding: const EdgeInsets.all(24),
@@ -1556,8 +1561,8 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                                           CrossAxisAlignment.start,
                                       children: [
                                         Container(
-                                          width: 56,
-                                          height: 56,
+                                          width: iconSize,
+                                          height: iconSize,
                                           decoration: BoxDecoration(
                                             color: colorScheme.primary
                                                 .withValues(alpha: 0.12),
@@ -1570,15 +1575,16 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                                             color: colorScheme.primary,
                                           ),
                                         ),
-                                        const SizedBox(height: 24),
+                                        SizedBox(height: sectionGap),
                                         if (!page.isSetupPage) ...[
                                           _OnboardingImageCard(
                                             imagePath: page.imagePath,
                                             semanticLabel:
                                                 page.imageSemanticLabel,
                                             fallbackIcon: page.icon,
+                                            maxHeight: compactCard ? 160 : null,
                                           ),
-                                          const SizedBox(height: 24),
+                                          SizedBox(height: sectionGap),
                                         ],
                                         Text(
                                           page.title,
@@ -1666,11 +1672,13 @@ class _OnboardingImageCard extends StatelessWidget {
     required this.imagePath,
     required this.semanticLabel,
     required this.fallbackIcon,
+    this.maxHeight,
   });
 
   final String imagePath;
   final String semanticLabel;
   final IconData fallbackIcon;
+  final double? maxHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -1679,7 +1687,8 @@ class _OnboardingImageCard extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final maxCardHeight = constraints.maxWidth >= 900 ? 280.0 : 360.0;
+        final maxCardHeight =
+            maxHeight ?? (constraints.maxWidth >= 900 ? 280.0 : 360.0);
         return ClipRRect(
           borderRadius: BorderRadius.circular(18),
           child: ConstrainedBox(

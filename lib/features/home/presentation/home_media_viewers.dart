@@ -1707,10 +1707,10 @@ String _attachmentDiagnosticFileRef(String? filePath) {
   if (filePath == null || filePath.isEmpty) {
     return 'none';
   }
-  if (filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
-    final hash = filePath.substring(_remoteSyncAttachmentObjectPrefix.length);
+  final hash = syncAttachmentObjectContentHash(filePath);
+  if (hash != null) {
     final shortHash = hash.length <= 12 ? hash : hash.substring(0, 12);
-    return '$_remoteSyncAttachmentObjectPrefix$shortHash';
+    return syncAttachmentObjectRef(shortHash);
   }
   return path.basename(filePath);
 }
@@ -1728,7 +1728,7 @@ Future<List<int>?> _readDisplayAttachmentBytes(
     );
     return null;
   }
-  if (filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
+  if (isSyncAttachmentObjectRef(filePath)) {
     return _downloadRemoteSyncAttachmentBytes(ref, attachment);
   }
   final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
@@ -1752,14 +1752,8 @@ Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
   NoteAttachment attachment,
 ) async {
   final filePath = attachment.filePath;
-  if (filePath == null ||
-      !filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
-    return null;
-  }
-  final contentHash = filePath.substring(
-    _remoteSyncAttachmentObjectPrefix.length,
-  );
-  if (contentHash.isEmpty) {
+  final contentHash = syncAttachmentObjectContentHash(filePath);
+  if (contentHash == null) {
     return null;
   }
   final provider = ref.read(syncProviderControllerProvider);
@@ -2207,9 +2201,7 @@ class _VideoAttachmentViewerState
         'video playback load requested',
         data: {
           'playWhenLoaded': playWhenLoaded,
-          'isRemoteObject': filePath.startsWith(
-            _remoteSyncAttachmentObjectPrefix,
-          ),
+          'isRemoteObject': isSyncAttachmentObjectRef(filePath),
           'platform': kIsWeb ? 'web' : 'native',
         },
       );
@@ -2272,7 +2264,7 @@ class _VideoAttachmentViewerState
         );
         return;
       } else {
-        if (filePath.startsWith(_remoteSyncAttachmentObjectPrefix)) {
+        if (isSyncAttachmentObjectRef(filePath)) {
           final bytes = await _readDisplayAttachmentBytes(
             ref,
             widget.attachment,
@@ -2311,11 +2303,7 @@ class _VideoAttachmentViewerState
           _logVideoPlaybackDiagnostic(
             widget.attachment,
             'video playback materialized file unavailable',
-            data: {
-              'isRemoteObject': filePath.startsWith(
-                _remoteSyncAttachmentObjectPrefix,
-              ),
-            },
+            data: {'isRemoteObject': isSyncAttachmentObjectRef(filePath)},
           );
           setState(() {
             _errorMessage = context.strings.videoPreviewUnavailableWeb;

@@ -12,12 +12,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:himemo/app/app.dart';
 import 'package:himemo/app/app_flavor.dart';
 import 'package:himemo/app/app_router.dart';
+import 'package:himemo/app/network_connection.dart';
 import 'package:himemo/features/home/data/home_repository.dart';
 import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/home/domain/note_tags.dart';
 import 'package:himemo/features/home/domain/vault_models.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
+import 'package:himemo/features/security/data/encrypted_attachment_store.dart';
 import 'package:himemo/features/security/data/encrypted_note_database.dart';
 import 'package:himemo/features/security/data/encrypted_note_store.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
@@ -28,6 +30,7 @@ import 'package:himemo/features/sync/data/secure_sync_bundle_store.dart';
 import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
 import 'package:himemo/l10n/app_localizations.dart';
 import 'package:himemo/l10n/app_strings.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -93,6 +96,68 @@ void main() {
     expect(strings.colorShironeri, '白練 (Shironeri)');
     expect(strings.themeCategoryNeutral, '白・黒・無彩色');
     expect(strings.onboardingColorThemeBody(30), contains('全30色以上'));
+  });
+
+  test('release notes parse localized user-facing items', () {
+    final release = releaseNoteFromJson({
+      'version': '1.2.3',
+      'date': '2026-05-16',
+      'importance': 'normal',
+      'title': {'en': 'Updated', 'ja': '更新しました'},
+      'summary': {'en': 'Summary', 'ja': '概要'},
+      'items': [
+        {
+          'type': 'fix',
+          'title': {'en': 'Fixed sync', 'ja': '同期を修正'},
+          'body': {'en': 'Sync is clearer.', 'ja': '同期が分かりやすくなりました。'},
+        },
+      ],
+    });
+
+    expect(release?.version, '1.2.3');
+    expect(release?.localizedTitle(const Locale('ja')), '更新しました');
+    expect(release?.items.single.type, ReleaseNoteItemType.fix);
+    expect(
+      release?.items.single.localizedBody(const Locale('ja')),
+      '同期が分かりやすくなりました。',
+    );
+  });
+
+  test('current pubspec version has release notes', () {
+    final pubspec = File('pubspec.yaml').readAsStringSync();
+    final versionMatch = RegExp(
+      r'^version:\s*([0-9A-Za-z.+-]+)\s*$',
+      multiLine: true,
+    ).firstMatch(pubspec);
+    expect(versionMatch, isNotNull);
+    final currentVersion = versionMatch!.group(1)!.split('+').first;
+
+    final releaseNotes =
+        jsonDecode(
+              File(
+                'assets/release_notes/release_notes.json',
+              ).readAsStringSync(),
+            )
+            as Map<String, dynamic>;
+    final releases = releaseNotes['releases'] as List<dynamic>;
+    final currentRelease = releases
+        .cast<Map<String, dynamic>>()
+        .where((release) => release['version'] == currentVersion)
+        .singleOrNull;
+
+    expect(
+      currentRelease,
+      isNotNull,
+      reason:
+          'When pubspec.yaml version is changed, add or update the matching '
+          'entry in assets/release_notes/release_notes.json.',
+    );
+    expect(currentRelease!['title'], isA<Map>());
+    expect(currentRelease['summary'], isA<Map>());
+    expect(
+      currentRelease['items'],
+      isA<List>().having((items) => items, 'items', isNotEmpty),
+    );
   });
 
   test('traditional color themes include 30 or more choices', () {
@@ -616,6 +681,409 @@ void main() {
     },
   );
 
+  test(
+    'fake Google Drive sync keeps large video and multi-file attachments as objects',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-fake-drive-large-attachments-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(64));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final noteStore = EncryptedNoteStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        database: noteDatabase,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final attachmentStore = EncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final fakeTransport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteStoreProvider.overrideWithValue(noteStore),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+          secureSyncBundleStoreProvider.overrideWith(
+            (ref) => SecureSyncBundleStore(
+              encryptionService: encryptionService,
+              syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
+              legacyMasterKeyService: masterKeyService,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          googleDriveSyncTransportProvider.overrideWithValue(fakeTransport),
+          syncAuthGatewayProvider.overrideWithValue(
+            FakeGoogleDriveSyncAuthGateway(fallback: DefaultSyncAuthGateway()),
+          ),
+        ],
+      );
+      final observedTransferStates = <SyncTransferState>[];
+      final transferSubscription = container.listen<SyncTransferState>(
+        syncTransferControllerProvider,
+        (_, next) => observedTransferStates.add(next),
+      );
+      addTearDown(transferSubscription.close);
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+
+      await container
+          .read(syncProviderControllerProvider.notifier)
+          .setProvider(SyncProvider.googleDrive);
+      await container
+          .read(syncAuthControllerProvider.notifier)
+          .connect(SyncProvider.googleDrive);
+      final attachmentHashesBeforeUpload = await fakeTransport
+          .listAttachmentObjectContentHashes();
+
+      final videoSource = await _writePayloadFile(
+        tempDirectory,
+        'simulator-large-video.mp4',
+        sizeBytes: 12 * 1024 * 1024,
+        byte: 0x41,
+      );
+      final attachmentSources = [
+        (
+          file: videoSource,
+          type: AttachmentType.video,
+          label: 'simulator-large-video.mp4',
+          mimeType: 'video/mp4',
+        ),
+        for (var index = 0; index < 4; index++)
+          (
+            file: await _writePayloadFile(
+              tempDirectory,
+              'simulator-document-$index.bin',
+              sizeBytes: 512 * 1024,
+              byte: 0x50 + index,
+            ),
+            type: AttachmentType.file,
+            label: 'simulator-document-$index.bin',
+            mimeType: 'application/octet-stream',
+          ),
+      ];
+      final attachments = <NoteAttachment>[];
+      for (final source in attachmentSources) {
+        final storedPath = await attachmentStore.storeAttachment(
+          XFile(
+            source.file.path,
+            name: source.label,
+            mimeType: source.mimeType,
+          ),
+          type: source.type,
+        );
+        expect(storedPath, isNotNull);
+        attachments.add(
+          NoteAttachment(
+            type: source.type,
+            label: source.label,
+            filePath: storedPath,
+          ),
+        );
+      }
+
+      await container.read(notesControllerProvider.notifier).restoreCompleted;
+      await container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'fake-drive-large-attachment-note',
+              vaultId: 'everyday',
+              title: 'Fake Drive large attachment note',
+              body: 'Exercises a large video plus multiple file attachments.',
+              createdAt: DateTime.utc(2026, 5, 16, 11),
+              updatedAt: DateTime.utc(2026, 5, 16, 11, 1),
+              attachments: attachments,
+            ),
+          );
+
+      final estimatedUploadBytes = await container
+          .read(syncTransferControllerProvider.notifier)
+          .estimatePendingUploadBytes();
+      expect(estimatedUploadBytes, greaterThan(14 * 1024 * 1024));
+
+      final stopwatch = Stopwatch()..start();
+      await container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true);
+      stopwatch.stop();
+
+      final transferState = container.read(syncTransferControllerProvider);
+      expect(transferState.stage, SyncTransferStage.success);
+      final remoteStatus = await fakeTransport.fetchLatestBundleStatus();
+      expect(remoteStatus?.noteCount, 1);
+      expect(remoteStatus?.attachmentCount, attachments.length);
+      final attachmentHashesAfterUpload = await fakeTransport
+          .listAttachmentObjectContentHashes();
+      expect(
+        attachmentHashesAfterUpload.length -
+            attachmentHashesBeforeUpload.length,
+        attachments.length,
+      );
+      expect(
+        remoteStatus?.sizeBytes,
+        lessThan(1024 * 1024),
+        reason:
+            'Google Drive bundles should contain attachment object refs, '
+            'not inline video/file bytes.',
+      );
+      expect(
+        observedTransferStates.any(
+          (state) =>
+              state.progress == SyncTransferProgress.uploadingBundle &&
+              state.totalItems == attachments.length,
+        ),
+        isTrue,
+        reason:
+            'The UI needs item counts while multiple attachment objects '
+            'are uploaded.',
+      );
+      debugPrint(
+        'Fake Google Drive large attachment upload completed in '
+        '${stopwatch.elapsedMilliseconds} ms; estimated payload '
+        '$estimatedUploadBytes bytes; remote bundle ${remoteStatus?.sizeBytes} '
+        'bytes; attachment objects ${attachments.length}.',
+      );
+    },
+  );
+
+  test(
+    'Google Drive attachment upload failure keeps local attachment pending',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final failingTransport = _FailingAttachmentUploadTransport();
+      final harness = await _createGoogleDriveSyncHarness(
+        failingTransport,
+        tempPrefix: 'himemo-fake-drive-attachment-upload-failure-',
+      );
+      final source = await _writePayloadFile(
+        harness.tempDirectory,
+        'must-stay-local-video.mp4',
+        sizeBytes: 256 * 1024,
+        byte: 0x31,
+      );
+      final storedPath = await harness.attachmentStore.storeAttachment(
+        XFile(source.path, name: 'must-stay-local-video.mp4'),
+        type: AttachmentType.video,
+      );
+      expect(storedPath, isNotNull);
+
+      await harness.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'attachment-upload-failure-note',
+              vaultId: 'everyday',
+              title: 'Attachment upload failure',
+              body: 'The local attachment must not be replaced on failure.',
+              createdAt: DateTime.utc(2026, 5, 16, 12),
+              updatedAt: DateTime.utc(2026, 5, 16, 12, 1),
+              attachments: [
+                NoteAttachment(
+                  type: AttachmentType.video,
+                  label: 'must-stay-local-video.mp4',
+                  filePath: storedPath,
+                ),
+              ],
+            ),
+          );
+
+      await harness.container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true);
+
+      final transferState = harness.container.read(
+        syncTransferControllerProvider,
+      );
+      expect(transferState.stage, SyncTransferStage.error);
+      expect(failingTransport.attachmentUploadCalls, 1);
+      expect(failingTransport.bundleUploadCalls, 0);
+      final note = harness.container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'attachment-upload-failure-note');
+      expect(note.syncState, NoteSyncState.pendingUpload);
+      expect(note.attachments.single.filePath, storedPath);
+      expect(
+        await harness.attachmentStore.readAttachment(
+          storedPath!,
+          type: AttachmentType.video,
+        ),
+        hasLength(256 * 1024),
+      );
+      expect(
+        (await harness.container.read(syncEngineProvider).summarizeQueue())
+            .totalChanges,
+        1,
+      );
+    },
+  );
+
+  test(
+    'Google Drive bundle upload failure keeps local attachment pending',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final failingTransport = _FailingBundleUploadTransport();
+      final harness = await _createGoogleDriveSyncHarness(
+        failingTransport,
+        tempPrefix: 'himemo-fake-drive-bundle-upload-failure-',
+      );
+      final source = await _writePayloadFile(
+        harness.tempDirectory,
+        'must-stay-local-file.bin',
+        sizeBytes: 128 * 1024,
+        byte: 0x32,
+      );
+      final storedPath = await harness.attachmentStore.storeAttachment(
+        XFile(source.path, name: 'must-stay-local-file.bin'),
+        type: AttachmentType.file,
+      );
+      expect(storedPath, isNotNull);
+
+      await harness.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'bundle-upload-failure-note',
+              vaultId: 'everyday',
+              title: 'Bundle upload failure',
+              body: 'The local attachment must survive bundle upload failure.',
+              createdAt: DateTime.utc(2026, 5, 16, 13),
+              updatedAt: DateTime.utc(2026, 5, 16, 13, 1),
+              attachments: [
+                NoteAttachment(
+                  type: AttachmentType.file,
+                  label: 'must-stay-local-file.bin',
+                  filePath: storedPath,
+                ),
+              ],
+            ),
+          );
+
+      await harness.container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true);
+
+      final transferState = harness.container.read(
+        syncTransferControllerProvider,
+      );
+      expect(transferState.stage, SyncTransferStage.error);
+      expect(failingTransport.attachmentUploadCalls, 1);
+      expect(failingTransport.bundleUploadCalls, 1);
+      final note = harness.container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'bundle-upload-failure-note');
+      expect(note.syncState, NoteSyncState.pendingUpload);
+      expect(note.attachments.single.filePath, storedPath);
+      expect(
+        await harness.attachmentStore.readAttachment(
+          storedPath!,
+          type: AttachmentType.file,
+        ),
+        hasLength(128 * 1024),
+      );
+      expect(
+        (await harness.container.read(syncEngineProvider).summarizeQueue())
+            .totalChanges,
+        1,
+      );
+    },
+  );
+
+  test('large Google Drive downloads warn on mobile data', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-fake-drive-large-download-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(65));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    final noteStore = EncryptedNoteStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      database: noteDatabase,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final fakeTransport = InMemoryGoogleDriveSyncTransport(
+      uploadDelay: Duration.zero,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteStoreProvider.overrideWithValue(noteStore),
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+        googleDriveSyncTransportProvider.overrideWithValue(fakeTransport),
+        networkConnectionServiceProvider.overrideWithValue(
+          const _FakeNetworkConnectionService(NetworkConnectionKind.mobile),
+        ),
+        syncAuthGatewayProvider.overrideWithValue(
+          FakeGoogleDriveSyncAuthGateway(fallback: DefaultSyncAuthGateway()),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(noteDatabase.close);
+    addTearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    await container
+        .read(syncProviderControllerProvider.notifier)
+        .setProvider(SyncProvider.googleDrive);
+    await container
+        .read(syncAuthControllerProvider.notifier)
+        .connect(SyncProvider.googleDrive);
+    await fakeTransport.uploadBundle(
+      encodedPayload: ''.padRight(51 * 1024 * 1024, 'x'),
+      deviceId: 'remote-large-device',
+      noteCount: 1,
+      attachmentCount: 8,
+    );
+    await container
+        .read(syncTransferControllerProvider.notifier)
+        .refreshRemoteStatus();
+
+    final warning = await container
+        .read(syncTransferControllerProvider.notifier)
+        .largeMobileTransferWarning(includeUpload: false);
+
+    expect(warning?.direction, LargeSyncTransferDirection.download);
+    expect(warning?.bytes, greaterThanOrEqualTo(50 * 1024 * 1024));
+  });
+
   test('effective color theme follows unlocked private profile', () async {
     SharedPreferences.setMockInitialValues({});
     final container = ProviderContainer();
@@ -1065,6 +1533,29 @@ void main() {
     expect(container.read(appLaunchControllerProvider), AppLaunchSurface.ready);
   });
 
+  test('onboarding completion marks current release notes as seen', () async {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer(
+      overrides: [
+        packageInfoProvider.overrideWith(
+          (ref) async => const AppPackageDetails(
+            appName: 'HiMemo',
+            version: '9.8.7',
+            buildNumber: '654',
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container
+        .read(appLaunchControllerProvider.notifier)
+        .completeOnboarding();
+    final prefs = await SharedPreferences.getInstance();
+
+    expect(prefs.getString('release_notes.last_seen'), '9.8.7+654');
+  });
+
   test('app lock policy providers expose secure defaults', () {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();
@@ -1246,6 +1737,90 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(SettingsScreen.privateProfileNameInputKey), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('release notes history dialog opens from settings', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(31));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          releaseNotesProvider.overrideWith((ref) async {
+            return [
+              ReleaseNote(
+                version: '1.0.0',
+                date: DateTime(2026, 5, 16),
+                importance: 'normal',
+                title: const {'en': 'HiMemo was updated'},
+                summary: const {'en': 'Release note summary.'},
+                items: const [
+                  ReleaseNoteItem(
+                    type: ReleaseNoteItemType.improvement,
+                    title: {'en': 'Improved history'},
+                    body: {'en': 'The update history opens from settings.'},
+                  ),
+                ],
+              ),
+            ];
+          }),
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(database),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: database,
+              directoryProvider: () async => Directory.systemTemp,
+            ),
+          ),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: [
+            AppLocalizations.delegate,
+            AppStrings.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: SettingsScreen()),
+        ),
+      ),
+    );
+    addTearDown(database.close);
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('About'));
+    await tester.tap(find.text('About'));
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(find.text('Update history'), 200);
+    await tester.tap(find.text('Update history'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('1.0.0 - HiMemo was updated'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -1489,6 +2064,19 @@ void main() {
     expect(suggestions, ['買い物', '家族']);
   });
 
+  test('native tag suggestions reject code fence fragments', () {
+    final suggestions = sanitizeSuggestedTags(const [
+      '```json',
+      '``` json',
+      '```JSON\n["travel", "family"]\n```',
+      'tags: work\n```',
+    ]);
+
+    expect(suggestions, ['travel', 'family', 'work']);
+    expect(suggestions, isNot(contains('```json')));
+    expect(suggestions, isNot(contains('``` json')));
+  });
+
   test('search filters can partition notes by year', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();
@@ -1634,6 +2222,100 @@ void main() {
   );
 }
 
+Future<File> _writePayloadFile(
+  Directory directory,
+  String fileName, {
+  required int sizeBytes,
+  required int byte,
+}) async {
+  final file = File('${directory.path}${Platform.pathSeparator}$fileName');
+  await file.writeAsBytes(List<int>.filled(sizeBytes, byte), flush: true);
+  return file;
+}
+
+Future<_GoogleDriveSyncHarness> _createGoogleDriveSyncHarness(
+  GoogleDriveSyncTransport transport, {
+  required String tempPrefix,
+}) async {
+  final tempDirectory = await Directory.systemTemp.createTemp(tempPrefix);
+  final secureStore = MemorySecureKeyValueStore();
+  final encryptionService = EncryptionService(random: Random(66));
+  final masterKeyService = MasterKeyService(
+    secureStore: secureStore,
+    keyFactory: encryptionService.generateKeyBytes,
+  );
+  final noteDatabase = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+  final noteStore = EncryptedNoteStore(
+    encryptionService: encryptionService,
+    masterKeyService: masterKeyService,
+    database: noteDatabase,
+    directoryProvider: () async => tempDirectory,
+    sharedPreferencesProvider: SharedPreferences.getInstance,
+  );
+  final attachmentStore = EncryptedAttachmentStore(
+    encryptionService: encryptionService,
+    masterKeyService: masterKeyService,
+    directoryProvider: () async => tempDirectory,
+    sharedPreferencesProvider: SharedPreferences.getInstance,
+  );
+  final container = ProviderContainer(
+    overrides: [
+      secureKeyValueStoreProvider.overrideWithValue(secureStore),
+      encryptionServiceProvider.overrideWithValue(encryptionService),
+      masterKeyServiceProvider.overrideWithValue(masterKeyService),
+      encryptedNoteStoreProvider.overrideWithValue(noteStore),
+      encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+      encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+      secureSyncBundleStoreProvider.overrideWith(
+        (ref) => SecureSyncBundleStore(
+          encryptionService: encryptionService,
+          syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
+          legacyMasterKeyService: masterKeyService,
+          directoryProvider: () async => tempDirectory,
+          sharedPreferencesProvider: SharedPreferences.getInstance,
+        ),
+      ),
+      googleDriveSyncTransportProvider.overrideWithValue(transport),
+      syncAuthGatewayProvider.overrideWithValue(
+        FakeGoogleDriveSyncAuthGateway(fallback: DefaultSyncAuthGateway()),
+      ),
+    ],
+  );
+  addTearDown(container.dispose);
+  addTearDown(noteDatabase.close);
+  addTearDown(() async {
+    if (await tempDirectory.exists()) {
+      await tempDirectory.delete(recursive: true);
+    }
+  });
+
+  await container
+      .read(syncProviderControllerProvider.notifier)
+      .setProvider(SyncProvider.googleDrive);
+  await container
+      .read(syncAuthControllerProvider.notifier)
+      .connect(SyncProvider.googleDrive);
+  await container.read(notesControllerProvider.notifier).restoreCompleted;
+
+  return _GoogleDriveSyncHarness(
+    container: container,
+    tempDirectory: tempDirectory,
+    attachmentStore: attachmentStore,
+  );
+}
+
+class _GoogleDriveSyncHarness {
+  const _GoogleDriveSyncHarness({
+    required this.container,
+    required this.tempDirectory,
+    required this.attachmentStore,
+  });
+
+  final ProviderContainer container;
+  final Directory tempDirectory;
+  final EncryptedAttachmentStore attachmentStore;
+}
+
 class MemoryHomeRepository implements HomeRepository {
   @override
   List<UnlockIdentity> get identities => const [
@@ -1683,5 +2365,89 @@ class _FakeDeviceAuthGateway implements DeviceAuthGateway {
       return;
     }
     _authenticateCompleter.complete(value);
+  }
+}
+
+class _FakeNetworkConnectionService extends NetworkConnectionService {
+  const _FakeNetworkConnectionService(this.kind);
+
+  final NetworkConnectionKind kind;
+
+  @override
+  Future<NetworkConnectionKind> currentKind() async => kind;
+}
+
+class _FailingAttachmentUploadTransport
+    extends InMemoryGoogleDriveSyncTransport {
+  _FailingAttachmentUploadTransport() : super(uploadDelay: Duration.zero);
+
+  int attachmentUploadCalls = 0;
+  int bundleUploadCalls = 0;
+
+  @override
+  Future<void> uploadAttachmentObject({
+    required String contentHash,
+    required String encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+    bool skipExistingCheck = false,
+  }) async {
+    attachmentUploadCalls += 1;
+    throw StateError('simulated attachment upload failure');
+  }
+
+  @override
+  Future<RemoteSyncBundleStatus> uploadBundle({
+    required String encodedPayload,
+    required String deviceId,
+    required int noteCount,
+    required int attachmentCount,
+  }) {
+    bundleUploadCalls += 1;
+    return super.uploadBundle(
+      encodedPayload: encodedPayload,
+      deviceId: deviceId,
+      noteCount: noteCount,
+      attachmentCount: attachmentCount,
+    );
+  }
+}
+
+class _FailingBundleUploadTransport extends InMemoryGoogleDriveSyncTransport {
+  _FailingBundleUploadTransport() : super(uploadDelay: Duration.zero);
+
+  int attachmentUploadCalls = 0;
+  int bundleUploadCalls = 0;
+
+  @override
+  Future<void> uploadAttachmentObject({
+    required String contentHash,
+    required String encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+    bool skipExistingCheck = false,
+  }) async {
+    attachmentUploadCalls += 1;
+    await super.uploadAttachmentObject(
+      contentHash: contentHash,
+      encodedPayload: encodedPayload,
+      type: type,
+      label: label,
+      sizeBytes: sizeBytes,
+      skipExistingCheck: skipExistingCheck,
+    );
+  }
+
+  @override
+  Future<RemoteSyncBundleStatus> uploadBundle({
+    required String encodedPayload,
+    required String deviceId,
+    required int noteCount,
+    required int attachmentCount,
+  }) async {
+    bundleUploadCalls += 1;
+    throw StateError('simulated bundle upload failure');
   }
 }

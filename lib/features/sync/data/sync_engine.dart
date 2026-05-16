@@ -8,6 +8,7 @@ import '../../home/domain/note_entry.dart';
 import '../../security/data/device_identity_store.dart';
 import '../../security/data/encrypted_attachment_store.dart';
 import '../../security/data/encrypted_note_database.dart';
+import 'sync_attachment_refs.dart';
 
 class SyncQueueSummary {
   const SyncQueueSummary({
@@ -232,7 +233,7 @@ class SyncEngine {
         if (filePath == null || filePath.isEmpty) {
           return attachment.copyWith(filePath: null, previewBytesBase64: null);
         }
-        if (_isRemoteSyncAttachmentObjectRef(filePath)) {
+        if (isSyncAttachmentObjectRef(filePath)) {
           preparedAttachmentCount += 1;
           await onProgress?.call(
             SyncSnapshotPreparationProgress(
@@ -253,7 +254,7 @@ class SyncEngine {
             ),
           );
           return attachment.copyWith(
-            filePath: 'sync-attachment-object://$existingId',
+            filePath: syncAttachmentObjectRef(existingId),
           );
         }
         await onProgress?.call(
@@ -312,7 +313,7 @@ class SyncEngine {
           ),
         );
         return attachment.copyWith(
-          filePath: 'sync-attachment-object://$attachmentId',
+          filePath: syncAttachmentObjectRef(attachmentId),
         );
       }
 
@@ -430,10 +431,6 @@ class SyncEngine {
       lastQueuedAt: lastQueuedAt,
     );
   }
-}
-
-bool _isRemoteSyncAttachmentObjectRef(String filePath) {
-  return filePath.startsWith('sync-attachment-object://');
 }
 
 Future<Map<String, String>> _encodeSyncAttachmentBytes(List<int> bytes) {

@@ -38,6 +38,7 @@ import '../../security/data/encrypted_attachment_store.dart';
 import '../../security/data/encryption_service.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/google_sign_in_initializer.dart';
+import '../../sync/data/sync_attachment_refs.dart';
 import '../../sync/data/sync_bundle_preview.dart';
 import '../../sync/data/sync_bundle_state_store.dart';
 import '../../sync/data/sync_bundle_key_service.dart';
@@ -79,7 +80,6 @@ const _helpUrl = 'https://mmiyaji.github.io/himemo/help.html';
 const _httpUserAgent = 'HiMemo/1.0 (+$_contactUrl)';
 const _appAuthor = '@mmiyaji';
 const _appAuthorUrl = 'https://ruhenheim.org/';
-const _remoteSyncAttachmentObjectPrefix = 'sync-attachment-object://';
 
 enum AppSection { notes, calendar, insights, trash, settings }
 
@@ -148,6 +148,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   bool _sidebarCollapsed = false;
   AppSection? _lastObservedSection;
   bool _noteOverlayWasOpen = false;
+  bool _releaseNotesChecked = false;
   DateTime? _suppressProfileAccessUntil;
   Timer? _profileAccessSuppressionTimer;
 
@@ -155,6 +156,9 @@ class _AppShellState extends ConsumerState<AppShell> {
   void initState() {
     super.initState();
     _noteOverlaySheetDepth.addListener(_handleNoteOverlayChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_showReleaseNotesIfNeeded());
+    });
   }
 
   @override
@@ -201,6 +205,22 @@ class _AppShellState extends ConsumerState<AppShell> {
       return;
     }
     _showProfileAccessDialog(context, ref);
+  }
+
+  Future<void> _showReleaseNotesIfNeeded() async {
+    if (_releaseNotesChecked || !mounted) {
+      return;
+    }
+    _releaseNotesChecked = true;
+    final releaseNote = await ref.read(unseenReleaseNoteProvider.future);
+    if (!mounted || releaseNote == null) {
+      return;
+    }
+    await _showReleaseNotesDialog(context, releaseNote);
+    if (!mounted) {
+      return;
+    }
+    await ref.read(releaseNotesSeenControllerProvider).markCurrentSeen();
   }
 
   @override
@@ -256,6 +276,16 @@ class _AppShellState extends ConsumerState<AppShell> {
               child: _HeaderSyncIndicator(
                 state: syncTransferState,
                 provider: ref.watch(syncProviderControllerProvider),
+              ),
+            ),
+          if (useRail)
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 4),
+              child: IconButton(
+                key: AppShell.addNoteKey,
+                tooltip: strings.addNote,
+                onPressed: () => showNoteEditorSheet(context, ref),
+                icon: const Icon(Icons.edit_note_rounded),
               ),
             ),
           if (privateProfileActive || adminMode)
@@ -977,6 +1007,250 @@ class _AppBrandTitle extends StatelessWidget {
       ],
     );
   }
+}
+
+Future<void> _showReleaseNotesDialog(
+  BuildContext context,
+  ReleaseNote releaseNote,
+) {
+  final strings = context.strings;
+  final locale = strings.locale;
+  final colorScheme = Theme.of(context).colorScheme;
+  final dateLabel = releaseNote.date == null
+      ? null
+      : MaterialLocalizations.of(context).formatMediumDate(releaseNote.date!);
+  return showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      icon: Icon(Icons.new_releases_outlined, color: colorScheme.primary),
+      title: Text(releaseNote.localizedTitle(locale)),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (dateLabel != null) ...[
+                Text(
+                  dateLabel,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              if (releaseNote.localizedSummary(locale).isNotEmpty) ...[
+                Text(releaseNote.localizedSummary(locale)),
+                const SizedBox(height: 16),
+              ],
+              for (final item in releaseNote.items) ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Icon(
+                        _releaseNoteItemIcon(item.type),
+                        size: 18,
+                        color: colorScheme.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.localizedTitle(locale),
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            item.localizedBody(locale),
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: colorScheme.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(
+            strings.localized(
+              en: 'Close',
+              ja: '\u9589\u3058\u308b',
+              zh: '\u5173\u95ed',
+              ko: '\ub2eb\uae30',
+              es: 'Cerrar',
+              de: 'Schliessen',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<void> _showReleaseNotesHistoryDialog(
+  BuildContext context,
+  List<ReleaseNote> releaseNotes,
+  String? currentVersion,
+) async {
+  final strings = context.strings;
+  final locale = strings.locale;
+  final colorScheme = Theme.of(context).colorScheme;
+  final sortedReleaseNotes = [...releaseNotes]
+    ..sort((a, b) {
+      final aDate = a.date;
+      final bDate = b.date;
+      if (aDate != null && bDate != null) {
+        final dateOrder = bDate.compareTo(aDate);
+        if (dateOrder != 0) {
+          return dateOrder;
+        }
+      } else if (aDate != null) {
+        return -1;
+      } else if (bDate != null) {
+        return 1;
+      }
+      return b.version.compareTo(a.version);
+    });
+  final selected = await showDialog<ReleaseNote>(
+    context: context,
+    builder: (context) => AlertDialog(
+      icon: Icon(Icons.history_rounded, color: colorScheme.primary),
+      title: Text(
+        strings.localized(
+          en: 'Update history',
+          ja: '\u66f4\u65b0\u5c65\u6b74',
+          zh: '\u66f4\u65b0\u5386\u53f2',
+          ko: '\uc5c5\ub370\uc774\ud2b8 \uae30\ub85d',
+          es: 'Historial de novedades',
+          de: 'Versionsverlauf',
+        ),
+      ),
+      content: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 560,
+          maxHeight: math.min(MediaQuery.sizeOf(context).height * 0.65, 520),
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final entry in sortedReleaseNotes.indexed) ...[
+                if (entry.$1 > 0) const Divider(height: 1),
+                _ReleaseNoteHistoryTile(
+                  releaseNote: entry.$2,
+                  currentVersion: currentVersion,
+                  locale: locale,
+                  currentVersionLabel: strings.localized(
+                    en: 'Current version',
+                    ja: '\u73fe\u5728\u306e\u30d0\u30fc\u30b8\u30e7\u30f3',
+                    zh: '\u5f53\u524d\u7248\u672c',
+                    ko: '\ud604\uc7ac \ubc84\uc804',
+                    es: 'Version actual',
+                    de: 'Aktuelle Version',
+                  ),
+                  onTap: () => Navigator.of(context).pop(entry.$2),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(
+            strings.localized(
+              en: 'Close',
+              ja: '\u9589\u3058\u308b',
+              zh: '\u5173\u95ed',
+              ko: '\ub2eb\uae30',
+              es: 'Cerrar',
+              de: 'Schliessen',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+  if (selected != null && context.mounted) {
+    await _showReleaseNotesDialog(context, selected);
+  }
+}
+
+class _ReleaseNoteHistoryTile extends StatelessWidget {
+  const _ReleaseNoteHistoryTile({
+    required this.releaseNote,
+    required this.currentVersion,
+    required this.locale,
+    required this.currentVersionLabel,
+    required this.onTap,
+  });
+
+  final ReleaseNote releaseNote;
+  final String? currentVersion;
+  final Locale locale;
+  final String currentVersionLabel;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isCurrent = releaseNote.version == currentVersion;
+    final dateLabel = releaseNote.date == null
+        ? null
+        : MaterialLocalizations.of(context).formatMediumDate(releaseNote.date!);
+    final summary = releaseNote.localizedSummary(locale);
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(
+        [
+          releaseNote.version,
+          releaseNote.localizedTitle(locale),
+        ].where((value) => value.isNotEmpty).join(' - '),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        [?dateLabel, if (summary.isNotEmpty) summary].join('\n'),
+        maxLines: 3,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: isCurrent
+          ? Tooltip(
+              message: currentVersionLabel,
+              child: Icon(
+                Icons.check_circle_outline,
+                color: colorScheme.primary,
+              ),
+            )
+          : const Icon(Icons.chevron_right_rounded),
+      onTap: onTap,
+    );
+  }
+}
+
+IconData _releaseNoteItemIcon(ReleaseNoteItemType type) {
+  return switch (type) {
+    ReleaseNoteItemType.feature => Icons.auto_awesome_outlined,
+    ReleaseNoteItemType.improvement => Icons.tune_outlined,
+    ReleaseNoteItemType.fix => Icons.build_circle_outlined,
+    ReleaseNoteItemType.security => Icons.verified_user_outlined,
+  };
 }
 
 Future<void> _showProfileAccessDialog(
