@@ -1,0 +1,52 @@
+{
+  "releases": [
+    {
+      "version": "1.0.0",
+      "date": "2026-05-16",
+      "importance": "normal",
+      "title": {
+        "en": "HiMemo was updated",
+        "ja": "HiMemo が更新されました"
+      },
+      "summary": {
+        "en": "This update improves cloud sync visibility, tag suggestions, and everyday note management.",
+        "ja": "クラウド同期の見える化、タグ候補、日常的なメモ管理を改善しました。"
+      },
+      "items": [
+        {
+          "type": "improvement",
+          "title": {
+            "en": "Clearer cloud sync progress",
+            "ja": "クラウド同期の進捗を分かりやすくしました"
+          },
+          "body": {
+            "en": "The sync indicator now shows more detailed states while waiting for iCloud or transferring data.",
+            "ja": "iCloud の応答待ちやデータ転送中の状態が、同期インジケーターでより詳しく分かるようになりました。"
+          }
+        },
+        {
+          "type": "fix",
+          "title": {
+            "en": "Cleaner tag suggestions",
+            "ja": "タグ候補の表示を修正しました"
+          },
+          "body": {
+            "en": "Apple Intelligence tag suggestions are filtered so JSON formatting text is not shown as a tag.",
+            "ja": "Apple Intelligence 利用時に、JSON 形式の文字列がタグ候補として表示されないようにしました。"
+          }
+        },
+        {
+          "type": "improvement",
+          "title": {
+            "en": "More deliberate delete actions",
+            "ja": "削除操作を選びやすくしました"
+          },
+          "body": {
+            "en": "Delete dialogs now make it easier to choose between moving notes to Trash and deleting them permanently.",
+            "ja": "削除時に、ゴミ箱へ移動するか完全に削除するかを選びやすくしました。"
+          }
+        }
+      ]
+    }
+  ]
+}

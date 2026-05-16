@@ -148,6 +148,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   bool _sidebarCollapsed = false;
   AppSection? _lastObservedSection;
   bool _noteOverlayWasOpen = false;
+  bool _releaseNotesChecked = false;
   DateTime? _suppressProfileAccessUntil;
   Timer? _profileAccessSuppressionTimer;
 
@@ -155,6 +156,9 @@ class _AppShellState extends ConsumerState<AppShell> {
   void initState() {
     super.initState();
     _noteOverlaySheetDepth.addListener(_handleNoteOverlayChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_showReleaseNotesIfNeeded());
+    });
   }
 
   @override
@@ -201,6 +205,22 @@ class _AppShellState extends ConsumerState<AppShell> {
       return;
     }
     _showProfileAccessDialog(context, ref);
+  }
+
+  Future<void> _showReleaseNotesIfNeeded() async {
+    if (_releaseNotesChecked || !mounted) {
+      return;
+    }
+    _releaseNotesChecked = true;
+    final releaseNote = await ref.read(unseenReleaseNoteProvider.future);
+    if (!mounted || releaseNote == null) {
+      return;
+    }
+    await _showReleaseNotesDialog(context, releaseNote);
+    if (!mounted) {
+      return;
+    }
+    await ref.read(releaseNotesSeenControllerProvider).markCurrentSeen();
   }
 
   @override
@@ -977,6 +997,108 @@ class _AppBrandTitle extends StatelessWidget {
       ],
     );
   }
+}
+
+Future<void> _showReleaseNotesDialog(
+  BuildContext context,
+  ReleaseNote releaseNote,
+) {
+  final strings = context.strings;
+  final locale = strings.locale;
+  final colorScheme = Theme.of(context).colorScheme;
+  final dateLabel = releaseNote.date == null
+      ? null
+      : MaterialLocalizations.of(context).formatMediumDate(releaseNote.date!);
+  return showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      icon: Icon(Icons.new_releases_outlined, color: colorScheme.primary),
+      title: Text(releaseNote.localizedTitle(locale)),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (dateLabel != null) ...[
+                Text(
+                  dateLabel,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              if (releaseNote.localizedSummary(locale).isNotEmpty) ...[
+                Text(releaseNote.localizedSummary(locale)),
+                const SizedBox(height: 16),
+              ],
+              for (final item in releaseNote.items) ...[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Icon(
+                        _releaseNoteItemIcon(item.type),
+                        size: 18,
+                        color: colorScheme.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.localizedTitle(locale),
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            item.localizedBody(locale),
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: colorScheme.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(
+            strings.localized(
+              en: 'Close',
+              ja: '\u9589\u3058\u308b',
+              zh: '\u5173\u95ed',
+              ko: '\ub2eb\uae30',
+              es: 'Cerrar',
+              de: 'Schliessen',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+IconData _releaseNoteItemIcon(ReleaseNoteItemType type) {
+  return switch (type) {
+    ReleaseNoteItemType.feature => Icons.auto_awesome_outlined,
+    ReleaseNoteItemType.improvement => Icons.tune_outlined,
+    ReleaseNoteItemType.fix => Icons.build_circle_outlined,
+    ReleaseNoteItemType.security => Icons.verified_user_outlined,
+  };
 }
 
 Future<void> _showProfileAccessDialog(

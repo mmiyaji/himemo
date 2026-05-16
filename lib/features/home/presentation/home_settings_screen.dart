@@ -480,6 +480,7 @@ class SettingsScreen extends ConsumerWidget {
     final syncConflictWarning = ref.watch(syncConflictWarningProvider);
     final inAppUpdateState = ref.watch(inAppUpdateControllerProvider);
     final packageInfo = ref.watch(packageInfoProvider);
+    final currentReleaseNote = ref.watch(currentReleaseNoteProvider);
     final diagnosticLog = ref.watch(diagnosticLogControllerProvider);
     final auditLog = ref.watch(auditLogControllerProvider);
     final storageUsageSummary = ref.watch(storageUsageSummaryProvider);
@@ -3155,6 +3156,56 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
               onTap: () => _handleVersionTap(context, ref, strings),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.new_releases_outlined),
+              title: Text(
+                strings.localized(
+                  en: 'What\u2019s new',
+                  ja: '\u66f4\u65b0\u5185\u5bb9',
+                  zh: '\u66f4\u65b0\u5185\u5bb9',
+                  ko: '\uc5c5\ub370\uc774\ud2b8 \ub0b4\uc6a9',
+                  es: 'Novedades',
+                  de: 'Neuheiten',
+                ),
+              ),
+              subtitle: Text(
+                currentReleaseNote.when(
+                  data: (release) =>
+                      release?.localizedSummary(strings.locale) ??
+                      strings.localized(
+                        en: 'No release notes are available for this version.',
+                        ja: '\u3053\u306e\u30d0\u30fc\u30b8\u30e7\u30f3\u306e\u66f4\u65b0\u5185\u5bb9\u306f\u307e\u3060\u3042\u308a\u307e\u305b\u3093\u3002',
+                        zh: '\u6b64\u7248\u672c\u5c1a\u65e0\u66f4\u65b0\u8bf4\u660e\u3002',
+                        ko: '\uc774 \ubc84\uc804\uc758 \uc5c5\ub370\uc774\ud2b8 \ub0b4\uc6a9\uc774 \uc544\uc9c1 \uc5c6\uc2b5\ub2c8\ub2e4.',
+                        es: 'No hay notas de version para esta version.',
+                        de: 'Fuer diese Version sind keine Versionshinweise verfuegbar.',
+                      ),
+                  loading: () => strings.localized(
+                    en: 'Reading release notes...',
+                    ja: '\u66f4\u65b0\u5185\u5bb9\u3092\u8aad\u307f\u8fbc\u307f\u4e2d...',
+                    zh: '\u6b63\u5728\u8bfb\u53d6\u66f4\u65b0\u5185\u5bb9...',
+                    ko: '\uc5c5\ub370\uc774\ud2b8 \ub0b4\uc6a9\uc744 \uc77d\ub294 \uc911...',
+                    es: 'Leyendo novedades...',
+                    de: 'Versionshinweise werden gelesen...',
+                  ),
+                  error: (_, _) => strings.localized(
+                    en: 'Release notes could not be loaded.',
+                    ja: '\u66f4\u65b0\u5185\u5bb9\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3067\u3057\u305f\u3002',
+                    zh: '\u65e0\u6cd5\u8bfb\u53d6\u66f4\u65b0\u5185\u5bb9\u3002',
+                    ko: '\uc5c5\ub370\uc774\ud2b8 \ub0b4\uc6a9\uc744 \uc77d\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.',
+                    es: 'No se pudieron cargar las novedades.',
+                    de: 'Versionshinweise konnten nicht geladen werden.',
+                  ),
+                ),
+              ),
+              onTap: currentReleaseNote.asData?.value == null
+                  ? null
+                  : () => _showReleaseNotesDialog(
+                      context,
+                      currentReleaseNote.asData!.value!,
+                    ),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,

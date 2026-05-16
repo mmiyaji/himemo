@@ -95,6 +95,31 @@ void main() {
     expect(strings.onboardingColorThemeBody(30), contains('全30色以上'));
   });
 
+  test('release notes parse localized user-facing items', () {
+    final release = releaseNoteFromJson({
+      'version': '1.2.3',
+      'date': '2026-05-16',
+      'importance': 'normal',
+      'title': {'en': 'Updated', 'ja': '更新しました'},
+      'summary': {'en': 'Summary', 'ja': '概要'},
+      'items': [
+        {
+          'type': 'fix',
+          'title': {'en': 'Fixed sync', 'ja': '同期を修正'},
+          'body': {'en': 'Sync is clearer.', 'ja': '同期が分かりやすくなりました。'},
+        },
+      ],
+    });
+
+    expect(release?.version, '1.2.3');
+    expect(release?.localizedTitle(const Locale('ja')), '更新しました');
+    expect(release?.items.single.type, ReleaseNoteItemType.fix);
+    expect(
+      release?.items.single.localizedBody(const Locale('ja')),
+      '同期が分かりやすくなりました。',
+    );
+  });
+
   test('traditional color themes include 30 or more choices', () {
     expect(AppColorTheme.values.length, greaterThanOrEqualTo(30));
   });
