@@ -99,8 +99,8 @@ void main() {
 
     expect(homePage, contains("Key('note-detail-search-button')"));
     expect(homePage, contains("Key('note-detail-search-input')"));
-    expect(homePage, contains("Key('note-detail-search-previous-button')"));
-    expect(homePage, contains("Key('note-detail-search-next-button')"));
+    expect(homePage, contains('note-detail-search-previous-button'));
+    expect(homePage, contains('note-detail-search-next-button'));
     expect(homePage, contains('_jumpDetailSearch'));
     expect(homePage, contains('matchStart'));
     expect(homePage, contains('_noteSearchActiveHighlightStyle'));
@@ -113,6 +113,10 @@ void main() {
     );
     expect(homePage, contains('_pendingInitialSearchJumpNoteId'));
     expect(homePage, contains('_scheduleInitialDetailSearchJump'));
+    expect(homePage, contains('_FloatingNoteSearchNavigator'));
+    expect(homePage, contains('_detailSearchNavigatorPinned'));
+    expect(homePage, contains('note-detail-search-floating-previous-button'));
+    expect(homePage, contains('note-detail-search-floating-next-button'));
     expect(
       homePage,
       contains(

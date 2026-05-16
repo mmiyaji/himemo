@@ -588,6 +588,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
   final Map<int, GlobalKey> _detailContentItemKeys = <int, GlobalKey>{};
   String _detailSearchQuery = '';
   bool _detailSearchVisible = false;
+  bool _detailSearchNavigatorPinned = false;
   int? _detailSearchTargetIndex;
   String? _pendingInitialSearchJumpNoteId;
 
@@ -600,6 +601,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
         ? widget.note.id
         : null;
     _detailSearchController = TextEditingController(text: _detailSearchQuery);
+    _detailScrollController.addListener(_handleDetailScroll);
   }
 
   @override
@@ -625,9 +627,23 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
 
   @override
   void dispose() {
+    _detailScrollController.removeListener(_handleDetailScroll);
     _detailSearchController.dispose();
     _detailScrollController.dispose();
     super.dispose();
+  }
+
+  void _handleDetailScroll() {
+    if (!_detailScrollController.hasClients) {
+      return;
+    }
+    final shouldPinNavigator = _detailScrollController.offset > 120;
+    if (shouldPinNavigator == _detailSearchNavigatorPinned) {
+      return;
+    }
+    setState(() {
+      _detailSearchNavigatorPinned = shouldPinNavigator;
+    });
   }
 
   void _toggleDetailSearch(String fallbackQuery) {
@@ -636,6 +652,9 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
       if (_detailSearchVisible && _detailSearchController.text.isEmpty) {
         _detailSearchQuery = fallbackQuery;
         _detailSearchController.text = fallbackQuery;
+      }
+      if (!_detailSearchVisible) {
+        _detailSearchNavigatorPinned = false;
       }
       _pendingInitialSearchJumpNoteId =
           _detailSearchVisible && _detailSearchController.text.trim().isNotEmpty
@@ -651,6 +670,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
     setState(() {
       _detailSearchQuery = '';
       _detailSearchTargetIndex = null;
+      _detailSearchNavigatorPinned = false;
       _pendingInitialSearchJumpNoteId = null;
     });
   }
@@ -793,259 +813,343 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
 
     return Container(
       decoration: _sectionDecoration(context),
-      child: CustomScrollView(
-        controller: _detailScrollController,
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-            sliver: SliverList.list(
-              children: [
-                Row(
+      child: Stack(
+        children: [
+          CustomScrollView(
+            controller: _detailScrollController,
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                sliver: SliverList.list(
                   children: [
-                    Expanded(
-                      child: Text(
-                        widget.vaultName,
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: _mutedTextColor(context),
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => ref
-                          .read(notesControllerProvider.notifier)
-                          .togglePinned(note.id),
-                      icon: Icon(
-                        note.isPinned
-                            ? Icons.push_pin_rounded
-                            : Icons.push_pin_outlined,
-                      ),
-                      tooltip: note.isPinned
-                          ? strings.localized(
-                              en: 'Unpin note',
-                              ja: 'ピン留めを解除',
-                              zh: '取消置顶',
-                              ko: '고정 해제',
-                              es: 'Desfijar nota',
-                              de: 'Notiz lösen',
-                            )
-                          : strings.pinThisNote,
-                    ),
-                    IconButton(
-                      key: const Key('note-detail-search-button'),
-                      onPressed: () => _toggleDetailSearch(highlightQuery),
-                      icon: Icon(
-                        _detailSearchVisible
-                            ? Icons.search_off_rounded
-                            : Icons.search_rounded,
-                      ),
-                      tooltip: _detailSearchVisible
-                          ? strings.localized(
-                              en: 'Hide note search',
-                              ja: 'メモ内検索を閉じる',
-                            )
-                          : strings.localized(
-                              en: 'Search in note',
-                              ja: 'メモ内を検索',
-                            ),
-                    ),
-                    PopupMenuButton<_NoteDetailAction>(
-                      tooltip: strings.localized(
-                        en: 'Note actions',
-                        ja: 'メモ操作',
-                        zh: '笔记操作',
-                        ko: '메모 작업',
-                        es: 'Acciones de nota',
-                        de: 'Notizaktionen',
-                      ),
-                      icon: const Icon(Icons.more_horiz_rounded),
-                      onSelected: (action) {
-                        if (action == _NoteDetailAction.delete) {
-                          widget.onDelete?.call();
-                          return;
-                        }
-                        _handleNoteDetailAction(context, note, action);
-                      },
-                      itemBuilder: (context) => [
-                        PopupMenuItem(
-                          value: _NoteDetailAction.copy,
-                          child: _MediaMenuEntry(
-                            icon: Icons.content_copy_rounded,
-                            label: strings.localized(
-                              en: 'Copy text',
-                              ja: 'テキストをコピー',
-                              zh: '复制文本',
-                              ko: '텍스트 복사',
-                              es: 'Copiar texto',
-                              de: 'Text kopieren',
-                            ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            widget.vaultName,
+                            style: Theme.of(context).textTheme.labelLarge
+                                ?.copyWith(color: _mutedTextColor(context)),
                           ),
                         ),
-                        PopupMenuItem(
-                          value: _NoteDetailAction.share,
-                          child: _MediaMenuEntry(
-                            icon: Icons.ios_share_rounded,
-                            label: strings.localized(
-                              en: 'Share',
-                              ja: '共有',
-                              zh: '分享',
-                              ko: '공유',
-                              es: 'Compartir',
-                              de: 'Teilen',
-                            ),
+                        IconButton(
+                          onPressed: () => ref
+                              .read(notesControllerProvider.notifier)
+                              .togglePinned(note.id),
+                          icon: Icon(
+                            note.isPinned
+                                ? Icons.push_pin_rounded
+                                : Icons.push_pin_outlined,
                           ),
+                          tooltip: note.isPinned
+                              ? strings.localized(
+                                  en: 'Unpin note',
+                                  ja: 'ピン留めを解除',
+                                  zh: '取消置顶',
+                                  ko: '고정 해제',
+                                  es: 'Desfijar nota',
+                                  de: 'Notiz lösen',
+                                )
+                              : strings.pinThisNote,
                         ),
-                        if (widget.onDelete != null)
-                          PopupMenuItem(
-                            value: _NoteDetailAction.delete,
-                            child: _MediaMenuEntry(
-                              icon: Icons.delete_outline_rounded,
-                              label: strings.deleteNote,
-                            ),
+                        IconButton(
+                          key: const Key('note-detail-search-button'),
+                          onPressed: () => _toggleDetailSearch(highlightQuery),
+                          icon: Icon(
+                            _detailSearchVisible
+                                ? Icons.search_off_rounded
+                                : Icons.search_rounded,
                           ),
+                          tooltip: _detailSearchVisible
+                              ? strings.localized(
+                                  en: 'Hide note search',
+                                  ja: 'メモ内検索を閉じる',
+                                )
+                              : strings.localized(
+                                  en: 'Search in note',
+                                  ja: 'メモ内を検索',
+                                ),
+                        ),
+                        PopupMenuButton<_NoteDetailAction>(
+                          tooltip: strings.localized(
+                            en: 'Note actions',
+                            ja: 'メモ操作',
+                            zh: '笔记操作',
+                            ko: '메모 작업',
+                            es: 'Acciones de nota',
+                            de: 'Notizaktionen',
+                          ),
+                          icon: const Icon(Icons.more_horiz_rounded),
+                          onSelected: (action) {
+                            if (action == _NoteDetailAction.delete) {
+                              widget.onDelete?.call();
+                              return;
+                            }
+                            _handleNoteDetailAction(context, note, action);
+                          },
+                          itemBuilder: (context) => [
+                            PopupMenuItem(
+                              value: _NoteDetailAction.copy,
+                              child: _MediaMenuEntry(
+                                icon: Icons.content_copy_rounded,
+                                label: strings.localized(
+                                  en: 'Copy text',
+                                  ja: 'テキストをコピー',
+                                  zh: '复制文本',
+                                  ko: '텍스트 복사',
+                                  es: 'Copiar texto',
+                                  de: 'Text kopieren',
+                                ),
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: _NoteDetailAction.share,
+                              child: _MediaMenuEntry(
+                                icon: Icons.ios_share_rounded,
+                                label: strings.localized(
+                                  en: 'Share',
+                                  ja: '共有',
+                                  zh: '分享',
+                                  ko: '공유',
+                                  es: 'Compartir',
+                                  de: 'Teilen',
+                                ),
+                              ),
+                            ),
+                            if (widget.onDelete != null)
+                              PopupMenuItem(
+                                value: _NoteDetailAction.delete,
+                                child: _MediaMenuEntry(
+                                  icon: Icons.delete_outline_rounded,
+                                  label: strings.deleteNote,
+                                ),
+                              ),
+                          ],
+                        ),
+                        IconButton(
+                          key: const Key('edit-note-button'),
+                          onPressed: widget.onEdit,
+                          icon: const Icon(Icons.edit_outlined),
+                          tooltip: strings.editNote,
+                        ),
+                        IconButton(
+                          key: const Key('note-detail-delete-button'),
+                          onPressed: widget.onDelete,
+                          icon: const Icon(Icons.delete_outline_rounded),
+                          tooltip: strings.deleteNote,
+                        ),
                       ],
                     ),
-                    IconButton(
-                      key: const Key('edit-note-button'),
-                      onPressed: widget.onEdit,
-                      icon: const Icon(Icons.edit_outlined),
-                      tooltip: strings.editNote,
-                    ),
-                    IconButton(
-                      key: const Key('note-detail-delete-button'),
-                      onPressed: widget.onDelete,
-                      icon: const Icon(Icons.delete_outline_rounded),
-                      tooltip: strings.deleteNote,
-                    ),
-                  ],
-                ),
-                if (_detailSearchVisible) ...[
-                  const SizedBox(height: 10),
-                  TextField(
-                    key: const Key('note-detail-search-input'),
-                    controller: _detailSearchController,
-                    decoration: InputDecoration(
-                      labelText: strings.localized(
-                        en: 'Search in this note',
-                        ja: 'このメモ内を検索',
+                    if (_detailSearchVisible) ...[
+                      const SizedBox(height: 10),
+                      TextField(
+                        key: const Key('note-detail-search-input'),
+                        controller: _detailSearchController,
+                        decoration: InputDecoration(
+                          labelText: strings.localized(
+                            en: 'Search in this note',
+                            ja: 'このメモ内を検索',
+                          ),
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: _detailSearchQuery.isNotEmpty
+                              ? IconButton(
+                                  key: const Key(
+                                    'note-detail-search-clear-button',
+                                  ),
+                                  tooltip: strings.localized(
+                                    en: 'Clear note search',
+                                    ja: 'メモ内検索をクリア',
+                                  ),
+                                  onPressed: _clearDetailSearch,
+                                  icon: const Icon(Icons.clear_rounded),
+                                )
+                              : null,
+                          border: const OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        textInputAction: TextInputAction.search,
+                        onChanged: _setDetailSearchQuery,
                       ),
-                      prefixIcon: const Icon(Icons.search_rounded),
-                      suffixIcon: _detailSearchQuery.isNotEmpty
-                          ? IconButton(
-                              key: const Key('note-detail-search-clear-button'),
-                              tooltip: strings.localized(
-                                en: 'Clear note search',
-                                ja: 'メモ内検索をクリア',
-                              ),
-                              onPressed: _clearDetailSearch,
-                              icon: const Icon(Icons.clear_rounded),
-                            )
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          IconButton(
+                            key: const Key(
+                              'note-detail-search-previous-button',
+                            ),
+                            onPressed: detailSearchTargets.isEmpty
+                                ? null
+                                : () => _jumpDetailSearch(
+                                    detailSearchTargets,
+                                    -1,
+                                  ),
+                            tooltip: strings.localized(
+                              en: 'Previous match',
+                              ja: '前の一致へ',
+                            ),
+                            icon: const Icon(Icons.keyboard_arrow_up_rounded),
+                          ),
+                          Text(
+                            detailSearchPositionLabel,
+                            style: Theme.of(context).textTheme.labelMedium
+                                ?.copyWith(color: _mutedTextColor(context)),
+                          ),
+                          IconButton(
+                            key: const Key('note-detail-search-next-button'),
+                            onPressed: detailSearchTargets.isEmpty
+                                ? null
+                                : () =>
+                                      _jumpDetailSearch(detailSearchTargets, 1),
+                            tooltip: strings.localized(
+                              en: 'Next match',
+                              ja: '次の一致へ',
+                            ),
+                            icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    _HighlightedInlineText(
+                      key: _detailTitleKey,
+                      text: note.title,
+                      query: highlightQuery,
+                      activeMatchStart:
+                          activeSearchTarget?.key == _detailTitleKey
+                          ? activeSearchTarget?.matchStart
                           : null,
-                      border: const OutlineInputBorder(),
-                      isDense: true,
+                      style: Theme.of(context).textTheme.headlineSmall,
                     ),
-                    textInputAction: TextInputAction.search,
-                    onChanged: _setDetailSearchQuery,
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      IconButton(
-                        key: const Key('note-detail-search-previous-button'),
-                        onPressed: detailSearchTargets.isEmpty
-                            ? null
-                            : () => _jumpDetailSearch(detailSearchTargets, -1),
-                        tooltip: strings.localized(
-                          en: 'Previous match',
-                          ja: '前の一致へ',
-                        ),
-                        icon: const Icon(Icons.keyboard_arrow_up_rounded),
-                      ),
-                      Text(
-                        detailSearchPositionLabel,
-                        style: Theme.of(context).textTheme.labelMedium
-                            ?.copyWith(color: _mutedTextColor(context)),
-                      ),
-                      IconButton(
-                        key: const Key('note-detail-search-next-button'),
-                        onPressed: detailSearchTargets.isEmpty
-                            ? null
-                            : () => _jumpDetailSearch(detailSearchTargets, 1),
-                        tooltip: strings.localized(
-                          en: 'Next match',
-                          ja: '次の一致へ',
-                        ),
-                        icon: const Icon(Icons.keyboard_arrow_down_rounded),
-                      ),
-                    ],
-                  ),
-                ],
-                const SizedBox(height: 8),
-                _HighlightedInlineText(
-                  key: _detailTitleKey,
-                  text: note.title,
-                  query: highlightQuery,
-                  activeMatchStart: activeSearchTarget?.key == _detailTitleKey
-                      ? activeSearchTarget?.matchStart
-                      : null,
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  isEdited ? strings.noteEditedAt(updatedLabel) : createdLabel,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: _mutedTextColor(context),
-                  ),
-                ),
-                if (note.syncState == NoteSyncState.conflict) ...[
-                  const SizedBox(height: 12),
-                  _SyncConflictNotice(
-                    onResolve: () =>
-                        _showNoteConflictResolver(context, ref, note),
-                  ),
-                ],
-                if (tags.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final tag in tags)
-                        _NoteTagChip(
-                          tag: tag,
-                          onTap: widget.onTagTap == null
-                              ? null
-                              : () => widget.onTagTap!(tag),
-                        ),
-                    ],
-                  ),
-                ],
-                if (isEdited)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      strings.noteCreatedRevision(createdLabel, note.revision),
+                    const SizedBox(height: 8),
+                    Text(
+                      isEdited
+                          ? strings.noteEditedAt(updatedLabel)
+                          : createdLabel,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: _mutedTextColor(context),
                       ),
                     ),
-                  ),
-                const SizedBox(height: 20),
-              ],
-            ),
+                    if (note.syncState == NoteSyncState.conflict) ...[
+                      const SizedBox(height: 12),
+                      _SyncConflictNotice(
+                        onResolve: () =>
+                            _showNoteConflictResolver(context, ref, note),
+                      ),
+                    ],
+                    if (tags.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final tag in tags)
+                            _NoteTagChip(
+                              tag: tag,
+                              onTap: widget.onTagTap == null
+                                  ? null
+                                  : () => widget.onTagTap!(tag),
+                            ),
+                        ],
+                      ),
+                    ],
+                    if (isEdited)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          strings.noteCreatedRevision(
+                            createdLabel,
+                            note.revision,
+                          ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: _mutedTextColor(context)),
+                        ),
+                      ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                sliver: _DetailContentSliver(
+                  note: note,
+                  items: detailContentItems,
+                  itemKeys: _detailContentItemKeys,
+                  mediaActive: widget.isActive,
+                  highlightQuery: highlightQuery,
+                  activeSearchTarget: activeSearchTarget,
+                ),
+              ),
+            ],
           ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-            sliver: _DetailContentSliver(
-              note: note,
-              items: detailContentItems,
-              itemKeys: _detailContentItemKeys,
-              mediaActive: widget.isActive,
-              highlightQuery: highlightQuery,
-              activeSearchTarget: activeSearchTarget,
+          if (_detailSearchVisible && _detailSearchNavigatorPinned)
+            Positioned(
+              top: 10,
+              right: 12,
+              child: _FloatingNoteSearchNavigator(
+                positionLabel: detailSearchPositionLabel,
+                hasMatches: detailSearchTargets.isNotEmpty,
+                onPrevious: () => _jumpDetailSearch(detailSearchTargets, -1),
+                onNext: () => _jumpDetailSearch(detailSearchTargets, 1),
+              ),
             ),
-          ),
         ],
+      ),
+    );
+  }
+}
+
+class _FloatingNoteSearchNavigator extends StatelessWidget {
+  const _FloatingNoteSearchNavigator({
+    required this.positionLabel,
+    required this.hasMatches,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final String positionLabel;
+  final bool hasMatches;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final strings = context.strings;
+    return Material(
+      elevation: 3,
+      color: colorScheme.surface,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: Theme.of(context).dividerColor),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              key: const Key('note-detail-search-floating-previous-button'),
+              visualDensity: VisualDensity.compact,
+              onPressed: hasMatches ? onPrevious : null,
+              tooltip: strings.localized(en: 'Previous match', ja: '蜑阪・荳閾ｴ縺ｸ'),
+              icon: const Icon(Icons.keyboard_arrow_up_rounded),
+            ),
+            Text(
+              positionLabel,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: _mutedTextColor(context),
+              ),
+            ),
+            IconButton(
+              key: const Key('note-detail-search-floating-next-button'),
+              visualDensity: VisualDensity.compact,
+              onPressed: hasMatches ? onNext : null,
+              tooltip: strings.localized(en: 'Next match', ja: '谺｡縺ｮ荳閾ｴ縺ｸ'),
+              icon: const Icon(Icons.keyboard_arrow_down_rounded),
+            ),
+          ],
+        ),
       ),
     );
   }
