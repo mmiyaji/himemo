@@ -337,6 +337,7 @@ void main() {
     expect(appDelegate, contains('handleSpotlightUserActivity'));
     expect(appDelegate, contains('attributeSet.textContent'));
     expect(appDelegate, contains('attributeSet.displayName'));
+    expect(appDelegate, contains('body ?? ""'));
     expect(appDelegate, contains('attributeSet.alternateNames'));
     expect(appDelegate, contains('searchTerms'));
     expect(homeProviders, contains("logDiagnostic('spotlight'"));

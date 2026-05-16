@@ -6795,10 +6795,13 @@ String _spotlightSearchableText(NoteEntry note) {
   final parts = <String>[
     if (note.body.trim().isNotEmpty) note.body.trim(),
     for (final block in note.blocks)
-      if (block.type == NoteBlockType.paragraph &&
-          block.text != null &&
-          block.text!.trim().isNotEmpty)
+      if (block.text != null && block.text!.trim().isNotEmpty)
         block.text!.trim(),
+    for (final attachment in note.attachments)
+      if (attachment.label.trim().isNotEmpty) attachment.label.trim(),
+    for (final block in note.blocks)
+      if (block.attachment?.label.trim().isNotEmpty ?? false)
+        block.attachment!.label.trim(),
     if (note.normalizedTags.isNotEmpty) note.normalizedTags.join(' '),
   ];
   return parts.join('\n\n').trim();
@@ -6844,7 +6847,7 @@ List<String> _spotlightSearchTerms({
     }
     final compact = normalized.replaceAll(' ', '');
     if (compact.length >= 4) {
-      for (var i = 0; i < compact.length && terms.length < 80; i++) {
+      for (var i = 0; i < compact.length && terms.length < 160; i++) {
         for (final length in const [2, 3, 4]) {
           if (i + length <= compact.length) {
             addTerm(compact.substring(i, i + length));
@@ -6859,7 +6862,7 @@ List<String> _spotlightSearchTerms({
   for (final tag in tags) {
     addText(tag);
   }
-  return terms.take(80).toList(growable: false);
+  return terms.take(160).toList(growable: false);
 }
 
 class SpotlightNoteOpenRequestController extends Notifier<String?> {

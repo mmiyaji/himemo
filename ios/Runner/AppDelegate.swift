@@ -603,7 +603,7 @@ import FoundationModels
         return trimmed?.isEmpty == false ? trimmed : nil
       }
       .joined(separator: "\n\n")
-    attributeSet.keywords = ([resolvedTitle, "HiMemo"] + tags + searchTerms)
+    attributeSet.keywords = ([resolvedTitle, body ?? "", "HiMemo"] + tags + searchTerms)
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
       .filter { !$0.isEmpty }
     attributeSet.alternateNames = attributeSet.keywords
