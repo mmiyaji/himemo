@@ -12,12 +12,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:himemo/app/app.dart';
 import 'package:himemo/app/app_flavor.dart';
 import 'package:himemo/app/app_router.dart';
+import 'package:himemo/app/network_connection.dart';
 import 'package:himemo/features/home/data/home_repository.dart';
 import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/home/domain/note_tags.dart';
 import 'package:himemo/features/home/domain/vault_models.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
+import 'package:himemo/features/security/data/encrypted_attachment_store.dart';
 import 'package:himemo/features/security/data/encrypted_note_database.dart';
 import 'package:himemo/features/security/data/encrypted_note_store.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
@@ -28,6 +30,7 @@ import 'package:himemo/features/sync/data/secure_sync_bundle_store.dart';
 import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
 import 'package:himemo/l10n/app_localizations.dart';
 import 'package:himemo/l10n/app_strings.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -677,6 +680,267 @@ void main() {
       );
     },
   );
+
+  test(
+    'fake Google Drive sync keeps large video and multi-file attachments as objects',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-fake-drive-large-attachments-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(64));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final noteStore = EncryptedNoteStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        database: noteDatabase,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final attachmentStore = EncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final fakeTransport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteStoreProvider.overrideWithValue(noteStore),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+          secureSyncBundleStoreProvider.overrideWith(
+            (ref) => SecureSyncBundleStore(
+              encryptionService: encryptionService,
+              syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
+              legacyMasterKeyService: masterKeyService,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          googleDriveSyncTransportProvider.overrideWithValue(fakeTransport),
+          syncAuthGatewayProvider.overrideWithValue(
+            FakeGoogleDriveSyncAuthGateway(fallback: DefaultSyncAuthGateway()),
+          ),
+        ],
+      );
+      final observedTransferStates = <SyncTransferState>[];
+      final transferSubscription = container.listen<SyncTransferState>(
+        syncTransferControllerProvider,
+        (_, next) => observedTransferStates.add(next),
+      );
+      addTearDown(transferSubscription.close);
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+
+      await container
+          .read(syncProviderControllerProvider.notifier)
+          .setProvider(SyncProvider.googleDrive);
+      await container
+          .read(syncAuthControllerProvider.notifier)
+          .connect(SyncProvider.googleDrive);
+      final attachmentHashesBeforeUpload = await fakeTransport
+          .listAttachmentObjectContentHashes();
+
+      final videoSource = await _writePayloadFile(
+        tempDirectory,
+        'simulator-large-video.mp4',
+        sizeBytes: 12 * 1024 * 1024,
+        byte: 0x41,
+      );
+      final attachmentSources = [
+        (
+          file: videoSource,
+          type: AttachmentType.video,
+          label: 'simulator-large-video.mp4',
+          mimeType: 'video/mp4',
+        ),
+        for (var index = 0; index < 4; index++)
+          (
+            file: await _writePayloadFile(
+              tempDirectory,
+              'simulator-document-$index.bin',
+              sizeBytes: 512 * 1024,
+              byte: 0x50 + index,
+            ),
+            type: AttachmentType.file,
+            label: 'simulator-document-$index.bin',
+            mimeType: 'application/octet-stream',
+          ),
+      ];
+      final attachments = <NoteAttachment>[];
+      for (final source in attachmentSources) {
+        final storedPath = await attachmentStore.storeAttachment(
+          XFile(
+            source.file.path,
+            name: source.label,
+            mimeType: source.mimeType,
+          ),
+          type: source.type,
+        );
+        expect(storedPath, isNotNull);
+        attachments.add(
+          NoteAttachment(
+            type: source.type,
+            label: source.label,
+            filePath: storedPath,
+          ),
+        );
+      }
+
+      await container.read(notesControllerProvider.notifier).restoreCompleted;
+      await container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'fake-drive-large-attachment-note',
+              vaultId: 'everyday',
+              title: 'Fake Drive large attachment note',
+              body: 'Exercises a large video plus multiple file attachments.',
+              createdAt: DateTime.utc(2026, 5, 16, 11),
+              updatedAt: DateTime.utc(2026, 5, 16, 11, 1),
+              attachments: attachments,
+            ),
+          );
+
+      final estimatedUploadBytes = await container
+          .read(syncTransferControllerProvider.notifier)
+          .estimatePendingUploadBytes();
+      expect(estimatedUploadBytes, greaterThan(14 * 1024 * 1024));
+
+      final stopwatch = Stopwatch()..start();
+      await container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true);
+      stopwatch.stop();
+
+      final transferState = container.read(syncTransferControllerProvider);
+      expect(transferState.stage, SyncTransferStage.success);
+      final remoteStatus = await fakeTransport.fetchLatestBundleStatus();
+      expect(remoteStatus?.noteCount, 1);
+      expect(remoteStatus?.attachmentCount, attachments.length);
+      final attachmentHashesAfterUpload = await fakeTransport
+          .listAttachmentObjectContentHashes();
+      expect(
+        attachmentHashesAfterUpload.length -
+            attachmentHashesBeforeUpload.length,
+        attachments.length,
+      );
+      expect(
+        remoteStatus?.sizeBytes,
+        lessThan(1024 * 1024),
+        reason:
+            'Google Drive bundles should contain attachment object refs, '
+            'not inline video/file bytes.',
+      );
+      expect(
+        observedTransferStates.any(
+          (state) =>
+              state.progress == SyncTransferProgress.uploadingBundle &&
+              state.totalItems == attachments.length,
+        ),
+        isTrue,
+        reason:
+            'The UI needs item counts while multiple attachment objects '
+            'are uploaded.',
+      );
+      debugPrint(
+        'Fake Google Drive large attachment upload completed in '
+        '${stopwatch.elapsedMilliseconds} ms; estimated payload '
+        '$estimatedUploadBytes bytes; remote bundle ${remoteStatus?.sizeBytes} '
+        'bytes; attachment objects ${attachments.length}.',
+      );
+    },
+  );
+
+  test('large Google Drive downloads warn on mobile data', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-fake-drive-large-download-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(65));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    final noteStore = EncryptedNoteStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      database: noteDatabase,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final fakeTransport = InMemoryGoogleDriveSyncTransport(
+      uploadDelay: Duration.zero,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteStoreProvider.overrideWithValue(noteStore),
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+        googleDriveSyncTransportProvider.overrideWithValue(fakeTransport),
+        networkConnectionServiceProvider.overrideWithValue(
+          const _FakeNetworkConnectionService(NetworkConnectionKind.mobile),
+        ),
+        syncAuthGatewayProvider.overrideWithValue(
+          FakeGoogleDriveSyncAuthGateway(fallback: DefaultSyncAuthGateway()),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(noteDatabase.close);
+    addTearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    await container
+        .read(syncProviderControllerProvider.notifier)
+        .setProvider(SyncProvider.googleDrive);
+    await container
+        .read(syncAuthControllerProvider.notifier)
+        .connect(SyncProvider.googleDrive);
+    await fakeTransport.uploadBundle(
+      encodedPayload: ''.padRight(51 * 1024 * 1024, 'x'),
+      deviceId: 'remote-large-device',
+      noteCount: 1,
+      attachmentCount: 8,
+    );
+    await container
+        .read(syncTransferControllerProvider.notifier)
+        .refreshRemoteStatus();
+
+    final warning = await container
+        .read(syncTransferControllerProvider.notifier)
+        .largeMobileTransferWarning(includeUpload: false);
+
+    expect(warning?.direction, LargeSyncTransferDirection.download);
+    expect(warning?.bytes, greaterThanOrEqualTo(50 * 1024 * 1024));
+  });
 
   test('effective color theme follows unlocked private profile', () async {
     SharedPreferences.setMockInitialValues({});
@@ -1803,6 +2067,17 @@ void main() {
   );
 }
 
+Future<File> _writePayloadFile(
+  Directory directory,
+  String fileName, {
+  required int sizeBytes,
+  required int byte,
+}) async {
+  final file = File('${directory.path}${Platform.pathSeparator}$fileName');
+  await file.writeAsBytes(List<int>.filled(sizeBytes, byte), flush: true);
+  return file;
+}
+
 class MemoryHomeRepository implements HomeRepository {
   @override
   List<UnlockIdentity> get identities => const [
@@ -1853,4 +2128,13 @@ class _FakeDeviceAuthGateway implements DeviceAuthGateway {
     }
     _authenticateCompleter.complete(value);
   }
+}
+
+class _FakeNetworkConnectionService extends NetworkConnectionService {
+  const _FakeNetworkConnectionService(this.kind);
+
+  final NetworkConnectionKind kind;
+
+  @override
+  Future<NetworkConnectionKind> currentKind() async => kind;
 }
