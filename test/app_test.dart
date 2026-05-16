@@ -1127,6 +1127,29 @@ void main() {
     expect(container.read(appLaunchControllerProvider), AppLaunchSurface.ready);
   });
 
+  test('onboarding completion marks current release notes as seen', () async {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer(
+      overrides: [
+        packageInfoProvider.overrideWith(
+          (ref) async => const AppPackageDetails(
+            appName: 'HiMemo',
+            version: '9.8.7',
+            buildNumber: '654',
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container
+        .read(appLaunchControllerProvider.notifier)
+        .completeOnboarding();
+    final prefs = await SharedPreferences.getInstance();
+
+    expect(prefs.getString('release_notes.last_seen'), '9.8.7+654');
+  });
+
   test('app lock policy providers expose secure defaults', () {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();

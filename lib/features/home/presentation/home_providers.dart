@@ -6101,9 +6101,11 @@ class AppLaunchController extends Notifier<AppLaunchSurface> {
     _completedInSession = true;
     state = AppLaunchSurface.ready;
     try {
+      final packageInfo = await ref.read(packageInfoProvider.future);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_storageKey, true);
       await prefs.setInt(_versionStorageKey, _currentOnboardingVersion);
+      await prefs.setString('release_notes.last_seen', packageInfo.releaseKey);
     } catch (_) {}
   }
 
