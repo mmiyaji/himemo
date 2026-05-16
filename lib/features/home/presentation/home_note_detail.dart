@@ -1007,6 +1007,8 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
                         ),
                         textInputAction: TextInputAction.search,
                         onChanged: _setDetailSearchQuery,
+                        onSubmitted: (_) =>
+                            _jumpDetailSearch(detailSearchTargets, 1),
                       ),
                       const SizedBox(height: 6),
                       Row(

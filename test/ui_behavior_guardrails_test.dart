@@ -101,6 +101,8 @@ void main() {
     expect(homePage, contains("Key('note-detail-search-input')"));
     expect(homePage, contains('note-detail-search-previous-button'));
     expect(homePage, contains('note-detail-search-next-button'));
+    expect(homePage, contains('TextInputAction.search'));
+    expect(homePage, contains('onSubmitted: (_)'));
     expect(homePage, contains('_jumpDetailSearch'));
     expect(homePage, contains('matchStart'));
     expect(homePage, contains('_noteSearchActiveHighlightStyle'));
