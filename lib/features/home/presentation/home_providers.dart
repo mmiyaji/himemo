@@ -1370,6 +1370,8 @@ const _useFakeGoogleDriveSync = bool.fromEnvironment(
   'HIMEMO_FAKE_GOOGLE_DRIVE_SYNC',
 );
 
+bool get useFakeGoogleDriveSync => _useFakeGoogleDriveSync;
+
 class FakeGoogleDriveSyncAuthGateway implements SyncAuthGateway {
   FakeGoogleDriveSyncAuthGateway({required SyncAuthGateway fallback})
     : _fallback = fallback;
