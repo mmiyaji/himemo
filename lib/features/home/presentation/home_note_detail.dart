@@ -644,13 +644,23 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
       return const <_NoteDetailSearchTarget>[];
     }
     final targets = <_NoteDetailSearchTarget>[];
-    if (note.title.toLowerCase().contains(normalizedQuery)) {
-      targets.add(_NoteDetailSearchTarget(key: _detailTitleKey));
-    }
+    targets.addAll(
+      _noteDetailSearchTargetsForText(
+        key: _detailTitleKey,
+        text: note.title,
+        query: normalizedQuery,
+      ),
+    );
     for (var index = 0; index < items.length; index++) {
       final text = items[index].text;
-      if (text != null && text.toLowerCase().contains(normalizedQuery)) {
-        targets.add(_NoteDetailSearchTarget(key: _detailContentItemKey(index)));
+      if (text != null) {
+        targets.addAll(
+          _noteDetailSearchTargetsForText(
+            key: _detailContentItemKey(index),
+            text: text,
+            query: normalizedQuery,
+          ),
+        );
       }
     }
     return targets;
@@ -706,6 +716,9 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
       query: highlightQuery,
     );
     final detailSearchTargetIndex = _detailSearchTargetIndex;
+    final activeSearchTarget = detailSearchTargetIndex == null
+        ? null
+        : detailSearchTargets.elementAtOrNull(detailSearchTargetIndex);
     final detailSearchPositionLabel = detailSearchTargets.isEmpty
         ? '0 / 0'
         : '${((detailSearchTargetIndex ?? 0) + 1).clamp(1, detailSearchTargets.length)} / ${detailSearchTargets.length}';
@@ -921,6 +934,9 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
                   key: _detailTitleKey,
                   text: note.title,
                   query: highlightQuery,
+                  activeMatchStart: activeSearchTarget?.key == _detailTitleKey
+                      ? activeSearchTarget?.matchStart
+                      : null,
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
                 const SizedBox(height: 8),
@@ -975,6 +991,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
               itemKeys: _detailContentItemKeys,
               mediaActive: widget.isActive,
               highlightQuery: highlightQuery,
+              activeSearchTarget: activeSearchTarget,
             ),
           ),
         ],
@@ -984,11 +1001,17 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
 }
 
 class _LinkifiedMemoText extends StatefulWidget {
-  const _LinkifiedMemoText({required this.text, this.style, this.query = ''});
+  const _LinkifiedMemoText({
+    required this.text,
+    this.style,
+    this.query = '',
+    this.activeMatchStart,
+  });
 
   final String text;
   final TextStyle? style;
   final String query;
+  final int? activeMatchStart;
 
   @override
   State<_LinkifiedMemoText> createState() => _LinkifiedMemoTextState();
@@ -1052,6 +1075,12 @@ class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
               query: widget.query,
               baseStyle: segment.isLink ? linkStyle : null,
               highlightStyle: highlightStyle,
+              activeHighlightStyle: _noteSearchActiveHighlightStyle(
+                context,
+                style,
+              ),
+              activeMatchStart: widget.activeMatchStart,
+              segmentStart: segment.start,
               recognizer: segment.recognizer,
             ),
         ],
@@ -1062,7 +1091,7 @@ class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
   List<_MemoTextSegment> _parseSegments(String text) {
     final matches = _urlPattern.allMatches(text).toList(growable: false);
     if (matches.isEmpty) {
-      return [_MemoTextSegment.text(text)];
+      return [_MemoTextSegment.text(text, 0)];
     }
 
     final segments = <_MemoTextSegment>[];
@@ -1070,7 +1099,7 @@ class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
     for (final match in matches) {
       if (match.start > cursor) {
         segments.add(
-          _MemoTextSegment.text(text.substring(cursor, match.start)),
+          _MemoTextSegment.text(text.substring(cursor, match.start), cursor),
         );
       }
 
@@ -1080,15 +1109,17 @@ class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
       final recognizer = TapGestureRecognizer()
         ..onTap = () => _openMemoLink(context, trimmed);
       _recognizers.add(recognizer);
-      segments.add(_MemoTextSegment.link(trimmed, recognizer));
+      segments.add(_MemoTextSegment.link(trimmed, match.start, recognizer));
       if (trailing.isNotEmpty) {
-        segments.add(_MemoTextSegment.text(trailing));
+        segments.add(
+          _MemoTextSegment.text(trailing, match.start + trimmed.length),
+        );
       }
       cursor = match.end;
     }
 
     if (cursor < text.length) {
-      segments.add(_MemoTextSegment.text(text.substring(cursor)));
+      segments.add(_MemoTextSegment.text(text.substring(cursor), cursor));
     }
     return segments;
   }
@@ -1099,11 +1130,13 @@ class _HighlightedInlineText extends StatelessWidget {
     super.key,
     required this.text,
     required this.query,
+    this.activeMatchStart,
     this.style,
   });
 
   final String text;
   final String query;
+  final int? activeMatchStart;
   final TextStyle? style;
 
   @override
@@ -1119,6 +1152,8 @@ class _HighlightedInlineText extends StatelessWidget {
           text: text,
           query: normalizedQuery,
           highlightStyle: _noteSearchHighlightStyle(context, style),
+          activeHighlightStyle: _noteSearchActiveHighlightStyle(context, style),
+          activeMatchStart: activeMatchStart,
         ),
       ),
       overflow: TextOverflow.clip,
@@ -1127,9 +1162,10 @@ class _HighlightedInlineText extends StatelessWidget {
 }
 
 class _NoteDetailSearchTarget {
-  const _NoteDetailSearchTarget({required this.key});
+  const _NoteDetailSearchTarget({required this.key, required this.matchStart});
 
   final GlobalKey key;
+  final int matchStart;
 }
 
 TextStyle _noteSearchHighlightStyle(BuildContext context, TextStyle? style) {
@@ -1140,11 +1176,26 @@ TextStyle _noteSearchHighlightStyle(BuildContext context, TextStyle? style) {
   );
 }
 
+TextStyle _noteSearchActiveHighlightStyle(
+  BuildContext context,
+  TextStyle? style,
+) {
+  final colorScheme = Theme.of(context).colorScheme;
+  return (style ?? const TextStyle()).copyWith(
+    backgroundColor: colorScheme.tertiaryContainer,
+    color: colorScheme.onTertiaryContainer,
+    fontWeight: FontWeight.w700,
+  );
+}
+
 List<TextSpan> _highlightTextSpans({
   required String text,
   required String query,
   TextStyle? baseStyle,
   required TextStyle highlightStyle,
+  required TextStyle activeHighlightStyle,
+  int? activeMatchStart,
+  int segmentStart = 0,
   TapGestureRecognizer? recognizer,
 }) {
   final normalizedQuery = query.trim().toLowerCase();
@@ -1175,10 +1226,15 @@ List<TextSpan> _highlightTextSpans({
         ),
       );
     }
+    final absoluteMatchStart = segmentStart + matchIndex;
     spans.add(
       TextSpan(
         text: text.substring(matchIndex, matchIndex + normalizedQuery.length),
-        style: highlightStyle.merge(baseStyle),
+        style:
+            (activeMatchStart == absoluteMatchStart
+                    ? activeHighlightStyle
+                    : highlightStyle)
+                .merge(baseStyle),
         recognizer: recognizer,
       ),
     );
@@ -1187,12 +1243,38 @@ List<TextSpan> _highlightTextSpans({
   return spans;
 }
 
-class _MemoTextSegment {
-  const _MemoTextSegment.text(this.text) : recognizer = null, isLink = false;
+List<_NoteDetailSearchTarget> _noteDetailSearchTargetsForText({
+  required GlobalKey key,
+  required String text,
+  required String query,
+}) {
+  if (query.isEmpty || text.isEmpty) {
+    return const <_NoteDetailSearchTarget>[];
+  }
+  final lower = text.toLowerCase();
+  final targets = <_NoteDetailSearchTarget>[];
+  var cursor = 0;
+  while (cursor < text.length) {
+    final matchIndex = lower.indexOf(query, cursor);
+    if (matchIndex == -1) {
+      break;
+    }
+    targets.add(_NoteDetailSearchTarget(key: key, matchStart: matchIndex));
+    cursor = matchIndex + query.length;
+  }
+  return targets;
+}
 
-  const _MemoTextSegment.link(this.text, this.recognizer) : isLink = true;
+class _MemoTextSegment {
+  const _MemoTextSegment.text(this.text, this.start)
+    : recognizer = null,
+      isLink = false;
+
+  const _MemoTextSegment.link(this.text, this.start, this.recognizer)
+    : isLink = true;
 
   final String text;
+  final int start;
   final TapGestureRecognizer? recognizer;
   final bool isLink;
 }
@@ -1280,6 +1362,7 @@ class _DetailContentSliver extends StatefulWidget {
     required this.itemKeys,
     required this.mediaActive,
     required this.highlightQuery,
+    this.activeSearchTarget,
   });
 
   final NoteEntry note;
@@ -1287,6 +1370,7 @@ class _DetailContentSliver extends StatefulWidget {
   final Map<int, GlobalKey> itemKeys;
   final bool mediaActive;
   final String highlightQuery;
+  final _NoteDetailSearchTarget? activeSearchTarget;
 
   @override
   State<_DetailContentSliver> createState() => _DetailContentSliverState();
@@ -1344,6 +1428,10 @@ class _DetailContentSliverState extends State<_DetailContentSliver> {
                 mediaActive: widget.mediaActive,
                 photoAttachments: _photoAttachments,
                 highlightQuery: widget.highlightQuery,
+                activeMatchStart:
+                    widget.activeSearchTarget?.key == widget.itemKeys[index]
+                    ? widget.activeSearchTarget?.matchStart
+                    : null,
               );
               return KeyedSubtree(
                 key: widget.itemKeys[index],
@@ -1365,12 +1453,14 @@ class _DetailContentItemWidget extends StatelessWidget {
     required this.mediaActive,
     required this.photoAttachments,
     required this.highlightQuery,
+    this.activeMatchStart,
   });
 
   final _DetailContentItem item;
   final bool mediaActive;
   final List<NoteAttachment> photoAttachments;
   final String highlightQuery;
+  final int? activeMatchStart;
 
   @override
   Widget build(BuildContext context) {
@@ -1387,6 +1477,7 @@ class _DetailContentItemWidget extends StatelessWidget {
       return _LinkifiedMemoText(
         text: text,
         query: highlightQuery,
+        activeMatchStart: activeMatchStart,
         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
           color: Theme.of(context).colorScheme.onSurface,
         ),

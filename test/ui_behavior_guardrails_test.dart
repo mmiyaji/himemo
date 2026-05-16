@@ -102,6 +102,11 @@ void main() {
     expect(homePage, contains("Key('note-detail-search-previous-button')"));
     expect(homePage, contains("Key('note-detail-search-next-button')"));
     expect(homePage, contains('_jumpDetailSearch'));
+    expect(homePage, contains('matchStart'));
+    expect(homePage, contains('_noteSearchActiveHighlightStyle'));
+    expect(homePage, contains('_noteDetailSearchTargetsForText'));
+    expect(homePage, contains('key: _detailTitleKey'));
+    expect(homePage, contains('text: note.title'));
     expect(
       homePage,
       contains(
