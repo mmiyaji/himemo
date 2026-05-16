@@ -179,10 +179,43 @@ String _syncProgressDescription(
 }
 
 String _localizedSyncProgressDetail(AppStrings strings, String detail) {
-  return switch (detail) {
+  final elapsedMatch = RegExp(r' \(\d+s\)$').firstMatch(detail);
+  final elapsedSuffix = elapsedMatch?.group(0) ?? '';
+  final normalizedDetail = elapsedMatch == null
+      ? detail
+      : detail.substring(0, elapsedMatch.start);
+  return switch (normalizedDetail) {
     'Checking cloud status' => strings.localized(
       en: 'Checking cloud status',
       ja: 'クラウドの状態を確認中',
+    ),
+    'Requesting latest iCloud metadata' =>
+      strings.localized(
+            en: 'Requesting latest iCloud metadata',
+            ja: '\u0069\u0043\u006c\u006f\u0075\u0064 \u306e\u6700\u65b0\u60c5\u5831\u3092\u78ba\u8a8d\u4e2d',
+          ) +
+          elapsedSuffix,
+    'iCloud is taking longer than usual' =>
+      strings.localized(
+            en: 'iCloud is taking longer than usual',
+            ja: '\u0069\u0043\u006c\u006f\u0075\u0064 \u306e\u5fdc\u7b54\u306b\u6642\u9593\u304c\u304b\u304b\u3063\u3066\u3044\u307e\u3059',
+          ) +
+          elapsedSuffix,
+    'Still waiting for iCloud metadata' =>
+      strings.localized(
+            en: 'Still waiting for iCloud metadata',
+            ja: '\u0069\u0043\u006c\u006f\u0075\u0064 \u306e\u6700\u65b0\u60c5\u5831\u3092\u5f85\u3063\u3066\u3044\u307e\u3059',
+          ) +
+          elapsedSuffix,
+    'Requesting latest Google Drive metadata' =>
+      strings.localized(
+            en: 'Requesting latest Google Drive metadata',
+            ja: '\u0047\u006f\u006f\u0067\u006c\u0065 \u0044\u0072\u0069\u0076\u0065 \u306e\u6700\u65b0\u60c5\u5831\u3092\u78ba\u8a8d\u4e2d',
+          ) +
+          elapsedSuffix,
+    'Using recent cloud status' => strings.localized(
+      en: 'Using recent cloud status',
+      ja: '\u76f4\u8fd1\u306e\u30af\u30e9\u30a6\u30c9\u72b6\u614b\u3092\u4f7f\u7528\u4e2d',
     ),
     'Reading sync history' => strings.localized(
       en: 'Reading sync history',

@@ -2571,7 +2571,7 @@ final syncTransferControllerProvider =
 
 class SyncTransferController extends Notifier<SyncTransferState> {
   static const largeMobileSyncThresholdBytes = 50 * 1024 * 1024;
-  static const _remoteStatusCacheTtl = Duration(seconds: 90);
+  static const _remoteStatusCacheTtl = Duration(seconds: 20);
   static const _syncBundleDecryptionMessage =
       'sync.error.bundle_decryption_failed';
   static const _syncBundleKeyMissingMessage = 'sync.error.bundle_key_missing';
@@ -2816,9 +2816,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       final elapsed = DateTime.now().difference(startedAt).inSeconds;
       _setProgressDetail(
         progress: SyncTransferProgress.checkingRemote,
-        detail: elapsed <= 0
-            ? 'Waiting for ${provider.name} response'
-            : 'Waiting for ${provider.name} response (${elapsed}s)',
+        detail: _remoteStatusWaitDetail(provider, elapsed),
         completedItems: 0,
         totalItems: totalItems,
       );
@@ -2829,6 +2827,22 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       const Duration(seconds: 1),
       (_) => update(),
     );
+  }
+
+  String _remoteStatusWaitDetail(SyncProvider provider, int elapsedSeconds) {
+    final providerName = switch (provider) {
+      SyncProvider.iCloud => 'iCloud',
+      SyncProvider.googleDrive => 'Google Drive',
+      SyncProvider.off => 'cloud',
+    };
+    final elapsedSuffix = elapsedSeconds <= 0 ? '' : ' (${elapsedSeconds}s)';
+    if (provider == SyncProvider.iCloud && elapsedSeconds >= 10) {
+      return 'Still waiting for iCloud metadata$elapsedSuffix';
+    }
+    if (provider == SyncProvider.iCloud && elapsedSeconds >= 5) {
+      return 'iCloud is taking longer than usual$elapsedSuffix';
+    }
+    return 'Requesting latest $providerName metadata$elapsedSuffix';
   }
 
   Future<RemoteSyncBundleStatus?> _fetchLatestRemoteStatusWithCache({
@@ -3354,7 +3368,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     bool forceUpload = false,
     bool allowLargeMobileTransfer = false,
     bool silentLargeMobileSkip = false,
-    bool allowCachedRemoteStatus = false,
+    bool allowCachedRemoteStatus = true,
   }) async {
     final provider = ref.read(syncProviderControllerProvider);
     _diagnostic(
