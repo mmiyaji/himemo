@@ -590,6 +590,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
   bool _detailSearchVisible = false;
   bool _detailSearchNavigatorPinned = false;
   int? _detailSearchTargetIndex;
+  int _detailSearchScrollRequest = 0;
   String? _pendingInitialSearchJumpNoteId;
 
   @override
@@ -730,18 +731,56 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
     setState(() {
       _detailSearchTargetIndex = normalizedNext;
     });
+    _scheduleDetailSearchTargetVisibilityCheck(targets[normalizedNext].key);
+  }
+
+  void _scheduleDetailSearchTargetVisibilityCheck(GlobalKey targetKey) {
+    final request = ++_detailSearchScrollRequest;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final targetContext = targets[normalizedNext].key.currentContext;
-      if (targetContext == null) {
-        return;
-      }
-      Scrollable.ensureVisible(
-        targetContext,
+      _ensureDetailSearchTargetVisible(
+        targetKey,
+        request,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
         duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        alignment: 0.12,
       );
+      for (final delay in const [
+        Duration(milliseconds: 260),
+        Duration(milliseconds: 900),
+      ]) {
+        unawaited(
+          Future<void>.delayed(delay, () {
+            _ensureDetailSearchTargetVisible(
+              targetKey,
+              request,
+              alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+              duration: const Duration(milliseconds: 160),
+            );
+          }),
+        );
+      }
     });
+  }
+
+  void _ensureDetailSearchTargetVisible(
+    GlobalKey targetKey,
+    int request, {
+    required ScrollPositionAlignmentPolicy alignmentPolicy,
+    required Duration duration,
+  }) {
+    if (!mounted || request != _detailSearchScrollRequest) {
+      return;
+    }
+    final targetContext = targetKey.currentContext;
+    if (targetContext == null) {
+      return;
+    }
+    Scrollable.ensureVisible(
+      targetContext,
+      duration: duration,
+      curve: Curves.easeOutCubic,
+      alignment: 0.12,
+      alignmentPolicy: alignmentPolicy,
+    );
   }
 
   void _scheduleInitialDetailSearchJump(List<_NoteDetailSearchTarget> targets) {
@@ -1069,12 +1108,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
                 ),
               ),
               SliverPadding(
-                padding: EdgeInsets.fromLTRB(
-                  20,
-                  0,
-                  20,
-                  _detailSearchVisible ? 180 : 20,
-                ),
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                 sliver: _DetailContentSliver(
                   note: note,
                   items: detailContentItems,
