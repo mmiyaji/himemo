@@ -67,6 +67,23 @@ class HiMemoApp extends ConsumerWidget {
     ref.watch(widgetQuickCaptureBridgeProvider);
     ref.watch(spotlightNoteIndexBridgeProvider);
     ref.watch(inAppUpdateControllerProvider);
+    void openSpotlightNoteRequest(String noteId) {
+      final trimmedNoteId = noteId.trim();
+      if (trimmedNoteId.isEmpty) {
+        return;
+      }
+      ref.read(searchQueryProvider.notifier).setQuery('');
+      ref.read(searchFiltersControllerProvider.notifier).reset();
+      ref.read(selectedNoteIdProvider.notifier).select(trimmedNoteId);
+      ref.read(spotlightNoteOpenRequestControllerProvider.notifier).clear();
+      router.go('/notes');
+    }
+
+    bool shouldDeferSpotlightOpen() {
+      return ref.read(appLockSettingsControllerProvider) &&
+          !ref.read(appSessionUnlockControllerProvider);
+    }
+
     ref.listen(widgetQuickCaptureRequestControllerProvider, (previous, next) {
       if (previous == next || next == null) {
         return;
@@ -77,11 +94,22 @@ class HiMemoApp extends ConsumerWidget {
       if (previous == next || next == null || next.isEmpty) {
         return;
       }
-      ref.read(searchQueryProvider.notifier).setQuery('');
-      ref.read(searchFiltersControllerProvider.notifier).reset();
-      ref.read(selectedNoteIdProvider.notifier).select(next);
-      ref.read(spotlightNoteOpenRequestControllerProvider.notifier).clear();
-      router.go('/notes');
+      if (shouldDeferSpotlightOpen()) {
+        return;
+      }
+      openSpotlightNoteRequest(next);
+    });
+    ref.listen(appSessionUnlockControllerProvider, (previous, next) {
+      if (previous == next || !next) {
+        return;
+      }
+      final pendingSpotlightNoteId = ref.read(
+        spotlightNoteOpenRequestControllerProvider,
+      );
+      if (pendingSpotlightNoteId == null || pendingSpotlightNoteId.isEmpty) {
+        return;
+      }
+      openSpotlightNoteRequest(pendingSpotlightNoteId);
     });
 
     return FlavorBanner(

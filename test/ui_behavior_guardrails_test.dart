@@ -343,6 +343,9 @@ void main() {
     expect(homeProviders, contains("logDiagnostic('spotlight'"));
     expect(homeProviders, contains('replace all requested'));
     expect(app, contains('spotlightNoteOpenRequestControllerProvider'));
+    expect(app, contains('shouldDeferSpotlightOpen'));
+    expect(app, contains('appSessionUnlockControllerProvider'));
+    expect(app, contains('openSpotlightNoteRequest(pendingSpotlightNoteId)'));
   });
 
   test('Spotlight indexing warns when app lock is also enabled', () {
