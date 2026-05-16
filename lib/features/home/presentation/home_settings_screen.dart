@@ -71,6 +71,12 @@ class SettingsScreen extends ConsumerWidget {
   static const privateProfileExitAdminModeKey = Key(
     'private-profile-exit-admin-mode',
   );
+  static const privateProfileRenameInputKey = Key(
+    'private-profile-rename-input',
+  );
+  static const privateProfileRenameSubmitKey = Key(
+    'private-profile-rename-submit',
+  );
   static final List<DateTime> _diagnosticModeTapTimes = <DateTime>[];
 
   Future<void> _handleVersionTap(
@@ -346,6 +352,61 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
+  Future<void> _showRenamePrivateProfileDialog(
+    BuildContext context,
+    WidgetRef ref,
+    PrivateMemoProfile profile,
+  ) async {
+    final strings = context.strings;
+    final nextName = await showDialog<String>(
+      context: context,
+      builder: (_) => _RenamePrivateProfileDialog(initialName: profile.name),
+    );
+    if (nextName == null || nextName == profile.name) {
+      return;
+    }
+    await ref
+        .read(privateMemoProfilesControllerProvider.notifier)
+        .renameProfile(id: profile.id, name: nextName);
+    if (!context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(
+          strings.localized(en: 'Profile renamed.', ja: 'プロファイル名を変更しました。'),
+        ),
+      ),
+    );
+  }
+
+  void _enterPrivateProfileFromAdmin(
+    BuildContext context,
+    WidgetRef ref,
+    PrivateMemoProfile profile,
+  ) {
+    final strings = context.strings;
+    ref
+        .read(searchFiltersControllerProvider.notifier)
+        .setVault(profile.vaultId);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(
+          strings.localized(
+            en: 'Showing ${profile.name}. Admin mode remains active.',
+            ja: '${profile.name} を表示しています。管理者モードは継続中です。',
+          ),
+        ),
+      ),
+    );
+    logAudit(
+      'admin_mode_enter_private_profile',
+      data: {'vaultId': profile.vaultId},
+    );
+  }
+
   Future<void> _syncNow(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
     final strings = context.strings;
@@ -462,6 +523,7 @@ class SettingsScreen extends ConsumerWidget {
       privateVaultSessionControllerProvider,
     );
     final adminMode = ref.watch(adminModeSessionControllerProvider);
+    final privateProfiles = ref.watch(privateMemoProfilesProvider);
     final unlockedPrivateProfileVaultId = ref.watch(
       unlockedPrivateProfileVaultIdProvider,
     );
@@ -1132,25 +1194,81 @@ class SettingsScreen extends ConsumerWidget {
             _AdminModeAuditNotice(
               text: strings.localized(
                 en: adminMode
-                    ? 'Admin mode can view every profile. Admin sign-ins and profile or note operations are recorded in Audit logs, so use it only when necessary.'
+                    ? 'Admin mode can view every profile. Use a profile row to focus that profile. Admin sign-ins and profile or note operations are recorded in Audit logs, so use it only when necessary.'
                     : 'Admin mode grants access to view every profile. Admin sign-ins are recorded in Audit logs; use normal private profile unlock for everyday work.',
                 ja: adminMode
                     ? '管理者モードでは全プロファイルを閲覧できます。管理者ログインとプロファイル/ノート操作は監査ログに記録されるため、必要な時だけ使用してください。'
                     : '管理者モードでは全プロファイルの閲覧権限が付与されます。管理者ログインは監査ログに記録されるため、普段は通常のプライベートプロファイル解除を使ってください。',
                 zh: adminMode
-                    ? 'Admin mode can view every profile. Admin sign-ins and profile or note operations are recorded in Audit logs, so use it only when necessary.'
+                    ? 'Admin mode can view every profile. Use a profile row to focus that profile. Admin sign-ins and profile or note operations are recorded in Audit logs, so use it only when necessary.'
                     : 'Admin mode grants access to view every profile. Admin sign-ins are recorded in Audit logs; use normal private profile unlock for everyday work.',
                 ko: adminMode
-                    ? 'Admin mode can view every profile. Admin sign-ins and profile or note operations are recorded in Audit logs, so use it only when necessary.'
+                    ? 'Admin mode can view every profile. Use a profile row to focus that profile. Admin sign-ins and profile or note operations are recorded in Audit logs, so use it only when necessary.'
                     : 'Admin mode grants access to view every profile. Admin sign-ins are recorded in Audit logs; use normal private profile unlock for everyday work.',
                 es: adminMode
-                    ? 'Admin mode can view every profile. Admin sign-ins and profile or note operations are recorded in Audit logs, so use it only when necessary.'
+                    ? 'Admin mode can view every profile. Use a profile row to focus that profile. Admin sign-ins and profile or note operations are recorded in Audit logs, so use it only when necessary.'
                     : 'Admin mode grants access to view every profile. Admin sign-ins are recorded in Audit logs; use normal private profile unlock for everyday work.',
                 de: adminMode
-                    ? 'Admin mode can view every profile. Admin sign-ins and profile or note operations are recorded in Audit logs, so use it only when necessary.'
+                    ? 'Admin mode can view every profile. Use a profile row to focus that profile. Admin sign-ins and profile or note operations are recorded in Audit logs, so use it only when necessary.'
                     : 'Admin mode grants access to view every profile. Admin sign-ins are recorded in Audit logs; use normal private profile unlock for everyday work.',
               ),
             ),
+            if (adminMode) ...[
+              const SizedBox(height: 12),
+              if (privateProfiles.isEmpty)
+                Text(
+                  strings.noPrivateProfilesMessage,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: _mutedTextColor(context),
+                  ),
+                )
+              else
+                Column(
+                  children: [
+                    for (final profile in privateProfiles)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.lock_outline),
+                        title: Text(profile.name),
+                        subtitle: Text(
+                          strings.localized(
+                            en: 'Private profile',
+                            ja: 'プライベートプロファイル',
+                          ),
+                        ),
+                        trailing: Wrap(
+                          spacing: 4,
+                          children: [
+                            IconButton(
+                              tooltip: strings.localized(
+                                en: 'Open profile',
+                                ja: 'プロファイルに入る',
+                              ),
+                              onPressed: () => _enterPrivateProfileFromAdmin(
+                                context,
+                                ref,
+                                profile,
+                              ),
+                              icon: const Icon(Icons.login_outlined),
+                            ),
+                            IconButton(
+                              tooltip: strings.localized(
+                                en: 'Rename profile',
+                                ja: 'プロファイル名を変更',
+                              ),
+                              onPressed: () => _showRenamePrivateProfileDialog(
+                                context,
+                                ref,
+                                profile,
+                              ),
+                              icon: const Icon(Icons.edit_outlined),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+            ],
           ],
         ),
         const SizedBox(height: 16),

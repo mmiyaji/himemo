@@ -265,6 +265,14 @@ class PrivateMemoProfile {
 
   String get vaultId => '$customPrivateVaultPrefix$id';
 
+  PrivateMemoProfile copyWith({String? name}) {
+    return PrivateMemoProfile(
+      id: id,
+      name: name ?? this.name,
+      createdAt: createdAt,
+    );
+  }
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
@@ -5519,6 +5527,25 @@ class PrivateMemoProfileStore {
     );
   }
 
+  Future<void> renameProfile({required String id, required String name}) async {
+    final nextName = name.trim();
+    if (nextName.isEmpty) {
+      return;
+    }
+    final existing = await listProfiles();
+    final changed = existing.any(
+      (profile) => profile.id == id && profile.name != nextName,
+    );
+    if (!changed) {
+      return;
+    }
+    final renamed = [
+      for (final profile in existing)
+        if (profile.id == id) profile.copyWith(name: nextName) else profile,
+    ];
+    await _saveProfiles(renamed);
+  }
+
   Future<void> updateProfilePassword({
     required String id,
     required String password,
@@ -9314,6 +9341,13 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
     if (unlockedVaultId == vaultId) {
       ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
     }
+    await refresh();
+  }
+
+  Future<void> renameProfile({required String id, required String name}) async {
+    await ref
+        .read(privateMemoProfileStoreProvider)
+        .renameProfile(id: id, name: name);
     await refresh();
   }
 

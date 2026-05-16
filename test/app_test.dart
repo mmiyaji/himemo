@@ -1198,6 +1198,60 @@ void main() {
     expect(container.read(searchFiltersControllerProvider).vaultId, isNull);
   });
 
+  test('private profiles can be renamed and focused from admin mode', () async {
+    SharedPreferences.setMockInitialValues({});
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(17));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    final addError = await container
+        .read(privateMemoProfilesControllerProvider.notifier)
+        .addProfile(name: 'Work archive', password: 'work-pass-123');
+    expect(addError, isNull);
+
+    final profile = container.read(privateMemoProfilesProvider).single;
+    await container
+        .read(privateMemoProfilesControllerProvider.notifier)
+        .renameProfile(id: profile.id, name: 'Client archive');
+
+    expect(
+      container.read(privateMemoProfilesProvider).single.name,
+      'Client archive',
+    );
+    container.read(adminModeSessionControllerProvider.notifier).unlock();
+    container
+        .read(searchFiltersControllerProvider.notifier)
+        .setVault(container.read(privateMemoProfilesProvider).single.vaultId);
+
+    expect(container.read(adminModeSessionControllerProvider), isTrue);
+    expect(
+      container.read(searchFiltersControllerProvider).vaultId,
+      container.read(privateMemoProfilesProvider).single.vaultId,
+    );
+  });
+
   test('private profile notes remain visible immediately after save', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();
