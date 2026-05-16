@@ -652,7 +652,10 @@ void main() {
     expect(homeProviders, contains('_remoteStatusCacheTtl'));
     expect(homeProviders, contains('_fetchLatestRemoteStatusWithCache'));
     expect(homeProviders, contains('remote status cache hit'));
-    expect(homeProviders, contains(r'Waiting for ${provider.name} response'));
+    expect(
+      homeProviders,
+      contains(r'Requesting latest $providerName metadata'),
+    );
     expect(homeProviders, contains('Using recent cloud status'));
     expect(homeProviders, contains('Reading sync history'));
     expect(homeProviders, contains('Checking transfer size'));
@@ -661,10 +664,14 @@ void main() {
     expect(homeProviders, contains('_decodeSyncAttachmentBytes'));
     expect(homeProviders, contains('Uploading attachment'));
     expect(homeProviders, contains('Applying attachment'));
-    expect(homeProviders, contains('_remoteAttachmentHashesInNoteJson'));
-    expect(homeProviders, contains('_remoteAttachmentHashFromRef'));
-    expect(homeProviders, contains("rawBlock['attachment']"));
-    expect(syncEngine, contains('_isRemoteSyncAttachmentObjectRef'));
+    expect(homeProviders, contains('syncAttachmentObjectHashesInNoteJson'));
+    final syncAttachmentRefs = File(
+      'lib/features/sync/data/sync_attachment_refs.dart',
+    ).readAsStringSync();
+    expect(syncAttachmentRefs, contains('syncAttachmentObjectRefPrefix'));
+    expect(syncAttachmentRefs, contains('syncAttachmentObjectContentHash'));
+    expect(syncAttachmentRefs, contains("rawBlock['attachment']"));
+    expect(syncEngine, contains('isSyncAttachmentObjectRef'));
     expect(
       homeProviders,
       isNot(contains('math.min(3, pendingUploads.length)')),

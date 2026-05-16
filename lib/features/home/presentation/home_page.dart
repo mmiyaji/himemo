@@ -38,6 +38,7 @@ import '../../security/data/encrypted_attachment_store.dart';
 import '../../security/data/encryption_service.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/google_sign_in_initializer.dart';
+import '../../sync/data/sync_attachment_refs.dart';
 import '../../sync/data/sync_bundle_preview.dart';
 import '../../sync/data/sync_bundle_state_store.dart';
 import '../../sync/data/sync_bundle_key_service.dart';
@@ -79,7 +80,7 @@ const _helpUrl = 'https://mmiyaji.github.io/himemo/help.html';
 const _httpUserAgent = 'HiMemo/1.0 (+$_contactUrl)';
 const _appAuthor = '@mmiyaji';
 const _appAuthorUrl = 'https://ruhenheim.org/';
-const _remoteSyncAttachmentObjectPrefix = 'sync-attachment-object://';
+const _remoteSyncAttachmentObjectPrefix = syncAttachmentObjectRefPrefix;
 
 enum AppSection { notes, calendar, insights, trash, settings }
 

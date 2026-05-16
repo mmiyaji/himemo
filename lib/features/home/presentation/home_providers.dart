@@ -48,6 +48,7 @@ import '../../security/data/secure_key_value_store.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/google_sign_in_initializer.dart';
 import '../../sync/data/icloud_sync_transport.dart';
+import '../../sync/data/sync_attachment_refs.dart';
 import '../../sync/data/sync_conflict_policy.dart';
 import '../../sync/data/sync_bundle_preview.dart';
 import '../../sync/data/secure_sync_bundle_store.dart';
@@ -3177,46 +3178,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       if (rawNote is! Map) {
         continue;
       }
-      hashes.addAll(_remoteAttachmentHashesInNoteJson(rawNote));
+      hashes.addAll(syncAttachmentObjectHashesInNoteJson(rawNote));
     }
     return hashes;
-  }
-
-  Set<String> _remoteAttachmentHashesInNoteJson(Map rawNote) {
-    final hashes = <String>{};
-
-    void addFromAttachmentJson(Object? rawAttachment) {
-      if (rawAttachment is! Map) {
-        return;
-      }
-      final filePath = rawAttachment['filePath'] as String?;
-      final contentHash = _remoteAttachmentHashFromRef(filePath);
-      if (contentHash != null) {
-        hashes.add(contentHash);
-      }
-    }
-
-    for (final rawAttachment
-        in (rawNote['attachments'] as List<dynamic>? ?? const <dynamic>[])) {
-      addFromAttachmentJson(rawAttachment);
-    }
-    for (final rawBlock
-        in (rawNote['blocks'] as List<dynamic>? ?? const <dynamic>[])) {
-      if (rawBlock is! Map) {
-        continue;
-      }
-      addFromAttachmentJson(rawBlock['attachment']);
-    }
-    return hashes;
-  }
-
-  String? _remoteAttachmentHashFromRef(String? filePath) {
-    const prefix = 'sync-attachment-object://';
-    if (filePath == null || !filePath.startsWith(prefix)) {
-      return null;
-    }
-    final contentHash = filePath.substring(prefix.length);
-    return contentHash.isEmpty ? null : contentHash;
   }
 
   Future<void> uploadCurrentBundle({
@@ -4163,8 +4127,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         final previewBySyncAttachmentId = <String, String?>{};
         Future<NoteAttachment> hydrate(NoteAttachment attachment) async {
           final remoteRef = attachment.filePath;
-          if (remoteRef == null ||
-              !remoteRef.startsWith('sync-attachment-object://')) {
+          if (!isSyncAttachmentObjectRef(remoteRef)) {
             return attachment;
           }
           final imported = await _importRemoteSyncAttachment(
@@ -4312,11 +4275,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (filePath == null) {
       return attachment;
     }
-    if (filePath.startsWith('sync-attachment-object://')) {
-      final contentHash = filePath.substring(
-        'sync-attachment-object://'.length,
-      );
-      if (contentHash.isEmpty) {
+    if (isSyncAttachmentObjectRef(filePath)) {
+      final contentHash = syncAttachmentObjectContentHash(filePath);
+      if (contentHash == null) {
         return attachment.copyWith(filePath: null, previewBytesBase64: null);
       }
       final inlinePayload = inlinePayloads[contentHash];
