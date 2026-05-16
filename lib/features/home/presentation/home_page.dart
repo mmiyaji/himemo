@@ -278,6 +278,16 @@ class _AppShellState extends ConsumerState<AppShell> {
                 provider: ref.watch(syncProviderControllerProvider),
               ),
             ),
+          if (useRail)
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 4),
+              child: IconButton(
+                key: AppShell.addNoteKey,
+                tooltip: strings.addNote,
+                onPressed: () => showNoteEditorSheet(context, ref),
+                icon: const Icon(Icons.edit_note_rounded),
+              ),
+            ),
           if (privateProfileActive || adminMode)
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 28),
