@@ -728,19 +728,45 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
         ? (delta >= 0 ? 0 : targets.length - 1)
         : (current + delta) % targets.length;
     final normalizedNext = next < 0 ? targets.length - 1 : next;
+    final scrollPolicy = _detailSearchScrollPolicy(
+      current: current,
+      next: normalizedNext,
+      delta: delta,
+    );
     setState(() {
       _detailSearchTargetIndex = normalizedNext;
     });
-    _scheduleDetailSearchTargetVisibilityCheck(targets[normalizedNext].key);
+    _scheduleDetailSearchTargetVisibilityCheck(
+      targets[normalizedNext].key,
+      scrollPolicy,
+    );
   }
 
-  void _scheduleDetailSearchTargetVisibilityCheck(GlobalKey targetKey) {
+  ScrollPositionAlignmentPolicy _detailSearchScrollPolicy({
+    required int? current,
+    required int next,
+    required int delta,
+  }) {
+    final movingDown = current == null
+        ? delta >= 0
+        : next == current
+        ? delta >= 0
+        : next > current;
+    return movingDown
+        ? ScrollPositionAlignmentPolicy.keepVisibleAtEnd
+        : ScrollPositionAlignmentPolicy.keepVisibleAtStart;
+  }
+
+  void _scheduleDetailSearchTargetVisibilityCheck(
+    GlobalKey targetKey,
+    ScrollPositionAlignmentPolicy scrollPolicy,
+  ) {
     final request = ++_detailSearchScrollRequest;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _ensureDetailSearchTargetVisible(
         targetKey,
         request,
-        alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
+        alignmentPolicy: scrollPolicy,
         duration: const Duration(milliseconds: 220),
       );
       for (final delay in const [
@@ -752,7 +778,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
             _ensureDetailSearchTargetVisible(
               targetKey,
               request,
-              alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+              alignmentPolicy: scrollPolicy,
               duration: const Duration(milliseconds: 160),
             );
           }),
