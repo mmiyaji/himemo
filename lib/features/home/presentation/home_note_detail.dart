@@ -1069,7 +1069,12 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
                 ),
               ),
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  0,
+                  20,
+                  _detailSearchVisible ? 180 : 20,
+                ),
                 sliver: _DetailContentSliver(
                   note: note,
                   items: detailContentItems,
