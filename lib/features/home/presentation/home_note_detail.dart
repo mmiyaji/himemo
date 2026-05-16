@@ -589,12 +589,38 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
   String _detailSearchQuery = '';
   bool _detailSearchVisible = false;
   int? _detailSearchTargetIndex;
+  String? _pendingInitialSearchJumpNoteId;
 
   @override
   void initState() {
     super.initState();
     _detailSearchQuery = ref.read(searchQueryProvider).trim();
+    _detailSearchVisible = _detailSearchQuery.isNotEmpty;
+    _pendingInitialSearchJumpNoteId = _detailSearchVisible
+        ? widget.note.id
+        : null;
     _detailSearchController = TextEditingController(text: _detailSearchQuery);
+  }
+
+  @override
+  void didUpdateWidget(covariant _NoteDetailPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.note.id == widget.note.id) {
+      return;
+    }
+    final listSearchQuery = ref.read(searchQueryProvider).trim();
+    _detailSearchTargetIndex = null;
+    if (listSearchQuery.isEmpty) {
+      _pendingInitialSearchJumpNoteId = null;
+      return;
+    }
+    _detailSearchVisible = true;
+    _detailSearchQuery = listSearchQuery;
+    _detailSearchController.value = TextEditingValue(
+      text: listSearchQuery,
+      selection: TextSelection.collapsed(offset: listSearchQuery.length),
+    );
+    _pendingInitialSearchJumpNoteId = widget.note.id;
   }
 
   @override
@@ -611,6 +637,10 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
         _detailSearchQuery = fallbackQuery;
         _detailSearchController.text = fallbackQuery;
       }
+      _pendingInitialSearchJumpNoteId =
+          _detailSearchVisible && _detailSearchController.text.trim().isNotEmpty
+          ? widget.note.id
+          : null;
     });
   }
 
@@ -621,6 +651,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
     setState(() {
       _detailSearchQuery = '';
       _detailSearchTargetIndex = null;
+      _pendingInitialSearchJumpNoteId = null;
     });
   }
 
@@ -628,6 +659,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
     setState(() {
       _detailSearchQuery = value;
       _detailSearchTargetIndex = null;
+      _pendingInitialSearchJumpNoteId = null;
     });
   }
 
@@ -692,6 +724,24 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
     });
   }
 
+  void _scheduleInitialDetailSearchJump(List<_NoteDetailSearchTarget> targets) {
+    final pendingNoteId = _pendingInitialSearchJumpNoteId;
+    if (pendingNoteId == null ||
+        pendingNoteId != widget.note.id ||
+        !_detailSearchVisible ||
+        _detailSearchQuery.trim().isEmpty ||
+        targets.isEmpty) {
+      return;
+    }
+    _pendingInitialSearchJumpNoteId = null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || widget.note.id != pendingNoteId) {
+        return;
+      }
+      _jumpDetailSearch(targets, 1);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
@@ -715,6 +765,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
       items: detailContentItems,
       query: highlightQuery,
     );
+    _scheduleInitialDetailSearchJump(detailSearchTargets);
     final detailSearchTargetIndex = _detailSearchTargetIndex;
     final activeSearchTarget = detailSearchTargetIndex == null
         ? null

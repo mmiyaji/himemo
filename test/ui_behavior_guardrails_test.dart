@@ -109,6 +109,12 @@ void main() {
     expect(homePage, contains('text: note.title'));
     expect(
       homePage,
+      contains('_detailSearchVisible = _detailSearchQuery.isNotEmpty;'),
+    );
+    expect(homePage, contains('_pendingInitialSearchJumpNoteId'));
+    expect(homePage, contains('_scheduleInitialDetailSearchJump'));
+    expect(
+      homePage,
       contains(
         'final listSearchQuery = ref.watch(searchQueryProvider).trim();',
       ),
