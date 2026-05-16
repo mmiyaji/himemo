@@ -117,6 +117,11 @@ void main() {
     expect(homePage, contains('_scheduleInitialDetailSearchJump'));
     expect(homePage, contains('_scheduleDetailSearchTargetVisibilityCheck'));
     expect(homePage, contains('_detailSearchScrollPolicy'));
+    expect(homePage, contains('alignment: movingDown ? 0.78 : 0.12'));
+    expect(homePage, contains('ScrollPositionAlignmentPolicy.explicit'));
+    expect(homePage, contains('position.ensureVisible'));
+    expect(homePage, contains('_detailSearchScrollPosition(targetContext)'));
+    expect(homePage, contains('_fallbackDetailSearchScroll'));
     expect(
       homePage,
       contains('ScrollPositionAlignmentPolicy.keepVisibleAtEnd'),
@@ -125,6 +130,7 @@ void main() {
       homePage,
       contains('ScrollPositionAlignmentPolicy.keepVisibleAtStart'),
     );
+    expect(homePage, contains('duration: Duration.zero'));
     expect(homePage, contains('_FloatingNoteSearchNavigator'));
     expect(homePage, contains('_detailSearchNavigatorPinned'));
     expect(homePage, contains('note-detail-search-floating-previous-button'));

@@ -733,12 +733,18 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
       next: normalizedNext,
       delta: delta,
     );
+    final useEdgeScroll =
+        (scrollPolicy == ScrollPositionAlignmentPolicy.keepVisibleAtEnd &&
+            normalizedNext == targets.length - 1) ||
+        (scrollPolicy == ScrollPositionAlignmentPolicy.keepVisibleAtStart &&
+            normalizedNext == 0);
     setState(() {
       _detailSearchTargetIndex = normalizedNext;
     });
     _scheduleDetailSearchTargetVisibilityCheck(
       targets[normalizedNext].key,
       scrollPolicy,
+      useEdgeScroll: useEdgeScroll,
     );
   }
 
@@ -759,15 +765,20 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
 
   void _scheduleDetailSearchTargetVisibilityCheck(
     GlobalKey targetKey,
-    ScrollPositionAlignmentPolicy scrollPolicy,
-  ) {
+    ScrollPositionAlignmentPolicy scrollPolicy, {
+    required bool useEdgeScroll,
+  }) {
     final request = ++_detailSearchScrollRequest;
+    final movingDown =
+        scrollPolicy == ScrollPositionAlignmentPolicy.keepVisibleAtEnd;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _ensureDetailSearchTargetVisible(
         targetKey,
         request,
-        alignmentPolicy: scrollPolicy,
+        alignment: movingDown ? 0.78 : 0.12,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
         duration: const Duration(milliseconds: 220),
+        fallbackToEnd: movingDown,
       );
       for (final delay in const [
         Duration(milliseconds: 260),
@@ -778,8 +789,24 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
             _ensureDetailSearchTargetVisible(
               targetKey,
               request,
+              alignment: movingDown ? 0.78 : 0.12,
               alignmentPolicy: scrollPolicy,
-              duration: const Duration(milliseconds: 160),
+              duration: Duration.zero,
+              fallbackToEnd: movingDown,
+            );
+          }),
+        );
+      }
+      if (useEdgeScroll) {
+        unawaited(
+          Future<void>.delayed(const Duration(milliseconds: 1100), () {
+            if (!mounted || request != _detailSearchScrollRequest) {
+              return;
+            }
+            _fallbackDetailSearchScroll(
+              movingDown,
+              Duration.zero,
+              position: _detailSearchScrollPosition(targetKey.currentContext),
             );
           }),
         );
@@ -790,22 +817,77 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
   void _ensureDetailSearchTargetVisible(
     GlobalKey targetKey,
     int request, {
+    required double alignment,
     required ScrollPositionAlignmentPolicy alignmentPolicy,
     required Duration duration,
+    required bool fallbackToEnd,
   }) {
     if (!mounted || request != _detailSearchScrollRequest) {
       return;
     }
     final targetContext = targetKey.currentContext;
     if (targetContext == null) {
+      _fallbackDetailSearchScroll(fallbackToEnd, duration);
       return;
     }
-    Scrollable.ensureVisible(
-      targetContext,
-      duration: duration,
-      curve: Curves.easeOutCubic,
-      alignment: 0.12,
-      alignmentPolicy: alignmentPolicy,
+    final position = _detailSearchScrollPosition(targetContext);
+    if (position == null) {
+      return;
+    }
+    final target = targetContext.findRenderObject();
+    if (target == null) {
+      _fallbackDetailSearchScroll(fallbackToEnd, duration, position: position);
+      return;
+    }
+    unawaited(
+      position.ensureVisible(
+        target,
+        alignment: alignment,
+        duration: duration,
+        curve: Curves.easeOutCubic,
+        alignmentPolicy: alignmentPolicy,
+      ),
+    );
+  }
+
+  ScrollPosition? _detailSearchScrollPosition(BuildContext? targetContext) {
+    final targetPosition = targetContext == null
+        ? null
+        : Scrollable.maybeOf(targetContext)?.position;
+    if (targetPosition != null) {
+      return targetPosition;
+    }
+    if (_detailScrollController.hasClients) {
+      return _detailScrollController.position;
+    }
+    return null;
+  }
+
+  void _fallbackDetailSearchScroll(
+    bool toEnd,
+    Duration duration, {
+    ScrollPosition? position,
+  }) {
+    final scrollPosition = position ?? _detailSearchScrollPosition(null);
+    if (scrollPosition == null) {
+      return;
+    }
+    final targetOffset = toEnd
+        ? scrollPosition.maxScrollExtent
+        : scrollPosition.minScrollExtent;
+    if ((targetOffset - scrollPosition.pixels).abs() < 1) {
+      return;
+    }
+    if (duration == Duration.zero) {
+      scrollPosition.jumpTo(targetOffset);
+      return;
+    }
+    unawaited(
+      scrollPosition.animateTo(
+        targetOffset,
+        duration: duration,
+        curve: Curves.easeOutCubic,
+      ),
     );
   }
 
@@ -1287,27 +1369,29 @@ class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
       decoration: TextDecoration.underline,
       decorationColor: Theme.of(context).colorScheme.primary,
     );
-    return SelectableText.rich(
-      TextSpan(
-        style: style,
-        children: [
-          for (final segment in _segments)
-            ..._highlightTextSpans(
-              text: segment.text,
-              query: widget.query,
-              baseStyle: segment.isLink ? linkStyle : null,
-              highlightStyle: highlightStyle,
-              activeHighlightStyle: _noteSearchActiveHighlightStyle(
-                context,
-                style,
-              ),
-              activeMatchStart: widget.activeMatchStart,
-              segmentStart: segment.start,
-              recognizer: segment.recognizer,
+    final span = TextSpan(
+      style: style,
+      children: [
+        for (final segment in _segments)
+          ..._highlightTextSpans(
+            text: segment.text,
+            query: widget.query,
+            baseStyle: segment.isLink ? linkStyle : null,
+            highlightStyle: highlightStyle,
+            activeHighlightStyle: _noteSearchActiveHighlightStyle(
+              context,
+              style,
             ),
-        ],
-      ),
+            activeMatchStart: widget.activeMatchStart,
+            segmentStart: segment.start,
+            recognizer: segment.recognizer,
+          ),
+      ],
     );
+    if (widget.query.trim().isNotEmpty) {
+      return Text.rich(span);
+    }
+    return SelectableText.rich(span);
   }
 
   List<_MemoTextSegment> _parseSegments(String text) {
