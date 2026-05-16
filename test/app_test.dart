@@ -1480,6 +1480,15 @@ void main() {
     },
   );
 
+  test('native tag suggestions strip markdown JSON wrappers', () {
+    final suggestions = sanitizeSuggestedTags(
+      const ['```json\n["買い物", "旅行", "json", "```"]\n```', 'tags: 家族, 買い物'],
+      existingTags: const ['旅行'],
+    );
+
+    expect(suggestions, ['買い物', '家族']);
+  });
+
   test('search filters can partition notes by year', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();

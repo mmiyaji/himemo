@@ -296,6 +296,12 @@ import FoundationModels
     let existingTags = arguments["existingTags"] as? [String] ?? []
     let knownTags = arguments["knownTags"] as? [String] ?? []
     let attachmentLabels = arguments["attachmentLabels"] as? [String] ?? []
+    let preferredLanguageCode = arguments["preferredLanguageCode"] as? String ?? ""
+    let preferredLanguage = preferredTagLanguage(
+      code: preferredLanguageCode,
+      title: title,
+      body: body
+    )
 
     let model = SystemLanguageModel.default
     guard case .available = model.availability else {
@@ -308,13 +314,17 @@ import FoundationModels
 
     let instructions = """
     You suggest concise memo tags. Infer topics from context instead of copying arbitrary words.
-    Prefer the language of the memo. Return only tags that are useful for future filtering.
+    Return tags in \(preferredLanguage). Do not translate them to English unless the memo itself mainly uses English.
+    Prefer existing or known tags when they fit the context. Return only tags that are useful for future filtering.
     Do not include tags already present in the memo.
+    Return plain JSON only. Do not wrap the response in markdown fences.
     """
     let session = LanguageModelSession(model: model, instructions: instructions)
     let prompt = """
     Suggest up to 5 short tags for this memo.
     Return a JSON array of strings only, with no markdown and no explanation.
+    Output language:
+    \(preferredLanguage)
 
     Existing tags:
     \(existingTags.joined(separator: ", "))
@@ -341,11 +351,14 @@ import FoundationModels
   private func sanitizeFoundationModelTags(rawText: String, existingTags: [String]) -> [String] {
     let existing = Set(existingTags.map { canonicalTag($0) }.filter { !$0.isEmpty })
     var rawTags: [String] = []
-    if let data = rawText.data(using: .utf8),
+    let jsonText = extractJsonArrayText(from: rawText) ?? rawText
+    if let data = jsonText.data(using: .utf8),
        let decoded = try? JSONSerialization.jsonObject(with: data) as? [Any] {
       rawTags = decoded.compactMap { $0 as? String }
     } else {
       rawTags = rawText
+        .replacingOccurrences(of: "```json", with: "", options: .caseInsensitive)
+        .replacingOccurrences(of: "```", with: "")
         .replacingOccurrences(of: "[", with: "")
         .replacingOccurrences(of: "]", with: "")
         .replacingOccurrences(of: "\"", with: "")
@@ -355,9 +368,15 @@ import FoundationModels
     var seen = Set<String>()
     var tags: [String] = []
     for raw in rawTags {
-      let tag = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+      let tag = raw
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .trimmingCharacters(in: CharacterSet(charactersIn: "-*0123456789.) "))
       let canonical = canonicalTag(tag)
-      if tag.isEmpty || canonical.isEmpty || existing.contains(canonical) || !seen.insert(canonical).inserted {
+      if tag.isEmpty ||
+          canonical.isEmpty ||
+          existing.contains(canonical) ||
+          isInvalidModelTag(tag, canonical: canonical) ||
+          !seen.insert(canonical).inserted {
         continue
       }
       tags.append(String(tag.prefix(24)))
@@ -366,6 +385,57 @@ import FoundationModels
       }
     }
     return tags
+  }
+
+  private func extractJsonArrayText(from rawText: String) -> String? {
+    let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
+      return trimmed
+    }
+    guard let start = trimmed.firstIndex(of: "["),
+          let end = trimmed.lastIndex(of: "]"),
+          start < end else {
+      return nil
+    }
+    return String(trimmed[start...end])
+  }
+
+  private func isInvalidModelTag(_ tag: String, canonical: String) -> Bool {
+    let rejected: Set<String> = ["json", "```", "```json", "tags", "tag", "null", "none"]
+    if rejected.contains(canonical) {
+      return true
+    }
+    if tag.hasPrefix("{") || tag.hasSuffix("}") || tag.contains("```") {
+      return true
+    }
+    return false
+  }
+
+  private func preferredTagLanguage(code: String, title: String, body: String) -> String {
+    if code == "ja" || containsJapaneseKana(title) || containsJapaneseKana(body) {
+      return "Japanese"
+    }
+    switch code {
+    case "zh":
+      return "Chinese"
+    case "ko":
+      return "Korean"
+    case "es":
+      return "Spanish"
+    case "de":
+      return "German"
+    default:
+      return "the primary language of the memo"
+    }
+  }
+
+  private func containsJapaneseKana(_ text: String) -> Bool {
+    for scalar in text.unicodeScalars {
+      if (0x3040...0x30ff).contains(Int(scalar.value)) {
+        return true
+      }
+    }
+    return false
   }
 
   private func canonicalTag(_ tag: String) -> String {

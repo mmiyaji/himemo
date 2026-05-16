@@ -9622,6 +9622,7 @@ class TagSuggestionRequest {
     required this.knownTags,
     required this.attachmentLabels,
     this.knownTagCounts = const <String, int>{},
+    this.preferredLanguageCode,
   });
 
   final String title;
@@ -9629,6 +9630,7 @@ class TagSuggestionRequest {
   final List<String> existingTags;
   final List<String> knownTags;
   final List<String> attachmentLabels;
+  final String? preferredLanguageCode;
 
   /// Canonicalized tag key -> usage count among visible notes. Used to give
   /// frequently-used tags a higher priority in suggestions.
@@ -9683,10 +9685,11 @@ class MethodChannelTagSuggestionGateway implements TagSuggestionGateway {
             'knownTags': request.knownTags,
             'knownTagCounts': request.knownTagCounts,
             'attachmentLabels': request.attachmentLabels,
+            'preferredLanguageCode': request.preferredLanguageCode,
           });
-      final nativeTags = dedupeNoteTags([
+      final nativeTags = sanitizeSuggestedTags([
         for (final tag in response?['tags'] as List? ?? const []) '$tag',
-      ]);
+      ], existingTags: request.existingTags);
       final existingKeys = {
         for (final tag in request.existingTags) canonicalizeNoteTag(tag),
       };
@@ -9712,6 +9715,72 @@ class MethodChannelTagSuggestionGateway implements TagSuggestionGateway {
       usedAppleIntelligence: false,
     );
   }
+}
+
+@visibleForTesting
+List<String> sanitizeSuggestedTags(
+  Iterable<String> values, {
+  Iterable<String> existingTags = const <String>[],
+  int maxTags = 5,
+}) {
+  final existingKeys = {
+    for (final tag in existingTags) canonicalizeNoteTag(tag),
+  };
+  const rejectedKeys = {
+    'json',
+    '```',
+    '```json',
+    'tags',
+    'tag',
+    'null',
+    'none',
+  };
+  final expanded = <String>[];
+  for (final raw in values) {
+    var value = raw
+        .replaceAll(RegExp(r'```(?:json)?', caseSensitive: false), '')
+        .replaceAll('```', '')
+        .replaceAll('[', '')
+        .replaceAll(']', '')
+        .replaceAll('"', '')
+        .replaceAll("'", '')
+        .trim();
+    if (value.contains(':')) {
+      final parts = value.split(':');
+      if (parts.first.trim().toLowerCase() == 'tags') {
+        value = parts.skip(1).join(':').trim();
+      }
+    }
+    expanded.addAll(
+      value
+          .split(RegExp(r'[,，、\n\r]'))
+          .map((entry) => entry.trim())
+          .where((entry) => entry.isNotEmpty),
+    );
+  }
+
+  final seen = <String>{};
+  final tags = <String>[];
+  for (final raw in expanded) {
+    final normalized = normalizeNoteTag(
+      raw.replaceAll(RegExp(r'^[\-\*\d\.\)\s]+'), ''),
+    );
+    final key = canonicalizeNoteTag(normalized);
+    if (normalized.isEmpty ||
+        key.isEmpty ||
+        existingKeys.contains(key) ||
+        rejectedKeys.contains(key) ||
+        normalized.startsWith('{') ||
+        normalized.endsWith('}') ||
+        !seen.add(key)) {
+      continue;
+    }
+    tags.add(normalized.length > 24 ? normalized.substring(0, 24) : normalized);
+    if (tags.length >= maxTags) {
+      break;
+    }
+  }
+  return List.unmodifiable(tags);
 }
 
 List<String> suggestLocalNoteTags(TagSuggestionRequest request) {

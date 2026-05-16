@@ -2379,6 +2379,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
               attachmentLabels: [
                 for (final attachment in attachments) attachment.label,
               ],
+              preferredLanguageCode: context.strings.locale.languageCode,
             ),
           );
       if (!mounted) {
