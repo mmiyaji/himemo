@@ -870,6 +870,148 @@ void main() {
     },
   );
 
+  test(
+    'Google Drive attachment upload failure keeps local attachment pending',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final failingTransport = _FailingAttachmentUploadTransport();
+      final harness = await _createGoogleDriveSyncHarness(
+        failingTransport,
+        tempPrefix: 'himemo-fake-drive-attachment-upload-failure-',
+      );
+      final source = await _writePayloadFile(
+        harness.tempDirectory,
+        'must-stay-local-video.mp4',
+        sizeBytes: 256 * 1024,
+        byte: 0x31,
+      );
+      final storedPath = await harness.attachmentStore.storeAttachment(
+        XFile(source.path, name: 'must-stay-local-video.mp4'),
+        type: AttachmentType.video,
+      );
+      expect(storedPath, isNotNull);
+
+      await harness.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'attachment-upload-failure-note',
+              vaultId: 'everyday',
+              title: 'Attachment upload failure',
+              body: 'The local attachment must not be replaced on failure.',
+              createdAt: DateTime.utc(2026, 5, 16, 12),
+              updatedAt: DateTime.utc(2026, 5, 16, 12, 1),
+              attachments: [
+                NoteAttachment(
+                  type: AttachmentType.video,
+                  label: 'must-stay-local-video.mp4',
+                  filePath: storedPath,
+                ),
+              ],
+            ),
+          );
+
+      await harness.container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true);
+
+      final transferState = harness.container.read(
+        syncTransferControllerProvider,
+      );
+      expect(transferState.stage, SyncTransferStage.error);
+      expect(failingTransport.attachmentUploadCalls, 1);
+      expect(failingTransport.bundleUploadCalls, 0);
+      final note = harness.container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'attachment-upload-failure-note');
+      expect(note.syncState, NoteSyncState.pendingUpload);
+      expect(note.attachments.single.filePath, storedPath);
+      expect(
+        await harness.attachmentStore.readAttachment(
+          storedPath!,
+          type: AttachmentType.video,
+        ),
+        hasLength(256 * 1024),
+      );
+      expect(
+        (await harness.container.read(syncEngineProvider).summarizeQueue())
+            .totalChanges,
+        1,
+      );
+    },
+  );
+
+  test(
+    'Google Drive bundle upload failure keeps local attachment pending',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final failingTransport = _FailingBundleUploadTransport();
+      final harness = await _createGoogleDriveSyncHarness(
+        failingTransport,
+        tempPrefix: 'himemo-fake-drive-bundle-upload-failure-',
+      );
+      final source = await _writePayloadFile(
+        harness.tempDirectory,
+        'must-stay-local-file.bin',
+        sizeBytes: 128 * 1024,
+        byte: 0x32,
+      );
+      final storedPath = await harness.attachmentStore.storeAttachment(
+        XFile(source.path, name: 'must-stay-local-file.bin'),
+        type: AttachmentType.file,
+      );
+      expect(storedPath, isNotNull);
+
+      await harness.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'bundle-upload-failure-note',
+              vaultId: 'everyday',
+              title: 'Bundle upload failure',
+              body: 'The local attachment must survive bundle upload failure.',
+              createdAt: DateTime.utc(2026, 5, 16, 13),
+              updatedAt: DateTime.utc(2026, 5, 16, 13, 1),
+              attachments: [
+                NoteAttachment(
+                  type: AttachmentType.file,
+                  label: 'must-stay-local-file.bin',
+                  filePath: storedPath,
+                ),
+              ],
+            ),
+          );
+
+      await harness.container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true);
+
+      final transferState = harness.container.read(
+        syncTransferControllerProvider,
+      );
+      expect(transferState.stage, SyncTransferStage.error);
+      expect(failingTransport.attachmentUploadCalls, 1);
+      expect(failingTransport.bundleUploadCalls, 1);
+      final note = harness.container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'bundle-upload-failure-note');
+      expect(note.syncState, NoteSyncState.pendingUpload);
+      expect(note.attachments.single.filePath, storedPath);
+      expect(
+        await harness.attachmentStore.readAttachment(
+          storedPath!,
+          type: AttachmentType.file,
+        ),
+        hasLength(128 * 1024),
+      );
+      expect(
+        (await harness.container.read(syncEngineProvider).summarizeQueue())
+            .totalChanges,
+        1,
+      );
+    },
+  );
+
   test('large Google Drive downloads warn on mobile data', () async {
     SharedPreferences.setMockInitialValues({});
     final tempDirectory = await Directory.systemTemp.createTemp(
@@ -2078,6 +2220,89 @@ Future<File> _writePayloadFile(
   return file;
 }
 
+Future<_GoogleDriveSyncHarness> _createGoogleDriveSyncHarness(
+  GoogleDriveSyncTransport transport, {
+  required String tempPrefix,
+}) async {
+  final tempDirectory = await Directory.systemTemp.createTemp(tempPrefix);
+  final secureStore = MemorySecureKeyValueStore();
+  final encryptionService = EncryptionService(random: Random(66));
+  final masterKeyService = MasterKeyService(
+    secureStore: secureStore,
+    keyFactory: encryptionService.generateKeyBytes,
+  );
+  final noteDatabase = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+  final noteStore = EncryptedNoteStore(
+    encryptionService: encryptionService,
+    masterKeyService: masterKeyService,
+    database: noteDatabase,
+    directoryProvider: () async => tempDirectory,
+    sharedPreferencesProvider: SharedPreferences.getInstance,
+  );
+  final attachmentStore = EncryptedAttachmentStore(
+    encryptionService: encryptionService,
+    masterKeyService: masterKeyService,
+    directoryProvider: () async => tempDirectory,
+    sharedPreferencesProvider: SharedPreferences.getInstance,
+  );
+  final container = ProviderContainer(
+    overrides: [
+      secureKeyValueStoreProvider.overrideWithValue(secureStore),
+      encryptionServiceProvider.overrideWithValue(encryptionService),
+      masterKeyServiceProvider.overrideWithValue(masterKeyService),
+      encryptedNoteStoreProvider.overrideWithValue(noteStore),
+      encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+      encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+      secureSyncBundleStoreProvider.overrideWith(
+        (ref) => SecureSyncBundleStore(
+          encryptionService: encryptionService,
+          syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
+          legacyMasterKeyService: masterKeyService,
+          directoryProvider: () async => tempDirectory,
+          sharedPreferencesProvider: SharedPreferences.getInstance,
+        ),
+      ),
+      googleDriveSyncTransportProvider.overrideWithValue(transport),
+      syncAuthGatewayProvider.overrideWithValue(
+        FakeGoogleDriveSyncAuthGateway(fallback: DefaultSyncAuthGateway()),
+      ),
+    ],
+  );
+  addTearDown(container.dispose);
+  addTearDown(noteDatabase.close);
+  addTearDown(() async {
+    if (await tempDirectory.exists()) {
+      await tempDirectory.delete(recursive: true);
+    }
+  });
+
+  await container
+      .read(syncProviderControllerProvider.notifier)
+      .setProvider(SyncProvider.googleDrive);
+  await container
+      .read(syncAuthControllerProvider.notifier)
+      .connect(SyncProvider.googleDrive);
+  await container.read(notesControllerProvider.notifier).restoreCompleted;
+
+  return _GoogleDriveSyncHarness(
+    container: container,
+    tempDirectory: tempDirectory,
+    attachmentStore: attachmentStore,
+  );
+}
+
+class _GoogleDriveSyncHarness {
+  const _GoogleDriveSyncHarness({
+    required this.container,
+    required this.tempDirectory,
+    required this.attachmentStore,
+  });
+
+  final ProviderContainer container;
+  final Directory tempDirectory;
+  final EncryptedAttachmentStore attachmentStore;
+}
+
 class MemoryHomeRepository implements HomeRepository {
   @override
   List<UnlockIdentity> get identities => const [
@@ -2137,4 +2362,79 @@ class _FakeNetworkConnectionService extends NetworkConnectionService {
 
   @override
   Future<NetworkConnectionKind> currentKind() async => kind;
+}
+
+class _FailingAttachmentUploadTransport
+    extends InMemoryGoogleDriveSyncTransport {
+  _FailingAttachmentUploadTransport() : super(uploadDelay: Duration.zero);
+
+  int attachmentUploadCalls = 0;
+  int bundleUploadCalls = 0;
+
+  @override
+  Future<void> uploadAttachmentObject({
+    required String contentHash,
+    required String encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+    bool skipExistingCheck = false,
+  }) async {
+    attachmentUploadCalls += 1;
+    throw StateError('simulated attachment upload failure');
+  }
+
+  @override
+  Future<RemoteSyncBundleStatus> uploadBundle({
+    required String encodedPayload,
+    required String deviceId,
+    required int noteCount,
+    required int attachmentCount,
+  }) {
+    bundleUploadCalls += 1;
+    return super.uploadBundle(
+      encodedPayload: encodedPayload,
+      deviceId: deviceId,
+      noteCount: noteCount,
+      attachmentCount: attachmentCount,
+    );
+  }
+}
+
+class _FailingBundleUploadTransport extends InMemoryGoogleDriveSyncTransport {
+  _FailingBundleUploadTransport() : super(uploadDelay: Duration.zero);
+
+  int attachmentUploadCalls = 0;
+  int bundleUploadCalls = 0;
+
+  @override
+  Future<void> uploadAttachmentObject({
+    required String contentHash,
+    required String encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+    bool skipExistingCheck = false,
+  }) async {
+    attachmentUploadCalls += 1;
+    await super.uploadAttachmentObject(
+      contentHash: contentHash,
+      encodedPayload: encodedPayload,
+      type: type,
+      label: label,
+      sizeBytes: sizeBytes,
+      skipExistingCheck: skipExistingCheck,
+    );
+  }
+
+  @override
+  Future<RemoteSyncBundleStatus> uploadBundle({
+    required String encodedPayload,
+    required String deviceId,
+    required int noteCount,
+    required int attachmentCount,
+  }) async {
+    bundleUploadCalls += 1;
+    throw StateError('simulated bundle upload failure');
+  }
 }
