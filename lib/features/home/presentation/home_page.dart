@@ -1092,6 +1092,148 @@ Future<void> _showReleaseNotesDialog(
   );
 }
 
+Future<void> _showReleaseNotesHistoryDialog(
+  BuildContext context,
+  List<ReleaseNote> releaseNotes,
+  String? currentVersion,
+) async {
+  final strings = context.strings;
+  final locale = strings.locale;
+  final colorScheme = Theme.of(context).colorScheme;
+  final sortedReleaseNotes = [...releaseNotes]
+    ..sort((a, b) {
+      final aDate = a.date;
+      final bDate = b.date;
+      if (aDate != null && bDate != null) {
+        final dateOrder = bDate.compareTo(aDate);
+        if (dateOrder != 0) {
+          return dateOrder;
+        }
+      } else if (aDate != null) {
+        return -1;
+      } else if (bDate != null) {
+        return 1;
+      }
+      return b.version.compareTo(a.version);
+    });
+  final selected = await showDialog<ReleaseNote>(
+    context: context,
+    builder: (context) => AlertDialog(
+      icon: Icon(Icons.history_rounded, color: colorScheme.primary),
+      title: Text(
+        strings.localized(
+          en: 'Update history',
+          ja: '\u66f4\u65b0\u5c65\u6b74',
+          zh: '\u66f4\u65b0\u5386\u53f2',
+          ko: '\uc5c5\ub370\uc774\ud2b8 \uae30\ub85d',
+          es: 'Historial de novedades',
+          de: 'Versionsverlauf',
+        ),
+      ),
+      content: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 560,
+          maxHeight: math.min(MediaQuery.sizeOf(context).height * 0.65, 520),
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final entry in sortedReleaseNotes.indexed) ...[
+                if (entry.$1 > 0) const Divider(height: 1),
+                _ReleaseNoteHistoryTile(
+                  releaseNote: entry.$2,
+                  currentVersion: currentVersion,
+                  locale: locale,
+                  currentVersionLabel: strings.localized(
+                    en: 'Current version',
+                    ja: '\u73fe\u5728\u306e\u30d0\u30fc\u30b8\u30e7\u30f3',
+                    zh: '\u5f53\u524d\u7248\u672c',
+                    ko: '\ud604\uc7ac \ubc84\uc804',
+                    es: 'Version actual',
+                    de: 'Aktuelle Version',
+                  ),
+                  onTap: () => Navigator.of(context).pop(entry.$2),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(
+            strings.localized(
+              en: 'Close',
+              ja: '\u9589\u3058\u308b',
+              zh: '\u5173\u95ed',
+              ko: '\ub2eb\uae30',
+              es: 'Cerrar',
+              de: 'Schliessen',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+  if (selected != null && context.mounted) {
+    await _showReleaseNotesDialog(context, selected);
+  }
+}
+
+class _ReleaseNoteHistoryTile extends StatelessWidget {
+  const _ReleaseNoteHistoryTile({
+    required this.releaseNote,
+    required this.currentVersion,
+    required this.locale,
+    required this.currentVersionLabel,
+    required this.onTap,
+  });
+
+  final ReleaseNote releaseNote;
+  final String? currentVersion;
+  final Locale locale;
+  final String currentVersionLabel;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isCurrent = releaseNote.version == currentVersion;
+    final dateLabel = releaseNote.date == null
+        ? null
+        : MaterialLocalizations.of(context).formatMediumDate(releaseNote.date!);
+    final summary = releaseNote.localizedSummary(locale);
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(
+        [
+          releaseNote.version,
+          releaseNote.localizedTitle(locale),
+        ].where((value) => value.isNotEmpty).join(' - '),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        [?dateLabel, if (summary.isNotEmpty) summary].join('\n'),
+        maxLines: 3,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: isCurrent
+          ? Tooltip(
+              message: currentVersionLabel,
+              child: Icon(
+                Icons.check_circle_outline,
+                color: colorScheme.primary,
+              ),
+            )
+          : const Icon(Icons.chevron_right_rounded),
+      onTap: onTap,
+    );
+  }
+}
+
 IconData _releaseNoteItemIcon(ReleaseNoteItemType type) {
   return switch (type) {
     ReleaseNoteItemType.feature => Icons.auto_awesome_outlined,

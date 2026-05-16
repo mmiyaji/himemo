@@ -120,6 +120,43 @@ void main() {
     );
   });
 
+  test('current pubspec version has release notes', () {
+    final pubspec = File('pubspec.yaml').readAsStringSync();
+    final versionMatch = RegExp(
+      r'^version:\s*([0-9A-Za-z.+-]+)\s*$',
+      multiLine: true,
+    ).firstMatch(pubspec);
+    expect(versionMatch, isNotNull);
+    final currentVersion = versionMatch!.group(1)!.split('+').first;
+
+    final releaseNotes =
+        jsonDecode(
+              File(
+                'assets/release_notes/release_notes.json',
+              ).readAsStringSync(),
+            )
+            as Map<String, dynamic>;
+    final releases = releaseNotes['releases'] as List<dynamic>;
+    final currentRelease = releases
+        .cast<Map<String, dynamic>>()
+        .where((release) => release['version'] == currentVersion)
+        .singleOrNull;
+
+    expect(
+      currentRelease,
+      isNotNull,
+      reason:
+          'When pubspec.yaml version is changed, add or update the matching '
+          'entry in assets/release_notes/release_notes.json.',
+    );
+    expect(currentRelease!['title'], isA<Map>());
+    expect(currentRelease['summary'], isA<Map>());
+    expect(
+      currentRelease['items'],
+      isA<List>().having((items) => items, 'items', isNotEmpty),
+    );
+  });
+
   test('traditional color themes include 30 or more choices', () {
     expect(AppColorTheme.values.length, greaterThanOrEqualTo(30));
   });
@@ -1271,6 +1308,90 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(SettingsScreen.privateProfileNameInputKey), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('release notes history dialog opens from settings', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(31));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          releaseNotesProvider.overrideWith((ref) async {
+            return [
+              ReleaseNote(
+                version: '1.0.0',
+                date: DateTime(2026, 5, 16),
+                importance: 'normal',
+                title: const {'en': 'HiMemo was updated'},
+                summary: const {'en': 'Release note summary.'},
+                items: const [
+                  ReleaseNoteItem(
+                    type: ReleaseNoteItemType.improvement,
+                    title: {'en': 'Improved history'},
+                    body: {'en': 'The update history opens from settings.'},
+                  ),
+                ],
+              ),
+            ];
+          }),
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(database),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: database,
+              directoryProvider: () async => Directory.systemTemp,
+            ),
+          ),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: [
+            AppLocalizations.delegate,
+            AppStrings.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: SettingsScreen()),
+        ),
+      ),
+    );
+    addTearDown(database.close);
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('About'));
+    await tester.tap(find.text('About'));
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(find.text('Update history'), 200);
+    await tester.tap(find.text('Update history'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('1.0.0 - HiMemo was updated'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
