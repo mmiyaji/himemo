@@ -415,8 +415,16 @@ class _AppShellState extends ConsumerState<AppShell> {
               builder: (context, constraints) {
                 final hideBottomNavLabels =
                     constraints.maxWidth < _compactBottomNavLabelBreakpoint;
-                String bottomNavLabel(String label) =>
-                    hideBottomNavLabels ? '' : label;
+                String bottomNavLabel(String label) {
+                  if (hideBottomNavLabels) {
+                    return '';
+                  }
+                  if (constraints.maxWidth < 420 && label == 'Einstellungen') {
+                    return 'Einstell.';
+                  }
+                  return label;
+                }
+
                 return Stack(
                   clipBehavior: Clip.none,
                   alignment: Alignment.bottomCenter,
@@ -1136,6 +1144,77 @@ String _spotlightAppLockWarningText(AppStrings strings) {
     ko: 'App lock does not hide notes from iOS Spotlight. If Spotlight indexing is enabled, standard note titles and text can appear in system search results before HiMemo is unlocked.',
     es: 'App lock does not hide notes from iOS Spotlight. If Spotlight indexing is enabled, standard note titles and text can appear in system search results before HiMemo is unlocked.',
     de: 'App lock does not hide notes from iOS Spotlight. If Spotlight indexing is enabled, standard note titles and text can appear in system search results before HiMemo is unlocked.',
+  );
+}
+
+class _DeleteNoteDialogResult {
+  const _DeleteNoteDialogResult({required this.deletePermanently});
+
+  final bool deletePermanently;
+}
+
+Future<_DeleteNoteDialogResult?> _showDeleteNoteDialog(
+  BuildContext context,
+  NoteEntry note,
+) {
+  final strings = context.strings;
+  var deletePermanently = false;
+  return showDialog<_DeleteNoteDialogResult>(
+    context: context,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Text(
+              deletePermanently
+                  ? strings.deletePermanently
+                  : strings.moveNoteToTrash,
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  deletePermanently
+                      ? strings.deleteNoteConfirmation(note.title)
+                      : strings.moveNoteToTrashConfirmation(note.title),
+                ),
+                const SizedBox(height: 12),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  value: deletePermanently,
+                  title: Text(strings.deletePermanently),
+                  subtitle: Text(strings.deletePermanentlyOptionDescription),
+                  onChanged: (value) {
+                    setDialogState(() {
+                      deletePermanently = value ?? false;
+                    });
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(strings.cancel),
+              ),
+              FilledButton(
+                key: const Key('delete-note-button'),
+                onPressed: () => Navigator.of(context).pop(
+                  _DeleteNoteDialogResult(deletePermanently: deletePermanently),
+                ),
+                child: Text(
+                  deletePermanently
+                      ? strings.deletePermanently
+                      : strings.moveNoteToTrash,
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    },
   );
 }
 

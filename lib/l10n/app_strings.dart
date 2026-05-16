@@ -484,6 +484,8 @@ class AppStrings {
       'home.external.quick.memo': 'Nota rápida externa',
       'home.backup.and.sync': 'Copia de seguridad y sincronización',
       'home.storage': 'Almacenamiento',
+      'home.list.layout': 'Diseño de lista',
+      'home.filters': 'Filtros',
       'home.standard.list': 'Lista estándar',
       'home.compact.list': 'Lista compacta',
       'home.off.turning.this.on.asks.for.a.password.or.device.authen':
@@ -616,6 +618,8 @@ class AppStrings {
       'home.external.quick.memo': 'Externe Schnellnotiz',
       'home.backup.and.sync': 'Backup und Synchronisierung',
       'home.storage': 'Speicher',
+      'home.list.layout': 'Listenlayout',
+      'home.filters': 'Filter',
       'home.standard.list': 'Standardliste',
       'home.compact.list': 'Kompakte Liste',
       'home.off.turning.this.on.asks.for.a.password.or.device.authen':
@@ -1927,6 +1931,46 @@ class AppStrings {
     es: '¿Eliminar "$title" permanentemente de este dispositivo?',
     de: '"$title" dauerhaft von diesem Gerät löschen?',
   );
+  String moveNoteToTrashConfirmation(String title) => localized(
+    en: 'Move "$title" to Trash? It will be kept for 7 days before permanent deletion.',
+    ja: '「$title」をゴミ箱に移動しますか？7日間保持されたあと完全に削除されます。',
+    zh: '要将“$title”移到废纸篓吗？7 天后会永久删除。',
+    ko: '"$title"을(를) 휴지통으로 이동할까요? 7일 동안 보관한 뒤 영구 삭제됩니다.',
+    es: '¿Mover "$title" a la papelera? Se conservará 7 días antes de eliminarse definitivamente.',
+    de: '"$title" in den Papierkorb verschieben? Die Notiz wird 7 Tage aufbewahrt und danach dauerhaft gelöscht.',
+  );
+  String get moveNoteToTrash => localized(
+    en: 'Move to Trash',
+    ja: 'ゴミ箱へ移動',
+    zh: '移到废纸篓',
+    ko: '휴지통으로 이동',
+    es: 'Mover a la papelera',
+    de: 'In den Papierkorb verschieben',
+  );
+  String get deletePermanently => localized(
+    en: 'Delete permanently',
+    ja: '完全に削除',
+    zh: '永久删除',
+    ko: '영구 삭제',
+    es: 'Eliminar definitivamente',
+    de: 'Dauerhaft löschen',
+  );
+  String get deletePermanentlyOptionDescription => localized(
+    en: 'Skip Trash and remove this note and its attachments immediately.',
+    ja: 'ゴミ箱に残さず、このメモと添付ファイルをすぐに削除します。',
+    zh: '不移入废纸篓，立即删除此笔记及其附件。',
+    ko: '휴지통에 남기지 않고 이 노트와 첨부 파일을 즉시 삭제합니다.',
+    es: 'Omite la papelera y elimina esta nota y sus adjuntos de inmediato.',
+    de: 'Ueberspringt den Papierkorb und loescht diese Notiz samt Anhaengen sofort.',
+  );
+  String movedNoteToTrash(String title) => localized(
+    en: '"$title" moved to Trash',
+    ja: '「$title」をゴミ箱に移動しました',
+    zh: '已将“$title”移到废纸篓',
+    ko: '"$title"을(를) 휴지통으로 이동했습니다',
+    es: '"$title" se movió a la papelera',
+    de: '"$title" wurde in den Papierkorb verschoben',
+  );
   String get deleteNote => localized(
     en: 'Delete note',
     ja: 'ノートを削除',
@@ -2026,6 +2070,22 @@ class AppStrings {
     ko: '잠금 해제된 노트',
     es: 'Notas desbloqueadas',
     de: 'Entsperrte Notizen',
+  );
+  String noteEditedAt(String label) => localized(
+    en: 'Edited $label',
+    ja: '編集済み $label',
+    zh: '已编辑 $label',
+    ko: '편집됨 $label',
+    es: 'Editada $label',
+    de: 'Bearbeitet $label',
+  );
+  String noteCreatedRevision(String createdLabel, int revision) => localized(
+    en: 'Created $createdLabel · Revision $revision',
+    ja: '作成 $createdLabel ・ リビジョン $revision',
+    zh: '创建 $createdLabel · 修订 $revision',
+    ko: '작성 $createdLabel · 리비전 $revision',
+    es: 'Creada $createdLabel · Revisión $revision',
+    de: 'Erstellt $createdLabel · Revision $revision',
   );
   String get photoPlaceholder => localized(
     en: 'Photo placeholder',
@@ -2406,7 +2466,7 @@ class AppStrings {
   );
   String get appearanceWithControls => localized(
     en: 'Appearance (language, font, and color)',
-    ja: '表示（言語・フォント・カラー）',
+    ja: '表示（言語・フォント・色）',
     zh: '外观（语言、字体和颜色）',
     ko: '표시(언어, 글꼴, 색상)',
     es: 'Apariencia (idioma, fuente y color)',

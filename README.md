@@ -75,6 +75,20 @@ VS Code can also run the same wrapper from `Terminal > Run Task...`:
 - `HiMemo: build production APK with .env`
 - `HiMemo: build development APK with .env`
 
+### Fake Google Drive sync for Web
+
+OAuth なしで同期画面を触る場合は、開発用のメモリ内 Google Drive モックを有効にします。アップロード、ダウンロード、履歴、添付オブジェクト、同期キーの保存先がプロセス内に差し替わります。
+
+```powershell
+fvm flutter run -d chrome --flavor development -t lib/main_development.dart --dart-define=HIMEMO_FAKE_GOOGLE_DRIVE_SYNC=true
+```
+
+`web-server` で In App Browser から確認する場合:
+
+```powershell
+fvm flutter run -d web-server --web-hostname 127.0.0.1 --web-port 52817 --flavor development -t lib/main_development.dart --dart-define=HIMEMO_FAKE_GOOGLE_DRIVE_SYNC=true
+```
+
 ### 本番用 flavor
 
 ```powershell

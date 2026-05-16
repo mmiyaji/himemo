@@ -17,6 +17,10 @@ class _GoogleDriveWebSignInPanelState
   @override
   void initState() {
     super.initState();
+    if (useFakeGoogleDriveSync) {
+      _ready = true;
+      return;
+    }
     unawaited(_initialize());
   }
 
@@ -85,6 +89,7 @@ class _GoogleDriveWebSignInPanelState
     final strings = context.strings;
     final colorScheme = Theme.of(context).colorScheme;
     final error = _error;
+    final fakeMode = useFakeGoogleDriveSync;
 
     return Container(
       width: double.infinity,
@@ -99,20 +104,63 @@ class _GoogleDriveWebSignInPanelState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            strings.googleDriveWebSignInTitle,
+            fakeMode
+                ? strings.localized(
+                    en: 'Fake Google Drive sync',
+                    ja: 'Google Drive シミュレータ',
+                    zh: 'Google Drive 模拟器',
+                    ko: 'Google Drive 시뮬레이터',
+                    es: 'Simulador de Google Drive',
+                    de: 'Google-Drive-Simulator',
+                  )
+                : strings.googleDriveWebSignInTitle,
             style: Theme.of(
               context,
             ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 4),
           Text(
-            strings.googleDriveWebSignInBody,
+            fakeMode
+                ? strings.localized(
+                    en: 'Local testing mode is enabled. Sync uses an in-memory Google Drive simulator and does not contact Google.',
+                    ja: 'ローカルテストモードです。同期はメモリ内の Google Drive シミュレータを使い、Google には接続しません。',
+                    zh: '已启用本地测试模式。同步会使用内存中的 Google Drive 模拟器，不会连接 Google。',
+                    ko: '로컬 테스트 모드입니다. 동기화는 메모리 내 Google Drive 시뮬레이터를 사용하며 Google에 연결하지 않습니다.',
+                    es: 'El modo de prueba local esta activo. La sincronizacion usa un simulador de Google Drive en memoria y no contacta con Google.',
+                    de: 'Der lokale Testmodus ist aktiv. Die Synchronisierung nutzt einen Google-Drive-Simulator im Speicher und kontaktiert Google nicht.',
+                  )
+                : strings.googleDriveWebSignInBody,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: colorScheme.onSurfaceVariant,
             ),
           ),
           const SizedBox(height: 12),
-          if (_ready)
+          if (fakeMode)
+            FilledButton(
+              key: SettingsScreen.syncConnectKey,
+              onPressed:
+                  ref
+                          .watch(
+                            syncAuthControllerProvider,
+                          )[SyncProvider.googleDrive]
+                          ?.stage ==
+                      SyncAuthStage.busy
+                  ? null
+                  : () => ref
+                        .read(syncAuthControllerProvider.notifier)
+                        .connect(SyncProvider.googleDrive),
+              child: Text(
+                strings.localized(
+                  en: 'Connect simulator',
+                  ja: 'シミュレータに接続',
+                  zh: '连接模拟器',
+                  ko: '시뮬레이터에 연결',
+                  es: 'Conectar simulador',
+                  de: 'Simulator verbinden',
+                ),
+              ),
+            )
+          else if (_ready)
             buildGoogleSignInWebButton(locale: strings.locale.languageCode)
           else
             const SizedBox(

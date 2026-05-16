@@ -73,6 +73,137 @@ abstract class GoogleDriveSyncTransport {
   Future<void> uploadSyncKeyBackupCode(String backupCode);
 }
 
+class InMemoryGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
+  InMemoryGoogleDriveSyncTransport({
+    this.uploadDelay = const Duration(milliseconds: 120),
+  });
+
+  final Duration uploadDelay;
+
+  static final Map<String, String> _attachmentObjects = {};
+  static final List<_InMemoryGoogleDriveBundle> _bundles = [];
+  static String? _syncKeyBackupCode;
+
+  @override
+  Future<RemoteSyncBundleStatus?> fetchLatestBundleStatus() async {
+    if (_bundles.isEmpty) {
+      return null;
+    }
+    return _bundles.last.status;
+  }
+
+  @override
+  Future<List<RemoteSyncBundleStatus>> listBundleHistory({
+    int limit = 10,
+  }) async {
+    return _bundles.reversed
+        .take(limit)
+        .map((bundle) => bundle.status)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<RemoteSyncBundleStatus> uploadBundle({
+    required String encodedPayload,
+    required String deviceId,
+    required int noteCount,
+    required int attachmentCount,
+  }) async {
+    if (uploadDelay > Duration.zero) {
+      await Future<void>.delayed(uploadDelay);
+    }
+    final now = DateTime.now().toUtc();
+    final uploadNumber = _bundles.length + 1;
+    final status = RemoteSyncBundleStatus(
+      fileId: 'fake-google-drive-bundle-$uploadNumber',
+      fileName:
+          'himemo_fake_google_drive_${now.toIso8601String().replaceAll(RegExp(r'[^0-9]'), '').padRight(14, '0').substring(0, 14)}.enc',
+      modifiedAt: now,
+      sizeBytes: encodedPayload.length,
+      noteCount: noteCount,
+      attachmentCount: attachmentCount,
+      deviceId: deviceId,
+    );
+    _bundles.add(
+      _InMemoryGoogleDriveBundle(
+        status: status,
+        encodedPayload: encodedPayload,
+      ),
+    );
+    return status;
+  }
+
+  @override
+  Future<void> uploadAttachmentObject({
+    required String contentHash,
+    required String encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+    bool skipExistingCheck = false,
+  }) async {
+    if (skipExistingCheck && _attachmentObjects.containsKey(contentHash)) {
+      return;
+    }
+    _attachmentObjects[contentHash] = encodedPayload;
+  }
+
+  @override
+  Future<Set<String>> listAttachmentObjectContentHashes() async {
+    return _attachmentObjects.keys.toSet();
+  }
+
+  @override
+  Future<String?> downloadAttachmentObject(String contentHash) async {
+    return _attachmentObjects[contentHash];
+  }
+
+  @override
+  Future<DownloadedRemoteSyncBundle?> downloadLatestBundle() async {
+    if (_bundles.isEmpty) {
+      return null;
+    }
+    final bundle = _bundles.last;
+    return DownloadedRemoteSyncBundle(
+      status: bundle.status,
+      encodedPayload: bundle.encodedPayload,
+    );
+  }
+
+  @override
+  Future<DownloadedRemoteSyncBundle?> downloadBundleByFileId(
+    String fileId,
+  ) async {
+    for (final bundle in _bundles.reversed) {
+      if (bundle.status.fileId == fileId) {
+        return DownloadedRemoteSyncBundle(
+          status: bundle.status,
+          encodedPayload: bundle.encodedPayload,
+        );
+      }
+    }
+    return null;
+  }
+
+  @override
+  Future<String?> fetchSyncKeyBackupCode() async => _syncKeyBackupCode;
+
+  @override
+  Future<void> uploadSyncKeyBackupCode(String backupCode) async {
+    _syncKeyBackupCode = backupCode;
+  }
+}
+
+class _InMemoryGoogleDriveBundle {
+  const _InMemoryGoogleDriveBundle({
+    required this.status,
+    required this.encodedPayload,
+  });
+
+  final RemoteSyncBundleStatus status;
+  final String encodedPayload;
+}
+
 class GoogleDriveCloudSyncBundleKeyStore implements CloudSyncBundleKeyStore {
   GoogleDriveCloudSyncBundleKeyStore(this.transport);
 

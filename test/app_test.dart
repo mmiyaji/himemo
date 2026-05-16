@@ -24,6 +24,7 @@ import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/master_key_service.dart';
 import 'package:himemo/features/security/data/profile_data_key_service.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
+import 'package:himemo/features/sync/data/secure_sync_bundle_store.dart';
 import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
 import 'package:himemo/l10n/app_localizations.dart';
 import 'package:himemo/l10n/app_strings.dart';
@@ -71,7 +72,7 @@ void main() {
     expect(strings.videoPreviewUnavailableWeb, 'Web では動画プレビューを利用できません。');
     expect(strings.languageSystemOption, 'システムに合わせる (System)');
     expect(strings.languageJapaneseOption, '日本語 (Japanese)');
-    expect(strings.appearanceWithControls, '表示（言語・フォント・カラー）');
+    expect(strings.appearanceWithControls, '表示（言語・フォント・色）');
     expect(
       strings.appearanceSummary(
         language: '日本語 (Japanese)',
@@ -453,6 +454,167 @@ void main() {
       'web-client.apps.googleusercontent.com',
     );
   });
+
+  test('fake Google Drive transport stores bundles in memory', () async {
+    final transport = InMemoryGoogleDriveSyncTransport(
+      uploadDelay: Duration.zero,
+    );
+
+    final uploaded = await transport.uploadBundle(
+      encodedPayload: 'encrypted-payload',
+      deviceId: 'test-device',
+      noteCount: 2,
+      attachmentCount: 1,
+    );
+
+    expect(uploaded.deviceId, 'test-device');
+    expect(
+      (await transport.fetchLatestBundleStatus())?.fileId,
+      uploaded.fileId,
+    );
+    expect(
+      await transport.listBundleHistory(),
+      hasLength(greaterThanOrEqualTo(1)),
+    );
+    expect(
+      (await transport.downloadLatestBundle())?.encodedPayload,
+      'encrypted-payload',
+    );
+
+    await transport.uploadAttachmentObject(
+      contentHash: 'hash-a',
+      encodedPayload: 'attachment-payload',
+      type: 'photo',
+      label: 'photo.jpg',
+      sizeBytes: 10,
+    );
+    expect(
+      await transport.listAttachmentObjectContentHashes(),
+      contains('hash-a'),
+    );
+    expect(
+      await transport.downloadAttachmentObject('hash-a'),
+      'attachment-payload',
+    );
+  });
+
+  test(
+    'fake Google Drive sync sequence uploads and downloads bundle',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-fake-drive-sync-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(32));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final noteStore = EncryptedNoteStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        database: noteDatabase,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final fakeTransport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteStoreProvider.overrideWithValue(noteStore),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          secureSyncBundleStoreProvider.overrideWith(
+            (ref) => SecureSyncBundleStore(
+              encryptionService: encryptionService,
+              syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
+              legacyMasterKeyService: masterKeyService,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          googleDriveSyncTransportProvider.overrideWithValue(fakeTransport),
+          syncAuthGatewayProvider.overrideWithValue(
+            FakeGoogleDriveSyncAuthGateway(fallback: DefaultSyncAuthGateway()),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+
+      await container
+          .read(syncProviderControllerProvider.notifier)
+          .setProvider(SyncProvider.googleDrive);
+      await container
+          .read(syncAuthControllerProvider.notifier)
+          .connect(SyncProvider.googleDrive);
+      expect(
+        container
+            .read(syncAuthControllerProvider)[SyncProvider.googleDrive]
+            ?.isAuthenticated,
+        isTrue,
+      );
+
+      final notesController = container.read(notesControllerProvider.notifier);
+      await notesController.restoreCompleted;
+      await notesController.upsert(
+        NoteEntry(
+          id: 'fake-drive-sequence-note',
+          vaultId: 'everyday',
+          title: 'Fake Drive sequence',
+          body: 'Uploaded through the in-memory Google Drive simulator.',
+          createdAt: DateTime.utc(2026, 5, 16, 10),
+          updatedAt: DateTime.utc(2026, 5, 16, 10, 1),
+        ),
+      );
+
+      final historyBefore = await fakeTransport.listBundleHistory();
+      final syncController = container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      await syncController.uploadCurrentBundle(force: true);
+      final afterUpload = container.read(syncTransferControllerProvider);
+      expect(
+        afterUpload.stage,
+        SyncTransferStage.success,
+        reason: afterUpload.message,
+      );
+      expect((await fakeTransport.fetchLatestBundleStatus())?.noteCount, 1);
+      expect(
+        await fakeTransport.listBundleHistory(),
+        hasLength(historyBefore.length + 1),
+      );
+
+      await syncController.downloadLatestBundle();
+      expect(
+        container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+      await syncController.applyDownloadedBundle();
+      expect(
+        container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+      expect(
+        container
+            .read(notesControllerProvider)
+            .any((note) => note.id == 'fake-drive-sequence-note'),
+        isTrue,
+      );
+    },
+  );
 
   test('effective color theme follows unlocked private profile', () async {
     SharedPreferences.setMockInitialValues({});

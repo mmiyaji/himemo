@@ -1594,7 +1594,10 @@ class _CalendarDayNotesList extends ConsumerWidget {
       final note = notes[index];
       return _CalendarNoteRow(
         note: note,
-        vaultName: ref.watch(vaultByIdProvider(note.vaultId)).name,
+        vaultName: _vaultDisplayName(
+          context,
+          ref.watch(vaultByIdProvider(note.vaultId)),
+        ),
         onTap: () => onTap(index),
       );
     }

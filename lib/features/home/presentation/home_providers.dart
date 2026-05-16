@@ -1366,6 +1366,44 @@ abstract class SyncAuthGateway {
   Future<void> disconnect(SyncProvider provider);
 }
 
+const _useFakeGoogleDriveSync = bool.fromEnvironment(
+  'HIMEMO_FAKE_GOOGLE_DRIVE_SYNC',
+);
+
+bool get useFakeGoogleDriveSync => _useFakeGoogleDriveSync;
+
+class FakeGoogleDriveSyncAuthGateway implements SyncAuthGateway {
+  FakeGoogleDriveSyncAuthGateway({required SyncAuthGateway fallback})
+    : _fallback = fallback;
+
+  final SyncAuthGateway _fallback;
+
+  @override
+  Future<SyncAuthState> connect(SyncProvider provider) {
+    if (provider != SyncProvider.googleDrive) {
+      return _fallback.connect(provider);
+    }
+    return Future.value(
+      const SyncAuthState(
+        provider: SyncProvider.googleDrive,
+        stage: SyncAuthStage.authenticated,
+        userId: 'fake-google-drive-user',
+        displayName: 'Fake Google Drive',
+        email: 'fake-google-drive@example.test',
+        message: 'Fake Google Drive sync is connected for local testing.',
+      ),
+    );
+  }
+
+  @override
+  Future<void> disconnect(SyncProvider provider) {
+    if (provider != SyncProvider.googleDrive) {
+      return _fallback.disconnect(provider);
+    }
+    return Future<void>.value();
+  }
+}
+
 class DefaultSyncAuthGateway implements SyncAuthGateway {
   DefaultSyncAuthGateway({
     this.googleDriveAuthConfig = const GoogleDriveAuthConfig(),
@@ -2098,11 +2136,15 @@ final googleDriveAuthConfigProvider = Provider<GoogleDriveAuthConfig>(
   (ref) => const GoogleDriveAuthConfig(),
 );
 
-final syncAuthGatewayProvider = Provider<SyncAuthGateway>(
-  (ref) => DefaultSyncAuthGateway(
+final syncAuthGatewayProvider = Provider<SyncAuthGateway>((ref) {
+  final gateway = DefaultSyncAuthGateway(
     googleDriveAuthConfig: ref.watch(googleDriveAuthConfigProvider),
-  ),
-);
+  );
+  if (_useFakeGoogleDriveSync) {
+    return FakeGoogleDriveSyncAuthGateway(fallback: gateway);
+  }
+  return gateway;
+});
 
 final mediaImportServiceProvider = Provider<MediaImportService>(
   (ref) => DefaultMediaImportService(
@@ -2362,6 +2404,9 @@ final packageInfoProvider = FutureProvider<AppPackageDetails>((ref) async {
 final googleDriveSyncTransportProvider = Provider<GoogleDriveSyncTransport>((
   ref,
 ) {
+  if (_useFakeGoogleDriveSync) {
+    return InMemoryGoogleDriveSyncTransport();
+  }
   return GoogleApisGoogleDriveSyncTransport(
     authConfig: ref.watch(googleDriveAuthConfigProvider),
   );
@@ -2526,7 +2571,7 @@ final syncTransferControllerProvider =
 
 class SyncTransferController extends Notifier<SyncTransferState> {
   static const largeMobileSyncThresholdBytes = 50 * 1024 * 1024;
-  static const _remoteStatusCacheTtl = Duration(seconds: 90);
+  static const _remoteStatusCacheTtl = Duration(seconds: 20);
   static const _syncBundleDecryptionMessage =
       'sync.error.bundle_decryption_failed';
   static const _syncBundleKeyMissingMessage = 'sync.error.bundle_key_missing';
@@ -2771,9 +2816,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       final elapsed = DateTime.now().difference(startedAt).inSeconds;
       _setProgressDetail(
         progress: SyncTransferProgress.checkingRemote,
-        detail: elapsed <= 0
-            ? 'Waiting for ${provider.name} response'
-            : 'Waiting for ${provider.name} response (${elapsed}s)',
+        detail: _remoteStatusWaitDetail(provider, elapsed),
         completedItems: 0,
         totalItems: totalItems,
       );
@@ -2784,6 +2827,22 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       const Duration(seconds: 1),
       (_) => update(),
     );
+  }
+
+  String _remoteStatusWaitDetail(SyncProvider provider, int elapsedSeconds) {
+    final providerName = switch (provider) {
+      SyncProvider.iCloud => 'iCloud',
+      SyncProvider.googleDrive => 'Google Drive',
+      SyncProvider.off => 'cloud',
+    };
+    final elapsedSuffix = elapsedSeconds <= 0 ? '' : ' (${elapsedSeconds}s)';
+    if (provider == SyncProvider.iCloud && elapsedSeconds >= 10) {
+      return 'Still waiting for iCloud metadata$elapsedSuffix';
+    }
+    if (provider == SyncProvider.iCloud && elapsedSeconds >= 5) {
+      return 'iCloud is taking longer than usual$elapsedSuffix';
+    }
+    return 'Requesting latest $providerName metadata$elapsedSuffix';
   }
 
   Future<RemoteSyncBundleStatus?> _fetchLatestRemoteStatusWithCache({
@@ -3309,7 +3368,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     bool forceUpload = false,
     bool allowLargeMobileTransfer = false,
     bool silentLargeMobileSkip = false,
-    bool allowCachedRemoteStatus = false,
+    bool allowCachedRemoteStatus = true,
   }) async {
     final provider = ref.read(syncProviderControllerProvider);
     _diagnostic(
