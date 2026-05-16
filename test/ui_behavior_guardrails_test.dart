@@ -119,7 +119,11 @@ void main() {
     expect(homePage, contains('_detailSearchScrollPolicy'));
     expect(homePage, contains('alignment: movingDown ? 0.78 : 0.12'));
     expect(homePage, contains('ScrollPositionAlignmentPolicy.explicit'));
+    expect(homePage, contains('_detailSearchMatchRevealOffset'));
+    expect(homePage, contains('RenderAbstractViewport.maybeOf'));
+    expect(homePage, contains('getOffsetToReveal'));
     expect(homePage, contains('position.ensureVisible'));
+    expect(homePage, contains('scrollText: item.text'));
     expect(homePage, contains('_detailSearchScrollPosition(targetContext)'));
     expect(homePage, contains('_fallbackDetailSearchScroll'));
     expect(

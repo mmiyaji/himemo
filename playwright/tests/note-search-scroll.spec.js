@@ -39,9 +39,49 @@ test('note detail search jumps across media without reverse scroll motion', asyn
   expectMotionHasNoReverseStep(upwardMotion, 'up');
 });
 
-async function seedScrollableNote(page) {
+test('note detail search jumps to the exact match inside a long text block', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const longNote = createSearchScrollNote({
+    id: 'e2e-note-search-long-block',
+    title: 'Long block search memo',
+    body: [
+      'Top exact-target',
+      ...Array.from({ length: 70 }, (_, index) => `Filler line ${index + 1}`),
+      'Bottom exact-target',
+    ].join('\n'),
+    blocks: [
+      {
+        type: 'paragraph',
+        text: [
+          'Top exact-target',
+          ...Array.from({ length: 70 }, (_, index) => `Filler line ${index + 1}`),
+          'Bottom exact-target',
+        ].join('\n'),
+        attachment: null,
+      },
+    ],
+  });
+  await seedScrollableNote(page, longNote);
+  await expectNoteCard(page, /Long block search memo/);
+  await page.getByRole('button', { name: /Long block search memo/ }).click();
+  await page.getByRole('button', { name: /Search in note|繝｡繝｢蜀・ｒ讀懃ｴ｢/ }).click();
+  const detailSearchInput = page.getByLabel(/Search in this note|縺薙・繝｡繝｢蜀・ｒ讀懃ｴ｢/);
+  await detailSearchInput.click();
+  await detailSearchInput.pressSequentially('exact-target');
+  await expect(detailSearchInput).toHaveValue('exact-target');
+
+  const nextMatch = page.getByRole('button', { name: /Next match|谺｡縺ｮ荳閾ｴ縺ｸ/ }).first();
+  await nextMatch.click();
+  await nextMatch.click();
+
+  await expect(page.locator('flutter-view')).toContainText('Bottom exact-target');
+});
+
+function createSearchScrollNote(overrides = {}) {
   const createdAt = new Date().toISOString();
-  const note = {
+  return {
     id: 'e2e-note-search-scroll',
     vaultId: 'everyday',
     title: 'Search scroll memo',
@@ -92,7 +132,11 @@ async function seedScrollableNote(page) {
     syncState: 'localOnly',
     editorMode: 'rich',
     location: null,
+    ...overrides,
   };
+}
+
+async function seedScrollableNote(page, note = createSearchScrollNote()) {
   await page.evaluate(async () => {
     localStorage.clear();
     sessionStorage.clear();

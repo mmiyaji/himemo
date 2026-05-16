@@ -711,6 +711,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
             key: _detailContentItemKey(index),
             text: text,
             query: normalizedQuery,
+            scrollText: item.text,
           ),
         );
       }
@@ -741,7 +742,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
       _detailSearchTargetIndex = normalizedNext;
     });
     _scheduleDetailSearchTargetVisibilityCheck(
-      targets[normalizedNext].key,
+      targets[normalizedNext],
       scrollPolicy,
       useEdgeScroll: useEdgeScroll,
     );
@@ -763,7 +764,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
   }
 
   void _scheduleDetailSearchTargetVisibilityCheck(
-    GlobalKey targetKey,
+    _NoteDetailSearchTarget target,
     ScrollPositionAlignmentPolicy scrollPolicy, {
     required bool useEdgeScroll,
   }) {
@@ -772,7 +773,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
         scrollPolicy == ScrollPositionAlignmentPolicy.keepVisibleAtEnd;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _ensureDetailSearchTargetVisible(
-        targetKey,
+        target,
         request,
         alignment: movingDown ? 0.78 : 0.12,
         alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
@@ -786,7 +787,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
         unawaited(
           Future<void>.delayed(delay, () {
             _ensureDetailSearchTargetVisible(
-              targetKey,
+              target,
               request,
               alignment: movingDown ? 0.78 : 0.12,
               alignmentPolicy: scrollPolicy,
@@ -805,7 +806,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
             _fallbackDetailSearchScroll(
               movingDown,
               Duration.zero,
-              position: _detailSearchScrollPosition(targetKey.currentContext),
+              position: _detailSearchScrollPosition(target.key.currentContext),
             );
           }),
         );
@@ -814,7 +815,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
   }
 
   void _ensureDetailSearchTargetVisible(
-    GlobalKey targetKey,
+    _NoteDetailSearchTarget searchTarget,
     int request, {
     required double alignment,
     required ScrollPositionAlignmentPolicy alignmentPolicy,
@@ -824,6 +825,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
     if (!mounted || request != _detailSearchScrollRequest) {
       return;
     }
+    final targetKey = searchTarget.key;
     final targetContext = targetKey.currentContext;
     if (targetContext == null) {
       _fallbackDetailSearchScroll(fallbackToEnd, duration);
@@ -838,6 +840,33 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
       _fallbackDetailSearchScroll(fallbackToEnd, duration, position: position);
       return;
     }
+    final revealOffset = _detailSearchMatchRevealOffset(
+      targetContext,
+      target,
+      searchTarget,
+      alignment,
+    );
+    if (revealOffset != null) {
+      final nextOffset = revealOffset.clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      );
+      if ((nextOffset - position.pixels).abs() < 1) {
+        return;
+      }
+      if (duration == Duration.zero) {
+        position.jumpTo(nextOffset);
+        return;
+      }
+      unawaited(
+        position.animateTo(
+          nextOffset,
+          duration: duration,
+          curve: Curves.easeOutCubic,
+        ),
+      );
+      return;
+    }
     unawaited(
       position.ensureVisible(
         target,
@@ -847,6 +876,47 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
         alignmentPolicy: alignmentPolicy,
       ),
     );
+  }
+
+  double? _detailSearchMatchRevealOffset(
+    BuildContext targetContext,
+    RenderObject target,
+    _NoteDetailSearchTarget searchTarget,
+    double alignment,
+  ) {
+    final text = searchTarget.scrollText;
+    if (text == null || target is! RenderBox || target.size.width <= 0) {
+      return null;
+    }
+    final viewport = RenderAbstractViewport.maybeOf(target);
+    if (viewport == null) {
+      return null;
+    }
+    final textLength = text.length;
+    if (textLength == 0) {
+      return null;
+    }
+    final start = searchTarget.matchStart.clamp(0, textLength);
+    final end = (start + searchTarget.matchLength).clamp(start, textLength);
+    final style = Theme.of(targetContext).textTheme.bodyLarge;
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: Directionality.of(targetContext),
+    )..layout(maxWidth: target.size.width);
+    final boxes = painter.getBoxesForSelection(
+      TextSelection(baseOffset: start, extentOffset: end),
+    );
+    if (boxes.isEmpty) {
+      return null;
+    }
+    final rect = boxes.first
+        .toRect()
+        .inflate(8)
+        .intersect(Offset.zero & target.size);
+    if (rect.isEmpty) {
+      return null;
+    }
+    return viewport.getOffsetToReveal(target, alignment, rect: rect).offset;
   }
 
   ScrollPosition? _detailSearchScrollPosition(BuildContext? targetContext) {
@@ -1454,10 +1524,17 @@ class _HighlightedInlineText extends StatelessWidget {
 }
 
 class _NoteDetailSearchTarget {
-  const _NoteDetailSearchTarget({required this.key, required this.matchStart});
+  const _NoteDetailSearchTarget({
+    required this.key,
+    required this.matchStart,
+    required this.matchLength,
+    this.scrollText,
+  });
 
   final GlobalKey key;
   final int matchStart;
+  final int matchLength;
+  final String? scrollText;
 }
 
 TextStyle _noteSearchHighlightStyle(BuildContext context, TextStyle? style) {
@@ -1539,6 +1616,7 @@ List<_NoteDetailSearchTarget> _noteDetailSearchTargetsForText({
   required GlobalKey key,
   required String text,
   required String query,
+  String? scrollText,
 }) {
   if (query.isEmpty || text.isEmpty) {
     return const <_NoteDetailSearchTarget>[];
@@ -1551,7 +1629,14 @@ List<_NoteDetailSearchTarget> _noteDetailSearchTargetsForText({
     if (matchIndex == -1) {
       break;
     }
-    targets.add(_NoteDetailSearchTarget(key: key, matchStart: matchIndex));
+    targets.add(
+      _NoteDetailSearchTarget(
+        key: key,
+        matchStart: matchIndex,
+        matchLength: query.length,
+        scrollText: scrollText,
+      ),
+    );
     cursor = matchIndex + query.length;
   }
   return targets;
