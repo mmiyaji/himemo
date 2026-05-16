@@ -703,7 +703,8 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
       ),
     );
     for (var index = 0; index < items.length; index++) {
-      final text = items[index].text;
+      final item = items[index];
+      final text = item.text ?? _locationSearchText(item.location);
       if (text != null) {
         targets.addAll(
           _noteDetailSearchTargetsForText(
@@ -1761,6 +1762,8 @@ class _DetailContentItemWidget extends StatelessWidget {
         location: location,
         strings: context.strings,
         width: double.infinity,
+        highlightQuery: highlightQuery,
+        activeSearchMatchStart: activeMatchStart,
       );
     }
     final text = item.text;

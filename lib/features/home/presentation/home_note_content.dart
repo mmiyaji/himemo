@@ -4052,6 +4052,47 @@ class _LocationMemoData {
   final String? address;
 }
 
+List<String> _locationSearchParts(_LocationMemoData? location) {
+  if (location == null) {
+    return const <String>[];
+  }
+  return [
+    if (location.address?.trim().isNotEmpty == true) location.address!.trim(),
+    location.latitude,
+    location.longitude,
+    if (location.accuracy.trim().isNotEmpty && location.accuracy != '-')
+      location.accuracy,
+    location.mapUrl,
+  ];
+}
+
+String? _locationSearchText(_LocationMemoData? location) {
+  final parts = _locationSearchParts(location);
+  if (parts.isEmpty) {
+    return null;
+  }
+  return parts.join('\n');
+}
+
+int? _locationFieldActiveMatchStart(
+  _LocationMemoData location,
+  String field,
+  int? activeMatchStart,
+) {
+  if (activeMatchStart == null || field.isEmpty) {
+    return null;
+  }
+  var offset = 0;
+  for (final part in _locationSearchParts(location)) {
+    final end = offset + part.length;
+    if (part == field && activeMatchStart >= offset && activeMatchStart < end) {
+      return activeMatchStart - offset;
+    }
+    offset = end + 1;
+  }
+  return null;
+}
+
 _LocationMemoData _locationMemoDataFromMetadata(NoteLocation location) {
   final latitude = location.latitude.toStringAsFixed(6);
   final longitude = location.longitude.toStringAsFixed(6);
@@ -4724,11 +4765,15 @@ class _LocationMemoCard extends StatelessWidget {
     required this.location,
     required this.strings,
     this.width,
+    this.highlightQuery = '',
+    this.activeSearchMatchStart,
   });
 
   final _LocationMemoData location;
   final AppStrings strings;
   final double? width;
+  final String highlightQuery;
+  final int? activeSearchMatchStart;
 
   @override
   Widget build(BuildContext context) {
@@ -4736,6 +4781,7 @@ class _LocationMemoCard extends StatelessWidget {
     final scheme = theme.colorScheme;
     final borderColor = theme.dividerColor.withValues(alpha: 0.8);
     final muted = _mutedTextColor(context);
+    final activeSearch = activeSearchMatchStart != null;
 
     return Container(
       width: width,
@@ -4743,7 +4789,10 @@ class _LocationMemoCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: borderColor),
+        border: Border.all(
+          color: activeSearch ? scheme.tertiary : borderColor,
+          width: activeSearch ? 1.5 : 1,
+        ),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -4827,8 +4876,14 @@ class _LocationMemoCard extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 2),
-                            Text(
-                              address,
+                            _HighlightedInlineText(
+                              text: address,
+                              query: highlightQuery,
+                              activeMatchStart: _locationFieldActiveMatchStart(
+                                location,
+                                address,
+                                activeSearchMatchStart,
+                              ),
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 color: scheme.onSurface,
                               ),
@@ -4847,14 +4902,32 @@ class _LocationMemoCard extends StatelessWidget {
                     _LocationValue(
                       label: strings.latitudeLabel,
                       value: location.latitude,
+                      query: highlightQuery,
+                      activeMatchStart: _locationFieldActiveMatchStart(
+                        location,
+                        location.latitude,
+                        activeSearchMatchStart,
+                      ),
                     ),
                     _LocationValue(
                       label: strings.longitudeLabel,
                       value: location.longitude,
+                      query: highlightQuery,
+                      activeMatchStart: _locationFieldActiveMatchStart(
+                        location,
+                        location.longitude,
+                        activeSearchMatchStart,
+                      ),
                     ),
                     _LocationValue(
                       label: strings.locationAccuracyLabel,
                       value: location.accuracy,
+                      query: highlightQuery,
+                      activeMatchStart: _locationFieldActiveMatchStart(
+                        location,
+                        location.accuracy,
+                        activeSearchMatchStart,
+                      ),
                     ),
                   ],
                 ),
@@ -4909,10 +4982,17 @@ class _LocationMemoCard extends StatelessWidget {
 }
 
 class _LocationValue extends StatelessWidget {
-  const _LocationValue({required this.label, required this.value});
+  const _LocationValue({
+    required this.label,
+    required this.value,
+    this.query = '',
+    this.activeMatchStart,
+  });
 
   final String label;
   final String value;
+  final String query;
+  final int? activeMatchStart;
 
   @override
   Widget build(BuildContext context) {
@@ -4924,12 +5004,19 @@ class _LocationValue extends StatelessWidget {
         ),
         children: [
           TextSpan(text: '$label '),
-          TextSpan(
+          ..._highlightTextSpans(
             text: value,
-            style: TextStyle(
+            query: query,
+            baseStyle: TextStyle(
               color: theme.colorScheme.onSurface,
               fontWeight: FontWeight.w600,
             ),
+            highlightStyle: _noteSearchHighlightStyle(context, null),
+            activeHighlightStyle: _noteSearchActiveHighlightStyle(
+              context,
+              null,
+            ),
+            activeMatchStart: activeMatchStart,
           ),
         ],
       ),
