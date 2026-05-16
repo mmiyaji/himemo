@@ -759,6 +759,8 @@ void main() {
     expect(homePage, contains('Tap to show sync progress'));
     expect(homePage, contains('_showHeaderSyncProgressDialog'));
     expect(homePage, contains('showDialog<void>'));
+    expect(homePage, contains('ProviderScope.containerOf(context)'));
+    expect(homePage, contains('UncontrolledProviderScope'));
     expect(homePage, contains('LinearProgressIndicator'));
     expect(homePage, contains('syncTransferControllerProvider'));
     expect(homePage, contains('_syncProgressValueForState'));
