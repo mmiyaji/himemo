@@ -110,19 +110,36 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: TextFormField(
-                  key: const Key('notes-search-input'),
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    labelText: strings.search,
-                    hintText: strings.text(
-                      'home.search.notes.diary.entries.and.attachment.labels',
-                    ),
-                    prefixIcon: const Icon(Icons.search_rounded),
-                    border: const OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  onChanged: _scheduleSearchQuery,
+                child: ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _searchController,
+                  builder: (context, searchValue, _) {
+                    final hasSearchText = searchValue.text.isNotEmpty;
+                    return TextFormField(
+                      key: const Key('notes-search-input'),
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        labelText: strings.search,
+                        hintText: strings.text(
+                          'home.search.notes.diary.entries.and.attachment.labels',
+                        ),
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        suffixIcon: hasSearchText
+                            ? IconButton(
+                                key: const Key('notes-search-clear-button'),
+                                tooltip: strings.localized(
+                                  en: 'Clear search',
+                                  ja: '検索をクリア',
+                                ),
+                                onPressed: _clearSearchQuery,
+                                icon: const Icon(Icons.clear_rounded),
+                              )
+                            : null,
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      onChanged: _scheduleSearchQuery,
+                    );
+                  },
                 ),
               ),
               const SizedBox(width: 8),
@@ -337,6 +354,14 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     }
     _lastAppliedSearchQuery = value;
     ref.read(searchQueryProvider.notifier).setQuery(value);
+  }
+
+  void _clearSearchQuery() {
+    _searchDebounce?.cancel();
+    if (_searchController.text.isNotEmpty) {
+      _searchController.clear();
+    }
+    _applySearchQuery('');
   }
 
   List<Widget> _buildDetailedFilterRows(

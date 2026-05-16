@@ -85,6 +85,15 @@ void main() {
     expect(homePage, contains('height: _attachmentActionBusy ? 56 : 0'));
   });
 
+  test('notes search field keeps an inline clear action', () {
+    final homePage = _homePresentationSource();
+
+    expect(homePage, contains("Key('notes-search-clear-button')"));
+    expect(homePage, contains('Icons.clear_rounded'));
+    expect(homePage, contains('void _clearSearchQuery()'));
+    expect(homePage, contains('_searchController.clear();'));
+  });
+
   test('app lock background privacy cover prevents delayed relock flashes', () {
     final appShell = File('lib/app/app.dart').readAsStringSync();
     final appStrings = File('lib/l10n/app_strings.dart').readAsStringSync();
