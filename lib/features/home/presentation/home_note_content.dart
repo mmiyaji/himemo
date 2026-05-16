@@ -3087,6 +3087,15 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                   onPressed: () => Navigator.of(context).pop(),
                   child: Text(strings.cancel),
                 ),
+                if (widget.note != null)
+                  IconButton(
+                    key: const Key('editor-delete-note-button'),
+                    onPressed: _attachmentActionBusy || _saveBusy
+                        ? null
+                        : _deleteCurrentNote,
+                    tooltip: strings.deleteNote,
+                    icon: const Icon(Icons.delete_outline_rounded),
+                  ),
                 const Spacer(),
                 ValueListenableBuilder<bool>(
                   valueListenable: _canSubmitNotifier,
@@ -3615,6 +3624,26 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         });
         _updateCanSubmit();
       }
+    }
+  }
+
+  Future<void> _deleteCurrentNote() async {
+    final note = widget.note;
+    if (note == null || _saveBusy || _attachmentActionBusy) {
+      return;
+    }
+    final result = await _showDeleteNoteDialog(context, note);
+    if (result == null || !mounted) {
+      return;
+    }
+    final controller = ref.read(notesControllerProvider.notifier);
+    await controller.delete(note.id);
+    if (result.deletePermanently) {
+      await controller.deletePermanently(note.id);
+    }
+    _saved = true;
+    if (mounted) {
+      Navigator.of(context).pop();
     }
   }
 

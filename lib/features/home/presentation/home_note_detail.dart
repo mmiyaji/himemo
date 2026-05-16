@@ -583,8 +583,12 @@ class _NoteDetailPane extends ConsumerStatefulWidget {
 
 class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
   late final TextEditingController _detailSearchController;
+  final ScrollController _detailScrollController = ScrollController();
+  final GlobalKey _detailTitleKey = GlobalKey();
+  final Map<int, GlobalKey> _detailContentItemKeys = <int, GlobalKey>{};
   String _detailSearchQuery = '';
   bool _detailSearchVisible = false;
+  int? _detailSearchTargetIndex;
 
   @override
   void initState() {
@@ -596,6 +600,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
   @override
   void dispose() {
     _detailSearchController.dispose();
+    _detailScrollController.dispose();
     super.dispose();
   }
 
@@ -615,6 +620,65 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
     }
     setState(() {
       _detailSearchQuery = '';
+      _detailSearchTargetIndex = null;
+    });
+  }
+
+  void _setDetailSearchQuery(String value) {
+    setState(() {
+      _detailSearchQuery = value;
+      _detailSearchTargetIndex = null;
+    });
+  }
+
+  GlobalKey _detailContentItemKey(int index) =>
+      _detailContentItemKeys.putIfAbsent(index, GlobalKey.new);
+
+  List<_NoteDetailSearchTarget> _buildDetailSearchTargets({
+    required NoteEntry note,
+    required List<_DetailContentItem> items,
+    required String query,
+  }) {
+    final normalizedQuery = query.trim().toLowerCase();
+    if (normalizedQuery.isEmpty) {
+      return const <_NoteDetailSearchTarget>[];
+    }
+    final targets = <_NoteDetailSearchTarget>[];
+    if (note.title.toLowerCase().contains(normalizedQuery)) {
+      targets.add(_NoteDetailSearchTarget(key: _detailTitleKey));
+    }
+    for (var index = 0; index < items.length; index++) {
+      final text = items[index].text;
+      if (text != null && text.toLowerCase().contains(normalizedQuery)) {
+        targets.add(_NoteDetailSearchTarget(key: _detailContentItemKey(index)));
+      }
+    }
+    return targets;
+  }
+
+  void _jumpDetailSearch(List<_NoteDetailSearchTarget> targets, int delta) {
+    if (targets.isEmpty) {
+      return;
+    }
+    final current = _detailSearchTargetIndex;
+    final next = current == null
+        ? (delta >= 0 ? 0 : targets.length - 1)
+        : (current + delta) % targets.length;
+    final normalizedNext = next < 0 ? targets.length - 1 : next;
+    setState(() {
+      _detailSearchTargetIndex = normalizedNext;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final targetContext = targets[normalizedNext].key.currentContext;
+      if (targetContext == null) {
+        return;
+      }
+      Scrollable.ensureVisible(
+        targetContext,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        alignment: 0.12,
+      );
     });
   }
 
@@ -635,6 +699,16 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
     final highlightQuery = _detailSearchVisible
         ? _detailSearchQuery.trim()
         : listSearchQuery;
+    final detailContentItems = _buildDetailContentItems(note);
+    final detailSearchTargets = _buildDetailSearchTargets(
+      note: note,
+      items: detailContentItems,
+      query: highlightQuery,
+    );
+    final detailSearchTargetIndex = _detailSearchTargetIndex;
+    final detailSearchPositionLabel = detailSearchTargets.isEmpty
+        ? '0 / 0'
+        : '${((detailSearchTargetIndex ?? 0) + 1).clamp(1, detailSearchTargets.length)} / ${detailSearchTargets.length}';
     final createdAt = note.createdAt.toLocal();
     final createdLabel =
         '${createdAt.year}/${createdAt.month}/${createdAt.day} ${createdAt.hour.toString().padLeft(2, '0')}:${createdAt.minute.toString().padLeft(2, '0')}';
@@ -656,6 +730,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
     return Container(
       decoration: _sectionDecoration(context),
       child: CustomScrollView(
+        controller: _detailScrollController,
         slivers: [
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
@@ -771,6 +846,12 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
                       icon: const Icon(Icons.edit_outlined),
                       tooltip: strings.editNote,
                     ),
+                    IconButton(
+                      key: const Key('note-detail-delete-button'),
+                      onPressed: widget.onDelete,
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      tooltip: strings.deleteNote,
+                    ),
                   ],
                 ),
                 if (_detailSearchVisible) ...[
@@ -799,12 +880,45 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
                       isDense: true,
                     ),
                     textInputAction: TextInputAction.search,
-                    onChanged: (value) =>
-                        setState(() => _detailSearchQuery = value),
+                    onChanged: _setDetailSearchQuery,
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      IconButton(
+                        key: const Key('note-detail-search-previous-button'),
+                        onPressed: detailSearchTargets.isEmpty
+                            ? null
+                            : () => _jumpDetailSearch(detailSearchTargets, -1),
+                        tooltip: strings.localized(
+                          en: 'Previous match',
+                          ja: '前の一致へ',
+                        ),
+                        icon: const Icon(Icons.keyboard_arrow_up_rounded),
+                      ),
+                      Text(
+                        detailSearchPositionLabel,
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(color: _mutedTextColor(context)),
+                      ),
+                      IconButton(
+                        key: const Key('note-detail-search-next-button'),
+                        onPressed: detailSearchTargets.isEmpty
+                            ? null
+                            : () => _jumpDetailSearch(detailSearchTargets, 1),
+                        tooltip: strings.localized(
+                          en: 'Next match',
+                          ja: '次の一致へ',
+                        ),
+                        icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                      ),
+                    ],
                   ),
                 ],
                 const SizedBox(height: 8),
                 _HighlightedInlineText(
+                  key: _detailTitleKey,
                   text: note.title,
                   query: highlightQuery,
                   style: Theme.of(context).textTheme.headlineSmall,
@@ -857,6 +971,8 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             sliver: _DetailContentSliver(
               note: note,
+              items: detailContentItems,
+              itemKeys: _detailContentItemKeys,
               mediaActive: widget.isActive,
               highlightQuery: highlightQuery,
             ),
@@ -980,6 +1096,7 @@ class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
 
 class _HighlightedInlineText extends StatelessWidget {
   const _HighlightedInlineText({
+    super.key,
     required this.text,
     required this.query,
     this.style,
@@ -1007,6 +1124,12 @@ class _HighlightedInlineText extends StatelessWidget {
       overflow: TextOverflow.clip,
     );
   }
+}
+
+class _NoteDetailSearchTarget {
+  const _NoteDetailSearchTarget({required this.key});
+
+  final GlobalKey key;
 }
 
 TextStyle _noteSearchHighlightStyle(BuildContext context, TextStyle? style) {
@@ -1153,11 +1276,15 @@ Future<bool> _confirmExternalLinkOpen(BuildContext context, String url) async {
 class _DetailContentSliver extends StatefulWidget {
   const _DetailContentSliver({
     required this.note,
+    required this.items,
+    required this.itemKeys,
     required this.mediaActive,
     required this.highlightQuery,
   });
 
   final NoteEntry note;
+  final List<_DetailContentItem> items;
+  final Map<int, GlobalKey> itemKeys;
   final bool mediaActive;
   final String highlightQuery;
 
@@ -1178,14 +1305,14 @@ class _DetailContentSliverState extends State<_DetailContentSliver> {
   @override
   void didUpdateWidget(covariant _DetailContentSliver oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.note != widget.note) {
+    if (oldWidget.note != widget.note || oldWidget.items != widget.items) {
       _rebuildContentCache();
     }
   }
 
   void _rebuildContentCache() {
     final watch = kDebugMode ? (Stopwatch()..start()) : null;
-    final items = _buildDetailContentItems(widget.note);
+    final items = widget.items;
     final photoAttachments = items
         .map((item) => item.attachment)
         .whereType<NoteAttachment>()
@@ -1206,21 +1333,28 @@ class _DetailContentSliverState extends State<_DetailContentSliver> {
 
   @override
   Widget build(BuildContext context) {
-    return SliverList.builder(
-      itemCount: _items.length,
-      itemBuilder: (context, index) {
-        final item = _items[index];
-        final child = _DetailContentItemWidget(
-          item: item,
-          mediaActive: widget.mediaActive,
-          photoAttachments: _photoAttachments,
-          highlightQuery: widget.highlightQuery,
-        );
-        return Padding(
-          padding: EdgeInsets.only(top: index == 0 ? 0 : 16),
-          child: child,
-        );
-      },
+    return SliverList.list(
+      children: [
+        for (var index = 0; index < _items.length; index++)
+          Builder(
+            builder: (context) {
+              final item = _items[index];
+              final child = _DetailContentItemWidget(
+                item: item,
+                mediaActive: widget.mediaActive,
+                photoAttachments: _photoAttachments,
+                highlightQuery: widget.highlightQuery,
+              );
+              return KeyedSubtree(
+                key: widget.itemKeys[index],
+                child: Padding(
+                  padding: EdgeInsets.only(top: index == 0 ? 0 : 16),
+                  child: child,
+                ),
+              );
+            },
+          ),
+      ],
     );
   }
 }

@@ -99,6 +99,9 @@ void main() {
 
     expect(homePage, contains("Key('note-detail-search-button')"));
     expect(homePage, contains("Key('note-detail-search-input')"));
+    expect(homePage, contains("Key('note-detail-search-previous-button')"));
+    expect(homePage, contains("Key('note-detail-search-next-button')"));
+    expect(homePage, contains('_jumpDetailSearch'));
     expect(
       homePage,
       contains(
@@ -108,7 +111,8 @@ void main() {
     expect(homePage, contains('highlightQuery: highlightQuery'));
     expect(homePage, contains('class _HighlightedInlineText'));
     expect(homePage, contains('List<TextSpan> _highlightTextSpans'));
-    expect(homePage, contains('_NoteDetailAction.delete'));
+    expect(homePage, contains("Key('note-detail-delete-button')"));
+    expect(homePage, contains("Key('editor-delete-note-button')"));
   });
 
   test('app lock background privacy cover prevents delayed relock flashes', () {
