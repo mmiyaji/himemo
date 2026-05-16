@@ -94,6 +94,23 @@ void main() {
     expect(homePage, contains('_searchController.clear();'));
   });
 
+  test('note detail search stays collapsible and highlights list searches', () {
+    final homePage = _homePresentationSource();
+
+    expect(homePage, contains("Key('note-detail-search-button')"));
+    expect(homePage, contains("Key('note-detail-search-input')"));
+    expect(
+      homePage,
+      contains(
+        'final listSearchQuery = ref.watch(searchQueryProvider).trim();',
+      ),
+    );
+    expect(homePage, contains('highlightQuery: highlightQuery'));
+    expect(homePage, contains('class _HighlightedInlineText'));
+    expect(homePage, contains('List<TextSpan> _highlightTextSpans'));
+    expect(homePage, contains('_NoteDetailAction.delete'));
+  });
+
   test('app lock background privacy cover prevents delayed relock flashes', () {
     final appShell = File('lib/app/app.dart').readAsStringSync();
     final appStrings = File('lib/l10n/app_strings.dart').readAsStringSync();

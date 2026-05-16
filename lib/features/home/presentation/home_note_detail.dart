@@ -495,7 +495,7 @@ class _EdgePullDismissHint extends StatelessWidget {
   }
 }
 
-enum _NoteDetailAction { copy, share }
+enum _NoteDetailAction { copy, share, delete }
 
 Future<void> _handleNoteDetailAction(
   BuildContext context,
@@ -528,6 +528,8 @@ Future<void> _handleNoteDetailAction(
       await SharePlus.instance.share(
         ShareParams(text: text, subject: note.title),
       );
+    case _NoteDetailAction.delete:
+      break;
   }
 }
 
@@ -558,7 +560,7 @@ String _shareTextForNote(NoteEntry note) {
   return buffer.toString().trim();
 }
 
-class _NoteDetailPane extends ConsumerWidget {
+class _NoteDetailPane extends ConsumerStatefulWidget {
   const _NoteDetailPane({
     required this.note,
     required this.isActive,
@@ -576,18 +578,63 @@ class _NoteDetailPane extends ConsumerWidget {
   final ValueChanged<String>? onTagTap;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_NoteDetailPane> createState() => _NoteDetailPaneState();
+}
+
+class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
+  late final TextEditingController _detailSearchController;
+  String _detailSearchQuery = '';
+  bool _detailSearchVisible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _detailSearchQuery = ref.read(searchQueryProvider).trim();
+    _detailSearchController = TextEditingController(text: _detailSearchQuery);
+  }
+
+  @override
+  void dispose() {
+    _detailSearchController.dispose();
+    super.dispose();
+  }
+
+  void _toggleDetailSearch(String fallbackQuery) {
+    setState(() {
+      _detailSearchVisible = !_detailSearchVisible;
+      if (_detailSearchVisible && _detailSearchController.text.isEmpty) {
+        _detailSearchQuery = fallbackQuery;
+        _detailSearchController.text = fallbackQuery;
+      }
+    });
+  }
+
+  void _clearDetailSearch() {
+    if (_detailSearchController.text.isNotEmpty) {
+      _detailSearchController.clear();
+    }
+    setState(() {
+      _detailSearchQuery = '';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final strings = context.strings;
     final note = ref.watch(
       notesControllerProvider.select((notes) {
         for (final candidate in notes) {
-          if (candidate.id == this.note.id) {
+          if (candidate.id == widget.note.id) {
             return candidate;
           }
         }
-        return this.note;
+        return widget.note;
       }),
     );
+    final listSearchQuery = ref.watch(searchQueryProvider).trim();
+    final highlightQuery = _detailSearchVisible
+        ? _detailSearchQuery.trim()
+        : listSearchQuery;
     final createdAt = note.createdAt.toLocal();
     final createdLabel =
         '${createdAt.year}/${createdAt.month}/${createdAt.day} ${createdAt.hour.toString().padLeft(2, '0')}:${createdAt.minute.toString().padLeft(2, '0')}';
@@ -618,7 +665,7 @@ class _NoteDetailPane extends ConsumerWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        vaultName,
+                        widget.vaultName,
                         style: Theme.of(context).textTheme.labelLarge?.copyWith(
                           color: _mutedTextColor(context),
                         ),
@@ -644,6 +691,24 @@ class _NoteDetailPane extends ConsumerWidget {
                             )
                           : strings.pinThisNote,
                     ),
+                    IconButton(
+                      key: const Key('note-detail-search-button'),
+                      onPressed: () => _toggleDetailSearch(highlightQuery),
+                      icon: Icon(
+                        _detailSearchVisible
+                            ? Icons.search_off_rounded
+                            : Icons.search_rounded,
+                      ),
+                      tooltip: _detailSearchVisible
+                          ? strings.localized(
+                              en: 'Hide note search',
+                              ja: 'メモ内検索を閉じる',
+                            )
+                          : strings.localized(
+                              en: 'Search in note',
+                              ja: 'メモ内を検索',
+                            ),
+                    ),
                     PopupMenuButton<_NoteDetailAction>(
                       tooltip: strings.localized(
                         en: 'Note actions',
@@ -654,8 +719,13 @@ class _NoteDetailPane extends ConsumerWidget {
                         de: 'Notizaktionen',
                       ),
                       icon: const Icon(Icons.more_horiz_rounded),
-                      onSelected: (action) =>
-                          _handleNoteDetailAction(context, note, action),
+                      onSelected: (action) {
+                        if (action == _NoteDetailAction.delete) {
+                          widget.onDelete?.call();
+                          return;
+                        }
+                        _handleNoteDetailAction(context, note, action);
+                      },
                       itemBuilder: (context) => [
                         PopupMenuItem(
                           value: _NoteDetailAction.copy,
@@ -685,24 +755,58 @@ class _NoteDetailPane extends ConsumerWidget {
                             ),
                           ),
                         ),
+                        if (widget.onDelete != null)
+                          PopupMenuItem(
+                            value: _NoteDetailAction.delete,
+                            child: _MediaMenuEntry(
+                              icon: Icons.delete_outline_rounded,
+                              label: strings.deleteNote,
+                            ),
+                          ),
                       ],
                     ),
                     IconButton(
                       key: const Key('edit-note-button'),
-                      onPressed: onEdit,
+                      onPressed: widget.onEdit,
                       icon: const Icon(Icons.edit_outlined),
                       tooltip: strings.editNote,
                     ),
-                    IconButton(
-                      onPressed: onDelete,
-                      icon: const Icon(Icons.delete_outline_rounded),
-                      tooltip: strings.deleteNote,
-                    ),
                   ],
                 ),
+                if (_detailSearchVisible) ...[
+                  const SizedBox(height: 10),
+                  TextField(
+                    key: const Key('note-detail-search-input'),
+                    controller: _detailSearchController,
+                    decoration: InputDecoration(
+                      labelText: strings.localized(
+                        en: 'Search in this note',
+                        ja: 'このメモ内を検索',
+                      ),
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      suffixIcon: _detailSearchQuery.isNotEmpty
+                          ? IconButton(
+                              key: const Key('note-detail-search-clear-button'),
+                              tooltip: strings.localized(
+                                en: 'Clear note search',
+                                ja: 'メモ内検索をクリア',
+                              ),
+                              onPressed: _clearDetailSearch,
+                              icon: const Icon(Icons.clear_rounded),
+                            )
+                          : null,
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    textInputAction: TextInputAction.search,
+                    onChanged: (value) =>
+                        setState(() => _detailSearchQuery = value),
+                  ),
+                ],
                 const SizedBox(height: 8),
-                Text(
-                  note.title,
+                _HighlightedInlineText(
+                  text: note.title,
+                  query: highlightQuery,
                   style: Theme.of(context).textTheme.headlineSmall,
                 ),
                 const SizedBox(height: 8),
@@ -728,7 +832,9 @@ class _NoteDetailPane extends ConsumerWidget {
                       for (final tag in tags)
                         _NoteTagChip(
                           tag: tag,
-                          onTap: onTagTap == null ? null : () => onTagTap!(tag),
+                          onTap: widget.onTagTap == null
+                              ? null
+                              : () => widget.onTagTap!(tag),
                         ),
                     ],
                   ),
@@ -749,7 +855,11 @@ class _NoteDetailPane extends ConsumerWidget {
           ),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-            sliver: _DetailContentSliver(note: note, mediaActive: isActive),
+            sliver: _DetailContentSliver(
+              note: note,
+              mediaActive: widget.isActive,
+              highlightQuery: highlightQuery,
+            ),
           ),
         ],
       ),
@@ -758,10 +868,11 @@ class _NoteDetailPane extends ConsumerWidget {
 }
 
 class _LinkifiedMemoText extends StatefulWidget {
-  const _LinkifiedMemoText({required this.text, this.style});
+  const _LinkifiedMemoText({required this.text, this.style, this.query = ''});
 
   final String text;
   final TextStyle? style;
+  final String query;
 
   @override
   State<_LinkifiedMemoText> createState() => _LinkifiedMemoTextState();
@@ -803,7 +914,10 @@ class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
   @override
   Widget build(BuildContext context) {
     final style = widget.style;
-    if (_segments.length == 1 && !_segments.single.isLink) {
+    final highlightStyle = _noteSearchHighlightStyle(context, style);
+    if (_segments.length == 1 &&
+        !_segments.single.isLink &&
+        widget.query.trim().isEmpty) {
       return SelectableText(_segments.single.text, style: style);
     }
 
@@ -817,9 +931,11 @@ class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
         style: style,
         children: [
           for (final segment in _segments)
-            TextSpan(
+            ..._highlightTextSpans(
               text: segment.text,
-              style: segment.isLink ? linkStyle : null,
+              query: widget.query,
+              baseStyle: segment.isLink ? linkStyle : null,
+              highlightStyle: highlightStyle,
               recognizer: segment.recognizer,
             ),
         ],
@@ -860,6 +976,92 @@ class _LinkifiedMemoTextState extends State<_LinkifiedMemoText> {
     }
     return segments;
   }
+}
+
+class _HighlightedInlineText extends StatelessWidget {
+  const _HighlightedInlineText({
+    required this.text,
+    required this.query,
+    this.style,
+  });
+
+  final String text;
+  final String query;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedQuery = query.trim();
+    if (normalizedQuery.isEmpty) {
+      return Text(text, style: style);
+    }
+    return Text.rich(
+      TextSpan(
+        style: style,
+        children: _highlightTextSpans(
+          text: text,
+          query: normalizedQuery,
+          highlightStyle: _noteSearchHighlightStyle(context, style),
+        ),
+      ),
+      overflow: TextOverflow.clip,
+    );
+  }
+}
+
+TextStyle _noteSearchHighlightStyle(BuildContext context, TextStyle? style) {
+  final colorScheme = Theme.of(context).colorScheme;
+  return (style ?? const TextStyle()).copyWith(
+    backgroundColor: colorScheme.primary.withValues(alpha: 0.18),
+    color: colorScheme.onSurface,
+  );
+}
+
+List<TextSpan> _highlightTextSpans({
+  required String text,
+  required String query,
+  TextStyle? baseStyle,
+  required TextStyle highlightStyle,
+  TapGestureRecognizer? recognizer,
+}) {
+  final normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery.isEmpty || text.isEmpty) {
+    return [TextSpan(text: text, style: baseStyle, recognizer: recognizer)];
+  }
+  final lower = text.toLowerCase();
+  final spans = <TextSpan>[];
+  var cursor = 0;
+  while (cursor < text.length) {
+    final matchIndex = lower.indexOf(normalizedQuery, cursor);
+    if (matchIndex == -1) {
+      spans.add(
+        TextSpan(
+          text: text.substring(cursor),
+          style: baseStyle,
+          recognizer: recognizer,
+        ),
+      );
+      break;
+    }
+    if (matchIndex > cursor) {
+      spans.add(
+        TextSpan(
+          text: text.substring(cursor, matchIndex),
+          style: baseStyle,
+          recognizer: recognizer,
+        ),
+      );
+    }
+    spans.add(
+      TextSpan(
+        text: text.substring(matchIndex, matchIndex + normalizedQuery.length),
+        style: highlightStyle.merge(baseStyle),
+        recognizer: recognizer,
+      ),
+    );
+    cursor = matchIndex + normalizedQuery.length;
+  }
+  return spans;
 }
 
 class _MemoTextSegment {
@@ -949,10 +1151,15 @@ Future<bool> _confirmExternalLinkOpen(BuildContext context, String url) async {
 }
 
 class _DetailContentSliver extends StatefulWidget {
-  const _DetailContentSliver({required this.note, required this.mediaActive});
+  const _DetailContentSliver({
+    required this.note,
+    required this.mediaActive,
+    required this.highlightQuery,
+  });
 
   final NoteEntry note;
   final bool mediaActive;
+  final String highlightQuery;
 
   @override
   State<_DetailContentSliver> createState() => _DetailContentSliverState();
@@ -1007,6 +1214,7 @@ class _DetailContentSliverState extends State<_DetailContentSliver> {
           item: item,
           mediaActive: widget.mediaActive,
           photoAttachments: _photoAttachments,
+          highlightQuery: widget.highlightQuery,
         );
         return Padding(
           padding: EdgeInsets.only(top: index == 0 ? 0 : 16),
@@ -1022,11 +1230,13 @@ class _DetailContentItemWidget extends StatelessWidget {
     required this.item,
     required this.mediaActive,
     required this.photoAttachments,
+    required this.highlightQuery,
   });
 
   final _DetailContentItem item;
   final bool mediaActive;
   final List<NoteAttachment> photoAttachments;
+  final String highlightQuery;
 
   @override
   Widget build(BuildContext context) {
@@ -1042,6 +1252,7 @@ class _DetailContentItemWidget extends StatelessWidget {
     if (text != null) {
       return _LinkifiedMemoText(
         text: text,
+        query: highlightQuery,
         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
           color: Theme.of(context).colorScheme.onSurface,
         ),
