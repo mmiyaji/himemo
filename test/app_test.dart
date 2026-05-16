@@ -2064,6 +2064,19 @@ void main() {
     expect(suggestions, ['買い物', '家族']);
   });
 
+  test('native tag suggestions reject code fence fragments', () {
+    final suggestions = sanitizeSuggestedTags(const [
+      '```json',
+      '``` json',
+      '```JSON\n["travel", "family"]\n```',
+      'tags: work\n```',
+    ]);
+
+    expect(suggestions, ['travel', 'family', 'work']);
+    expect(suggestions, isNot(contains('```json')));
+    expect(suggestions, isNot(contains('``` json')));
+  });
+
   test('search filters can partition notes by year', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();

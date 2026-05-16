@@ -9849,12 +9849,13 @@ List<String> sanitizeSuggestedTags(
   final expanded = <String>[];
   for (final raw in values) {
     var value = raw
-        .replaceAll(RegExp(r'```(?:json)?', caseSensitive: false), '')
-        .replaceAll('```', '')
+        .replaceAll(RegExp(r'```\s*json', caseSensitive: false), '')
+        .replaceAll(RegExp(r'```+'), '')
         .replaceAll('[', '')
         .replaceAll(']', '')
         .replaceAll('"', '')
         .replaceAll("'", '')
+        .replaceAll(RegExp(r'[\n\r，、]'), ',')
         .trim();
     if (value.contains(':')) {
       final parts = value.split(':');
@@ -9881,6 +9882,8 @@ List<String> sanitizeSuggestedTags(
         key.isEmpty ||
         existingKeys.contains(key) ||
         rejectedKeys.contains(key) ||
+        normalized.contains('```') ||
+        key.contains('```') ||
         normalized.startsWith('{') ||
         normalized.endsWith('}') ||
         !seen.add(key)) {
