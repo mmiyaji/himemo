@@ -495,7 +495,7 @@ class _EdgePullDismissHint extends StatelessWidget {
   }
 }
 
-enum _NoteDetailAction { copy, share, delete }
+enum _NoteDetailAction { copy, share }
 
 Future<void> _handleNoteDetailAction(
   BuildContext context,
@@ -528,8 +528,6 @@ Future<void> _handleNoteDetailAction(
       await SharePlus.instance.share(
         ShareParams(text: text, subject: note.title),
       );
-    case _NoteDetailAction.delete:
-      break;
   }
 }
 
@@ -1026,13 +1024,8 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
                             de: 'Notizaktionen',
                           ),
                           icon: const Icon(Icons.more_horiz_rounded),
-                          onSelected: (action) {
-                            if (action == _NoteDetailAction.delete) {
-                              widget.onDelete?.call();
-                              return;
-                            }
-                            _handleNoteDetailAction(context, note, action);
-                          },
+                          onSelected: (action) =>
+                              _handleNoteDetailAction(context, note, action),
                           itemBuilder: (context) => [
                             PopupMenuItem(
                               value: _NoteDetailAction.copy,
@@ -1062,14 +1055,6 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
                                 ),
                               ),
                             ),
-                            if (widget.onDelete != null)
-                              PopupMenuItem(
-                                value: _NoteDetailAction.delete,
-                                child: _MediaMenuEntry(
-                                  icon: Icons.delete_outline_rounded,
-                                  label: strings.deleteNote,
-                                ),
-                              ),
                           ],
                         ),
                         IconButton(

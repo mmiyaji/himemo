@@ -145,6 +145,7 @@ void main() {
     expect(homePage, contains('class _HighlightedInlineText'));
     expect(homePage, contains('List<TextSpan> _highlightTextSpans'));
     expect(homePage, contains("Key('note-detail-delete-button')"));
+    expect(homePage, isNot(contains('_NoteDetailAction.delete')));
     expect(homePage, contains("Key('editor-delete-note-button')"));
   });
 
