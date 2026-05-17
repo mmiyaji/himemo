@@ -1413,6 +1413,24 @@ String _formatDateTime(DateTime value, AppStrings strings) {
   return '$year/$month/$day $hour:$minute $zone';
 }
 
+String _displayNoteTag(BuildContext context, String tag) {
+  final strings = context.strings;
+  if (isSystemSyncExclusionTag(tag)) {
+    return strings.localized(
+      en: 'Local only',
+      ja: '\u3053\u306e\u7aef\u672b\u306e\u307f',
+      zh: '\u4ec5\u6b64\u8bbe\u5907',
+      ko: '\uc774 \uae30\uae30\uc5d0\ub9cc',
+      es: 'Solo este dispositivo',
+      de: 'Nur dieses Geraet',
+    );
+  }
+  return tag;
+}
+
+String _displayNoteTagWithHash(BuildContext context, String tag) =>
+    '#${_displayNoteTag(context, tag)}';
+
 Future<String?> _showPinSetupDialog(
   BuildContext context, {
   required String title,

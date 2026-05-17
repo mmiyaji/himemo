@@ -503,7 +503,7 @@ Future<void> _handleNoteDetailAction(
   NoteEntry note,
   _NoteDetailAction action,
 ) async {
-  final text = _shareTextForNote(note);
+  final text = _shareTextForNote(context, note);
   switch (action) {
     case _NoteDetailAction.copy:
       await Clipboard.setData(ClipboardData(text: text));
@@ -592,7 +592,7 @@ Future<void> _setNoteSyncExclusionTag(
   );
 }
 
-String _shareTextForNote(NoteEntry note) {
+String _shareTextForNote(BuildContext context, NoteEntry note) {
   final buffer = StringBuffer(note.title.trim());
   final body = note.body.trim();
   if (body.isNotEmpty && body != note.title.trim()) {
@@ -604,7 +604,9 @@ String _shareTextForNote(NoteEntry note) {
   if (note.tags.isNotEmpty) {
     buffer
       ..writeln()
-      ..writeln(note.tags.map((tag) => '#$tag').join(' '));
+      ..writeln(
+        note.tags.map((tag) => _displayNoteTagWithHash(context, tag)).join(' '),
+      );
   }
   if (note.location != null) {
     final location = note.location!;

@@ -5086,7 +5086,7 @@ class _SyncExclusionTagsTile extends StatelessWidget {
                   avatar: isSystemSyncExclusionTag(tag)
                       ? const Icon(Icons.lock_outline_rounded, size: 18)
                       : null,
-                  label: Text('#$tag'),
+                  label: Text(_displayNoteTagWithHash(context, tag)),
                   tooltip: isSystemSyncExclusionTag(tag)
                       ? strings.localized(
                           en: 'Built-in tag. It cannot be removed.',

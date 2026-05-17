@@ -750,7 +750,9 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                           children: [
                             for (final tag in filters.tags)
                               InputChip(
-                                label: Text('#$tag'),
+                                label: Text(
+                                  _displayNoteTagWithHash(context, tag),
+                                ),
                                 onDeleted: () => notifier.removeTag(tag),
                               ),
                           ],
@@ -1025,7 +1027,7 @@ class _QuickTagChip extends StatelessWidget {
       height: 1.25,
     );
     return Tooltip(
-      message: '#${summary.name}',
+      message: _displayNoteTagWithHash(context, summary.name),
       child: Material(
         color: selected
             ? colorScheme.primaryContainer
@@ -1053,7 +1055,7 @@ class _QuickTagChip extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  '${summary.name} (${summary.count})',
+                  '${_displayNoteTag(context, summary.name)} (${summary.count})',
                   maxLines: 1,
                   overflow: TextOverflow.visible,
                   softWrap: false,
@@ -1262,7 +1264,7 @@ class _NoteTagChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = '#$tag';
+    final label = _displayNoteTagWithHash(context, tag);
     final chipLabel = Text(
       label,
       style: Theme.of(context).textTheme.labelSmall,
@@ -2897,7 +2899,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                             children: [
                               for (final tag in _tags)
                                 InputChip(
-                                  label: Text('#$tag'),
+                                  label: Text(
+                                    _displayNoteTagWithHash(context, tag),
+                                  ),
                                   onDeleted: () {
                                     setState(() {
                                       _tags = _tags

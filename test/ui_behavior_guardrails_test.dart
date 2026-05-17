@@ -156,6 +156,8 @@ void main() {
     expect(homePage, contains('_NoteDetailAction.addSyncExclusion'));
     expect(homePage, contains('_NoteDetailAction.removeSyncExclusion'));
     expect(homePage, contains('systemSyncExcludedTag'));
+    expect(homePage, contains('String _displayNoteTag'));
+    expect(homePage, contains('_displayNoteTagWithHash(context, tag)'));
     expect(homePage, contains("Key('editor-delete-note-button')"));
   });
 
