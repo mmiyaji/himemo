@@ -753,6 +753,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                                 label: Text(
                                   _displayNoteTagWithHash(context, tag),
                                 ),
+                                onPressed: () {},
                                 onDeleted: () => notifier.removeTag(tag),
                               ),
                           ],
@@ -2902,6 +2903,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                   label: Text(
                                     _displayNoteTagWithHash(context, tag),
                                   ),
+                                  onPressed: () {},
                                   onDeleted: () {
                                     setState(() {
                                       _tags = _tags

@@ -5097,6 +5097,7 @@ class _SyncExclusionTagsTile extends StatelessWidget {
                           de: 'Integrierter Tag. Er kann nicht entfernt werden.',
                         )
                       : null,
+                  onPressed: isSystemSyncExclusionTag(tag) ? null : () {},
                   onDeleted: isSystemSyncExclusionTag(tag)
                       ? null
                       : () => onRemove(tag),
