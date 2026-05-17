@@ -2273,6 +2273,21 @@ void main() {
 
     final snapshot = await controller.notesForSyncSnapshot();
     expect(snapshot.map((note) => note.id), ['regular-note']);
+
+    await controller.upsert(
+      notes
+          .singleWhere((note) => note.id == 'excluded-note')
+          .copyWith(tags: const <String>[]),
+    );
+    final restoredNote = container
+        .read(notesControllerProvider)
+        .singleWhere((note) => note.id == 'excluded-note');
+    expect(restoredNote.syncState, NoteSyncState.pendingUpload);
+    final restoredSnapshot = await controller.notesForSyncSnapshot();
+    expect(
+      restoredSnapshot.map((note) => note.id),
+      containsAll(['excluded-note', 'regular-note']),
+    );
   });
 
   test('search filters can partition notes by year', () async {

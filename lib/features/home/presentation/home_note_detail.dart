@@ -495,10 +495,11 @@ class _EdgePullDismissHint extends StatelessWidget {
   }
 }
 
-enum _NoteDetailAction { copy, share }
+enum _NoteDetailAction { copy, share, addSyncExclusion, removeSyncExclusion }
 
 Future<void> _handleNoteDetailAction(
   BuildContext context,
+  WidgetRef ref,
   NoteEntry note,
   _NoteDetailAction action,
 ) async {
@@ -528,7 +529,67 @@ Future<void> _handleNoteDetailAction(
       await SharePlus.instance.share(
         ShareParams(text: text, subject: note.title),
       );
+    case _NoteDetailAction.addSyncExclusion:
+      await _setNoteSyncExclusionTag(context, ref, note, excluded: true);
+    case _NoteDetailAction.removeSyncExclusion:
+      await _setNoteSyncExclusionTag(context, ref, note, excluded: false);
   }
+}
+
+Future<void> _setNoteSyncExclusionTag(
+  BuildContext context,
+  WidgetRef ref,
+  NoteEntry note, {
+  required bool excluded,
+}) async {
+  final nextTags = excluded
+      ? dedupeNoteTags([...note.tags, systemSyncExcludedTag])
+      : dedupeNoteTags(
+          note.tags.where((tag) => !isSystemSyncExclusionTag(tag)),
+        );
+  final currentTagKeys = {
+    for (final tag in note.normalizedTags) canonicalizeNoteTag(tag),
+  };
+  final nextTagKeys = {for (final tag in nextTags) canonicalizeNoteTag(tag)};
+  final sameTags =
+      currentTagKeys.length == nextTagKeys.length &&
+      currentTagKeys.containsAll(nextTagKeys);
+  if (sameTags) {
+    return;
+  }
+  await ref
+      .read(notesControllerProvider.notifier)
+      .upsert(note.copyWith(tags: nextTags));
+  if (!context.mounted) {
+    return;
+  }
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      showCloseIcon: true,
+      content: Text(
+        context.strings.localized(
+          en: excluded
+              ? 'This note will stay off cloud sync.'
+              : 'This note can sync again.',
+          ja: excluded
+              ? '\u3053\u306e\u30e1\u30e2\u3092\u540c\u671f\u5bfe\u8c61\u5916\u306b\u3057\u307e\u3057\u305f\u3002'
+              : '\u3053\u306e\u30e1\u30e2\u3092\u540c\u671f\u5bfe\u8c61\u306b\u623b\u3057\u307e\u3057\u305f\u3002',
+          zh: excluded
+              ? '\u6b64\u7b14\u8bb0\u5c06\u4e0d\u53c2\u4e0e\u4e91\u540c\u6b65\u3002'
+              : '\u6b64\u7b14\u8bb0\u53ef\u4ee5\u518d\u6b21\u540c\u6b65\u3002',
+          ko: excluded
+              ? '\uc774 \uba54\ubaa8\ub294 \ud074\ub77c\uc6b0\ub4dc \ub3d9\uae30\ud654\uc5d0\uc11c \uc81c\uc678\ub429\ub2c8\ub2e4.'
+              : '\uc774 \uba54\ubaa8\ub97c \ub2e4\uc2dc \ub3d9\uae30\ud654\ud560 \uc218 \uc788\uc2b5\ub2c8\ub2e4.',
+          es: excluded
+              ? 'Esta nota queda fuera de la sincronizacion en la nube.'
+              : 'Esta nota puede volver a sincronizarse.',
+          de: excluded
+              ? 'Diese Notiz bleibt von der Cloud-Synchronisierung ausgenommen.'
+              : 'Diese Notiz kann wieder synchronisiert werden.',
+        ),
+      ),
+    ),
+  );
 }
 
 String _shareTextForNote(NoteEntry note) {
@@ -1017,6 +1078,7 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
         '${changedAt.year}/${changedAt.month}/${changedAt.day} ${changedAt.hour.toString().padLeft(2, '0')}:${changedAt.minute.toString().padLeft(2, '0')}';
     final isEdited = note.updatedAt != null && note.updatedAt != note.createdAt;
     final tags = note.normalizedTags;
+    final hasSystemSyncExclusionTag = tags.any(isSystemSyncExclusionTag);
     final buildWatch = kDebugMode ? (Stopwatch()..start()) : null;
     if (buildWatch != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1095,8 +1157,12 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
                             de: 'Notizaktionen',
                           ),
                           icon: const Icon(Icons.more_horiz_rounded),
-                          onSelected: (action) =>
-                              _handleNoteDetailAction(context, note, action),
+                          onSelected: (action) => _handleNoteDetailAction(
+                            context,
+                            ref,
+                            note,
+                            action,
+                          ),
                           itemBuilder: (context) => [
                             PopupMenuItem(
                               value: _NoteDetailAction.copy,
@@ -1124,6 +1190,33 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
                                   es: 'Compartir',
                                   de: 'Teilen',
                                 ),
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: hasSystemSyncExclusionTag
+                                  ? _NoteDetailAction.removeSyncExclusion
+                                  : _NoteDetailAction.addSyncExclusion,
+                              child: _MediaMenuEntry(
+                                icon: hasSystemSyncExclusionTag
+                                    ? Icons.sync_rounded
+                                    : Icons.sync_disabled_rounded,
+                                label: hasSystemSyncExclusionTag
+                                    ? strings.localized(
+                                        en: 'Allow cloud sync',
+                                        ja: '\u540c\u671f\u5bfe\u8c61\u306b\u623b\u3059',
+                                        zh: '\u5141\u8bb8\u4e91\u540c\u6b65',
+                                        ko: '\ud074\ub77c\uc6b0\ub4dc \ub3d9\uae30\ud654 \ud5c8\uc6a9',
+                                        es: 'Permitir sincronizacion',
+                                        de: 'Cloud-Sync erlauben',
+                                      )
+                                    : strings.localized(
+                                        en: 'Exclude from cloud sync',
+                                        ja: '\u540c\u671f\u5bfe\u8c61\u5916\u306b\u3059\u308b',
+                                        zh: '\u4ece\u4e91\u540c\u6b65\u4e2d\u6392\u9664',
+                                        ko: '\ud074\ub77c\uc6b0\ub4dc \ub3d9\uae30\ud654\uc5d0\uc11c \uc81c\uc678',
+                                        es: 'Excluir de sincronizacion',
+                                        de: 'Vom Cloud-Sync ausschliessen',
+                                      ),
                               ),
                             ),
                           ],

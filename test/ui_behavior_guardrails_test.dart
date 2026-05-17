@@ -153,6 +153,9 @@ void main() {
     expect(homePage, contains('List<TextSpan> _highlightTextSpans'));
     expect(homePage, contains("Key('note-detail-delete-button')"));
     expect(homePage, isNot(contains('_NoteDetailAction.delete')));
+    expect(homePage, contains('_NoteDetailAction.addSyncExclusion'));
+    expect(homePage, contains('_NoteDetailAction.removeSyncExclusion'));
+    expect(homePage, contains('systemSyncExcludedTag'));
     expect(homePage, contains("Key('editor-delete-note-button')"));
   });
 
