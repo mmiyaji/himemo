@@ -2836,9 +2836,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   Future<int> estimateCurrentStateUploadBytes() async {
+    final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
     final notes = ref
         .read(notesControllerProvider)
-        .where((note) => !isGeneratedSampleNote(note))
+        .where(
+          (note) =>
+              !isGeneratedSampleNote(note) &&
+              !noteExcludedFromSync(note, syncExclusionTags),
+        )
         .map((note) {
           final syncState = note.deletedAt == null
               ? NoteSyncState.pendingUpload
@@ -3252,24 +3257,39 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           .read(notesControllerProvider.notifier)
           .notesForSyncSnapshot(pendingNoteIds: pendingIds);
       final uploadableNoteIds = notes.map((note) => note.id).toSet();
-      final stalePendingUpsertIds = pendingChanges
+      final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
+      final currentNotesById = {
+        for (final note in ref.read(notesControllerProvider)) note.id: note,
+      };
+      final excludedPendingIds = pendingChanges
+          .where((change) {
+            if (uploadableNoteIds.contains(change.noteId)) {
+              return false;
+            }
+            final note = currentNotesById[change.noteId];
+            return note != null &&
+                noteExcludedFromSync(note, syncExclusionTags);
+          })
+          .map((change) => change.noteId);
+      final stalePendingChangeIds = pendingChanges
           .where(
             (change) =>
                 change.action == PendingNoteChangeAction.upsert &&
                 !uploadableNoteIds.contains(change.noteId),
           )
           .map((change) => change.noteId)
+          .followedBy(excludedPendingIds)
           .toSet();
-      if (stalePendingUpsertIds.isNotEmpty) {
+      if (stalePendingChangeIds.isNotEmpty) {
         _diagnostic(
-          'stale pending upserts pruned before upload',
-          data: {'count': stalePendingUpsertIds.length},
+          'stale pending changes pruned before upload',
+          data: {'count': stalePendingChangeIds.length},
         );
         await ref
             .read(encryptedNoteDatabaseProvider)
-            .deletePendingChangesByIds(stalePendingUpsertIds);
+            .deletePendingChangesByIds(stalePendingChangeIds);
         pendingChanges = pendingChanges
-            .where((change) => !stalePendingUpsertIds.contains(change.noteId))
+            .where((change) => !stalePendingChangeIds.contains(change.noteId))
             .toList(growable: false);
       }
       final pendingHashes = {
@@ -7520,6 +7540,96 @@ class NoteEditorDraftStore {
   }
 }
 
+const systemSyncExcludedTag = 'sync:excluded';
+
+final syncExclusionTagsControllerProvider =
+    NotifierProvider<SyncExclusionTagsController, List<String>>(
+      SyncExclusionTagsController.new,
+    );
+
+class SyncExclusionTagsController extends Notifier<List<String>> {
+  static const _storageKey = 'settings.sync_exclusion_tags.v1';
+  bool _restored = false;
+
+  @override
+  List<String> build() {
+    if (!_restored) {
+      _restored = true;
+      unawaited(_restore());
+    }
+    return const <String>[systemSyncExcludedTag];
+  }
+
+  Future<void> addTag(String rawTag) async {
+    final next = _normalizeSyncExclusionTags([...state, rawTag]);
+    if (_sameTagList(state, next)) {
+      return;
+    }
+    state = next;
+    await _persist();
+  }
+
+  Future<void> removeTag(String rawTag) async {
+    final key = canonicalizeNoteTag(rawTag);
+    if (key.isEmpty || key == canonicalizeNoteTag(systemSyncExcludedTag)) {
+      return;
+    }
+    final next = _normalizeSyncExclusionTags(
+      state.where((tag) => canonicalizeNoteTag(tag) != key),
+    );
+    if (_sameTagList(state, next)) {
+      return;
+    }
+    state = next;
+    await _persist();
+  }
+
+  Future<void> _restore() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = _normalizeSyncExclusionTags([
+      ...?prefs.getStringList(_storageKey),
+      ...state,
+    ]);
+    await _persist();
+  }
+
+  Future<void> _persist() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_storageKey, state);
+  }
+}
+
+List<String> _normalizeSyncExclusionTags(Iterable<String> tags) {
+  final normalized = dedupeNoteTags([systemSyncExcludedTag, ...tags]);
+  return List.unmodifiable(normalized);
+}
+
+bool _sameTagList(List<String> left, List<String> right) {
+  if (left.length != right.length) {
+    return false;
+  }
+  for (var i = 0; i < left.length; i++) {
+    if (canonicalizeNoteTag(left[i]) != canonicalizeNoteTag(right[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool isSystemSyncExclusionTag(String tag) =>
+    canonicalizeNoteTag(tag) == canonicalizeNoteTag(systemSyncExcludedTag);
+
+bool noteExcludedFromSync(NoteEntry note, Iterable<String> exclusionTags) {
+  final excluded = {for (final tag in exclusionTags) canonicalizeNoteTag(tag)}
+    ..remove('');
+  if (excluded.isEmpty) {
+    return false;
+  }
+  return note.normalizedTags.any(
+    (tag) => excluded.contains(canonicalizeNoteTag(tag)),
+  );
+}
+
 @Riverpod(keepAlive: true)
 class NotesListDensityController extends _$NotesListDensityController {
   static const _storageKey = 'notes.list_density';
@@ -7808,7 +7918,7 @@ class NotesController extends _$NotesController {
           deletedAt: now,
           updatedAt: now,
           revision: note.revision + 1,
-          syncState: NoteSyncState.pendingDelete,
+          syncState: _syncStateForLocalChange(note, deleted: true),
         );
         final prepared = tombstone.copyWith(
           contentHash: _computeContentHash(tombstone),
@@ -7848,7 +7958,7 @@ class NotesController extends _$NotesController {
         deletedAt: null,
         updatedAt: now,
         revision: note.revision + 1,
-        syncState: NoteSyncState.pendingUpload,
+        syncState: _syncStateForLocalChange(note, deleted: false),
       );
       final prepared = await _protectAttachmentsForVault(restored);
       final withHash = prepared.copyWith(
@@ -7918,7 +8028,7 @@ class NotesController extends _$NotesController {
         isPinned: !note.isPinned,
         updatedAt: now,
         revision: note.revision + 1,
-        syncState: NoteSyncState.pendingUpload,
+        syncState: _syncStateForLocalChange(note, deleted: false),
       );
       final prepared = changed.copyWith(
         contentHash: _computeContentHash(changed),
@@ -7963,7 +8073,7 @@ class NotesController extends _$NotesController {
         archivedAt: now,
         updatedAt: now,
         revision: note.revision + 1,
-        syncState: NoteSyncState.pendingUpload,
+        syncState: _syncStateForLocalChange(note, deleted: false),
       );
       next.add(archived.copyWith(contentHash: _computeContentHash(archived)));
       changed++;
@@ -7993,7 +8103,7 @@ class NotesController extends _$NotesController {
         archivedAt: null,
         updatedAt: now,
         revision: note.revision + 1,
-        syncState: NoteSyncState.pendingUpload,
+        syncState: _syncStateForLocalChange(note, deleted: false),
       );
       next.add(restored.copyWith(contentHash: _computeContentHash(restored)));
       changed++;
@@ -8022,7 +8132,7 @@ class NotesController extends _$NotesController {
         archivedAt: archived ? now : null,
         updatedAt: now,
         revision: note.revision + 1,
-        syncState: NoteSyncState.pendingUpload,
+        syncState: _syncStateForLocalChange(note, deleted: false),
       );
       final prepared = changed.copyWith(
         contentHash: _computeContentHash(changed),
@@ -8312,8 +8422,18 @@ class NotesController extends _$NotesController {
   Future<void> replaceFromSync(List<NoteEntry> notes) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
+    final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
+    final retainedLocalNotes = [
+      for (final note in state)
+        if (noteExcludedFromSync(note, syncExclusionTags)) note,
+    ];
+    final incomingNotes = [
+      for (final note in notes)
+        if (!noteExcludedFromSync(note, syncExclusionTags)) note,
+    ];
     final incomingPaths = {
-      for (final note in notes) ..._attachmentFilePathsIn(note),
+      for (final note in incomingNotes) ..._attachmentFilePathsIn(note),
+      for (final note in retainedLocalNotes) ..._attachmentFilePathsIn(note),
     };
     final removedAttachments = [
       for (final existing in state)
@@ -8323,7 +8443,12 @@ class NotesController extends _$NotesController {
             attachment,
     ];
     await _deleteAttachments(removedAttachments);
-    final next = [...notes];
+    final incomingIds = incomingNotes.map((note) => note.id).toSet();
+    final next = [
+      ...incomingNotes,
+      for (final note in retainedLocalNotes)
+        if (!incomingIds.contains(note.id)) note,
+    ];
     _sort(next);
     state = next;
     await _persist();
@@ -8335,6 +8460,7 @@ class NotesController extends _$NotesController {
     if (changes.isEmpty) {
       return;
     }
+    final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
     final next = [...state];
     final removedAttachments = <NoteAttachment>[];
 
@@ -8342,6 +8468,11 @@ class NotesController extends _$NotesController {
       final incoming = change.note.copyWith(syncState: NoteSyncState.synced);
       final index = next.indexWhere((note) => note.id == incoming.id);
       final current = index == -1 ? null : next[index];
+      if ((current != null &&
+              noteExcludedFromSync(current, syncExclusionTags)) ||
+          noteExcludedFromSync(incoming, syncExclusionTags)) {
+        continue;
+      }
       final shouldDelete = change.action == PendingNoteChangeAction.delete;
 
       if (current != null && _hasUnuploadedLocalChange(current)) {
@@ -8555,7 +8686,10 @@ class NotesController extends _$NotesController {
   }) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
-    bool canUpload(NoteEntry note) => !_isLockedPrivatePlaceholder(note);
+    final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
+    bool canUpload(NoteEntry note) =>
+        !_isLockedPrivatePlaceholder(note) &&
+        !noteExcludedFromSync(note, syncExclusionTags);
     if (pendingNoteIds == null) {
       return List<NoteEntry>.unmodifiable(state.where(canUpload));
     }
@@ -8569,10 +8703,13 @@ class NotesController extends _$NotesController {
   Future<void> queueCurrentStateForSync() async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
+    final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
     var changed = false;
     final next = <NoteEntry>[];
     for (final note in state) {
-      if (_isLockedPrivatePlaceholder(note) || isGeneratedSampleNote(note)) {
+      if (_isLockedPrivatePlaceholder(note) ||
+          isGeneratedSampleNote(note) ||
+          noteExcludedFromSync(note, syncExclusionTags)) {
         next.add(note);
         continue;
       }
@@ -9030,10 +9167,21 @@ class NotesController extends _$NotesController {
       deletedAt: null,
       deviceId: deviceId,
       revision: previous == null ? note.revision : previous.revision + 1,
-      syncState: NoteSyncState.pendingUpload,
+      syncState: _syncStateForLocalChange(note, deleted: false),
     );
     final protected = await _protectAttachmentsForVault(normalized);
     return protected.copyWith(contentHash: _computeContentHash(protected));
+  }
+
+  NoteSyncState _syncStateForLocalChange(
+    NoteEntry note, {
+    required bool deleted,
+  }) {
+    final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
+    if (noteExcludedFromSync(note, syncExclusionTags)) {
+      return NoteSyncState.localOnly;
+    }
+    return deleted ? NoteSyncState.pendingDelete : NoteSyncState.pendingUpload;
   }
 
   Future<NoteEntry> _protectAttachmentsForVault(NoteEntry note) async {

@@ -2189,6 +2189,92 @@ void main() {
     expect(suggestions, isNot(contains('``` json')));
   });
 
+  test('sync exclusion tags always keep the built-in system tag', () async {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    expect(container.read(syncExclusionTagsControllerProvider), [
+      systemSyncExcludedTag,
+    ]);
+
+    await container
+        .read(syncExclusionTagsControllerProvider.notifier)
+        .addTag(' Local Only ');
+    await container
+        .read(syncExclusionTagsControllerProvider.notifier)
+        .removeTag(systemSyncExcludedTag);
+
+    expect(container.read(syncExclusionTagsControllerProvider), [
+      systemSyncExcludedTag,
+      'Local Only',
+    ]);
+  });
+
+  test('notes with sync exclusion tags are omitted from snapshots', () async {
+    SharedPreferences.setMockInitialValues({});
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(71));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    final controller = container.read(notesControllerProvider.notifier);
+    await controller.restoreCompleted;
+    await controller.upsert(
+      NoteEntry(
+        id: 'excluded-note',
+        vaultId: 'everyday',
+        title: 'Local private draft',
+        body: 'This note must not enter cloud sync.',
+        createdAt: DateTime.utc(2026, 5, 17),
+        tags: const [systemSyncExcludedTag],
+      ),
+    );
+    await controller.upsert(
+      NoteEntry(
+        id: 'regular-note',
+        vaultId: 'everyday',
+        title: 'Regular note',
+        body: 'This note can sync.',
+        createdAt: DateTime.utc(2026, 5, 17, 1),
+      ),
+    );
+
+    final notes = container.read(notesControllerProvider);
+    expect(
+      notes.singleWhere((note) => note.id == 'excluded-note').syncState,
+      NoteSyncState.localOnly,
+    );
+    expect(
+      notes.singleWhere((note) => note.id == 'regular-note').syncState,
+      NoteSyncState.pendingUpload,
+    );
+
+    final snapshot = await controller.notesForSyncSnapshot();
+    expect(snapshot.map((note) => note.id), ['regular-note']);
+  });
+
   test('search filters can partition notes by year', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();

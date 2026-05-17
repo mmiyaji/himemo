@@ -46,6 +46,8 @@ class SettingsScreen extends ConsumerWidget {
   static const syncUploadBundleKey = Key('sync-upload-bundle-button');
   static const syncDownloadBundleKey = Key('sync-download-bundle-button');
   static const syncApplyBundleKey = Key('sync-apply-bundle-button');
+  static const syncExclusionTagAddKey = Key('sync-exclusion-tag-add-button');
+  static const syncExclusionTagInputKey = Key('sync-exclusion-tag-input');
   static const diagnosticICloudStorageBreakdownKey = Key(
     'diagnostic-icloud-storage-breakdown-button',
   );
@@ -540,6 +542,7 @@ class SettingsScreen extends ConsumerWidget {
     final syncBundleFingerprint = ref.watch(syncBundleFingerprintProvider);
     final syncBundleState = ref.watch(syncBundleStateProvider);
     final syncConflictWarning = ref.watch(syncConflictWarningProvider);
+    final syncExclusionTags = ref.watch(syncExclusionTagsControllerProvider);
     final inAppUpdateState = ref.watch(inAppUpdateControllerProvider);
     final packageInfo = ref.watch(packageInfoProvider);
     final currentReleaseNote = ref.watch(currentReleaseNoteProvider);
@@ -1878,6 +1881,13 @@ class SettingsScreen extends ConsumerWidget {
               subtitle: Text(
                 _syncAuthSummary(context, syncProvider, syncAuthState),
               ),
+            ),
+            _SyncExclusionTagsTile(
+              tags: syncExclusionTags,
+              onAdd: () => _addSyncExclusionTag(context, ref),
+              onRemove: (tag) => ref
+                  .read(syncExclusionTagsControllerProvider.notifier)
+                  .removeTag(tag),
             ),
             if (syncProvider != SyncProvider.off)
               Column(
@@ -4686,6 +4696,17 @@ class SettingsScreen extends ConsumerWidget {
     }
   }
 
+  Future<void> _addSyncExclusionTag(BuildContext context, WidgetRef ref) async {
+    final tag = await showDialog<String>(
+      context: context,
+      builder: (context) => const _SyncExclusionTagDialog(),
+    );
+    if (tag == null || tag.isEmpty) {
+      return;
+    }
+    await ref.read(syncExclusionTagsControllerProvider.notifier).addTag(tag);
+  }
+
   Future<bool?> _confirmStorageReset(BuildContext context, int noteCount) {
     final strings = context.strings;
     var agreed = false;
@@ -4995,5 +5016,198 @@ class SettingsScreen extends ConsumerWidget {
         de: 'Zuletzt erstellt',
       ),
     };
+  }
+}
+
+class _SyncExclusionTagsTile extends StatelessWidget {
+  const _SyncExclusionTagsTile({
+    required this.tags,
+    required this.onAdd,
+    required this.onRemove,
+  });
+
+  final List<String> tags;
+  final VoidCallback onAdd;
+  final ValueChanged<String> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.sync_disabled_rounded),
+            title: Text(
+              strings.localized(
+                en: 'Excluded sync tags',
+                ja: '\u540c\u671f\u5bfe\u8c61\u5916\u30bf\u30b0',
+                zh: '\u6392\u9664\u540c\u6b65\u6807\u7b7e',
+                ko: '\ub3d9\uae30\ud654 \uc81c\uc678 \ud0dc\uadf8',
+                es: 'Etiquetas excluidas de sincronizacion',
+                de: 'Vom Sync ausgeschlossene Tags',
+              ),
+            ),
+            subtitle: Text(
+              strings.localized(
+                en: 'Notes with these tags stay on this device and are not written to the cloud bundle.',
+                ja: '\u3053\u308c\u3089\u306e\u30bf\u30b0\u304c\u4ed8\u3044\u305f\u30e1\u30e2\u306f\u3053\u306e\u7aef\u672b\u306b\u6b8b\u308a\u3001\u30af\u30e9\u30a6\u30c9\u30d0\u30f3\u30c9\u30eb\u306b\u66f8\u304d\u51fa\u3055\u308c\u307e\u305b\u3093\u3002',
+                zh: '\u5e26\u6709\u8fd9\u4e9b\u6807\u7b7e\u7684\u7b14\u8bb0\u4f1a\u7559\u5728\u6b64\u8bbe\u5907\uff0c\u4e0d\u5199\u5165\u4e91\u7aef\u5305\u3002',
+                ko: '\uc774 \ud0dc\uadf8\uac00 \uc788\ub294 \uba54\ubaa8\ub294 \uc774 \uae30\uae30\uc5d0 \ub0a8\uace0 \ud074\ub77c\uc6b0\ub4dc \ubc88\ub4e4\uc5d0 \uae30\ub85d\ub418\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4.',
+                es: 'Las notas con estas etiquetas se quedan en este dispositivo y no se escriben en el paquete de nube.',
+                de: 'Notizen mit diesen Tags bleiben auf diesem Geraet und werden nicht in das Cloud-Bundle geschrieben.',
+              ),
+            ),
+            trailing: OutlinedButton.icon(
+              onPressed: onAdd,
+              icon: const Icon(Icons.add_rounded),
+              label: Text(
+                strings.localized(
+                  en: 'Add',
+                  ja: '\u8ffd\u52a0',
+                  zh: '\u6dfb\u52a0',
+                  ko: '\ucd94\uac00',
+                  es: 'Agregar',
+                  de: 'Hinzufuegen',
+                ),
+              ),
+            ),
+          ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final tag in tags)
+                InputChip(
+                  avatar: isSystemSyncExclusionTag(tag)
+                      ? const Icon(Icons.lock_outline_rounded, size: 18)
+                      : null,
+                  label: Text('#$tag'),
+                  tooltip: isSystemSyncExclusionTag(tag)
+                      ? strings.localized(
+                          en: 'Built-in tag. It cannot be removed.',
+                          ja: '\u521d\u671f\u767b\u9332\u306e\u30b7\u30b9\u30c6\u30e0\u30bf\u30b0\u306e\u305f\u3081\u524a\u9664\u3067\u304d\u307e\u305b\u3093\u3002',
+                          zh: '\u5185\u7f6e\u6807\u7b7e\uff0c\u65e0\u6cd5\u5220\u9664\u3002',
+                          ko: '\uae30\ubcf8 \uc2dc\uc2a4\ud15c \ud0dc\uadf8\uc774\ubbc0\ub85c \uc0ad\uc81c\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.',
+                          es: 'Etiqueta integrada. No se puede eliminar.',
+                          de: 'Integrierter Tag. Er kann nicht entfernt werden.',
+                        )
+                      : null,
+                  onDeleted: isSystemSyncExclusionTag(tag)
+                      ? null
+                      : () => onRemove(tag),
+                  deleteIcon: const Icon(Icons.close_rounded),
+                  backgroundColor: isSystemSyncExclusionTag(tag)
+                      ? theme.colorScheme.secondaryContainer
+                      : null,
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SyncExclusionTagDialog extends StatefulWidget {
+  const _SyncExclusionTagDialog();
+
+  @override
+  State<_SyncExclusionTagDialog> createState() =>
+      _SyncExclusionTagDialogState();
+}
+
+class _SyncExclusionTagDialogState extends State<_SyncExclusionTagDialog> {
+  late final TextEditingController _controller;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    return AlertDialog(
+      title: Text(
+        strings.localized(
+          en: 'Add excluded sync tag',
+          ja: '\u540c\u671f\u5bfe\u8c61\u5916\u30bf\u30b0\u3092\u8ffd\u52a0',
+          zh: '\u6dfb\u52a0\u6392\u9664\u540c\u6b65\u6807\u7b7e',
+          ko: '\ub3d9\uae30\ud654 \uc81c\uc678 \ud0dc\uadf8 \ucd94\uac00',
+          es: 'Agregar etiqueta excluida de sincronizacion',
+          de: 'Ausgeschlossenen Sync-Tag hinzufuegen',
+        ),
+      ),
+      content: TextField(
+        key: SettingsScreen.syncExclusionTagInputKey,
+        controller: _controller,
+        autofocus: true,
+        decoration: InputDecoration(
+          labelText: strings.localized(
+            en: 'Tag',
+            ja: '\u30bf\u30b0',
+            zh: '\u6807\u7b7e',
+            ko: '\ud0dc\uadf8',
+            es: 'Etiqueta',
+            de: 'Tag',
+          ),
+          prefixText: '#',
+          errorText: _errorText,
+        ),
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => _submit(strings),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(strings.cancel),
+        ),
+        FilledButton(
+          key: SettingsScreen.syncExclusionTagAddKey,
+          onPressed: () => _submit(strings),
+          child: Text(
+            strings.localized(
+              en: 'Add',
+              ja: '\u8ffd\u52a0',
+              zh: '\u6dfb\u52a0',
+              ko: '\ucd94\uac00',
+              es: 'Agregar',
+              de: 'Hinzufuegen',
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _submit(AppStrings strings) {
+    final normalized = normalizeNoteTag(_controller.text);
+    if (normalized.isEmpty) {
+      setState(() {
+        _errorText = strings.localized(
+          en: 'Enter a tag name.',
+          ja: '\u30bf\u30b0\u540d\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+          zh: '\u8bf7\u8f93\u5165\u6807\u7b7e\u540d\u79f0\u3002',
+          ko: '\ud0dc\uadf8 \uc774\ub984\uc744 \uc785\ub825\ud558\uc138\uc694.',
+          es: 'Introduce un nombre de etiqueta.',
+          de: 'Gib einen Tag-Namen ein.',
+        );
+      });
+      return;
+    }
+    Navigator.of(context).pop(normalized);
   }
 }
