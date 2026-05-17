@@ -110,19 +110,36 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: TextFormField(
-                  key: const Key('notes-search-input'),
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    labelText: strings.search,
-                    hintText: strings.text(
-                      'home.search.notes.diary.entries.and.attachment.labels',
-                    ),
-                    prefixIcon: const Icon(Icons.search_rounded),
-                    border: const OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  onChanged: _scheduleSearchQuery,
+                child: ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _searchController,
+                  builder: (context, searchValue, _) {
+                    final hasSearchText = searchValue.text.isNotEmpty;
+                    return TextFormField(
+                      key: const Key('notes-search-input'),
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        labelText: strings.search,
+                        hintText: strings.text(
+                          'home.search.notes.diary.entries.and.attachment.labels',
+                        ),
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        suffixIcon: hasSearchText
+                            ? IconButton(
+                                key: const Key('notes-search-clear-button'),
+                                tooltip: strings.localized(
+                                  en: 'Clear search',
+                                  ja: '検索をクリア',
+                                ),
+                                onPressed: _clearSearchQuery,
+                                icon: const Icon(Icons.clear_rounded),
+                              )
+                            : null,
+                        border: const OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      onChanged: _scheduleSearchQuery,
+                    );
+                  },
                 ),
               ),
               const SizedBox(width: 8),
@@ -337,6 +354,14 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
     }
     _lastAppliedSearchQuery = value;
     ref.read(searchQueryProvider.notifier).setQuery(value);
+  }
+
+  void _clearSearchQuery() {
+    _searchDebounce?.cancel();
+    if (_searchController.text.isNotEmpty) {
+      _searchController.clear();
+    }
+    _applySearchQuery('');
   }
 
   List<Widget> _buildDetailedFilterRows(
@@ -3062,6 +3087,15 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                   onPressed: () => Navigator.of(context).pop(),
                   child: Text(strings.cancel),
                 ),
+                if (widget.note != null)
+                  IconButton(
+                    key: const Key('editor-delete-note-button'),
+                    onPressed: _attachmentActionBusy || _saveBusy
+                        ? null
+                        : _deleteCurrentNote,
+                    tooltip: strings.deleteNote,
+                    icon: const Icon(Icons.delete_outline_rounded),
+                  ),
                 const Spacer(),
                 ValueListenableBuilder<bool>(
                   valueListenable: _canSubmitNotifier,
@@ -3593,6 +3627,26 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     }
   }
 
+  Future<void> _deleteCurrentNote() async {
+    final note = widget.note;
+    if (note == null || _saveBusy || _attachmentActionBusy) {
+      return;
+    }
+    final result = await _showDeleteNoteDialog(context, note);
+    if (result == null || !mounted) {
+      return;
+    }
+    final controller = ref.read(notesControllerProvider.notifier);
+    await controller.delete(note.id);
+    if (result.deletePermanently) {
+      await controller.deletePermanently(note.id);
+    }
+    _saved = true;
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
   void _removeRichBlock(int index) {
     final block = _richBlocks[index];
     if (block.attachment != null) {
@@ -3996,6 +4050,47 @@ class _LocationMemoData {
   final String accuracy;
   final String mapUrl;
   final String? address;
+}
+
+List<String> _locationSearchParts(_LocationMemoData? location) {
+  if (location == null) {
+    return const <String>[];
+  }
+  return [
+    if (location.address?.trim().isNotEmpty == true) location.address!.trim(),
+    location.latitude,
+    location.longitude,
+    if (location.accuracy.trim().isNotEmpty && location.accuracy != '-')
+      location.accuracy,
+    location.mapUrl,
+  ];
+}
+
+String? _locationSearchText(_LocationMemoData? location) {
+  final parts = _locationSearchParts(location);
+  if (parts.isEmpty) {
+    return null;
+  }
+  return parts.join('\n');
+}
+
+int? _locationFieldActiveMatchStart(
+  _LocationMemoData location,
+  String field,
+  int? activeMatchStart,
+) {
+  if (activeMatchStart == null || field.isEmpty) {
+    return null;
+  }
+  var offset = 0;
+  for (final part in _locationSearchParts(location)) {
+    final end = offset + part.length;
+    if (part == field && activeMatchStart >= offset && activeMatchStart < end) {
+      return activeMatchStart - offset;
+    }
+    offset = end + 1;
+  }
+  return null;
 }
 
 _LocationMemoData _locationMemoDataFromMetadata(NoteLocation location) {
@@ -4670,11 +4765,15 @@ class _LocationMemoCard extends StatelessWidget {
     required this.location,
     required this.strings,
     this.width,
+    this.highlightQuery = '',
+    this.activeSearchMatchStart,
   });
 
   final _LocationMemoData location;
   final AppStrings strings;
   final double? width;
+  final String highlightQuery;
+  final int? activeSearchMatchStart;
 
   @override
   Widget build(BuildContext context) {
@@ -4682,6 +4781,7 @@ class _LocationMemoCard extends StatelessWidget {
     final scheme = theme.colorScheme;
     final borderColor = theme.dividerColor.withValues(alpha: 0.8);
     final muted = _mutedTextColor(context);
+    final activeSearch = activeSearchMatchStart != null;
 
     return Container(
       width: width,
@@ -4689,7 +4789,10 @@ class _LocationMemoCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: borderColor),
+        border: Border.all(
+          color: activeSearch ? scheme.tertiary : borderColor,
+          width: activeSearch ? 1.5 : 1,
+        ),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -4773,8 +4876,14 @@ class _LocationMemoCard extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 2),
-                            Text(
-                              address,
+                            _HighlightedInlineText(
+                              text: address,
+                              query: highlightQuery,
+                              activeMatchStart: _locationFieldActiveMatchStart(
+                                location,
+                                address,
+                                activeSearchMatchStart,
+                              ),
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 color: scheme.onSurface,
                               ),
@@ -4793,14 +4902,32 @@ class _LocationMemoCard extends StatelessWidget {
                     _LocationValue(
                       label: strings.latitudeLabel,
                       value: location.latitude,
+                      query: highlightQuery,
+                      activeMatchStart: _locationFieldActiveMatchStart(
+                        location,
+                        location.latitude,
+                        activeSearchMatchStart,
+                      ),
                     ),
                     _LocationValue(
                       label: strings.longitudeLabel,
                       value: location.longitude,
+                      query: highlightQuery,
+                      activeMatchStart: _locationFieldActiveMatchStart(
+                        location,
+                        location.longitude,
+                        activeSearchMatchStart,
+                      ),
                     ),
                     _LocationValue(
                       label: strings.locationAccuracyLabel,
                       value: location.accuracy,
+                      query: highlightQuery,
+                      activeMatchStart: _locationFieldActiveMatchStart(
+                        location,
+                        location.accuracy,
+                        activeSearchMatchStart,
+                      ),
                     ),
                   ],
                 ),
@@ -4855,10 +4982,17 @@ class _LocationMemoCard extends StatelessWidget {
 }
 
 class _LocationValue extends StatelessWidget {
-  const _LocationValue({required this.label, required this.value});
+  const _LocationValue({
+    required this.label,
+    required this.value,
+    this.query = '',
+    this.activeMatchStart,
+  });
 
   final String label;
   final String value;
+  final String query;
+  final int? activeMatchStart;
 
   @override
   Widget build(BuildContext context) {
@@ -4870,12 +5004,19 @@ class _LocationValue extends StatelessWidget {
         ),
         children: [
           TextSpan(text: '$label '),
-          TextSpan(
+          ..._highlightTextSpans(
             text: value,
-            style: TextStyle(
+            query: query,
+            baseStyle: TextStyle(
               color: theme.colorScheme.onSurface,
               fontWeight: FontWeight.w600,
             ),
+            highlightStyle: _noteSearchHighlightStyle(context, null),
+            activeHighlightStyle: _noteSearchActiveHighlightStyle(
+              context,
+              null,
+            ),
+            activeMatchStart: activeMatchStart,
           ),
         ],
       ),

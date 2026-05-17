@@ -3840,7 +3840,7 @@ class AppStrings {
     de: 'Private Profile',
   );
   String get privateProfilesSettingsAdminSummary => localized(
-    en: 'Profile names and vault IDs stay hidden in Settings, even in admin mode.',
+    en: 'Admin mode can focus a profile or rename it without changing its password.',
     ja: '管理者モードでも、プロファイル名や保存先IDは設定画面に表示しません。',
     zh: '即使在管理员模式下，设置中也不会显示档案名称和保险库 ID。',
     ko: '관리자 모드에서도 설정 화면에는 프로필 이름과 보관함 ID를 표시하지 않습니다.',
@@ -3864,7 +3864,7 @@ class AppStrings {
     de: 'Notes bleibt standardmäßig sichtbar. Öffne ein anderes Profil nur bei Bedarf.',
   );
   String get privateProfilesSettingsBody => localized(
-    en: 'Enter a password from the key icon in the top bar to open only the matching profile. Settings does not list configured profile names or vault IDs. When a profile is open, Appearance can set its accent color separately from normal mode.',
+    en: 'Enter a password from the key icon in the top bar to open only the matching profile. Admin mode lists profiles so you can focus or rename one when maintenance is needed. When a profile is open, Appearance can set its accent color separately from normal mode.',
     ja: '右上の鍵アイコンからパスワードを入力すると、一致するプロファイルだけを開けます。設定画面では登録済みプロファイルの名前や保存先IDを列挙しません。プロファイルを開いている間は、「表示」から通常モードとは別のアクセントカラーを設定できます。',
     zh: '从顶部栏的钥匙图标输入密码后，只会打开匹配的档案。设置中不会列出已配置档案的名称或保险库 ID。打开档案时，可在“外观”中为该档案设置不同于普通模式的强调色。',
     ko: '상단의 열쇠 아이콘에서 비밀번호를 입력하면 일치하는 프로필만 열립니다. 설정 화면에는 구성된 프로필 이름이나 보관함 ID를 나열하지 않습니다. 프로필이 열려 있을 때는 표시 설정에서 일반 모드와 다른 강조 색상을 따로 설정할 수 있습니다.',

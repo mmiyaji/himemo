@@ -7,6 +7,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -33,6 +34,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../app/diagnostic_log.dart';
+import '../../../app/audit_log.dart';
 import '../../../l10n/app_strings.dart';
 import '../../security/data/encrypted_attachment_store.dart';
 import '../../security/data/encryption_service.dart';
@@ -743,68 +745,81 @@ class _HeaderSyncIndicatorState extends State<_HeaderSyncIndicator>
 
   Future<void> _showHeaderSyncProgressDialog(BuildContext context) {
     final strings = context.strings;
+    final container = ProviderScope.containerOf(context);
     return showDialog<void>(
       context: context,
       builder: (context) {
-        return Consumer(
-          builder: (context, ref, _) {
-            final state = ref.watch(syncTransferControllerProvider);
-            final provider = ref.watch(syncProviderControllerProvider);
-            final label = _syncProgressLabel(strings, state);
-            final description = _syncProgressDescription(
-              strings,
-              state,
-              provider,
-            );
-            final itemProgress = _syncProgressItemProgressText(strings, state);
-            final progressValue = _syncProgressValueForState(state);
-            return AlertDialog(
-              title: Text(
-                strings.localized(
-                  en: 'Sync progress',
-                  ja: '同期の進捗',
-                  zh: '同步进度',
-                  ko: '동기화 진행 상황',
-                  es: 'Progreso de sincronización',
-                  de: 'Synchronisierungsfortschritt',
+        return UncontrolledProviderScope(
+          container: container,
+          child: Consumer(
+            builder: (context, ref, _) {
+              final state = ref.watch(syncTransferControllerProvider);
+              final provider = ref.watch(syncProviderControllerProvider);
+              final label = _syncProgressLabel(strings, state);
+              final description = _syncProgressDescription(
+                strings,
+                state,
+                provider,
+              );
+              final itemProgress = _syncProgressItemProgressText(
+                strings,
+                state,
+              );
+              final progressValue = _syncProgressValueForState(state);
+              return AlertDialog(
+                title: Text(
+                  strings.localized(
+                    en: 'Sync progress',
+                    ja: '同期の進捗',
+                    zh: '同步进度',
+                    ko: '동기화 진행 상황',
+                    es: 'Progreso de sincronización',
+                    de: 'Synchronisierungsfortschritt',
+                  ),
                 ),
-              ),
-              content: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(label, style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 8),
-                    Text(
-                      description,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                content: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    LinearProgressIndicator(value: progressValue),
-                    if (itemProgress != null) ...[
                       const SizedBox(height: 8),
                       Text(
-                        itemProgress,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        description,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
+                      const SizedBox(height: 16),
+                      LinearProgressIndicator(value: progressValue),
+                      if (itemProgress != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          itemProgress,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text(strings.cancel),
-                ),
-              ],
-            );
-          },
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: Text(strings.cancel),
+                  ),
+                ],
+              );
+            },
+          ),
         );
       },
     );

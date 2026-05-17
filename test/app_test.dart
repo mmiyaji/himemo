@@ -7,6 +7,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:himemo/app/app.dart';
@@ -1198,6 +1199,60 @@ void main() {
     expect(container.read(searchFiltersControllerProvider).vaultId, isNull);
   });
 
+  test('private profiles can be renamed and focused from admin mode', () async {
+    SharedPreferences.setMockInitialValues({});
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(17));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    final addError = await container
+        .read(privateMemoProfilesControllerProvider.notifier)
+        .addProfile(name: 'Work archive', password: 'work-pass-123');
+    expect(addError, isNull);
+
+    final profile = container.read(privateMemoProfilesProvider).single;
+    await container
+        .read(privateMemoProfilesControllerProvider.notifier)
+        .renameProfile(id: profile.id, name: 'Client archive');
+
+    expect(
+      container.read(privateMemoProfilesProvider).single.name,
+      'Client archive',
+    );
+    container.read(adminModeSessionControllerProvider.notifier).unlock();
+    container
+        .read(searchFiltersControllerProvider.notifier)
+        .setVault(container.read(privateMemoProfilesProvider).single.vaultId);
+
+    expect(container.read(adminModeSessionControllerProvider), isTrue);
+    expect(
+      container.read(searchFiltersControllerProvider).vaultId,
+      container.read(privateMemoProfilesProvider).single.vaultId,
+    );
+  });
+
   test('private profile notes remain visible immediately after save', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();
@@ -1256,6 +1311,63 @@ void main() {
       container.read(notesForVaultProvider(unlocked.vaultId)).single.id,
       'private-after-save',
     );
+  });
+
+  test('Spotlight indexing sends note body and rich text terms', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    final calls = <MethodCall>[];
+    const channel = MethodChannel('org.ruhenheim.himemo/spotlight');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return <String, Object?>{'ok': true};
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+
+    final bridge = SpotlightNoteIndexBridge((_) {});
+    await bridge.replaceAllStandardNotes([
+      NoteEntry(
+        id: 'spotlight-body',
+        vaultId: 'everyday',
+        title: 'Spotlight title',
+        body: 'Body keyword alpha',
+        createdAt: DateTime(2026, 5, 16, 12),
+        blocks: const [
+          NoteBlock(type: NoteBlockType.paragraph, text: 'Rich block beta'),
+          NoteBlock(
+            type: NoteBlockType.file,
+            attachment: NoteAttachment(
+              type: AttachmentType.file,
+              label: 'Attachment gamma.pdf',
+            ),
+          ),
+        ],
+        tags: const ['delta'],
+      ),
+    ]);
+
+    final replaceCall = calls.firstWhere(
+      (call) => call.method == 'replaceAllNotes',
+    );
+    final arguments = Map<String, Object?>.from(
+      replaceCall.arguments as Map<Object?, Object?>,
+    );
+    final items = arguments['items']! as List<Object?>;
+    final item = Map<String, Object?>.from(
+      items.single! as Map<Object?, Object?>,
+    );
+    expect(item['body'], contains('Body keyword alpha'));
+    expect(item['body'], contains('Rich block beta'));
+    expect(item['body'], contains('Attachment gamma.pdf'));
+    expect(item['searchTerms'], contains('alpha'));
+    expect(item['searchTerms'], contains('beta'));
+    expect(item['searchTerms'], contains('gamma'));
   });
 
   test('seeded demo notes are dated within a week of first launch', () {

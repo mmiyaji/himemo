@@ -85,6 +85,77 @@ void main() {
     expect(homePage, contains('height: _attachmentActionBusy ? 56 : 0'));
   });
 
+  test('notes search field keeps an inline clear action', () {
+    final homePage = _homePresentationSource();
+
+    expect(homePage, contains("Key('notes-search-clear-button')"));
+    expect(homePage, contains('Icons.clear_rounded'));
+    expect(homePage, contains('void _clearSearchQuery()'));
+    expect(homePage, contains('_searchController.clear();'));
+  });
+
+  test('note detail search stays collapsible and highlights list searches', () {
+    final homePage = _homePresentationSource();
+
+    expect(homePage, contains("Key('note-detail-search-button')"));
+    expect(homePage, contains("Key('note-detail-search-input')"));
+    expect(homePage, contains('note-detail-search-previous-button'));
+    expect(homePage, contains('note-detail-search-next-button'));
+    expect(homePage, contains('TextInputAction.search'));
+    expect(homePage, contains('onSubmitted: (_)'));
+    expect(homePage, contains('_jumpDetailSearch'));
+    expect(homePage, contains('matchStart'));
+    expect(homePage, contains('_noteSearchActiveHighlightStyle'));
+    expect(homePage, contains('_noteDetailSearchTargetsForText'));
+    expect(homePage, contains('key: _detailTitleKey'));
+    expect(homePage, contains('text: note.title'));
+    expect(
+      homePage,
+      contains('_detailSearchVisible = _detailSearchQuery.isNotEmpty;'),
+    );
+    expect(homePage, contains('_pendingInitialSearchJumpNoteId'));
+    expect(homePage, contains('_scheduleInitialDetailSearchJump'));
+    expect(homePage, contains('_scheduleDetailSearchTargetVisibilityCheck'));
+    expect(homePage, contains('_detailSearchScrollPolicy'));
+    expect(homePage, contains('alignment: movingDown ? 0.78 : 0.12'));
+    expect(homePage, contains('ScrollPositionAlignmentPolicy.explicit'));
+    expect(homePage, contains('_detailSearchMatchRevealOffset'));
+    expect(homePage, contains('RenderAbstractViewport.maybeOf'));
+    expect(homePage, contains('getOffsetToReveal'));
+    expect(homePage, contains('position.ensureVisible'));
+    expect(homePage, contains('scrollText: item.text'));
+    expect(homePage, contains('_detailSearchScrollPosition(targetContext)'));
+    expect(homePage, contains('_fallbackDetailSearchScroll'));
+    expect(
+      homePage,
+      contains('ScrollPositionAlignmentPolicy.keepVisibleAtEnd'),
+    );
+    expect(
+      homePage,
+      contains('ScrollPositionAlignmentPolicy.keepVisibleAtStart'),
+    );
+    expect(homePage, contains('duration: Duration.zero'));
+    expect(homePage, contains('_FloatingNoteSearchNavigator'));
+    expect(homePage, contains('_detailSearchNavigatorPinned'));
+    expect(homePage, contains('note-detail-search-floating-previous-button'));
+    expect(homePage, contains('note-detail-search-floating-next-button'));
+    expect(
+      homePage,
+      contains(
+        'final listSearchQuery = ref.watch(searchQueryProvider).trim();',
+      ),
+    );
+    expect(homePage, contains('highlightQuery: highlightQuery'));
+    expect(homePage, contains('_locationSearchText(item.location)'));
+    expect(homePage, contains('String? _locationSearchText'));
+    expect(homePage, contains('activeSearchMatchStart'));
+    expect(homePage, contains('class _HighlightedInlineText'));
+    expect(homePage, contains('List<TextSpan> _highlightTextSpans'));
+    expect(homePage, contains("Key('note-detail-delete-button')"));
+    expect(homePage, isNot(contains('_NoteDetailAction.delete')));
+    expect(homePage, contains("Key('editor-delete-note-button')"));
+  });
+
   test('app lock background privacy cover prevents delayed relock flashes', () {
     final appShell = File('lib/app/app.dart').readAsStringSync();
     final appStrings = File('lib/l10n/app_strings.dart').readAsStringSync();
@@ -337,11 +408,15 @@ void main() {
     expect(appDelegate, contains('handleSpotlightUserActivity'));
     expect(appDelegate, contains('attributeSet.textContent'));
     expect(appDelegate, contains('attributeSet.displayName'));
+    expect(appDelegate, contains('body ?? ""'));
     expect(appDelegate, contains('attributeSet.alternateNames'));
     expect(appDelegate, contains('searchTerms'));
     expect(homeProviders, contains("logDiagnostic('spotlight'"));
     expect(homeProviders, contains('replace all requested'));
     expect(app, contains('spotlightNoteOpenRequestControllerProvider'));
+    expect(app, contains('shouldDeferSpotlightOpen'));
+    expect(app, contains('appSessionUnlockControllerProvider'));
+    expect(app, contains('openSpotlightNoteRequest(pendingSpotlightNoteId)'));
   });
 
   test('Spotlight indexing warns when app lock is also enabled', () {
@@ -684,6 +759,8 @@ void main() {
     expect(homePage, contains('Tap to show sync progress'));
     expect(homePage, contains('_showHeaderSyncProgressDialog'));
     expect(homePage, contains('showDialog<void>'));
+    expect(homePage, contains('ProviderScope.containerOf(context)'));
+    expect(homePage, contains('UncontrolledProviderScope'));
     expect(homePage, contains('LinearProgressIndicator'));
     expect(homePage, contains('syncTransferControllerProvider'));
     expect(homePage, contains('_syncProgressValueForState'));

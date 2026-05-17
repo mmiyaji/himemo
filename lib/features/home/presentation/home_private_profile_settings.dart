@@ -119,3 +119,73 @@ class _AddPrivateProfileDialogState extends State<_AddPrivateProfileDialog> {
     );
   }
 }
+
+class _RenamePrivateProfileDialog extends StatefulWidget {
+  const _RenamePrivateProfileDialog({required this.initialName});
+
+  final String initialName;
+
+  @override
+  State<_RenamePrivateProfileDialog> createState() =>
+      _RenamePrivateProfileDialogState();
+}
+
+class _RenamePrivateProfileDialogState
+    extends State<_RenamePrivateProfileDialog> {
+  late final TextEditingController _nameController;
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    return AlertDialog(
+      title: Text(strings.localized(en: 'Rename profile', ja: 'プロファイル名を変更')),
+      content: Form(
+        key: _formKey,
+        child: TextFormField(
+          key: SettingsScreen.privateProfileRenameInputKey,
+          controller: _nameController,
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: strings.text('home.profile.name'),
+            border: const OutlineInputBorder(),
+          ),
+          validator: (value) => value == null || value.trim().isEmpty
+              ? strings.localized(
+                  en: 'Enter a profile name.',
+                  ja: 'プロファイル名を入力してください。',
+                )
+              : null,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(strings.cancel),
+        ),
+        FilledButton(
+          key: SettingsScreen.privateProfileRenameSubmitKey,
+          onPressed: () {
+            if (!(_formKey.currentState?.validate() ?? false)) {
+              return;
+            }
+            Navigator.of(context).pop(_nameController.text.trim());
+          },
+          child: Text(strings.save),
+        ),
+      ],
+    );
+  }
+}

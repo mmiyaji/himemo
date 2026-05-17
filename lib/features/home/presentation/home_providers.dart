@@ -265,6 +265,14 @@ class PrivateMemoProfile {
 
   String get vaultId => '$customPrivateVaultPrefix$id';
 
+  PrivateMemoProfile copyWith({String? name}) {
+    return PrivateMemoProfile(
+      id: id,
+      name: name ?? this.name,
+      createdAt: createdAt,
+    );
+  }
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
@@ -5519,6 +5527,25 @@ class PrivateMemoProfileStore {
     );
   }
 
+  Future<void> renameProfile({required String id, required String name}) async {
+    final nextName = name.trim();
+    if (nextName.isEmpty) {
+      return;
+    }
+    final existing = await listProfiles();
+    final changed = existing.any(
+      (profile) => profile.id == id && profile.name != nextName,
+    );
+    if (!changed) {
+      return;
+    }
+    final renamed = [
+      for (final profile in existing)
+        if (profile.id == id) profile.copyWith(name: nextName) else profile,
+    ];
+    await _saveProfiles(renamed);
+  }
+
   Future<void> updateProfilePassword({
     required String id,
     required String password,
@@ -6768,10 +6795,13 @@ String _spotlightSearchableText(NoteEntry note) {
   final parts = <String>[
     if (note.body.trim().isNotEmpty) note.body.trim(),
     for (final block in note.blocks)
-      if (block.type == NoteBlockType.paragraph &&
-          block.text != null &&
-          block.text!.trim().isNotEmpty)
+      if (block.text != null && block.text!.trim().isNotEmpty)
         block.text!.trim(),
+    for (final attachment in note.attachments)
+      if (attachment.label.trim().isNotEmpty) attachment.label.trim(),
+    for (final block in note.blocks)
+      if (block.attachment?.label.trim().isNotEmpty ?? false)
+        block.attachment!.label.trim(),
     if (note.normalizedTags.isNotEmpty) note.normalizedTags.join(' '),
   ];
   return parts.join('\n\n').trim();
@@ -6817,7 +6847,7 @@ List<String> _spotlightSearchTerms({
     }
     final compact = normalized.replaceAll(' ', '');
     if (compact.length >= 4) {
-      for (var i = 0; i < compact.length && terms.length < 80; i++) {
+      for (var i = 0; i < compact.length && terms.length < 160; i++) {
         for (final length in const [2, 3, 4]) {
           if (i + length <= compact.length) {
             addTerm(compact.substring(i, i + length));
@@ -6832,7 +6862,7 @@ List<String> _spotlightSearchTerms({
   for (final tag in tags) {
     addText(tag);
   }
-  return terms.take(80).toList(growable: false);
+  return terms.take(160).toList(growable: false);
 }
 
 class SpotlightNoteOpenRequestController extends Notifier<String?> {
@@ -9314,6 +9344,13 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
     if (unlockedVaultId == vaultId) {
       ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
     }
+    await refresh();
+  }
+
+  Future<void> renameProfile({required String id, required String name}) async {
+    await ref
+        .read(privateMemoProfileStoreProvider)
+        .renameProfile(id: id, name: name);
     await refresh();
   }
 
