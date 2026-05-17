@@ -1421,11 +1421,47 @@ void main() {
       photoAttachments.map((attachment) => attachment.label),
       containsAll([
         'spring-sakura.jpg',
-        'summer-bamboo.jpg',
-        'autumn-kamikochi.jpg',
-        'winter-furano.jpg',
+        'summer-fireworks.jpg',
+        'autumn-maple.jpg',
+        'winter-snow.jpg',
       ]),
     );
+    String titleForPhoto(String label) => notes
+        .singleWhere(
+          (note) => note.attachments.any(
+            (attachment) =>
+                attachment.type == AttachmentType.photo &&
+                attachment.label == label,
+          ),
+        )
+        .title;
+
+    expect(titleForPhoto('spring-sakura.jpg'), '朝の桜');
+    expect(titleForPhoto('summer-fireworks.jpg'), '夏の花火');
+    expect(titleForPhoto('autumn-maple.jpg'), 'ライトアップの紅葉');
+    expect(titleForPhoto('winter-snow.jpg'), '雪をまとった枝');
+
+    final everydayPhotoLabels = notes
+        .where((note) => note.vaultId == 'everyday')
+        .expand((note) => note.attachments)
+        .where((attachment) => attachment.type == AttachmentType.photo)
+        .map((attachment) => attachment.label)
+        .toSet();
+    expect(
+      everydayPhotoLabels,
+      containsAll([
+        'spring-sakura.jpg',
+        'summer-fireworks.jpg',
+        'autumn-maple.jpg',
+        'winter-snow.jpg',
+      ]),
+    );
+    final everydayVideoAttachments = notes
+        .where((note) => note.vaultId == 'everyday')
+        .expand((note) => note.attachments)
+        .where((attachment) => attachment.type == AttachmentType.video);
+    expect(everydayVideoAttachments, isEmpty);
+
     for (final attachment in photoAttachments) {
       final bytes = base64Decode(attachment.previewBytesBase64!);
       expect(bytes, hasLength(greaterThan(1024)));
