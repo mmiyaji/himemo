@@ -498,12 +498,30 @@ class SettingsScreen extends ConsumerWidget {
     if (targetContext == null) {
       return;
     }
-    Scrollable.ensureVisible(
-      targetContext,
-      duration: const Duration(milliseconds: 320),
-      curve: Curves.easeOutCubic,
-      alignment: 0.04,
-      alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
+    final scrollable = Scrollable.maybeOf(targetContext);
+    final targetObject = targetContext.findRenderObject();
+    final scrollObject = scrollable?.context.findRenderObject();
+    if (scrollable == null ||
+        targetObject is! RenderBox ||
+        scrollObject is! RenderBox) {
+      return;
+    }
+    final position = scrollable.position;
+    final targetOffset = targetObject
+        .localToGlobal(Offset.zero, ancestor: scrollObject)
+        .dy;
+    final nextOffset =
+        position.pixels + targetOffset - position.viewportDimension * 0.04;
+    final clampedOffset = nextOffset.clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    unawaited(
+      position.animateTo(
+        clampedOffset,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      ),
     );
   }
 
@@ -745,6 +763,7 @@ class SettingsScreen extends ConsumerWidget {
     };
 
     return ListView(
+      cacheExtent: 6000,
       padding: const EdgeInsets.all(16),
       children: [
         _SettingsOverviewCard(
