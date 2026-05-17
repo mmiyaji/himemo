@@ -1,7 +1,7 @@
 {
   "name": "himemo",
   "version": "1.0.0",
-  "description": "Flutter で構築するクロスプラットフォームのメモアプリ試作です。対象は `iOS (iPhone / iPad)` `Android` `Web` です。",
+  "description": "Cross-platform private memo app assets and web tooling for HiMemo.",
   "scripts": {
     "e2e": "playwright test",
     "e2e:headed": "playwright test --headed",

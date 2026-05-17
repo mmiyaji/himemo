@@ -1,5 +1,5 @@
 name: himemo
-description: "A cross-platform memo app prototype with decoy vault concepts."
+description: "A cross-platform private memo app with profiles, encrypted storage, backup, and sync."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -132,6 +132,7 @@ flutter:
     - assets/app-icon.png
     - assets/privacy-icon.png
     - assets/actions/
+    - assets/demo_notes/
     - assets/onboarding/
     - assets/release_notes/
     - assets/settings/

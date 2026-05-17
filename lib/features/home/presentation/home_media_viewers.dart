@@ -973,8 +973,17 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                     final displayScale = math.min(1.0, containScale);
                     final displayedWidth = imageSize.width * displayScale;
                     final displayedHeight = imageSize.height * displayScale;
-                    final maxScale = displayScale < 1 ? 1 / displayScale : 1.0;
-                    final minScale = math.min(0.25, maxScale);
+                    final actualSizeScale = displayScale < 1
+                        ? 1 / displayScale
+                        : 1.0;
+                    final maxScale = math.max(
+                      _photoLightboxMinimumMaxScale,
+                      actualSizeScale * _photoLightboxOverscaleFactor,
+                    );
+                    final doubleTapScale = actualSizeScale > 1
+                        ? actualSizeScale
+                        : _photoLightboxSmallImageDoubleTapScale;
+                    const minScale = 0.25;
                     final imageBaseRect = Rect.fromLTWH(
                       horizontalPadding + (viewportWidth - displayedWidth) / 2,
                       verticalTopPadding +
@@ -1032,7 +1041,7 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                                   transformationController:
                                       _transformationController,
                                   minScale: minScale,
-                                  maxScale: math.max(maxScale, minScale),
+                                  maxScale: maxScale,
                                   panEnabled: true,
                                   boundaryMargin: EdgeInsets.all(
                                     math.max(
@@ -1084,7 +1093,7 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                                 if (_transformedImageRect(
                                   imageBaseRect,
                                 ).contains(details.localPosition)) {
-                                  _toggleActualSize(maxScale);
+                                  _togglePrimaryZoom(doubleTapScale, maxScale);
                                 }
                               },
                             ),
@@ -1160,10 +1169,10 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
 
   void _zoomOut(double maxScale) => _scaleBy(1 / 1.2, maxScale);
 
-  void _toggleActualSize(double maxScale) {
+  void _togglePrimaryZoom(double targetScale, double maxScale) {
     final current = _transformationController.value.getMaxScaleOnAxis();
-    if ((current - 1).abs() < 0.05 && maxScale > 1) {
-      _scaleBy(maxScale, maxScale);
+    if ((current - 1).abs() < 0.05 && targetScale > 1) {
+      _scaleBy(targetScale, maxScale);
       return;
     }
     _resetTransform();
@@ -1256,6 +1265,10 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
     );
   }
 }
+
+const _photoLightboxOverscaleFactor = 4.0;
+const _photoLightboxMinimumMaxScale = 8.0;
+const _photoLightboxSmallImageDoubleTapScale = 2.0;
 
 class _LightboxTopBar extends StatelessWidget {
   const _LightboxTopBar({

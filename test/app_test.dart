@@ -1408,6 +1408,68 @@ void main() {
     );
   });
 
+  test('seeded demo photo attachments use seasonal JPEG previews', () {
+    final notes = SeededHomeRepository(
+      seedBaseDate: DateTime(2026, 4, 29),
+    ).seededNotes;
+    final photoAttachments = notes
+        .expand((note) => note.attachments)
+        .where((attachment) => attachment.type == AttachmentType.photo)
+        .toList();
+
+    expect(
+      photoAttachments.map((attachment) => attachment.label),
+      containsAll([
+        'spring-sakura.jpg',
+        'summer-fireworks.jpg',
+        'autumn-maple.jpg',
+        'winter-snow.jpg',
+      ]),
+    );
+    String titleForPhoto(String label) => notes
+        .singleWhere(
+          (note) => note.attachments.any(
+            (attachment) =>
+                attachment.type == AttachmentType.photo &&
+                attachment.label == label,
+          ),
+        )
+        .title;
+
+    expect(titleForPhoto('spring-sakura.jpg'), '朝の桜');
+    expect(titleForPhoto('summer-fireworks.jpg'), '夏の花火');
+    expect(titleForPhoto('autumn-maple.jpg'), 'ライトアップの紅葉');
+    expect(titleForPhoto('winter-snow.jpg'), '雪をまとった枝');
+
+    final everydayPhotoLabels = notes
+        .where((note) => note.vaultId == 'everyday')
+        .expand((note) => note.attachments)
+        .where((attachment) => attachment.type == AttachmentType.photo)
+        .map((attachment) => attachment.label)
+        .toSet();
+    expect(
+      everydayPhotoLabels,
+      containsAll([
+        'spring-sakura.jpg',
+        'summer-fireworks.jpg',
+        'autumn-maple.jpg',
+        'winter-snow.jpg',
+      ]),
+    );
+    final everydayVideoAttachments = notes
+        .where((note) => note.vaultId == 'everyday')
+        .expand((note) => note.attachments)
+        .where((attachment) => attachment.type == AttachmentType.video);
+    expect(everydayVideoAttachments, isEmpty);
+
+    for (final attachment in photoAttachments) {
+      final bytes = base64Decode(attachment.previewBytesBase64!);
+      expect(bytes, hasLength(greaterThan(1024)));
+      expect(bytes[0], 0xff);
+      expect(bytes[1], 0xd8);
+    }
+  });
+
   test(
     'demo notes are only created on request and are not restored automatically after deletion',
     () async {

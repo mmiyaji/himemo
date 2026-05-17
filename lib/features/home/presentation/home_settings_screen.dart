@@ -79,6 +79,14 @@ class SettingsScreen extends ConsumerWidget {
   static const privateProfileRenameSubmitKey = Key(
     'private-profile-rename-submit',
   );
+  static final _appearanceSectionKey = GlobalKey();
+  static final _privateProfilesSectionKey = GlobalKey();
+  static final _appSecuritySectionKey = GlobalKey();
+  static final _syncSectionKey = GlobalKey();
+  static final _appearanceController = ExpansibleController();
+  static final _privateProfilesController = ExpansibleController();
+  static final _appSecurityController = ExpansibleController();
+  static final _syncController = ExpansibleController();
   static final List<DateTime> _diagnosticModeTapTimes = <DateTime>[];
 
   Future<void> _handleVersionTap(
@@ -470,6 +478,53 @@ class SettingsScreen extends ConsumerWidget {
     return await _showLargeMobileSyncConfirmDialog(context, warning) ?? false;
   }
 
+  void _openSettingsSection(
+    BuildContext context,
+    ExpansibleController controller,
+    GlobalKey key,
+  ) {
+    controller.expand();
+    unawaited(
+      Future<void>.delayed(const Duration(milliseconds: 360), () {
+        if (context.mounted) {
+          _scrollToSettingsSection(key);
+        }
+      }),
+    );
+  }
+
+  void _scrollToSettingsSection(GlobalKey key) {
+    final targetContext = key.currentContext;
+    if (targetContext == null) {
+      return;
+    }
+    final scrollable = Scrollable.maybeOf(targetContext);
+    final targetObject = targetContext.findRenderObject();
+    final scrollObject = scrollable?.context.findRenderObject();
+    if (scrollable == null ||
+        targetObject is! RenderBox ||
+        scrollObject is! RenderBox) {
+      return;
+    }
+    final position = scrollable.position;
+    final targetOffset = targetObject
+        .localToGlobal(Offset.zero, ancestor: scrollObject)
+        .dy;
+    final nextOffset =
+        position.pixels + targetOffset - position.viewportDimension * 0.04;
+    final clampedOffset = nextOffset.clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    unawaited(
+      position.animateTo(
+        clampedOffset,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
@@ -708,6 +763,7 @@ class SettingsScreen extends ConsumerWidget {
     };
 
     return ListView(
+      cacheExtent: 6000,
       padding: const EdgeInsets.all(16),
       children: [
         _SettingsOverviewCard(
@@ -723,6 +779,11 @@ class SettingsScreen extends ConsumerWidget {
               ),
               value: currentProfileLabel,
               icon: currentProfileIcon,
+              onTap: () => _openSettingsSection(
+                context,
+                _privateProfilesController,
+                _privateProfilesSectionKey,
+              ),
             ),
             _SettingsOverviewItem(
               label: strings.localized(
@@ -737,6 +798,11 @@ class SettingsScreen extends ConsumerWidget {
                   ? (strings.text('home.enabled'))
                   : (strings.text('home.disabled')),
               icon: Icons.enhanced_encryption_outlined,
+              onTap: () => _openSettingsSection(
+                context,
+                _appSecurityController,
+                _appSecuritySectionKey,
+              ),
             ),
             _SettingsOverviewItem(
               label: strings.syncLabel,
@@ -744,11 +810,21 @@ class SettingsScreen extends ConsumerWidget {
                   ? (strings.text('home.off'))
                   : (strings.text('home.configured')),
               icon: Icons.sync_outlined,
+              onTap: () => _openSettingsSection(
+                context,
+                _syncController,
+                _syncSectionKey,
+              ),
             ),
             _SettingsOverviewItem(
               label: strings.text('home.theme'),
               value: _themeModeLabel(context, activeThemeMode),
               icon: Icons.palette_outlined,
+              onTap: () => _openSettingsSection(
+                context,
+                _appearanceController,
+                _appearanceSectionKey,
+              ),
             ),
           ],
         ),
@@ -765,6 +841,8 @@ class SettingsScreen extends ConsumerWidget {
           appearanceScopeTargets: colorThemeTargets,
           appearanceScopeLabel: colorThemeTargetLabel,
           appearanceSummary: appearanceSummary,
+          sectionKey: _appearanceSectionKey,
+          controller: _appearanceController,
         ),
         const SizedBox(height: 16),
         _SettingsGroup(
@@ -1146,6 +1224,8 @@ class SettingsScreen extends ConsumerWidget {
                       )
                     : strings.privateProfilesSettingsDefaultSummary),
           icon: Icons.key_outlined,
+          sectionKey: _privateProfilesSectionKey,
+          controller: _privateProfilesController,
           children: [
             Text(
               strings.privateProfilesSettingsBody,
@@ -1373,6 +1453,8 @@ class SettingsScreen extends ConsumerWidget {
           title: strings.text('home.app.security'),
           summary: lockSummary,
           icon: Icons.enhanced_encryption_outlined,
+          sectionKey: _appSecuritySectionKey,
+          controller: _appSecurityController,
           children: [
             SwitchListTile.adaptive(
               key: appLockToggleKey,
@@ -1860,6 +1942,8 @@ class SettingsScreen extends ConsumerWidget {
           title: strings.text('home.backup.and.sync'),
           summary: syncSummary,
           icon: Icons.sync_outlined,
+          sectionKey: _syncSectionKey,
+          controller: _syncController,
           children: [
             if (syncConflictWarning != null)
               Container(
@@ -4169,6 +4253,8 @@ class SettingsScreen extends ConsumerWidget {
     required List<_ColorThemeScopeOption> appearanceScopeTargets,
     required String appearanceScopeLabel,
     required String appearanceSummary,
+    required Key sectionKey,
+    required ExpansibleController controller,
   }) {
     final effectiveFontFamily = _availableFontFamilies.contains(fontFamily)
         ? fontFamily
@@ -4177,6 +4263,8 @@ class SettingsScreen extends ConsumerWidget {
       title: strings.appearanceWithControls,
       summary: appearanceSummary,
       icon: Icons.palette_outlined,
+      sectionKey: sectionKey,
+      controller: controller,
       semanticLabel: 'settings-appearance',
       children: [
         Padding(

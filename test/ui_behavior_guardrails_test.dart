@@ -680,6 +680,19 @@ void main() {
     );
   });
 
+  test('photo lightbox can zoom beyond original image resolution', () {
+    final homePage = _homePresentationSource();
+
+    expect(homePage, contains('_photoLightboxOverscaleFactor = 4.0'));
+    expect(homePage, contains('_photoLightboxMinimumMaxScale = 8.0'));
+    expect(
+      homePage,
+      contains('actualSizeScale * _photoLightboxOverscaleFactor'),
+    );
+    expect(homePage, contains('_togglePrimaryZoom(doubleTapScale, maxScale)'));
+    expect(homePage, isNot(contains('final maxScale = displayScale < 1')));
+  });
+
   test('cloud sync heavy work does not run on the UI isolate', () {
     final syncEngine = File(
       'lib/features/sync/data/sync_engine.dart',
