@@ -106,6 +106,7 @@ class _SettingsGroup extends StatelessWidget {
     required this.icon,
     required this.children,
     this.sectionKey,
+    this.controller,
     this.semanticLabel,
   });
 
@@ -114,6 +115,7 @@ class _SettingsGroup extends StatelessWidget {
   final IconData icon;
   final List<Widget> children;
   final Key? sectionKey;
+  final ExpansibleController? controller;
   final String? semanticLabel;
 
   @override
@@ -136,6 +138,7 @@ class _SettingsGroup extends StatelessWidget {
             child: Theme(
               data: theme.copyWith(dividerColor: Colors.transparent),
               child: ExpansionTile(
+                controller: controller,
                 maintainState: true,
                 tilePadding: const EdgeInsets.symmetric(
                   horizontal: 16,
