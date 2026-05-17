@@ -51,12 +51,12 @@ const locales = [
         subtitle: '必要なプロファイルだけを開いて管理できます。',
       },
       profileLock: {
-        title: '複数プロファイルをロック',
-        subtitle: '名前や保存先IDを隠したまま、別々の鍵で管理。',
+        title: '鍵で開くプライベート領域',
+        subtitle: '名前や保存先IDは見せず、一致した領域だけを開きます。',
       },
       insights: {
-        title: '記録を振り返る',
-        subtitle: '日々のメモをカレンダーとまとめで確認。',
+        title: '書いた量をグラフで確認',
+        subtitle: '件数、連続記録、月ごとの推移をまとめて見返せます。',
       },
       settings: {
         title: '日付ごとに見返す',
@@ -81,12 +81,12 @@ const locales = [
         subtitle: 'Open only the profile you need, when you need it.',
       },
       profileLock: {
-        title: 'Lock multiple profiles',
-        subtitle: 'Keep names and vault IDs hidden behind separate keys.',
+        title: 'Unlock only the matching profile',
+        subtitle: 'Names and vault IDs stay hidden while each space uses its own key.',
       },
       insights: {
-        title: 'Review your writing',
-        subtitle: 'See notes by day and track your memo activity.',
+        title: 'Track writing activity',
+        subtitle: 'Review streaks, note counts, and monthly trends at a glance.',
       },
       settings: {
         title: 'Review notes by day',
@@ -133,8 +133,8 @@ const scenes = [
     key: 'profileLock',
     prepare: async (page, locale) => {
       await seedPrivateProfiles(page, locale);
-      await activateTabIndex(page, 3);
-      await page.waitForTimeout(700);
+      await activateTabIndex(page, 0);
+      await openPrivateProfileUnlockDialog(page, locale);
     },
   },
   {
@@ -634,6 +634,36 @@ async function openAddNote(page) {
     await page.mouse.click(size.width - 36, size.height - 112);
   }
   await page.waitForTimeout(600);
+}
+
+async function openPrivateProfileUnlockDialog(page, locale) {
+  const names = locale.id === 'ja'
+    ? [/プライベートプロファイルを開く/, /Unlock private profile/]
+    : [/Unlock private profile/, /プライベートプロファイルを開く/];
+  let opened = false;
+  for (const name of names) {
+    const button = page.getByRole('button', { name }).first();
+    if (await button.count()) {
+      await button.click({ force: true });
+      opened = true;
+      break;
+    }
+  }
+  if (!opened) {
+    const size = page.viewportSize();
+    await page.mouse.click(size.width - 42, 56);
+  }
+  await page.waitForTimeout(700);
+  const passwordInput = page.locator('[data-key="private-profile-unlock-password-input"]').first();
+  if (await passwordInput.count()) {
+    await passwordInput.fill(locale.id === 'ja' ? 'himemo-key' : 'private-key');
+  } else {
+    const textBox = page.getByRole('textbox').first();
+    if (await textBox.count()) {
+      await textBox.fill(locale.id === 'ja' ? 'himemo-key' : 'private-key');
+    }
+  }
+  await page.waitForTimeout(700);
 }
 
 async function ensureDemoNotes(page, locale) {
