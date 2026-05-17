@@ -41,6 +41,11 @@ GoRouter appRouter(Ref ref) {
                 const NoTransitionPage(child: TrashScreen()),
           ),
           GoRoute(
+            path: '/tags',
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: TagsScreen()),
+          ),
+          GoRoute(
             path: '/settings',
             pageBuilder: (context, state) =>
                 const NoTransitionPage(child: SettingsScreen()),

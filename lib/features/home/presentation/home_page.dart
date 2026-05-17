@@ -70,6 +70,7 @@ part 'home_calendar_screen.dart';
 part 'home_insights_screen.dart';
 part 'home_notes_screen.dart';
 part 'home_trash_screen.dart';
+part 'home_tags_screen.dart';
 part 'home_google_drive_panel.dart';
 
 const _appStoreId = String.fromEnvironment('HIMEMO_APP_STORE_ID');
@@ -83,7 +84,7 @@ const _httpUserAgent = 'HiMemo/1.0 (+$_contactUrl)';
 const _appAuthor = '@mmiyaji';
 const _appAuthorUrl = 'https://ruhenheim.org/';
 
-enum AppSection { notes, calendar, insights, trash, settings }
+enum AppSection { notes, calendar, insights, trash, tags, settings }
 
 final _noteOverlaySheetDepth = ValueNotifier<int>(0);
 final _mobileNoteDetailSheetDepth = ValueNotifier<int>(0);
@@ -539,6 +540,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       AppSection.calendar => 1,
       AppSection.insights => 3,
       AppSection.trash => 4,
+      AppSection.tags => 4,
       AppSection.settings => 4,
     };
   }
@@ -572,6 +574,8 @@ class _AppShellState extends ConsumerState<AppShell> {
         context.go('/insights');
       case AppSection.trash:
         context.go('/trash');
+      case AppSection.tags:
+        context.go('/tags');
       case AppSection.settings:
         context.go('/settings');
     }
@@ -641,6 +645,9 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
     if (location.startsWith('/trash')) {
       return AppSection.trash;
+    }
+    if (location.startsWith('/tags')) {
+      return AppSection.tags;
     }
     if (location.startsWith('/settings')) {
       return AppSection.settings;

@@ -8042,6 +8042,110 @@ class NotesController extends _$NotesController {
     }
   }
 
+  Future<int> renameTag({
+    required String from,
+    required String to,
+    Iterable<String>? vaultIds,
+  }) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final fromKey = canonicalizeNoteTag(from);
+    final normalizedTo = normalizeNoteTag(to);
+    final toKey = canonicalizeNoteTag(normalizedTo);
+    if (fromKey.isEmpty ||
+        toKey.isEmpty ||
+        fromKey == toKey ||
+        isSystemSyncExclusionTag(from) ||
+        isSystemSyncExclusionTag(normalizedTo)) {
+      return 0;
+    }
+    final targetVaultIds = vaultIds?.toSet();
+    final now = DateTime.now();
+    var changed = 0;
+    final next = <NoteEntry>[];
+    for (final note in state) {
+      if (note.deletedAt != null ||
+          note.archivedAt != null ||
+          (targetVaultIds != null && !targetVaultIds.contains(note.vaultId)) ||
+          !note.tags.any((tag) => canonicalizeNoteTag(tag) == fromKey)) {
+        next.add(note);
+        continue;
+      }
+      final renamedTags = <String>[
+        for (final tag in note.tags)
+          canonicalizeNoteTag(tag) == fromKey ? normalizedTo : tag,
+      ];
+      final changedBase = note.copyWith(
+        tags: dedupeNoteTags(renamedTags),
+        updatedAt: now,
+        revision: note.revision + 1,
+      );
+      final changedNote = changedBase.copyWith(
+        syncState: _syncStateForLocalChange(changedBase, deleted: false),
+      );
+      next.add(
+        changedNote.copyWith(contentHash: _computeContentHash(changedNote)),
+      );
+      changed++;
+    }
+    if (changed == 0) {
+      return 0;
+    }
+    _sort(next);
+    state = next;
+    await _persist();
+    logAudit(
+      'tag_rename',
+      data: {'from': from, 'to': normalizedTo, 'count': changed},
+    );
+    return changed;
+  }
+
+  Future<int> deleteTag(String tag, {Iterable<String>? vaultIds}) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final key = canonicalizeNoteTag(tag);
+    if (key.isEmpty || isSystemSyncExclusionTag(tag)) {
+      return 0;
+    }
+    final targetVaultIds = vaultIds?.toSet();
+    final now = DateTime.now();
+    var changed = 0;
+    final next = <NoteEntry>[];
+    for (final note in state) {
+      if (note.deletedAt != null ||
+          note.archivedAt != null ||
+          (targetVaultIds != null && !targetVaultIds.contains(note.vaultId)) ||
+          !note.tags.any((entry) => canonicalizeNoteTag(entry) == key)) {
+        next.add(note);
+        continue;
+      }
+      final changedBase = note.copyWith(
+        tags: [
+          for (final entry in note.tags)
+            if (canonicalizeNoteTag(entry) != key) entry,
+        ],
+        updatedAt: now,
+        revision: note.revision + 1,
+      );
+      final changedNote = changedBase.copyWith(
+        syncState: _syncStateForLocalChange(changedBase, deleted: false),
+      );
+      next.add(
+        changedNote.copyWith(contentHash: _computeContentHash(changedNote)),
+      );
+      changed++;
+    }
+    if (changed == 0) {
+      return 0;
+    }
+    _sort(next);
+    state = next;
+    await _persist();
+    logAudit('tag_delete', data: {'tag': tag, 'count': changed});
+    return changed;
+  }
+
   Map<String, Object?> _auditNoteData(NoteEntry note) {
     return {
       'noteId': note.id,

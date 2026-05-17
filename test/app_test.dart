@@ -2211,6 +2211,105 @@ void main() {
     ]);
   });
 
+  test('tag rename and delete update every visible note safely', () async {
+    SharedPreferences.setMockInitialValues({});
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(73));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    final controller = container.read(notesControllerProvider.notifier);
+    await controller.restoreCompleted;
+    await controller.upsert(
+      NoteEntry(
+        id: 'tag-edit-1',
+        vaultId: 'everyday',
+        title: 'First',
+        body: '',
+        tags: const ['Work', 'Alpha'],
+        createdAt: DateTime.utc(2026, 5, 17),
+      ),
+    );
+    await controller.upsert(
+      NoteEntry(
+        id: 'tag-edit-2',
+        vaultId: 'everyday',
+        title: 'Second',
+        body: '',
+        tags: const ['work', 'Home'],
+        createdAt: DateTime.utc(2026, 5, 17, 1),
+      ),
+    );
+    await controller.upsert(
+      NoteEntry(
+        id: 'tag-edit-system',
+        vaultId: 'everyday',
+        title: 'System',
+        body: '',
+        tags: const [systemSyncExcludedTag],
+        createdAt: DateTime.utc(2026, 5, 17, 2),
+      ),
+    );
+
+    expect(await controller.renameTag(from: 'work', to: 'Home'), 2);
+    final renamed = container.read(notesControllerProvider);
+    expect(renamed.singleWhere((note) => note.id == 'tag-edit-1').tags, [
+      'Home',
+      'Alpha',
+    ]);
+    expect(renamed.singleWhere((note) => note.id == 'tag-edit-2').tags, [
+      'Home',
+    ]);
+    expect(
+      renamed.singleWhere((note) => note.id == 'tag-edit-1').syncState,
+      NoteSyncState.pendingUpload,
+    );
+
+    expect(await controller.deleteTag('home'), 2);
+    final deleted = container.read(notesControllerProvider);
+    expect(deleted.singleWhere((note) => note.id == 'tag-edit-1').tags, [
+      'Alpha',
+    ]);
+    expect(
+      deleted.singleWhere((note) => note.id == 'tag-edit-2').tags,
+      isEmpty,
+    );
+
+    expect(
+      await controller.renameTag(from: systemSyncExcludedTag, to: 'Archive'),
+      0,
+    );
+    expect(await controller.deleteTag(systemSyncExcludedTag), 0);
+    expect(
+      container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'tag-edit-system')
+          .tags,
+      [systemSyncExcludedTag],
+    );
+  });
+
   test('notes with sync exclusion tags are omitted from snapshots', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();

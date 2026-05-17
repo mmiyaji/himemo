@@ -806,6 +806,32 @@ class SettingsScreen extends ConsumerWidget {
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => context.go('/trash'),
             ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.sell_outlined),
+              title: Text(
+                strings.localized(
+                  en: 'Tags',
+                  ja: '\u30bf\u30b0',
+                  zh: '\u6807\u7b7e',
+                  ko: '\ud0dc\uadf8',
+                  es: 'Etiquetas',
+                  de: 'Tags',
+                ),
+              ),
+              subtitle: Text(
+                strings.localized(
+                  en: 'Review, rename, and delete memo tags.',
+                  ja: '\u30e1\u30e2\u306e\u30bf\u30b0\u3092\u4e00\u89a7\u30fb\u30ea\u30cd\u30fc\u30e0\u30fb\u524a\u9664\u3057\u307e\u3059\u3002',
+                  zh: '\u67e5\u770b\u3001\u91cd\u547d\u540d\u548c\u5220\u9664\u7b14\u8bb0\u6807\u7b7e\u3002',
+                  ko: '\uba54\ubaa8 \ud0dc\uadf8\ub97c \ubcf4\uace0 \uc774\ub984\uc744 \ubc14\uafb8\uac70\ub098 \uc0ad\uc81c\ud569\ub2c8\ub2e4.',
+                  es: 'Revisa, renombra y elimina etiquetas de notas.',
+                  de: 'Notiz-Tags ansehen, umbenennen und loeschen.',
+                ),
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => context.go('/tags'),
+            ),
             const SizedBox(height: 8),
             if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) ...[
               SwitchListTile.adaptive(

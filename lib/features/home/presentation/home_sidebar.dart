@@ -129,6 +129,21 @@ class _Sidebar extends StatelessWidget {
                   onTap: () => onSectionSelected(AppSection.trash),
                 ),
                 _SidebarItem(
+                  icon: Icons.sell_outlined,
+                  selectedIcon: Icons.sell_rounded,
+                  label: strings.localized(
+                    en: 'Tags',
+                    ja: '\u30bf\u30b0',
+                    zh: '\u6807\u7b7e',
+                    ko: '\ud0dc\uadf8',
+                    es: 'Etiquetas',
+                    de: 'Tags',
+                  ),
+                  showLabel: !collapsed,
+                  selected: section == AppSection.tags,
+                  onTap: () => onSectionSelected(AppSection.tags),
+                ),
+                _SidebarItem(
                   icon: Icons.settings_outlined,
                   selectedIcon: Icons.settings_rounded,
                   label: strings.settings,
@@ -423,7 +438,7 @@ class _SidebarTagTile extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    summary.name,
+                    _displayNoteTag(context, summary.name),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodyMedium?.copyWith(
