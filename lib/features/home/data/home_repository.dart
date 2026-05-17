@@ -112,10 +112,7 @@ class SeededHomeRepository implements HomeRepository {
       NoteEntry(
         id: 'seed-2026-04-12-groceries',
         vaultId: 'everyday',
-        title: _seedText(
-          ja: '牛乳、卵、果物。帰りにドラッグストアにも寄る。',
-          en: 'Milk, eggs, and fruit. Stop by the drugstore on the way home.',
-        ),
+        title: _seedText(ja: '買い物メモ', en: 'Shopping list'),
         body: _seedText(
           ja: '牛乳、卵、果物。帰りにドラッグストアにも寄る。',
           en: 'Milk, eggs, and fruit. Stop by the drugstore on the way home.',
@@ -158,7 +155,7 @@ class SeededHomeRepository implements HomeRepository {
       NoteEntry(
         id: 'seed-2026-04-12-idea',
         vaultId: 'everyday',
-        title: _seedText(ja: 'どうですか', en: 'Presentation idea'),
+        title: _seedText(ja: '共有会の準備', en: 'Sharing meeting prep'),
         body: _seedText(
           ja: '資料の見せ方を先に整理すると、共有会が短く終わりそう。',
           en: 'If we organize the document flow first, the sharing meeting should be shorter.',
