@@ -484,11 +484,13 @@ class SettingsScreen extends ConsumerWidget {
     GlobalKey key,
   ) {
     controller.expand();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (context.mounted) {
-        _scrollToSettingsSection(key);
-      }
-    });
+    unawaited(
+      Future<void>.delayed(const Duration(milliseconds: 360), () {
+        if (context.mounted) {
+          _scrollToSettingsSection(key);
+        }
+      }),
+    );
   }
 
   void _scrollToSettingsSection(GlobalKey key) {
