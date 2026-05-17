@@ -639,7 +639,7 @@ class _NoteListTile extends StatelessWidget {
                   runSpacing: 6,
                   children: [
                     for (final fact in visiblePreviewFacts)
-                      _NotePreviewFactChip(fact: fact),
+                      _NotePreviewFactChip(fact: fact, query: query),
                     if (showLocationPreviewIconOnly)
                       const _NotePreviewFactIcon(
                         icon: Icons.location_on_outlined,
@@ -951,9 +951,10 @@ _LocationMemoData? _firstLocationPreview(NoteEntry note) {
 }
 
 class _NotePreviewFactChip extends StatelessWidget {
-  const _NotePreviewFactChip({required this.fact});
+  const _NotePreviewFactChip({required this.fact, required this.query});
 
   final _NotePreviewFact fact;
+  final String query;
 
   @override
   Widget build(BuildContext context) {
@@ -972,8 +973,9 @@ class _NotePreviewFactChip extends StatelessWidget {
           Icon(fact.icon, size: 14, color: colorScheme.onSurfaceVariant),
           const SizedBox(width: 4),
           Flexible(
-            child: Text(
-              fact.label,
+            child: _HighlightedText(
+              text: fact.label,
+              query: query,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
