@@ -99,6 +99,15 @@ void main() {
     expect(strings.onboardingColorThemeBody(30), contains('全30色以上'));
   });
 
+  test('tag filter snackbar message is localized', () {
+    final strings = AppStrings(const Locale('ja'));
+
+    expect(
+      strings.tagFilterApplied('\u4ed5\u4e8b'),
+      '#\u4ed5\u4e8b \u306e\u30bf\u30b0\u3067\u7d5e\u308a\u8fbc\u307f\u307e\u3057\u305f',
+    );
+  });
+
   test('release notes parse localized user-facing items', () {
     final release = releaseNoteFromJson({
       'version': '1.2.3',

@@ -1923,6 +1923,14 @@ class AppStrings {
     es: 'Notas filtradas por #$tag',
     de: 'Notizen nach #$tag gefiltert',
   );
+  String tagFilterApplied(String tag) => localized(
+    en: 'Filtered notes by #$tag',
+    ja: '#$tag \u306e\u30bf\u30b0\u3067\u7d5e\u308a\u8fbc\u307f\u307e\u3057\u305f',
+    zh: '\u5df2\u6309 #$tag \u7b5b\u9009\u7b14\u8bb0',
+    ko: '#$tag \ud0dc\uadf8\ub85c \uba54\ubaa8\ub97c \ud544\ud130\ud588\uc2b5\ub2c8\ub2e4',
+    es: 'Notas filtradas por #$tag',
+    de: 'Notizen nach #$tag gefiltert',
+  );
   String deleteNoteConfirmation(String title) => localized(
     en: 'Delete "$title" permanently from this device?',
     ja: '「$title」をこの端末から完全に削除しますか？',

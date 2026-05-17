@@ -333,7 +333,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         showCloseIcon: true,
-        content: Text(context.strings.filteredByTag(tag)),
+        content: Text(
+          context.strings.tagFilterApplied(_displayNoteTag(context, tag)),
+        ),
       ),
     );
   }

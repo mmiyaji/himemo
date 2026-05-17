@@ -145,6 +145,15 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
     ref.read(searchQueryProvider.notifier).setQuery('');
     ref.read(selectedNoteIdProvider.notifier).select(null);
     context.go('/notes');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        duration: const Duration(seconds: 2),
+        content: Text(
+          context.strings.tagFilterApplied(_displayNoteTag(context, tag)),
+        ),
+      ),
+    );
   }
 
   Future<void> _renameTag(
