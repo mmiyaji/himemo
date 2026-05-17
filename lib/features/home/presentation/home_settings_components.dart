@@ -5,11 +5,13 @@ class _SettingsOverviewItem {
     required this.label,
     required this.value,
     required this.icon,
+    this.onTap,
   });
 
   final String label;
   final String value;
   final IconData icon;
+  final VoidCallback? onTap;
 }
 
 class _ColorThemeScopeOption {
@@ -43,31 +45,50 @@ class _SettingsOverviewCard extends StatelessWidget {
               for (final item in items)
                 SizedBox(
                   width: itemWidth,
-                  child: Row(
-                    children: [
-                      _SettingsSectionIcon(icon: item.icon),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item.label,
-                              style: Theme.of(
-                                context,
-                              ).textTheme.labelMedium?.copyWith(color: muted),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              item.value,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleSmall,
-                            ),
-                          ],
-                        ),
+                  child: TextButton(
+                    onPressed: item.onTap,
+                    style: TextButton.styleFrom(
+                      alignment: Alignment.centerLeft,
+                      foregroundColor: Theme.of(context).colorScheme.onSurface,
+                      padding: const EdgeInsets.all(4),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6),
                       ),
-                    ],
+                    ),
+                    child: Row(
+                      children: [
+                        _SettingsSectionIcon(icon: item.icon),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.label,
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.labelMedium?.copyWith(color: muted),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                item.value,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (item.onTap != null) ...[
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.keyboard_arrow_down_rounded,
+                            size: 18,
+                            color: muted,
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
                 ),
             ],
@@ -84,6 +105,7 @@ class _SettingsGroup extends StatelessWidget {
     required this.summary,
     required this.icon,
     required this.children,
+    this.sectionKey,
     this.semanticLabel,
   });
 
@@ -91,6 +113,7 @@ class _SettingsGroup extends StatelessWidget {
   final String summary;
   final IconData icon;
   final List<Widget> children;
+  final Key? sectionKey;
   final String? semanticLabel;
 
   @override
@@ -98,7 +121,7 @@ class _SettingsGroup extends StatelessWidget {
     final theme = Theme.of(context);
     final borderRadius = BorderRadius.circular(6);
     return Semantics(
-      key: semanticLabel == null ? null : Key(semanticLabel!),
+      key: sectionKey ?? (semanticLabel == null ? null : Key(semanticLabel!)),
       container: true,
       child: ClipRRect(
         borderRadius: borderRadius,
