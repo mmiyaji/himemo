@@ -52,52 +52,125 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        _InsightsSummaryGrid(summary: summary),
-        const SizedBox(height: 16),
-        _InsightChartSection(
-          title: strings.text('home.monthly.notes'),
-          description: strings.text(
-            'home.notes.created.over.the.last.6.months',
+        if (notes.isEmpty)
+          _InsightsEmptyGuide(
+            onAddNote: () => showNoteEditorSheet(context, ref),
+            onOpenNotes: () => context.go('/notes'),
+          )
+        else ...[
+          _InsightsSummaryGrid(summary: summary),
+          const SizedBox(height: 16),
+          _InsightChartSection(
+            title: strings.text('home.monthly.notes'),
+            description: strings.text(
+              'home.notes.created.over.the.last.6.months',
+            ),
+            child: _InsightLineChart(
+              buckets: insights.monthlyBuckets,
+              valueSuffix: strings.text('home.notes'),
+            ),
           ),
-          child: _InsightLineChart(
-            buckets: insights.monthlyBuckets,
-            valueSuffix: strings.text('home.notes'),
+          const SizedBox(height: 16),
+          _InsightChartSection(
+            title: strings.text('home.recent.days'),
+            description: strings.text(
+              'home.daily.note.count.over.the.last.14.days',
+            ),
+            child: _InsightBarChart(
+              buckets: insights.recentDayBuckets,
+              valueSuffix: strings.text('home.notes'),
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
-        _InsightChartSection(
-          title: strings.text('home.recent.days'),
-          description: strings.text(
-            'home.daily.note.count.over.the.last.14.days',
+          const SizedBox(height: 16),
+          _InsightChartSection(
+            title: strings.text('home.weekday.and.time.rhythm'),
+            description: strings.text(
+              'home.notes.by.weekday.and.3.hour.time.block',
+            ),
+            child: _WeekdayHourHistogram(
+              buckets: insights.weekdayHourBuckets,
+              valueSuffix: strings.text('home.notes'),
+            ),
           ),
-          child: _InsightBarChart(
-            buckets: insights.recentDayBuckets,
-            valueSuffix: strings.text('home.notes'),
+          const SizedBox(height: 16),
+          _InsightChartSection(
+            title: strings.text('home.attachments'),
+            description: strings.text(
+              'home.how.often.photos.videos.and.audio.are.used',
+            ),
+            child: _InsightHorizontalBarChart(
+              buckets: insights.attachmentBuckets,
+              valueSuffix: strings.text('home.items'),
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
-        _InsightChartSection(
-          title: strings.text('home.weekday.and.time.rhythm'),
-          description: strings.text(
-            'home.notes.by.weekday.and.3.hour.time.block',
-          ),
-          child: _WeekdayHourHistogram(
-            buckets: insights.weekdayHourBuckets,
-            valueSuffix: strings.text('home.notes'),
-          ),
-        ),
-        const SizedBox(height: 16),
-        _InsightChartSection(
-          title: strings.text('home.attachments'),
-          description: strings.text(
-            'home.how.often.photos.videos.and.audio.are.used',
-          ),
-          child: _InsightHorizontalBarChart(
-            buckets: insights.attachmentBuckets,
-            valueSuffix: strings.text('home.items'),
-          ),
-        ),
+        ],
       ],
+    );
+  }
+}
+
+class _InsightsEmptyGuide extends StatelessWidget {
+  const _InsightsEmptyGuide({
+    required this.onAddNote,
+    required this.onOpenNotes,
+  });
+
+  final VoidCallback onAddNote;
+  final VoidCallback onOpenNotes;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    return Container(
+      decoration: _sectionDecoration(context),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            strings.localized(
+              en: 'Build a record first',
+              ja: '\u307e\u305a\u306f\u8a18\u9332\u3092\u305f\u3081\u308b',
+              zh: '\u5148\u5f00\u59cb\u79ef\u7d2f\u8bb0\u5f55',
+              ko: '\uba3c\uc800 \uae30\ub85d\uc744 \uc313\uae30',
+              es: 'Primero crea registros',
+              de: 'Zuerst Aufzeichnungen sammeln',
+            ),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            strings.localized(
+              en: 'Charts become useful after a few notes. Start with one memo, then add tags, media, or a location when it helps.',
+              ja: '\u30b0\u30e9\u30d5\u306f\u30e1\u30e2\u304c\u5897\u3048\u308b\u3068\u5f79\u7acb\u3061\u307e\u3059\u3002\u307e\u305a1\u4ef6\u4f5c\u308a\u3001\u5fc5\u8981\u306a\u3068\u304d\u306b\u30bf\u30b0\u30fb\u30e1\u30c7\u30a3\u30a2\u30fb\u4f4d\u7f6e\u60c5\u5831\u3092\u8ffd\u52a0\u3057\u307e\u3059\u3002',
+              zh: '\u6709\u51e0\u6761\u7b14\u8bb0\u540e\uff0c\u56fe\u8868\u624d\u4f1a\u66f4\u6709\u7528\u3002\u5148\u5199\u4e00\u6761\u5907\u5fd8\uff0c\u9700\u8981\u65f6\u518d\u52a0\u6807\u7b7e\u3001\u5a92\u4f53\u6216\u4f4d\u7f6e\u3002',
+              ko: '\uba54\ubaa8\uac00 \uba87 \uac1c \uc313\uc774\uba74 \ucc28\ud2b8\uac00 \uc720\uc6a9\ud574\uc9d1\ub2c8\ub2e4. \uba3c\uc800 \ud558\ub098\ub97c \uc791\uc131\ud558\uace0, \ud544\uc694\ud560 \ub54c \ud0dc\uadf8\u00b7\ubbf8\ub514\uc5b4\u00b7\uc704\uce58\ub97c \ucd94\uac00\ud558\uc138\uc694.',
+              es: 'Los graficos son utiles despues de algunas notas. Empieza con una y anade etiquetas, medios o ubicacion cuando ayude.',
+              de: 'Diagramme werden nach einigen Notizen nuetzlich. Beginne mit einer Notiz und ergaenze Tags, Medien oder Orte bei Bedarf.',
+            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: onAddNote,
+                icon: const Icon(Icons.edit_note_rounded),
+                label: Text(strings.addNote),
+              ),
+              OutlinedButton.icon(
+                onPressed: onOpenNotes,
+                icon: const Icon(Icons.notes_outlined),
+                label: Text(strings.notes),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

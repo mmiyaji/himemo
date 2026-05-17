@@ -93,7 +93,19 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
         if (summaries.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
-            child: _TagsEmptyState(strings: strings),
+            child: _TagsEmptyState(
+              strings: strings,
+              description: strings.localized(
+                en: 'Tags appear here after you add them to notes.',
+                ja: '\u30e1\u30e2\u306b\u30bf\u30b0\u3092\u8ffd\u52a0\u3059\u308b\u3068\u3053\u3053\u306b\u8868\u793a\u3055\u308c\u307e\u3059\u3002',
+                zh: '\u5c06\u6807\u7b7e\u6dfb\u52a0\u5230\u7b14\u8bb0\u540e\uff0c\u5b83\u4eec\u4f1a\u663e\u793a\u5728\u8fd9\u91cc\u3002',
+                ko: '\uba54\ubaa8\uc5d0 \ud0dc\uadf8\ub97c \ucd94\uac00\ud558\uba74 \uc5ec\uae30\uc5d0 \ud45c\uc2dc\ub429\ub2c8\ub2e4.',
+                es: 'Las etiquetas apareceran aqui cuando las anadas a notas.',
+                de: 'Tags erscheinen hier, nachdem du sie Notizen hinzugefuegt hast.',
+              ),
+              actionLabel: strings.addNote,
+              onAction: () => showNoteEditorSheet(context, ref),
+            ),
           )
         else if (filtered.isEmpty)
           SliverFillRemaining(
@@ -452,10 +464,19 @@ class _TagManagementTile extends StatelessWidget {
 }
 
 class _TagsEmptyState extends StatelessWidget {
-  const _TagsEmptyState({required this.strings, this.title});
+  const _TagsEmptyState({
+    required this.strings,
+    this.title,
+    this.description,
+    this.actionLabel,
+    this.onAction,
+  });
 
   final AppStrings strings;
   final String? title;
+  final String? description;
+  final String? actionLabel;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -483,6 +504,24 @@ class _TagsEmptyState extends StatelessWidget {
                   ),
               style: Theme.of(context).textTheme.titleMedium,
             ),
+            if (description case final description?) ...[
+              const SizedBox(height: 8),
+              Text(
+                description,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
+              ),
+            ],
+            if (actionLabel case final actionLabel?) ...[
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: onAction,
+                icon: const Icon(Icons.edit_note_rounded),
+                label: Text(actionLabel),
+              ),
+            ],
           ],
         ),
       ),

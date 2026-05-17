@@ -98,7 +98,8 @@ class _SettingsGroup extends StatelessWidget {
     final theme = Theme.of(context);
     final borderRadius = BorderRadius.circular(6);
     return Semantics(
-      label: semanticLabel,
+      key: semanticLabel == null ? null : Key(semanticLabel!),
+      container: true,
       child: ClipRRect(
         borderRadius: borderRadius,
         child: DecoratedBox(

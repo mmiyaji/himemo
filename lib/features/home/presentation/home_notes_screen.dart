@@ -146,7 +146,9 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: visibleNotes.isEmpty
-                    ? const _EmptyNotesState()
+                    ? _EmptySplitDetailState(
+                        onAddNote: () => showNoteEditorSheet(context, ref),
+                      )
                     : selectedIndex < 0
                     ? const _EmptyNoteSelectionState()
                     : _StaticNoteDetailView(
@@ -336,6 +338,63 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         content: Text(
           context.strings.tagFilterApplied(_displayNoteTag(context, tag)),
         ),
+      ),
+    );
+  }
+}
+
+class _EmptySplitDetailState extends StatelessWidget {
+  const _EmptySplitDetailState({required this.onAddNote});
+
+  final VoidCallback onAddNote;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    return Container(
+      decoration: _sectionDecoration(context),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.note_add_outlined,
+            size: 32,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            strings.localized(
+              en: 'Start with a new note',
+              ja: '\u65b0\u3057\u3044\u30e1\u30e2\u304b\u3089\u59cb\u3081\u308b',
+              zh: '\u4ece\u65b0\u7b14\u8bb0\u5f00\u59cb',
+              ko: '\uc0c8 \uba54\ubaa8\ub85c \uc2dc\uc791',
+              es: 'Empieza con una nota nueva',
+              de: 'Mit einer neuen Notiz beginnen',
+            ),
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            strings.localized(
+              en: 'Saved notes appear in the list on the left. Create one to preview and edit it here.',
+              ja: '\u4fdd\u5b58\u3057\u305f\u30e1\u30e2\u306f\u5de6\u306e\u4e00\u89a7\u306b\u8868\u793a\u3055\u308c\u307e\u3059\u3002\u4f5c\u6210\u3059\u308b\u3068\u3053\u3053\u3067\u8868\u793a\u30fb\u7de8\u96c6\u3067\u304d\u307e\u3059\u3002',
+              zh: '\u4fdd\u5b58\u7684\u7b14\u8bb0\u4f1a\u663e\u793a\u5728\u5de6\u4fa7\u5217\u8868\u4e2d\u3002\u521b\u5efa\u540e\u53ef\u5728\u6b64\u9884\u89c8\u548c\u7f16\u8f91\u3002',
+              ko: '\uc800\uc7a5\ub41c \uba54\ubaa8\ub294 \uc67c\ucabd \ubaa9\ub85d\uc5d0 \ud45c\uc2dc\ub429\ub2c8\ub2e4. \uba54\ubaa8\ub97c \ub9cc\ub4e4\uba74 \uc5ec\uae30\uc11c \ubcf4\uace0 \ud3b8\uc9d1\ud560 \uc218 \uc788\uc2b5\ub2c8\ub2e4.',
+              es: 'Las notas guardadas apareceran en la lista izquierda. Crea una para verla y editarla aqui.',
+              de: 'Gespeicherte Notizen erscheinen links. Erstelle eine, um sie hier anzusehen und zu bearbeiten.',
+            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
+          ),
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: onAddNote,
+            icon: const Icon(Icons.edit_note_rounded),
+            label: Text(strings.addNote),
+          ),
+        ],
       ),
     );
   }
