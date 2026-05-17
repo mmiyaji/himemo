@@ -437,13 +437,13 @@ class _MarkedCalendar extends StatelessWidget {
         const SizedBox(height: 8),
         Row(
           children: [
-            for (final weekday in weekdays)
+            for (var index = 0; index < weekdays.length; index++)
               Expanded(
                 child: Center(
                   child: Text(
-                    weekday,
+                    weekdays[index],
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: _mutedTextColor(context),
+                      color: _calendarWeekdayLabelColor(context, index),
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -545,4 +545,12 @@ class _MarkedCalendar extends StatelessWidget {
         left.month == right.month &&
         left.day == right.day;
   }
+}
+
+Color _calendarWeekdayLabelColor(BuildContext context, int weekdayIndex) {
+  return switch (weekdayIndex) {
+    5 => Colors.blue.shade700,
+    6 => Colors.red.shade700,
+    _ => _mutedTextColor(context),
+  };
 }
