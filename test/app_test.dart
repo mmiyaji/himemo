@@ -1408,6 +1408,32 @@ void main() {
     );
   });
 
+  test('seeded demo photo attachments use seasonal JPEG previews', () {
+    final notes = SeededHomeRepository(
+      seedBaseDate: DateTime(2026, 4, 29),
+    ).seededNotes;
+    final photoAttachments = notes
+        .expand((note) => note.attachments)
+        .where((attachment) => attachment.type == AttachmentType.photo)
+        .toList();
+
+    expect(
+      photoAttachments.map((attachment) => attachment.label),
+      containsAll([
+        'spring-sakura.jpg',
+        'summer-bamboo.jpg',
+        'autumn-kamikochi.jpg',
+        'winter-furano.jpg',
+      ]),
+    );
+    for (final attachment in photoAttachments) {
+      final bytes = base64Decode(attachment.previewBytesBase64!);
+      expect(bytes, hasLength(greaterThan(1024)));
+      expect(bytes[0], 0xff);
+      expect(bytes[1], 0xd8);
+    }
+  });
+
   test(
     'demo notes are only created on request and are not restored automatically after deletion',
     () async {
