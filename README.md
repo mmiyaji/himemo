@@ -1,35 +1,57 @@
 # HiMemo
 
-HiMemo は、Flutter で作られたクロスプラットフォームのメモアプリ試作です。対象は `iOS` `Android` `Web` で、複数の unlock profile に応じて表示する vault を切り替えるローカルファースト構成になっています。
+HiMemo is a cross-platform private memo app built with Flutter for iOS, Android, and Web. The name is a quiet reference to "秘メモ": notes that can stay personal while still being quick to capture and easy to organize.
 
-現状はプロトタイプ段階で、ノート作成体験、プロフィール切り替え、ローカル保存、テーマ切り替え、Web E2E テスト基盤までを含みます。クラウド同期や実ファイル暗号化はまだ未実装です。
+The app is local-first. Notes, attachments, private profiles, app lock settings, and sync state are stored on the user's device, with optional cloud sync and backup through services the user chooses.
 
-## できること
+## Current Features
 
-- Notes / Calendar / Settings の 3 画面を `go_router` で遷移
-- unlock profile の切り替えに応じて見える vault / note を変更
-- メモの作成、編集、削除、検索、ピン留め
-- 作成日の変更
-- 添付ファイルのプレースホルダー追加
-  - `photo`
-  - `video`
-  - `audio`
-- `shared_preferences` を使った端末内保存
-- Light / System / Dark テーマ切り替え
-- 開発用 / 本番用 flavor の切り替え
+- Fast note capture with a quick memo flow where the first line can become the title
+- Notes, calendar, insights, and settings views
+- Search, tags, pinning, archive-oriented organization, and date-based review
+- Photo, video, audio, file, and location attachments
+- Private profiles that open only when the entered password matches that profile
+- Multi-profile lock behavior that avoids listing configured profile names or vault IDs in Settings
+- App lock with PIN or device authentication where supported
+- File backup/export for local archives
+- Optional cloud sync with iCloud and Google Drive app-data storage
+- Cloud recovery key handling for reading encrypted sync bundles on another device
+- External quick memo entry points for widget/share-style capture flows
+- Light, dark, and system theme support
+- Localized UI and store assets for Japanese and English
 
-## 技術スタック
+## Store And Public Assets
 
-- Flutter
+- App Store screenshots and promotional composites are generated under `store-assets/app-store/`.
+- Store listing copy is maintained in `store-assets/store-listing-copy.md`.
+- The generator is `tools/store_assets/generate_app_store_screenshots.js`.
+- Legal and help pages are under `docs/`.
+- Release notes are stored in `assets/release_notes/release_notes.json`.
+
+Generate store screenshots:
+
+```powershell
+node tools\store_assets\generate_app_store_screenshots.js
+```
+
+The generator builds the development web app, seeds localized demo data, captures iPhone/iPad screenshots, and renders promotional frames. It also includes a multi-profile lock screen because that is one of the app's key differentiators.
+
+## Technical Stack
+
+- Flutter / Dart
 - Riverpod / riverpod_generator
 - go_router
-- freezed / json_serializable
+- Drift / SQLite
 - shared_preferences
-- Playwright
+- flutter_secure_storage
+- cryptography
+- Firebase Crashlytics / Performance
+- Google Drive API integration
+- Playwright for Web E2E and store asset capture
 
-## セットアップ
+## Setup
 
-このリポジトリは `fvm` 前提です。.fvmrc では `Flutter 3.41.6` を指定しています。
+This repository expects FVM. The pinned Flutter version is defined in `.fvmrc`.
 
 ```powershell
 $env:PATH += ";$env:LOCALAPPDATA\Pub\Cache\bin"
@@ -37,59 +59,17 @@ fvm flutter pub get
 npm install
 ```
 
-## 実行
+## Run
 
-### 開発用 flavor
+Development flavor:
 
 ```powershell
 fvm flutter run -d chrome --flavor development -t lib/main_development.dart
-```
-
-他ターゲット:
-
-```powershell
 fvm flutter run -d android --flavor development -t lib/main_development.dart
 fvm flutter run -d ios -t lib/main_development.dart
 ```
 
-### Google Drive sync OAuth for local builds
-
-Create a local `.env` file from `.env.example` and set the Google OAuth client
-IDs. The `.env` file is ignored by git.
-
-```powershell
-Copy-Item .env.example .env
-notepad .env
-```
-
-Run Flutter through the wrapper when you need those values passed as
-`--dart-define` entries:
-
-```powershell
-.\tools\flutter_with_env.ps1 run -d emulator-5554 --flavor development -t lib/main_development.dart
-.\tools\flutter_with_env.ps1 build apk --debug --flavor development -t lib/main_development.dart
-```
-
-VS Code can also run the same wrapper from `Terminal > Run Task...`:
-
-- `HiMemo: build production APK with .env`
-- `HiMemo: build development APK with .env`
-
-### Fake Google Drive sync for Web
-
-OAuth なしで同期画面を触る場合は、開発用のメモリ内 Google Drive モックを有効にします。アップロード、ダウンロード、履歴、添付オブジェクト、同期キーの保存先がプロセス内に差し替わります。
-
-```powershell
-fvm flutter run -d chrome --flavor development -t lib/main_development.dart --dart-define=HIMEMO_FAKE_GOOGLE_DRIVE_SYNC=true
-```
-
-`web-server` で In App Browser から確認する場合:
-
-```powershell
-fvm flutter run -d web-server --web-hostname 127.0.0.1 --web-port 52817 --flavor development -t lib/main_development.dart --dart-define=HIMEMO_FAKE_GOOGLE_DRIVE_SYNC=true
-```
-
-### 本番用 flavor
+Production flavor:
 
 ```powershell
 fvm flutter run -d chrome -t lib/main_production.dart
@@ -97,89 +77,64 @@ fvm flutter run -d android --flavor production -t lib/main_production.dart
 fvm flutter build apk --flavor production -t lib/main_production.dart
 ```
 
-### Web build
-
-Wasm dry-run の警告を避けるため、Web ビルドは `--no-wasm-dry-run` 付きで実行します。
+Web build:
 
 ```powershell
 fvm flutter build web --no-wasm-dry-run -t lib/main_development.dart
-```
-
-または npm script を使います。
-
-```powershell
 npm run web:build
 ```
 
-## テスト
+## Google Drive Sync For Local Builds
 
-### Flutter テスト
+Create a local `.env` file from `.env.example` and set the Google OAuth client IDs. The `.env` file is ignored by git.
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+Run Flutter through the wrapper when those values need to be passed as `--dart-define` entries:
+
+```powershell
+.\tools\flutter_with_env.ps1 run -d emulator-5554 --flavor development -t lib/main_development.dart
+.\tools\flutter_with_env.ps1 build apk --debug --flavor development -t lib/main_development.dart
+```
+
+For Web testing without OAuth, enable the fake Google Drive sync transport:
+
+```powershell
+fvm flutter run -d chrome --flavor development -t lib/main_development.dart --dart-define=HIMEMO_FAKE_GOOGLE_DRIVE_SYNC=true
+```
+
+## Tests
 
 ```powershell
 fvm flutter test
-```
-
-### Flutter integration test
-
-```powershell
 fvm flutter test integration_test
-```
-
-### Web E2E
-
-Playwright は開発 flavor の Web ビルドを起動して検証します。
-
-```powershell
 npm run e2e
-```
-
-ヘッドあり実行:
-
-```powershell
 npm run e2e:headed
 ```
 
-## ディレクトリ構成
+## Repository Layout
 
 ```text
 lib/
-  app/                     アプリ初期化、flavor、router
+  app/                     App startup, routing, lock gate, sync scheduling
   features/home/
-    data/                  seed repository
-    domain/                note / vault のモデル
-    presentation/          画面、provider、状態管理
-test/                      widget / provider テスト
-integration_test/          Flutter integration test
-playwright/tests/          Web E2E
+    data/                  Seed data and stores
+    domain/                Note, profile, vault, and sync models
+    presentation/          Screens, widgets, and Riverpod controllers
+  features/security/       Encrypted storage and key-value stores
+  features/sync/           Sync bundle and transport logic
+docs/                      Help, privacy policy, terms, and public support pages
+internal-docs/             Release, build, and operations notes
+store-assets/              Store screenshots and listing copy
+tools/                     Build, sync, and store asset helper scripts
+test/                      Unit and widget tests
+integration_test/          Flutter integration tests
+playwright/tests/          Web E2E tests
 ```
 
-## Flavors
+## Release Notes
 
-entrypoint は 2 つあります。
-
-- `lib/main_development.dart`
-- `lib/main_production.dart`
-
-Android では `development` / `production` の `productFlavor` を使っています。
-
-- `development`
-  - アプリ名: `HiMemo Dev`
-  - debug 時は `DEV` バナーを表示
-- `production`
-  - アプリ名: `HiMemo`
-  - debug 時は `PROD` バナーを表示
-
-## 現状の制約
-
-- 永続化は端末ローカルのみ
-- 実ファイルの添付は未対応で、添付はプレースホルダー表示のみ
-- クラウド同期、E2EE、鍵管理は roadmap 段階
-- seed データを元に挙動を確認する前提のプロトタイプ
-
-## 補足
-
-README は実装に合わせて更新していますが、プロダクト方針に関わる仕様はコードを正として扱ってください。特に挙動確認が必要な場合は以下を先に見ると早いです。
-
-- `lib/features/home/presentation/home_page.dart`
-- `lib/features/home/presentation/home_providers.dart`
-- `playwright/tests/app.spec.js`
+The public 1.0.0 release is documented in `assets/release_notes/release_notes.json`. Keep it aligned with store listing copy and help pages whenever user-facing features change.

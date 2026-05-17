@@ -5,10 +5,18 @@ const { spawn } = require('child_process');
 
 const rootDir = path.resolve(__dirname, '../..');
 const outputDir = path.join(rootDir, 'store-assets', 'app-store');
+const googlePlayOutputDir = path.join(rootDir, 'store-assets', 'google-play');
 const port = process.env.STORE_ASSET_PORT || '4174';
 const baseUrl = `http://127.0.0.1:${port}`;
 
 const deviceTargets = [
+  {
+    id: 'iphone-6-9',
+    label: 'iPhone 6.9',
+    viewport: { width: 440, height: 956 },
+    deviceScaleFactor: 3,
+    output: { width: 1320, height: 2868 },
+  },
   {
     id: 'iphone-6-7',
     label: 'iPhone 6.7',
@@ -149,7 +157,9 @@ const scenes = [
 
 async function main() {
   fs.rmSync(outputDir, { recursive: true, force: true });
+  fs.rmSync(googlePlayOutputDir, { recursive: true, force: true });
   fs.mkdirSync(outputDir, { recursive: true });
+  fs.mkdirSync(googlePlayOutputDir, { recursive: true });
   const server = await ensureServer();
   const browser = await chromium.launch({
     args: [
@@ -175,6 +185,7 @@ async function main() {
         }
       }
     }
+    await renderGooglePlayFeatureGraphics(browser);
   } finally {
     await browser.close();
     if (server) {
@@ -297,6 +308,163 @@ async function renderPromo(browser, target, locale, scene, rawPath, outputPath) 
   `);
   await page.screenshot({ path: outputPath, fullPage: false });
   await context.close();
+}
+
+async function renderGooglePlayFeatureGraphics(browser) {
+  const copies = {
+    ja: {
+      title: 'すばやく残せる、プライベートなメモ',
+      subtitle: '複数プロファイルをロックして、日々の記録を安全に整理。',
+    },
+    en: {
+      title: 'Fast private notes with profile lock',
+      subtitle: 'Capture, separate, back up, and sync your personal records.',
+    },
+  };
+
+  for (const locale of locales) {
+    const copy = copies[locale.id];
+    const context = await browser.newContext({
+      viewport: { width: 1024, height: 500 },
+      deviceScaleFactor: 1,
+    });
+    const page = await context.newPage();
+    await page.setContent(`
+      <!doctype html>
+      <html lang="${locale.id}">
+        <head>
+          <meta charset="utf-8">
+          <style>
+            * { box-sizing: border-box; }
+            body {
+              margin: 0;
+              width: 1024px;
+              height: 500px;
+              overflow: hidden;
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+              color: #172033;
+              background:
+                radial-gradient(circle at 14% 18%, rgba(109, 149, 198, 0.26), transparent 30%),
+                linear-gradient(150deg, #f8fbff 0%, #e7f1f4 58%, #f7eee8 100%);
+            }
+            .wrap {
+              width: 100%;
+              height: 100%;
+              display: grid;
+              grid-template-columns: 1fr 330px;
+              align-items: center;
+              gap: 48px;
+              padding: 58px 76px;
+            }
+            .brand {
+              font-size: 30px;
+              font-weight: 700;
+              color: #526073;
+              margin-bottom: 34px;
+            }
+            h1 {
+              margin: 0;
+              max-width: 560px;
+              font-size: 56px;
+              line-height: 1.07;
+              letter-spacing: 0;
+              font-weight: 820;
+            }
+            p {
+              margin: 28px 0 0;
+              max-width: 560px;
+              color: #4b5a6c;
+              font-size: 25px;
+              line-height: 1.35;
+              font-weight: 520;
+            }
+            .panel {
+              position: relative;
+              width: 330px;
+              height: 330px;
+              border-radius: 48px;
+              background: rgba(255, 255, 255, 0.76);
+              border: 2px solid rgba(141, 160, 180, 0.42);
+              box-shadow: 0 30px 78px rgba(30, 42, 64, 0.18);
+            }
+            .memo {
+              position: absolute;
+              left: 70px;
+              top: 58px;
+              width: 168px;
+              height: 210px;
+              border-radius: 18px;
+              background: #ffffff;
+              border: 9px solid #0b63ad;
+              box-shadow: 0 18px 42px rgba(11, 99, 173, 0.18);
+            }
+            .line {
+              position: absolute;
+              left: 36px;
+              right: 36px;
+              height: 9px;
+              border-radius: 99px;
+              background: #b9c6d2;
+            }
+            .line.one { top: 72px; background: #0b63ad; }
+            .line.two { top: 108px; }
+            .line.three { top: 144px; }
+            .lock {
+              position: absolute;
+              right: 58px;
+              bottom: 54px;
+              width: 94px;
+              height: 78px;
+              border-radius: 18px;
+              background: #172033;
+            }
+            .lock::before {
+              content: "";
+              position: absolute;
+              left: 22px;
+              top: -46px;
+              width: 50px;
+              height: 58px;
+              border: 12px solid #172033;
+              border-bottom: 0;
+              border-radius: 36px 36px 0 0;
+            }
+            .dot {
+              position: absolute;
+              left: 41px;
+              top: 30px;
+              width: 12px;
+              height: 12px;
+              border-radius: 50%;
+              background: #ffffff;
+            }
+          </style>
+        </head>
+        <body>
+          <main class="wrap">
+            <section>
+              <div class="brand">HiMemo</div>
+              <h1>${escapeHtml(copy.title)}</h1>
+              <p>${escapeHtml(copy.subtitle)}</p>
+            </section>
+            <div class="panel" aria-hidden="true">
+              <div class="memo">
+                <span class="line one"></span>
+                <span class="line two"></span>
+                <span class="line three"></span>
+              </div>
+              <div class="lock"><span class="dot"></span></div>
+            </div>
+          </main>
+        </body>
+      </html>
+    `);
+    const outputPath = path.join(googlePlayOutputDir, locale.id, 'feature-graphic.png');
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    await page.screenshot({ path: outputPath, fullPage: false });
+    await context.close();
+    console.log(`google-play/${locale.id}/feature-graphic`);
+  }
 }
 
 async function ensureServer() {
@@ -470,8 +638,10 @@ async function openAddNote(page) {
 
 async function ensureDemoNotes(page, locale) {
   await activateTabIndex(page, 0);
-  const seededNote = locale.id === 'ja' ? /どうですか|日記|週末の予定/ : /Presentation idea|Journal|Weekend plan/;
-  await page.getByText(seededNote).first().waitFor({ timeout: 8000 });
+  const seededNote = locale.id === 'ja'
+    ? /買い物メモ|共有会の準備|日記|週末の予定/
+    : /Shopping list|Sharing meeting prep|Journal|Weekend plan/;
+  await page.getByText(seededNote).first().waitFor({ timeout: 15000 });
   await page.waitForTimeout(700);
 }
 
