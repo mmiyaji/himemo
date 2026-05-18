@@ -116,6 +116,230 @@ abstract class ICloudSyncTransport {
   });
 }
 
+class InMemoryICloudSyncTransport implements ICloudSyncTransport {
+  InMemoryICloudSyncTransport({
+    this.operationDelay = Duration.zero,
+    this.availability = ICloudAccountAvailability.available,
+  });
+
+  final Duration operationDelay;
+  ICloudAccountAvailability availability;
+
+  final Map<String, _InMemoryICloudAttachment> _attachmentObjects = {};
+  final List<_InMemoryICloudBundle> _bundles = [];
+
+  @override
+  Future<ICloudAccountStatusResult> checkAccountStatus() async {
+    await _delay();
+    return ICloudAccountStatusResult(
+      availability: availability,
+      message: availability == ICloudAccountAvailability.available
+          ? 'iCloud simulator is available.'
+          : 'iCloud simulator is not available.',
+    );
+  }
+
+  @override
+  Future<RemoteSyncBundleStatus?> fetchLatestBundleStatus() async {
+    await _delay();
+    if (_bundles.isEmpty) {
+      return null;
+    }
+    return _bundles.last.status;
+  }
+
+  @override
+  Future<List<RemoteSyncBundleStatus>> listBundleHistory({
+    int limit = 10,
+  }) async {
+    await _delay();
+    return _bundles.reversed
+        .take(limit)
+        .map((bundle) => bundle.status)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<RemoteSyncBundleStatus> uploadBundle({
+    required String encodedPayload,
+    required String deviceId,
+    required int noteCount,
+    required int attachmentCount,
+  }) async {
+    await _delay();
+    _throwIfUnavailable();
+    final now = DateTime.now().toUtc();
+    final uploadNumber = _bundles.length + 1;
+    final status = RemoteSyncBundleStatus(
+      fileId: 'fake-icloud-bundle-$uploadNumber',
+      fileName:
+          'himemo_fake_icloud_${now.toIso8601String().replaceAll(RegExp(r'[^0-9]'), '').padRight(14, '0').substring(0, 14)}.enc',
+      modifiedAt: now,
+      sizeBytes: encodedPayload.length,
+      noteCount: noteCount,
+      attachmentCount: attachmentCount,
+      deviceId: deviceId,
+    );
+    _bundles.add(
+      _InMemoryICloudBundle(status: status, encodedPayload: encodedPayload),
+    );
+    return status;
+  }
+
+  @override
+  Future<void> uploadAttachmentObject({
+    required String contentHash,
+    required String encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+    bool skipExistingCheck = false,
+  }) async {
+    await _delay();
+    _throwIfUnavailable();
+    if (skipExistingCheck && _attachmentObjects.containsKey(contentHash)) {
+      return;
+    }
+    _attachmentObjects[contentHash] = _InMemoryICloudAttachment(
+      encodedPayload: encodedPayload,
+      sizeBytes: sizeBytes,
+    );
+  }
+
+  @override
+  Future<String?> downloadAttachmentObject(String contentHash) async {
+    await _delay();
+    _throwIfUnavailable();
+    return _attachmentObjects[contentHash]?.encodedPayload;
+  }
+
+  @override
+  Future<DownloadedRemoteSyncBundle?> downloadLatestBundle() async {
+    await _delay();
+    _throwIfUnavailable();
+    if (_bundles.isEmpty) {
+      return null;
+    }
+    final bundle = _bundles.last;
+    return DownloadedRemoteSyncBundle(
+      status: bundle.status,
+      encodedPayload: bundle.encodedPayload,
+    );
+  }
+
+  @override
+  Future<DownloadedRemoteSyncBundle?> downloadBundleByRecordName(
+    String recordName,
+  ) async {
+    await _delay();
+    _throwIfUnavailable();
+    for (final bundle in _bundles.reversed) {
+      if (bundle.status.fileId == recordName) {
+        return DownloadedRemoteSyncBundle(
+          status: bundle.status,
+          encodedPayload: bundle.encodedPayload,
+        );
+      }
+    }
+    return null;
+  }
+
+  @override
+  Future<ICloudStorageBreakdown> fetchStorageBreakdown() async {
+    await _delay();
+    return ICloudStorageBreakdown(
+      bundleCount: _bundles.length,
+      bundleBytes: _bundles.fold<int>(
+        0,
+        (total, bundle) => total + (bundle.status.sizeBytes ?? 0),
+      ),
+      attachmentCount: _attachmentObjects.length,
+      attachmentBytes: _attachmentObjects.values.fold<int>(
+        0,
+        (total, attachment) => total + attachment.sizeBytes,
+      ),
+    );
+  }
+
+  @override
+  Future<ICloudMaintenanceResult> pruneObsoleteData({
+    int keepLatest = 1,
+    required Set<String> referencedAttachmentHashes,
+  }) async {
+    await _delay();
+    final keepCount = keepLatest < 0 ? 0 : keepLatest;
+    final deleteBundleCount = _bundles.length > keepCount
+        ? _bundles.length - keepCount
+        : 0;
+    var deletedBundleBytes = 0;
+    if (deleteBundleCount > 0) {
+      final removed = _bundles.take(deleteBundleCount).toList(growable: false);
+      deletedBundleBytes = removed.fold<int>(
+        0,
+        (total, bundle) => total + (bundle.status.sizeBytes ?? 0),
+      );
+      _bundles.removeRange(0, deleteBundleCount);
+    }
+
+    var deletedAttachmentCount = 0;
+    var deletedAttachmentBytes = 0;
+    final obsoleteHashes = _attachmentObjects.keys
+        .where((hash) => !referencedAttachmentHashes.contains(hash))
+        .toList(growable: false);
+    for (final hash in obsoleteHashes) {
+      final removed = _attachmentObjects.remove(hash);
+      if (removed != null) {
+        deletedAttachmentCount += 1;
+        deletedAttachmentBytes += removed.sizeBytes;
+      }
+    }
+
+    return ICloudMaintenanceResult(
+      deletedBundleCount: deleteBundleCount,
+      deletedBundleBytes: deletedBundleBytes,
+      deletedAttachmentCount: deletedAttachmentCount,
+      deletedAttachmentBytes: deletedAttachmentBytes,
+    );
+  }
+
+  Future<void> _delay() async {
+    if (operationDelay > Duration.zero) {
+      await Future<void>.delayed(operationDelay);
+    }
+  }
+
+  void _throwIfUnavailable() {
+    if (availability == ICloudAccountAvailability.available) {
+      return;
+    }
+    throw ICloudSyncException(
+      'iCloud simulator is not available.',
+      isTemporary:
+          availability == ICloudAccountAvailability.temporarilyUnavailable,
+    );
+  }
+}
+
+class _InMemoryICloudBundle {
+  const _InMemoryICloudBundle({
+    required this.status,
+    required this.encodedPayload,
+  });
+
+  final RemoteSyncBundleStatus status;
+  final String encodedPayload;
+}
+
+class _InMemoryICloudAttachment {
+  const _InMemoryICloudAttachment({
+    required this.encodedPayload,
+    required this.sizeBytes,
+  });
+
+  final String encodedPayload;
+  final int sizeBytes;
+}
+
 class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
   static const MethodChannel _channel = MethodChannel(
     'org.ruhenheim.himemo/cloudkit',

@@ -29,6 +29,7 @@ import 'package:himemo/features/security/data/profile_data_key_service.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/features/sync/data/secure_sync_bundle_store.dart';
 import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
+import 'package:himemo/features/sync/data/icloud_sync_transport.dart';
 import 'package:himemo/l10n/app_localizations.dart';
 import 'package:himemo/l10n/app_strings.dart';
 import 'package:image_picker/image_picker.dart';
@@ -572,6 +573,252 @@ void main() {
       'attachment-payload',
     );
   });
+
+  test('fake iCloud transport stores bundles and prunes old data', () async {
+    final transport = InMemoryICloudSyncTransport();
+
+    final status = await transport.checkAccountStatus();
+    expect(status.isAvailable, isTrue);
+
+    final first = await transport.uploadBundle(
+      encodedPayload: 'first-encrypted-payload',
+      deviceId: 'test-device',
+      noteCount: 1,
+      attachmentCount: 1,
+    );
+    final second = await transport.uploadBundle(
+      encodedPayload: 'second-encrypted-payload',
+      deviceId: 'test-device',
+      noteCount: 2,
+      attachmentCount: 2,
+    );
+
+    expect((await transport.fetchLatestBundleStatus())?.fileId, second.fileId);
+    expect(
+      (await transport.downloadBundleByRecordName(
+        first.fileId,
+      ))?.encodedPayload,
+      'first-encrypted-payload',
+    );
+
+    await transport.uploadAttachmentObject(
+      contentHash: 'keep-hash',
+      encodedPayload: 'kept-attachment-payload',
+      type: 'photo',
+      label: 'photo.jpg',
+      sizeBytes: 10,
+    );
+    await transport.uploadAttachmentObject(
+      contentHash: 'delete-hash',
+      encodedPayload: 'obsolete-attachment-payload',
+      type: 'file',
+      label: 'old.bin',
+      sizeBytes: 20,
+    );
+
+    final beforePrune = await transport.fetchStorageBreakdown();
+    expect(beforePrune.bundleCount, 2);
+    expect(beforePrune.attachmentCount, 2);
+
+    final pruned = await transport.pruneObsoleteData(
+      referencedAttachmentHashes: {'keep-hash'},
+    );
+    expect(pruned.deletedBundleCount, 1);
+    expect(pruned.deletedAttachmentCount, 1);
+    expect(await transport.downloadAttachmentObject('keep-hash'), isNotNull);
+    expect(await transport.downloadAttachmentObject('delete-hash'), isNull);
+  });
+
+  test(
+    'fake iCloud sync keeps large video and multi-file attachments as objects',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+      });
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-fake-icloud-large-attachments-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(67));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final noteStore = EncryptedNoteStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        database: noteDatabase,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final attachmentStore = EncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final fakeTransport = InMemoryICloudSyncTransport();
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          iCloudSynchronizableKeyValueStoreProvider.overrideWithValue(
+            secureStore,
+          ),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteStoreProvider.overrideWithValue(noteStore),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+          secureSyncBundleStoreProvider.overrideWith(
+            (ref) => SecureSyncBundleStore(
+              encryptionService: encryptionService,
+              syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
+              legacyMasterKeyService: masterKeyService,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          iCloudSyncTransportProvider.overrideWithValue(fakeTransport),
+        ],
+      );
+      final observedTransferStates = <SyncTransferState>[];
+      final transferSubscription = container.listen<SyncTransferState>(
+        syncTransferControllerProvider,
+        (_, next) => observedTransferStates.add(next),
+      );
+      addTearDown(transferSubscription.close);
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+
+      await container
+          .read(syncProviderControllerProvider.notifier)
+          .setProvider(SyncProvider.iCloud);
+      await container
+          .read(syncAuthControllerProvider.notifier)
+          .connect(SyncProvider.iCloud);
+      expect(
+        container
+            .read(syncAuthControllerProvider)[SyncProvider.iCloud]
+            ?.isAuthenticated,
+        isTrue,
+      );
+
+      final videoSource = await _writePayloadFile(
+        tempDirectory,
+        'simulator-icloud-large-video.mp4',
+        sizeBytes: 8 * 1024 * 1024,
+        byte: 0x41,
+      );
+      final attachmentSources = [
+        (
+          file: videoSource,
+          type: AttachmentType.video,
+          label: 'simulator-icloud-large-video.mp4',
+          mimeType: 'video/mp4',
+        ),
+        for (var index = 0; index < 3; index++)
+          (
+            file: await _writePayloadFile(
+              tempDirectory,
+              'simulator-icloud-document-$index.bin',
+              sizeBytes: 384 * 1024,
+              byte: 0x60 + index,
+            ),
+            type: AttachmentType.file,
+            label: 'simulator-icloud-document-$index.bin',
+            mimeType: 'application/octet-stream',
+          ),
+      ];
+      final attachments = <NoteAttachment>[];
+      for (final source in attachmentSources) {
+        final storedPath = await attachmentStore.storeAttachment(
+          XFile(
+            source.file.path,
+            name: source.label,
+            mimeType: source.mimeType,
+          ),
+          type: source.type,
+        );
+        expect(storedPath, isNotNull);
+        attachments.add(
+          NoteAttachment(
+            type: source.type,
+            label: source.label,
+            filePath: storedPath,
+          ),
+        );
+      }
+
+      await container.read(notesControllerProvider.notifier).restoreCompleted;
+      await container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'fake-icloud-large-attachment-note',
+              vaultId: 'everyday',
+              title: 'Fake iCloud large attachment note',
+              body: 'Exercises an iCloud large video plus multiple files.',
+              createdAt: DateTime.utc(2026, 5, 18, 10),
+              updatedAt: DateTime.utc(2026, 5, 18, 10, 1),
+              attachments: attachments,
+            ),
+          );
+
+      final estimatedUploadBytes = await container
+          .read(syncTransferControllerProvider.notifier)
+          .estimatePendingUploadBytes();
+      expect(estimatedUploadBytes, greaterThan(9 * 1024 * 1024));
+
+      final stopwatch = Stopwatch()..start();
+      await container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true);
+      stopwatch.stop();
+
+      final transferState = container.read(syncTransferControllerProvider);
+      expect(transferState.stage, SyncTransferStage.success);
+      final remoteStatus = await fakeTransport.fetchLatestBundleStatus();
+      expect(remoteStatus?.noteCount, 1);
+      expect(remoteStatus?.attachmentCount, attachments.length);
+      expect(
+        remoteStatus?.sizeBytes,
+        lessThan(1024 * 1024),
+        reason:
+            'iCloud bundles should contain attachment object refs, '
+            'not inline video/file bytes.',
+      );
+      final storage = await fakeTransport.fetchStorageBreakdown();
+      expect(storage.attachmentCount, attachments.length);
+      expect(storage.attachmentBytes, greaterThan(9 * 1024 * 1024));
+      expect(
+        observedTransferStates.any(
+          (state) =>
+              state.progress == SyncTransferProgress.uploadingBundle &&
+              state.totalItems == attachments.length,
+        ),
+        isTrue,
+        reason:
+            'The UI needs item counts while multiple iCloud attachment '
+            'objects are uploaded.',
+      );
+      debugPrint(
+        'Fake iCloud large attachment upload completed in '
+        '${stopwatch.elapsedMilliseconds} ms; estimated payload '
+        '$estimatedUploadBytes bytes; remote bundle ${remoteStatus?.sizeBytes} '
+        'bytes; attachment objects ${attachments.length}.',
+      );
+    },
+  );
 
   test(
     'fake Google Drive sync sequence uploads and downloads bundle',
