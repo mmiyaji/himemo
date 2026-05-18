@@ -705,6 +705,14 @@ void main() {
     expect(appDelegate, contains('cloudKitAccountStatusCacheDuration'));
     expect(appDelegate, contains('cloudKitAccountAvailableUntil'));
     expect(appDelegate, contains('cloudKitSyncZoneReady'));
+    expect(appDelegate, contains('private var cloudKitBundleMetadataFields'));
+    expect(appDelegate, contains('operation.desiredKeys = desiredKeys'));
+    expect(appDelegate, contains('cloudKitBundleSizeField'));
+    expect(appDelegate, contains('record[self.cloudKitBundleSizeField]'));
+    expect(
+      appDelegate,
+      contains('desiredKeys: self.cloudKitBundleMetadataFields'),
+    );
   });
 
   test('cloud sync heavy work does not run on the UI isolate', () {

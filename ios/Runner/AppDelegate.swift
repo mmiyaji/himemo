@@ -30,6 +30,7 @@ import FoundationModels
   private let cloudKitAttachmentTypeField = "attachmentType"
   private let cloudKitAttachmentLabelField = "attachmentLabel"
   private let cloudKitAttachmentSizeField = "attachmentSize"
+  private let cloudKitBundleSizeField = "bundleSize"
   private let cloudKitDeviceIdField = "deviceId"
   private let cloudKitNoteCountField = "noteCount"
   private let cloudKitAttachmentCountField = "attachmentCount"
@@ -51,6 +52,16 @@ import FoundationModels
 
   private var cloudKitSyncZoneID: CKRecordZone.ID {
     CKRecordZone.ID(zoneName: cloudKitZoneName, ownerName: CKCurrentUserDefaultName)
+  }
+
+  private var cloudKitBundleMetadataFields: [String] {
+    [
+      cloudKitDeviceIdField,
+      cloudKitNoteCountField,
+      cloudKitAttachmentCountField,
+      cloudKitBundleSizeField,
+      cloudKitExportedAtField,
+    ]
   }
 
   override func application(
@@ -1084,7 +1095,11 @@ import FoundationModels
 
   private func fetchLatestCloudKitBundleStatus(result: @escaping FlutterResult) {
     withAvailableCloudKit(result: result) { database in
-      self.fetchCloudKitRecords(database: database, limit: 1) { records, error in
+      self.fetchCloudKitRecords(
+        database: database,
+        limit: 1,
+        desiredKeys: self.cloudKitBundleMetadataFields
+      ) { records, error in
         DispatchQueue.main.async {
           if let error {
             result(self.flutterError(from: error))
@@ -1098,7 +1113,11 @@ import FoundationModels
 
   private func listCloudKitBundleHistory(limit: Int, result: @escaping FlutterResult) {
     withAvailableCloudKit(result: result) { database in
-      self.fetchCloudKitRecords(database: database, limit: max(limit, 1)) { records, error in
+      self.fetchCloudKitRecords(
+        database: database,
+        limit: max(limit, 1),
+        desiredKeys: self.cloudKitBundleMetadataFields
+      ) { records, error in
         DispatchQueue.main.async {
           if let error {
             result(self.flutterError(from: error))
@@ -1142,6 +1161,7 @@ import FoundationModels
       record[self.cloudKitDeviceIdField] = deviceId as CKRecordValue
       record[self.cloudKitNoteCountField] = NSNumber(value: noteCount)
       record[self.cloudKitAttachmentCountField] = NSNumber(value: attachmentCount)
+      record[self.cloudKitBundleSizeField] = NSNumber(value: encodedPayload.utf8.count)
       record[self.cloudKitExportedAtField] = Date() as CKRecordValue
       record[self.cloudKitAssetField] = CKAsset(fileURL: temporaryURL)
 
@@ -1554,12 +1574,14 @@ import FoundationModels
   private func fetchCloudKitRecords(
     database: CKDatabase,
     limit: Int,
+    desiredKeys: [String]? = nil,
     completion: @escaping ([CKRecord], Error?) -> Void
   ) {
     fetchAllCloudKitRecords(
       database: database,
       recordType: cloudKitRecordType,
-      sortedByModificationDate: true
+      sortedByModificationDate: true,
+      desiredKeys: desiredKeys
     ) { records, error in
       completion(Array(records.prefix(limit)), error)
     }
@@ -1569,6 +1591,7 @@ import FoundationModels
     database: CKDatabase,
     recordType: String,
     sortedByModificationDate: Bool,
+    desiredKeys: [String]? = nil,
     completion: @escaping ([CKRecord], Error?) -> Void
   ) {
     var records: [CKRecord] = []
@@ -1594,6 +1617,7 @@ import FoundationModels
         recordZoneIDs: [zoneID],
         optionsByRecordZoneID: [zoneID: options]
       )
+      operation.desiredKeys = desiredKeys
       var requestedMore = false
       operation.recordChangedBlock = { (record: CKRecord) in
         if record.recordType == recordType {
@@ -1736,6 +1760,7 @@ import FoundationModels
   private func serializeRecord(_ record: CKRecord) -> [String: Any] {
     let noteCount = (record[cloudKitNoteCountField] as? NSNumber)?.intValue
     let attachmentCount = (record[cloudKitAttachmentCountField] as? NSNumber)?.intValue
+    let bundleSize = (record[cloudKitBundleSizeField] as? NSNumber)?.intValue
     let assetFileName =
       ((record[cloudKitAssetField] as? CKAsset)?.fileURL?.lastPathComponent) ??
       record.recordID.recordName
@@ -1747,7 +1772,7 @@ import FoundationModels
     if let modifiedAt = record.modificationDate?.iso8601String {
       payload["modifiedAt"] = modifiedAt
     }
-    if let sizeBytes = bundleFileSize(for: record) {
+    if let sizeBytes = bundleSize ?? bundleFileSize(for: record) {
       payload["sizeBytes"] = sizeBytes
     }
     if let noteCount = noteCount {
