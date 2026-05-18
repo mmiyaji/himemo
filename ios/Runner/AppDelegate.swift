@@ -34,6 +34,7 @@ import FoundationModels
   private let cloudKitNoteCountField = "noteCount"
   private let cloudKitAttachmentCountField = "attachmentCount"
   private let cloudKitExportedAtField = "exportedAt"
+  private let cloudKitAccountStatusCacheDuration: TimeInterval = 60
 
   private var widgetChannel: FlutterMethodChannel?
   private var cloudKitChannel: FlutterMethodChannel?
@@ -45,6 +46,8 @@ import FoundationModels
   private var pendingSpotlightNoteId: String?
   private var privacyProtectionEnabled = false
   private var privacyOverlayView: UIView?
+  private var cloudKitAccountAvailableUntil: Date?
+  private var cloudKitSyncZoneReady = false
 
   private var cloudKitSyncZoneID: CKRecordZone.ID {
     CKRecordZone.ID(zoneName: cloudKitZoneName, ownerName: CKCurrentUserDefaultName)
@@ -1034,31 +1037,41 @@ import FoundationModels
         let payload: [String: Any]
         switch status {
         case .available:
+          self.cloudKitAccountAvailableUntil = Date().addingTimeInterval(
+            self.cloudKitAccountStatusCacheDuration
+          )
           payload = [
             "status": "available",
             "message": "iCloud is available on this device."
           ]
         case .noAccount:
+          self.cloudKitAccountAvailableUntil = nil
+          self.cloudKitSyncZoneReady = false
           payload = [
             "status": "noAccount",
             "message": "Sign in to iCloud in the Settings app before enabling iCloud sync on this device."
           ]
         case .restricted:
+          self.cloudKitAccountAvailableUntil = nil
+          self.cloudKitSyncZoneReady = false
           payload = [
             "status": "restricted",
             "message": "This device restricts iCloud access. Check Screen Time, parental controls, or device management restrictions."
           ]
         case .temporarilyUnavailable:
+          self.cloudKitAccountAvailableUntil = nil
           payload = [
             "status": "temporarilyUnavailable",
             "message": "The user's iCloud account is temporarily unavailable. Try again later."
           ]
         case .couldNotDetermine:
+          self.cloudKitAccountAvailableUntil = nil
           payload = [
             "status": "couldNotDetermine",
             "message": "Unable to determine the user's iCloud status right now."
           ]
         @unknown default:
+          self.cloudKitAccountAvailableUntil = nil
           payload = [
             "status": "unknown",
             "message": "Unable to determine the user's iCloud status right now."
@@ -1466,19 +1479,8 @@ import FoundationModels
       result(cloudKitConfigurationError())
       return
     }
-    container.accountStatus { status, error in
-      if let error {
-        DispatchQueue.main.async {
-          result(self.flutterError(from: error))
-        }
-        return
-      }
-      guard status == .available else {
-        DispatchQueue.main.async {
-          result(self.flutterErrorForAccountStatus(status))
-        }
-        return
-      }
+
+    func continueWithDatabase() {
       let database = container.privateCloudDatabase
       self.ensureCloudKitSyncZone(database: database) { error in
         if let error {
@@ -1490,15 +1492,48 @@ import FoundationModels
         action(database)
       }
     }
+
+    if let availableUntil = cloudKitAccountAvailableUntil,
+       Date() < availableUntil {
+      continueWithDatabase()
+      return
+    }
+
+    container.accountStatus { status, error in
+      if let error {
+        self.cloudKitAccountAvailableUntil = nil
+        DispatchQueue.main.async {
+          result(self.flutterError(from: error))
+        }
+        return
+      }
+      guard status == .available else {
+        self.cloudKitAccountAvailableUntil = nil
+        self.cloudKitSyncZoneReady = false
+        DispatchQueue.main.async {
+          result(self.flutterErrorForAccountStatus(status))
+        }
+        return
+      }
+      self.cloudKitAccountAvailableUntil = Date().addingTimeInterval(
+        self.cloudKitAccountStatusCacheDuration
+      )
+      continueWithDatabase()
+    }
   }
 
   private func ensureCloudKitSyncZone(
     database: CKDatabase,
     completion: @escaping (Error?) -> Void
   ) {
+    if cloudKitSyncZoneReady {
+      completion(nil)
+      return
+    }
     let zoneID = cloudKitSyncZoneID
     database.fetch(withRecordZoneID: zoneID) { zone, error in
       if zone != nil {
+        self.cloudKitSyncZoneReady = true
         completion(nil)
         return
       }
@@ -1508,6 +1543,9 @@ import FoundationModels
       }
       let zone = CKRecordZone(zoneID: zoneID)
       database.save(zone) { _, saveError in
+        if saveError == nil {
+          self.cloudKitSyncZoneReady = true
+        }
         completion(saveError)
       }
     }

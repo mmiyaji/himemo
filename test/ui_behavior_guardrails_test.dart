@@ -693,6 +693,20 @@ void main() {
     expect(homePage, isNot(contains('final maxScale = displayScale < 1')));
   });
 
+  test('iCloud sync avoids avoidable foreground waits', () {
+    final homeProviders = File(
+      'lib/features/home/presentation/home_providers.dart',
+    ).readAsStringSync();
+    final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+
+    expect(homeProviders, contains('_iCloudRemoteStatusCacheTtl'));
+    expect(homeProviders, contains('unawaited(_pruneICloudStorageAfterUpload'));
+    expect(homeProviders, contains('Still waiting for iCloud metadata'));
+    expect(appDelegate, contains('cloudKitAccountStatusCacheDuration'));
+    expect(appDelegate, contains('cloudKitAccountAvailableUntil'));
+    expect(appDelegate, contains('cloudKitSyncZoneReady'));
+  });
+
   test('cloud sync heavy work does not run on the UI isolate', () {
     final syncEngine = File(
       'lib/features/sync/data/sync_engine.dart',

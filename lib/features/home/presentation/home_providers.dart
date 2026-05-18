@@ -2729,6 +2729,7 @@ final syncTransferControllerProvider =
 class SyncTransferController extends Notifier<SyncTransferState> {
   static const largeMobileSyncThresholdBytes = 50 * 1024 * 1024;
   static const _remoteStatusCacheTtl = Duration(seconds: 20);
+  static const _iCloudRemoteStatusCacheTtl = Duration(minutes: 2);
   static const _syncBundleDecryptionMessage =
       'sync.error.bundle_decryption_failed';
   static const _syncBundleKeyMissingMessage = 'sync.error.bundle_key_missing';
@@ -2953,9 +2954,12 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   bool _canUseCachedRemoteStatus(SyncProvider provider) {
     final fetchedAt = _cachedRemoteStatusFetchedAt;
+    final ttl = provider == SyncProvider.iCloud
+        ? _iCloudRemoteStatusCacheTtl
+        : _remoteStatusCacheTtl;
     return fetchedAt != null &&
         _cachedRemoteStatusProvider == provider &&
-        DateTime.now().difference(fetchedAt) < _remoteStatusCacheTtl;
+        DateTime.now().difference(fetchedAt) < ttl;
   }
 
   void _cacheRemoteStatus(
@@ -3413,37 +3417,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await ref.read(syncBundleStateStoreProvider).recordUpload(remoteStatus);
       ref.invalidate(syncBundleStateProvider);
       if (provider == SyncProvider.iCloud && pruneAfterUpload) {
-        try {
-          final referencedHashes = await _referencedAttachmentHashesFromBundle(
-            bundle.reference,
-          );
-          final maintenance = await ref
-              .read(iCloudSyncTransportProvider)
-              .pruneObsoleteData(
-                keepLatest: 1,
-                referencedAttachmentHashes: referencedHashes,
-              );
-          _diagnostic(
-            'icloud post upload storage prune completed',
-            data: {
-              'deletedBundleCount': maintenance.deletedBundleCount,
-              'deletedBundleBytes': maintenance.deletedBundleBytes,
-              'deletedAttachmentCount': maintenance.deletedAttachmentCount,
-              'deletedAttachmentBytes': maintenance.deletedAttachmentBytes,
-              'referencedAttachmentHashes': referencedHashes.length,
-            },
-          );
-        } catch (error, stackTrace) {
-          _diagnostic(
-            'icloud post upload storage prune failed',
-            data: {'error': error},
-          );
-          await recordNonFatalError(
-            error,
-            stackTrace,
-            reason: 'icloud_post_upload_storage_prune_failed',
-          );
-        }
+        unawaited(_pruneICloudStorageAfterUpload(bundle));
       }
     } on SyncAttachmentMissingException catch (error) {
       _diagnostic(
@@ -3502,6 +3476,40 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       allowLargeMobileTransfer: allowLargeMobileTransfer,
       silentLargeMobileSkip: silentLargeMobileSkip,
     );
+  }
+
+  Future<void> _pruneICloudStorageAfterUpload(StoredSyncBundle bundle) async {
+    try {
+      final referencedHashes = await _referencedAttachmentHashesFromBundle(
+        bundle.reference,
+      );
+      final maintenance = await ref
+          .read(iCloudSyncTransportProvider)
+          .pruneObsoleteData(
+            keepLatest: 1,
+            referencedAttachmentHashes: referencedHashes,
+          );
+      _diagnostic(
+        'icloud post upload storage prune completed',
+        data: {
+          'deletedBundleCount': maintenance.deletedBundleCount,
+          'deletedBundleBytes': maintenance.deletedBundleBytes,
+          'deletedAttachmentCount': maintenance.deletedAttachmentCount,
+          'deletedAttachmentBytes': maintenance.deletedAttachmentBytes,
+          'referencedAttachmentHashes': referencedHashes.length,
+        },
+      );
+    } catch (error, stackTrace) {
+      _diagnostic(
+        'icloud post upload storage prune failed',
+        data: {'error': error},
+      );
+      await recordNonFatalError(
+        error,
+        stackTrace,
+        reason: 'icloud_post_upload_storage_prune_failed',
+      );
+    }
   }
 
   Future<void> syncNow({
