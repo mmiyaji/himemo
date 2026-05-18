@@ -136,6 +136,7 @@ class AppShell extends ConsumerStatefulWidget {
   static const insightsNavKey = Key('nav-insights');
   static const settingsNavKey = Key('nav-settings');
   static const addNoteKey = Key('add-note-button');
+  static const syncIndicatorKey = Key('sync-progress-indicator-button');
   static const privateProfileAccessKey = Key('private-profile-access-button');
 
   final Widget child;
@@ -714,6 +715,7 @@ class _HeaderSyncIndicatorState extends State<_HeaderSyncIndicator>
         child: SizedBox.square(
           dimension: 40,
           child: InkResponse(
+            key: AppShell.syncIndicatorKey,
             radius: 20,
             onTap: () => _showHeaderSyncProgressDialog(context),
             child: Center(

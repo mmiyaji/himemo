@@ -236,6 +236,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       'app.onboarding_completed': true,
       'app.onboarding_completed_version': 2,
+      'release_notes.last_seen': '1.0.0+46',
       'settings.locale': 'english',
     });
     final fakeSyncAuthGateway = FakeSyncAuthGateway();
@@ -397,6 +398,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       'app.onboarding_completed': true,
       'app.onboarding_completed_version': 2,
+      'release_notes.last_seen': '1.0.0+46',
       'settings.locale': 'english',
     });
     final container = ProviderContainer();
@@ -469,6 +471,170 @@ void main() {
     await tester.pump(const Duration(seconds: 3));
     debugPrint('E2E step: video attachment share tapped');
   });
+
+  testWidgets('large attachment sync sequence shows progress indicator', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final fakeSyncAuthGateway = FakeSyncAuthGateway();
+    final fakePlayIntegrityVerifier = FakePlayIntegrityVerifier();
+    final fakeGoogleDriveTransport = FakeGoogleDriveSyncTransport(
+      attachmentUploadDelay: const Duration(milliseconds: 350),
+      bundleUploadDelay: const Duration(milliseconds: 350),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        syncAuthGatewayProvider.overrideWithValue(fakeSyncAuthGateway),
+        playIntegrityVerifierProvider.overrideWithValue(
+          fakePlayIntegrityVerifier,
+        ),
+        googleDriveSyncTransportProvider.overrideWithValue(
+          fakeGoogleDriveTransport,
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const HiMemoApp(flavor: AppFlavor.development),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+    await _closeReleaseNotesIfPresent(tester);
+
+    await container
+        .read(syncProviderControllerProvider.notifier)
+        .setProvider(SyncProvider.googleDrive);
+    await container
+        .read(syncAuthControllerProvider.notifier)
+        .connect(SyncProvider.googleDrive);
+    await container.read(notesControllerProvider.notifier).restoreCompleted;
+
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-large-sync-e2e-',
+    );
+    addTearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    final attachmentStore = container.read(encryptedAttachmentStoreProvider);
+    final video = await _writePayloadFile(
+      tempDirectory,
+      'e2e-large-video.mp4',
+      sizeBytes: 9 * 1024 * 1024,
+      byte: 0x41,
+    );
+    final attachments = <NoteAttachment>[];
+    final videoPath = await attachmentStore.storeAttachment(
+      XFile(video.path, name: 'e2e-large-video.mp4', mimeType: 'video/mp4'),
+      type: AttachmentType.video,
+    );
+    expect(videoPath, isNotNull);
+    attachments.add(
+      NoteAttachment(
+        type: AttachmentType.video,
+        label: 'e2e-large-video.mp4',
+        filePath: videoPath,
+      ),
+    );
+    for (var index = 0; index < 3; index += 1) {
+      final file = await _writePayloadFile(
+        tempDirectory,
+        'e2e-document-$index.bin',
+        sizeBytes: 512 * 1024,
+        byte: 0x50 + index,
+      );
+      final storedPath = await attachmentStore.storeAttachment(
+        XFile(
+          file.path,
+          name: 'e2e-document-$index.bin',
+          mimeType: 'application/octet-stream',
+        ),
+        type: AttachmentType.file,
+      );
+      expect(storedPath, isNotNull);
+      attachments.add(
+        NoteAttachment(
+          type: AttachmentType.file,
+          label: 'e2e-document-$index.bin',
+          filePath: storedPath,
+        ),
+      );
+    }
+
+    await container
+        .read(notesControllerProvider.notifier)
+        .upsert(
+          NoteEntry(
+            id: 'large-sync-e2e-note',
+            vaultId: 'everyday',
+            title: 'Large sync E2E note',
+            body: 'Contains a large video plus multiple files.',
+            createdAt: DateTime.utc(2026, 5, 19, 10),
+            updatedAt: DateTime.utc(2026, 5, 19, 10, 1),
+            attachments: attachments,
+            editorMode: NoteEditorMode.rich,
+            syncState: NoteSyncState.pendingUpload,
+          ),
+        );
+    await tester.pumpAndSettle();
+
+    container.read(appRouterProvider).go('/notes');
+    await tester.pumpAndSettle();
+    expect(find.text('Large sync E2E note'), findsWidgets);
+
+    final estimatedUploadBytes = await container
+        .read(syncTransferControllerProvider.notifier)
+        .estimatePendingUploadBytes();
+    expect(estimatedUploadBytes, greaterThan(10 * 1024 * 1024));
+
+    final uploadFuture = container
+        .read(syncTransferControllerProvider.notifier)
+        .uploadCurrentBundle(force: true);
+    await _waitForSyncBusy(tester, container);
+
+    final indicator = find.byIcon(Icons.sync_rounded);
+    expect(indicator, findsOneWidget);
+    await tester.tap(find.byKey(AppShell.syncIndicatorKey));
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text('Sync progress'), findsOneWidget);
+    expect(
+      find.textContaining(RegExp('attachment|bundle', caseSensitive: false)),
+      findsWidgets,
+    );
+
+    await uploadFuture;
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(
+      container.read(syncTransferControllerProvider).stage,
+      SyncTransferStage.success,
+    );
+    expect(fakeGoogleDriveTransport.uploadCalls, 1);
+    expect(fakeGoogleDriveTransport.uploadedAttachmentObjects, hasLength(4));
+    expect(fakeGoogleDriveTransport.latestStatus?.attachmentCount, 4);
+    expect(
+      fakeGoogleDriveTransport.latestStatus?.sizeBytes,
+      lessThan(1024 * 1024),
+      reason: 'The sync bundle should keep large files as attachment objects.',
+    );
+    expect(fakeGoogleDriveTransport.uploadedPayload, isNotNull);
+    await tester.tap(find.text('Cancel').last);
+    await tester.pumpAndSettle();
+  });
 }
 
 Future<void> _scrollIntoViewIfNeeded(WidgetTester tester, Finder finder) async {
@@ -516,6 +682,42 @@ Future<void> _waitForFinder(
     await tester.pump(const Duration(milliseconds: 200));
   }
   expect(finder, findsOneWidget);
+}
+
+Future<void> _waitForSyncBusy(
+  WidgetTester tester,
+  ProviderContainer container, {
+  int attempts = 40,
+}) async {
+  for (var attempt = 0; attempt < attempts; attempt++) {
+    await tester.pump(const Duration(milliseconds: 100));
+    if (container.read(syncTransferControllerProvider).stage ==
+        SyncTransferStage.busy) {
+      return;
+    }
+  }
+  throw StateError('Sync did not enter busy state.');
+}
+
+Future<void> _closeReleaseNotesIfPresent(WidgetTester tester) async {
+  final closeButton = find.text('Close');
+  if (find.byType(AlertDialog).evaluate().isEmpty ||
+      closeButton.evaluate().isEmpty) {
+    return;
+  }
+  await tester.tap(closeButton.last);
+  await tester.pumpAndSettle();
+}
+
+Future<File> _writePayloadFile(
+  Directory directory,
+  String fileName, {
+  required int sizeBytes,
+  required int byte,
+}) async {
+  final file = File('${directory.path}${Platform.pathSeparator}$fileName');
+  await file.writeAsBytes(List<int>.filled(sizeBytes, byte), flush: true);
+  return file;
 }
 
 Future<void> _openExternalLinkDialogAndCancel(
@@ -644,6 +846,13 @@ class FakePlayIntegrityVerifier extends PlayIntegrityVerifier {
 }
 
 class FakeGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
+  FakeGoogleDriveSyncTransport({
+    this.attachmentUploadDelay = Duration.zero,
+    this.bundleUploadDelay = const Duration(milliseconds: 120),
+  });
+
+  final Duration attachmentUploadDelay;
+  final Duration bundleUploadDelay;
   int fetchLatestCalls = 0;
   int uploadCalls = 0;
   String? uploadedPayload;
@@ -691,7 +900,9 @@ class FakeGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   }) async {
     uploadCalls += 1;
     uploadedPayload = encodedPayload;
-    await Future<void>.delayed(const Duration(milliseconds: 120));
+    if (bundleUploadDelay > Duration.zero) {
+      await Future<void>.delayed(bundleUploadDelay);
+    }
     latestStatus = RemoteSyncBundleStatus(
       fileId: 'remote-upload-$uploadCalls',
       fileName: 'himemo_sync_20260510.enc',
@@ -713,6 +924,9 @@ class FakeGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     required int sizeBytes,
     bool skipExistingCheck = false,
   }) async {
+    if (attachmentUploadDelay > Duration.zero) {
+      await Future<void>.delayed(attachmentUploadDelay);
+    }
     uploadedAttachmentObjects[contentHash] = encodedPayload;
   }
 
