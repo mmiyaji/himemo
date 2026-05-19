@@ -593,6 +593,7 @@ class SettingsScreen extends ConsumerWidget {
     final syncProvider = ref.watch(syncProviderControllerProvider);
     final syncAuthState = ref.watch(selectedSyncAuthStateProvider);
     final syncQueueSummary = ref.watch(syncQueueSummaryProvider);
+    final syncHistory = ref.watch(syncHistoryProvider);
     final syncTransferState = ref.watch(syncTransferControllerProvider);
     final syncBundleFingerprint = ref.watch(syncBundleFingerprintProvider);
     final syncBundleState = ref.watch(syncBundleStateProvider);
@@ -621,6 +622,9 @@ class SettingsScreen extends ConsumerWidget {
       for (final vault in visibleVaults) vault.id,
     };
     final currentNotes = ref.watch(notesControllerProvider);
+    final conflictedNotes = currentNotes
+        .where((note) => note.syncState == NoteSyncState.conflict)
+        .toList(growable: false);
     final noteCount = currentNotes
         .where(
           (note) =>
@@ -2032,6 +2036,44 @@ class SettingsScreen extends ConsumerWidget {
                             ),
                     ),
                   ),
+                  if (syncTransferState.isCoolingDown)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            strings.localized(
+                              en: 'Retry is paused after repeated failures.',
+                              ja: '\u5931\u6557\u304c\u7d9a\u3044\u305f\u305f\u3081\u518d\u8a66\u884c\u3092\u4e00\u6642\u505c\u6b62\u3057\u3066\u3044\u307e\u3059\u3002',
+                            ),
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: !syncAuthState.isAuthenticated
+                                ? null
+                                : () async {
+                                    ref
+                                        .read(
+                                          syncTransferControllerProvider
+                                              .notifier,
+                                        )
+                                        .clearRetryCooldown();
+                                    await _syncNow(context, ref);
+                                  },
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: Text(
+                              strings.localized(
+                                en: 'Retry now',
+                                ja: '\u4eca\u3059\u3050\u518d\u8a66\u884c',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   if (syncTransferState.stage == SyncTransferStage.busy)
                     Padding(
                       padding: const EdgeInsets.only(top: 8, bottom: 4),
@@ -2138,6 +2180,38 @@ class SettingsScreen extends ConsumerWidget {
                         ),
                       ),
                     ),
+                    if (conflictedNotes.isNotEmpty)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.report_problem_outlined),
+                        title: Text(
+                          strings.localized(
+                            en: 'Conflicts to resolve',
+                            ja: '\u89e3\u6c7a\u304c\u5fc5\u8981\u306a\u7af6\u5408',
+                          ),
+                        ),
+                        subtitle: Text(
+                          strings.localized(
+                            en: '${conflictedNotes.length} notes need review before sync can settle.',
+                            ja: '${conflictedNotes.length} \u4ef6\u306e\u30e1\u30e2\u306e\u78ba\u8a8d\u304c\u5fc5\u8981\u3067\u3059\u3002',
+                          ),
+                        ),
+                        trailing: TextButton(
+                          onPressed: () => _showSyncConflictListDialog(
+                            context,
+                            ref,
+                            conflictedNotes,
+                          ),
+                          child: Text(
+                            strings.localized(en: 'Review', ja: '\u78ba\u8a8d'),
+                          ),
+                        ),
+                        onTap: () => _showSyncConflictListDialog(
+                          context,
+                          ref,
+                          conflictedNotes,
+                        ),
+                      ),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(strings.text('home.remote.bundle')),
@@ -2356,6 +2430,55 @@ class SettingsScreen extends ConsumerWidget {
                           ),
                         ),
                       ),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.history_rounded),
+                      title: Text(
+                        strings.localized(
+                          en: 'Sync history',
+                          ja: '\u540c\u671f\u5c65\u6b74',
+                        ),
+                      ),
+                      subtitle: Text(
+                        syncHistory.when(
+                          data: (entries) => entries.isEmpty
+                              ? strings.localized(
+                                  en: 'No sync history has been recorded yet.',
+                                  ja: '\u307e\u3060\u540c\u671f\u5c65\u6b74\u306f\u3042\u308a\u307e\u305b\u3093\u3002',
+                                )
+                              : _syncHistoryEntrySummary(
+                                  strings,
+                                  entries.first,
+                                  syncProvider,
+                                ),
+                          loading: () => strings.localized(
+                            en: 'Reading sync history...',
+                            ja: '\u540c\u671f\u5c65\u6b74\u3092\u8aad\u307f\u8fbc\u3093\u3067\u3044\u307e\u3059\u2026',
+                          ),
+                          error: (_, _) => strings.localized(
+                            en: 'Unable to read sync history.',
+                            ja: '\u540c\u671f\u5c65\u6b74\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3002',
+                          ),
+                        ),
+                      ),
+                      trailing: TextButton(
+                        onPressed: syncHistory.asData?.value == null
+                            ? null
+                            : () => _showSyncHistoryDialog(
+                                context,
+                                syncHistory.asData!.value,
+                              ),
+                        child: Text(
+                          strings.localized(en: 'Show', ja: '\u8868\u793a'),
+                        ),
+                      ),
+                      onTap: syncHistory.asData?.value == null
+                          ? null
+                          : () => _showSyncHistoryDialog(
+                              context,
+                              syncHistory.asData!.value,
+                            ),
                     ),
                     if (syncTransferState.localBundle != null)
                       ListTile(

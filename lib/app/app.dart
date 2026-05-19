@@ -780,7 +780,10 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       ranSyncAttempt = true;
       await ref
           .read(syncTransferControllerProvider.notifier)
-          .syncNow(silentLargeMobileSkip: true, allowCachedRemoteStatus: true);
+          .syncNow(
+            silentLargeMobileSkip: true,
+            allowCachedRemoteStatus: !hasPendingChanges,
+          );
       final result = ref.read(syncTransferControllerProvider);
       if (result.stage == SyncTransferStage.success) {
         if (result.message ==

@@ -1009,7 +1009,8 @@ void main() {
           id: 'sim-trash-race',
           vaultId: 'everyday',
           title: 'Shared note edited remotely',
-          body: 'A stale device edited the note after another device deleted it.',
+          body:
+              'A stale device edited the note after another device deleted it.',
           createdAt: createdAt,
           updatedAt: DateTime.now().add(const Duration(hours: 1)),
           revision: 5,
@@ -1473,6 +1474,15 @@ void main() {
             .totalChanges,
         1,
       );
+
+      await harness.container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true);
+
+      final retryState = harness.container.read(syncTransferControllerProvider);
+      expect(retryState.stage, SyncTransferStage.error);
+      expect(retryState.isCoolingDown, isTrue);
+      expect(failingTransport.attachmentUploadCalls, 2);
     },
   );
 

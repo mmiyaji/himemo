@@ -1234,6 +1234,136 @@ class SyncTransferState {
   }
 }
 
+class SyncHistoryEntry {
+  const SyncHistoryEntry({
+    required this.startedAt,
+    required this.finishedAt,
+    required this.provider,
+    required this.operation,
+    required this.success,
+    this.message,
+    this.noteCount,
+    this.attachmentCount,
+    this.queueBefore,
+    this.queueAfter,
+  });
+
+  final DateTime startedAt;
+  final DateTime finishedAt;
+  final SyncProvider provider;
+  final String operation;
+  final bool success;
+  final String? message;
+  final int? noteCount;
+  final int? attachmentCount;
+  final SyncQueueSummary? queueBefore;
+  final SyncQueueSummary? queueAfter;
+
+  Map<String, dynamic> toJson() => {
+    'startedAt': startedAt.toUtc().toIso8601String(),
+    'finishedAt': finishedAt.toUtc().toIso8601String(),
+    'provider': provider.name,
+    'operation': operation,
+    'success': success,
+    'message': message,
+    'noteCount': noteCount,
+    'attachmentCount': attachmentCount,
+    'queueBefore': _syncQueueSummaryToJson(queueBefore),
+    'queueAfter': _syncQueueSummaryToJson(queueAfter),
+  };
+
+  factory SyncHistoryEntry.fromJson(Map<String, dynamic> json) {
+    SyncQueueSummary? summaryFromJson(Object? value) {
+      if (value is! Map) {
+        return null;
+      }
+      final map = Map<String, dynamic>.from(value);
+      return SyncQueueSummary(
+        totalChanges: map['totalChanges'] as int? ?? 0,
+        upserts: map['upserts'] as int? ?? 0,
+        deletes: map['deletes'] as int? ?? 0,
+        lastQueuedAt: map['lastQueuedAt'] == null
+            ? null
+            : DateTime.tryParse(map['lastQueuedAt'] as String),
+      );
+    }
+
+    return SyncHistoryEntry(
+      startedAt:
+          DateTime.tryParse('${json['startedAt'] ?? ''}') ?? DateTime.now(),
+      finishedAt:
+          DateTime.tryParse('${json['finishedAt'] ?? ''}') ?? DateTime.now(),
+      provider: SyncProvider.values.firstWhere(
+        (value) => value.name == json['provider'],
+        orElse: () => SyncProvider.off,
+      ),
+      operation: '${json['operation'] ?? ''}',
+      success: json['success'] == true,
+      message: json['message'] as String?,
+      noteCount: json['noteCount'] as int?,
+      attachmentCount: json['attachmentCount'] as int?,
+      queueBefore: summaryFromJson(json['queueBefore']),
+      queueAfter: summaryFromJson(json['queueAfter']),
+    );
+  }
+}
+
+Map<String, dynamic>? _syncQueueSummaryToJson(SyncQueueSummary? summary) {
+  if (summary == null) {
+    return null;
+  }
+  return {
+    'totalChanges': summary.totalChanges,
+    'upserts': summary.upserts,
+    'deletes': summary.deletes,
+    'lastQueuedAt': summary.lastQueuedAt?.toUtc().toIso8601String(),
+  };
+}
+
+class SyncHistoryStore {
+  SyncHistoryStore({
+    Future<SharedPreferences> Function()? sharedPreferencesProvider,
+    this.storageKey = 'sync.history.v1',
+    this.limit = 30,
+  }) : _sharedPreferencesProvider =
+           sharedPreferencesProvider ?? SharedPreferences.getInstance;
+
+  final Future<SharedPreferences> Function() _sharedPreferencesProvider;
+  final String storageKey;
+  final int limit;
+
+  Future<List<SyncHistoryEntry>> read() async {
+    final prefs = await _sharedPreferencesProvider();
+    final raw = prefs.getString(storageKey);
+    if (raw == null || raw.isEmpty) {
+      return const <SyncHistoryEntry>[];
+    }
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) {
+      return const <SyncHistoryEntry>[];
+    }
+    return decoded
+        .whereType<Map>()
+        .map(
+          (entry) =>
+              SyncHistoryEntry.fromJson(Map<String, dynamic>.from(entry)),
+        )
+        .toList(growable: false);
+  }
+
+  Future<void> add(SyncHistoryEntry entry) async {
+    final prefs = await _sharedPreferencesProvider();
+    final entries = [
+      entry,
+      ...await read(),
+    ].take(limit).toList(growable: false);
+    await prefs.setString(
+      storageKey,
+      jsonEncode([for (final item in entries) item.toJson()]),
+    );
+  }
+}
+
 enum LargeSyncTransferDirection { upload, download }
 
 class LargeSyncTransferWarning {
@@ -2603,6 +2733,14 @@ final syncQueueSummaryProvider = FutureProvider<SyncQueueSummary>((ref) async {
   return ref.watch(syncEngineProvider).summarizeQueue();
 });
 
+final syncHistoryStoreProvider = Provider<SyncHistoryStore>((ref) {
+  return SyncHistoryStore();
+});
+
+final syncHistoryProvider = FutureProvider<List<SyncHistoryEntry>>((ref) {
+  return ref.watch(syncHistoryStoreProvider).read();
+});
+
 final playIntegrityServiceProvider = Provider<PlayIntegrityService>(
   (ref) => const PlayIntegrityService(),
 );
@@ -2743,6 +2881,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   RemoteSyncBundleStatus? _cachedRemoteStatus;
   DateTime? _cachedRemoteStatusFetchedAt;
   SyncProvider? _cachedRemoteStatusProvider;
+  String? _lastFailureSignature;
+  int _consecutiveFailureCount = 0;
 
   @override
   SyncTransferState build() {
@@ -2764,8 +2904,82 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     state = state.copyWith(clearLocalBundle: true);
   }
 
+  void clearRetryCooldown() {
+    _cooldownTimer?.cancel();
+    state = state.copyWith(clearCooldown: true);
+    _diagnostic('sync retry cooldown cleared');
+  }
+
   Future<SyncQueueSummary> _readLocalSyncQueueSummary() {
     return ref.read(syncEngineProvider).summarizeQueue();
+  }
+
+  Future<void> _recordSyncHistory({
+    required DateTime startedAt,
+    required String operation,
+    required bool success,
+    String? message,
+    SyncQueueSummary? queueBefore,
+    SyncQueueSummary? queueAfter,
+    RemoteSyncBundleStatus? remoteStatus,
+    StoredSyncBundle? localBundle,
+  }) async {
+    final provider = ref.read(syncProviderControllerProvider);
+    final noteCount = remoteStatus?.noteCount ?? localBundle?.noteCount;
+    final attachmentCount =
+        remoteStatus?.attachmentCount ?? localBundle?.attachmentCount;
+    await ref
+        .read(syncHistoryStoreProvider)
+        .add(
+          SyncHistoryEntry(
+            startedAt: startedAt,
+            finishedAt: DateTime.now(),
+            provider: provider,
+            operation: operation,
+            success: success,
+            message: message,
+            noteCount: noteCount,
+            attachmentCount: attachmentCount,
+            queueBefore: queueBefore,
+            queueAfter: queueAfter,
+          ),
+        );
+    ref.invalidate(syncHistoryProvider);
+    if (success) {
+      _lastFailureSignature = null;
+      _consecutiveFailureCount = 0;
+      return;
+    }
+    _applyFailureBackoff(operation: operation, message: message);
+  }
+
+  void _applyFailureBackoff({required String operation, String? message}) {
+    final signature = '$operation:${message ?? ''}';
+    if (_lastFailureSignature == signature) {
+      _consecutiveFailureCount += 1;
+    } else {
+      _lastFailureSignature = signature;
+      _consecutiveFailureCount = 1;
+    }
+    final retryAfter = switch (_consecutiveFailureCount) {
+      1 => Duration.zero,
+      2 => const Duration(seconds: 20),
+      3 => const Duration(minutes: 1),
+      _ => const Duration(minutes: 5),
+    };
+    if (retryAfter == Duration.zero) {
+      return;
+    }
+    _scheduleCooldownRefresh(retryAfter);
+    state = state.copyWith(cooldownUntil: DateTime.now().add(retryAfter));
+    _diagnostic(
+      'sync retry cooldown scheduled',
+      data: {
+        'operation': operation,
+        'failures': _consecutiveFailureCount,
+        'retryAfterSeconds': retryAfter.inSeconds,
+      },
+    );
   }
 
   Future<LargeSyncTransferWarning?> largeMobileTransferWarning({
@@ -3206,6 +3420,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     bool silentLargeMobileSkip = false,
     bool pruneAfterUpload = true,
   }) async {
+    final historyStartedAt = DateTime.now();
     final provider = ref.read(syncProviderControllerProvider);
     _diagnostic(
       'upload requested',
@@ -3220,11 +3435,18 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         stage: SyncTransferStage.error,
         message: 'sync.error.select_target_for_upload',
       );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'upload',
+        success: false,
+        message: state.message,
+      );
       return;
     }
+    final queueBeforeUpload = await _readLocalSyncQueueSummary();
     final assessment = assessSyncConflict(
       googleDriveSelected: true,
-      queue: await _readLocalSyncQueueSummary(),
+      queue: queueBeforeUpload,
       remoteStatus: state.remoteStatus,
       bundleState: await ref.read(syncBundleStateProvider.future),
     );
@@ -3236,6 +3458,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       state = state.copyWith(
         stage: SyncTransferStage.error,
         message: 'sync.error.conflict_download_first_or_force_upload',
+      );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'upload',
+        success: false,
+        message: state.message,
+        queueBefore: queueBeforeUpload,
       );
       return;
     }
@@ -3419,6 +3648,16 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       await ref.read(syncBundleStateStoreProvider).recordUpload(remoteStatus);
       ref.invalidate(syncBundleStateProvider);
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'upload',
+        success: true,
+        message: state.message,
+        queueBefore: queueBeforeUpload,
+        queueAfter: queueAfterUpload,
+        remoteStatus: remoteStatus,
+        localBundle: bundle,
+      );
       if (provider == SyncProvider.iCloud && pruneAfterUpload) {
         unawaited(_pruneICloudStorageAfterUpload(bundle));
       }
@@ -3455,10 +3694,28 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
       );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'upload',
+        success: false,
+        message: state.message,
+        queueBefore: queueBeforeUpload,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
     } catch (error) {
       _diagnostic('upload failed', data: {'error': error});
       state = _failureState(
         error,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'upload',
+        success: false,
+        message: state.message,
+        queueBefore: queueBeforeUpload,
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
       );
@@ -4021,6 +4278,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   Future<void> downloadLatestBundle() async {
+    final historyStartedAt = DateTime.now();
     final remoteStatus = state.remoteStatus;
     if (remoteStatus != null && remoteStatus.fileId.isNotEmpty) {
       await downloadBundle(remoteStatus);
@@ -4031,6 +4289,12 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       state = const SyncTransferState(
         stage: SyncTransferStage.error,
         message: 'sync.error.select_target_for_download',
+      );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'download',
+        success: false,
+        message: state.message,
       );
       return;
     }
@@ -4045,9 +4309,25 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remoteBundle,
         emptyMessage: 'sync.info.no_usable_remote_bundle',
       );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'download',
+        success: state.stage == SyncTransferStage.success,
+        message: state.message,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
     } catch (error) {
       state = _failureState(
         error,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'download',
+        success: false,
+        message: state.message,
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
       );
@@ -4059,11 +4339,19 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   Future<void> downloadBundle(RemoteSyncBundleStatus remoteStatus) async {
+    final historyStartedAt = DateTime.now();
     final provider = ref.read(syncProviderControllerProvider);
     if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
         stage: SyncTransferStage.error,
         message: 'sync.error.select_target_for_download',
+      );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'download',
+        success: false,
+        message: state.message,
+        remoteStatus: remoteStatus,
       );
       return;
     }
@@ -4080,10 +4368,26 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remoteBundle,
         emptyMessage: 'sync.error.selected_bundle_download_failed',
       );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'download',
+        success: state.stage == SyncTransferStage.success,
+        message: state.message,
+        remoteStatus: state.remoteStatus ?? remoteStatus,
+        localBundle: state.localBundle,
+      );
     } catch (error) {
       state = _failureState(
         error,
         remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'download',
+        success: false,
+        message: state.message,
+        remoteStatus: state.remoteStatus ?? remoteStatus,
         localBundle: state.localBundle,
       );
     }
@@ -4102,14 +4406,22 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   Future<void> applyDownloadedBundle() async {
+    final historyStartedAt = DateTime.now();
     final localBundle = state.localBundle;
     if (localBundle == null) {
       state = state.copyWith(
         stage: SyncTransferStage.error,
         message: 'sync.error.download_before_apply',
       );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'apply',
+        success: false,
+        message: state.message,
+      );
       return;
     }
+    final queueBeforeApply = await _readLocalSyncQueueSummary();
     _startBusy(SyncTransferProgress.applyingBundle);
     try {
       await logFirebaseBreadcrumb('sync apply downloaded bundle');
@@ -4244,13 +4556,41 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             ? 'sync.info.apply_success'
             : _privateProfileNotesPendingUnlockMessage,
       );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'apply',
+        success: true,
+        message: state.message,
+        queueBefore: queueBeforeApply,
+        queueAfter: await _readLocalSyncQueueSummary(),
+        remoteStatus: state.remoteStatus,
+        localBundle: localBundle,
+      );
     } on HimemoDecryptionException {
       state = state.copyWith(
         stage: SyncTransferStage.error,
         message: _syncBundleDecryptionMessage,
       );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'apply',
+        success: false,
+        message: state.message,
+        queueBefore: queueBeforeApply,
+        remoteStatus: state.remoteStatus,
+        localBundle: localBundle,
+      );
     } catch (error) {
       state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'apply',
+        success: false,
+        message: state.message,
+        queueBefore: queueBeforeApply,
+        remoteStatus: state.remoteStatus,
+        localBundle: localBundle,
+      );
     }
   }
 

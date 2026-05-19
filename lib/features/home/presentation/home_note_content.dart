@@ -5765,6 +5765,12 @@ class _AttachmentListTile extends ConsumerWidget {
                           ),
                           const SizedBox(height: 2),
                           _AttachmentSizeText(attachment: attachment),
+                          if (isSyncAttachmentObjectRef(
+                            attachment.filePath ?? '',
+                          )) ...[
+                            const SizedBox(height: 6),
+                            const _RemoteAttachmentNotice(),
+                          ],
                         ],
                       ),
                     ),
@@ -5784,6 +5790,86 @@ class _AttachmentListTile extends ConsumerWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _RemoteAttachmentNotice extends ConsumerWidget {
+  const _RemoteAttachmentNotice();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = context.strings;
+    final colorScheme = Theme.of(context).colorScheme;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Icon(
+          Icons.cloud_download_outlined,
+          size: 16,
+          color: colorScheme.primary,
+        ),
+        Text(
+          strings.localized(
+            en: 'Cloud only',
+            ja: '\u30af\u30e9\u30a6\u30c9\u306e\u307f',
+          ),
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: colorScheme.primary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        TextButton(
+          style: TextButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            minimumSize: const Size(0, 32),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          onPressed: () async {
+            final messenger = ScaffoldMessenger.of(context);
+            try {
+              final count = await ref
+                  .read(syncTransferControllerProvider.notifier)
+                  .downloadDeferredAttachments();
+              if (!context.mounted) {
+                return;
+              }
+              messenger.showSnackBar(
+                SnackBar(
+                  showCloseIcon: true,
+                  content: Text(
+                    count == 0
+                        ? strings.localized(
+                            en: 'No cloud-only attachments needed download.',
+                            ja: '\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u304c\u5fc5\u8981\u306a\u6dfb\u4ed8\u306f\u3042\u308a\u307e\u305b\u3093\u3002',
+                          )
+                        : strings.localized(
+                            en: 'Downloaded $count cloud-only attachments.',
+                            ja: '$count \u4ef6\u306e\u6dfb\u4ed8\u3092\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3057\u307e\u3057\u305f\u3002',
+                          ),
+                  ),
+                ),
+              );
+            } catch (error) {
+              if (!context.mounted) {
+                return;
+              }
+              messenger.showSnackBar(
+                SnackBar(showCloseIcon: true, content: Text('$error')),
+              );
+            }
+          },
+          child: Text(
+            strings.localized(
+              en: 'Download',
+              ja: '\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9',
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
