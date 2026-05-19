@@ -706,7 +706,7 @@ void main() {
     expect(appDelegate, contains('cloudKitAccountAvailableUntil'));
     expect(appDelegate, contains('cloudKitSyncZoneReady'));
     expect(appDelegate, contains('private var cloudKitBundleMetadataFields'));
-    expect(appDelegate, contains('operation.desiredKeys = desiredKeys'));
+    expect(appDelegate, contains('options.desiredKeys = desiredKeys'));
     expect(appDelegate, contains('cloudKitBundleSizeField'));
     expect(appDelegate, contains('record[self.cloudKitBundleSizeField]'));
     expect(

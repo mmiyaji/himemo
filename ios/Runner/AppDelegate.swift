@@ -1613,11 +1613,11 @@ import FoundationModels
       let zoneID = cloudKitSyncZoneID
       let options = CKFetchRecordZoneChangesOperation.ZoneOptions()
       options.previousServerChangeToken = token
+      options.desiredKeys = desiredKeys
       let operation = CKFetchRecordZoneChangesOperation(
         recordZoneIDs: [zoneID],
         optionsByRecordZoneID: [zoneID: options]
       )
-      operation.desiredKeys = desiredKeys
       var requestedMore = false
       operation.recordChangedBlock = { (record: CKRecord) in
         if record.recordType == recordType {
