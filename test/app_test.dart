@@ -31,6 +31,7 @@ import 'package:himemo/features/sync/data/secure_sync_bundle_store.dart';
 import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
 import 'package:himemo/features/sync/data/icloud_sync_transport.dart';
 import 'package:himemo/features/sync/data/sync_engine.dart';
+import 'package:himemo/features/sync/data/sync_bundle_state_store.dart';
 import 'package:himemo/l10n/app_localizations.dart';
 import 'package:himemo/l10n/app_strings.dart';
 import 'package:image_picker/image_picker.dart';
@@ -934,6 +935,106 @@ void main() {
         container
             .read(notesControllerProvider)
             .any((note) => note.id == 'fake-drive-sequence-note'),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'fake Google Drive sync keeps trashed notes hidden from stale remote upserts',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final fakeTransport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final firstDevice = await _createGoogleDriveSyncHarness(
+        fakeTransport,
+        tempPrefix: 'himemo-fake-drive-trash-first-',
+        randomSeed: 91,
+      );
+      final secondDevice = await _createGoogleDriveSyncHarness(
+        fakeTransport,
+        tempPrefix: 'himemo-fake-drive-trash-second-',
+        randomSeed: 92,
+      );
+      final firstNotes = firstDevice.container.read(
+        notesControllerProvider.notifier,
+      );
+      final secondNotes = secondDevice.container.read(
+        notesControllerProvider.notifier,
+      );
+      final firstSync = firstDevice.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      final secondSync = secondDevice.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      final createdAt = DateTime.utc(2026, 5, 19, 7);
+
+      await firstNotes.upsert(
+        NoteEntry(
+          id: 'sim-trash-race',
+          vaultId: 'everyday',
+          title: 'Shared note',
+          body: 'Initial shared body.',
+          createdAt: createdAt,
+          updatedAt: createdAt,
+        ),
+      );
+      await firstSync.uploadCurrentBundle(force: true);
+      expect(
+        firstDevice.container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+
+      await secondSync.downloadLatestBundle();
+      await secondSync.applyDownloadedBundle();
+      expect(
+        secondDevice.container
+            .read(visibleNotesProvider)
+            .any((note) => note.id == 'sim-trash-race'),
+        isTrue,
+      );
+
+      await firstNotes.delete('sim-trash-race');
+      expect(
+        firstDevice.container
+            .read(trashedNotesProvider)
+            .any((note) => note.id == 'sim-trash-race'),
+        isTrue,
+      );
+
+      await secondNotes.upsert(
+        NoteEntry(
+          id: 'sim-trash-race',
+          vaultId: 'everyday',
+          title: 'Shared note edited remotely',
+          body: 'A stale device edited the note after another device deleted it.',
+          createdAt: createdAt,
+          updatedAt: DateTime.now().add(const Duration(hours: 1)),
+          revision: 5,
+        ),
+      );
+      await secondSync.uploadCurrentBundle(force: true);
+
+      await firstSync.downloadLatestBundle();
+      await firstSync.applyDownloadedBundle();
+      final firstState = firstDevice.container.read(notesControllerProvider);
+      final note = firstState.singleWhere(
+        (entry) => entry.id == 'sim-trash-race',
+      );
+      expect(note.deletedAt, isNotNull);
+      expect(note.syncState, NoteSyncState.pendingDelete);
+      expect(
+        firstDevice.container
+            .read(visibleNotesProvider)
+            .any((entry) => entry.id == 'sim-trash-race'),
+        isFalse,
+      );
+      expect(
+        firstDevice.container
+            .read(trashedNotesProvider)
+            .any((entry) => entry.id == 'sim-trash-race'),
         isTrue,
       );
     },
@@ -3043,10 +3144,11 @@ Future<File> _writePayloadFile(
 Future<_GoogleDriveSyncHarness> _createGoogleDriveSyncHarness(
   GoogleDriveSyncTransport transport, {
   required String tempPrefix,
+  int randomSeed = 66,
 }) async {
   final tempDirectory = await Directory.systemTemp.createTemp(tempPrefix);
   final secureStore = MemorySecureKeyValueStore();
-  final encryptionService = EncryptionService(random: Random(66));
+  final encryptionService = EncryptionService(random: Random(randomSeed));
   final masterKeyService = MasterKeyService(
     secureStore: secureStore,
     keyFactory: encryptionService.generateKeyBytes,
@@ -3081,6 +3183,9 @@ Future<_GoogleDriveSyncHarness> _createGoogleDriveSyncHarness(
           directoryProvider: () async => tempDirectory,
           sharedPreferencesProvider: SharedPreferences.getInstance,
         ),
+      ),
+      syncBundleStateStoreProvider.overrideWithValue(
+        SyncBundleStateStore(storageKey: 'sync.bundle_state.$tempPrefix'),
       ),
       googleDriveSyncTransportProvider.overrideWithValue(transport),
       syncAuthGatewayProvider.overrideWithValue(
