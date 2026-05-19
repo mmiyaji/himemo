@@ -1924,6 +1924,92 @@ void main() {
   );
 
   test(
+    'SyncEngine exports delete tombstones without reading trashed attachments',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-engine-delete-tombstone-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(50));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final attachmentStore = _ReadTrackingEncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final source = File(
+        '${tempDirectory.path}${Platform.pathSeparator}trash.mov',
+      );
+      await source.writeAsBytes(const [2, 4, 6, 8], flush: true);
+      final storedAttachment = await attachmentStore.storeAttachment(
+        XFile(source.path, name: 'trash.mov'),
+        type: AttachmentType.video,
+      );
+      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+      final engine = SyncEngine(
+        database: database,
+        attachmentStore: attachmentStore,
+        deviceIdentityStore: DeviceIdentityStore(
+          sharedPreferencesProvider: SharedPreferences.getInstance,
+          random: Random(51),
+        ),
+      );
+      final deletedAt = DateTime(2026, 5, 19, 14, 46);
+      final note = NoteEntry(
+        id: 'trashed-video-note',
+        vaultId: 'everyday',
+        title: 'Trashed video',
+        body: 'This note was moved to trash.',
+        createdAt: deletedAt.subtract(const Duration(minutes: 10)),
+        updatedAt: deletedAt,
+        deletedAt: deletedAt,
+        revision: 3,
+        syncState: NoteSyncState.pendingDelete,
+        attachments: [
+          NoteAttachment(
+            type: AttachmentType.video,
+            label: 'trash.mov',
+            filePath: storedAttachment,
+          ),
+        ],
+      );
+
+      final snapshot = await engine.prepareSnapshot(
+        [note],
+        pendingChanges: [
+          PendingNoteChangeRecord(
+            noteId: note.id,
+            vaultId: note.vaultId,
+            revision: note.revision,
+            action: PendingNoteChangeAction.delete,
+            queuedAt: deletedAt,
+            contentHash: note.contentHash,
+            deletedAt: deletedAt,
+          ),
+        ],
+      );
+
+      expect(attachmentStore.readCount, 0);
+      expect(snapshot.attachments, isEmpty);
+      expect(snapshot.summary.deletes, 1);
+      expect(snapshot.notes.single.action, PendingNoteChangeAction.delete);
+      expect(snapshot.notes.single.note.id, note.id);
+      expect(snapshot.notes.single.note.attachments, isEmpty);
+      expect(snapshot.notes.single.note.deletedAt, deletedAt);
+
+      await database.close();
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
     'SyncEngine skips stale upserts and exports orphaned delete tombstones',
     () async {
       SharedPreferences.setMockInitialValues({});

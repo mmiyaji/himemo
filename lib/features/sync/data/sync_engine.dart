@@ -182,9 +182,12 @@ class SyncEngine {
   }) async {
     final changes = pendingChanges ?? await loadPendingChanges();
     final notesById = {for (final note in notes) note.id: note};
-    final noteIds = changes.map((change) => change.noteId).toSet();
+    final uploadNoteIds = changes
+        .where((change) => change.action != PendingNoteChangeAction.delete)
+        .map((change) => change.noteId)
+        .toSet();
     final totalAttachments = notes
-        .where((note) => noteIds.contains(note.id))
+        .where((note) => uploadNoteIds.contains(note.id))
         .fold<int>(0, (total, note) {
           var count = total;
           for (final attachment in note.attachments) {
@@ -222,6 +225,15 @@ class SyncEngine {
         continue;
       }
       preparedChanges.add(change);
+      if (change.action == PendingNoteChangeAction.delete) {
+        preparedNotes.add(
+          PreparedSyncNote(
+            note: _deletedTombstoneFor(change),
+            action: PendingNoteChangeAction.delete,
+          ),
+        );
+        continue;
+      }
 
       final attachmentIdsByPath = <String, String>{};
 
