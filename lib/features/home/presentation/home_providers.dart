@@ -8704,6 +8704,11 @@ class NotesController extends _$NotesController {
       }
       final shouldDelete = change.action == PendingNoteChangeAction.delete;
 
+      if (shouldDelete && current != null && current.deletedAt != null) {
+        next[index] = _mergeRemoteDeleteIntoCurrent(current, incoming);
+        continue;
+      }
+
       if (current != null && _hasUnuploadedLocalChange(current)) {
         if (!_sameSyncedContent(current, incoming)) {
           next[index] = current.copyWith(syncState: NoteSyncState.conflict);
@@ -8727,17 +8732,21 @@ class NotesController extends _$NotesController {
       }
 
       final applied = shouldDelete
-          ? incoming.copyWith(
-              deletedAt: incoming.deletedAt ?? DateTime.now(),
-              syncState: NoteSyncState.synced,
-            )
+          ? (current == null
+                ? incoming.copyWith(
+                    deletedAt: incoming.deletedAt ?? DateTime.now(),
+                    syncState: NoteSyncState.synced,
+                  )
+                : _mergeRemoteDeleteIntoCurrent(current, incoming))
           : incoming.copyWith(deletedAt: null, syncState: NoteSyncState.synced);
 
       if (current == null) {
         next.add(applied);
       } else {
         next[index] = applied;
-        removedAttachments.addAll(_attachmentsIn(current));
+        if (!shouldDelete) {
+          removedAttachments.addAll(_attachmentsIn(current));
+        }
       }
     }
 
@@ -8756,6 +8765,19 @@ class NotesController extends _$NotesController {
     _sort(next);
     state = next;
     await _persist();
+  }
+
+  NoteEntry _mergeRemoteDeleteIntoCurrent(
+    NoteEntry current,
+    NoteEntry incoming,
+  ) {
+    return current.copyWith(
+      deletedAt: incoming.deletedAt ?? current.deletedAt ?? DateTime.now(),
+      revision: math.max(current.revision, incoming.revision),
+      deviceId: incoming.deviceId ?? current.deviceId,
+      contentHash: incoming.contentHash ?? current.contentHash,
+      syncState: NoteSyncState.synced,
+    );
   }
 
   Future<void> resolveConflictKeepingLocal(String noteId) async {

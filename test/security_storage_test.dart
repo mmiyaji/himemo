@@ -2754,6 +2754,218 @@ void main() {
     },
   );
 
+  test(
+    'NotesController applies remote deletes as trash without losing local content',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-delete-merge-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(66));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: noteDatabase,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+
+      final controller = container.read(notesControllerProvider.notifier);
+      final createdAt = DateTime(2026, 5, 19, 14);
+      await controller.upsert(
+        NoteEntry(
+          id: 'delete-remote',
+          vaultId: 'everyday',
+          title: 'Keep this title',
+          body: 'Keep this body in trash.',
+          createdAt: createdAt,
+          updatedAt: createdAt,
+          revision: 2,
+          attachments: const [
+            NoteAttachment(
+              type: AttachmentType.photo,
+              label: 'kept.jpg',
+              filePath: 'secure-attachment://kept',
+            ),
+          ],
+        ),
+      );
+      await controller.markCurrentStateSynced();
+      final deletedAt = createdAt.add(const Duration(minutes: 20));
+
+      await controller.mergeFromSync([
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.delete,
+          note: NoteEntry(
+            id: 'delete-remote',
+            vaultId: 'everyday',
+            title: '',
+            body: '',
+            createdAt: createdAt,
+            updatedAt: deletedAt,
+            deletedAt: deletedAt,
+            revision: 3,
+            contentHash: 'remote-delete-hash',
+          ),
+        ),
+      ]);
+
+      final trashed = container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'delete-remote');
+      expect(trashed.deletedAt, deletedAt);
+      expect(trashed.title, 'Keep this title');
+      expect(trashed.body, 'Keep this body in trash.');
+      expect(trashed.attachments.single.label, 'kept.jpg');
+      expect(trashed.syncState, NoteSyncState.synced);
+      expect(trashed.contentHash, 'remote-delete-hash');
+
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'NotesController resolves delete sync conflicts conservatively',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-delete-conflict-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(67));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: noteDatabase,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+
+      final controller = container.read(notesControllerProvider.notifier);
+      final createdAt = DateTime(2026, 5, 19, 15);
+      final deletedAt = createdAt.add(const Duration(minutes: 30));
+      await controller.upsert(
+        NoteEntry(
+          id: 'delete-conflict',
+          vaultId: 'everyday',
+          title: 'Base',
+          body: 'Base body',
+          createdAt: createdAt,
+          updatedAt: createdAt,
+          revision: 1,
+        ),
+      );
+      await controller.markCurrentStateSynced();
+      await controller.upsert(
+        NoteEntry(
+          id: 'delete-conflict',
+          vaultId: 'everyday',
+          title: 'Local edit',
+          body: 'Unsynced local edit',
+          createdAt: createdAt,
+          updatedAt: createdAt.add(const Duration(minutes: 10)),
+          revision: 1,
+        ),
+      );
+
+      await controller.mergeFromSync([
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.delete,
+          note: NoteEntry(
+            id: 'delete-conflict',
+            vaultId: 'everyday',
+            title: '',
+            body: '',
+            createdAt: createdAt,
+            updatedAt: deletedAt,
+            deletedAt: deletedAt,
+            revision: 2,
+            contentHash: 'remote-delete-conflict',
+          ),
+        ),
+      ]);
+
+      var note = container
+          .read(notesControllerProvider)
+          .singleWhere((entry) => entry.id == 'delete-conflict');
+      expect(note.title, 'Local edit');
+      expect(note.deletedAt, isNull);
+      expect(note.syncState, NoteSyncState.conflict);
+
+      await controller.delete('delete-conflict');
+      await controller.mergeFromSync([
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.delete,
+          note: NoteEntry(
+            id: 'delete-conflict',
+            vaultId: 'everyday',
+            title: '',
+            body: '',
+            createdAt: createdAt,
+            updatedAt: deletedAt.add(const Duration(minutes: 10)),
+            deletedAt: deletedAt.add(const Duration(minutes: 10)),
+            revision: 3,
+            contentHash: 'remote-delete-agreed',
+          ),
+        ),
+      ]);
+
+      note = container
+          .read(notesControllerProvider)
+          .singleWhere((entry) => entry.id == 'delete-conflict');
+      expect(note.deletedAt, isNotNull);
+      expect(note.syncState, NoteSyncState.synced);
+      expect(note.contentHash, 'remote-delete-agreed');
+
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    },
+  );
+
   test('SyncBundleStateStore persists remote and apply metadata', () async {
     SharedPreferences.setMockInitialValues({});
     final store = SyncBundleStateStore(
