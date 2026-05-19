@@ -244,6 +244,29 @@ class SyncEngine {
           );
           return attachment;
         }
+        final storedMetadata = await _attachmentStore.storedPayloadMetadata(
+          filePath,
+        );
+        final cachedContentHash = attachment.syncAttachmentContentHash;
+        if (cachedContentHash != null &&
+            cachedContentHash.isNotEmpty &&
+            storedMetadata != null &&
+            attachment.localPayloadSizeBytes == storedMetadata.sizeBytes &&
+            attachment.localPayloadModifiedAtMillis != null &&
+            attachment.localPayloadModifiedAtMillis ==
+                storedMetadata.modifiedAtMillis) {
+          preparedAttachmentCount += 1;
+          await onProgress?.call(
+            SyncSnapshotPreparationProgress(
+              detail: 'Reused attachment',
+              completedItems: preparedAttachmentCount,
+              totalItems: totalAttachments,
+            ),
+          );
+          return attachment.copyWith(
+            filePath: syncAttachmentObjectRef(cachedContentHash),
+          );
+        }
         if (attachmentIdsByPath[filePath] case final existingId?) {
           preparedAttachmentCount += 1;
           await onProgress?.call(
@@ -255,6 +278,9 @@ class SyncEngine {
           );
           return attachment.copyWith(
             filePath: syncAttachmentObjectRef(existingId),
+            localPayloadSizeBytes: storedMetadata?.sizeBytes,
+            localPayloadModifiedAtMillis: storedMetadata?.modifiedAtMillis,
+            syncAttachmentContentHash: existingId,
           );
         }
         await onProgress?.call(
@@ -314,6 +340,9 @@ class SyncEngine {
         );
         return attachment.copyWith(
           filePath: syncAttachmentObjectRef(attachmentId),
+          localPayloadSizeBytes: storedMetadata?.sizeBytes,
+          localPayloadModifiedAtMillis: storedMetadata?.modifiedAtMillis,
+          syncAttachmentContentHash: attachmentId,
         );
       }
 

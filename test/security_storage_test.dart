@@ -1631,6 +1631,13 @@ void main() {
         '63d987d1c6d69751c17297f410f5b3547a65d096a8993b35bcb4f9cad054f176',
       );
       expect(snapshot.attachments.single.sizeBytes, 4);
+      final preparedAttachment = snapshot.notes.single.note.attachments.single;
+      expect(preparedAttachment.localPayloadSizeBytes, isNotNull);
+      expect(preparedAttachment.localPayloadModifiedAtMillis, isNotNull);
+      expect(
+        preparedAttachment.syncAttachmentContentHash,
+        '63d987d1c6d69751c17297f410f5b3547a65d096a8993b35bcb4f9cad054f176',
+      );
       final targetSecureStore = MemorySecureKeyValueStore();
       final targetEncryptionService = EncryptionService(random: Random(43));
       final targetMasterKeyService = MasterKeyService(
@@ -1740,6 +1747,97 @@ void main() {
       expect(snapshot.notes, hasLength(1));
       expect(snapshot.notes.single.note.attachments.single.filePath, remoteRef);
       expect(snapshot.attachments, isEmpty);
+
+      await database.close();
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'SyncEngine reuses unchanged local attachment metadata without reading bytes',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-engine-cached-attachment-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(48));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final attachmentStore = _ReadTrackingEncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final source = File(
+        '${tempDirectory.path}${Platform.pathSeparator}clip.mov',
+      );
+      await source.writeAsBytes(const [1, 3, 5, 7, 9], flush: true);
+      final storedAttachment = await attachmentStore.storeAttachment(
+        XFile(source.path, name: 'clip.mov'),
+        type: AttachmentType.video,
+      );
+      final metadata = await attachmentStore.storedPayloadMetadata(
+        storedAttachment!,
+      );
+      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+      final engine = SyncEngine(
+        database: database,
+        attachmentStore: attachmentStore,
+        deviceIdentityStore: DeviceIdentityStore(
+          sharedPreferencesProvider: SharedPreferences.getInstance,
+          random: Random(49),
+        ),
+      );
+      const contentHash =
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      final queuedAt = DateTime(2026, 5, 19, 14, 30);
+      final note = NoteEntry(
+        id: 'cached-local-attachment',
+        vaultId: 'everyday',
+        title: 'Edited text',
+        body: 'Only text changed.',
+        createdAt: queuedAt,
+        updatedAt: queuedAt.add(const Duration(minutes: 1)),
+        revision: 2,
+        syncState: NoteSyncState.pendingUpload,
+        attachments: [
+          NoteAttachment(
+            type: AttachmentType.video,
+            label: 'clip.mov',
+            filePath: storedAttachment,
+            localPayloadSizeBytes: metadata?.sizeBytes,
+            localPayloadModifiedAtMillis: metadata?.modifiedAtMillis,
+            syncAttachmentContentHash: contentHash,
+          ),
+        ],
+      );
+
+      final snapshot = await engine.prepareSnapshot(
+        [note],
+        pendingChanges: [
+          PendingNoteChangeRecord(
+            noteId: note.id,
+            vaultId: note.vaultId,
+            revision: note.revision,
+            action: PendingNoteChangeAction.upsert,
+            queuedAt: queuedAt,
+            contentHash: note.contentHash,
+          ),
+        ],
+      );
+
+      expect(attachmentStore.readCount, 0);
+      expect(snapshot.attachments, isEmpty);
+      expect(
+        snapshot.notes.single.note.attachments.single.filePath,
+        'sync-attachment-object://$contentHash',
+      );
 
       await database.close();
       if (await tempDirectory.exists()) {
@@ -2976,6 +3074,26 @@ class _TrackingEncryptedAttachmentStore extends EncryptedAttachmentStore {
     required AttachmentType type,
     required String vaultId,
   }) async {}
+}
+
+class _ReadTrackingEncryptedAttachmentStore extends EncryptedAttachmentStore {
+  _ReadTrackingEncryptedAttachmentStore({
+    required super.encryptionService,
+    required super.masterKeyService,
+    required super.directoryProvider,
+    required super.sharedPreferencesProvider,
+  });
+
+  int readCount = 0;
+
+  @override
+  Future<List<int>?> readAttachment(
+    String storedReference, {
+    required AttachmentType type,
+  }) {
+    readCount += 1;
+    return super.readAttachment(storedReference, type: type);
+  }
 }
 
 class _MemoryCloudSyncBundleKeyStore implements CloudSyncBundleKeyStore {

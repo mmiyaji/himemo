@@ -30,6 +30,7 @@ import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/features/sync/data/secure_sync_bundle_store.dart';
 import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
 import 'package:himemo/features/sync/data/icloud_sync_transport.dart';
+import 'package:himemo/features/sync/data/sync_engine.dart';
 import 'package:himemo/l10n/app_localizations.dart';
 import 'package:himemo/l10n/app_strings.dart';
 import 'package:image_picker/image_picker.dart';
@@ -1018,6 +1019,100 @@ void main() {
     expect(note.attachments.single.previewBytesBase64, 'preview');
     expect(note.attachments.single.durationMs, 12000);
     expect(note.syncState, NoteSyncState.pendingUpload);
+  });
+
+  test('synced snapshot stores attachment reuse metadata locally', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-attachment-reuse-metadata-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(34));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    final noteStore = EncryptedNoteStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      database: noteDatabase,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteStoreProvider.overrideWithValue(noteStore),
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(noteDatabase.close);
+    addTearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    final notesController = container.read(notesControllerProvider.notifier);
+    await notesController.restoreCompleted;
+    final localPath =
+        '${tempDirectory.path}${Platform.pathSeparator}video.mov.enc';
+    await notesController.upsert(
+      NoteEntry(
+        id: 'reuse-metadata-note',
+        vaultId: 'everyday',
+        title: 'Video',
+        body: 'Local video note',
+        createdAt: DateTime.utc(2026, 5, 19, 11),
+        attachments: [
+          NoteAttachment(
+            type: AttachmentType.video,
+            label: 'video.mov',
+            filePath: localPath,
+          ),
+        ],
+      ),
+    );
+    final queued = container.read(notesControllerProvider).single;
+    const contentHash =
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+    await notesController.markSnapshotChangesSynced(
+      {queued.id: queued.contentHash},
+      preparedNotes: [
+        PreparedSyncNote(
+          note: queued.copyWith(
+            attachments: const [
+              NoteAttachment(
+                type: AttachmentType.video,
+                label: 'video.mov',
+                filePath: 'sync-attachment-object://$contentHash',
+                localPayloadSizeBytes: 12345,
+                localPayloadModifiedAtMillis: 1779178800000,
+                syncAttachmentContentHash: contentHash,
+              ),
+            ],
+          ),
+          action: PendingNoteChangeAction.upsert,
+        ),
+      ],
+    );
+
+    final synced = container.read(notesControllerProvider).single;
+    expect(synced.syncState, NoteSyncState.synced);
+    expect(synced.attachments.single.filePath, localPath);
+    expect(synced.attachments.single.localPayloadSizeBytes, 12345);
+    expect(
+      synced.attachments.single.localPayloadModifiedAtMillis,
+      1779178800000,
+    );
+    expect(synced.attachments.single.syncAttachmentContentHash, contentHash);
   });
 
   test(

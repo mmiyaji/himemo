@@ -3397,7 +3397,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await _yieldToUi();
       await ref
           .read(notesControllerProvider.notifier)
-          .markSnapshotChangesSynced(pendingHashes);
+          .markSnapshotChangesSynced(
+            pendingHashes,
+            preparedNotes: snapshot.notes,
+          );
       ref.invalidate(syncQueueSummaryProvider);
       final queueAfterUpload = await _readLocalSyncQueueSummary();
       _diagnostic(
@@ -8873,13 +8876,17 @@ class NotesController extends _$NotesController {
   }
 
   Future<void> markSnapshotChangesSynced(
-    Map<String, String?> pendingContentHashes,
-  ) async {
+    Map<String, String?> pendingContentHashes, {
+    List<PreparedSyncNote> preparedNotes = const <PreparedSyncNote>[],
+  }) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     if (pendingContentHashes.isEmpty) {
       return;
     }
+    final preparedByNoteId = {
+      for (final prepared in preparedNotes) prepared.note.id: prepared.note,
+    };
     var changed = false;
     final next = <NoteEntry>[];
     for (final note in state) {
@@ -8890,14 +8897,19 @@ class NotesController extends _$NotesController {
         next.add(note);
         continue;
       }
+      final prepared = preparedByNoteId[note.id];
+      var syncedNote = prepared == null
+          ? note
+          : _copyPreparedSyncAttachmentMetadata(note, prepared);
       if (note.syncState == NoteSyncState.pendingUpload ||
           note.syncState == NoteSyncState.pendingDelete ||
           note.syncState == NoteSyncState.conflict) {
-        next.add(note.copyWith(syncState: NoteSyncState.synced));
+        syncedNote = syncedNote.copyWith(syncState: NoteSyncState.synced);
         changed = true;
       } else {
-        next.add(note);
+        changed = changed || syncedNote != note;
       }
+      next.add(syncedNote);
     }
     if (!changed) {
       return;
@@ -8905,6 +8917,60 @@ class NotesController extends _$NotesController {
     _sort(next);
     state = next;
     await _persist();
+  }
+
+  NoteEntry _copyPreparedSyncAttachmentMetadata(
+    NoteEntry current,
+    NoteEntry prepared,
+  ) {
+    NoteAttachment merge(NoteAttachment local, NoteAttachment remote) {
+      final remoteHash =
+          remote.syncAttachmentContentHash ??
+          syncAttachmentObjectContentHash(remote.filePath);
+      if (remoteHash == null || remoteHash.isEmpty) {
+        return local;
+      }
+      final next = local.copyWith(
+        localPayloadSizeBytes: remote.localPayloadSizeBytes,
+        localPayloadModifiedAtMillis: remote.localPayloadModifiedAtMillis,
+        syncAttachmentContentHash: remoteHash,
+      );
+      return next == local ? local : next;
+    }
+
+    var changed = false;
+    final attachments = <NoteAttachment>[];
+    for (var i = 0; i < current.attachments.length; i++) {
+      final local = current.attachments[i];
+      if (i >= prepared.attachments.length) {
+        attachments.add(local);
+        continue;
+      }
+      final next = merge(local, prepared.attachments[i]);
+      changed = changed || next != local;
+      attachments.add(next);
+    }
+
+    final blocks = <NoteBlock>[];
+    for (var i = 0; i < current.blocks.length; i++) {
+      final localBlock = current.blocks[i];
+      final localAttachment = localBlock.attachment;
+      final preparedAttachment = i < prepared.blocks.length
+          ? prepared.blocks[i].attachment
+          : null;
+      if (localAttachment == null || preparedAttachment == null) {
+        blocks.add(localBlock);
+        continue;
+      }
+      final nextAttachment = merge(localAttachment, preparedAttachment);
+      changed = changed || nextAttachment != localAttachment;
+      blocks.add(localBlock.copyWith(attachment: nextAttachment));
+    }
+
+    if (!changed) {
+      return current;
+    }
+    return current.copyWith(attachments: attachments, blocks: blocks);
   }
 
   Future<List<NoteEntry>> notesForSyncSnapshot({
@@ -8945,11 +9011,15 @@ class NotesController extends _$NotesController {
     final note = next[noteIndex];
 
     NoteAttachment restore(NoteAttachment current) {
+      final remoteHash =
+          remoteAttachment.syncAttachmentContentHash ??
+          syncAttachmentObjectContentHash(remotePath);
       return current.copyWith(
         filePath: remotePath,
         previewBytesBase64:
             current.previewBytesBase64 ?? remoteAttachment.previewBytesBase64,
         durationMs: current.durationMs ?? remoteAttachment.durationMs,
+        syncAttachmentContentHash: remoteHash,
       );
     }
 
@@ -9509,7 +9579,7 @@ class NotesController extends _$NotesController {
       'vaultId': note.vaultId,
       'title': note.title,
       'body': note.body,
-      'blocks': note.blocks.map((block) => block.toJson()).toList(),
+      'blocks': note.blocks.map(_blockContentHashPayload).toList(),
       'tags': note.tags,
       'createdAt': note.createdAt.toIso8601String(),
       'updatedAt': note.updatedAt?.toIso8601String(),
@@ -9528,6 +9598,21 @@ class NotesController extends _$NotesController {
       'location': note.location?.toJson(),
     });
     return sha256.convert(utf8.encode(payload)).toString();
+  }
+
+  Map<String, Object?> _blockContentHashPayload(NoteBlock block) {
+    final attachment = block.attachment;
+    return {
+      'type': block.type.name,
+      'text': block.text,
+      'attachment': attachment == null
+          ? null
+          : {
+              'type': attachment.type.name,
+              'label': attachment.label,
+              'filePath': attachment.filePath,
+            },
+    };
   }
 
   bool _hasUnuploadedLocalChange(NoteEntry note) {

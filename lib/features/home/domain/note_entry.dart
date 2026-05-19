@@ -35,6 +35,9 @@ abstract class NoteAttachment with _$NoteAttachment {
     String? filePath,
     String? previewBytesBase64,
     int? durationMs,
+    int? localPayloadSizeBytes,
+    int? localPayloadModifiedAtMillis,
+    String? syncAttachmentContentHash,
   }) = _NoteAttachment;
 
   factory NoteAttachment.fromJson(Map<String, dynamic> json) =>
