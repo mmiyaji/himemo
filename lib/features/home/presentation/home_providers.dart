@@ -8709,6 +8709,20 @@ class NotesController extends _$NotesController {
         continue;
       }
 
+      if (!shouldDelete && current != null && current.deletedAt != null) {
+        if (!_sameSyncedContent(current, incoming)) {
+          final queued = current.copyWith(
+            syncState: _incomingWins(current, incoming)
+                ? NoteSyncState.conflict
+                : NoteSyncState.pendingDelete,
+          );
+          next[index] = queued.contentHash == null
+              ? queued.copyWith(contentHash: _computeContentHash(queued))
+              : queued;
+        }
+        continue;
+      }
+
       if (current != null && _hasUnuploadedLocalChange(current)) {
         if (!_sameSyncedContent(current, incoming)) {
           next[index] = current.copyWith(syncState: NoteSyncState.conflict);

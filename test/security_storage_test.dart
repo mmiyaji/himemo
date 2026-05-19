@@ -2966,6 +2966,96 @@ void main() {
     },
   );
 
+  test(
+    'NotesController does not resurrect locally trashed notes from remote upserts',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-trash-upsert-conflict-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(68));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: noteDatabase,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+
+      final controller = container.read(notesControllerProvider.notifier);
+      final createdAt = DateTime(2026, 5, 19, 16);
+      await controller.upsert(
+        NoteEntry(
+          id: 'trash-upsert',
+          vaultId: 'everyday',
+          title: 'Deleted locally',
+          body: 'Keep this note in trash.',
+          createdAt: createdAt,
+          updatedAt: createdAt,
+          revision: 3,
+        ),
+      );
+      await controller.markCurrentStateSynced();
+      await controller.delete('trash-upsert');
+      await controller.markCurrentStateSynced();
+
+      await controller.mergeFromSync([
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.upsert,
+          note: NoteEntry(
+            id: 'trash-upsert',
+            vaultId: 'everyday',
+            title: 'Remote edit',
+            body: 'The remote side still has an active note.',
+            createdAt: createdAt,
+            updatedAt: createdAt.add(const Duration(hours: 1)),
+            revision: 5,
+            contentHash: 'remote-active-hash',
+          ),
+        ),
+      ]);
+
+      final note = container
+          .read(notesControllerProvider)
+          .singleWhere((entry) => entry.id == 'trash-upsert');
+      expect(note.deletedAt, isNotNull);
+      expect(note.title, 'Deleted locally');
+      expect(note.body, 'Keep this note in trash.');
+      expect(note.syncState, NoteSyncState.conflict);
+      expect(
+        container
+            .read(visibleNotesProvider)
+            .any((entry) => entry.id == 'trash-upsert'),
+        isFalse,
+      );
+
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    },
+  );
+
   test('SyncBundleStateStore persists remote and apply metadata', () async {
     SharedPreferences.setMockInitialValues({});
     final store = SyncBundleStateStore(
