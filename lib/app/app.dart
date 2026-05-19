@@ -293,6 +293,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       'runtime.cloud_sync_automatic_attempted_at';
   static const _cloudSyncDebounceDelay = Duration(seconds: 2);
   static const _automaticCloudSyncAttemptMinInterval = Duration(seconds: 30);
+  static const _automaticCloudSyncFailureMinInterval = Duration(minutes: 5);
   static const _automaticCloudSyncRemoteMinInterval = Duration(minutes: 10);
   static const _automaticCloudSyncLocalChangeMinInterval = Duration(
     seconds: 30,
@@ -313,6 +314,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   DateTime? _backgroundedAt;
   DateTime? _lastAutomaticCloudSyncSucceededAt;
   DateTime? _lastAutomaticCloudSyncAttemptedAt;
+  DateTime? _lastAutomaticCloudSyncFailedAt;
   Timer? _privateSessionTimer;
   Timer? _cloudSyncDebounceTimer;
   final List<Timer> _initialCloudSyncProbeTimers = [];
@@ -713,6 +715,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   }
 
   Future<void> _runSeamlessCloudSync() async {
+    var ranSyncAttempt = false;
     try {
       if (!mounted) {
         return;
@@ -774,12 +777,10 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       await _recordAutomaticCloudSyncAttempt(
         hasPendingChanges: hasPendingChanges,
       );
+      ranSyncAttempt = true;
       await ref
           .read(syncTransferControllerProvider.notifier)
-          .syncNow(
-            silentLargeMobileSkip: true,
-            allowCachedRemoteStatus: !hasPendingChanges,
-          );
+          .syncNow(silentLargeMobileSkip: true, allowCachedRemoteStatus: true);
       final result = ref.read(syncTransferControllerProvider);
       if (result.stage == SyncTransferStage.success) {
         if (result.message ==
@@ -802,8 +803,13 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
           _cloudSyncRescheduleDelay = null;
           logDiagnostic('sync', 'automatic sync idle without reschedule');
         }
+      } else {
+        _recordAutomaticCloudSyncFailure();
       }
     } finally {
+      if (ranSyncAttempt) {
+        await _recordAutomaticCloudSyncAttemptFinished();
+      }
       final rescheduleForLocalChanges = _cloudSyncScheduledForLocalChanges;
       final rescheduleDelay =
           _cloudSyncRescheduleDelay ?? _cloudSyncDebounceDelay;
@@ -856,6 +862,12 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
             _automaticCloudSyncAttemptMinInterval) {
       return false;
     }
+    final lastFailureInMemory = _lastAutomaticCloudSyncFailedAt;
+    if (lastFailureInMemory != null &&
+        now.difference(lastFailureInMemory) <
+            _automaticCloudSyncFailureMinInterval) {
+      return false;
+    }
     final lastSuccessInMemory = _lastAutomaticCloudSyncSucceededAt;
     if (lastSuccessInMemory != null &&
         now.difference(lastSuccessInMemory) < minInterval) {
@@ -894,6 +906,16 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
           now: now,
           last: lastAttempt,
           minInterval: _automaticCloudSyncAttemptMinInterval,
+        ),
+      );
+    }
+    final lastFailure = _lastAutomaticCloudSyncFailedAt;
+    if (lastFailure != null) {
+      retryAfter.add(
+        _remainingInterval(
+          now: now,
+          last: lastFailure,
+          minInterval: _automaticCloudSyncFailureMinInterval,
         ),
       );
     }
@@ -959,6 +981,30 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         now.millisecondsSinceEpoch,
       );
     } catch (_) {}
+  }
+
+  Future<void> _recordAutomaticCloudSyncAttemptFinished() async {
+    final now = DateTime.now();
+    _lastAutomaticCloudSyncAttemptedAt = now;
+    logDiagnostic('sync', 'automatic sync attempt finished');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(
+        _automaticCloudAttemptedAtStorageKey,
+        now.millisecondsSinceEpoch,
+      );
+    } catch (_) {}
+  }
+
+  void _recordAutomaticCloudSyncFailure() {
+    _lastAutomaticCloudSyncFailedAt = DateTime.now();
+    logDiagnostic(
+      'sync',
+      'automatic sync failure backoff started',
+      data: {
+        'retryAfterSeconds': _automaticCloudSyncFailureMinInterval.inSeconds,
+      },
+    );
   }
 
   Future<void> _recordAutomaticCloudSyncSuccess({
