@@ -3430,6 +3430,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           'index': error.index,
         },
       );
+      if (await _restoreMissingAttachmentRemoteRefFromLatestBundle(error)) {
+        _diagnostic(
+          'missing local attachment restored from remote reference',
+          data: {
+            'noteId': error.noteId,
+            'attachmentLabel': error.attachmentLabel,
+            'index': error.index,
+          },
+        );
+        await uploadCurrentBundle(
+          force: force,
+          allowLargeMobileTransfer: allowLargeMobileTransfer,
+          silentLargeMobileSkip: silentLargeMobileSkip,
+          pruneAfterUpload: pruneAfterUpload,
+        );
+        return;
+      }
       state = _failureState(
         error,
         remoteStatus: state.remoteStatus,
@@ -3443,6 +3460,103 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         localBundle: state.localBundle,
       );
     }
+  }
+
+  Future<bool> _restoreMissingAttachmentRemoteRefFromLatestBundle(
+    SyncAttachmentMissingException error,
+  ) async {
+    if (!_supportsRemoteTransport(ref.read(syncProviderControllerProvider))) {
+      return false;
+    }
+    try {
+      final remoteBundle = await _downloadLatestRemoteBundle();
+      if (remoteBundle == null) {
+        return false;
+      }
+      final localBundle = await ref
+          .read(secureSyncBundleStoreProvider)
+          .writeEncryptedBundlePayload(
+            remoteBundle.encodedPayload,
+            noteCount: remoteBundle.status.noteCount ?? 0,
+            attachmentCount: remoteBundle.status.attachmentCount ?? 0,
+            fileNameOverride: 'missing_attachment_repair_bundle.enc',
+          );
+      final decoded = await ref
+          .read(secureSyncBundleStoreProvider)
+          .readBundleJson(localBundle.reference);
+      if (decoded == null) {
+        return false;
+      }
+      final remoteAttachment = _remoteAttachmentForMissingError(
+        decodedBundle: decoded,
+        error: error,
+      );
+      if (remoteAttachment == null ||
+          !isSyncAttachmentObjectRef(remoteAttachment.filePath)) {
+        return false;
+      }
+      return ref
+          .read(notesControllerProvider.notifier)
+          .restoreMissingAttachmentRemoteReference(
+            noteId: error.noteId,
+            index: error.index,
+            remoteAttachment: remoteAttachment,
+          );
+    } catch (repairError) {
+      _diagnostic(
+        'missing local attachment remote repair failed',
+        data: {
+          'noteId': error.noteId,
+          'attachmentLabel': error.attachmentLabel,
+          'error': repairError,
+        },
+      );
+      return false;
+    }
+  }
+
+  NoteAttachment? _remoteAttachmentForMissingError({
+    required Map<String, dynamic> decodedBundle,
+    required SyncAttachmentMissingException error,
+  }) {
+    final rawNoteEntries =
+        decodedBundle['notes'] as List<dynamic>? ?? const <dynamic>[];
+    for (final rawEntry in rawNoteEntries) {
+      if (rawEntry is! Map) {
+        continue;
+      }
+      final rawNote = rawEntry['note'];
+      if (rawNote is! Map) {
+        continue;
+      }
+      final note = NoteEntry.fromJson(Map<String, dynamic>.from(rawNote));
+      if (note.id != error.noteId) {
+        continue;
+      }
+      final remoteAttachment = _attachmentAtSyncIndex(note, error.index);
+      final remotePath = remoteAttachment?.filePath;
+      if (remoteAttachment == null ||
+          remoteAttachment.type != error.attachmentType ||
+          !isSyncAttachmentObjectRef(remotePath)) {
+        return null;
+      }
+      return remoteAttachment;
+    }
+    return null;
+  }
+
+  NoteAttachment? _attachmentAtSyncIndex(NoteEntry note, int index) {
+    if (index < 0) {
+      return null;
+    }
+    if (index < note.attachments.length) {
+      return note.attachments[index];
+    }
+    final blockIndex = index - note.attachments.length;
+    if (blockIndex < 0 || blockIndex >= note.blocks.length) {
+      return null;
+    }
+    return note.blocks[blockIndex].attachment;
   }
 
   Future<void> reuploadAllCurrentNotes({
@@ -8810,6 +8924,64 @@ class NotesController extends _$NotesController {
         (note) => pendingNoteIds.contains(note.id) && canUpload(note),
       ),
     );
+  }
+
+  Future<bool> restoreMissingAttachmentRemoteReference({
+    required String noteId,
+    required int index,
+    required NoteAttachment remoteAttachment,
+  }) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final remotePath = remoteAttachment.filePath;
+    if (!isSyncAttachmentObjectRef(remotePath)) {
+      return false;
+    }
+    final next = [...state];
+    final noteIndex = next.indexWhere((note) => note.id == noteId);
+    if (noteIndex == -1) {
+      return false;
+    }
+    final note = next[noteIndex];
+
+    NoteAttachment restore(NoteAttachment current) {
+      return current.copyWith(
+        filePath: remotePath,
+        previewBytesBase64:
+            current.previewBytesBase64 ?? remoteAttachment.previewBytesBase64,
+        durationMs: current.durationMs ?? remoteAttachment.durationMs,
+      );
+    }
+
+    NoteEntry? repaired;
+    if (index >= 0 && index < note.attachments.length) {
+      final attachments = [...note.attachments];
+      attachments[index] = restore(attachments[index]);
+      repaired = note.copyWith(attachments: attachments);
+    } else {
+      final blockIndex = index - note.attachments.length;
+      if (blockIndex < 0 || blockIndex >= note.blocks.length) {
+        return false;
+      }
+      final block = note.blocks[blockIndex];
+      final attachment = block.attachment;
+      if (attachment == null) {
+        return false;
+      }
+      final blocks = [...note.blocks];
+      blocks[blockIndex] = block.copyWith(attachment: restore(attachment));
+      repaired = note.copyWith(blocks: blocks);
+    }
+    final queued = repaired.copyWith(
+      syncState: NoteSyncState.pendingUpload,
+      contentHash: null,
+    );
+    final withHash = queued.copyWith(contentHash: _computeContentHash(queued));
+    next[noteIndex] = withHash;
+    _sort(next);
+    state = next;
+    await _persistOne(withHash);
+    return true;
   }
 
   Future<void> queueCurrentStateForSync() async {

@@ -938,6 +938,88 @@ void main() {
     },
   );
 
+  test('missing local attachment can be restored to remote reference', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-remote-ref-repair-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(33));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    final noteStore = EncryptedNoteStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      database: noteDatabase,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteStoreProvider.overrideWithValue(noteStore),
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(noteDatabase.close);
+    addTearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    final notesController = container.read(notesControllerProvider.notifier);
+    await notesController.restoreCompleted;
+    final missingPath =
+        '${tempDirectory.path}${Platform.pathSeparator}missing-video.mov.enc';
+    await notesController.upsert(
+      NoteEntry(
+        id: 'missing-video-note',
+        vaultId: 'everyday',
+        title: 'Missing video',
+        body: '',
+        createdAt: DateTime.utc(2026, 5, 19, 10),
+        attachments: [
+          NoteAttachment(
+            type: AttachmentType.video,
+            label: 'IMG_5470.mov',
+            filePath: missingPath,
+          ),
+        ],
+      ),
+    );
+
+    const remoteRef =
+        'sync-attachment-object://513e1430ad6bd63eba1ec515317dac8dec689c74d8dd409012b448093cb64cfa';
+    final restored = await notesController
+        .restoreMissingAttachmentRemoteReference(
+          noteId: 'missing-video-note',
+          index: 0,
+          remoteAttachment: const NoteAttachment(
+            type: AttachmentType.video,
+            label: 'IMG_5470.mov',
+            filePath: remoteRef,
+            previewBytesBase64: 'preview',
+            durationMs: 12000,
+          ),
+        );
+
+    final note = container.read(notesControllerProvider).single;
+    expect(restored, isTrue);
+    expect(note.attachments.single.filePath, remoteRef);
+    expect(note.attachments.single.previewBytesBase64, 'preview');
+    expect(note.attachments.single.durationMs, 12000);
+    expect(note.syncState, NoteSyncState.pendingUpload);
+  });
+
   test(
     'fake Google Drive sync keeps large video and multi-file attachments as objects',
     () async {

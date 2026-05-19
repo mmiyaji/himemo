@@ -6487,8 +6487,7 @@ class _AttachmentSizeTextState extends ConsumerState<_AttachmentSizeText> {
       return null;
     }
     if (isSyncAttachmentObjectRef(filePath)) {
-      final bytes = await _readDisplayAttachmentBytes(ref, widget.attachment);
-      return bytes?.length;
+      return null;
     }
     return ref
         .read(encryptedAttachmentStoreProvider)
@@ -6505,8 +6504,7 @@ Future<int?> _attachmentSizeFuture(
     return null;
   }
   if (isSyncAttachmentObjectRef(filePath)) {
-    final bytes = await _readDisplayAttachmentBytes(ref, attachment);
-    return bytes?.length;
+    return null;
   }
   return ref
       .read(encryptedAttachmentStoreProvider)
