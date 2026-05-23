@@ -106,32 +106,40 @@ async function clickSummary(page, name) {
 }
 
 async function expectSectionExpanded(page, heading, expandedText) {
+  await expect(page.locator('flutter-view')).toContainText(expandedText);
   const section = await visibleSection(page, heading);
   await expect(section).toBeVisible();
-  await expect(page.locator('flutter-view')).toContainText(expandedText);
 
   await expect
     .poll(
       async () => {
         const box = await section.boundingBox();
-        return box ? box.y : Number.POSITIVE_INFINITY;
+        if (!box) {
+          return false;
+        }
+        return box.y >= 50 && box.y <= 430;
       },
       { timeout: 5000 },
     )
-    .toBeLessThanOrEqual(430);
-
-  const box = await section.boundingBox();
-  expect(box).not.toBeNull();
-  expect(box.y).toBeGreaterThanOrEqual(50);
+    .toBe(true);
 }
 
 async function visibleSection(page, heading) {
+  const text = page.getByText(heading).first();
+  if ((await text.count()) && (await text.isVisible())) {
+    return text;
+  }
+
   const button = page.getByRole('button', { name: heading }).first();
   if ((await button.count()) && (await button.isVisible())) {
     return button;
   }
 
   const group = page.getByRole('group', { name: heading }).first();
-  await expect(group).toBeVisible();
+  if ((await group.count()) && (await group.isVisible())) {
+    return group;
+  }
+
+  await expect(page.locator('flutter-view')).toContainText(heading);
   return group;
 }

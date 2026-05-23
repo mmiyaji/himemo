@@ -4605,6 +4605,7 @@ class SettingsScreen extends ConsumerWidget {
           titleFor: (theme) => _colorThemeLabel(context, theme),
           subtitleFor: (theme) => _colorThemeDescription(context, theme),
           sampleColorFor: _themeSampleColor,
+          tileKeyFor: _colorThemeTileKey,
           onSelect: (theme) =>
               _setColorThemeForScope(ref, appearanceScope, theme),
         ),
@@ -5231,6 +5232,15 @@ class SettingsScreen extends ConsumerWidget {
       AppColorTheme.edomurasaki => const Color(0xFF77428D),
       AppColorTheme.shion => const Color(0xFF8F77B5),
       AppColorTheme.rikyucha => const Color(0xFF897D55),
+    };
+  }
+
+  Key? _colorThemeTileKey(AppColorTheme theme) {
+    return switch (theme) {
+      AppColorTheme.konjyo => SettingsScreen.konjyoColorThemeKey,
+      AppColorTheme.moegi => SettingsScreen.moegiColorThemeKey,
+      AppColorTheme.yamabuki => SettingsScreen.yamabukiColorThemeKey,
+      _ => null,
     };
   }
 

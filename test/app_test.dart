@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:drift/native.dart';
+import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -38,6 +39,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+
   test('app strings fall back to English for unsupported locales', () {
     final strings = AppStrings(const Locale('fr'));
 
@@ -328,8 +331,8 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Best day'), findsOneWidget);
-    expect(find.text('-'), findsWidgets);
+    expect(find.text('Build a record first'), findsOneWidget);
+    expect(find.text('Best day'), findsNothing);
     expect(find.textContaining(RegExp(r'\d+/\d+')), findsNothing);
   });
 
@@ -1859,6 +1862,7 @@ void main() {
 
   test('Spotlight indexing sends note body and rich text terms', () async {
     TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
 
@@ -2529,11 +2533,14 @@ void main() {
     addTearDown(database.close);
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(find.text('About'), 200);
     await tester.ensureVisible(find.text('About'));
     await tester.tap(find.text('About'));
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(find.text('Update history'), 200);
+    await tester.ensureVisible(find.text('Update history'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Update history'));
     await tester.pumpAndSettle();
 

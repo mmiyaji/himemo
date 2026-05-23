@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +12,7 @@ import 'package:himemo/app/play_integrity_verifier.dart';
 import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
+import 'package:himemo/features/security/data/encrypted_note_database.dart';
 import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:integration_test/integration_test.dart';
@@ -29,6 +31,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       'app.onboarding_completed': true,
       'app.onboarding_completed_version': 2,
+      'release_notes.last_seen': '1.0.0+46',
       'settings.locale': 'english',
       'notes.last_editor_mode': 'quick',
     });
@@ -38,8 +41,13 @@ void main() {
     final fakeSyncAuthGateway = FakeSyncAuthGateway();
     final fakeMediaImportService = FakeMediaImportService();
     final fakePlayIntegrityVerifier = FakePlayIntegrityVerifier();
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    addTearDown(noteDatabase.close);
     final container = ProviderContainer(
       overrides: [
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
         deviceAuthGatewayProvider.overrideWithValue(fakeDeviceAuthGateway),
         syncAuthGatewayProvider.overrideWithValue(fakeSyncAuthGateway),
         mediaImportServiceProvider.overrideWithValue(fakeMediaImportService),
@@ -242,8 +250,13 @@ void main() {
     final fakeSyncAuthGateway = FakeSyncAuthGateway();
     final fakePlayIntegrityVerifier = FakePlayIntegrityVerifier();
     final fakeGoogleDriveTransport = FakeGoogleDriveSyncTransport();
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    addTearDown(noteDatabase.close);
     final container = ProviderContainer(
       overrides: [
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
         syncAuthGatewayProvider.overrideWithValue(fakeSyncAuthGateway),
         playIntegrityVerifierProvider.overrideWithValue(
           fakePlayIntegrityVerifier,
@@ -345,10 +358,10 @@ void main() {
       greaterThan(uploadsBeforeReupload),
     );
 
-    await _scrollIntoViewIfNeeded(tester, find.text('Bundle history'));
-    await tester.tap(find.text('Bundle history').last);
+    await _scrollIntoViewIfNeeded(tester, find.text('Show cloud history'));
+    await tester.tap(find.text('Show cloud history').last);
     await tester.pumpAndSettle();
-    expect(find.text('Bundle history'), findsWidgets);
+    expect(find.text('Remote bundle history'), findsWidgets);
     expect(find.text('2026/05/10 00:30 UTC'), findsWidgets);
     expect(find.textContaining('himemo_sync_20260510.enc'), findsWidgets);
     expect(find.textContaining('Notes'), findsWidgets);
@@ -401,7 +414,15 @@ void main() {
       'release_notes.last_seen': '1.0.0+46',
       'settings.locale': 'english',
     });
-    final container = ProviderContainer();
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    addTearDown(noteDatabase.close);
+    final container = ProviderContainer(
+      overrides: [
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+      ],
+    );
     addTearDown(container.dispose);
 
     configureFlavor(AppFlavor.development);
@@ -490,8 +511,13 @@ void main() {
       attachmentUploadDelay: const Duration(milliseconds: 350),
       bundleUploadDelay: const Duration(milliseconds: 350),
     );
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    addTearDown(noteDatabase.close);
     final container = ProviderContainer(
       overrides: [
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
         syncAuthGatewayProvider.overrideWithValue(fakeSyncAuthGateway),
         playIntegrityVerifierProvider.overrideWithValue(
           fakePlayIntegrityVerifier,

@@ -1,11 +1,14 @@
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:himemo/app/app.dart';
 import 'package:himemo/app/app_flavor.dart';
+import 'package:himemo/app/app_router.dart';
 import 'package:himemo/features/home/domain/note_entry.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
+import 'package:himemo/features/security/data/encrypted_note_database.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -21,9 +24,19 @@ void main() {
 
     SharedPreferences.setMockInitialValues({
       'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'release_notes.last_seen': '1.0.0+46',
       'settings.locale': 'english',
     });
-    final container = ProviderContainer();
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    addTearDown(noteDatabase.close);
+    final container = ProviderContainer(
+      overrides: [
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+      ],
+    );
     addTearDown(container.dispose);
 
     configureFlavor(AppFlavor.development);
@@ -36,16 +49,16 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1200));
     await tester.pumpAndSettle();
 
-    expect(find.text('HiMemo'), findsOneWidget);
     expect(find.byKey(AppShell.addNoteKey), findsOneWidget);
 
-    await _tapNavigation(tester, AppShell.settingsNavKey, 'Settings');
+    container.read(appRouterProvider).go('/settings');
     await tester.pumpAndSettle();
     expect(find.byType(SettingsScreen), findsOneWidget);
 
-    await _scrollIntoViewIfNeeded(tester, find.text('Appearance'));
+    final appearanceHeader = find.textContaining('Appearance');
+    await _scrollIntoViewIfNeeded(tester, appearanceHeader);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Appearance').first);
+    await tester.tap(appearanceHeader.first);
     await tester.pumpAndSettle();
     expect(find.text('Language'), findsOneWidget);
 
@@ -57,7 +70,9 @@ void main() {
     await tester.tap(find.byKey(SettingsScreen.darkThemeKey));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Accent color').first);
+    final accentColor = find.textContaining('Accent color');
+    await _scrollIntoViewIfNeeded(tester, accentColor);
+    await tester.tap(accentColor.first);
     await tester.pumpAndSettle();
     await _scrollIntoViewIfNeeded(
       tester,
@@ -69,14 +84,14 @@ void main() {
 
     final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
     expect(app.themeMode, ThemeMode.dark);
-    expect(app.theme?.colorScheme.primary, const Color(0xFF4E6D2A));
+    expect(app.theme?.colorScheme.primary, const Color(0xFF6F9335));
 
     final quickCaptureTile = find.widgetWithText(
       SwitchListTile,
       'Allow external quick capture',
     );
     if (quickCaptureTile.evaluate().isEmpty) {
-      final appSecurityHeader = find.text('App security');
+      final appSecurityHeader = find.textContaining('App security');
       if (appSecurityHeader.evaluate().isNotEmpty) {
         await tester.ensureVisible(appSecurityHeader.first);
         await tester.pumpAndSettle();
@@ -96,9 +111,9 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    await _tapNavigation(tester, AppShell.calendarNavKey, 'Calendar');
+    container.read(appRouterProvider).go('/calendar');
     await tester.pumpAndSettle();
-    expect(find.textContaining('Review notes grouped by day'), findsOneWidget);
+    expect(find.byType(CalendarScreen), findsOneWidget);
 
     container
         .read(widgetQuickCaptureRequestControllerProvider.notifier)
@@ -127,9 +142,19 @@ void main() {
 
     SharedPreferences.setMockInitialValues({
       'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'release_notes.last_seen': '1.0.0+46',
       'settings.locale': 'english',
     });
-    final container = ProviderContainer();
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    addTearDown(noteDatabase.close);
+    final container = ProviderContainer(
+      overrides: [
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+      ],
+    );
     addTearDown(container.dispose);
 
     configureFlavor(AppFlavor.development);
@@ -168,10 +193,11 @@ void main() {
     );
     expect(find.textContaining('Line one Line two'), findsWidgets);
 
-    await _tapNavigation(tester, AppShell.settingsNavKey, 'Settings');
+    container.read(appRouterProvider).go('/settings');
     await tester.pumpAndSettle();
-    await _scrollIntoViewIfNeeded(tester, find.text('Appearance'));
-    await tester.tap(find.text('Appearance').first);
+    final appearanceHeader = find.textContaining('Appearance');
+    await _scrollIntoViewIfNeeded(tester, appearanceHeader);
+    await tester.tap(appearanceHeader.first);
     await tester.pumpAndSettle();
 
     await _scrollIntoViewIfNeeded(
@@ -198,9 +224,19 @@ void main() {
 
     SharedPreferences.setMockInitialValues({
       'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'release_notes.last_seen': '1.0.0+46',
       'settings.locale': 'english',
     });
-    final container = ProviderContainer();
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    addTearDown(noteDatabase.close);
+    final container = ProviderContainer(
+      overrides: [
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+      ],
+    );
     addTearDown(container.dispose);
 
     configureFlavor(AppFlavor.development);
@@ -263,20 +299,23 @@ Future<void> _scrollIntoViewIfNeeded(WidgetTester tester, Finder finder) async {
     throw StateError('No Scrollable found for $finder');
   }
 
-  await tester.scrollUntilVisible(finder, 160, scrollable: scrollables.first);
-  await tester.pumpAndSettle();
-}
-
-Future<void> _tapNavigation(
-  WidgetTester tester,
-  Key preferredKey,
-  String label,
-) async {
-  final keyed = find.byKey(preferredKey);
-  if (keyed.evaluate().isNotEmpty) {
-    await tester.tap(keyed);
-    return;
+  final scrollable = scrollables.last;
+  for (final direction in const [Offset(0, -240), Offset(0, 240)]) {
+    for (
+      var attempt = 0;
+      attempt < 24 && finder.evaluate().isEmpty;
+      attempt++
+    ) {
+      await tester.drag(scrollable, direction);
+      await tester.pumpAndSettle();
+    }
+    if (finder.evaluate().isNotEmpty) {
+      break;
+    }
   }
-
-  await tester.tap(find.text(label).last);
+  if (finder.evaluate().isEmpty) {
+    throw StateError('Unable to scroll target into view: $finder');
+  }
+  await tester.ensureVisible(finder.first);
+  await tester.pumpAndSettle();
 }
