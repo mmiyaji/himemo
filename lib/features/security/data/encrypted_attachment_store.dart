@@ -662,7 +662,12 @@ class EncryptedAttachmentStore {
   String _attachmentId(AttachmentType type, String name) {
     final extension = path.extension(name);
     final suffix = extension.isEmpty ? '.bin' : extension;
-    return '${DateTime.now().microsecondsSinceEpoch}_${type.name}$suffix.enc';
+    final randomSuffix = _encryptionService
+        .generateSalt(length: 8)
+        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+        .join();
+    return '${DateTime.now().microsecondsSinceEpoch}_$randomSuffix'
+        '_${type.name}$suffix.enc';
   }
 
   List<int> _aad(AttachmentType type) => type.name.codeUnits;
