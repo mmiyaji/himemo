@@ -1,5 +1,6 @@
 const { chromium, devices } = require('@playwright/test');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 
@@ -8,6 +9,7 @@ const outputDir = path.join(rootDir, 'store-assets', 'app-store');
 const googlePlayOutputDir = path.join(rootDir, 'store-assets', 'google-play');
 const port = process.env.STORE_ASSET_PORT || '4174';
 const baseUrl = `http://127.0.0.1:${port}`;
+const googlePlayOnly = process.argv.includes('--google-play-only');
 
 const deviceTargets = [
   {
@@ -30,6 +32,31 @@ const deviceTargets = [
     viewport: { width: 1024, height: 1366 },
     deviceScaleFactor: 2,
     output: { width: 2048, height: 2732 },
+  },
+];
+
+const googlePlayPhoneTarget = {
+  id: 'iphone-google-play-phone',
+  label: 'Google Play phone',
+  viewport: { width: 430, height: 764 },
+  deviceScaleFactor: 3,
+  output: { width: 1080, height: 1920 },
+};
+
+const googlePlayTabletTargets = [
+  {
+    id: 'seven-inch-tablet',
+    label: 'Google Play 7-inch tablet',
+    viewport: { width: 1024, height: 576 },
+    deviceScaleFactor: 1,
+    output: { width: 1920, height: 1080 },
+  },
+  {
+    id: 'ten-inch-tablet',
+    label: 'Google Play 10-inch tablet',
+    viewport: { width: 1366, height: 768 },
+    deviceScaleFactor: 1,
+    output: { width: 2560, height: 1440 },
   },
 ];
 
@@ -156,6 +183,30 @@ const scenes = [
 ];
 
 async function main() {
+  if (googlePlayOnly) {
+    fs.rmSync(googlePlayOutputDir, { recursive: true, force: true });
+    fs.mkdirSync(googlePlayOutputDir, { recursive: true });
+    const server = await ensureServer();
+    const browser = await chromium.launch({
+      args: [
+        '--force-renderer-accessibility',
+        '--use-fake-device-for-media-stream',
+        '--use-fake-ui-for-media-stream',
+      ],
+    });
+    try {
+      await renderGooglePlayFeatureGraphics(browser);
+      await renderGooglePlayPhoneScreenshots(browser);
+      await renderGooglePlayTabletScreenshots(browser);
+    } finally {
+      await browser.close();
+      if (server) {
+        server.kill();
+      }
+    }
+    return;
+  }
+
   fs.rmSync(outputDir, { recursive: true, force: true });
   fs.rmSync(googlePlayOutputDir, { recursive: true, force: true });
   fs.mkdirSync(outputDir, { recursive: true });
@@ -186,6 +237,8 @@ async function main() {
       }
     }
     await renderGooglePlayFeatureGraphics(browser);
+    await renderGooglePlayPhoneScreenshots(browser);
+    await renderGooglePlayTabletScreenshots(browser);
   } finally {
     await browser.close();
     if (server) {
@@ -310,7 +363,259 @@ async function renderPromo(browser, target, locale, scene, rawPath, outputPath) 
   await context.close();
 }
 
+async function renderGooglePlayPhoneScreenshots(browser) {
+  const rawRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'himemo-google-play-phone-'));
+  try {
+    for (const locale of locales) {
+      const outputRoot = path.join(
+        googlePlayOutputDir,
+        locale.id,
+        'phone-screenshots',
+      );
+      fs.mkdirSync(outputRoot, { recursive: true });
+      for (const scene of scenes) {
+        const rawPath = path.join(rawRoot, `${locale.id}-${scene.id}.png`);
+        await captureRaw(browser, googlePlayPhoneTarget, locale, scene, rawPath);
+        await renderGooglePlayPhonePromo(
+          browser,
+          locale,
+          scene,
+          rawPath,
+          path.join(outputRoot, `${scene.id}.png`),
+        );
+        console.log(`google-play/${locale.id}/phone-screenshots/${scene.id}`);
+      }
+    }
+  } finally {
+    fs.rmSync(rawRoot, { recursive: true, force: true });
+  }
+}
+
+async function renderGooglePlayPhonePromo(browser, locale, scene, rawPath, outputPath) {
+  const target = googlePlayPhoneTarget;
+  const context = await browser.newContext({
+    viewport: target.output,
+    deviceScaleFactor: 1,
+  });
+  const page = await context.newPage();
+  const caption = locale.captions[scene.key];
+  const imageData = fs.readFileSync(rawPath).toString('base64');
+
+  await page.setContent(`
+    <!doctype html>
+    <html lang="${locale.id}">
+      <head>
+        <meta charset="utf-8">
+        <style>
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            width: ${target.output.width}px;
+            height: ${target.output.height}px;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            color: #172033;
+            background:
+              radial-gradient(circle at 18% 12%, rgba(231, 132, 143, 0.22), transparent 32%),
+              radial-gradient(circle at 78% 72%, rgba(11, 99, 173, 0.14), transparent 34%),
+              linear-gradient(165deg, #f9fbff 0%, #e9f2f4 52%, #f7efe9 100%);
+          }
+          .wrap {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 82px 74px 0;
+          }
+          .brand {
+            font-size: 24px;
+            font-weight: 700;
+            color: #526073;
+            margin-bottom: 20px;
+          }
+          h1 {
+            width: 100%;
+            margin: 0;
+            text-align: center;
+            font-size: ${locale.id === 'ja' ? 54 : 50}px;
+            line-height: 1.09;
+            letter-spacing: 0;
+            font-weight: 820;
+          }
+          p {
+            width: 100%;
+            margin: 18px 0 34px;
+            text-align: center;
+            font-size: ${locale.id === 'ja' ? 27 : 25}px;
+            line-height: 1.34;
+            font-weight: 500;
+            color: #4b5a6c;
+          }
+          .device {
+            width: 760px;
+            border-radius: 68px;
+            padding: 20px;
+            background: #172033;
+            box-shadow: 0 34px 82px rgba(30, 42, 64, 0.24);
+          }
+          img {
+            display: block;
+            width: 100%;
+            border-radius: 48px;
+          }
+        </style>
+      </head>
+      <body>
+        <main class="wrap">
+          <div class="brand">HiMemo</div>
+          <h1>${escapeHtml(caption.title)}</h1>
+          <p>${escapeHtml(caption.subtitle)}</p>
+          <div class="device">
+            <img src="data:image/png;base64,${imageData}" alt="">
+          </div>
+        </main>
+      </body>
+    </html>
+  `);
+  await page.screenshot({ path: outputPath, fullPage: false });
+  await context.close();
+}
+
+async function renderGooglePlayTabletScreenshots(browser) {
+  const rawRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'himemo-google-play-tablet-'));
+  try {
+    for (const target of googlePlayTabletTargets) {
+      for (const locale of locales) {
+        const outputRoot = path.join(
+          googlePlayOutputDir,
+          locale.id,
+          `${target.id}-screenshots`,
+        );
+        fs.mkdirSync(outputRoot, { recursive: true });
+        for (const scene of scenes) {
+          const rawPath = path.join(rawRoot, `${target.id}-${locale.id}-${scene.id}.png`);
+          await captureRaw(browser, target, locale, scene, rawPath);
+          await renderGooglePlayTabletPromo(
+            browser,
+            target,
+            locale,
+            scene,
+            rawPath,
+            path.join(outputRoot, `${scene.id}.png`),
+          );
+          console.log(`google-play/${locale.id}/${target.id}-screenshots/${scene.id}`);
+        }
+      }
+    }
+  } finally {
+    fs.rmSync(rawRoot, { recursive: true, force: true });
+  }
+}
+
+async function renderGooglePlayTabletPromo(browser, target, locale, scene, rawPath, outputPath) {
+  const context = await browser.newContext({
+    viewport: target.output,
+    deviceScaleFactor: 1,
+  });
+  const page = await context.newPage();
+  const caption = locale.captions[scene.key];
+  const imageData = fs.readFileSync(rawPath).toString('base64');
+  const isLarge = target.id === 'ten-inch-tablet';
+  const scale = target.output.width / 1920;
+  const titleSize = Math.round((locale.id === 'ja' ? 46 : 50) * scale);
+  const subtitleSize = Math.round((locale.id === 'ja' ? 25 : 23) * scale);
+  const deviceWidth = Math.round(target.output.width * 0.62);
+  const framePadding = Math.round(14 * scale);
+
+  await page.setContent(`
+    <!doctype html>
+    <html lang="${locale.id}">
+      <head>
+        <meta charset="utf-8">
+        <style>
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            width: ${target.output.width}px;
+            height: ${target.output.height}px;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            color: #172033;
+            background:
+              radial-gradient(circle at 16% 18%, rgba(231, 132, 143, 0.22), transparent 34%),
+              radial-gradient(circle at 86% 72%, rgba(11, 99, 173, 0.16), transparent 36%),
+              linear-gradient(145deg, #f9fbff 0%, #e9f2f4 54%, #f7efe9 100%);
+          }
+          .wrap {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            grid-template-columns: 0.9fr 1.35fr;
+            align-items: center;
+            gap: ${Math.round(58 * scale)}px;
+            padding: ${Math.round(74 * scale)}px ${Math.round(92 * scale)}px;
+          }
+          .copy {
+            min-width: 0;
+          }
+          .brand {
+            font-size: ${Math.round(23 * scale)}px;
+            font-weight: 700;
+            color: #526073;
+            margin-bottom: ${Math.round(24 * scale)}px;
+          }
+          h1 {
+            margin: 0;
+            font-size: ${titleSize}px;
+            line-height: 1.1;
+            letter-spacing: 0;
+            font-weight: 820;
+          }
+          p {
+            margin: ${Math.round(22 * scale)}px 0 0;
+            font-size: ${subtitleSize}px;
+            line-height: 1.36;
+            font-weight: 500;
+            color: #4b5a6c;
+          }
+          .device {
+            justify-self: end;
+            width: ${deviceWidth}px;
+            border-radius: ${Math.round((isLarge ? 46 : 38) * scale)}px;
+            padding: ${framePadding}px;
+            background: #172033;
+            box-shadow: 0 ${Math.round(32 * scale)}px ${Math.round(82 * scale)}px rgba(30, 42, 64, 0.24);
+          }
+          img {
+            display: block;
+            width: 100%;
+            border-radius: ${Math.round((isLarge ? 30 : 24) * scale)}px;
+          }
+        </style>
+      </head>
+      <body>
+        <main class="wrap">
+          <section class="copy">
+            <div class="brand">HiMemo</div>
+            <h1>${escapeHtml(caption.title)}</h1>
+            <p>${escapeHtml(caption.subtitle)}</p>
+          </section>
+          <div class="device">
+            <img src="data:image/png;base64,${imageData}" alt="">
+          </div>
+        </main>
+      </body>
+    </html>
+  `);
+  await page.screenshot({ path: outputPath, fullPage: false });
+  await context.close();
+}
+
 async function renderGooglePlayFeatureGraphics(browser) {
+  const appIconData = fs
+    .readFileSync(path.join(rootDir, 'assets', 'app-icon.png'))
+    .toString('base64');
   const copies = {
     ja: {
       title: 'すばやく残せる、プライベートなメモ',
@@ -344,14 +649,15 @@ async function renderGooglePlayFeatureGraphics(browser) {
               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
               color: #172033;
               background:
-                radial-gradient(circle at 14% 18%, rgba(109, 149, 198, 0.26), transparent 30%),
-                linear-gradient(150deg, #f8fbff 0%, #e7f1f4 58%, #f7eee8 100%);
+                radial-gradient(circle at 18% 14%, rgba(231, 132, 143, 0.24), transparent 32%),
+                radial-gradient(circle at 84% 70%, rgba(11, 99, 173, 0.14), transparent 34%),
+                linear-gradient(150deg, #f8fbff 0%, #e9f2f5 58%, #f8eee9 100%);
             }
             .wrap {
               width: 100%;
               height: 100%;
               display: grid;
-              grid-template-columns: 1fr 330px;
+              grid-template-columns: 1fr 300px;
               align-items: center;
               gap: 48px;
               padding: 58px 76px;
@@ -378,65 +684,30 @@ async function renderGooglePlayFeatureGraphics(browser) {
               line-height: 1.35;
               font-weight: 520;
             }
-            .panel {
+            .icon-card {
               position: relative;
-              width: 330px;
-              height: 330px;
-              border-radius: 48px;
-              background: rgba(255, 255, 255, 0.76);
-              border: 2px solid rgba(141, 160, 180, 0.42);
-              box-shadow: 0 30px 78px rgba(30, 42, 64, 0.18);
+              width: 300px;
+              height: 300px;
+              display: grid;
+              place-items: center;
             }
-            .memo {
-              position: absolute;
-              left: 70px;
-              top: 58px;
-              width: 168px;
-              height: 210px;
-              border-radius: 18px;
-              background: #ffffff;
-              border: 9px solid #0b63ad;
-              box-shadow: 0 18px 42px rgba(11, 99, 173, 0.18);
-            }
-            .line {
-              position: absolute;
-              left: 36px;
-              right: 36px;
-              height: 9px;
-              border-radius: 99px;
-              background: #b9c6d2;
-            }
-            .line.one { top: 72px; background: #0b63ad; }
-            .line.two { top: 108px; }
-            .line.three { top: 144px; }
-            .lock {
-              position: absolute;
-              right: 58px;
-              bottom: 54px;
-              width: 94px;
-              height: 78px;
-              border-radius: 18px;
-              background: #172033;
-            }
-            .lock::before {
+            .icon-card::before {
               content: "";
               position: absolute;
-              left: 22px;
-              top: -46px;
-              width: 50px;
-              height: 58px;
-              border: 12px solid #172033;
-              border-bottom: 0;
-              border-radius: 36px 36px 0 0;
+              inset: 16px 8px 2px 8px;
+              border-radius: 68px;
+              background: rgba(255, 255, 255, 0.62);
+              border: 2px solid rgba(141, 160, 180, 0.30);
+              box-shadow: 0 32px 82px rgba(30, 42, 64, 0.20);
+              transform: rotate(-3deg);
             }
-            .dot {
-              position: absolute;
-              left: 41px;
-              top: 30px;
-              width: 12px;
-              height: 12px;
-              border-radius: 50%;
-              background: #ffffff;
+            .icon-card img {
+              position: relative;
+              width: 230px;
+              height: 230px;
+              object-fit: cover;
+              border-radius: 52px;
+              box-shadow: 0 24px 54px rgba(11, 99, 173, 0.22);
             }
           </style>
         </head>
@@ -447,13 +718,8 @@ async function renderGooglePlayFeatureGraphics(browser) {
               <h1>${escapeHtml(copy.title)}</h1>
               <p>${escapeHtml(copy.subtitle)}</p>
             </section>
-            <div class="panel" aria-hidden="true">
-              <div class="memo">
-                <span class="line one"></span>
-                <span class="line two"></span>
-                <span class="line three"></span>
-              </div>
-              <div class="lock"><span class="dot"></span></div>
+            <div class="icon-card" aria-hidden="true">
+              <img src="data:image/png;base64,${appIconData}" alt="">
             </div>
           </main>
         </body>
