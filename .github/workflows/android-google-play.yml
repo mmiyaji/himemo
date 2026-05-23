@@ -1,0 +1,203 @@
+name: Android Google Play
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: "Optional Android versionCode. Defaults to UTC yyMMddHH."
+        required: false
+        type: string
+      track:
+        description: "Google Play release track."
+        required: true
+        default: internal
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+      release_status:
+        description: "Google Play release status."
+        required: true
+        default: completed
+        type: choice
+        options:
+          - completed
+          - draft
+          - inProgress
+      upload_to_google_play:
+        description: "Upload the signed AAB to Google Play."
+        required: true
+        default: false
+        type: boolean
+      google_auth_method:
+        description: "Google authentication method for upload."
+        required: true
+        default: workload_identity
+        type: choice
+        options:
+          - workload_identity
+          - service_account_json
+      run_tests:
+        description: "Run analyze and unit tests before building."
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: android-google-play-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: "3.41.6"
+  PACKAGE_NAME: "org.ruhenheim.himemo"
+
+jobs:
+  build-and-upload:
+    name: Build Android AAB and upload to Google Play
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Show toolchain versions
+        run: |
+          flutter --version
+          java -version
+
+      - name: Resolve Android version
+        run: |
+          set -euo pipefail
+          VERSION_NAME="$(sed -nE 's/^version:[[:space:]]*([0-9A-Za-z.+-]+).*/\1/p' pubspec.yaml | head -n 1 | cut -d + -f 1)"
+          if [ -z "$VERSION_NAME" ]; then
+            echo "Could not resolve version name from pubspec.yaml."
+            exit 1
+          fi
+          if [ -n "${{ inputs.version_code }}" ]; then
+            VERSION_CODE="${{ inputs.version_code }}"
+          else
+            VERSION_CODE="$(date -u +%y%m%d%H)"
+          fi
+          if ! printf '%s' "$VERSION_CODE" | grep -Eq '^[1-9][0-9]*$'; then
+            echo "versionCode must be a positive integer: $VERSION_CODE"
+            exit 1
+          fi
+          if [ "$VERSION_CODE" -gt 2100000000 ]; then
+            echo "versionCode exceeds Android maximum 2100000000: $VERSION_CODE"
+            exit 1
+          fi
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "Using version name: $VERSION_NAME"
+          echo "Using versionCode: $VERSION_CODE"
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Run release checks
+        if: ${{ inputs.run_tests }}
+        run: |
+          flutter analyze
+          flutter test test
+
+      - name: Install Android upload signing assets
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${ANDROID_UPLOAD_KEYSTORE_BASE64:?Missing ANDROID_UPLOAD_KEYSTORE_BASE64 secret}"
+          : "${ANDROID_UPLOAD_KEYSTORE_PASSWORD:?Missing ANDROID_UPLOAD_KEYSTORE_PASSWORD secret}"
+          : "${ANDROID_UPLOAD_KEY_ALIAS:?Missing ANDROID_UPLOAD_KEY_ALIAS secret}"
+          : "${ANDROID_UPLOAD_KEY_PASSWORD:?Missing ANDROID_UPLOAD_KEY_PASSWORD secret}"
+          KEYSTORE_PATH="$RUNNER_TEMP/himemo-upload-keystore.jks"
+          printf '%s' "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          echo "HIMEMO_ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+          echo "HIMEMO_ANDROID_KEYSTORE_PASSWORD=$ANDROID_UPLOAD_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "HIMEMO_ANDROID_KEY_ALIAS=$ANDROID_UPLOAD_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "HIMEMO_ANDROID_KEY_PASSWORD=$ANDROID_UPLOAD_KEY_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Build production Android App Bundle
+        env:
+          HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID: ${{ secrets.HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID }}
+          HIMEMO_FIREBASE_PROJECT_NUMBER: ${{ secrets.HIMEMO_FIREBASE_PROJECT_NUMBER }}
+        run: |
+          flutter build appbundle --release \
+            --flavor production \
+            -t lib/main_production.dart \
+            --build-name="$VERSION_NAME" \
+            --build-number="$VERSION_CODE" \
+            --dart-define=HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID:-}" \
+            --dart-define=HIMEMO_BUILD_DATE="$(date -u +%Y-%m-%d)"
+
+      - name: Locate Android App Bundle
+        run: |
+          set -euo pipefail
+          AAB_PATH="$(find build/app/outputs/bundle -name '*.aab' | head -n 1)"
+          if [ -z "$AAB_PATH" ]; then
+            echo "No Android App Bundle was produced."
+            exit 1
+          fi
+          ls -lh "$AAB_PATH"
+          echo "AAB_PATH=$AAB_PATH" >> "$GITHUB_ENV"
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: himemo-android-${{ env.VERSION_NAME }}-${{ env.VERSION_CODE }}
+          path: ${{ env.AAB_PATH }}
+          if-no-files-found: error
+
+      - name: Authenticate to Google Cloud with service account JSON
+        if: ${{ inputs.upload_to_google_play && inputs.google_auth_method == 'service_account_json' }}
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          : "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:?Missing GOOGLE_PLAY_SERVICE_ACCOUNT_JSON secret}"
+          CREDENTIALS_PATH="$RUNNER_TEMP/google-play-service-account.json"
+          printf '%s' "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" > "$CREDENTIALS_PATH"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$CREDENTIALS_PATH" >> "$GITHUB_ENV"
+
+      - name: Authenticate to Google Cloud with Workload Identity Federation
+        if: ${{ inputs.upload_to_google_play && inputs.google_auth_method == 'workload_identity' }}
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+
+      - name: Install Google Play upload dependencies
+        if: ${{ inputs.upload_to_google_play }}
+        run: python -m pip install --upgrade google-api-python-client google-auth google-auth-httplib2 httplib2
+
+      - name: Upload to Google Play
+        if: ${{ inputs.upload_to_google_play }}
+        run: |
+          python tools/google_play/upload_bundle.py \
+            --package-name "$PACKAGE_NAME" \
+            --bundle "$AAB_PATH" \
+            --track "${{ inputs.track }}" \
+            --status "${{ inputs.release_status }}" \
+            --release-name "$VERSION_NAME ($VERSION_CODE)"

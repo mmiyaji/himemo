@@ -38,6 +38,30 @@ def appDistributionCredentials = (
         ?: System.getenv('GOOGLE_APPLICATION_CREDENTIALS')
         ?: ''
 ).trim()
+def androidUploadKeystorePath = (
+    System.getenv('HIMEMO_ANDROID_KEYSTORE_PATH')
+        ?: localProperties.getProperty('himemo.android.keystorePath')
+        ?: ''
+).trim()
+def androidUploadKeystorePassword = (
+    System.getenv('HIMEMO_ANDROID_KEYSTORE_PASSWORD')
+        ?: localProperties.getProperty('himemo.android.keystorePassword')
+        ?: ''
+).trim()
+def androidUploadKeyAlias = (
+    System.getenv('HIMEMO_ANDROID_KEY_ALIAS')
+        ?: localProperties.getProperty('himemo.android.keyAlias')
+        ?: ''
+).trim()
+def androidUploadKeyPassword = (
+    System.getenv('HIMEMO_ANDROID_KEY_PASSWORD')
+        ?: localProperties.getProperty('himemo.android.keyPassword')
+        ?: ''
+).trim()
+def hasAndroidUploadSigning = androidUploadKeystorePath &&
+    androidUploadKeystorePassword &&
+    androidUploadKeyAlias &&
+    androidUploadKeyPassword
 def loadLocalEnv = {
     def values = new Properties()
     def envFile = rootProject.projectDir.parentFile.toPath().resolve('.env').toFile()
@@ -91,6 +115,17 @@ android {
         main.java.srcDirs += 'src/main/kotlin'
     }
 
+    signingConfigs {
+        if (hasAndroidUploadSigning) {
+            upload {
+                storeFile file(androidUploadKeystorePath)
+                storePassword androidUploadKeystorePassword
+                keyAlias androidUploadKeyAlias
+                keyPassword androidUploadKeyPassword
+            }
+        }
+    }
+
     defaultConfig {
         applicationId "org.ruhenheim.himemo"
         minSdkVersion flutter.minSdkVersion
@@ -116,7 +151,9 @@ android {
 
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            signingConfig hasAndroidUploadSigning
+                ? signingConfigs.upload
+                : signingConfigs.debug
             firebaseAppDistribution {
                 artifactType = "AAB"
                 if (appDistributionReleaseNotesFile) {
