@@ -369,7 +369,12 @@ class EncryptedAttachmentStore {
       if (entity is! File) {
         continue;
       }
-      if (path.split(entity.path).contains('tmp')) {
+      final relativePath = path.relative(
+        entity.path,
+        from: attachmentsDirectory.path,
+      );
+      final relativeSegments = path.split(relativePath);
+      if (relativeSegments.isNotEmpty && relativeSegments.first == 'tmp') {
         continue;
       }
       total += await entity.length();
@@ -528,7 +533,12 @@ class EncryptedAttachmentStore {
       if (entity is! File) {
         continue;
       }
-      if (path.split(entity.path).contains('tmp')) {
+      final relativePath = path.relative(
+        entity.path,
+        from: attachmentsDirectory.path,
+      );
+      final relativeSegments = path.split(relativePath);
+      if (relativeSegments.isNotEmpty && relativeSegments.first == 'tmp') {
         continue;
       }
       if (retainedReferences.contains(entity.path)) {
