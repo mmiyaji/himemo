@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:drift/native.dart';
+import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -30,12 +31,16 @@ import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/features/sync/data/secure_sync_bundle_store.dart';
 import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
 import 'package:himemo/features/sync/data/icloud_sync_transport.dart';
+import 'package:himemo/features/sync/data/sync_engine.dart';
+import 'package:himemo/features/sync/data/sync_bundle_state_store.dart';
 import 'package:himemo/l10n/app_localizations.dart';
 import 'package:himemo/l10n/app_strings.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+
   test('app strings fall back to English for unsupported locales', () {
     final strings = AppStrings(const Locale('fr'));
 
@@ -326,8 +331,8 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Best day'), findsOneWidget);
-    expect(find.text('-'), findsWidgets);
+    expect(find.text('Build a record first'), findsOneWidget);
+    expect(find.text('Best day'), findsNothing);
     expect(find.textContaining(RegExp(r'\d+/\d+')), findsNothing);
   });
 
@@ -939,6 +944,283 @@ void main() {
   );
 
   test(
+    'fake Google Drive sync keeps trashed notes hidden from stale remote upserts',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final fakeTransport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final firstDevice = await _createGoogleDriveSyncHarness(
+        fakeTransport,
+        tempPrefix: 'himemo-fake-drive-trash-first-',
+        randomSeed: 91,
+      );
+      final secondDevice = await _createGoogleDriveSyncHarness(
+        fakeTransport,
+        tempPrefix: 'himemo-fake-drive-trash-second-',
+        randomSeed: 92,
+      );
+      final firstNotes = firstDevice.container.read(
+        notesControllerProvider.notifier,
+      );
+      final secondNotes = secondDevice.container.read(
+        notesControllerProvider.notifier,
+      );
+      final firstSync = firstDevice.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      final secondSync = secondDevice.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      final createdAt = DateTime.utc(2026, 5, 19, 7);
+
+      await firstNotes.upsert(
+        NoteEntry(
+          id: 'sim-trash-race',
+          vaultId: 'everyday',
+          title: 'Shared note',
+          body: 'Initial shared body.',
+          createdAt: createdAt,
+          updatedAt: createdAt,
+        ),
+      );
+      await firstSync.uploadCurrentBundle(force: true);
+      expect(
+        firstDevice.container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+
+      await secondSync.downloadLatestBundle();
+      await secondSync.applyDownloadedBundle();
+      expect(
+        secondDevice.container
+            .read(visibleNotesProvider)
+            .any((note) => note.id == 'sim-trash-race'),
+        isTrue,
+      );
+
+      await firstNotes.delete('sim-trash-race');
+      expect(
+        firstDevice.container
+            .read(trashedNotesProvider)
+            .any((note) => note.id == 'sim-trash-race'),
+        isTrue,
+      );
+
+      await secondNotes.upsert(
+        NoteEntry(
+          id: 'sim-trash-race',
+          vaultId: 'everyday',
+          title: 'Shared note edited remotely',
+          body:
+              'A stale device edited the note after another device deleted it.',
+          createdAt: createdAt,
+          updatedAt: DateTime.now().add(const Duration(hours: 1)),
+          revision: 5,
+        ),
+      );
+      await secondSync.uploadCurrentBundle(force: true);
+
+      await firstSync.downloadLatestBundle();
+      await firstSync.applyDownloadedBundle();
+      final firstState = firstDevice.container.read(notesControllerProvider);
+      final note = firstState.singleWhere(
+        (entry) => entry.id == 'sim-trash-race',
+      );
+      expect(note.deletedAt, isNotNull);
+      expect(note.syncState, NoteSyncState.pendingDelete);
+      expect(
+        firstDevice.container
+            .read(visibleNotesProvider)
+            .any((entry) => entry.id == 'sim-trash-race'),
+        isFalse,
+      );
+      expect(
+        firstDevice.container
+            .read(trashedNotesProvider)
+            .any((entry) => entry.id == 'sim-trash-race'),
+        isTrue,
+      );
+    },
+  );
+
+  test('missing local attachment can be restored to remote reference', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-remote-ref-repair-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(33));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    final noteStore = EncryptedNoteStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      database: noteDatabase,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteStoreProvider.overrideWithValue(noteStore),
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(noteDatabase.close);
+    addTearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    final notesController = container.read(notesControllerProvider.notifier);
+    await notesController.restoreCompleted;
+    final missingPath =
+        '${tempDirectory.path}${Platform.pathSeparator}missing-video.mov.enc';
+    await notesController.upsert(
+      NoteEntry(
+        id: 'missing-video-note',
+        vaultId: 'everyday',
+        title: 'Missing video',
+        body: '',
+        createdAt: DateTime.utc(2026, 5, 19, 10),
+        attachments: [
+          NoteAttachment(
+            type: AttachmentType.video,
+            label: 'IMG_5470.mov',
+            filePath: missingPath,
+          ),
+        ],
+      ),
+    );
+
+    const remoteRef =
+        'sync-attachment-object://513e1430ad6bd63eba1ec515317dac8dec689c74d8dd409012b448093cb64cfa';
+    final restored = await notesController
+        .restoreMissingAttachmentRemoteReference(
+          noteId: 'missing-video-note',
+          index: 0,
+          remoteAttachment: const NoteAttachment(
+            type: AttachmentType.video,
+            label: 'IMG_5470.mov',
+            filePath: remoteRef,
+            previewBytesBase64: 'preview',
+            durationMs: 12000,
+          ),
+        );
+
+    final note = container.read(notesControllerProvider).single;
+    expect(restored, isTrue);
+    expect(note.attachments.single.filePath, remoteRef);
+    expect(note.attachments.single.previewBytesBase64, 'preview');
+    expect(note.attachments.single.durationMs, 12000);
+    expect(note.syncState, NoteSyncState.pendingUpload);
+  });
+
+  test('synced snapshot stores attachment reuse metadata locally', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-attachment-reuse-metadata-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(34));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    final noteStore = EncryptedNoteStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      database: noteDatabase,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteStoreProvider.overrideWithValue(noteStore),
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(noteDatabase.close);
+    addTearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    final notesController = container.read(notesControllerProvider.notifier);
+    await notesController.restoreCompleted;
+    final localPath =
+        '${tempDirectory.path}${Platform.pathSeparator}video.mov.enc';
+    await notesController.upsert(
+      NoteEntry(
+        id: 'reuse-metadata-note',
+        vaultId: 'everyday',
+        title: 'Video',
+        body: 'Local video note',
+        createdAt: DateTime.utc(2026, 5, 19, 11),
+        attachments: [
+          NoteAttachment(
+            type: AttachmentType.video,
+            label: 'video.mov',
+            filePath: localPath,
+          ),
+        ],
+      ),
+    );
+    final queued = container.read(notesControllerProvider).single;
+    const contentHash =
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+    await notesController.markSnapshotChangesSynced(
+      {queued.id: queued.contentHash},
+      preparedNotes: [
+        PreparedSyncNote(
+          note: queued.copyWith(
+            attachments: const [
+              NoteAttachment(
+                type: AttachmentType.video,
+                label: 'video.mov',
+                filePath: 'sync-attachment-object://$contentHash',
+                localPayloadSizeBytes: 12345,
+                localPayloadModifiedAtMillis: 1779178800000,
+                syncAttachmentContentHash: contentHash,
+              ),
+            ],
+          ),
+          action: PendingNoteChangeAction.upsert,
+        ),
+      ],
+    );
+
+    final synced = container.read(notesControllerProvider).single;
+    expect(synced.syncState, NoteSyncState.synced);
+    expect(synced.attachments.single.filePath, localPath);
+    expect(synced.attachments.single.localPayloadSizeBytes, 12345);
+    expect(
+      synced.attachments.single.localPayloadModifiedAtMillis,
+      1779178800000,
+    );
+    expect(synced.attachments.single.syncAttachmentContentHash, contentHash);
+  });
+
+  test(
     'fake Google Drive sync keeps large video and multi-file attachments as objects',
     () async {
       SharedPreferences.setMockInitialValues({});
@@ -1195,6 +1477,15 @@ void main() {
             .totalChanges,
         1,
       );
+
+      await harness.container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true);
+
+      final retryState = harness.container.read(syncTransferControllerProvider);
+      expect(retryState.stage, SyncTransferStage.error);
+      expect(retryState.isCoolingDown, isTrue);
+      expect(failingTransport.attachmentUploadCalls, 2);
     },
   );
 
@@ -1571,6 +1862,7 @@ void main() {
 
   test('Spotlight indexing sends note body and rich text terms', () async {
     TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     addTearDown(() => debugDefaultTargetPlatformOverride = null);
 
@@ -2241,11 +2533,14 @@ void main() {
     addTearDown(database.close);
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(find.text('About'), 200);
     await tester.ensureVisible(find.text('About'));
     await tester.tap(find.text('About'));
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(find.text('Update history'), 200);
+    await tester.ensureVisible(find.text('Update history'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Update history'));
     await tester.pumpAndSettle();
 
@@ -2866,10 +3161,11 @@ Future<File> _writePayloadFile(
 Future<_GoogleDriveSyncHarness> _createGoogleDriveSyncHarness(
   GoogleDriveSyncTransport transport, {
   required String tempPrefix,
+  int randomSeed = 66,
 }) async {
   final tempDirectory = await Directory.systemTemp.createTemp(tempPrefix);
   final secureStore = MemorySecureKeyValueStore();
-  final encryptionService = EncryptionService(random: Random(66));
+  final encryptionService = EncryptionService(random: Random(randomSeed));
   final masterKeyService = MasterKeyService(
     secureStore: secureStore,
     keyFactory: encryptionService.generateKeyBytes,
@@ -2904,6 +3200,9 @@ Future<_GoogleDriveSyncHarness> _createGoogleDriveSyncHarness(
           directoryProvider: () async => tempDirectory,
           sharedPreferencesProvider: SharedPreferences.getInstance,
         ),
+      ),
+      syncBundleStateStoreProvider.overrideWithValue(
+        SyncBundleStateStore(storageKey: 'sync.bundle_state.$tempPrefix'),
       ),
       googleDriveSyncTransportProvider.overrideWithValue(transport),
       syncAuthGatewayProvider.overrideWithValue(

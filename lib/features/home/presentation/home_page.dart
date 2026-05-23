@@ -44,6 +44,7 @@ import '../../sync/data/sync_attachment_refs.dart';
 import '../../sync/data/sync_bundle_preview.dart';
 import '../../sync/data/sync_bundle_state_store.dart';
 import '../../sync/data/sync_bundle_key_service.dart';
+import '../../sync/data/sync_engine.dart';
 import '../../sync/presentation/google_sign_in_web_button.dart';
 import '../domain/note_entry.dart';
 import '../domain/note_tags.dart';

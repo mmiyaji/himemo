@@ -59,7 +59,6 @@ import FoundationModels
       cloudKitDeviceIdField,
       cloudKitNoteCountField,
       cloudKitAttachmentCountField,
-      cloudKitBundleSizeField,
       cloudKitExportedAtField,
     ]
   }
@@ -1161,7 +1160,6 @@ import FoundationModels
       record[self.cloudKitDeviceIdField] = deviceId as CKRecordValue
       record[self.cloudKitNoteCountField] = NSNumber(value: noteCount)
       record[self.cloudKitAttachmentCountField] = NSNumber(value: attachmentCount)
-      record[self.cloudKitBundleSizeField] = NSNumber(value: encodedPayload.utf8.count)
       record[self.cloudKitExportedAtField] = Date() as CKRecordValue
       record[self.cloudKitAssetField] = CKAsset(fileURL: temporaryURL)
 

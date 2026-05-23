@@ -1235,6 +1235,219 @@ void _showStoreFeedback(BuildContext context, String message) {
   ).showSnackBar(SnackBar(showCloseIcon: true, content: Text(message)));
 }
 
+String _syncHistoryEntrySummary(
+  AppStrings strings,
+  SyncHistoryEntry entry,
+  SyncProvider provider,
+) {
+  final status = entry.success
+      ? strings.localized(en: 'Completed', ja: '\u5b8c\u4e86')
+      : strings.localized(
+          en: 'Needs attention',
+          ja: '\u78ba\u8a8d\u304c\u5fc5\u8981',
+        );
+  final operation = _syncHistoryOperationLabel(strings, entry.operation);
+  final stamp = _formatDateTime(entry.finishedAt, strings);
+  final message = entry.message;
+  if (message == null || message.isEmpty) {
+    return '$status - $operation - $stamp';
+  }
+  return '$status - $operation - $stamp\n'
+      '${_localizedSyncTransferMessage(strings, message, provider)}';
+}
+
+String _syncHistoryOperationLabel(AppStrings strings, String operation) {
+  return switch (operation) {
+    'upload' || 'sync.upload' => strings.localized(
+      en: 'Upload',
+      ja: '\u30a2\u30c3\u30d7\u30ed\u30fc\u30c9',
+    ),
+    'download' || 'sync.download' => strings.localized(
+      en: 'Download',
+      ja: '\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9',
+    ),
+    'apply' || 'sync.apply' => strings.localized(
+      en: 'Apply downloaded data',
+      ja: '\u53d6\u5f97\u6e08\u307f\u30c7\u30fc\u30bf\u3092\u53cd\u6620',
+    ),
+    'sync.enable' => strings.localized(
+      en: 'Enable sync',
+      ja: '\u540c\u671f\u3092\u6709\u52b9\u5316',
+    ),
+    _ => operation,
+  };
+}
+
+String _syncQueueHistoryLabel(AppStrings strings, SyncQueueSummary? summary) {
+  if (summary == null) {
+    return strings.localized(
+      en: 'Queue: not recorded',
+      ja: '\u30ad\u30e5\u30fc: \u672a\u8a18\u9332',
+    );
+  }
+  if (!summary.hasPendingChanges) {
+    return strings.localized(
+      en: 'Queue: no pending changes',
+      ja: '\u30ad\u30e5\u30fc: \u672a\u540c\u671f\u306a\u3057',
+    );
+  }
+  return strings.pendingSyncSummary(
+    total: summary.totalChanges,
+    upserts: summary.upserts,
+    deletes: summary.deletes,
+    stamp: summary.lastQueuedAt == null
+        ? strings.text('home.queue.ready')
+        : strings.lastQueuedAt(_formatDateTime(summary.lastQueuedAt!, strings)),
+  );
+}
+
+Future<void> _showSyncHistoryDialog(
+  BuildContext context,
+  List<SyncHistoryEntry> entries,
+) async {
+  final strings = context.strings;
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text(
+          strings.localized(en: 'Sync history', ja: '\u540c\u671f\u5c65\u6b74'),
+        ),
+        content: SizedBox(
+          width: 560,
+          child: entries.isEmpty
+              ? Text(
+                  strings.localized(
+                    en: 'No sync history has been recorded yet.',
+                    ja: '\u307e\u3060\u540c\u671f\u5c65\u6b74\u306f\u3042\u308a\u307e\u305b\u3093\u3002',
+                  ),
+                )
+              : ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: entries.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final entry = entries[index];
+                    final icon = entry.success
+                        ? Icons.check_circle_outline_rounded
+                        : Icons.error_outline_rounded;
+                    final color = entry.success
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.error;
+                    final detailLines = <String>[
+                      _syncHistoryEntrySummary(strings, entry, entry.provider),
+                      _syncQueueHistoryLabel(strings, entry.queueBefore),
+                    ];
+                    final queueAfter = entry.queueAfter;
+                    if (queueAfter != null) {
+                      final queueAfterLabel = _syncQueueHistoryLabel(
+                        strings,
+                        queueAfter,
+                      );
+                      detailLines.add(
+                        '${strings.localized(en: 'After: ', ja: '\u5f8c: ')}$queueAfterLabel',
+                      );
+                    }
+                    if (entry.noteCount != null ||
+                        entry.attachmentCount != null) {
+                      final bundleLabel = strings.localized(
+                        en: 'Bundle: ',
+                        ja: '\u30d0\u30f3\u30c9\u30eb: ',
+                      );
+                      detailLines.add(
+                        '$bundleLabel${entry.noteCount ?? 0} notes / '
+                        '${entry.attachmentCount ?? 0} attachments',
+                      );
+                    }
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(icon, color: color),
+                      title: Text(
+                        _syncHistoryOperationLabel(strings, entry.operation),
+                      ),
+                      subtitle: Text(detailLines.join('\n')),
+                      isThreeLine: true,
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(strings.close),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+Future<void> _showSyncConflictListDialog(
+  BuildContext context,
+  WidgetRef ref,
+  List<NoteEntry> conflictedNotes,
+) async {
+  final strings = context.strings;
+  final selected = await showDialog<NoteEntry>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text(
+          strings.localized(
+            en: 'Conflicts to resolve',
+            ja: '\u89e3\u6c7a\u304c\u5fc5\u8981\u306a\u7af6\u5408',
+          ),
+        ),
+        content: SizedBox(
+          width: 560,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: conflictedNotes.length,
+            separatorBuilder: (_, _) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final note = conflictedNotes[index];
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.report_problem_outlined),
+                title: Text(
+                  note.title.isEmpty
+                      ? strings.localized(
+                          en: 'Untitled note',
+                          ja: '\u7121\u984c\u306e\u30e1\u30e2',
+                        )
+                      : note.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  _formatDateTime(note.updatedAt ?? note.createdAt, strings),
+                ),
+                trailing: TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(note),
+                  child: Text(
+                    strings.localized(en: 'Resolve', ja: '\u89e3\u6c7a'),
+                  ),
+                ),
+                onTap: () => Navigator.of(dialogContext).pop(note),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(strings.cancel),
+          ),
+        ],
+      );
+    },
+  );
+  if (selected == null || !context.mounted) {
+    return;
+  }
+  await _showNoteConflictResolver(context, ref, selected);
+}
+
 enum _NoteConflictResolution { keepLocal, useRemote, merge }
 
 Future<void> _showNoteConflictResolver(

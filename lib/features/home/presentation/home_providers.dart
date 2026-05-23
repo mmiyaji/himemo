@@ -1234,6 +1234,136 @@ class SyncTransferState {
   }
 }
 
+class SyncHistoryEntry {
+  const SyncHistoryEntry({
+    required this.startedAt,
+    required this.finishedAt,
+    required this.provider,
+    required this.operation,
+    required this.success,
+    this.message,
+    this.noteCount,
+    this.attachmentCount,
+    this.queueBefore,
+    this.queueAfter,
+  });
+
+  final DateTime startedAt;
+  final DateTime finishedAt;
+  final SyncProvider provider;
+  final String operation;
+  final bool success;
+  final String? message;
+  final int? noteCount;
+  final int? attachmentCount;
+  final SyncQueueSummary? queueBefore;
+  final SyncQueueSummary? queueAfter;
+
+  Map<String, dynamic> toJson() => {
+    'startedAt': startedAt.toUtc().toIso8601String(),
+    'finishedAt': finishedAt.toUtc().toIso8601String(),
+    'provider': provider.name,
+    'operation': operation,
+    'success': success,
+    'message': message,
+    'noteCount': noteCount,
+    'attachmentCount': attachmentCount,
+    'queueBefore': _syncQueueSummaryToJson(queueBefore),
+    'queueAfter': _syncQueueSummaryToJson(queueAfter),
+  };
+
+  factory SyncHistoryEntry.fromJson(Map<String, dynamic> json) {
+    SyncQueueSummary? summaryFromJson(Object? value) {
+      if (value is! Map) {
+        return null;
+      }
+      final map = Map<String, dynamic>.from(value);
+      return SyncQueueSummary(
+        totalChanges: map['totalChanges'] as int? ?? 0,
+        upserts: map['upserts'] as int? ?? 0,
+        deletes: map['deletes'] as int? ?? 0,
+        lastQueuedAt: map['lastQueuedAt'] == null
+            ? null
+            : DateTime.tryParse(map['lastQueuedAt'] as String),
+      );
+    }
+
+    return SyncHistoryEntry(
+      startedAt:
+          DateTime.tryParse('${json['startedAt'] ?? ''}') ?? DateTime.now(),
+      finishedAt:
+          DateTime.tryParse('${json['finishedAt'] ?? ''}') ?? DateTime.now(),
+      provider: SyncProvider.values.firstWhere(
+        (value) => value.name == json['provider'],
+        orElse: () => SyncProvider.off,
+      ),
+      operation: '${json['operation'] ?? ''}',
+      success: json['success'] == true,
+      message: json['message'] as String?,
+      noteCount: json['noteCount'] as int?,
+      attachmentCount: json['attachmentCount'] as int?,
+      queueBefore: summaryFromJson(json['queueBefore']),
+      queueAfter: summaryFromJson(json['queueAfter']),
+    );
+  }
+}
+
+Map<String, dynamic>? _syncQueueSummaryToJson(SyncQueueSummary? summary) {
+  if (summary == null) {
+    return null;
+  }
+  return {
+    'totalChanges': summary.totalChanges,
+    'upserts': summary.upserts,
+    'deletes': summary.deletes,
+    'lastQueuedAt': summary.lastQueuedAt?.toUtc().toIso8601String(),
+  };
+}
+
+class SyncHistoryStore {
+  SyncHistoryStore({
+    Future<SharedPreferences> Function()? sharedPreferencesProvider,
+    this.storageKey = 'sync.history.v1',
+    this.limit = 30,
+  }) : _sharedPreferencesProvider =
+           sharedPreferencesProvider ?? SharedPreferences.getInstance;
+
+  final Future<SharedPreferences> Function() _sharedPreferencesProvider;
+  final String storageKey;
+  final int limit;
+
+  Future<List<SyncHistoryEntry>> read() async {
+    final prefs = await _sharedPreferencesProvider();
+    final raw = prefs.getString(storageKey);
+    if (raw == null || raw.isEmpty) {
+      return const <SyncHistoryEntry>[];
+    }
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) {
+      return const <SyncHistoryEntry>[];
+    }
+    return decoded
+        .whereType<Map>()
+        .map(
+          (entry) =>
+              SyncHistoryEntry.fromJson(Map<String, dynamic>.from(entry)),
+        )
+        .toList(growable: false);
+  }
+
+  Future<void> add(SyncHistoryEntry entry) async {
+    final prefs = await _sharedPreferencesProvider();
+    final entries = [
+      entry,
+      ...await read(),
+    ].take(limit).toList(growable: false);
+    await prefs.setString(
+      storageKey,
+      jsonEncode([for (final item in entries) item.toJson()]),
+    );
+  }
+}
+
 enum LargeSyncTransferDirection { upload, download }
 
 class LargeSyncTransferWarning {
@@ -2603,6 +2733,14 @@ final syncQueueSummaryProvider = FutureProvider<SyncQueueSummary>((ref) async {
   return ref.watch(syncEngineProvider).summarizeQueue();
 });
 
+final syncHistoryStoreProvider = Provider<SyncHistoryStore>((ref) {
+  return SyncHistoryStore();
+});
+
+final syncHistoryProvider = FutureProvider<List<SyncHistoryEntry>>((ref) {
+  return ref.watch(syncHistoryStoreProvider).read();
+});
+
 final playIntegrityServiceProvider = Provider<PlayIntegrityService>(
   (ref) => const PlayIntegrityService(),
 );
@@ -2743,6 +2881,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   RemoteSyncBundleStatus? _cachedRemoteStatus;
   DateTime? _cachedRemoteStatusFetchedAt;
   SyncProvider? _cachedRemoteStatusProvider;
+  String? _lastFailureSignature;
+  int _consecutiveFailureCount = 0;
 
   @override
   SyncTransferState build() {
@@ -2764,8 +2904,82 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     state = state.copyWith(clearLocalBundle: true);
   }
 
+  void clearRetryCooldown() {
+    _cooldownTimer?.cancel();
+    state = state.copyWith(clearCooldown: true);
+    _diagnostic('sync retry cooldown cleared');
+  }
+
   Future<SyncQueueSummary> _readLocalSyncQueueSummary() {
     return ref.read(syncEngineProvider).summarizeQueue();
+  }
+
+  Future<void> _recordSyncHistory({
+    required DateTime startedAt,
+    required String operation,
+    required bool success,
+    String? message,
+    SyncQueueSummary? queueBefore,
+    SyncQueueSummary? queueAfter,
+    RemoteSyncBundleStatus? remoteStatus,
+    StoredSyncBundle? localBundle,
+  }) async {
+    final provider = ref.read(syncProviderControllerProvider);
+    final noteCount = remoteStatus?.noteCount ?? localBundle?.noteCount;
+    final attachmentCount =
+        remoteStatus?.attachmentCount ?? localBundle?.attachmentCount;
+    await ref
+        .read(syncHistoryStoreProvider)
+        .add(
+          SyncHistoryEntry(
+            startedAt: startedAt,
+            finishedAt: DateTime.now(),
+            provider: provider,
+            operation: operation,
+            success: success,
+            message: message,
+            noteCount: noteCount,
+            attachmentCount: attachmentCount,
+            queueBefore: queueBefore,
+            queueAfter: queueAfter,
+          ),
+        );
+    ref.invalidate(syncHistoryProvider);
+    if (success) {
+      _lastFailureSignature = null;
+      _consecutiveFailureCount = 0;
+      return;
+    }
+    _applyFailureBackoff(operation: operation, message: message);
+  }
+
+  void _applyFailureBackoff({required String operation, String? message}) {
+    final signature = '$operation:${message ?? ''}';
+    if (_lastFailureSignature == signature) {
+      _consecutiveFailureCount += 1;
+    } else {
+      _lastFailureSignature = signature;
+      _consecutiveFailureCount = 1;
+    }
+    final retryAfter = switch (_consecutiveFailureCount) {
+      1 => Duration.zero,
+      2 => const Duration(seconds: 20),
+      3 => const Duration(minutes: 1),
+      _ => const Duration(minutes: 5),
+    };
+    if (retryAfter == Duration.zero) {
+      return;
+    }
+    _scheduleCooldownRefresh(retryAfter);
+    state = state.copyWith(cooldownUntil: DateTime.now().add(retryAfter));
+    _diagnostic(
+      'sync retry cooldown scheduled',
+      data: {
+        'operation': operation,
+        'failures': _consecutiveFailureCount,
+        'retryAfterSeconds': retryAfter.inSeconds,
+      },
+    );
   }
 
   Future<LargeSyncTransferWarning?> largeMobileTransferWarning({
@@ -3206,6 +3420,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     bool silentLargeMobileSkip = false,
     bool pruneAfterUpload = true,
   }) async {
+    final historyStartedAt = DateTime.now();
     final provider = ref.read(syncProviderControllerProvider);
     _diagnostic(
       'upload requested',
@@ -3220,11 +3435,18 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         stage: SyncTransferStage.error,
         message: 'sync.error.select_target_for_upload',
       );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'upload',
+        success: false,
+        message: state.message,
+      );
       return;
     }
+    final queueBeforeUpload = await _readLocalSyncQueueSummary();
     final assessment = assessSyncConflict(
       googleDriveSelected: true,
-      queue: await _readLocalSyncQueueSummary(),
+      queue: queueBeforeUpload,
       remoteStatus: state.remoteStatus,
       bundleState: await ref.read(syncBundleStateProvider.future),
     );
@@ -3236,6 +3458,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       state = state.copyWith(
         stage: SyncTransferStage.error,
         message: 'sync.error.conflict_download_first_or_force_upload',
+      );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'upload',
+        success: false,
+        message: state.message,
+        queueBefore: queueBeforeUpload,
       );
       return;
     }
@@ -3397,7 +3626,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await _yieldToUi();
       await ref
           .read(notesControllerProvider.notifier)
-          .markSnapshotChangesSynced(pendingHashes);
+          .markSnapshotChangesSynced(
+            pendingHashes,
+            preparedNotes: snapshot.notes,
+          );
       ref.invalidate(syncQueueSummaryProvider);
       final queueAfterUpload = await _readLocalSyncQueueSummary();
       _diagnostic(
@@ -3416,6 +3648,16 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       await ref.read(syncBundleStateStoreProvider).recordUpload(remoteStatus);
       ref.invalidate(syncBundleStateProvider);
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'upload',
+        success: true,
+        message: state.message,
+        queueBefore: queueBeforeUpload,
+        queueAfter: queueAfterUpload,
+        remoteStatus: remoteStatus,
+        localBundle: bundle,
+      );
       if (provider == SyncProvider.iCloud && pruneAfterUpload) {
         unawaited(_pruneICloudStorageAfterUpload(bundle));
       }
@@ -3430,8 +3672,34 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           'index': error.index,
         },
       );
+      if (await _restoreMissingAttachmentRemoteRefFromLatestBundle(error)) {
+        _diagnostic(
+          'missing local attachment restored from remote reference',
+          data: {
+            'noteId': error.noteId,
+            'attachmentLabel': error.attachmentLabel,
+            'index': error.index,
+          },
+        );
+        await uploadCurrentBundle(
+          force: force,
+          allowLargeMobileTransfer: allowLargeMobileTransfer,
+          silentLargeMobileSkip: silentLargeMobileSkip,
+          pruneAfterUpload: pruneAfterUpload,
+        );
+        return;
+      }
       state = _failureState(
         error,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'upload',
+        success: false,
+        message: state.message,
+        queueBefore: queueBeforeUpload,
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
       );
@@ -3442,7 +3710,113 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
       );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'upload',
+        success: false,
+        message: state.message,
+        queueBefore: queueBeforeUpload,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
     }
+  }
+
+  Future<bool> _restoreMissingAttachmentRemoteRefFromLatestBundle(
+    SyncAttachmentMissingException error,
+  ) async {
+    if (!_supportsRemoteTransport(ref.read(syncProviderControllerProvider))) {
+      return false;
+    }
+    try {
+      final remoteBundle = await _downloadLatestRemoteBundle();
+      if (remoteBundle == null) {
+        return false;
+      }
+      final localBundle = await ref
+          .read(secureSyncBundleStoreProvider)
+          .writeEncryptedBundlePayload(
+            remoteBundle.encodedPayload,
+            noteCount: remoteBundle.status.noteCount ?? 0,
+            attachmentCount: remoteBundle.status.attachmentCount ?? 0,
+            fileNameOverride: 'missing_attachment_repair_bundle.enc',
+          );
+      final decoded = await ref
+          .read(secureSyncBundleStoreProvider)
+          .readBundleJson(localBundle.reference);
+      if (decoded == null) {
+        return false;
+      }
+      final remoteAttachment = _remoteAttachmentForMissingError(
+        decodedBundle: decoded,
+        error: error,
+      );
+      if (remoteAttachment == null ||
+          !isSyncAttachmentObjectRef(remoteAttachment.filePath)) {
+        return false;
+      }
+      return ref
+          .read(notesControllerProvider.notifier)
+          .restoreMissingAttachmentRemoteReference(
+            noteId: error.noteId,
+            index: error.index,
+            remoteAttachment: remoteAttachment,
+          );
+    } catch (repairError) {
+      _diagnostic(
+        'missing local attachment remote repair failed',
+        data: {
+          'noteId': error.noteId,
+          'attachmentLabel': error.attachmentLabel,
+          'error': repairError,
+        },
+      );
+      return false;
+    }
+  }
+
+  NoteAttachment? _remoteAttachmentForMissingError({
+    required Map<String, dynamic> decodedBundle,
+    required SyncAttachmentMissingException error,
+  }) {
+    final rawNoteEntries =
+        decodedBundle['notes'] as List<dynamic>? ?? const <dynamic>[];
+    for (final rawEntry in rawNoteEntries) {
+      if (rawEntry is! Map) {
+        continue;
+      }
+      final rawNote = rawEntry['note'];
+      if (rawNote is! Map) {
+        continue;
+      }
+      final note = NoteEntry.fromJson(Map<String, dynamic>.from(rawNote));
+      if (note.id != error.noteId) {
+        continue;
+      }
+      final remoteAttachment = _attachmentAtSyncIndex(note, error.index);
+      final remotePath = remoteAttachment?.filePath;
+      if (remoteAttachment == null ||
+          remoteAttachment.type != error.attachmentType ||
+          !isSyncAttachmentObjectRef(remotePath)) {
+        return null;
+      }
+      return remoteAttachment;
+    }
+    return null;
+  }
+
+  NoteAttachment? _attachmentAtSyncIndex(NoteEntry note, int index) {
+    if (index < 0) {
+      return null;
+    }
+    if (index < note.attachments.length) {
+      return note.attachments[index];
+    }
+    final blockIndex = index - note.attachments.length;
+    if (blockIndex < 0 || blockIndex >= note.blocks.length) {
+      return null;
+    }
+    return note.blocks[blockIndex].attachment;
   }
 
   Future<void> reuploadAllCurrentNotes({
@@ -3904,6 +4278,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   Future<void> downloadLatestBundle() async {
+    final historyStartedAt = DateTime.now();
     final remoteStatus = state.remoteStatus;
     if (remoteStatus != null && remoteStatus.fileId.isNotEmpty) {
       await downloadBundle(remoteStatus);
@@ -3914,6 +4289,12 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       state = const SyncTransferState(
         stage: SyncTransferStage.error,
         message: 'sync.error.select_target_for_download',
+      );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'download',
+        success: false,
+        message: state.message,
       );
       return;
     }
@@ -3928,9 +4309,25 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remoteBundle,
         emptyMessage: 'sync.info.no_usable_remote_bundle',
       );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'download',
+        success: state.stage == SyncTransferStage.success,
+        message: state.message,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
     } catch (error) {
       state = _failureState(
         error,
+        remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'download',
+        success: false,
+        message: state.message,
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
       );
@@ -3942,11 +4339,19 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   Future<void> downloadBundle(RemoteSyncBundleStatus remoteStatus) async {
+    final historyStartedAt = DateTime.now();
     final provider = ref.read(syncProviderControllerProvider);
     if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
         stage: SyncTransferStage.error,
         message: 'sync.error.select_target_for_download',
+      );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'download',
+        success: false,
+        message: state.message,
+        remoteStatus: remoteStatus,
       );
       return;
     }
@@ -3963,10 +4368,26 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remoteBundle,
         emptyMessage: 'sync.error.selected_bundle_download_failed',
       );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'download',
+        success: state.stage == SyncTransferStage.success,
+        message: state.message,
+        remoteStatus: state.remoteStatus ?? remoteStatus,
+        localBundle: state.localBundle,
+      );
     } catch (error) {
       state = _failureState(
         error,
         remoteStatus: state.remoteStatus,
+        localBundle: state.localBundle,
+      );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'download',
+        success: false,
+        message: state.message,
+        remoteStatus: state.remoteStatus ?? remoteStatus,
         localBundle: state.localBundle,
       );
     }
@@ -3985,14 +4406,22 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   Future<void> applyDownloadedBundle() async {
+    final historyStartedAt = DateTime.now();
     final localBundle = state.localBundle;
     if (localBundle == null) {
       state = state.copyWith(
         stage: SyncTransferStage.error,
         message: 'sync.error.download_before_apply',
       );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'apply',
+        success: false,
+        message: state.message,
+      );
       return;
     }
+    final queueBeforeApply = await _readLocalSyncQueueSummary();
     _startBusy(SyncTransferProgress.applyingBundle);
     try {
       await logFirebaseBreadcrumb('sync apply downloaded bundle');
@@ -4127,13 +4556,41 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             ? 'sync.info.apply_success'
             : _privateProfileNotesPendingUnlockMessage,
       );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'apply',
+        success: true,
+        message: state.message,
+        queueBefore: queueBeforeApply,
+        queueAfter: await _readLocalSyncQueueSummary(),
+        remoteStatus: state.remoteStatus,
+        localBundle: localBundle,
+      );
     } on HimemoDecryptionException {
       state = state.copyWith(
         stage: SyncTransferStage.error,
         message: _syncBundleDecryptionMessage,
       );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'apply',
+        success: false,
+        message: state.message,
+        queueBefore: queueBeforeApply,
+        remoteStatus: state.remoteStatus,
+        localBundle: localBundle,
+      );
     } catch (error) {
       state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'apply',
+        success: false,
+        message: state.message,
+        queueBefore: queueBeforeApply,
+        remoteStatus: state.remoteStatus,
+        localBundle: localBundle,
+      );
     }
   }
 
@@ -8587,6 +9044,25 @@ class NotesController extends _$NotesController {
       }
       final shouldDelete = change.action == PendingNoteChangeAction.delete;
 
+      if (shouldDelete && current != null && current.deletedAt != null) {
+        next[index] = _mergeRemoteDeleteIntoCurrent(current, incoming);
+        continue;
+      }
+
+      if (!shouldDelete && current != null && current.deletedAt != null) {
+        if (!_sameSyncedContent(current, incoming)) {
+          final queued = current.copyWith(
+            syncState: _incomingWins(current, incoming)
+                ? NoteSyncState.conflict
+                : NoteSyncState.pendingDelete,
+          );
+          next[index] = queued.contentHash == null
+              ? queued.copyWith(contentHash: _computeContentHash(queued))
+              : queued;
+        }
+        continue;
+      }
+
       if (current != null && _hasUnuploadedLocalChange(current)) {
         if (!_sameSyncedContent(current, incoming)) {
           next[index] = current.copyWith(syncState: NoteSyncState.conflict);
@@ -8610,17 +9086,21 @@ class NotesController extends _$NotesController {
       }
 
       final applied = shouldDelete
-          ? incoming.copyWith(
-              deletedAt: incoming.deletedAt ?? DateTime.now(),
-              syncState: NoteSyncState.synced,
-            )
+          ? (current == null
+                ? incoming.copyWith(
+                    deletedAt: incoming.deletedAt ?? DateTime.now(),
+                    syncState: NoteSyncState.synced,
+                  )
+                : _mergeRemoteDeleteIntoCurrent(current, incoming))
           : incoming.copyWith(deletedAt: null, syncState: NoteSyncState.synced);
 
       if (current == null) {
         next.add(applied);
       } else {
         next[index] = applied;
-        removedAttachments.addAll(_attachmentsIn(current));
+        if (!shouldDelete) {
+          removedAttachments.addAll(_attachmentsIn(current));
+        }
       }
     }
 
@@ -8639,6 +9119,19 @@ class NotesController extends _$NotesController {
     _sort(next);
     state = next;
     await _persist();
+  }
+
+  NoteEntry _mergeRemoteDeleteIntoCurrent(
+    NoteEntry current,
+    NoteEntry incoming,
+  ) {
+    return current.copyWith(
+      deletedAt: incoming.deletedAt ?? current.deletedAt ?? DateTime.now(),
+      revision: math.max(current.revision, incoming.revision),
+      deviceId: incoming.deviceId ?? current.deviceId,
+      contentHash: incoming.contentHash ?? current.contentHash,
+      syncState: NoteSyncState.synced,
+    );
   }
 
   Future<void> resolveConflictKeepingLocal(String noteId) async {
@@ -8759,13 +9252,17 @@ class NotesController extends _$NotesController {
   }
 
   Future<void> markSnapshotChangesSynced(
-    Map<String, String?> pendingContentHashes,
-  ) async {
+    Map<String, String?> pendingContentHashes, {
+    List<PreparedSyncNote> preparedNotes = const <PreparedSyncNote>[],
+  }) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     if (pendingContentHashes.isEmpty) {
       return;
     }
+    final preparedByNoteId = {
+      for (final prepared in preparedNotes) prepared.note.id: prepared.note,
+    };
     var changed = false;
     final next = <NoteEntry>[];
     for (final note in state) {
@@ -8776,14 +9273,19 @@ class NotesController extends _$NotesController {
         next.add(note);
         continue;
       }
+      final prepared = preparedByNoteId[note.id];
+      var syncedNote = prepared == null
+          ? note
+          : _copyPreparedSyncAttachmentMetadata(note, prepared);
       if (note.syncState == NoteSyncState.pendingUpload ||
           note.syncState == NoteSyncState.pendingDelete ||
           note.syncState == NoteSyncState.conflict) {
-        next.add(note.copyWith(syncState: NoteSyncState.synced));
+        syncedNote = syncedNote.copyWith(syncState: NoteSyncState.synced);
         changed = true;
       } else {
-        next.add(note);
+        changed = changed || syncedNote != note;
       }
+      next.add(syncedNote);
     }
     if (!changed) {
       return;
@@ -8791,6 +9293,60 @@ class NotesController extends _$NotesController {
     _sort(next);
     state = next;
     await _persist();
+  }
+
+  NoteEntry _copyPreparedSyncAttachmentMetadata(
+    NoteEntry current,
+    NoteEntry prepared,
+  ) {
+    NoteAttachment merge(NoteAttachment local, NoteAttachment remote) {
+      final remoteHash =
+          remote.syncAttachmentContentHash ??
+          syncAttachmentObjectContentHash(remote.filePath);
+      if (remoteHash == null || remoteHash.isEmpty) {
+        return local;
+      }
+      final next = local.copyWith(
+        localPayloadSizeBytes: remote.localPayloadSizeBytes,
+        localPayloadModifiedAtMillis: remote.localPayloadModifiedAtMillis,
+        syncAttachmentContentHash: remoteHash,
+      );
+      return next == local ? local : next;
+    }
+
+    var changed = false;
+    final attachments = <NoteAttachment>[];
+    for (var i = 0; i < current.attachments.length; i++) {
+      final local = current.attachments[i];
+      if (i >= prepared.attachments.length) {
+        attachments.add(local);
+        continue;
+      }
+      final next = merge(local, prepared.attachments[i]);
+      changed = changed || next != local;
+      attachments.add(next);
+    }
+
+    final blocks = <NoteBlock>[];
+    for (var i = 0; i < current.blocks.length; i++) {
+      final localBlock = current.blocks[i];
+      final localAttachment = localBlock.attachment;
+      final preparedAttachment = i < prepared.blocks.length
+          ? prepared.blocks[i].attachment
+          : null;
+      if (localAttachment == null || preparedAttachment == null) {
+        blocks.add(localBlock);
+        continue;
+      }
+      final nextAttachment = merge(localAttachment, preparedAttachment);
+      changed = changed || nextAttachment != localAttachment;
+      blocks.add(localBlock.copyWith(attachment: nextAttachment));
+    }
+
+    if (!changed) {
+      return current;
+    }
+    return current.copyWith(attachments: attachments, blocks: blocks);
   }
 
   Future<List<NoteEntry>> notesForSyncSnapshot({
@@ -8810,6 +9366,68 @@ class NotesController extends _$NotesController {
         (note) => pendingNoteIds.contains(note.id) && canUpload(note),
       ),
     );
+  }
+
+  Future<bool> restoreMissingAttachmentRemoteReference({
+    required String noteId,
+    required int index,
+    required NoteAttachment remoteAttachment,
+  }) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final remotePath = remoteAttachment.filePath;
+    if (!isSyncAttachmentObjectRef(remotePath)) {
+      return false;
+    }
+    final next = [...state];
+    final noteIndex = next.indexWhere((note) => note.id == noteId);
+    if (noteIndex == -1) {
+      return false;
+    }
+    final note = next[noteIndex];
+
+    NoteAttachment restore(NoteAttachment current) {
+      final remoteHash =
+          remoteAttachment.syncAttachmentContentHash ??
+          syncAttachmentObjectContentHash(remotePath);
+      return current.copyWith(
+        filePath: remotePath,
+        previewBytesBase64:
+            current.previewBytesBase64 ?? remoteAttachment.previewBytesBase64,
+        durationMs: current.durationMs ?? remoteAttachment.durationMs,
+        syncAttachmentContentHash: remoteHash,
+      );
+    }
+
+    NoteEntry? repaired;
+    if (index >= 0 && index < note.attachments.length) {
+      final attachments = [...note.attachments];
+      attachments[index] = restore(attachments[index]);
+      repaired = note.copyWith(attachments: attachments);
+    } else {
+      final blockIndex = index - note.attachments.length;
+      if (blockIndex < 0 || blockIndex >= note.blocks.length) {
+        return false;
+      }
+      final block = note.blocks[blockIndex];
+      final attachment = block.attachment;
+      if (attachment == null) {
+        return false;
+      }
+      final blocks = [...note.blocks];
+      blocks[blockIndex] = block.copyWith(attachment: restore(attachment));
+      repaired = note.copyWith(blocks: blocks);
+    }
+    final queued = repaired.copyWith(
+      syncState: NoteSyncState.pendingUpload,
+      contentHash: null,
+    );
+    final withHash = queued.copyWith(contentHash: _computeContentHash(queued));
+    next[noteIndex] = withHash;
+    _sort(next);
+    state = next;
+    await _persistOne(withHash);
+    return true;
   }
 
   Future<void> queueCurrentStateForSync() async {
@@ -9337,7 +9955,7 @@ class NotesController extends _$NotesController {
       'vaultId': note.vaultId,
       'title': note.title,
       'body': note.body,
-      'blocks': note.blocks.map((block) => block.toJson()).toList(),
+      'blocks': note.blocks.map(_blockContentHashPayload).toList(),
       'tags': note.tags,
       'createdAt': note.createdAt.toIso8601String(),
       'updatedAt': note.updatedAt?.toIso8601String(),
@@ -9356,6 +9974,21 @@ class NotesController extends _$NotesController {
       'location': note.location?.toJson(),
     });
     return sha256.convert(utf8.encode(payload)).toString();
+  }
+
+  Map<String, Object?> _blockContentHashPayload(NoteBlock block) {
+    final attachment = block.attachment;
+    return {
+      'type': block.type.name,
+      'text': block.text,
+      'attachment': attachment == null
+          ? null
+          : {
+              'type': attachment.type.name,
+              'label': attachment.label,
+              'filePath': attachment.filePath,
+            },
+    };
   }
 
   bool _hasUnuploadedLocalChange(NoteEntry note) {

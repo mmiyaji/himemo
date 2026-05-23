@@ -363,7 +363,9 @@ void main() {
     expect(appRouter, contains('TrashScreen'));
     expect(
       homePage,
-      contains('AppSection { notes, calendar, insights, trash, settings }'),
+      contains(
+        'AppSection { notes, calendar, insights, trash, tags, settings }',
+      ),
     );
     expect(homePage, contains("context.go('/trash')"));
     expect(homePage, contains('class TrashScreen'));
@@ -708,7 +710,7 @@ void main() {
     expect(appDelegate, contains('private var cloudKitBundleMetadataFields'));
     expect(appDelegate, contains('options.desiredKeys = desiredKeys'));
     expect(appDelegate, contains('cloudKitBundleSizeField'));
-    expect(appDelegate, contains('record[self.cloudKitBundleSizeField]'));
+    expect(appDelegate, contains('bundleFileSize(for: record)'));
     expect(
       appDelegate,
       contains('desiredKeys: self.cloudKitBundleMetadataFields'),

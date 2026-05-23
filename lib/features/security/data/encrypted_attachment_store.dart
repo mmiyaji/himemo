@@ -17,6 +17,16 @@ import 'profile_data_key_service.dart';
 import 'web_attachment_payload_store_stub.dart'
     if (dart.library.html) 'web_attachment_payload_store_web.dart';
 
+class StoredAttachmentPayloadMetadata {
+  const StoredAttachmentPayloadMetadata({
+    required this.sizeBytes,
+    required this.modifiedAtMillis,
+  });
+
+  final int sizeBytes;
+  final int? modifiedAtMillis;
+}
+
 class EncryptedAttachmentStore {
   EncryptedAttachmentStore({
     required EncryptionService encryptionService,
@@ -405,6 +415,31 @@ class EncryptedAttachmentStore {
       return null;
     }
     return file.length();
+  }
+
+  Future<StoredAttachmentPayloadMetadata?> storedPayloadMetadata(
+    String storedReference,
+  ) async {
+    if (storedReference.startsWith(webPrefix) || kIsWeb) {
+      final sizeBytes = await estimateStoredAttachmentPayloadBytes(
+        storedReference,
+      );
+      return sizeBytes == null
+          ? null
+          : StoredAttachmentPayloadMetadata(
+              sizeBytes: sizeBytes,
+              modifiedAtMillis: null,
+            );
+    }
+    final file = await _resolveStoredFile(storedReference);
+    if (!await file.exists()) {
+      return null;
+    }
+    final stat = await file.stat();
+    return StoredAttachmentPayloadMetadata(
+      sizeBytes: stat.size,
+      modifiedAtMillis: stat.modified.toUtc().millisecondsSinceEpoch,
+    );
   }
 
   Future<Map<String, Object?>> storedPayloadDiagnostics(

@@ -401,6 +401,7 @@ class _ColorThemePicker extends StatefulWidget {
     required this.titleFor,
     required this.subtitleFor,
     required this.sampleColorFor,
+    required this.tileKeyFor,
     required this.onSelect,
   });
 
@@ -410,6 +411,7 @@ class _ColorThemePicker extends StatefulWidget {
   final String Function(AppColorTheme theme) titleFor;
   final String Function(AppColorTheme theme) subtitleFor;
   final Color Function(AppColorTheme theme) sampleColorFor;
+  final Key? Function(AppColorTheme theme) tileKeyFor;
   final ValueChanged<AppColorTheme> onSelect;
 
   @override
@@ -431,6 +433,7 @@ class _ColorThemePickerState extends State<_ColorThemePicker> {
       children: [
         for (final theme in themes)
           _ThemeOptionTile(
+            tileKey: widget.tileKeyFor(theme),
             title: widget.titleFor(theme),
             subtitle: widget.subtitleFor(theme),
             sampleColor: widget.sampleColorFor(theme),

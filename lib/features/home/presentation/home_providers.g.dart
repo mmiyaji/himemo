@@ -35,7 +35,7 @@ final class DiagnosticLogControllerProvider
 }
 
 String _$diagnosticLogControllerHash() =>
-    r'ba7b6918441d93a128f9e9ba6b3c174daa86e0f9';
+    r'e28dde0c448bf0d8c1612390cb20598da68013bf';
 
 abstract class _$DiagnosticLogController
     extends $AsyncNotifier<DiagnosticLogSnapshot> {
@@ -191,7 +191,7 @@ final class WidgetQuickCaptureSettingsControllerProvider
 }
 
 String _$widgetQuickCaptureSettingsControllerHash() =>
-    r'8d5f4dd6def5256df5ac081fb5c61259aee6efb3';
+    r'7e4ccb904120c954e775a9809aa4c7d97f189452';
 
 abstract class _$WidgetQuickCaptureSettingsController extends $Notifier<bool> {
   bool build();
@@ -251,7 +251,7 @@ final class WidgetQuickCaptureRequestControllerProvider
 }
 
 String _$widgetQuickCaptureRequestControllerHash() =>
-    r'0e0943731fee378b16f9f9780ff1e93622455d98';
+    r'4b379f3ddb8397c56809175f70f957342f5829ee';
 
 abstract class _$WidgetQuickCaptureRequestController
     extends $Notifier<QuickCaptureRequest?> {
@@ -352,7 +352,7 @@ final class ActiveIdentityProvider
   }
 }
 
-String _$activeIdentityHash() => r'033c86b481da0b3bb2dc8c997b240e776e09d458';
+String _$activeIdentityHash() => r'baffdb94df3329e1fdf618907984716065df4521';
 
 abstract class _$ActiveIdentity extends $Notifier<String> {
   String build();
@@ -629,7 +629,7 @@ final class LastNoteEditorSettingsControllerProvider
 }
 
 String _$lastNoteEditorSettingsControllerHash() =>
-    r'8500b8058fe26eb308a91da26b23ae7b01836400';
+    r'b8dc00f8562aadd1f59116f4a76f6e80837669e0';
 
 abstract class _$LastNoteEditorSettingsController
     extends $Notifier<LastNoteEditorSettings> {
@@ -683,7 +683,7 @@ final class NotesControllerProvider
   }
 }
 
-String _$notesControllerHash() => r'7049f864891806499206f7d9bb86f2f9b6d39a21';
+String _$notesControllerHash() => r'f3971656acb7d22f6428090b91c0e2ea614f06bf';
 
 abstract class _$NotesController extends $Notifier<List<NoteEntry>> {
   List<NoteEntry> build();
