@@ -140,6 +140,9 @@ class AppShell extends ConsumerStatefulWidget {
   static final tagsNavKey = GlobalKey(debugLabel: 'nav-tags');
   static final settingsNavKey = GlobalKey(debugLabel: 'nav-settings');
   static final addNoteKey = GlobalKey(debugLabel: 'add-note-button');
+  static final headerAddNoteKey = GlobalKey(
+    debugLabel: 'header-add-note-button',
+  );
   static final syncIndicatorKey = GlobalKey(
     debugLabel: 'sync-progress-indicator-button',
   );
@@ -303,6 +306,7 @@ class _AppShellState extends ConsumerState<AppShell> {
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 4),
               child: IconButton(
+                key: AppShell.headerAddNoteKey,
                 tooltip: strings.addNote,
                 onPressed: () => showNoteEditorSheet(context, ref),
                 icon: const Icon(Icons.edit_note_rounded),
@@ -688,7 +692,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 }
 
-class _AppTutorialOverlay extends StatelessWidget {
+class _AppTutorialOverlay extends StatefulWidget {
   const _AppTutorialOverlay({
     required this.state,
     required this.useRail,
@@ -703,7 +707,29 @@ class _AppTutorialOverlay extends StatelessWidget {
   final VoidCallback onNext;
   final VoidCallback onClose;
 
-  AppTutorialStep get step => state.step;
+  @override
+  State<_AppTutorialOverlay> createState() => _AppTutorialOverlayState();
+}
+
+class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
+  bool _remeasureScheduled = false;
+
+  AppTutorialStep get step => widget.state.step;
+
+  void _scheduleRemeasure() {
+    if (_remeasureScheduled) {
+      return;
+    }
+    _remeasureScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _remeasureScheduled = false;
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -719,8 +745,8 @@ class _AppTutorialOverlay extends StatelessWidget {
       highlightRect: highlightRect,
       cardWidth: cardWidth,
     );
-    final isFirst = state.index == 0;
-    final isLast = state.index == state.steps.length - 1;
+    final isFirst = widget.state.index == 0;
+    final isLast = widget.state.index == widget.state.steps.length - 1;
     return Positioned.fill(
       child: Material(
         color: Colors.transparent,
@@ -728,7 +754,7 @@ class _AppTutorialOverlay extends StatelessWidget {
           children: [
             Positioned.fill(
               child: GestureDetector(
-                onTap: onNext,
+                onTap: widget.onNext,
                 child: CustomPaint(
                   painter: _TutorialScrimPainter(
                     highlightRect: highlightRect,
@@ -790,7 +816,7 @@ class _AppTutorialOverlay extends StatelessWidget {
                           ),
                           IconButton(
                             tooltip: strings.close,
-                            onPressed: onClose,
+                            onPressed: widget.onClose,
                             icon: const Icon(Icons.close_rounded),
                           ),
                         ],
@@ -803,12 +829,12 @@ class _AppTutorialOverlay extends StatelessWidget {
                       const SizedBox(height: 14),
                       Text(
                         strings.localized(
-                          en: 'Step ${state.stepNumber} of ${state.stepCount}',
-                          ja: '${state.stepNumber} / ${state.stepCount}',
-                          zh: '第 ${state.stepNumber} 步，共 ${state.stepCount} 步',
-                          ko: '${state.stepNumber}/${state.stepCount}단계',
-                          es: 'Paso ${state.stepNumber} de ${state.stepCount}',
-                          de: 'Schritt ${state.stepNumber} von ${state.stepCount}',
+                          en: 'Step ${widget.state.stepNumber} of ${widget.state.stepCount}',
+                          ja: '${widget.state.stepNumber} / ${widget.state.stepCount}',
+                          zh: '第 ${widget.state.stepNumber} 步，共 ${widget.state.stepCount} 步',
+                          ko: '${widget.state.stepNumber}/${widget.state.stepCount}단계',
+                          es: 'Paso ${widget.state.stepNumber} de ${widget.state.stepCount}',
+                          de: 'Schritt ${widget.state.stepNumber} von ${widget.state.stepCount}',
                         ),
                         style: Theme.of(context).textTheme.labelMedium
                             ?.copyWith(
@@ -822,7 +848,7 @@ class _AppTutorialOverlay extends StatelessWidget {
                         children: [
                           TextButton(
                             key: AppShell.tutorialBackKey,
-                            onPressed: isFirst ? null : onPrevious,
+                            onPressed: isFirst ? null : widget.onPrevious,
                             child: Text(
                               strings.localized(
                                 en: 'Back',
@@ -837,13 +863,13 @@ class _AppTutorialOverlay extends StatelessWidget {
                           const Spacer(),
                           TextButton(
                             key: AppShell.tutorialSkipKey,
-                            onPressed: onClose,
+                            onPressed: widget.onClose,
                             child: Text(strings.skip),
                           ),
                           const SizedBox(width: 8),
                           FilledButton(
                             key: AppShell.tutorialNextKey,
-                            onPressed: isLast ? onClose : onNext,
+                            onPressed: isLast ? widget.onClose : widget.onNext,
                             child: Text(
                               isLast
                                   ? strings.localized(
@@ -895,13 +921,17 @@ class _AppTutorialOverlay extends StatelessWidget {
     return switch (step) {
       AppTutorialStep.privateProfile => Offset(nearRight(), below()),
       AppTutorialStep.addNote =>
-        useRail
+        widget.useRail
             ? Offset(
-                clampLeft(highlightRect.right + gap),
-                math.min(
-                  highlightRect.top,
-                  size.height - padding.bottom - edge - 260,
-                ),
+                highlightRect.top < top + 80
+                    ? nearRight()
+                    : clampLeft(highlightRect.right + gap),
+                highlightRect.top < top + 80
+                    ? below()
+                    : math.min(
+                        highlightRect.top,
+                        size.height - padding.bottom - edge - 260,
+                      ),
               )
             : Offset(centered(), math.max(top, highlightRect.top - 300)),
       AppTutorialStep.syncStatus => Offset(nearRight(), below()),
@@ -909,14 +939,14 @@ class _AppTutorialOverlay extends StatelessWidget {
       AppTutorialStep.tags ||
       AppTutorialStep.trash ||
       AppTutorialStep.calendarInsights =>
-        useRail
+        widget.useRail
             ? Offset(
                 clampLeft(highlightRect.right + gap),
                 math.max(top, highlightRect.top),
               )
             : Offset(centered(), math.max(top, highlightRect.top - 300)),
       AppTutorialStep.navigation =>
-        useRail
+        widget.useRail
             ? Offset(
                 clampLeft(highlightRect.right + gap),
                 math.max(top, highlightRect.top),
@@ -957,7 +987,10 @@ class _AppTutorialOverlay extends StatelessWidget {
       AppTutorialStep.privateProfile => rectFor(
         AppShell.privateProfileAccessKey,
       ),
-      AppTutorialStep.addNote => rectFor(AppShell.addNoteKey),
+      AppTutorialStep.addNote =>
+        widget.useRail
+            ? rectFor(AppShell.headerAddNoteKey) ?? rectFor(AppShell.addNoteKey)
+            : rectFor(AppShell.addNoteKey),
       AppTutorialStep.syncStatus => rectFor(AppShell.syncIndicatorKey),
       AppTutorialStep.settings => rectFor(AppShell.settingsNavKey),
       AppTutorialStep.tags => rectFor(AppShell.tagsNavKey),
@@ -978,6 +1011,7 @@ class _AppTutorialOverlay extends StatelessWidget {
     if (keyedRect != null) {
       return keyedRect.inflate(6);
     }
+    _scheduleRemeasure();
 
     final top = padding.top;
     final bottom = padding.bottom;
@@ -989,7 +1023,7 @@ class _AppTutorialOverlay extends StatelessWidget {
         52,
       ),
       AppTutorialStep.addNote =>
-        useRail
+        widget.useRail
             ? Rect.fromLTWH(
                 10 + padding.left,
                 size.height - bottom - 116,
@@ -1001,25 +1035,25 @@ class _AppTutorialOverlay extends StatelessWidget {
                 radius: 42,
               ),
       AppTutorialStep.syncStatus => Rect.fromLTWH(
-        size.width - (useRail ? 176 : 132),
+        size.width - (widget.useRail ? 176 : 132),
         top + 8,
         56,
         52,
       ),
       AppTutorialStep.settings =>
-        useRail
+        widget.useRail
             ? Rect.fromLTWH(10 + padding.left, top + 298, 234, 56)
             : Rect.fromLTWH(size.width - 92, size.height - bottom - 92, 92, 92),
       AppTutorialStep.tags =>
-        useRail
+        widget.useRail
             ? Rect.fromLTWH(10 + padding.left, top + 246, 234, 56)
             : Rect.fromLTWH(0, size.height - bottom - 92, size.width, 92),
       AppTutorialStep.trash =>
-        useRail
+        widget.useRail
             ? Rect.fromLTWH(10 + padding.left, top + 194, 234, 56)
             : Rect.fromLTWH(0, size.height - bottom - 92, size.width, 92),
       AppTutorialStep.calendarInsights =>
-        useRail
+        widget.useRail
             ? Rect.fromLTWH(10 + padding.left, top + 122, 234, 112)
             : Rect.fromLTWH(
                 size.width * 0.18,
@@ -1028,7 +1062,7 @@ class _AppTutorialOverlay extends StatelessWidget {
                 92,
               ),
       AppTutorialStep.navigation =>
-        useRail
+        widget.useRail
             ? Rect.fromLTWH(10, top + 70, 234, 330)
             : Rect.fromLTWH(0, size.height - bottom - 92, size.width, 92),
     }.inflate(6);
