@@ -16,6 +16,7 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final summaries = ref.watch(visibleTagSummariesProvider);
+    final autoTagRules = ref.watch(autoTagRulesControllerProvider);
     final queryKey = canonicalizeNoteTag(_query);
     final filtered = queryKey.isEmpty
         ? summaries
@@ -53,6 +54,20 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: _mutedTextColor(context),
                     ),
+                  ),
+                  const SizedBox(height: 16),
+                  _AutoTagRulesPanel(
+                    rules: autoTagRules,
+                    onAdd: () => _showCreateAutoTagRuleDialog(context),
+                    onApply: autoTagRules.isEmpty
+                        ? null
+                        : () => _applyAutoTagRules(context),
+                    onToggle: (rule, enabled) => ref
+                        .read(autoTagRulesControllerProvider.notifier)
+                        .setEnabled(rule.id, enabled),
+                    onDelete: (rule) => ref
+                        .read(autoTagRulesControllerProvider.notifier)
+                        .removeRule(rule.id),
                   ),
                   const SizedBox(height: 16),
                   TextField(
@@ -288,6 +303,243 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
     return {for (final vault in ref.read(visibleVaultsProvider)) vault.id};
   }
 
+  Future<void> _applyAutoTagRules(BuildContext context) async {
+    final strings = context.strings;
+    final count = await ref
+        .read(notesControllerProvider.notifier)
+        .applyAutoTagRulesToExisting(vaultIds: _visibleVaultIds());
+    if (!context.mounted) {
+      return;
+    }
+    _showTagSnackBar(
+      context,
+      strings.localized(
+        en: count == 1
+            ? 'Applied rules to 1 note.'
+            : 'Applied rules to $count notes.',
+        ja: '$count件のメモに自動タグルールを適用しました。',
+        zh: '已将自动标签规则应用到 $count 条笔记。',
+        ko: '$count개 메모에 자동 태그 규칙을 적용했습니다.',
+        es: count == 1
+            ? 'Reglas aplicadas a 1 nota.'
+            : 'Reglas aplicadas a $count notas.',
+        de: count == 1
+            ? 'Regeln auf 1 Notiz angewendet.'
+            : 'Regeln auf $count Notizen angewendet.',
+      ),
+    );
+  }
+
+  Future<void> _showCreateAutoTagRuleDialog(BuildContext context) {
+    final strings = context.strings;
+    final tagController = TextEditingController();
+    final keywordsController = TextEditingController();
+    var matchTitle = true;
+    var matchBody = true;
+    var matchAttachments = true;
+    String? errorText;
+    return showDialog<void>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          void submit() {
+            final tag = normalizeNoteTag(tagController.text);
+            final keywords = splitAutoTagKeywords(keywordsController.text);
+            if (tag.isEmpty) {
+              setDialogState(() {
+                errorText = strings.localized(
+                  en: 'Enter a tag name.',
+                  ja: 'タグ名を入力してください。',
+                  zh: '请输入标签名。',
+                  ko: '태그 이름을 입력하세요.',
+                  es: 'Introduce un nombre de etiqueta.',
+                  de: 'Tag-Namen eingeben.',
+                );
+              });
+              return;
+            }
+            if (isSystemSyncExclusionTag(tag)) {
+              setDialogState(() {
+                errorText = strings.localized(
+                  en: 'This tag is reserved by the app.',
+                  ja: 'このタグ名はアプリが使用しています。',
+                  zh: '此标签名由应用保留。',
+                  ko: '이 태그 이름은 앱에서 사용 중입니다.',
+                  es: 'Esta etiqueta esta reservada por la app.',
+                  de: 'Dieser Tag ist von der App reserviert.',
+                );
+              });
+              return;
+            }
+            if (keywords.isEmpty) {
+              setDialogState(() {
+                errorText = strings.localized(
+                  en: 'Enter one or more keywords.',
+                  ja: 'キーワードを1つ以上入力してください。',
+                  zh: '请输入一个或多个关键词。',
+                  ko: '하나 이상의 키워드를 입력하세요.',
+                  es: 'Introduce una o mas palabras clave.',
+                  de: 'Gib mindestens ein Stichwort ein.',
+                );
+              });
+              return;
+            }
+            if (!matchTitle && !matchBody && !matchAttachments) {
+              setDialogState(() {
+                errorText = strings.localized(
+                  en: 'Select at least one match target.',
+                  ja: '照合対象を1つ以上選択してください。',
+                  zh: '请至少选择一个匹配目标。',
+                  ko: '하나 이상의 일치 대상을 선택하세요.',
+                  es: 'Selecciona al menos un destino.',
+                  de: 'Waehle mindestens ein Ziel aus.',
+                );
+              });
+              return;
+            }
+            ref.read(autoTagRulesControllerProvider.notifier).addRule(
+              tag: tag,
+              keywords: keywords,
+              matchTitle: matchTitle,
+              matchBody: matchBody,
+              matchAttachments: matchAttachments,
+            );
+            Navigator.of(context).pop();
+          }
+
+          return AlertDialog(
+            title: Text(
+              strings.localized(
+                en: 'Create auto-tag rule',
+                ja: '自動タグルールを作成',
+                zh: '创建自动标签规则',
+                ko: '자동 태그 규칙 만들기',
+                es: 'Crear regla de etiqueta',
+                de: 'Auto-Tag-Regel erstellen',
+              ),
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    autofocus: true,
+                    controller: tagController,
+                    decoration: InputDecoration(
+                      labelText: strings.localized(
+                        en: 'Tag to add',
+                        ja: '追加するタグ',
+                        zh: '要添加的标签',
+                        ko: '추가할 태그',
+                        es: 'Etiqueta a anadir',
+                        de: 'Hinzuzufuegender Tag',
+                      ),
+                    ),
+                    onChanged: (_) {
+                      if (errorText != null) {
+                        setDialogState(() => errorText = null);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: keywordsController,
+                    minLines: 2,
+                    maxLines: 4,
+                    decoration: InputDecoration(
+                      labelText: strings.localized(
+                        en: 'Keywords',
+                        ja: 'キーワード',
+                        zh: '关键词',
+                        ko: '키워드',
+                        es: 'Palabras clave',
+                        de: 'Stichwoerter',
+                      ),
+                      helperText: strings.localized(
+                        en: 'Separate with commas or new lines.',
+                        ja: 'カンマまたは改行で区切ります。',
+                        zh: '用逗号或换行分隔。',
+                        ko: '쉼표 또는 줄바꿈으로 구분하세요.',
+                        es: 'Separa con comas o saltos de linea.',
+                        de: 'Mit Kommas oder Zeilenumbruechen trennen.',
+                      ),
+                      errorText: errorText,
+                    ),
+                    onChanged: (_) {
+                      if (errorText != null) {
+                        setDialogState(() => errorText = null);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: matchTitle,
+                    onChanged: (value) =>
+                        setDialogState(() => matchTitle = value ?? true),
+                    title: Text(
+                      strings.localized(
+                        en: 'Match title',
+                        ja: 'タイトルを照合',
+                        zh: '匹配标题',
+                        ko: '제목 일치',
+                        es: 'Coincidir titulo',
+                        de: 'Titel pruefen',
+                      ),
+                    ),
+                  ),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: matchBody,
+                    onChanged: (value) =>
+                        setDialogState(() => matchBody = value ?? true),
+                    title: Text(
+                      strings.localized(
+                        en: 'Match memo text',
+                        ja: '本文を照合',
+                        zh: '匹配正文',
+                        ko: '본문 일치',
+                        es: 'Coincidir texto',
+                        de: 'Text pruefen',
+                      ),
+                    ),
+                  ),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: matchAttachments,
+                    onChanged: (value) => setDialogState(
+                      () => matchAttachments = value ?? true,
+                    ),
+                    title: Text(
+                      strings.localized(
+                        en: 'Match attachment names',
+                        ja: '添付ファイル名を照合',
+                        zh: '匹配附件名称',
+                        ko: '첨부 파일 이름 일치',
+                        es: 'Coincidir adjuntos',
+                        de: 'Anhangsnamen pruefen',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(strings.cancel),
+              ),
+              FilledButton(onPressed: submit, child: Text(strings.save)),
+            ],
+          );
+        },
+      ),
+    ).whenComplete(() {
+      tagController.dispose();
+      keywordsController.dispose();
+    });
+  }
+
   Future<String?> _showRenameTagDialog(
     BuildContext context,
     String currentTag,
@@ -374,6 +626,192 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(showCloseIcon: true, content: Text(message)));
+  }
+}
+
+class _AutoTagRulesPanel extends StatelessWidget {
+  const _AutoTagRulesPanel({
+    required this.rules,
+    required this.onAdd,
+    required this.onApply,
+    required this.onToggle,
+    required this.onDelete,
+  });
+
+  final List<AutoTagRule> rules;
+  final VoidCallback onAdd;
+  final VoidCallback? onApply;
+  final void Function(AutoTagRule rule, bool enabled) onToggle;
+  final void Function(AutoTagRule rule) onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: _sectionDecoration(context),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  backgroundColor: theme.colorScheme.surfaceContainerHigh,
+                  child: Icon(
+                    Icons.rule_rounded,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        strings.localized(
+                          en: 'Auto-tag rules',
+                          ja: '自動タグルール',
+                          zh: '自动标签规则',
+                          ko: '자동 태그 규칙',
+                          es: 'Reglas de etiquetas',
+                          de: 'Auto-Tag-Regeln',
+                        ),
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        strings.localized(
+                          en: 'Add tags when memo text or attachment names contain matching keywords.',
+                          ja: 'メモ本文や添付ファイル名にキーワードが含まれる場合にタグを追加します。',
+                          zh: '当笔记文本或附件名包含关键词时添加标签。',
+                          ko: '메모 본문이나 첨부 파일 이름에 키워드가 있으면 태그를 추가합니다.',
+                          es: 'Anade etiquetas cuando el texto o adjuntos contengan palabras clave.',
+                          de: 'Fuegt Tags hinzu, wenn Text oder Anhangsnamen Stichwoerter enthalten.',
+                        ),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: _mutedTextColor(context),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: onAdd,
+                  icon: const Icon(Icons.add_rounded),
+                  label: Text(
+                    strings.localized(
+                      en: 'Add rule',
+                      ja: 'ルールを追加',
+                      zh: '添加规则',
+                      ko: '규칙 추가',
+                      es: 'Anadir regla',
+                      de: 'Regel hinzufuegen',
+                    ),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: onApply,
+                  icon: const Icon(Icons.playlist_add_check_rounded),
+                  label: Text(
+                    strings.localized(
+                      en: 'Apply to existing notes',
+                      ja: '既存メモに適用',
+                      zh: '应用到现有笔记',
+                      ko: '기존 메모에 적용',
+                      es: 'Aplicar a notas existentes',
+                      de: 'Auf vorhandene Notizen anwenden',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (rules.isEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                strings.localized(
+                  en: 'No rules yet.',
+                  ja: 'ルールはまだありません。',
+                  zh: '尚无规则。',
+                  ko: '아직 규칙이 없습니다.',
+                  es: 'Aun no hay reglas.',
+                  de: 'Noch keine Regeln.',
+                ),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: _mutedTextColor(context),
+                ),
+              ),
+            ] else ...[
+              const SizedBox(height: 12),
+              for (final rule in rules) ...[
+                _AutoTagRuleTile(
+                  rule: rule,
+                  onToggle: (enabled) => onToggle(rule, enabled),
+                  onDelete: () => onDelete(rule),
+                ),
+                if (rule != rules.last) const Divider(height: 12),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AutoTagRuleTile extends StatelessWidget {
+  const _AutoTagRuleTile({
+    required this.rule,
+    required this.onToggle,
+    required this.onDelete,
+  });
+
+  final AutoTagRule rule;
+  final ValueChanged<bool> onToggle;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final theme = Theme.of(context);
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Switch(value: rule.enabled, onChanged: onToggle),
+      title: Text(
+        '#${_displayNoteTag(context, rule.tag)}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      subtitle: Text(
+        strings.localized(
+          en: 'Keywords: ${rule.keywords.join(', ')}',
+          ja: 'キーワード: ${rule.keywords.join(', ')}',
+          zh: '关键词: ${rule.keywords.join(', ')}',
+          ko: '키워드: ${rule.keywords.join(', ')}',
+          es: 'Palabras clave: ${rule.keywords.join(', ')}',
+          de: 'Stichwoerter: ${rule.keywords.join(', ')}',
+        ),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: _mutedTextColor(context),
+        ),
+      ),
+      trailing: IconButton(
+        tooltip: strings.delete,
+        onPressed: onDelete,
+        icon: const Icon(Icons.delete_outline_rounded),
+      ),
+    );
   }
 }
 

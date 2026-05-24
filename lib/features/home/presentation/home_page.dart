@@ -72,6 +72,7 @@ part 'home_insights_screen.dart';
 part 'home_notes_screen.dart';
 part 'home_trash_screen.dart';
 part 'home_tags_screen.dart';
+part 'home_tutorials_screen.dart';
 part 'home_google_drive_panel.dart';
 
 const _appStoreId = String.fromEnvironment('HIMEMO_APP_STORE_ID');
@@ -132,17 +133,23 @@ String _notePerfLabel(NoteEntry note) {
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key, required this.child});
 
-  static const notesNavKey = Key('nav-notes');
-  static const calendarNavKey = Key('nav-calendar');
-  static const insightsNavKey = Key('nav-insights');
-  static const settingsNavKey = Key('nav-settings');
-  static const addNoteKey = Key('add-note-button');
-  static const syncIndicatorKey = Key('sync-progress-indicator-button');
-  static const privateProfileAccessKey = Key('private-profile-access-button');
-  static const tutorialCardKey = Key('app-tutorial-card');
-  static const tutorialBackKey = Key('app-tutorial-back');
-  static const tutorialSkipKey = Key('app-tutorial-skip');
-  static const tutorialNextKey = Key('app-tutorial-next');
+  static final notesNavKey = GlobalKey(debugLabel: 'nav-notes');
+  static final calendarNavKey = GlobalKey(debugLabel: 'nav-calendar');
+  static final insightsNavKey = GlobalKey(debugLabel: 'nav-insights');
+  static final trashNavKey = GlobalKey(debugLabel: 'nav-trash');
+  static final tagsNavKey = GlobalKey(debugLabel: 'nav-tags');
+  static final settingsNavKey = GlobalKey(debugLabel: 'nav-settings');
+  static final addNoteKey = GlobalKey(debugLabel: 'add-note-button');
+  static final syncIndicatorKey = GlobalKey(
+    debugLabel: 'sync-progress-indicator-button',
+  );
+  static final privateProfileAccessKey = GlobalKey(
+    debugLabel: 'private-profile-access-button',
+  );
+  static final tutorialCardKey = GlobalKey(debugLabel: 'app-tutorial-card');
+  static final tutorialBackKey = GlobalKey(debugLabel: 'app-tutorial-back');
+  static final tutorialSkipKey = GlobalKey(debugLabel: 'app-tutorial-skip');
+  static final tutorialNextKey = GlobalKey(debugLabel: 'app-tutorial-next');
 
   final Widget child;
 
@@ -272,7 +279,8 @@ class _AppShellState extends ConsumerState<AppShell> {
         ? profileAccessBusyTooltip
         : profileAccessTooltip;
     final syncTransferState = ref.watch(syncTransferControllerProvider);
-    final tutorialStep = ref.watch(appTutorialControllerProvider);
+    final tutorialState = ref.watch(appTutorialControllerProvider);
+    final tutorialStep = tutorialState?.step;
     final showSyncIndicator =
         syncTransferState.stage == SyncTransferStage.busy ||
         tutorialStep == AppTutorialStep.syncStatus;
@@ -295,7 +303,6 @@ class _AppShellState extends ConsumerState<AppShell> {
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 4),
               child: IconButton(
-                key: AppShell.addNoteKey,
                 tooltip: strings.addNote,
                 onPressed: () => showNoteEditorSheet(context, ref),
                 icon: const Icon(Icons.edit_note_rounded),
@@ -547,7 +554,7 @@ class _AppShellState extends ConsumerState<AppShell> {
         shell,
         if (tutorialStep != null)
           _AppTutorialOverlay(
-            step: tutorialStep,
+            state: tutorialState!,
             useRail: useRail,
             onPrevious: ref
                 .read(appTutorialControllerProvider.notifier)
@@ -674,7 +681,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (location.startsWith('/tags')) {
       return AppSection.tags;
     }
-    if (location.startsWith('/settings')) {
+    if (location.startsWith('/settings') || location.startsWith('/tutorials')) {
       return AppSection.settings;
     }
     return AppSection.notes;
@@ -683,25 +690,27 @@ class _AppShellState extends ConsumerState<AppShell> {
 
 class _AppTutorialOverlay extends StatelessWidget {
   const _AppTutorialOverlay({
-    required this.step,
+    required this.state,
     required this.useRail,
     required this.onPrevious,
     required this.onNext,
     required this.onClose,
   });
 
-  final AppTutorialStep step;
+  final AppTutorialState state;
   final bool useRail;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onClose;
+
+  AppTutorialStep get step => state.step;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
     final media = MediaQuery.of(context);
     final size = media.size;
-    final highlightRect = _highlightRect(size, media.padding);
+    final highlightRect = _highlightRect(context, size, media.padding);
     const edgeMargin = 18.0;
     final cardWidth = math.min(360.0, size.width - edgeMargin * 2);
     final cardOffset = _cardOffset(
@@ -710,8 +719,8 @@ class _AppTutorialOverlay extends StatelessWidget {
       highlightRect: highlightRect,
       cardWidth: cardWidth,
     );
-    final isFirst = step == AppTutorialStep.values.first;
-    final isLast = step == AppTutorialStep.values.last;
+    final isFirst = state.index == 0;
+    final isLast = state.index == state.steps.length - 1;
     return Positioned.fill(
       child: Material(
         color: Colors.transparent,
@@ -794,12 +803,12 @@ class _AppTutorialOverlay extends StatelessWidget {
                       const SizedBox(height: 14),
                       Text(
                         strings.localized(
-                          en: 'Step ${AppTutorialStep.values.indexOf(step) + 1} of ${AppTutorialStep.values.length}',
-                          ja: '${AppTutorialStep.values.indexOf(step) + 1} / ${AppTutorialStep.values.length}',
-                          zh: '第 ${AppTutorialStep.values.indexOf(step) + 1} 步，共 ${AppTutorialStep.values.length} 步',
-                          ko: '${AppTutorialStep.values.indexOf(step) + 1}/${AppTutorialStep.values.length}단계',
-                          es: 'Paso ${AppTutorialStep.values.indexOf(step) + 1} de ${AppTutorialStep.values.length}',
-                          de: 'Schritt ${AppTutorialStep.values.indexOf(step) + 1} von ${AppTutorialStep.values.length}',
+                          en: 'Step ${state.stepNumber} of ${state.stepCount}',
+                          ja: '${state.stepNumber} / ${state.stepCount}',
+                          zh: '第 ${state.stepNumber} 步，共 ${state.stepCount} 步',
+                          ko: '${state.stepNumber}/${state.stepCount}단계',
+                          es: 'Paso ${state.stepNumber} de ${state.stepCount}',
+                          de: 'Schritt ${state.stepNumber} von ${state.stepCount}',
                         ),
                         style: Theme.of(context).textTheme.labelMedium
                             ?.copyWith(
@@ -896,6 +905,16 @@ class _AppTutorialOverlay extends StatelessWidget {
               )
             : Offset(centered(), math.max(top, highlightRect.top - 300)),
       AppTutorialStep.syncStatus => Offset(nearRight(), below()),
+      AppTutorialStep.settings ||
+      AppTutorialStep.tags ||
+      AppTutorialStep.trash ||
+      AppTutorialStep.calendarInsights =>
+        useRail
+            ? Offset(
+                clampLeft(highlightRect.right + gap),
+                math.max(top, highlightRect.top),
+              )
+            : Offset(centered(), math.max(top, highlightRect.top - 300)),
       AppTutorialStep.navigation =>
         useRail
             ? Offset(
@@ -906,7 +925,60 @@ class _AppTutorialOverlay extends StatelessWidget {
     };
   }
 
-  Rect _highlightRect(Size size, EdgeInsets padding) {
+  Rect _highlightRect(BuildContext context, Size size, EdgeInsets padding) {
+    Rect? rectFor(GlobalKey key) {
+      final targetContext = key.currentContext;
+      final targetRenderObject = targetContext?.findRenderObject();
+      final overlayRenderObject = context.findRenderObject();
+      if (targetRenderObject is! RenderBox ||
+          overlayRenderObject is! RenderBox ||
+          !targetRenderObject.hasSize ||
+          !overlayRenderObject.hasSize) {
+        return null;
+      }
+      final targetTopLeft = targetRenderObject.localToGlobal(Offset.zero);
+      final overlayTopLeft = overlayRenderObject.localToGlobal(Offset.zero);
+      return (targetTopLeft - overlayTopLeft) & targetRenderObject.size;
+    }
+
+    Rect? unionRects(Iterable<GlobalKey> keys) {
+      Rect? result;
+      for (final key in keys) {
+        final rect = rectFor(key);
+        if (rect == null) {
+          continue;
+        }
+        result = result == null ? rect : result.expandToInclude(rect);
+      }
+      return result;
+    }
+
+    final keyedRect = switch (step) {
+      AppTutorialStep.privateProfile => rectFor(
+        AppShell.privateProfileAccessKey,
+      ),
+      AppTutorialStep.addNote => rectFor(AppShell.addNoteKey),
+      AppTutorialStep.syncStatus => rectFor(AppShell.syncIndicatorKey),
+      AppTutorialStep.settings => rectFor(AppShell.settingsNavKey),
+      AppTutorialStep.tags => rectFor(AppShell.tagsNavKey),
+      AppTutorialStep.trash => rectFor(AppShell.trashNavKey),
+      AppTutorialStep.calendarInsights => unionRects([
+        AppShell.calendarNavKey,
+        AppShell.insightsNavKey,
+      ]),
+      AppTutorialStep.navigation => unionRects([
+        AppShell.notesNavKey,
+        AppShell.calendarNavKey,
+        AppShell.insightsNavKey,
+        AppShell.trashNavKey,
+        AppShell.tagsNavKey,
+        AppShell.settingsNavKey,
+      ]),
+    };
+    if (keyedRect != null) {
+      return keyedRect.inflate(6);
+    }
+
     final top = padding.top;
     final bottom = padding.bottom;
     return switch (step) {
@@ -929,14 +1001,35 @@ class _AppTutorialOverlay extends StatelessWidget {
                 radius: 42,
               ),
       AppTutorialStep.syncStatus => Rect.fromLTWH(
-        size.width - (useRail ? 126 : 132),
+        size.width - (useRail ? 176 : 132),
         top + 8,
         56,
         52,
       ),
+      AppTutorialStep.settings =>
+        useRail
+            ? Rect.fromLTWH(10 + padding.left, top + 298, 234, 56)
+            : Rect.fromLTWH(size.width - 92, size.height - bottom - 92, 92, 92),
+      AppTutorialStep.tags =>
+        useRail
+            ? Rect.fromLTWH(10 + padding.left, top + 246, 234, 56)
+            : Rect.fromLTWH(0, size.height - bottom - 92, size.width, 92),
+      AppTutorialStep.trash =>
+        useRail
+            ? Rect.fromLTWH(10 + padding.left, top + 194, 234, 56)
+            : Rect.fromLTWH(0, size.height - bottom - 92, size.width, 92),
+      AppTutorialStep.calendarInsights =>
+        useRail
+            ? Rect.fromLTWH(10 + padding.left, top + 122, 234, 112)
+            : Rect.fromLTWH(
+                size.width * 0.18,
+                size.height - bottom - 92,
+                size.width * 0.46,
+                92,
+              ),
       AppTutorialStep.navigation =>
         useRail
-            ? Rect.fromLTWH(10, top + 70, 234, 270)
+            ? Rect.fromLTWH(10, top + 70, 234, 330)
             : Rect.fromLTWH(0, size.height - bottom - 92, size.width, 92),
     }.inflate(6);
   }
@@ -946,34 +1039,28 @@ class _AppTutorialOverlay extends StatelessWidget {
       AppTutorialStep.privateProfile => strings.localized(
         en: 'Private profile unlock',
         ja: 'プライベート解除',
-        zh: '私密档案解锁',
-        ko: '비공개 프로필 잠금 해제',
-        es: 'Desbloqueo privado',
-        de: 'Privates Profil entsperren',
       ),
       AppTutorialStep.addNote => strings.localized(
         en: 'Create a memo',
         ja: 'メモを作成',
-        zh: '创建备忘',
-        ko: '메모 만들기',
-        es: 'Crear memo',
-        de: 'Notiz erstellen',
       ),
       AppTutorialStep.syncStatus => strings.localized(
         en: 'Sync status',
         ja: '同期状況',
-        zh: '同步状态',
-        ko: '동기화 상태',
-        es: 'Estado de sincronizacion',
-        de: 'Synchronisierungsstatus',
+      ),
+      AppTutorialStep.settings => strings.localized(
+        en: 'Settings hub',
+        ja: '設定の入り口',
+      ),
+      AppTutorialStep.tags => strings.localized(en: 'Tags', ja: 'タグ整理'),
+      AppTutorialStep.trash => strings.localized(en: 'Trash', ja: 'ゴミ箱'),
+      AppTutorialStep.calendarInsights => strings.localized(
+        en: 'Calendar and insights',
+        ja: 'カレンダーと記録',
       ),
       AppTutorialStep.navigation => strings.localized(
         en: 'Main navigation',
         ja: '画面の切り替え',
-        zh: '主导航',
-        ko: '주요 탐색',
-        es: 'Navegacion principal',
-        de: 'Hauptnavigation',
       ),
     };
   }
@@ -983,34 +1070,34 @@ class _AppTutorialOverlay extends StatelessWidget {
       AppTutorialStep.privateProfile => strings.localized(
         en: 'Use the lock icon in the header to unlock or switch private profiles. App lock also uses this area when protection is enabled.',
         ja: '画面右上のロックアイコンからプライベートプロファイルの解除や切り替えができます。アプリ保護を有効にした場合もここが入口になります。',
-        zh: '可从标题栏右上角的锁图标解锁或切换私密档案。启用应用保护后，这里也是入口。',
-        ko: '화면 오른쪽 위 잠금 아이콘에서 비공개 프로필을 잠금 해제하거나 전환할 수 있습니다. 앱 보호를 켠 경우에도 이 영역을 사용합니다.',
-        es: 'Usa el icono de candado del encabezado para desbloquear o cambiar perfiles privados. La proteccion de la app tambien entra por aqui.',
-        de: 'Ueber das Schloss oben rechts kannst du private Profile entsperren oder wechseln. Auch der App-Schutz nutzt diesen Bereich.',
       ),
       AppTutorialStep.addNote => strings.localized(
-        en: 'Tap the center compose button to add a new memo. You can attach photos, videos, audio, files, tags, and dates from the editor.',
-        ja: '中央の作成ボタンから新しいメモを追加します。編集画面では写真、動画、音声、ファイル、タグ、日付を追加できます。',
-        zh: '点击中央的创建按钮添加新备忘。可在编辑器中添加照片、视频、音频、文件、标签和日期。',
-        ko: '가운데 작성 버튼으로 새 메모를 추가합니다. 편집 화면에서 사진, 동영상, 오디오, 파일, 태그, 날짜를 추가할 수 있습니다.',
-        es: 'Toca el boton central para crear un memo. En el editor puedes agregar fotos, videos, audio, archivos, etiquetas y fechas.',
-        de: 'Mit der mittleren Schaltflaeche erstellst du eine neue Notiz. Im Editor kannst du Fotos, Videos, Audio, Dateien, Tags und Daten hinzufuegen.',
+        en: 'Tap the compose button to add a new memo. You can attach photos, videos, audio, files, tags, and dates from the editor.',
+        ja: '作成ボタンから新しいメモを追加します。編集画面では写真、動画、音声、ファイル、タグ、日付を追加できます。',
       ),
       AppTutorialStep.syncStatus => strings.localized(
         en: 'When sync is running, this indicator rotates and shows progress. Tap it to see the current step and item counts.',
-        ja: '同期中はこのインジケーターが回転し、進捗を示します。タップすると現在の処理や件数進捗を確認できます。',
-        zh: '同步运行时，此指示器会旋转并显示进度。点击可查看当前步骤和项目数量。',
-        ko: '동기화 중에는 이 표시기가 회전하며 진행률을 보여줍니다. 탭하면 현재 단계와 항목 수를 볼 수 있습니다.',
-        es: 'Durante la sincronizacion, este indicador gira y muestra el progreso. Tocalo para ver el paso actual y los conteos.',
-        de: 'Waehrend der Synchronisierung dreht sich diese Anzeige und zeigt den Fortschritt. Tippe darauf, um Schritt und Anzahl zu sehen.',
+        ja: '同期中はこのインジケーターが回転し、進捗を表示します。タップすると現在の処理や件数進捗を確認できます。',
+      ),
+      AppTutorialStep.settings => strings.localized(
+        en: 'Settings is where you manage sync, app protection, private profiles, appearance, storage, release notes, and help.',
+        ja: '設定では同期、アプリ保護、プライベートプロファイル、表示、ストレージ、更新履歴、ヘルプを管理できます。',
+      ),
+      AppTutorialStep.tags => strings.localized(
+        en: 'Use tags to group related memos. The Tags screen lets you search, rename, delete, and apply rules for organizing notes.',
+        ja: 'タグで関連するメモをまとめられます。タグ画面では検索、名前変更、削除、整理ルールの適用ができます。',
+      ),
+      AppTutorialStep.trash => strings.localized(
+        en: 'Deleted memos move to Trash first. Review them here before restoring or deleting them permanently.',
+        ja: '削除したメモはいったんゴミ箱に入ります。ここで確認してから復元または完全削除できます。',
+      ),
+      AppTutorialStep.calendarInsights => strings.localized(
+        en: 'Calendar helps you review memos by date, while insights show writing patterns and note activity.',
+        ja: 'カレンダーでは日付からメモを見返せます。記録では作成傾向やメモの活動を確認できます。',
       ),
       AppTutorialStep.navigation => strings.localized(
-        en: 'Use the navigation to move between notes, calendar, insights, trash, and settings. Settings contains sync, app protection, profiles, and help.',
-        ja: 'ナビゲーションからノート、カレンダー、記録、ゴミ箱、設定へ移動できます。設定には同期、アプリ保護、プロファイル、ヘルプがあります。',
-        zh: '使用导航在笔记、日历、记录、回收站和设置之间移动。设置中包含同步、应用保护、档案和帮助。',
-        ko: '탐색 메뉴에서 노트, 캘린더, 기록, 휴지통, 설정으로 이동합니다. 설정에는 동기화, 앱 보호, 프로필, 도움말이 있습니다.',
-        es: 'Usa la navegacion para moverte entre notas, calendario, registros, papelera y ajustes. Ajustes contiene sincronizacion, proteccion, perfiles y ayuda.',
-        de: 'Mit der Navigation wechselst du zwischen Notizen, Kalender, Auswertung, Papierkorb und Einstellungen. Dort findest du Synchronisierung, App-Schutz, Profile und Hilfe.',
+        en: 'Use the navigation to move between notes, calendar, insights, trash, tags, and settings. Settings contains sync, app protection, profiles, and help.',
+        ja: 'ナビゲーションからノート、カレンダー、記録、ゴミ箱、タグ、設定へ移動できます。設定には同期、アプリ保護、プロファイル、ヘルプがあります。',
       ),
     };
   }

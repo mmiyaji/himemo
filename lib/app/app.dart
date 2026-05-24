@@ -1710,6 +1710,33 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                             ),
                           ),
                         const Spacer(),
+                        if (isLastPage)
+                          Padding(
+                            padding: const EdgeInsetsDirectional.only(end: 8),
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                ref
+                                    .read(
+                                      appTutorialControllerProvider.notifier,
+                                    )
+                                    .start(AppTutorialCourse.basics);
+                                await ref
+                                    .read(appLaunchControllerProvider.notifier)
+                                    .completeOnboarding();
+                              },
+                              icon: const Icon(Icons.tips_and_updates_outlined),
+                              label: Text(
+                                strings.localized(
+                                  en: 'Try first steps',
+                                  ja: '初歩ガイドを見る',
+                                  zh: '查看入门指南',
+                                  ko: '첫 단계 보기',
+                                  es: 'Ver primeros pasos',
+                                  de: 'Erste Schritte ansehen',
+                                ),
+                              ),
+                            ),
+                          ),
                         FilledButton(
                           key: const Key('onboarding-next-button'),
                           onPressed: () async {

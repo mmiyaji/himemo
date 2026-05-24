@@ -2287,24 +2287,40 @@ void main() {
 
     controller.start();
     expect(
-      container.read(appTutorialControllerProvider),
+      container.read(appTutorialControllerProvider)?.step,
       AppTutorialStep.privateProfile,
     );
 
     controller.next();
     expect(
-      container.read(appTutorialControllerProvider),
+      container.read(appTutorialControllerProvider)?.step,
       AppTutorialStep.addNote,
     );
 
     controller.previous();
     expect(
-      container.read(appTutorialControllerProvider),
+      container.read(appTutorialControllerProvider)?.step,
       AppTutorialStep.privateProfile,
     );
 
     controller.close();
     expect(container.read(appTutorialControllerProvider), isNull);
+  });
+
+  test('app tutorial controller starts purpose-based courses', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final controller = container.read(appTutorialControllerProvider.notifier);
+
+    controller.start(AppTutorialCourse.organize);
+    var state = container.read(appTutorialControllerProvider);
+    expect(state?.course, AppTutorialCourse.organize);
+    expect(state?.step, AppTutorialStep.tags);
+    expect(state?.stepCount, 3);
+
+    controller.next();
+    state = container.read(appTutorialControllerProvider);
+    expect(state?.step, AppTutorialStep.trash);
   });
 
   test('app lock policy providers expose secure defaults', () {
@@ -2946,6 +2962,79 @@ void main() {
       expect(planningIndex, lessThan(compoundIndex));
     },
   );
+
+  test('auto tag rules add matching tags without duplicates', () {
+    final rule = AutoTagRule(
+      id: 'rule-1',
+      tag: 'Finance',
+      keywords: splitAutoTagKeywords('receipt, invoice'),
+    );
+    final note = NoteEntry(
+      id: 'auto-tag-1',
+      vaultId: 'everyday',
+      title: 'Receipt from cafe',
+      body: 'Lunch meeting',
+      tags: const ['Work'],
+      createdAt: DateTime.utc(2026, 5, 20),
+    );
+
+    final tagged = applyAutoTagRules(note, [rule]);
+    expect(tagged.tags, ['Work', 'Finance']);
+    expect(applyAutoTagRules(tagged, [rule]).tags, ['Work', 'Finance']);
+    expect(applyAutoTagRules(note, [rule.copyWith(enabled: false)]).tags, [
+      'Work',
+    ]);
+  });
+
+  test('notes controller applies auto tag rules when saving notes', () async {
+    SharedPreferences.setMockInitialValues({});
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(76));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    await container
+        .read(autoTagRulesControllerProvider.notifier)
+        .addRule(tag: 'Finance', keywords: ['receipt']);
+    final controller = container.read(notesControllerProvider.notifier);
+    await controller.restoreCompleted;
+    await controller.upsert(
+      NoteEntry(
+        id: 'auto-tag-save',
+        vaultId: 'everyday',
+        title: 'Receipt from cafe',
+        body: 'Lunch meeting',
+        createdAt: DateTime.utc(2026, 5, 20),
+      ),
+    );
+
+    final saved = container
+        .read(notesControllerProvider)
+        .singleWhere((note) => note.id == 'auto-tag-save');
+    expect(saved.tags, ['Finance']);
+    expect(saved.syncState, NoteSyncState.pendingUpload);
+  });
 
   test('native tag suggestions strip markdown JSON wrappers', () {
     final suggestions = sanitizeSuggestedTags(

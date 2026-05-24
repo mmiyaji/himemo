@@ -50,6 +50,11 @@ GoRouter appRouter(Ref ref) {
             pageBuilder: (context, state) =>
                 const NoTransitionPage(child: SettingsScreen()),
           ),
+          GoRoute(
+            path: '/tutorials',
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: TutorialsScreen()),
+          ),
         ],
       ),
     ],

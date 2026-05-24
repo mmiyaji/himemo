@@ -183,7 +183,34 @@ bool get isICloudSyncSupported =>
 
 enum AppLaunchSurface { onboarding, ready }
 
-enum AppTutorialStep { privateProfile, addNote, syncStatus, navigation }
+enum AppTutorialCourse { basics, writing, privacy, sync, organize }
+
+enum AppTutorialStep {
+  privateProfile,
+  addNote,
+  syncStatus,
+  navigation,
+  settings,
+  tags,
+  trash,
+  calendarInsights,
+}
+
+class AppTutorialState {
+  const AppTutorialState({
+    required this.course,
+    required this.steps,
+    required this.index,
+  });
+
+  final AppTutorialCourse course;
+  final List<AppTutorialStep> steps;
+  final int index;
+
+  AppTutorialStep get step => steps[index];
+  int get stepNumber => index + 1;
+  int get stepCount => steps.length;
+}
 
 enum AppLockRelockDelay { immediate, seconds30, minutes2, minutes10 }
 
@@ -6557,18 +6584,45 @@ final appLaunchControllerProvider =
     );
 
 final appTutorialControllerProvider =
-    NotifierProvider<AppTutorialController, AppTutorialStep?>(
+    NotifierProvider<AppTutorialController, AppTutorialState?>(
       AppTutorialController.new,
     );
 
-class AppTutorialController extends Notifier<AppTutorialStep?> {
-  static const _steps = AppTutorialStep.values;
+class AppTutorialController extends Notifier<AppTutorialState?> {
+  static const _courseSteps = <AppTutorialCourse, List<AppTutorialStep>>{
+    AppTutorialCourse.basics: [
+      AppTutorialStep.privateProfile,
+      AppTutorialStep.addNote,
+      AppTutorialStep.syncStatus,
+      AppTutorialStep.navigation,
+    ],
+    AppTutorialCourse.writing: [
+      AppTutorialStep.addNote,
+      AppTutorialStep.tags,
+      AppTutorialStep.calendarInsights,
+    ],
+    AppTutorialCourse.privacy: [
+      AppTutorialStep.privateProfile,
+      AppTutorialStep.settings,
+    ],
+    AppTutorialCourse.sync: [
+      AppTutorialStep.syncStatus,
+      AppTutorialStep.settings,
+    ],
+    AppTutorialCourse.organize: [
+      AppTutorialStep.tags,
+      AppTutorialStep.trash,
+      AppTutorialStep.calendarInsights,
+    ],
+  };
 
   @override
-  AppTutorialStep? build() => null;
+  AppTutorialState? build() => null;
 
-  void start() {
-    state = _steps.first;
+  void start([AppTutorialCourse course = AppTutorialCourse.basics]) {
+    final steps =
+        _courseSteps[course] ?? _courseSteps[AppTutorialCourse.basics]!;
+    state = AppTutorialState(course: course, steps: steps, index: 0);
   }
 
   void next() {
@@ -6576,10 +6630,13 @@ class AppTutorialController extends Notifier<AppTutorialStep?> {
     if (current == null) {
       return;
     }
-    final index = _steps.indexOf(current);
-    state = index == -1 || index == _steps.length - 1
+    state = current.index >= current.steps.length - 1
         ? null
-        : _steps[index + 1];
+        : AppTutorialState(
+            course: current.course,
+            steps: current.steps,
+            index: current.index + 1,
+          );
   }
 
   void previous() {
@@ -6587,11 +6644,14 @@ class AppTutorialController extends Notifier<AppTutorialStep?> {
     if (current == null) {
       return;
     }
-    final index = _steps.indexOf(current);
-    if (index <= 0) {
+    if (current.index <= 0) {
       return;
     }
-    state = _steps[index - 1];
+    state = AppTutorialState(
+      course: current.course,
+      steps: current.steps,
+      index: current.index - 1,
+    );
   }
 
   void close() {
@@ -8140,6 +8200,251 @@ bool noteExcludedFromSync(NoteEntry note, Iterable<String> exclusionTags) {
   );
 }
 
+class AutoTagRule {
+  const AutoTagRule({
+    required this.id,
+    required this.tag,
+    required this.keywords,
+    this.enabled = true,
+    this.matchTitle = true,
+    this.matchBody = true,
+    this.matchAttachments = true,
+  });
+
+  final String id;
+  final String tag;
+  final List<String> keywords;
+  final bool enabled;
+  final bool matchTitle;
+  final bool matchBody;
+  final bool matchAttachments;
+
+  AutoTagRule copyWith({
+    String? id,
+    String? tag,
+    List<String>? keywords,
+    bool? enabled,
+    bool? matchTitle,
+    bool? matchBody,
+    bool? matchAttachments,
+  }) {
+    return AutoTagRule(
+      id: id ?? this.id,
+      tag: tag ?? this.tag,
+      keywords: keywords ?? this.keywords,
+      enabled: enabled ?? this.enabled,
+      matchTitle: matchTitle ?? this.matchTitle,
+      matchBody: matchBody ?? this.matchBody,
+      matchAttachments: matchAttachments ?? this.matchAttachments,
+    );
+  }
+
+  Map<String, Object?> toJson() {
+    return {
+      'id': id,
+      'tag': tag,
+      'keywords': keywords,
+      'enabled': enabled,
+      'matchTitle': matchTitle,
+      'matchBody': matchBody,
+      'matchAttachments': matchAttachments,
+    };
+  }
+
+  static AutoTagRule? fromJson(Object? value) {
+    if (value is! Map) {
+      return null;
+    }
+    final tag = normalizeNoteTag('${value['tag'] ?? ''}');
+    final id = '${value['id'] ?? ''}'.trim();
+    final keywords = _normalizeAutoTagKeywords(
+      value['keywords'] is List
+          ? (value['keywords'] as List).map((entry) => '$entry')
+          : const <String>[],
+    );
+    if (id.isEmpty || tag.isEmpty || keywords.isEmpty) {
+      return null;
+    }
+    return AutoTagRule(
+      id: id,
+      tag: tag,
+      keywords: keywords,
+      enabled: value['enabled'] != false,
+      matchTitle: value['matchTitle'] != false,
+      matchBody: value['matchBody'] != false,
+      matchAttachments: value['matchAttachments'] != false,
+    );
+  }
+}
+
+final autoTagRulesControllerProvider =
+    NotifierProvider<AutoTagRulesController, List<AutoTagRule>>(
+      AutoTagRulesController.new,
+    );
+
+class AutoTagRulesController extends Notifier<List<AutoTagRule>> {
+  static const _storageKey = 'settings.auto_tag_rules.v1';
+  bool _restored = false;
+  Future<void>? _restoreTask;
+
+  @override
+  List<AutoTagRule> build() {
+    if (!_restored) {
+      _restored = true;
+      _restoreTask = _restore();
+      unawaited(_restoreTask);
+    }
+    return const <AutoTagRule>[];
+  }
+
+  Future<void> addRule({
+    required String tag,
+    required Iterable<String> keywords,
+    bool matchTitle = true,
+    bool matchBody = true,
+    bool matchAttachments = true,
+  }) async {
+    await _restoreTask;
+    final normalizedTag = normalizeNoteTag(tag);
+    final normalizedKeywords = _normalizeAutoTagKeywords(keywords);
+    if (normalizedTag.isEmpty ||
+        normalizedKeywords.isEmpty ||
+        isSystemSyncExclusionTag(normalizedTag)) {
+      return;
+    }
+    final rule = AutoTagRule(
+      id: 'rule-${DateTime.now().microsecondsSinceEpoch}',
+      tag: normalizedTag,
+      keywords: normalizedKeywords,
+      matchTitle: matchTitle,
+      matchBody: matchBody,
+      matchAttachments: matchAttachments,
+    );
+    state = [...state, rule];
+    await _persist();
+  }
+
+  Future<void> setEnabled(String id, bool enabled) async {
+    await _restoreTask;
+    var changed = false;
+    final next = [
+      for (final rule in state)
+        if (rule.id == id)
+          (() {
+            changed = changed || rule.enabled != enabled;
+            return rule.copyWith(enabled: enabled);
+          })()
+        else
+          rule,
+    ];
+    if (!changed) {
+      return;
+    }
+    state = List.unmodifiable(next);
+    await _persist();
+  }
+
+  Future<void> removeRule(String id) async {
+    await _restoreTask;
+    final next = state.where((rule) => rule.id != id).toList(growable: false);
+    if (next.length == state.length) {
+      return;
+    }
+    state = List.unmodifiable(next);
+    await _persist();
+  }
+
+  Future<void> _restore() async {
+    final prefs = await SharedPreferences.getInstance();
+    final rules = <AutoTagRule>[];
+    for (final encoded
+        in prefs.getStringList(_storageKey) ?? const <String>[]) {
+      try {
+        final rule = AutoTagRule.fromJson(jsonDecode(encoded));
+        if (rule != null) {
+          rules.add(rule);
+        }
+      } on FormatException {
+        // Ignore malformed legacy/local entries.
+      }
+    }
+    state = List.unmodifiable(rules);
+  }
+
+  Future<void> _persist() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_storageKey, [
+      for (final rule in state) jsonEncode(rule.toJson()),
+    ]);
+  }
+}
+
+List<String> _normalizeAutoTagKeywords(Iterable<String> keywords) {
+  final seen = <String>{};
+  final values = <String>[];
+  for (final raw in keywords) {
+    final normalized = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (normalized.isEmpty) {
+      continue;
+    }
+    final key = normalized.toLowerCase();
+    if (!seen.add(key)) {
+      continue;
+    }
+    values.add(normalized);
+  }
+  return List.unmodifiable(values);
+}
+
+List<String> splitAutoTagKeywords(String value) {
+  return _normalizeAutoTagKeywords(value.split(RegExp(r'[,、\n\r]+')));
+}
+
+bool autoTagRuleMatchesNote(AutoTagRule rule, NoteEntry note) {
+  if (!rule.enabled) {
+    return false;
+  }
+  final fields = <String>[
+    if (rule.matchTitle) note.title,
+    if (rule.matchBody) note.body,
+    if (rule.matchAttachments)
+      for (final attachment in note.attachments) attachment.label,
+  ].where((value) => value.trim().isNotEmpty).join('\n').toLowerCase();
+  if (fields.isEmpty) {
+    return false;
+  }
+  return rule.keywords.any((keyword) {
+    final needle = keyword.trim().toLowerCase();
+    return needle.isNotEmpty && fields.contains(needle);
+  });
+}
+
+NoteEntry applyAutoTagRules(NoteEntry note, Iterable<AutoTagRule> rules) {
+  if (note.deletedAt != null || note.archivedAt != null) {
+    return note;
+  }
+  final tags = [...note.tags];
+  var changed = false;
+  final existing = {for (final tag in tags) canonicalizeNoteTag(tag)};
+  for (final rule in rules) {
+    final tag = normalizeNoteTag(rule.tag);
+    final key = canonicalizeNoteTag(tag);
+    if (tag.isEmpty ||
+        key.isEmpty ||
+        existing.contains(key) ||
+        !autoTagRuleMatchesNote(rule, note)) {
+      continue;
+    }
+    tags.add(tag);
+    existing.add(key);
+    changed = true;
+  }
+  if (!changed) {
+    return note;
+  }
+  return note.copyWith(tags: dedupeNoteTags(tags));
+}
+
 @Riverpod(keepAlive: true)
 class NotesListDensityController extends _$NotesListDensityController {
   static const _storageKey = 'notes.list_density';
@@ -8401,6 +8706,51 @@ class NotesController extends _$NotesController {
         data: _auditNoteData(auditedNote),
       );
     }
+  }
+
+  Future<int> applyAutoTagRulesToExisting({Iterable<String>? vaultIds}) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final rules = ref.read(autoTagRulesControllerProvider);
+    if (rules.where((rule) => rule.enabled).isEmpty) {
+      return 0;
+    }
+    final targetVaultIds = vaultIds?.toSet();
+    final now = DateTime.now();
+    var changed = 0;
+    final next = <NoteEntry>[];
+    for (final note in state) {
+      if (note.deletedAt != null ||
+          note.archivedAt != null ||
+          (targetVaultIds != null && !targetVaultIds.contains(note.vaultId))) {
+        next.add(note);
+        continue;
+      }
+      final tagged = applyAutoTagRules(note, rules);
+      if (_sameTagList(note.tags, tagged.tags)) {
+        next.add(note);
+        continue;
+      }
+      final changedBase = tagged.copyWith(
+        updatedAt: now,
+        revision: note.revision + 1,
+      );
+      final changedNote = changedBase.copyWith(
+        syncState: _syncStateForLocalChange(changedBase, deleted: false),
+      );
+      next.add(
+        changedNote.copyWith(contentHash: _computeContentHash(changedNote)),
+      );
+      changed++;
+    }
+    if (changed == 0) {
+      return 0;
+    }
+    _sort(next);
+    state = next;
+    await _persist();
+    logAudit('auto_tag_rules_apply', data: {'count': changed});
+    return changed;
   }
 
   Future<void> delete(String noteId) async {
@@ -9930,19 +10280,23 @@ class NotesController extends _$NotesController {
     NoteEntry note, {
     NoteEntry? previous,
   }) async {
+    final autoTagged = applyAutoTagRules(
+      note,
+      ref.read(autoTagRulesControllerProvider),
+    );
     final deviceId =
-        note.deviceId ??
+        autoTagged.deviceId ??
         previous?.deviceId ??
         await ref.read(deviceIdentityStoreProvider).obtain();
-    final createdAt = note.createdAt;
-    final updatedAt = note.updatedAt ?? DateTime.now();
-    final normalized = note.copyWith(
+    final createdAt = autoTagged.createdAt;
+    final updatedAt = autoTagged.updatedAt ?? DateTime.now();
+    final normalized = autoTagged.copyWith(
       createdAt: createdAt,
       updatedAt: updatedAt,
       deletedAt: null,
       deviceId: deviceId,
-      revision: previous == null ? note.revision : previous.revision + 1,
-      syncState: _syncStateForLocalChange(note, deleted: false),
+      revision: previous == null ? autoTagged.revision : previous.revision + 1,
+      syncState: _syncStateForLocalChange(autoTagged, deleted: false),
     );
     final protected = await _protectAttachmentsForVault(normalized);
     return protected.copyWith(contentHash: _computeContentHash(protected));
