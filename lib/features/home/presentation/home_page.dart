@@ -1623,17 +1623,25 @@ Future<void> _showProfileAccessDialog(
   final strings = context.strings;
   final activeLabel = ref.read(activePrivateProfileLabelProvider);
   final adminMode = ref.read(adminModeSessionControllerProvider);
-  final result = await showDialog<String>(
+  final result = await showDialog<_ProfileAccessDialogResult>(
     context: context,
     builder: (_) =>
         _ProfileAccessDialog(adminMode: adminMode, activeLabel: activeLabel),
   );
-  if (result == null || result.isEmpty || !context.mounted) {
+  if (result == null || !context.mounted) {
+    return;
+  }
+  if (result.createProfile) {
+    await _showAddPrivateProfileDialogFromHeader(context, ref);
+    return;
+  }
+  final password = result.password;
+  if (password == null || password.isEmpty) {
     return;
   }
   final unlocked = await ref
       .read(privateProfileUnlockControllerProvider.notifier)
-      .unlockWithPassword(result);
+      .unlockWithPassword(password);
   if (!context.mounted) {
     return;
   }
@@ -1649,6 +1657,55 @@ Future<void> _showProfileAccessDialog(
       ),
     ),
   );
+}
+
+Future<void> _showAddPrivateProfileDialogFromHeader(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  final strings = context.strings;
+  final draft = await showDialog<_PrivateProfileDraft>(
+    context: context,
+    builder: (_) => const _AddPrivateProfileDialog(),
+  );
+  if (draft == null) {
+    return;
+  }
+  final error = await ref
+      .read(privateMemoProfilesControllerProvider.notifier)
+      .addProfile(name: draft.name, password: draft.password);
+  if (error == null) {
+    await ref
+        .read(privateProfileUnlockControllerProvider.notifier)
+        .unlockWithPassword(draft.password);
+  }
+  if (!context.mounted) {
+    return;
+  }
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      showCloseIcon: true,
+      content: Text(
+        error ?? (strings.text('home.private.profile.added.and.opened')),
+      ),
+    ),
+  );
+}
+
+class _ProfileAccessDialogResult {
+  const _ProfileAccessDialogResult._({
+    this.password,
+    this.createProfile = false,
+  });
+
+  const _ProfileAccessDialogResult.unlock(String password)
+    : this._(password: password);
+
+  const _ProfileAccessDialogResult.createProfile()
+    : this._(createProfile: true);
+
+  final String? password;
+  final bool createProfile;
 }
 
 class _ProfileAccessDialog extends ConsumerStatefulWidget {
@@ -1677,7 +1734,9 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
 
   void _submit() {
     if (_formKey.currentState?.validate() ?? false) {
-      Navigator.of(context).pop(_controller.text);
+      Navigator.of(
+        context,
+      ).pop(_ProfileAccessDialogResult.unlock(_controller.text));
     }
   }
 
@@ -1734,6 +1793,13 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
             },
             child: Text(strings.text('home.lock.private.access')),
           ),
+        TextButton(
+          key: const Key('private-profile-unlock-create-profile'),
+          onPressed: () => Navigator.of(
+            context,
+          ).pop(const _ProfileAccessDialogResult.createProfile()),
+          child: Text(strings.text('home.add.private.profile')),
+        ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: Text(strings.cancel),

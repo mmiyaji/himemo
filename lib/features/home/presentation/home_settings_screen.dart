@@ -3501,14 +3501,9 @@ class SettingsScreen extends ConsumerWidget {
           summary: aboutSummary,
           icon: Icons.info_outlined,
           children: [
-            if (showFlavorInfo)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(displayName),
-                subtitle: Text(strings.currentFlavor(flavorName)),
-              ),
             ListTile(
               contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.info_outline_rounded),
               title: Text(strings.appVersion),
               subtitle: Text(
                 packageInfo.when(
@@ -3615,14 +3610,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(strings.appAuthor),
-              subtitle: const Text(_appAuthor),
-              trailing: const Icon(Icons.open_in_new_rounded, size: 18),
-              onTap: () =>
-                  _openExternalLink(context, Uri.parse(_appAuthorUrl), strings),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.system_update_alt_outlined),
               title: Text(strings.appUpdates),
               subtitle: Text(
                 inAppUpdateState.status == null
@@ -3789,15 +3777,33 @@ class SettingsScreen extends ConsumerWidget {
                 );
               },
             ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.person_outline_rounded),
+              title: Text(strings.appAuthor),
+              subtitle: const Text(_appAuthor),
+              trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+              onTap: () =>
+                  _openExternalLink(context, Uri.parse(_appAuthorUrl), strings),
+            ),
+            if (showFlavorInfo)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.developer_mode_outlined),
+                title: Text(displayName),
+                subtitle: Text(strings.currentFlavor(flavorName)),
+              ),
           ],
         ),
-        const SizedBox(height: 16),
-        _buildAuditLogSettingsGroup(
-          context: context,
-          ref: ref,
-          strings: strings,
-          snapshot: auditLogSnapshot,
-        ),
+        if (adminMode) ...[
+          const SizedBox(height: 16),
+          _buildAuditLogSettingsGroup(
+            context: context,
+            ref: ref,
+            strings: strings,
+            snapshot: auditLogSnapshot,
+          ),
+        ],
         if (diagnosticLogSnapshot?.enabled == true) ...[
           const SizedBox(height: 16),
           _buildDiagnosticLogSettingsGroup(
