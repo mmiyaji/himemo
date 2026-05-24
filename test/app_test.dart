@@ -2278,6 +2278,35 @@ void main() {
     expect(prefs.getString('release_notes.last_seen'), '9.8.7+654');
   });
 
+  test('app tutorial controller walks through highlight steps', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final controller = container.read(appTutorialControllerProvider.notifier);
+
+    expect(container.read(appTutorialControllerProvider), isNull);
+
+    controller.start();
+    expect(
+      container.read(appTutorialControllerProvider),
+      AppTutorialStep.privateProfile,
+    );
+
+    controller.next();
+    expect(
+      container.read(appTutorialControllerProvider),
+      AppTutorialStep.addNote,
+    );
+
+    controller.previous();
+    expect(
+      container.read(appTutorialControllerProvider),
+      AppTutorialStep.privateProfile,
+    );
+
+    controller.close();
+    expect(container.read(appTutorialControllerProvider), isNull);
+  });
+
   test('app lock policy providers expose secure defaults', () {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();

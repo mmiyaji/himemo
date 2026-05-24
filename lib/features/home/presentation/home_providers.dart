@@ -183,6 +183,8 @@ bool get isICloudSyncSupported =>
 
 enum AppLaunchSurface { onboarding, ready }
 
+enum AppTutorialStep { privateProfile, addNote, syncStatus, navigation }
+
 enum AppLockRelockDelay { immediate, seconds30, minutes2, minutes10 }
 
 enum DeviceAuthAvailability { unknown, available, unavailable }
@@ -6553,6 +6555,49 @@ final appLaunchControllerProvider =
     NotifierProvider<AppLaunchController, AppLaunchSurface>(
       AppLaunchController.new,
     );
+
+final appTutorialControllerProvider =
+    NotifierProvider<AppTutorialController, AppTutorialStep?>(
+      AppTutorialController.new,
+    );
+
+class AppTutorialController extends Notifier<AppTutorialStep?> {
+  static const _steps = AppTutorialStep.values;
+
+  @override
+  AppTutorialStep? build() => null;
+
+  void start() {
+    state = _steps.first;
+  }
+
+  void next() {
+    final current = state;
+    if (current == null) {
+      return;
+    }
+    final index = _steps.indexOf(current);
+    state = index == -1 || index == _steps.length - 1
+        ? null
+        : _steps[index + 1];
+  }
+
+  void previous() {
+    final current = state;
+    if (current == null) {
+      return;
+    }
+    final index = _steps.indexOf(current);
+    if (index <= 0) {
+      return;
+    }
+    state = _steps[index - 1];
+  }
+
+  void close() {
+    state = null;
+  }
+}
 
 class AppLaunchController extends Notifier<AppLaunchSurface> {
   static const _storageKey = 'app.onboarding_completed';

@@ -268,8 +268,9 @@ class _AppShellState extends ConsumerState<AppShell> {
         ? profileAccessBusyTooltip
         : profileAccessTooltip;
     final syncTransferState = ref.watch(syncTransferControllerProvider);
+    final tutorialStep = ref.watch(appTutorialControllerProvider);
 
-    return Scaffold(
+    final shell = Scaffold(
       appBar: AppBar(
         title: const _AppBrandTitle(),
         actions: [
@@ -534,6 +535,21 @@ class _AppShellState extends ConsumerState<AppShell> {
             ),
       floatingActionButton: null,
     );
+    return Stack(
+      children: [
+        shell,
+        if (tutorialStep != null)
+          _AppTutorialOverlay(
+            step: tutorialStep,
+            useRail: useRail,
+            onPrevious: ref
+                .read(appTutorialControllerProvider.notifier)
+                .previous,
+            onNext: ref.read(appTutorialControllerProvider.notifier).next,
+            onClose: ref.read(appTutorialControllerProvider.notifier).close,
+          ),
+      ],
+    );
   }
 
   int _bottomNavIndexForSection(AppSection section) {
@@ -655,6 +671,328 @@ class _AppShellState extends ConsumerState<AppShell> {
       return AppSection.settings;
     }
     return AppSection.notes;
+  }
+}
+
+class _AppTutorialOverlay extends StatelessWidget {
+  const _AppTutorialOverlay({
+    required this.step,
+    required this.useRail,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onClose,
+  });
+
+  final AppTutorialStep step;
+  final bool useRail;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final media = MediaQuery.of(context);
+    final size = media.size;
+    final highlightRect = _highlightRect(size, media.padding);
+    final isFirst = step == AppTutorialStep.values.first;
+    final isLast = step == AppTutorialStep.values.last;
+    return Positioned.fill(
+      child: Material(
+        color: Colors.transparent,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: onNext,
+                child: CustomPaint(
+                  painter: _TutorialScrimPainter(
+                    highlightRect: highlightRect,
+                    color: Colors.black.withValues(alpha: 0.62),
+                    borderColor: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ),
+            ),
+            Positioned.fromRect(
+              rect: highlightRect,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 3,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: 0.36),
+                        blurRadius: 22,
+                        spreadRadius: 4,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            SafeArea(
+              child: Align(
+                alignment: _cardAlignment,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 360),
+                  child: Card(
+                    margin: const EdgeInsets.all(18),
+                    elevation: 10,
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.tips_and_updates_outlined,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _title(strings),
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleMedium,
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: strings.close,
+                                onPressed: onClose,
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _body(strings),
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 14),
+                          Text(
+                            strings.localized(
+                              en: 'Step ${AppTutorialStep.values.indexOf(step) + 1} of ${AppTutorialStep.values.length}',
+                              ja: '${AppTutorialStep.values.indexOf(step) + 1} / ${AppTutorialStep.values.length}',
+                              zh: '第 ${AppTutorialStep.values.indexOf(step) + 1} 步，共 ${AppTutorialStep.values.length} 步',
+                              ko: '${AppTutorialStep.values.indexOf(step) + 1}/${AppTutorialStep.values.length}단계',
+                              es: 'Paso ${AppTutorialStep.values.indexOf(step) + 1} de ${AppTutorialStep.values.length}',
+                              de: 'Schritt ${AppTutorialStep.values.indexOf(step) + 1} von ${AppTutorialStep.values.length}',
+                            ),
+                            style: Theme.of(context).textTheme.labelMedium
+                                ?.copyWith(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                ),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              TextButton(
+                                onPressed: isFirst ? null : onPrevious,
+                                child: Text(
+                                  strings.localized(
+                                    en: 'Back',
+                                    ja: '戻る',
+                                    zh: '上一步',
+                                    ko: '이전',
+                                    es: 'Atras',
+                                    de: 'Zurueck',
+                                  ),
+                                ),
+                              ),
+                              const Spacer(),
+                              TextButton(
+                                onPressed: onClose,
+                                child: Text(strings.skip),
+                              ),
+                              const SizedBox(width: 8),
+                              FilledButton(
+                                onPressed: isLast ? onClose : onNext,
+                                child: Text(
+                                  isLast
+                                      ? strings.localized(
+                                          en: 'Done',
+                                          ja: '完了',
+                                          zh: '完成',
+                                          ko: '완료',
+                                          es: 'Listo',
+                                          de: 'Fertig',
+                                        )
+                                      : strings.next,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Alignment get _cardAlignment {
+    return switch (step) {
+      AppTutorialStep.privateProfile => Alignment.bottomCenter,
+      AppTutorialStep.addNote =>
+        useRail ? Alignment.bottomRight : Alignment.topCenter,
+      AppTutorialStep.syncStatus => Alignment.bottomCenter,
+      AppTutorialStep.navigation => Alignment.topCenter,
+    };
+  }
+
+  Rect _highlightRect(Size size, EdgeInsets padding) {
+    final top = padding.top;
+    final bottom = padding.bottom;
+    return switch (step) {
+      AppTutorialStep.privateProfile => Rect.fromLTWH(
+        size.width - 92,
+        top + 8,
+        74,
+        52,
+      ),
+      AppTutorialStep.addNote =>
+        useRail
+            ? Rect.fromLTWH(size.width - 78, top + 8, 56, 52)
+            : Rect.fromCircle(
+                center: Offset(size.width / 2, size.height - bottom - 46),
+                radius: 42,
+              ),
+      AppTutorialStep.syncStatus => Rect.fromLTWH(
+        size.width - (useRail ? 150 : 132),
+        top + 8,
+        56,
+        52,
+      ),
+      AppTutorialStep.navigation =>
+        useRail
+            ? Rect.fromLTWH(10, top + 70, 234, 270)
+            : Rect.fromLTWH(0, size.height - bottom - 92, size.width, 92),
+    }.inflate(6);
+  }
+
+  String _title(AppStrings strings) {
+    return switch (step) {
+      AppTutorialStep.privateProfile => strings.localized(
+        en: 'Private profile unlock',
+        ja: 'プライベート解除',
+        zh: '私密档案解锁',
+        ko: '비공개 프로필 잠금 해제',
+        es: 'Desbloqueo privado',
+        de: 'Privates Profil entsperren',
+      ),
+      AppTutorialStep.addNote => strings.localized(
+        en: 'Create a memo',
+        ja: 'メモを作成',
+        zh: '创建备忘',
+        ko: '메모 만들기',
+        es: 'Crear memo',
+        de: 'Notiz erstellen',
+      ),
+      AppTutorialStep.syncStatus => strings.localized(
+        en: 'Sync status',
+        ja: '同期状況',
+        zh: '同步状态',
+        ko: '동기화 상태',
+        es: 'Estado de sincronizacion',
+        de: 'Synchronisierungsstatus',
+      ),
+      AppTutorialStep.navigation => strings.localized(
+        en: 'Main navigation',
+        ja: '画面の切り替え',
+        zh: '主导航',
+        ko: '주요 탐색',
+        es: 'Navegacion principal',
+        de: 'Hauptnavigation',
+      ),
+    };
+  }
+
+  String _body(AppStrings strings) {
+    return switch (step) {
+      AppTutorialStep.privateProfile => strings.localized(
+        en: 'Use the lock icon in the header to unlock or switch private profiles. App lock also uses this area when protection is enabled.',
+        ja: '画面右上のロックアイコンからプライベートプロファイルの解除や切り替えができます。アプリ保護を有効にした場合もここが入口になります。',
+        zh: '可从标题栏右上角的锁图标解锁或切换私密档案。启用应用保护后，这里也是入口。',
+        ko: '화면 오른쪽 위 잠금 아이콘에서 비공개 프로필을 잠금 해제하거나 전환할 수 있습니다. 앱 보호를 켠 경우에도 이 영역을 사용합니다.',
+        es: 'Usa el icono de candado del encabezado para desbloquear o cambiar perfiles privados. La proteccion de la app tambien entra por aqui.',
+        de: 'Ueber das Schloss oben rechts kannst du private Profile entsperren oder wechseln. Auch der App-Schutz nutzt diesen Bereich.',
+      ),
+      AppTutorialStep.addNote => strings.localized(
+        en: 'Tap the center compose button to add a new memo. You can attach photos, videos, audio, files, tags, and dates from the editor.',
+        ja: '中央の作成ボタンから新しいメモを追加します。編集画面では写真、動画、音声、ファイル、タグ、日付を追加できます。',
+        zh: '点击中央的创建按钮添加新备忘。可在编辑器中添加照片、视频、音频、文件、标签和日期。',
+        ko: '가운데 작성 버튼으로 새 메모를 추가합니다. 편집 화면에서 사진, 동영상, 오디오, 파일, 태그, 날짜를 추가할 수 있습니다.',
+        es: 'Toca el boton central para crear un memo. En el editor puedes agregar fotos, videos, audio, archivos, etiquetas y fechas.',
+        de: 'Mit der mittleren Schaltflaeche erstellst du eine neue Notiz. Im Editor kannst du Fotos, Videos, Audio, Dateien, Tags und Daten hinzufuegen.',
+      ),
+      AppTutorialStep.syncStatus => strings.localized(
+        en: 'When sync is running, this indicator rotates and shows progress. Tap it to see the current step and item counts.',
+        ja: '同期中はこのインジケーターが回転し、進捗を示します。タップすると現在の処理や件数進捗を確認できます。',
+        zh: '同步运行时，此指示器会旋转并显示进度。点击可查看当前步骤和项目数量。',
+        ko: '동기화 중에는 이 표시기가 회전하며 진행률을 보여줍니다. 탭하면 현재 단계와 항목 수를 볼 수 있습니다.',
+        es: 'Durante la sincronizacion, este indicador gira y muestra el progreso. Tocalo para ver el paso actual y los conteos.',
+        de: 'Waehrend der Synchronisierung dreht sich diese Anzeige und zeigt den Fortschritt. Tippe darauf, um Schritt und Anzahl zu sehen.',
+      ),
+      AppTutorialStep.navigation => strings.localized(
+        en: 'Use the navigation to move between notes, calendar, insights, trash, and settings. Settings contains sync, app protection, profiles, and help.',
+        ja: 'ナビゲーションからノート、カレンダー、記録、ゴミ箱、設定へ移動できます。設定には同期、アプリ保護、プロファイル、ヘルプがあります。',
+        zh: '使用导航在笔记、日历、记录、回收站和设置之间移动。设置中包含同步、应用保护、档案和帮助。',
+        ko: '탐색 메뉴에서 노트, 캘린더, 기록, 휴지통, 설정으로 이동합니다. 설정에는 동기화, 앱 보호, 프로필, 도움말이 있습니다.',
+        es: 'Usa la navegacion para moverte entre notas, calendario, registros, papelera y ajustes. Ajustes contiene sincronizacion, proteccion, perfiles y ayuda.',
+        de: 'Mit der Navigation wechselst du zwischen Notizen, Kalender, Auswertung, Papierkorb und Einstellungen. Dort findest du Synchronisierung, App-Schutz, Profile und Hilfe.',
+      ),
+    };
+  }
+}
+
+class _TutorialScrimPainter extends CustomPainter {
+  const _TutorialScrimPainter({
+    required this.highlightRect,
+    required this.color,
+    required this.borderColor,
+  });
+
+  final Rect highlightRect;
+  final Color color;
+  final Color borderColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final overlayPath = Path()..addRect(Offset.zero & size);
+    final highlightPath = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(highlightRect, const Radius.circular(18)),
+      );
+    final path = Path.combine(
+      ui.PathOperation.difference,
+      overlayPath,
+      highlightPath,
+    );
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(covariant _TutorialScrimPainter oldDelegate) {
+    return oldDelegate.highlightRect != highlightRect ||
+        oldDelegate.color != color ||
+        oldDelegate.borderColor != borderColor;
   }
 }
 

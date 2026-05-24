@@ -79,6 +79,7 @@ class SettingsScreen extends ConsumerWidget {
   static const privateProfileRenameSubmitKey = Key(
     'private-profile-rename-submit',
   );
+  static const startTutorialKey = Key('start-highlight-tutorial');
   static final _appearanceSectionKey = GlobalKey();
   static final _privateProfilesSectionKey = GlobalKey();
   static final _appSecuritySectionKey = GlobalKey();
@@ -3518,6 +3519,34 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
               onTap: () => _handleVersionTap(context, ref, strings),
+            ),
+            ListTile(
+              key: startTutorialKey,
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.tips_and_updates_outlined),
+              title: Text(
+                strings.localized(
+                  en: 'Start guided tour',
+                  ja: '使い方ガイドを開始',
+                  zh: '开始使用指南',
+                  ko: '사용 가이드 시작',
+                  es: 'Iniciar guia',
+                  de: 'Gefuehrte Tour starten',
+                ),
+              ),
+              subtitle: Text(
+                strings.localized(
+                  en: 'Highlight the main controls and where to find them.',
+                  ja: '主要な操作ボタンと場所をハイライトで確認します。',
+                  zh: '高亮显示主要控件及其位置。',
+                  ko: '주요 조작 버튼과 위치를 하이라이트로 확인합니다.',
+                  es: 'Resalta los controles principales y donde encontrarlos.',
+                  de: 'Hebt die wichtigsten Bedienelemente und ihre Position hervor.',
+                ),
+              ),
+              onTap: () {
+                ref.read(appTutorialControllerProvider.notifier).start();
+              },
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
