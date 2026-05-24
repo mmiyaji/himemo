@@ -80,6 +80,7 @@ class SettingsScreen extends ConsumerWidget {
     'private-profile-rename-submit',
   );
   static const startTutorialKey = Key('start-highlight-tutorial');
+  static final aboutSectionKey = GlobalKey();
   static final _appearanceSectionKey = GlobalKey();
   static final _privateProfilesSectionKey = GlobalKey();
   static final _appSecuritySectionKey = GlobalKey();
@@ -3500,6 +3501,7 @@ class SettingsScreen extends ConsumerWidget {
           title: strings.about,
           summary: aboutSummary,
           icon: Icons.info_outlined,
+          sectionKey: aboutSectionKey,
           children: [
             ListTile(
               contentPadding: EdgeInsets.zero,
