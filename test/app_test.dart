@@ -1860,6 +1860,158 @@ void main() {
     );
   });
 
+  test('sync upload keeps locked private profile changes encrypted', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-locked-private-sync-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(113));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final attachmentStore = EncryptedAttachmentStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final fakeTransport = InMemoryGoogleDriveSyncTransport(
+      uploadDelay: Duration.zero,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+        encryptedNoteStoreProvider.overrideWith(
+          (ref) => EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
+            database: database,
+            directoryProvider: () async => tempDirectory,
+            sharedPreferencesProvider: SharedPreferences.getInstance,
+          ),
+        ),
+        secureSyncBundleStoreProvider.overrideWith(
+          (ref) => SecureSyncBundleStore(
+            encryptionService: encryptionService,
+            syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
+            legacyMasterKeyService: masterKeyService,
+            directoryProvider: () async => tempDirectory,
+            sharedPreferencesProvider: SharedPreferences.getInstance,
+          ),
+        ),
+        googleDriveSyncTransportProvider.overrideWithValue(fakeTransport),
+        syncAuthGatewayProvider.overrideWithValue(
+          FakeGoogleDriveSyncAuthGateway(fallback: DefaultSyncAuthGateway()),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+    addTearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    await container
+        .read(syncProviderControllerProvider.notifier)
+        .setProvider(SyncProvider.googleDrive);
+    await container
+        .read(syncAuthControllerProvider.notifier)
+        .connect(SyncProvider.googleDrive);
+    final addError = await container
+        .read(privateMemoProfilesControllerProvider.notifier)
+        .addProfile(name: 'Private sync', password: 'sync-pass-123');
+    expect(addError, isNull);
+    final unlocked = await container
+        .read(privateProfileUnlockControllerProvider.notifier)
+        .unlockWithPassword('sync-pass-123');
+    expect(unlocked, isNotNull);
+
+    final controller = container.read(notesControllerProvider.notifier);
+    await controller.restoreCompleted;
+    await controller.upsert(
+      NoteEntry(
+        id: 'locked-private-delete',
+        vaultId: unlocked!.vaultId,
+        title: 'Private pending delete',
+        body: 'Must not upload while locked.',
+        createdAt: DateTime.utc(2026, 5, 24, 10),
+      ),
+    );
+    final snapshot = (await database.loadAll()).singleWhere(
+      (entry) => entry.note.id == 'locked-private-delete',
+    );
+    final deletedAt = DateTime.utc(2026, 5, 24, 11);
+    await database.upsertOne(
+      note: snapshot.note,
+      attachments: snapshot.attachments,
+      pendingChange: PendingNoteChangeRecord(
+        noteId: 'locked-private-delete',
+        vaultId: unlocked.vaultId,
+        revision: 2,
+        action: PendingNoteChangeAction.delete,
+        queuedAt: deletedAt,
+        deletedAt: deletedAt,
+      ),
+    );
+    container.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+
+    await container
+        .read(syncTransferControllerProvider.notifier)
+        .uploadCurrentBundle(force: true);
+
+    final remoteStatus = await fakeTransport.fetchLatestBundleStatus();
+    expect(remoteStatus?.noteCount, 1);
+    final remoteBundle = await fakeTransport.downloadLatestBundle();
+    expect(remoteBundle, isNotNull);
+    final localBundle = await container
+        .read(secureSyncBundleStoreProvider)
+        .writeEncryptedBundlePayload(
+          remoteBundle!.encodedPayload,
+          noteCount: remoteBundle.status.noteCount ?? 0,
+          attachmentCount: remoteBundle.status.attachmentCount ?? 0,
+          fileNameOverride: 'locked_private_sync_bundle.enc',
+        );
+    final decoded = await container
+        .read(secureSyncBundleStoreProvider)
+        .readBundleJson(localBundle.reference);
+    expect(decoded?['notes'], isEmpty);
+    expect(decoded?['encryptedPrivateNotes'], hasLength(1));
+    final pendingChanges = await database.loadPendingChanges();
+    expect(pendingChanges, isEmpty);
+    expect(
+      container.read(syncTransferControllerProvider).message,
+      'sync.info.upload_success',
+    );
+
+    await database.deleteNoteById('locked-private-delete');
+    expect(
+      (await database.loadAll()).where(
+        (entry) => entry.note.id == 'locked-private-delete',
+      ),
+      isEmpty,
+    );
+    final syncController = container.read(
+      syncTransferControllerProvider.notifier,
+    );
+    await syncController.downloadLatestBundle();
+    await syncController.applyDownloadedBundle();
+    final restored = (await database.loadAll()).singleWhere(
+      (entry) => entry.note.id == 'locked-private-delete',
+    );
+    expect(restored.note.deletedAt?.isAtSameMomentAs(deletedAt), isTrue);
+    expect(await database.loadPendingChanges(), isEmpty);
+  });
+
   test('Spotlight indexing sends note body and rich text terms', () async {
     TestWidgetsFlutterBinding.ensureInitialized();
     SharedPreferences.setMockInitialValues({});

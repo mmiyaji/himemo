@@ -394,6 +394,38 @@ class EncryptedNoteRecord {
   final String? deviceId;
   final String? contentHash;
 
+  EncryptedNoteRecord copyWith({
+    String? id,
+    String? vaultId,
+    String? encryptedPayload,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    bool clearUpdatedAt = false,
+    DateTime? deletedAt,
+    bool clearDeletedAt = false,
+    bool? isPinned,
+    int? revision,
+    NoteSyncState? syncState,
+    String? deviceId,
+    bool clearDeviceId = false,
+    String? contentHash,
+    bool clearContentHash = false,
+  }) {
+    return EncryptedNoteRecord(
+      id: id ?? this.id,
+      vaultId: vaultId ?? this.vaultId,
+      encryptedPayload: encryptedPayload ?? this.encryptedPayload,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: clearUpdatedAt ? null : (updatedAt ?? this.updatedAt),
+      deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
+      isPinned: isPinned ?? this.isPinned,
+      revision: revision ?? this.revision,
+      syncState: syncState ?? this.syncState,
+      deviceId: clearDeviceId ? null : (deviceId ?? this.deviceId),
+      contentHash: clearContentHash ? null : (contentHash ?? this.contentHash),
+    );
+  }
+
   Map<String, dynamic> toPayloadJson() {
     return {
       'id': id,

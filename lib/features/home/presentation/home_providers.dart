@@ -3086,6 +3086,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         .where(
           (note) =>
               !isGeneratedSampleNote(note) &&
+              (!isPrivateVaultId(note.vaultId) ||
+                  ref
+                      .read(profileDataKeyServiceProvider)
+                      .isProfileUnlocked(note.vaultId)) &&
               !noteExcludedFromSync(note, syncExclusionTags),
         )
         .map((note) {
@@ -3514,6 +3518,21 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       var pendingChanges = await ref
           .read(syncEngineProvider)
           .loadPendingChanges();
+      final encryptedPrivateNotes = await _prepareLockedPrivateSyncNotes(
+        pendingChanges,
+      );
+      final encryptedPrivateNoteIds = {
+        for (final entry in encryptedPrivateNotes) entry.note.id,
+      };
+      if (encryptedPrivateNoteIds.isNotEmpty) {
+        _diagnostic(
+          'private profile pending changes prepared encrypted',
+          data: {'count': encryptedPrivateNoteIds.length},
+        );
+        pendingChanges = pendingChanges
+            .where((change) => !encryptedPrivateNoteIds.contains(change.noteId))
+            .toList(growable: false);
+      }
       final pendingIds = pendingChanges.map((change) => change.noteId).toSet();
       final notes = await ref
           .read(notesControllerProvider.notifier)
@@ -3554,8 +3573,37 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             .where((change) => !stalePendingChangeIds.contains(change.noteId))
             .toList(growable: false);
       }
+      if (pendingChanges.isEmpty && encryptedPrivateNotes.isEmpty) {
+        ref.invalidate(syncQueueSummaryProvider);
+        final queueAfterUpload = await _readLocalSyncQueueSummary();
+        _diagnostic(
+          'upload skipped no uploadable changes',
+          data: {
+            'queueChanges': queueAfterUpload.totalChanges,
+            'queueUpserts': queueAfterUpload.upserts,
+            'queueDeletes': queueAfterUpload.deletes,
+          },
+        );
+        state = SyncTransferState(
+          stage: SyncTransferStage.success,
+          message: 'sync.info.no_changes_to_upload',
+          remoteStatus: state.remoteStatus,
+          localBundle: state.localBundle,
+        );
+        await _recordSyncHistory(
+          startedAt: historyStartedAt,
+          operation: 'upload',
+          success: true,
+          message: state.message,
+          queueBefore: queueBeforeUpload,
+          queueAfter: queueAfterUpload,
+        );
+        return;
+      }
       final pendingHashes = {
         for (final change in pendingChanges) change.noteId: change.contentHash,
+        for (final entry in encryptedPrivateNotes)
+          entry.note.id: entry.note.contentHash,
       };
       final snapshot = await runFirebaseTrace(
         'sync_prepare_snapshot',
@@ -3610,6 +3658,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             .writeBundle(
               snapshot,
               privateProfiles: [privateProfiles],
+              encryptedPrivateNotes: encryptedPrivateNotes,
               inlineAttachments: provider == SyncProvider.off,
             ),
       );
@@ -3659,6 +3708,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             pendingHashes,
             preparedNotes: snapshot.notes,
           );
+      if (encryptedPrivateNoteIds.isNotEmpty) {
+        await ref
+            .read(encryptedNoteDatabaseProvider)
+            .deletePendingChangesByIds(encryptedPrivateNoteIds);
+      }
       ref.invalidate(syncQueueSummaryProvider);
       final queueAfterUpload = await _readLocalSyncQueueSummary();
       _diagnostic(
@@ -3749,6 +3803,50 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         localBundle: state.localBundle,
       );
     }
+  }
+
+  Future<List<PreparedEncryptedPrivateSyncNote>> _prepareLockedPrivateSyncNotes(
+    List<PendingNoteChangeRecord> pendingChanges,
+  ) async {
+    final lockedPrivateChanges = pendingChanges
+        .where(
+          (change) =>
+              isPrivateVaultId(change.vaultId) &&
+              !ref
+                  .read(profileDataKeyServiceProvider)
+                  .isProfileUnlocked(change.vaultId),
+        )
+        .toList(growable: false);
+    if (lockedPrivateChanges.isEmpty) {
+      return const <PreparedEncryptedPrivateSyncNote>[];
+    }
+    final snapshots = await ref.read(encryptedNoteDatabaseProvider).loadAll();
+    final snapshotsById = {
+      for (final snapshot in snapshots) snapshot.note.id: snapshot,
+    };
+    final encryptedNotes = <PreparedEncryptedPrivateSyncNote>[];
+    for (final change in lockedPrivateChanges) {
+      final snapshot = snapshotsById[change.noteId];
+      if (snapshot == null) {
+        continue;
+      }
+      encryptedNotes.add(
+        PreparedEncryptedPrivateSyncNote(
+          action: change.action,
+          note: snapshot.note.copyWith(
+            deletedAt: change.action == PendingNoteChangeAction.delete
+                ? (change.deletedAt ?? snapshot.note.deletedAt)
+                : null,
+            clearDeletedAt: change.action == PendingNoteChangeAction.upsert,
+            revision: math.max(snapshot.note.revision, change.revision),
+            syncState: NoteSyncState.synced,
+            contentHash: change.contentHash ?? snapshot.note.contentHash,
+          ),
+          attachments: snapshot.attachments,
+        ),
+      );
+    }
+    return encryptedNotes;
   }
 
   Future<bool> _restoreMissingAttachmentRemoteRefFromLatestBundle(
@@ -4463,12 +4561,41 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       if (decoded == null) {
         throw StateError('sync.error.downloaded_bundle_decryption_failed');
       }
+      var importedEncryptedPrivateCount = 0;
       for (final rawProfiles
           in (decoded['privateProfiles'] as List<dynamic>? ??
               const <dynamic>[])) {
         await ref
             .read(privateMemoProfileStoreProvider)
             .importSyncPayload(rawProfiles);
+      }
+      final encryptedPrivateEntries =
+          decoded['encryptedPrivateNotes'] as List<dynamic>? ??
+          const <dynamic>[];
+      if (encryptedPrivateEntries.isNotEmpty) {
+        final encryptedDatabase = ref.read(encryptedNoteDatabaseProvider);
+        final localPendingIds = {
+          for (final change in await encryptedDatabase.loadPendingChanges())
+            change.noteId,
+        };
+        for (final rawEntry in encryptedPrivateEntries) {
+          final entry = PreparedEncryptedPrivateSyncNote.fromJson(rawEntry);
+          if (entry == null || localPendingIds.contains(entry.note.id)) {
+            continue;
+          }
+          final remoteNote = entry.note.copyWith(
+            deletedAt: entry.action == PendingNoteChangeAction.delete
+                ? (entry.note.deletedAt ?? DateTime.now())
+                : null,
+            clearDeletedAt: entry.action == PendingNoteChangeAction.upsert,
+            syncState: NoteSyncState.synced,
+          );
+          await encryptedDatabase.upsertOne(
+            note: remoteNote,
+            attachments: entry.attachments,
+          );
+          importedEncryptedPrivateCount += 1;
+        }
       }
       final rawNoteEntries =
           decoded['notes'] as List<dynamic>? ?? const <dynamic>[];
@@ -4571,6 +4698,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         await ref
             .read(notesControllerProvider.notifier)
             .mergeFromSync(importedChanges);
+        ref.invalidate(syncQueueSummaryProvider);
+      }
+      if (importedEncryptedPrivateCount > 0) {
+        await ref.read(notesControllerProvider.notifier).reloadFromStorage();
         ref.invalidate(syncQueueSummaryProvider);
       }
       if (lockedPrivateVaultIds.isEmpty) {
@@ -9752,6 +9883,10 @@ class NotesController extends _$NotesController {
     final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
     bool canUpload(NoteEntry note) =>
         !_isLockedPrivatePlaceholder(note) &&
+        (!isPrivateVaultId(note.vaultId) ||
+            ref
+                .read(profileDataKeyServiceProvider)
+                .isProfileUnlocked(note.vaultId)) &&
         !noteExcludedFromSync(note, syncExclusionTags);
     if (pendingNoteIds == null) {
       return List<NoteEntry>.unmodifiable(state.where(canUpload));
@@ -9833,6 +9968,10 @@ class NotesController extends _$NotesController {
     final next = <NoteEntry>[];
     for (final note in state) {
       if (_isLockedPrivatePlaceholder(note) ||
+          (isPrivateVaultId(note.vaultId) &&
+              !ref
+                  .read(profileDataKeyServiceProvider)
+                  .isProfileUnlocked(note.vaultId)) ||
           isGeneratedSampleNote(note) ||
           noteExcludedFromSync(note, syncExclusionTags)) {
         next.add(note);
