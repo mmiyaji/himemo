@@ -79,6 +79,8 @@ class SettingsScreen extends ConsumerWidget {
   static const privateProfileRenameSubmitKey = Key(
     'private-profile-rename-submit',
   );
+  static Key privateProfileDeleteKey(String id) =>
+      Key('private-profile-delete-$id');
   static const startTutorialKey = Key('start-highlight-tutorial');
   static final aboutSectionKey = GlobalKey();
   static final _appearanceSectionKey = GlobalKey();
@@ -388,6 +390,70 @@ class SettingsScreen extends ConsumerWidget {
         showCloseIcon: true,
         content: Text(
           strings.localized(en: 'Profile renamed.', ja: 'プロファイル名を変更しました。'),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeletePrivateProfile(
+    BuildContext context,
+    WidgetRef ref,
+    PrivateMemoProfile profile,
+  ) async {
+    final strings = context.strings;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          strings.localized(
+            en: 'Delete private profile?',
+            ja: 'プライベートプロファイルを削除しますか？',
+          ),
+        ),
+        content: Text(
+          strings.localized(
+            en: 'This removes the profile, its unlock key, local notes, attachments, and pending sync changes from this device. This action cannot be undone.',
+            ja: 'この端末からプロファイル、解除キー、ローカルのメモ、添付、未同期の変更を削除します。この操作は元に戻せません。',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(strings.cancel),
+          ),
+          FilledButton.tonalIcon(
+            style: FilledButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            icon: const Icon(Icons.delete_forever_outlined),
+            label: Text(strings.localized(en: 'Delete', ja: '削除')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+    final deleted = await ref
+        .read(privateMemoProfilesControllerProvider.notifier)
+        .deleteProfile(profile.id);
+    if (!context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(
+          deleted
+              ? strings.localized(
+                  en: 'Private profile deleted.',
+                  ja: 'プライベートプロファイルを削除しました。',
+                )
+              : strings.localized(
+                  en: 'Enter admin mode before deleting a private profile.',
+                  ja: 'プライベートプロファイルを削除するには管理者モードに入ってください。',
+                ),
         ),
       ),
     );
@@ -1377,6 +1443,22 @@ class SettingsScreen extends ConsumerWidget {
                                 profile,
                               ),
                               icon: const Icon(Icons.edit_outlined),
+                            ),
+                            IconButton(
+                              key: privateProfileDeleteKey(profile.id),
+                              tooltip: strings.localized(
+                                en: 'Delete profile',
+                                ja: 'プロファイルを削除',
+                              ),
+                              onPressed: () => _confirmDeletePrivateProfile(
+                                context,
+                                ref,
+                                profile,
+                              ),
+                              icon: Icon(
+                                Icons.delete_forever_outlined,
+                                color: Theme.of(context).colorScheme.error,
+                              ),
                             ),
                           ],
                         ),

@@ -327,6 +327,32 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
     });
   }
 
+  Future<void> deleteNotesByVaultId(String vaultId) async {
+    await transaction(() async {
+      final noteRows = await (select(
+        encryptedNotes,
+      )..where((table) => table.vaultId.equals(vaultId))).get();
+      final noteIds = {for (final row in noteRows) row.id};
+      if (noteIds.isEmpty) {
+        await (delete(
+          pendingNoteChanges,
+        )..where((table) => table.vaultId.equals(vaultId))).go();
+        return;
+      }
+      await (delete(
+        encryptedNoteAttachments,
+      )..where((table) => table.noteId.isIn(noteIds))).go();
+      await (delete(pendingNoteChanges)..where(
+            (table) =>
+                table.vaultId.equals(vaultId) | table.noteId.isIn(noteIds),
+          ))
+          .go();
+      await (delete(
+        encryptedNotes,
+      )..where((table) => table.vaultId.equals(vaultId))).go();
+    });
+  }
+
   Future<void> deletePendingChangesByIds(Set<String> noteIds) async {
     if (noteIds.isEmpty) {
       return;

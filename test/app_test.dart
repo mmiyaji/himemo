@@ -1800,6 +1800,80 @@ void main() {
     );
   });
 
+  test(
+    'private profile deletion is admin-only and removes local notes',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(19));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(database),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: database,
+              directoryProvider: () async => Directory.systemTemp,
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(database.close);
+
+      final addError = await container
+          .read(privateMemoProfilesControllerProvider.notifier)
+          .addProfile(name: 'Old profile', password: 'old-pass-123');
+      expect(addError, isNull);
+      final profile = container.read(privateMemoProfilesProvider).single;
+      final unlocked = await container
+          .read(privateProfileUnlockControllerProvider.notifier)
+          .unlockWithPassword('old-pass-123');
+      expect(unlocked?.vaultId, profile.vaultId);
+
+      final notesController = container.read(notesControllerProvider.notifier);
+      await notesController.restoreCompleted;
+      await notesController.upsert(
+        NoteEntry(
+          id: 'old-private-note',
+          vaultId: profile.vaultId,
+          title: 'Old private note',
+          body: 'This belongs to the old profile.',
+          createdAt: DateTime.utc(2026, 5, 25, 1),
+        ),
+      );
+      expect((await database.loadAll()).map((entry) => entry.note.id), [
+        'old-private-note',
+      ]);
+
+      final blocked = await container
+          .read(privateMemoProfilesControllerProvider.notifier)
+          .deleteProfile(profile.id);
+      expect(blocked, isFalse);
+      expect(container.read(privateMemoProfilesProvider), hasLength(1));
+      expect(await database.loadAll(), hasLength(1));
+
+      container.read(adminModeSessionControllerProvider.notifier).unlock();
+      final deleted = await container
+          .read(privateMemoProfilesControllerProvider.notifier)
+          .deleteProfile(profile.id);
+      expect(deleted, isTrue);
+      expect(container.read(privateMemoProfilesProvider), isEmpty);
+      expect(await database.loadAll(), isEmpty);
+      expect(await database.loadPendingChanges(), isEmpty);
+      expect(container.read(searchFiltersControllerProvider).vaultId, isNull);
+    },
+  );
+
   test('private profile notes remain visible immediately after save', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();

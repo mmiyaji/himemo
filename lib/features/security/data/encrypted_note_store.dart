@@ -308,6 +308,16 @@ class EncryptedNoteStore {
     await save(notes.where((note) => note.id != noteId).toList());
   }
 
+  Future<void> deleteByVaultId(String vaultId) async {
+    if (!kIsWeb) {
+      final database = _database ?? EncryptedNoteDatabase();
+      await database.deleteNotesByVaultId(vaultId);
+      return;
+    }
+    final notes = await load(fallbackNotes: const <NoteEntry>[]);
+    await save(notes.where((note) => note.vaultId != vaultId).toList());
+  }
+
   Future<int> storagePayloadSizeBytes() async {
     if (!kIsWeb) {
       final database = _database;

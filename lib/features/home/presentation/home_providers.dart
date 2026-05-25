@@ -8991,6 +8991,44 @@ class NotesController extends _$NotesController {
     logAudit('note_permanent_delete', data: _auditNoteData(note));
   }
 
+  Future<int> deleteVaultLocally(String vaultId) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final removed = [
+      for (final note in state)
+        if (note.vaultId == vaultId) note,
+    ];
+    if (removed.isEmpty) {
+      await ref.read(encryptedNoteStoreProvider).deleteByVaultId(vaultId);
+      return 0;
+    }
+    final removedIds = {for (final note in removed) note.id};
+    state = [
+      for (final note in state)
+        if (!removedIds.contains(note.id)) note,
+    ];
+    final selectedNoteId = ref.read(selectedNoteIdProvider);
+    if (selectedNoteId != null && removedIds.contains(selectedNoteId)) {
+      ref.read(selectedNoteIdProvider.notifier).select(null);
+    }
+    final filters = ref.read(searchFiltersControllerProvider);
+    if (filters.vaultId == vaultId) {
+      ref.read(searchFiltersControllerProvider.notifier).setVault(null);
+    }
+    await _deleteAttachments([
+      for (final note in removed)
+        if (!_isLockedPrivatePlaceholder(note)) ..._attachmentsIn(note),
+    ]);
+    await ref.read(encryptedNoteStoreProvider).deleteByVaultId(vaultId);
+    ref.invalidate(storageUsageSummaryProvider);
+    ref.invalidate(syncQueueSummaryProvider);
+    logAudit(
+      'private_profile_notes_delete',
+      data: {'vaultId': vaultId, 'count': removed.length},
+    );
+    return removed.length;
+  }
+
   Future<int> purgeTrashOlderThan([Duration retention = trashRetention]) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
@@ -10765,17 +10803,32 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
     return error;
   }
 
-  Future<void> deleteProfile(String id) async {
+  Future<bool> deleteProfile(String id) async {
+    if (!ref.read(adminModeSessionControllerProvider)) {
+      return false;
+    }
+    final vaultId = '$customPrivateVaultPrefix$id';
+    final removedNoteCount = await ref
+        .read(notesControllerProvider.notifier)
+        .deleteVaultLocally(vaultId);
     await ref.read(privateMemoProfileStoreProvider).deleteProfile(id);
     final unlockedVaultId = ref.read(unlockedPrivateProfileVaultIdProvider);
-    final vaultId = '$customPrivateVaultPrefix$id';
     await ref
         .read(profileColorThemeControllerProvider.notifier)
         .clearTheme(vaultId);
     if (unlockedVaultId == vaultId) {
       ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
     }
+    final filters = ref.read(searchFiltersControllerProvider);
+    if (filters.vaultId == vaultId) {
+      ref.read(searchFiltersControllerProvider.notifier).setVault(null);
+    }
     await refresh();
+    logAudit(
+      'private_profile_delete',
+      data: {'vaultId': vaultId, 'removedNoteCount': removedNoteCount},
+    );
+    return true;
   }
 
   Future<void> renameProfile({required String id, required String name}) async {
