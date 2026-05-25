@@ -2894,6 +2894,94 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('profile access action is compact and tutorial targets fit', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(41));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const HiMemoApp(flavor: AppFlavor.development),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+
+    final mobileProfileRect = tester.getRect(
+      find.byKey(AppShell.privateProfileAccessKey),
+    );
+    expect(mobileProfileRect.width, 40);
+    expect(mobileProfileRect.right, greaterThan(410));
+
+    tester.view.physicalSize = const Size(1024, 768);
+    await tester.pumpAndSettle();
+
+    container
+        .read(appTutorialControllerProvider.notifier)
+        .start(AppTutorialCourse.basics);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    Rect cardRect() => tester.getRect(find.byKey(AppShell.tutorialCardKey));
+    Rect padded(Rect rect) => rect.inflate(8);
+    expect(
+      cardRect().overlaps(
+        padded(tester.getRect(find.byKey(AppShell.privateProfileAccessKey))),
+      ),
+      isFalse,
+    );
+
+    container.read(appTutorialControllerProvider.notifier).next();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    final addNoteRect = tester.getRect(find.byKey(AppShell.addNoteKey));
+    expect(addNoteRect.left, lessThan(260));
+    expect(cardRect().overlaps(padded(addNoteRect)), isFalse);
+
+    container.read(appTutorialControllerProvider.notifier).next();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    final syncRect = tester.getRect(find.byKey(AppShell.syncIndicatorKey));
+    expect(syncRect.right, greaterThan(900));
+    expect(cardRect().overlaps(padded(syncRect)), isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('audit log settings are shown only in admin mode', (
     tester,
   ) async {

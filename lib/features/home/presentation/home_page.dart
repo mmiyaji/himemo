@@ -314,7 +314,7 @@ class _AppShellState extends ConsumerState<AppShell> {
             ),
           if (privateProfileActive || adminMode)
             Padding(
-              padding: const EdgeInsetsDirectional.only(end: 28),
+              padding: const EdgeInsetsDirectional.only(end: 12),
               child: ConstrainedBox(
                 constraints: BoxConstraints(
                   maxWidth: math.min(220, width * 0.42),
@@ -379,9 +379,9 @@ class _AppShellState extends ConsumerState<AppShell> {
             )
           else
             SizedBox(
-              width: 72,
+              width: 52,
               child: Align(
-                alignment: Alignment.centerLeft,
+                alignment: Alignment.center,
                 child: Tooltip(
                   message: effectiveProfileAccessTooltip,
                   child: SizedBox.square(
@@ -736,7 +736,10 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
     final strings = context.strings;
     final media = MediaQuery.of(context);
     final size = media.size;
-    final highlightRect = _highlightRect(context, size, media.padding);
+    final highlightRect = _highlightRect(context);
+    if (highlightRect == null) {
+      return const Positioned.fill(child: SizedBox.shrink());
+    }
     const edgeMargin = 18.0;
     final cardWidth = math.min(360.0, size.width - edgeMargin * 2);
     final cardOffset = _cardOffset(
@@ -955,7 +958,7 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
     };
   }
 
-  Rect _highlightRect(BuildContext context, Size size, EdgeInsets padding) {
+  Rect? _highlightRect(BuildContext context) {
     Rect? rectFor(GlobalKey key) {
       final targetContext = key.currentContext;
       final targetRenderObject = targetContext?.findRenderObject();
@@ -989,7 +992,7 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
       ),
       AppTutorialStep.addNote =>
         widget.useRail
-            ? rectFor(AppShell.headerAddNoteKey) ?? rectFor(AppShell.addNoteKey)
+            ? rectFor(AppShell.addNoteKey) ?? rectFor(AppShell.headerAddNoteKey)
             : rectFor(AppShell.addNoteKey),
       AppTutorialStep.syncStatus => rectFor(AppShell.syncIndicatorKey),
       AppTutorialStep.settings => rectFor(AppShell.settingsNavKey),
@@ -1012,60 +1015,7 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
       return keyedRect.inflate(6);
     }
     _scheduleRemeasure();
-
-    final top = padding.top;
-    final bottom = padding.bottom;
-    return switch (step) {
-      AppTutorialStep.privateProfile => Rect.fromLTWH(
-        size.width - 70,
-        top + 8,
-        52,
-        52,
-      ),
-      AppTutorialStep.addNote =>
-        widget.useRail
-            ? Rect.fromLTWH(
-                10 + padding.left,
-                size.height - bottom - 116,
-                236,
-                56,
-              )
-            : Rect.fromCircle(
-                center: Offset(size.width / 2, size.height - bottom - 46),
-                radius: 42,
-              ),
-      AppTutorialStep.syncStatus => Rect.fromLTWH(
-        size.width - (widget.useRail ? 176 : 132),
-        top + 8,
-        56,
-        52,
-      ),
-      AppTutorialStep.settings =>
-        widget.useRail
-            ? Rect.fromLTWH(10 + padding.left, top + 298, 234, 56)
-            : Rect.fromLTWH(size.width - 92, size.height - bottom - 92, 92, 92),
-      AppTutorialStep.tags =>
-        widget.useRail
-            ? Rect.fromLTWH(10 + padding.left, top + 246, 234, 56)
-            : Rect.fromLTWH(0, size.height - bottom - 92, size.width, 92),
-      AppTutorialStep.trash =>
-        widget.useRail
-            ? Rect.fromLTWH(10 + padding.left, top + 194, 234, 56)
-            : Rect.fromLTWH(0, size.height - bottom - 92, size.width, 92),
-      AppTutorialStep.calendarInsights =>
-        widget.useRail
-            ? Rect.fromLTWH(10 + padding.left, top + 122, 234, 112)
-            : Rect.fromLTWH(
-                size.width * 0.18,
-                size.height - bottom - 92,
-                size.width * 0.46,
-                92,
-              ),
-      AppTutorialStep.navigation =>
-        widget.useRail
-            ? Rect.fromLTWH(10, top + 70, 234, 330)
-            : Rect.fromLTWH(0, size.height - bottom - 92, size.width, 92),
-    }.inflate(6);
+    return null;
   }
 
   String _title(AppStrings strings) {
