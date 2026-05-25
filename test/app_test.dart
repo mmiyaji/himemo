@@ -1874,6 +1874,96 @@ void main() {
     },
   );
 
+  test(
+    'private profile unlock skips duplicate metadata without data key',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(23));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(database),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: database,
+              directoryProvider: () async => Directory.systemTemp,
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(database.close);
+
+      final addError = await container
+          .read(privateMemoProfilesControllerProvider.notifier)
+          .addProfile(name: 'Local private', password: 'same-pass-123');
+      expect(addError, isNull);
+      final localProfile = container.read(privateMemoProfilesProvider).single;
+      final notesController = container.read(notesControllerProvider.notifier);
+      await notesController.restoreCompleted;
+      await notesController.upsert(
+        NoteEntry(
+          id: 'local-private-note',
+          vaultId: localProfile.vaultId,
+          title: 'Local private note',
+          body: 'Must remain reachable after duplicate metadata import.',
+          createdAt: DateTime.utc(2026, 5, 25, 8),
+        ),
+      );
+      container.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+
+      final salt = encryptionService.generateSalt();
+      final verifier = await encryptionService.deriveSecretVerifier(
+        secret: 'same-pass-123',
+        salt: salt,
+      );
+      final imported = await container
+          .read(privateMemoProfileStoreProvider)
+          .importSyncPayload({
+            'version': 1,
+            'profiles': [
+              {
+                'id': 'profile_broken_remote',
+                'name': 'Broken remote',
+                'createdAt': DateTime.utc(2026, 1, 1).toIso8601String(),
+              },
+            ],
+            'verifiers': [
+              {
+                'profileId': 'profile_broken_remote',
+                'salt': base64Encode(salt),
+                'verifier': verifier,
+              },
+            ],
+            'dataKeys': const [],
+          });
+      expect(imported, greaterThanOrEqualTo(2));
+      await container
+          .read(privateMemoProfilesControllerProvider.notifier)
+          .refresh();
+      expect(container.read(privateMemoProfilesProvider), hasLength(2));
+
+      final unlocked = await container
+          .read(privateProfileUnlockControllerProvider.notifier)
+          .unlockWithPassword('same-pass-123');
+      expect(unlocked?.vaultId, localProfile.vaultId);
+      expect(
+        container.read(notesForVaultProvider(localProfile.vaultId)).single.id,
+        'local-private-note',
+      );
+    },
+  );
+
   test('private profile notes remain visible immediately after save', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();

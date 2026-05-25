@@ -6144,19 +6144,27 @@ class PrivateMemoProfileStore {
 
   Future<UnlockProfileResult?> verifyAny(String password) async {
     final profiles = await listProfiles();
+    final matches = <PrivateMemoProfile>[];
     for (final profile in profiles) {
       final matched = await _verifyProfilePassword(profile.id, password);
       if (matched) {
-        await _profileDataKeyService.unlockProfile(
+        final unlocked = await _profileDataKeyService.unlockProfile(
           vaultId: profile.vaultId,
           password: password,
         );
-        return UnlockProfileResult(
-          vaultId: profile.vaultId,
-          label: profile.name,
-          isLegacy: false,
-        );
+        if (unlocked) {
+          matches.add(profile);
+        }
       }
+    }
+    if (matches.isNotEmpty) {
+      matches.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final profile = matches.first;
+      return UnlockProfileResult(
+        vaultId: profile.vaultId,
+        label: profile.name,
+        isLegacy: false,
+      );
     }
     return null;
   }
