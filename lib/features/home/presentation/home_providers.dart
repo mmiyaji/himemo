@@ -183,11 +183,34 @@ bool get isICloudSyncSupported =>
 
 enum AppLaunchSurface { onboarding, ready }
 
-enum AppTutorialCourse { basics, writing, privacy, sync, organize }
+enum AppTutorialCourse {
+  basics,
+  mainScreen,
+  writing,
+  find,
+  attachments,
+  privateMemo,
+  review,
+  privacy,
+  sync,
+  syncTroubleshooting,
+  trashRecovery,
+  organize,
+  maintenance,
+}
+
+enum AppTutorialCourseLevel { beginner, intermediate, advanced }
 
 enum AppTutorialStep {
   privateProfile,
   addNote,
+  search,
+  filters,
+  notesList,
+  attachments,
+  privateMemo,
+  syncTroubleshooting,
+  trashRecovery,
   syncStatus,
   navigation,
   settings,
@@ -6735,10 +6758,38 @@ class AppTutorialController extends Notifier<AppTutorialState?> {
       AppTutorialStep.syncStatus,
       AppTutorialStep.navigation,
     ],
+    AppTutorialCourse.mainScreen: [
+      AppTutorialStep.search,
+      AppTutorialStep.filters,
+      AppTutorialStep.notesList,
+      AppTutorialStep.privateProfile,
+      AppTutorialStep.syncStatus,
+      AppTutorialStep.navigation,
+    ],
     AppTutorialCourse.writing: [
       AppTutorialStep.addNote,
       AppTutorialStep.tags,
       AppTutorialStep.calendarInsights,
+    ],
+    AppTutorialCourse.find: [
+      AppTutorialStep.search,
+      AppTutorialStep.filters,
+      AppTutorialStep.tags,
+    ],
+    AppTutorialCourse.attachments: [
+      AppTutorialStep.attachments,
+      AppTutorialStep.filters,
+      AppTutorialStep.syncStatus,
+    ],
+    AppTutorialCourse.privateMemo: [
+      AppTutorialStep.privateMemo,
+      AppTutorialStep.addNote,
+      AppTutorialStep.settings,
+    ],
+    AppTutorialCourse.review: [
+      AppTutorialStep.calendarInsights,
+      AppTutorialStep.tags,
+      AppTutorialStep.navigation,
     ],
     AppTutorialCourse.privacy: [
       AppTutorialStep.privateProfile,
@@ -6748,10 +6799,25 @@ class AppTutorialController extends Notifier<AppTutorialState?> {
       AppTutorialStep.syncStatus,
       AppTutorialStep.settings,
     ],
+    AppTutorialCourse.syncTroubleshooting: [
+      AppTutorialStep.syncTroubleshooting,
+      AppTutorialStep.settings,
+      AppTutorialStep.syncStatus,
+    ],
+    AppTutorialCourse.trashRecovery: [
+      AppTutorialStep.trashRecovery,
+      AppTutorialStep.trash,
+      AppTutorialStep.navigation,
+    ],
     AppTutorialCourse.organize: [
       AppTutorialStep.tags,
       AppTutorialStep.trash,
       AppTutorialStep.calendarInsights,
+    ],
+    AppTutorialCourse.maintenance: [
+      AppTutorialStep.settings,
+      AppTutorialStep.syncStatus,
+      AppTutorialStep.trash,
     ],
   };
 
@@ -6795,6 +6861,46 @@ class AppTutorialController extends Notifier<AppTutorialState?> {
 
   void close() {
     state = null;
+  }
+}
+
+final appTutorialCompletionControllerProvider =
+    NotifierProvider<AppTutorialCompletionController, Set<AppTutorialCourse>>(
+      AppTutorialCompletionController.new,
+    );
+
+class AppTutorialCompletionController extends Notifier<Set<AppTutorialCourse>> {
+  static const _storageKey = 'tutorials.completed_courses.v1';
+
+  @override
+  Set<AppTutorialCourse> build() {
+    unawaited(_load());
+    return <AppTutorialCourse>{};
+  }
+
+  Future<void> markComplete(AppTutorialCourse course) async {
+    final next = {...state, course};
+    state = next;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _storageKey,
+      next.map((course) => course.name).toList(growable: false)..sort(),
+    );
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getStringList(_storageKey) ?? const <String>[];
+    final completed = <AppTutorialCourse>{};
+    for (final name in stored) {
+      for (final course in AppTutorialCourse.values) {
+        if (course.name == name) {
+          completed.add(course);
+          break;
+        }
+      }
+    }
+    state = {...completed, ...state};
   }
 }
 

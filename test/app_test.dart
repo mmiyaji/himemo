@@ -2628,8 +2628,22 @@ void main() {
     addTearDown(container.dispose);
     final controller = container.read(appTutorialControllerProvider.notifier);
 
-    controller.start(AppTutorialCourse.organize);
+    expect(AppTutorialCourse.values.length, greaterThanOrEqualTo(13));
+
+    controller.start(AppTutorialCourse.mainScreen);
     var state = container.read(appTutorialControllerProvider);
+    expect(state?.course, AppTutorialCourse.mainScreen);
+    expect(state?.steps, [
+      AppTutorialStep.search,
+      AppTutorialStep.filters,
+      AppTutorialStep.notesList,
+      AppTutorialStep.privateProfile,
+      AppTutorialStep.syncStatus,
+      AppTutorialStep.navigation,
+    ]);
+
+    controller.start(AppTutorialCourse.organize);
+    state = container.read(appTutorialControllerProvider);
     expect(state?.course, AppTutorialCourse.organize);
     expect(state?.step, AppTutorialStep.tags);
     expect(state?.stepCount, 3);
@@ -2637,6 +2651,48 @@ void main() {
     controller.next();
     state = container.read(appTutorialControllerProvider);
     expect(state?.step, AppTutorialStep.trash);
+
+    controller.start(AppTutorialCourse.find);
+    state = container.read(appTutorialControllerProvider);
+    expect(state?.step, AppTutorialStep.search);
+    expect(state?.steps, [
+      AppTutorialStep.search,
+      AppTutorialStep.filters,
+      AppTutorialStep.tags,
+    ]);
+
+    controller.start(AppTutorialCourse.privateMemo);
+    state = container.read(appTutorialControllerProvider);
+    expect(state?.step, AppTutorialStep.privateMemo);
+
+    controller.start(AppTutorialCourse.trashRecovery);
+    state = container.read(appTutorialControllerProvider);
+    expect(state?.steps, [
+      AppTutorialStep.trashRecovery,
+      AppTutorialStep.trash,
+      AppTutorialStep.navigation,
+    ]);
+  });
+
+  test('app tutorial completion is persisted by course', () async {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    final controller = container.read(
+      appTutorialCompletionControllerProvider.notifier,
+    );
+    await controller.markComplete(AppTutorialCourse.sync);
+
+    expect(
+      container.read(appTutorialCompletionControllerProvider),
+      contains(AppTutorialCourse.sync),
+    );
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getStringList('tutorials.completed_courses.v1'),
+      contains(AppTutorialCourse.sync.name),
+    );
   });
 
   test('app lock policy providers expose secure defaults', () {
@@ -2979,6 +3035,96 @@ void main() {
     final syncRect = tester.getRect(find.byKey(AppShell.syncIndicatorKey));
     expect(syncRect.right, greaterThan(900));
     expect(cardRect().overlaps(padded(syncRect)), isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('tutorial advances across tabs and marks completion', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(42));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const HiMemoApp(flavor: AppFlavor.development),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+
+    final router = container.read(appRouterProvider);
+    router.go('/tags');
+    container
+        .read(appTutorialControllerProvider.notifier)
+        .start(AppTutorialCourse.organize);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(router.routeInformationProvider.value.uri.path, '/tags');
+    expect(find.byKey(AppShell.tutorialCardKey), findsOneWidget);
+
+    await tester.tap(find.byKey(AppShell.tutorialNextKey));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(router.routeInformationProvider.value.uri.path, '/trash');
+    expect(
+      container.read(appTutorialControllerProvider)?.step,
+      AppTutorialStep.trash,
+    );
+
+    await tester.tap(find.byKey(AppShell.tutorialNextKey));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(router.routeInformationProvider.value.uri.path, '/calendar');
+    expect(
+      container.read(appTutorialControllerProvider)?.step,
+      AppTutorialStep.calendarInsights,
+    );
+
+    final doneButton = find.text('Done').hitTestable();
+    expect(doneButton, findsOneWidget);
+    await tester.tap(doneButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(router.routeInformationProvider.value.uri.path, '/tutorials');
+    expect(container.read(appTutorialControllerProvider), isNull);
+    expect(
+      container.read(appTutorialCompletionControllerProvider),
+      contains(AppTutorialCourse.organize),
+    );
     expect(tester.takeException(), isNull);
   });
 

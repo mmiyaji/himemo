@@ -145,6 +145,7 @@ class _MobileNotesListState extends State<_MobileNotesList> {
   @override
   Widget build(BuildContext context) {
     final list = ListView.builder(
+      key: AppShell.notesListKey,
       physics: widget.onRefresh == null
           ? null
           : const AlwaysScrollableScrollPhysics(),
@@ -1268,6 +1269,7 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
   @override
   Widget build(BuildContext context) {
     final list = ListView.builder(
+      key: AppShell.notesListKey,
       physics: widget.onRefresh == null
           ? null
           : const AlwaysScrollableScrollPhysics(),

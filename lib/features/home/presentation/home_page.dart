@@ -140,6 +140,9 @@ class AppShell extends ConsumerStatefulWidget {
   static final tagsNavKey = GlobalKey(debugLabel: 'nav-tags');
   static final settingsNavKey = GlobalKey(debugLabel: 'nav-settings');
   static final addNoteKey = GlobalKey(debugLabel: 'add-note-button');
+  static final notesSearchKey = GlobalKey(debugLabel: 'notes-search-input');
+  static final notesFilterKey = GlobalKey(debugLabel: 'notes-filter-button');
+  static final notesListKey = GlobalKey(debugLabel: 'notes-list-area');
   static final headerAddNoteKey = GlobalKey(
     debugLabel: 'header-add-note-button',
   );
@@ -286,7 +289,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     final tutorialStep = tutorialState?.step;
     final showSyncIndicator =
         syncTransferState.stage == SyncTransferStage.busy ||
-        tutorialStep == AppTutorialStep.syncStatus;
+        tutorialStep == AppTutorialStep.syncStatus ||
+        tutorialStep == AppTutorialStep.syncTroubleshooting;
 
     final shell = Scaffold(
       appBar: AppBar(
@@ -560,10 +564,18 @@ class _AppShellState extends ConsumerState<AppShell> {
           _AppTutorialOverlay(
             state: tutorialState!,
             useRail: useRail,
-            onPrevious: ref
-                .read(appTutorialControllerProvider.notifier)
-                .previous,
-            onNext: ref.read(appTutorialControllerProvider.notifier).next,
+            onPrevious: () {
+              final latest = ref.read(appTutorialControllerProvider);
+              if (latest != null) {
+                _previousTutorialStep(context, ref, latest);
+              }
+            },
+            onNext: () {
+              final latest = ref.read(appTutorialControllerProvider);
+              if (latest != null) {
+                _advanceTutorialStep(context, ref, latest);
+              }
+            },
             onClose: ref.read(appTutorialControllerProvider.notifier).close,
           ),
       ],
@@ -690,6 +702,77 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
     return AppSection.notes;
   }
+}
+
+String _tutorialRouteForStep(AppTutorialStep step) {
+  return switch (step) {
+    AppTutorialStep.privateProfile ||
+    AppTutorialStep.addNote ||
+    AppTutorialStep.search ||
+    AppTutorialStep.filters ||
+    AppTutorialStep.notesList ||
+    AppTutorialStep.attachments ||
+    AppTutorialStep.privateMemo ||
+    AppTutorialStep.syncTroubleshooting ||
+    AppTutorialStep.syncStatus ||
+    AppTutorialStep.navigation => '/notes',
+    AppTutorialStep.settings => '/settings',
+    AppTutorialStep.tags => '/tags',
+    AppTutorialStep.trash || AppTutorialStep.trashRecovery => '/trash',
+    AppTutorialStep.calendarInsights => '/calendar',
+  };
+}
+
+void _startTutorialCourse(
+  BuildContext context,
+  WidgetRef ref,
+  AppTutorialCourse course,
+) {
+  ref.read(appTutorialControllerProvider.notifier).start(course);
+  final started = ref.read(appTutorialControllerProvider);
+  final step = started?.step;
+  if (step != null) {
+    context.go(_tutorialRouteForStep(step));
+  }
+}
+
+void _advanceTutorialStep(
+  BuildContext context,
+  WidgetRef ref,
+  AppTutorialState current,
+) {
+  final controller = ref.read(appTutorialControllerProvider.notifier);
+  if (current.index >= current.steps.length - 1) {
+    unawaited(
+      ref
+          .read(appTutorialCompletionControllerProvider.notifier)
+          .markComplete(current.course),
+    );
+    controller.close();
+    context.go('/tutorials');
+    return;
+  }
+  final nextStep = current.steps[current.index + 1];
+  context.go(_tutorialRouteForStep(nextStep));
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    controller.next();
+  });
+}
+
+void _previousTutorialStep(
+  BuildContext context,
+  WidgetRef ref,
+  AppTutorialState current,
+) {
+  if (current.index <= 0) {
+    return;
+  }
+  final controller = ref.read(appTutorialControllerProvider.notifier);
+  final previousStep = current.steps[current.index - 1];
+  context.go(_tutorialRouteForStep(previousStep));
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    controller.previous();
+  });
 }
 
 class _AppTutorialOverlay extends StatefulWidget {
@@ -872,7 +955,7 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
                           const SizedBox(width: 8),
                           FilledButton(
                             key: AppShell.tutorialNextKey,
-                            onPressed: isLast ? widget.onClose : widget.onNext,
+                            onPressed: widget.onNext,
                             child: Text(
                               isLast
                                   ? strings.localized(
@@ -937,10 +1020,17 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
                       ),
               )
             : Offset(centered(), math.max(top, highlightRect.top - 300)),
+      AppTutorialStep.search ||
+      AppTutorialStep.filters ||
+      AppTutorialStep.notesList ||
+      AppTutorialStep.attachments ||
+      AppTutorialStep.privateMemo ||
+      AppTutorialStep.syncTroubleshooting => Offset(nearRight(), below()),
       AppTutorialStep.syncStatus => Offset(nearRight(), below()),
       AppTutorialStep.settings ||
       AppTutorialStep.tags ||
       AppTutorialStep.trash ||
+      AppTutorialStep.trashRecovery ||
       AppTutorialStep.calendarInsights =>
         widget.useRail
             ? Offset(
@@ -994,10 +1084,20 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
         widget.useRail
             ? rectFor(AppShell.addNoteKey) ?? rectFor(AppShell.headerAddNoteKey)
             : rectFor(AppShell.addNoteKey),
+      AppTutorialStep.search => rectFor(AppShell.notesSearchKey),
+      AppTutorialStep.filters => rectFor(AppShell.notesFilterKey),
+      AppTutorialStep.notesList => rectFor(AppShell.notesListKey),
+      AppTutorialStep.attachments =>
+        widget.useRail
+            ? rectFor(AppShell.addNoteKey) ?? rectFor(AppShell.headerAddNoteKey)
+            : rectFor(AppShell.addNoteKey),
+      AppTutorialStep.privateMemo => rectFor(AppShell.privateProfileAccessKey),
+      AppTutorialStep.syncTroubleshooting => rectFor(AppShell.syncIndicatorKey),
       AppTutorialStep.syncStatus => rectFor(AppShell.syncIndicatorKey),
       AppTutorialStep.settings => rectFor(AppShell.settingsNavKey),
       AppTutorialStep.tags => rectFor(AppShell.tagsNavKey),
-      AppTutorialStep.trash => rectFor(AppShell.trashNavKey),
+      AppTutorialStep.trash ||
+      AppTutorialStep.trashRecovery => rectFor(AppShell.trashNavKey),
       AppTutorialStep.calendarInsights => unionRects([
         AppShell.calendarNavKey,
         AppShell.insightsNavKey,
@@ -1028,16 +1128,44 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
         en: 'Create a memo',
         ja: 'メモを作成',
       ),
+      AppTutorialStep.search => strings.localized(
+        en: 'Search memos',
+        ja: 'メモを検索',
+      ),
+      AppTutorialStep.filters => strings.localized(
+        en: 'Filter the list',
+        ja: '一覧を絞り込み',
+      ),
+      AppTutorialStep.notesList => strings.localized(
+        en: 'Memo list',
+        ja: 'メモ一覧',
+      ),
+      AppTutorialStep.attachments => strings.localized(
+        en: 'Attach files',
+        ja: '添付を追加',
+      ),
+      AppTutorialStep.privateMemo => strings.localized(
+        en: 'Private memo flow',
+        ja: 'プライベートメモ',
+      ),
+      AppTutorialStep.syncTroubleshooting => strings.localized(
+        en: 'Sync checks',
+        ja: '同期の確認',
+      ),
       AppTutorialStep.syncStatus => strings.localized(
         en: 'Sync status',
         ja: '同期状況',
       ),
       AppTutorialStep.settings => strings.localized(
         en: 'Settings hub',
-        ja: '設定の入り口',
+        ja: '設定の入口',
       ),
       AppTutorialStep.tags => strings.localized(en: 'Tags', ja: 'タグ整理'),
       AppTutorialStep.trash => strings.localized(en: 'Trash', ja: 'ゴミ箱'),
+      AppTutorialStep.trashRecovery => strings.localized(
+        en: 'Restore from trash',
+        ja: 'ゴミ箱から復元',
+      ),
       AppTutorialStep.calendarInsights => strings.localized(
         en: 'Calendar and insights',
         ja: 'カレンダーと記録',
@@ -1053,11 +1181,35 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
     return switch (step) {
       AppTutorialStep.privateProfile => strings.localized(
         en: 'Use the lock icon in the header to unlock or switch private profiles. App lock also uses this area when protection is enabled.',
-        ja: '画面右上のロックアイコンからプライベートプロファイルの解除や切り替えができます。アプリ保護を有効にした場合もここが入口になります。',
+        ja: '画面右上のロックアイコンから、プライベートプロファイルの解除や切り替えができます。アプリ保護を有効にした場合もここが入口になります。',
       ),
       AppTutorialStep.addNote => strings.localized(
         en: 'Tap the compose button to add a new memo. You can attach photos, videos, audio, files, tags, and dates from the editor.',
         ja: '作成ボタンから新しいメモを追加します。編集画面では写真、動画、音声、ファイル、タグ、日付を追加できます。',
+      ),
+      AppTutorialStep.search => strings.localized(
+        en: 'Use search to find memo text, diary entries, tags, and attachment labels from the main list.',
+        ja: 'メイン画面の検索欄から、本文、日記、タグ、添付ラベルをまとめて探せます。',
+      ),
+      AppTutorialStep.filters => strings.localized(
+        en: 'Open filters when search alone is not enough. You can narrow by tags, year, attachment type, pinned notes, and archive state.',
+        ja: '検索だけで足りないときはフィルタを開きます。タグ、年、添付の種類、ピン留め、アーカイブ状態で絞り込めます。',
+      ),
+      AppTutorialStep.notesList => strings.localized(
+        en: 'This is the main memo list. Memo cards show the title, text preview, tags, dates, and attachment thumbnails when available.',
+        ja: 'ここがメインのメモ一覧です。メモカードにはタイトル、本文プレビュー、タグ、日付、添付サムネイルが表示されます。',
+      ),
+      AppTutorialStep.attachments => strings.localized(
+        en: 'Start from the compose button, then use the editor toolbar to add photos, videos, audio, or files. Large files are handled in the background during sync.',
+        ja: '作成ボタンから編集画面を開き、ツールバーで写真、動画、音声、ファイルを添付します。大きなファイルは同期時にバックグラウンドで扱います。',
+      ),
+      AppTutorialStep.privateMemo => strings.localized(
+        en: 'Unlock a private profile from the header before writing private memos. In the editor, choose the private save destination before saving.',
+        ja: 'プライベートメモを書く前に、ヘッダーからプロファイルを解除します。編集画面では保存先がプライベートになっていることを確認して保存します。',
+      ),
+      AppTutorialStep.syncTroubleshooting => strings.localized(
+        en: 'When sync is active, tap the indicator to see progress, item counts, and the current step before opening settings for detailed history.',
+        ja: '同期中はインジケーターをタップして、進捗、件数、現在の処理を確認できます。詳しい履歴は設定から確認します。',
       ),
       AppTutorialStep.syncStatus => strings.localized(
         en: 'When sync is running, this indicator rotates and shows progress. Tap it to see the current step and item counts.',
@@ -1074,6 +1226,10 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
       AppTutorialStep.trash => strings.localized(
         en: 'Deleted memos move to Trash first. Review them here before restoring or deleting them permanently.',
         ja: '削除したメモはいったんゴミ箱に入ります。ここで確認してから復元または完全削除できます。',
+      ),
+      AppTutorialStep.trashRecovery => strings.localized(
+        en: 'Trash is the recovery point for accidental deletes. Open it from navigation, review the note, then restore or permanently delete it.',
+        ja: '誤って削除したメモはゴミ箱から確認できます。ナビゲーションから開き、内容を見て復元または完全削除します。',
       ),
       AppTutorialStep.calendarInsights => strings.localized(
         en: 'Calendar helps you review memos by date, while insights show writing patterns and note activity.',

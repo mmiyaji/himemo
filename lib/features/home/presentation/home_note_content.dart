@@ -115,7 +115,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
                   builder: (context, searchValue, _) {
                     final hasSearchText = searchValue.text.isNotEmpty;
                     return TextFormField(
-                      key: const Key('notes-search-input'),
+                      key: AppShell.notesSearchKey,
                       controller: _searchController,
                       decoration: InputDecoration(
                         labelText: strings.search,
@@ -182,6 +182,7 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
               ),
               const SizedBox(width: 8),
               Semantics(
+                key: AppShell.notesFilterKey,
                 button: true,
                 label: strings.text('home.filters'),
                 child: InkWell(

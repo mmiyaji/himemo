@@ -7,100 +7,226 @@ class TutorialsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
     final theme = Theme.of(context);
-    final courses = AppTutorialCourse.values;
+    final completed = ref.watch(appTutorialCompletionControllerProvider);
     return Scaffold(
       appBar: AppBar(
         title: Text(
           strings.localized(
             en: 'Tutorials',
             ja: 'チュートリアル',
-            zh: '教程',
-            ko: '튜토리얼',
+            zh: 'Tutorials',
+            ko: 'Tutorials',
             es: 'Tutoriales',
             de: 'Tutorials',
           ),
         ),
       ),
       body: SafeArea(
-        child: ListView.separated(
+        child: ListView(
           padding: const EdgeInsets.all(16),
-          itemCount: courses.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 12),
-          itemBuilder: (context, index) {
-            final course = courses[index];
-            return Card(
-              margin: EdgeInsets.zero,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    CircleAvatar(
-                      backgroundColor: theme.colorScheme.primaryContainer,
-                      foregroundColor: theme.colorScheme.onPrimaryContainer,
-                      child: Icon(_tutorialCourseIcon(course)),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _tutorialCourseTitle(strings, course),
-                            style: theme.textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            _tutorialCourseDescription(strings, course),
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Align(
-                            alignment: AlignmentDirectional.centerEnd,
-                            child: FilledButton.icon(
-                              onPressed: () {
-                                ref
-                                    .read(
-                                      appTutorialControllerProvider.notifier,
-                                    )
-                                    .start(course);
-                              },
-                              icon: const Icon(Icons.play_arrow_rounded),
-                              label: Text(
-                                strings.localized(
-                                  en: 'Start',
-                                  ja: '開始',
-                                  zh: '开始',
-                                  ko: '시작',
-                                  es: 'Iniciar',
-                                  de: 'Starten',
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+          children: [
+            for (final level in AppTutorialCourseLevel.values) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 8, 4, 10),
+                child: Text(
+                  _tutorialLevelTitle(strings, level),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
-            );
-          },
+              for (final course in AppTutorialCourse.values.where(
+                (course) => _tutorialCourseLevel(course) == level,
+              )) ...[
+                _TutorialCourseCard(
+                  course: course,
+                  completed: completed.contains(course),
+                  onStart: () => _startTutorialCourse(context, ref, course),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ],
+          ],
         ),
       ),
     );
   }
 }
 
+class _TutorialCourseCard extends StatelessWidget {
+  const _TutorialCourseCard({
+    required this.course,
+    required this.completed,
+    required this.onStart,
+  });
+
+  final AppTutorialCourse course;
+  final bool completed;
+  final VoidCallback onStart;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              backgroundColor: completed
+                  ? theme.colorScheme.secondaryContainer
+                  : theme.colorScheme.primaryContainer,
+              foregroundColor: completed
+                  ? theme.colorScheme.onSecondaryContainer
+                  : theme.colorScheme.onPrimaryContainer,
+              child: Icon(
+                completed ? Icons.check_rounded : _tutorialCourseIcon(course),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _tutorialCourseTitle(strings, course),
+                          style: theme.textTheme.titleMedium,
+                        ),
+                      ),
+                      if (completed)
+                        Text(
+                          strings.localized(
+                            en: 'Done',
+                            ja: '完了',
+                            zh: 'Done',
+                            ko: 'Done',
+                            es: 'Listo',
+                            de: 'Fertig',
+                          ),
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: theme.colorScheme.onSecondaryContainer,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _tutorialCourseDescription(strings, course),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: FilledButton.icon(
+                      onPressed: onStart,
+                      icon: Icon(
+                        completed
+                            ? Icons.replay_rounded
+                            : Icons.play_arrow_rounded,
+                      ),
+                      label: Text(
+                        completed
+                            ? strings.localized(
+                                en: 'Replay',
+                                ja: 'もう一度',
+                                zh: 'Replay',
+                                ko: 'Replay',
+                                es: 'Repetir',
+                                de: 'Erneut',
+                              )
+                            : strings.localized(
+                                en: 'Start',
+                                ja: '開始',
+                                zh: 'Start',
+                                ko: 'Start',
+                                es: 'Iniciar',
+                                de: 'Starten',
+                              ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _tutorialLevelTitle(AppStrings strings, AppTutorialCourseLevel level) {
+  return switch (level) {
+    AppTutorialCourseLevel.beginner => strings.localized(
+      en: 'Beginner',
+      ja: '初級',
+      zh: 'Beginner',
+      ko: 'Beginner',
+      es: 'Inicial',
+      de: 'Grundlagen',
+    ),
+    AppTutorialCourseLevel.intermediate => strings.localized(
+      en: 'Intermediate',
+      ja: '中級',
+      zh: 'Intermediate',
+      ko: 'Intermediate',
+      es: 'Intermedio',
+      de: 'Mittelstufe',
+    ),
+    AppTutorialCourseLevel.advanced => strings.localized(
+      en: 'Advanced',
+      ja: '上級',
+      zh: 'Advanced',
+      ko: 'Advanced',
+      es: 'Avanzado',
+      de: 'Fortgeschritten',
+    ),
+  };
+}
+
+AppTutorialCourseLevel _tutorialCourseLevel(AppTutorialCourse course) {
+  return switch (course) {
+    AppTutorialCourse.basics ||
+    AppTutorialCourse.mainScreen ||
+    AppTutorialCourse.writing ||
+    AppTutorialCourse.find => AppTutorialCourseLevel.beginner,
+    AppTutorialCourse.review ||
+    AppTutorialCourse.attachments ||
+    AppTutorialCourse.privateMemo ||
+    AppTutorialCourse.privacy ||
+    AppTutorialCourse.sync => AppTutorialCourseLevel.intermediate,
+    AppTutorialCourse.syncTroubleshooting ||
+    AppTutorialCourse.trashRecovery ||
+    AppTutorialCourse.organize ||
+    AppTutorialCourse.maintenance => AppTutorialCourseLevel.advanced,
+  };
+}
+
 IconData _tutorialCourseIcon(AppTutorialCourse course) {
   return switch (course) {
     AppTutorialCourse.basics => Icons.tips_and_updates_outlined,
+    AppTutorialCourse.mainScreen => Icons.dashboard_customize_outlined,
     AppTutorialCourse.writing => Icons.edit_note_rounded,
+    AppTutorialCourse.find => Icons.search_rounded,
+    AppTutorialCourse.attachments => Icons.attach_file_rounded,
+    AppTutorialCourse.privateMemo => Icons.lock_person_outlined,
+    AppTutorialCourse.review => Icons.event_note_outlined,
     AppTutorialCourse.privacy => Icons.lock_person_outlined,
     AppTutorialCourse.sync => Icons.cloud_sync_outlined,
+    AppTutorialCourse.syncTroubleshooting => Icons.manage_search_rounded,
+    AppTutorialCourse.trashRecovery => Icons.restore_from_trash_outlined,
     AppTutorialCourse.organize => Icons.sell_outlined,
+    AppTutorialCourse.maintenance => Icons.admin_panel_settings_outlined,
   };
 }
 
@@ -108,43 +234,55 @@ String _tutorialCourseTitle(AppStrings strings, AppTutorialCourse course) {
   return switch (course) {
     AppTutorialCourse.basics => strings.localized(
       en: 'First steps',
-      ja: '初歩ガイド',
-      zh: '入门指南',
-      ko: '첫 단계',
-      es: 'Primeros pasos',
-      de: 'Erste Schritte',
+      ja: 'はじめての操作',
+    ),
+    AppTutorialCourse.mainScreen => strings.localized(
+      en: 'Main screen guide',
+      ja: 'メイン画面の見方',
     ),
     AppTutorialCourse.writing => strings.localized(
       en: 'Writing memos',
       ja: 'メモを書く',
-      zh: '撰写笔记',
-      ko: '메모 작성',
-      es: 'Escribir memos',
-      de: 'Notizen schreiben',
+    ),
+    AppTutorialCourse.find => strings.localized(
+      en: 'Search and filter',
+      ja: '検索と絞り込み',
+    ),
+    AppTutorialCourse.attachments => strings.localized(
+      en: 'Using attachments',
+      ja: '添付ファイル',
+    ),
+    AppTutorialCourse.privateMemo => strings.localized(
+      en: 'Private memo creation',
+      ja: 'プライベートメモ作成',
+    ),
+    AppTutorialCourse.review => strings.localized(
+      en: 'Review by date',
+      ja: '日付で見返す',
     ),
     AppTutorialCourse.privacy => strings.localized(
       en: 'Privacy and protection',
       ja: 'プライバシーと保護',
-      zh: '隐私与保护',
-      ko: '개인정보와 보호',
-      es: 'Privacidad y proteccion',
-      de: 'Privatsphaere und Schutz',
     ),
     AppTutorialCourse.sync => strings.localized(
       en: 'Sync and backup',
       ja: '同期とバックアップ',
-      zh: '同步和备份',
-      ko: '동기화와 백업',
-      es: 'Sincronizacion y copia',
-      de: 'Synchronisierung und Backup',
+    ),
+    AppTutorialCourse.syncTroubleshooting => strings.localized(
+      en: 'Sync troubleshooting',
+      ja: '同期トラブル確認',
+    ),
+    AppTutorialCourse.trashRecovery => strings.localized(
+      en: 'Trash and restore',
+      ja: 'ゴミ箱と復元',
     ),
     AppTutorialCourse.organize => strings.localized(
       en: 'Organizing notes',
       ja: 'メモを整理する',
-      zh: '整理笔记',
-      ko: '메모 정리',
-      es: 'Organizar notas',
-      de: 'Notizen organisieren',
+    ),
+    AppTutorialCourse.maintenance => strings.localized(
+      en: 'Maintenance workflow',
+      ja: 'メンテナンス',
     ),
   };
 }
@@ -155,44 +293,56 @@ String _tutorialCourseDescription(
 ) {
   return switch (course) {
     AppTutorialCourse.basics => strings.localized(
-      en: 'Learn the header buttons, memo creation, sync status, and navigation.',
-      ja: 'ヘッダー、メモ作成、同期状況、画面移動の基本を確認します。',
-      zh: '了解顶部按钮、创建笔记、同步状态和导航。',
-      ko: '헤더 버튼, 메모 작성, 동기화 상태, 화면 이동의 기본을 확인합니다.',
-      es: 'Aprende botones, creacion de memos, estado de sincronizacion y navegacion.',
-      de: 'Lerne Kopfbereich, Notizerstellung, Synchronisierung und Navigation.',
+      en: 'Move through notes, the header actions, sync status, and navigation.',
+      ja: 'ノート画面、ヘッダー操作、同期状態、画面移動を順に確認します。',
+    ),
+    AppTutorialCourse.mainScreen => strings.localized(
+      en: 'Learn the search box, filters, memo list, header actions, sync indicator, and navigation on the main screen.',
+      ja: 'メイン画面の検索、フィルタ、メモ一覧、ヘッダー操作、同期インジケーター、ナビゲーションを確認します。',
     ),
     AppTutorialCourse.writing => strings.localized(
-      en: 'Focus on creating memos, adding tags, and reviewing entries by date.',
-      ja: 'メモ作成、タグ付け、日付からの見返しに絞って確認します。',
-      zh: '重点了解创建笔记、添加标签和按日期回顾。',
-      ko: '메모 작성, 태그 추가, 날짜별 확인을 중심으로 봅니다.',
-      es: 'Se centra en crear memos, etiquetar y revisarlos por fecha.',
-      de: 'Fokus auf Erstellen, Tags und Rueckblick nach Datum.',
+      en: 'Create memos, add tags, then jump to the calendar for review.',
+      ja: 'メモ作成、タグ、カレンダーでの見返しまで確認します。',
+    ),
+    AppTutorialCourse.find => strings.localized(
+      en: 'Use the main screen search box, filters, and tags to find notes.',
+      ja: 'メイン画面の検索欄、フィルタ、タグでメモを探す流れを確認します。',
+    ),
+    AppTutorialCourse.attachments => strings.localized(
+      en: 'Start a memo and learn where photos, videos, audio, and files are attached.',
+      ja: 'メモ作成から写真、動画、音声、ファイルを添付する入口を確認します。',
+    ),
+    AppTutorialCourse.privateMemo => strings.localized(
+      en: 'Unlock a profile, create a memo, and check private save behavior.',
+      ja: 'プロファイル解除、メモ作成、プライベート保存の考え方を確認します。',
+    ),
+    AppTutorialCourse.review => strings.localized(
+      en: 'Use calendar, tags, and navigation together to find past memos.',
+      ja: 'カレンダー、タグ、画面移動を組み合わせて過去のメモを探します。',
     ),
     AppTutorialCourse.privacy => strings.localized(
-      en: 'See where private profiles, app protection, and related settings live.',
-      ja: 'プライベートプロファイル、アプリ保護、関連設定の場所を確認します。',
-      zh: '查看私密配置、应用保护和相关设置的位置。',
-      ko: '비공개 프로필, 앱 보호, 관련 설정 위치를 확인합니다.',
-      es: 'Muestra perfiles privados, proteccion de app y ajustes relacionados.',
-      de: 'Zeigt private Profile, App-Schutz und zugehoerige Einstellungen.',
+      en: 'Check private profiles, app protection, and the settings area.',
+      ja: 'プライベートプロファイル、アプリ保護、設定画面を確認します。',
     ),
     AppTutorialCourse.sync => strings.localized(
-      en: 'Learn the sync indicator and where to configure cloud sync and backups.',
-      ja: '同期インジケーターとクラウド同期・バックアップ設定の場所を確認します。',
-      zh: '了解同步指示器以及云同步和备份设置的位置。',
-      ko: '동기화 표시기와 클라우드 동기화, 백업 설정 위치를 확인합니다.',
-      es: 'Aprende el indicador de sincronizacion y donde configurar copias.',
-      de: 'Lerne die Sync-Anzeige und Backup-Einstellungen kennen.',
+      en: 'Follow the sync indicator, then open the sync settings area.',
+      ja: '同期インジケーターから設定画面の同期項目まで確認します。',
+    ),
+    AppTutorialCourse.syncTroubleshooting => strings.localized(
+      en: 'Check progress from the header, then move to settings for history and conflicts.',
+      ja: 'ヘッダーの進捗確認から、設定の履歴や競合確認へ進みます。',
+    ),
+    AppTutorialCourse.trashRecovery => strings.localized(
+      en: 'Open Trash from navigation and learn when to restore or permanently delete.',
+      ja: 'ナビゲーションからゴミ箱を開き、復元と完全削除の使い分けを確認します。',
     ),
     AppTutorialCourse.organize => strings.localized(
-      en: 'Walk through tags, trash, calendar, and insights for keeping notes tidy.',
-      ja: 'タグ、ゴミ箱、カレンダー、記録でメモを整理する流れを確認します。',
-      zh: '查看标签、废纸篓、日历和统计如何帮助整理笔记。',
-      ko: '태그, 휴지통, 캘린더, 기록으로 메모를 정리하는 흐름을 봅니다.',
-      es: 'Recorre etiquetas, papelera, calendario y registros para ordenar notas.',
-      de: 'Fuehrt durch Tags, Papierkorb, Kalender und Auswertung.',
+      en: 'Walk through tags, trash, calendar, and note cleanup habits.',
+      ja: 'タグ、ゴミ箱、カレンダーを移動しながら整理の流れを確認します。',
+    ),
+    AppTutorialCourse.maintenance => strings.localized(
+      en: 'Review settings, sync status, and trash as a maintenance routine.',
+      ja: '設定、同期状態、ゴミ箱をメンテナンスの流れとして確認します。',
     ),
   };
 }

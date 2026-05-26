@@ -422,11 +422,11 @@ class SettingsScreen extends ConsumerWidget {
             child: Text(strings.cancel),
           ),
           FilledButton.tonalIcon(
-            style: FilledButton.styleFrom(
-              foregroundColor: Theme.of(context).colorScheme.error,
-            ),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            icon: const Icon(Icons.delete_forever_outlined),
+            icon: Icon(
+              Icons.delete_forever_outlined,
+              color: Theme.of(context).colorScheme.error,
+            ),
             label: Text(strings.localized(en: 'Delete', ja: '削除')),
           ),
         ],
@@ -1455,10 +1455,7 @@ class SettingsScreen extends ConsumerWidget {
                                 ref,
                                 profile,
                               ),
-                              icon: Icon(
-                                Icons.delete_forever_outlined,
-                                color: Theme.of(context).colorScheme.error,
-                              ),
+                              icon: const Icon(Icons.delete_forever_outlined),
                             ),
                           ],
                         ),
