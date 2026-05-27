@@ -2967,6 +2967,128 @@ void main() {
   );
 
   test(
+    'NotesController keeps notes created while a sync is finishing',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-create-during-upload-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(69));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: noteDatabase,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+
+      final controller = container.read(notesControllerProvider.notifier);
+      final createdAt = DateTime(2026, 5, 24, 23, 49);
+      await controller.upsert(
+        NoteEntry(
+          id: 'already-uploading',
+          vaultId: 'everyday',
+          title: 'Already uploading',
+          body: 'This change was in the snapshot.',
+          createdAt: createdAt,
+          updatedAt: createdAt,
+        ),
+      );
+      final uploadingHash = container
+          .read(notesControllerProvider)
+          .singleWhere((entry) => entry.id == 'already-uploading')
+          .contentHash;
+
+      await controller.upsert(
+        NoteEntry(
+          id: 'created-during-sync',
+          vaultId: 'everyday',
+          title: 'Created during sync',
+          body: 'This note must stay local after the current upload finishes.',
+          createdAt: createdAt.add(const Duration(seconds: 5)),
+          updatedAt: createdAt.add(const Duration(seconds: 5)),
+        ),
+      );
+
+      await controller.markSnapshotChangesSynced({
+        'already-uploading': uploadingHash,
+      });
+
+      final afterUpload = container.read(notesControllerProvider);
+      expect(
+        afterUpload
+            .singleWhere((entry) => entry.id == 'already-uploading')
+            .syncState,
+        NoteSyncState.synced,
+      );
+      final createdDuringSync = afterUpload.singleWhere(
+        (entry) => entry.id == 'created-during-sync',
+      );
+      expect(createdDuringSync.deletedAt, isNull);
+      expect(createdDuringSync.syncState, NoteSyncState.pendingUpload);
+
+      await controller.mergeFromSync([
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.delete,
+          note: NoteEntry(
+            id: 'created-during-sync',
+            vaultId: 'everyday',
+            title: '',
+            body: '',
+            createdAt: createdAt,
+            updatedAt: createdAt.add(const Duration(minutes: 1)),
+            deletedAt: createdAt.add(const Duration(minutes: 1)),
+            revision: 2,
+            contentHash: 'remote-delete-for-created-during-sync',
+          ),
+        ),
+      ]);
+
+      final afterRemoteDelete = container
+          .read(notesControllerProvider)
+          .singleWhere((entry) => entry.id == 'created-during-sync');
+      expect(afterRemoteDelete.title, 'Created during sync');
+      expect(afterRemoteDelete.body, contains('must stay local'));
+      expect(afterRemoteDelete.deletedAt, isNull);
+      expect(afterRemoteDelete.syncState, NoteSyncState.conflict);
+      expect(container.read(visibleNotesProvider), contains(afterRemoteDelete));
+
+      final pendingChanges = await noteDatabase.loadPendingChanges();
+      expect(
+        pendingChanges.where(
+          (change) => change.noteId == 'created-during-sync',
+        ),
+        hasLength(1),
+      );
+
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
     'NotesController does not resurrect locally trashed notes from remote upserts',
     () async {
       SharedPreferences.setMockInitialValues({});
@@ -3351,6 +3473,48 @@ void main() {
     expect(preview.addedTitles, ['Added note']);
     expect(preview.updatedTitles, ['Updated title']);
     expect(preview.removedTitles, ['Local only']);
+  });
+
+  test('buildSyncBundlePreview reports private vault coverage', () {
+    final preview = buildSyncBundlePreview(
+      decodedBundle: {
+        'notes': [
+          {
+            'action': 'upsert',
+            'note': NoteEntry(
+              id: 'private-note',
+              vaultId: 'private_profile:profile-a',
+              title: 'Private title',
+              body: 'Private body',
+              createdAt: DateTime(2026, 4, 12, 11, 0),
+            ).toJson(),
+          },
+        ],
+        'encryptedPrivateNotes': [
+          {
+            'action': 'upsert',
+            'note': {
+              'id': 'locked-private-note',
+              'vaultId': 'private_profile:profile-b',
+              'createdAt': '2026-04-12T11:00:00.000',
+              'isPinned': false,
+              'revision': 1,
+              'syncState': 'synced',
+              'encryptedPayload': 'payload',
+            },
+            'attachments': [],
+          },
+        ],
+      },
+      currentNotes: const [],
+    );
+
+    expect(preview.privateVaultNoteCount, 2);
+    expect(preview.privateVaultIds, {
+      'private_profile:profile-a',
+      'private_profile:profile-b',
+    });
+    expect(preview.addedTitles, ['Private title']);
   });
 }
 

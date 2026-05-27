@@ -3045,6 +3045,11 @@ class SettingsScreen extends ConsumerWidget {
                                           context,
                                           preview,
                                           confirmLabel: strings.close,
+                                          revealSensitiveDetails:
+                                              _canRevealSyncBundlePreviewDetails(
+                                                ref,
+                                                preview,
+                                              ),
                                         );
                                       } catch (error) {
                                         if (!context.mounted) {
@@ -3086,6 +3091,11 @@ class SettingsScreen extends ConsumerWidget {
                                               confirmLabel: strings.text(
                                                 'home.apply.bundle',
                                               ),
+                                              revealSensitiveDetails:
+                                                  _canRevealSyncBundlePreviewDetails(
+                                                    ref,
+                                                    preview,
+                                                  ),
                                             ) ??
                                             false;
                                         if (!shouldApply) {
