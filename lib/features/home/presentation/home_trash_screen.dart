@@ -3,6 +3,8 @@ part of 'home_page.dart';
 class TrashScreen extends ConsumerStatefulWidget {
   const TrashScreen({super.key});
 
+  static final trashContentKey = GlobalKey(debugLabel: 'trash-screen-content');
+
   @override
   ConsumerState<TrashScreen> createState() => _TrashScreenState();
 }
@@ -31,6 +33,7 @@ class _TrashScreenState extends ConsumerState<TrashScreen> {
         vault.id: _vaultDisplayName(context, vault),
     };
     return ListView(
+      key: TrashScreen.trashContentKey,
       padding: const EdgeInsets.all(16),
       children: [
         Text(

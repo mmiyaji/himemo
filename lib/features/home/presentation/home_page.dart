@@ -990,6 +990,7 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
   }) {
     const edge = 18.0;
     const gap = 16.0;
+    const estimatedCardHeight = 340.0;
     final minLeft = edge + padding.left;
     final maxLeft = math.max(
       minLeft,
@@ -998,7 +999,7 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
     double clampLeft(double value) => value.clamp(minLeft, maxLeft).toDouble();
     double below() => math.min(
       highlightRect.bottom + gap,
-      size.height - padding.bottom - edge - 260,
+      size.height - padding.bottom - edge - estimatedCardHeight,
     );
     double nearRight() => clampLeft(highlightRect.right - cardWidth);
     double centered() => clampLeft((size.width - cardWidth) / 2);
@@ -1016,7 +1017,10 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
                     ? below()
                     : math.min(
                         highlightRect.top,
-                        size.height - padding.bottom - edge - 260,
+                        size.height -
+                            padding.bottom -
+                            edge -
+                            estimatedCardHeight,
                       ),
               )
             : Offset(centered(), math.max(top, highlightRect.top - 300)),
@@ -1076,6 +1080,50 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
       return result;
     }
 
+    Rect fallbackRectForStep(AppTutorialStep step) {
+      final media = MediaQuery.of(context);
+      final size = media.size;
+      final padding = media.padding;
+      final top = padding.top + 16;
+      final contentTop = padding.top + kToolbarHeight + 24;
+      final contentHeight = math.min(180.0, size.height * 0.28);
+      final contentWidth = math.max(120.0, size.width - 32);
+      switch (step) {
+        case AppTutorialStep.privateProfile:
+        case AppTutorialStep.privateMemo:
+        case AppTutorialStep.syncStatus:
+        case AppTutorialStep.syncTroubleshooting:
+          return Rect.fromLTWH(
+            math.max(16, size.width - padding.right - 84),
+            top,
+            64,
+            56,
+          );
+        case AppTutorialStep.addNote:
+        case AppTutorialStep.attachments:
+          return Rect.fromCircle(
+            center: Offset(size.width / 2, size.height - padding.bottom - 76),
+            radius: 38,
+          );
+        case AppTutorialStep.navigation:
+          return Rect.fromLTWH(
+            16,
+            size.height - padding.bottom - 92,
+            size.width - 32,
+            72,
+          );
+        case AppTutorialStep.search:
+        case AppTutorialStep.filters:
+        case AppTutorialStep.notesList:
+        case AppTutorialStep.settings:
+        case AppTutorialStep.tags:
+        case AppTutorialStep.trash:
+        case AppTutorialStep.trashRecovery:
+        case AppTutorialStep.calendarInsights:
+          return Rect.fromLTWH(16, contentTop, contentWidth, contentHeight);
+      }
+    }
+
     final keyedRect = switch (step) {
       AppTutorialStep.privateProfile => rectFor(
         AppShell.privateProfileAccessKey,
@@ -1095,9 +1143,14 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
       AppTutorialStep.syncTroubleshooting => rectFor(AppShell.syncIndicatorKey),
       AppTutorialStep.syncStatus => rectFor(AppShell.syncIndicatorKey),
       AppTutorialStep.settings => rectFor(AppShell.settingsNavKey),
-      AppTutorialStep.tags => rectFor(AppShell.tagsNavKey),
-      AppTutorialStep.trash ||
-      AppTutorialStep.trashRecovery => rectFor(AppShell.trashNavKey),
+      AppTutorialStep.tags =>
+        widget.useRail
+            ? rectFor(AppShell.tagsNavKey)
+            : rectFor(TagsScreen.tagSearchKey),
+      AppTutorialStep.trash || AppTutorialStep.trashRecovery =>
+        widget.useRail
+            ? rectFor(AppShell.trashNavKey)
+            : rectFor(TrashScreen.trashContentKey),
       AppTutorialStep.calendarInsights => unionRects([
         AppShell.calendarNavKey,
         AppShell.insightsNavKey,
@@ -1115,7 +1168,7 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
       return keyedRect.inflate(6);
     }
     _scheduleRemeasure();
-    return null;
+    return fallbackRectForStep(step).inflate(6);
   }
 
   String _title(AppStrings strings) {

@@ -3128,6 +3128,196 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('maintenance tutorial can finish on mobile trash screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(43));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const HiMemoApp(flavor: AppFlavor.development),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+
+    final router = container.read(appRouterProvider);
+    router.go('/settings');
+    container
+        .read(appTutorialControllerProvider.notifier)
+        .start(AppTutorialCourse.maintenance);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(router.routeInformationProvider.value.uri.path, '/settings');
+    expect(find.byKey(AppShell.tutorialCardKey), findsOneWidget);
+
+    await tester.tap(find.byKey(AppShell.tutorialNextKey));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(router.routeInformationProvider.value.uri.path, '/notes');
+    expect(find.byKey(AppShell.tutorialCardKey), findsOneWidget);
+
+    await tester.tap(find.byKey(AppShell.tutorialNextKey));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(router.routeInformationProvider.value.uri.path, '/trash');
+    expect(
+      container.read(appTutorialControllerProvider)?.step,
+      AppTutorialStep.trash,
+    );
+    expect(find.byKey(TrashScreen.trashContentKey), findsOneWidget);
+    expect(find.byKey(AppShell.tutorialCardKey), findsOneWidget);
+
+    final doneButton = find.text('Done').hitTestable();
+    expect(doneButton, findsOneWidget);
+    await tester.tap(doneButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(router.routeInformationProvider.value.uri.path, '/tutorials');
+    expect(container.read(appTutorialControllerProvider), isNull);
+    expect(
+      container.read(appTutorialCompletionControllerProvider),
+      contains(AppTutorialCourse.maintenance),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('all tutorial courses can advance on mobile width', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    String routeForStep(AppTutorialStep step) => switch (step) {
+      AppTutorialStep.privateProfile ||
+      AppTutorialStep.addNote ||
+      AppTutorialStep.search ||
+      AppTutorialStep.filters ||
+      AppTutorialStep.notesList ||
+      AppTutorialStep.attachments ||
+      AppTutorialStep.privateMemo ||
+      AppTutorialStep.syncTroubleshooting ||
+      AppTutorialStep.syncStatus ||
+      AppTutorialStep.navigation => '/notes',
+      AppTutorialStep.settings => '/settings',
+      AppTutorialStep.tags => '/tags',
+      AppTutorialStep.trash || AppTutorialStep.trashRecovery => '/trash',
+      AppTutorialStep.calendarInsights => '/calendar',
+    };
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(44));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const HiMemoApp(flavor: AppFlavor.development),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+
+    final router = container.read(appRouterProvider);
+    for (final course in AppTutorialCourse.values) {
+      container.read(appTutorialControllerProvider.notifier).start(course);
+      final firstStep = container.read(appTutorialControllerProvider)!.step;
+      router.go(routeForStep(firstStep));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      while (container.read(appTutorialControllerProvider) != null) {
+        final state = container.read(appTutorialControllerProvider)!;
+        expect(
+          find.byKey(AppShell.tutorialCardKey),
+          findsOneWidget,
+          reason: '${course.name} stopped on ${state.step.name}',
+        );
+
+        final nextButton = find.byKey(AppShell.tutorialNextKey).hitTestable();
+        expect(
+          nextButton,
+          findsOneWidget,
+          reason: '${course.name} next button hidden on ${state.step.name}',
+        );
+        await tester.tap(nextButton);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+      }
+
+      expect(router.routeInformationProvider.value.uri.path, '/tutorials');
+      expect(
+        container.read(appTutorialCompletionControllerProvider),
+        contains(course),
+      );
+    }
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('audit log settings are shown only in admin mode', (
     tester,
   ) async {

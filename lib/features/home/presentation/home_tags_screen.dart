@@ -3,7 +3,7 @@ part of 'home_page.dart';
 class TagsScreen extends ConsumerStatefulWidget {
   const TagsScreen({super.key});
 
-  static const tagSearchKey = Key('tag-management-search');
+  static final tagSearchKey = GlobalKey(debugLabel: 'tag-management-search');
 
   @override
   ConsumerState<TagsScreen> createState() => _TagsScreenState();
