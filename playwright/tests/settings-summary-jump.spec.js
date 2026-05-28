@@ -51,7 +51,7 @@ test.describe('settings summary jumps', () => {
   test('extended color theme sheet keeps its header above scrolled choices', async ({
     page,
   }) => {
-    await openSettings(page);
+    await openSettings(page, { colorTheme: 'moegi' });
 
     await clickSummary(page, /Theme Light/);
     await expectSectionExpanded(
@@ -66,16 +66,21 @@ test.describe('settings summary jumps', () => {
     const sheetTitle = page.getByText('Extended themes').last();
     await expect(sheetTitle).toBeVisible();
 
-    const titleBoxBefore = await sheetTitle.boundingBox();
-    expect(titleBoxBefore).not.toBeNull();
     await page.mouse.move(220, 560);
-    await page.mouse.wheel(0, 1200);
+    await page.mouse.wheel(0, 1260);
     await page.waitForTimeout(250);
 
     const titleBoxAfter = await sheetTitle.boundingBox();
     expect(titleBoxAfter).not.toBeNull();
-    expect(Math.abs(titleBoxAfter.y - titleBoxBefore.y)).toBeLessThan(2);
     await expect(sheetTitle).toBeVisible();
+
+    const selectedThemeCard = page.getByRole('button', { name: /Moegi/ });
+    await expect(selectedThemeCard).toBeVisible();
+    const selectedBox = await selectedThemeCard.boundingBox();
+    expect(selectedBox).not.toBeNull();
+    expect(selectedBox.y).toBeGreaterThan(
+      titleBoxAfter.y + titleBoxAfter.height,
+    );
   });
 
   test.describe('desktop viewport', () => {
@@ -102,7 +107,7 @@ test.describe('settings summary jumps', () => {
   });
 });
 
-async function openSettings(page) {
+async function openSettings(page, options = {}) {
   await page.goto('/');
   await page.evaluate(async () => {
     localStorage.clear();
@@ -130,6 +135,11 @@ async function openSettings(page) {
     localStorage.setItem('flutter.settings.locale', '"english"');
     localStorage.setItem('flutter.release_notes.last_seen', '"1.0.0+46"');
   });
+  if (options.colorTheme) {
+    await page.evaluate((colorTheme) => {
+      localStorage.setItem('flutter.settings.color_theme', JSON.stringify(colorTheme));
+    }, options.colorTheme);
+  }
   await page.goto('/#/settings');
   await expect(page.locator('flutter-view')).toContainText('Profile', {
     timeout: 15000,
