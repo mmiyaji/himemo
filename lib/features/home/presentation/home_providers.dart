@@ -8608,6 +8608,54 @@ class AutoTagRulesController extends Notifier<List<AutoTagRule>> {
     await _persist();
   }
 
+  Future<void> updateRule({
+    required String id,
+    required String tag,
+    required Iterable<String> keywords,
+    required bool matchTitle,
+    required bool matchBody,
+    required bool matchAttachments,
+  }) async {
+    await _restoreTask;
+    final normalizedTag = normalizeNoteTag(tag);
+    final normalizedKeywords = _normalizeAutoTagKeywords(keywords);
+    if (normalizedTag.isEmpty ||
+        normalizedKeywords.isEmpty ||
+        isSystemSyncExclusionTag(normalizedTag) ||
+        (!matchTitle && !matchBody && !matchAttachments)) {
+      return;
+    }
+    var changed = false;
+    final next = [
+      for (final rule in state)
+        if (rule.id == id)
+          (() {
+            final updated = rule.copyWith(
+              tag: normalizedTag,
+              keywords: normalizedKeywords,
+              matchTitle: matchTitle,
+              matchBody: matchBody,
+              matchAttachments: matchAttachments,
+            );
+            changed =
+                changed ||
+                rule.tag != updated.tag ||
+                !_sameStringList(rule.keywords, updated.keywords) ||
+                rule.matchTitle != updated.matchTitle ||
+                rule.matchBody != updated.matchBody ||
+                rule.matchAttachments != updated.matchAttachments;
+            return updated;
+          })()
+        else
+          rule,
+    ];
+    if (!changed) {
+      return;
+    }
+    state = List.unmodifiable(next);
+    await _persist();
+  }
+
   Future<void> removeRule(String id) async {
     await _restoreTask;
     final next = state.where((rule) => rule.id != id).toList(growable: false);
@@ -8641,6 +8689,18 @@ class AutoTagRulesController extends Notifier<List<AutoTagRule>> {
       for (final rule in state) jsonEncode(rule.toJson()),
     ]);
   }
+}
+
+bool _sameStringList(List<String> left, List<String> right) {
+  if (left.length != right.length) {
+    return false;
+  }
+  for (var i = 0; i < left.length; i++) {
+    if (left[i] != right[i]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 List<String> _normalizeAutoTagKeywords(Iterable<String> keywords) {

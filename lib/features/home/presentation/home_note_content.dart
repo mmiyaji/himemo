@@ -2010,7 +2010,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     for (final block in sourceBlocks) {
       switch (block.type) {
         case NoteBlockType.paragraph:
-          drafts.add(_RichBlockDraft.paragraph(block.text ?? ''));
+          drafts.add(
+            _RichBlockDraft.paragraph(_editableRichParagraphText(block.text)),
+          );
         case NoteBlockType.photo:
         case NoteBlockType.video:
         case NoteBlockType.audio:
@@ -2032,7 +2034,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         final text = paragraph.controller?.text ?? '';
         final firstLine = text.split('\n').first.trim();
         if (text.trim().isEmpty) {
-          paragraph.controller?.text = noteTitle;
+          paragraph.controller?.text = _editableRichParagraphText(noteTitle);
         } else if (firstLine != noteTitle) {
           paragraph.controller?.text = '$noteTitle\n$text';
         }
@@ -2058,6 +2060,18 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
       drafts.add(_RichBlockDraft.paragraph());
     }
     return drafts;
+  }
+
+  String _editableRichParagraphText(String? text) {
+    final normalized = (text ?? '').replaceAll('\r\n', '\n');
+    if (widget.note == null) {
+      return normalized;
+    }
+    final trimmed = _trimTrailingNewlines(normalized);
+    if (trimmed.isEmpty || trimmed.endsWith('\n')) {
+      return trimmed;
+    }
+    return '$trimmed\n';
   }
 
   void _replaceRichBlocks(List<_RichBlockDraft> nextBlocks) {
@@ -3982,6 +3996,10 @@ class _RichSaveContent {
   return (title: title, body: body);
 }
 
+String _trimTrailingNewlines(String value) {
+  return value.replaceFirst(RegExp(r'\n+$'), '');
+}
+
 Future<String?> _resolveLocationAddress(Position position) async {
   if (kIsWeb) {
     return null;
@@ -5232,7 +5250,7 @@ class _RichBlockEditorTile extends StatelessWidget {
               child: TextField(
                 controller: block.controller,
                 focusNode: block.focusNode,
-                minLines: 1,
+                minLines: showPrompt ? 3 : 1,
                 maxLines: null,
                 scrollPadding: const EdgeInsets.only(
                   top: 96,

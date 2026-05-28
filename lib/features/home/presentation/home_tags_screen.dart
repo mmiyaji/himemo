@@ -65,6 +65,7 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
                     onToggle: (rule, enabled) => ref
                         .read(autoTagRulesControllerProvider.notifier)
                         .setEnabled(rule.id, enabled),
+                    onEdit: (rule) => _showEditAutoTagRuleDialog(context, rule),
                     onDelete: (rule) => ref
                         .read(autoTagRulesControllerProvider.notifier)
                         .removeRule(rule.id),
@@ -331,12 +332,28 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
   }
 
   Future<void> _showCreateAutoTagRuleDialog(BuildContext context) {
+    return _showAutoTagRuleDialog(context);
+  }
+
+  Future<void> _showEditAutoTagRuleDialog(
+    BuildContext context,
+    AutoTagRule rule,
+  ) {
+    return _showAutoTagRuleDialog(context, initialRule: rule);
+  }
+
+  Future<void> _showAutoTagRuleDialog(
+    BuildContext context, {
+    AutoTagRule? initialRule,
+  }) {
     final strings = context.strings;
-    final tagController = TextEditingController();
-    final keywordsController = TextEditingController();
-    var matchTitle = true;
-    var matchBody = true;
-    var matchAttachments = true;
+    final tagController = TextEditingController(text: initialRule?.tag ?? '');
+    final keywordsController = TextEditingController(
+      text: initialRule?.keywords.join(', ') ?? '',
+    );
+    var matchTitle = initialRule?.matchTitle ?? true;
+    var matchBody = initialRule?.matchBody ?? true;
+    var matchAttachments = initialRule?.matchAttachments ?? true;
     String? errorText;
     return showDialog<void>(
       context: context,
@@ -397,26 +414,49 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
               });
               return;
             }
-            ref.read(autoTagRulesControllerProvider.notifier).addRule(
-              tag: tag,
-              keywords: keywords,
-              matchTitle: matchTitle,
-              matchBody: matchBody,
-              matchAttachments: matchAttachments,
+            final controller = ref.read(
+              autoTagRulesControllerProvider.notifier,
             );
+            if (initialRule == null) {
+              controller.addRule(
+                tag: tag,
+                keywords: keywords,
+                matchTitle: matchTitle,
+                matchBody: matchBody,
+                matchAttachments: matchAttachments,
+              );
+            } else {
+              controller.updateRule(
+                id: initialRule.id,
+                tag: tag,
+                keywords: keywords,
+                matchTitle: matchTitle,
+                matchBody: matchBody,
+                matchAttachments: matchAttachments,
+              );
+            }
             Navigator.of(context).pop();
           }
 
           return AlertDialog(
             title: Text(
-              strings.localized(
-                en: 'Create auto-tag rule',
-                ja: '自動タグルールを作成',
-                zh: '创建自动标签规则',
-                ko: '자동 태그 규칙 만들기',
-                es: 'Crear regla de etiqueta',
-                de: 'Auto-Tag-Regel erstellen',
-              ),
+              initialRule == null
+                  ? strings.localized(
+                      en: 'Create auto-tag rule',
+                      ja: '自動タグルールを作成',
+                      zh: '创建自动标签规则',
+                      ko: '자동 태그 규칙 만들기',
+                      es: 'Crear regla de etiqueta',
+                      de: 'Auto-Tag-Regel erstellen',
+                    )
+                  : strings.localized(
+                      en: 'Edit auto-tag rule',
+                      ja: '自動タグルールを編集',
+                      zh: '编辑自动标签规则',
+                      ko: '자동 태그 규칙 편집',
+                      es: 'Editar regla de etiqueta',
+                      de: 'Auto-Tag-Regel bearbeiten',
+                    ),
             ),
             content: SingleChildScrollView(
               child: Column(
@@ -507,9 +547,8 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
                   CheckboxListTile(
                     contentPadding: EdgeInsets.zero,
                     value: matchAttachments,
-                    onChanged: (value) => setDialogState(
-                      () => matchAttachments = value ?? true,
-                    ),
+                    onChanged: (value) =>
+                        setDialogState(() => matchAttachments = value ?? true),
                     title: Text(
                       strings.localized(
                         en: 'Match attachment names',
@@ -635,6 +674,7 @@ class _AutoTagRulesPanel extends StatelessWidget {
     required this.onAdd,
     required this.onApply,
     required this.onToggle,
+    required this.onEdit,
     required this.onDelete,
   });
 
@@ -642,6 +682,7 @@ class _AutoTagRulesPanel extends StatelessWidget {
   final VoidCallback onAdd;
   final VoidCallback? onApply;
   final void Function(AutoTagRule rule, bool enabled) onToggle;
+  final void Function(AutoTagRule rule) onEdit;
   final void Function(AutoTagRule rule) onDelete;
 
   @override
@@ -756,6 +797,7 @@ class _AutoTagRulesPanel extends StatelessWidget {
                 _AutoTagRuleTile(
                   rule: rule,
                   onToggle: (enabled) => onToggle(rule, enabled),
+                  onEdit: () => onEdit(rule),
                   onDelete: () => onDelete(rule),
                 ),
                 if (rule != rules.last) const Divider(height: 12),
@@ -772,11 +814,13 @@ class _AutoTagRuleTile extends StatelessWidget {
   const _AutoTagRuleTile({
     required this.rule,
     required this.onToggle,
+    required this.onEdit,
     required this.onDelete,
   });
 
   final AutoTagRule rule;
   final ValueChanged<bool> onToggle;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   @override
@@ -806,10 +850,27 @@ class _AutoTagRuleTile extends StatelessWidget {
           color: _mutedTextColor(context),
         ),
       ),
-      trailing: IconButton(
-        tooltip: strings.delete,
-        onPressed: onDelete,
-        icon: const Icon(Icons.delete_outline_rounded),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: strings.localized(
+              en: 'Edit rule',
+              ja: 'ルールを編集',
+              zh: '编辑规则',
+              ko: '규칙 편집',
+              es: 'Editar regla',
+              de: 'Regel bearbeiten',
+            ),
+            onPressed: onEdit,
+            icon: const Icon(Icons.edit_outlined),
+          ),
+          IconButton(
+            tooltip: strings.delete,
+            onPressed: onDelete,
+            icon: const Icon(Icons.delete_outline_rounded),
+          ),
+        ],
       ),
     );
   }

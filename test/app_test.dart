@@ -3726,6 +3726,40 @@ void main() {
     ]);
   });
 
+  test('auto tag rules can be edited in place', () async {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    final controller = container.read(autoTagRulesControllerProvider.notifier);
+    await controller.addRule(
+      tag: 'Finance',
+      keywords: const ['receipt'],
+      matchTitle: true,
+      matchBody: false,
+      matchAttachments: false,
+    );
+    final rule = container.read(autoTagRulesControllerProvider).single;
+
+    await controller.updateRule(
+      id: rule.id,
+      tag: 'Tax',
+      keywords: const ['invoice', 'receipt'],
+      matchTitle: false,
+      matchBody: true,
+      matchAttachments: true,
+    );
+
+    final updated = container.read(autoTagRulesControllerProvider).single;
+    expect(updated.id, rule.id);
+    expect(updated.tag, 'Tax');
+    expect(updated.keywords, ['invoice', 'receipt']);
+    expect(updated.enabled, isTrue);
+    expect(updated.matchTitle, isFalse);
+    expect(updated.matchBody, isTrue);
+    expect(updated.matchAttachments, isTrue);
+  });
+
   test('notes controller applies auto tag rules when saving notes', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();
