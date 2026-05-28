@@ -3541,6 +3541,25 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       var pendingChanges = await ref
           .read(syncEngineProvider)
           .loadPendingChanges();
+      if (pendingChanges.isEmpty) {
+        final queuedAt = DateTime.now();
+        pendingChanges = [
+          for (final note in ref.read(notesControllerProvider))
+            if (note.syncState == NoteSyncState.pendingUpload ||
+                note.syncState == NoteSyncState.pendingDelete)
+              PendingNoteChangeRecord(
+                noteId: note.id,
+                vaultId: note.vaultId,
+                revision: note.revision,
+                action: note.syncState == NoteSyncState.pendingDelete
+                    ? PendingNoteChangeAction.delete
+                    : PendingNoteChangeAction.upsert,
+                queuedAt: note.updatedAt ?? queuedAt,
+                contentHash: note.contentHash,
+                deletedAt: note.deletedAt,
+              ),
+        ];
+      }
       final encryptedPrivateNotes = await _prepareLockedPrivateSyncNotes(
         pendingChanges,
       );
