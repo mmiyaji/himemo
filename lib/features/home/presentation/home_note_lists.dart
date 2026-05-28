@@ -29,6 +29,99 @@ class _PrivateVaultLockedNotice extends StatelessWidget {
   }
 }
 
+class _AdminModeNotesNotice extends StatelessWidget {
+  const _AdminModeNotesNotice({
+    required this.onUnlockPrivateProfile,
+    required this.onExitAdminMode,
+  });
+
+  final VoidCallback onUnlockPrivateProfile;
+  final VoidCallback onExitAdminMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      key: const Key('admin-mode-notes-notice'),
+      decoration: BoxDecoration(
+        color: colorScheme.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.28)),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.admin_panel_settings_outlined,
+                color: colorScheme.primary,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      strings.localized(
+                        en: 'Admin mode is showing all private profiles',
+                        ja: '管理者モードですべてのプライベートプロファイルを表示中',
+                        zh: '管理员模式正在显示所有私密档案',
+                        ko: '관리자 모드에서 모든 비공개 프로필을 표시 중',
+                        es: 'El modo administrador muestra todos los perfiles privados',
+                        de: 'Administratormodus zeigt alle privaten Profile',
+                      ),
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: colorScheme.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      strings.localized(
+                        en: 'Notes are visible for maintenance, but no private profile is normally unlocked. Unlock a matching profile to continue in the regular private view.',
+                        ja: 'メンテナンス用に表示していますが、通常のプライベート解除状態ではありません。一致するプロファイルを開くと通常のプライベート表示に切り替わります。',
+                        zh: '这些笔记仅为维护而显示，并不代表已正常解锁私密档案。解锁匹配档案后可切换到普通私密视图。',
+                        ko: '유지보수를 위해 표시 중이며 일반 비공개 잠금 해제 상태는 아닙니다. 일치하는 프로필을 열면 일반 비공개 보기로 전환합니다.',
+                        es: 'Las notas son visibles para mantenimiento, pero ningún perfil privado está desbloqueado de forma normal. Desbloquea el perfil correspondiente para continuar en la vista privada normal.',
+                        de: 'Notizen sind zur Wartung sichtbar, aber kein privates Profil ist normal entsperrt. Entsperre das passende Profil, um in der normalen privaten Ansicht fortzufahren.',
+                      ),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.tonalIcon(
+                key: const Key('admin-mode-notes-unlock-button'),
+                onPressed: onUnlockPrivateProfile,
+                icon: const Icon(Icons.lock_open_rounded),
+                label: Text(strings.text('home.unlock.private.profile')),
+              ),
+              TextButton.icon(
+                key: const Key('admin-mode-notes-exit-button'),
+                onPressed: onExitAdminMode,
+                icon: const Icon(Icons.logout_rounded),
+                label: Text(strings.exitAdminModeLabel),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 String _vaultDisplayName(BuildContext context, VaultBucket vault) {
   if (vault.id == 'everyday') {
     return context.strings.notes;
@@ -67,6 +160,7 @@ class _MobileNotesList extends StatefulWidget {
   const _MobileNotesList({
     required this.activeIdentity,
     required this.showPrivateVaultNotice,
+    required this.showAdminModeNotice,
     required this.compactHeader,
     required this.vaultNameById,
     required this.showVaultName,
@@ -77,11 +171,14 @@ class _MobileNotesList extends StatefulWidget {
     required this.attachmentPreviewFit,
     required this.query,
     required this.onRefresh,
+    required this.onUnlockPrivateProfile,
+    required this.onExitAdminMode,
     required this.onNoteSelected,
   });
 
   final UnlockIdentity activeIdentity;
   final bool showPrivateVaultNotice;
+  final bool showAdminModeNotice;
   final bool compactHeader;
   final Map<String, String> vaultNameById;
   final bool showVaultName;
@@ -92,6 +189,8 @@ class _MobileNotesList extends StatefulWidget {
   final AttachmentPreviewFit attachmentPreviewFit;
   final String query;
   final Future<void> Function()? onRefresh;
+  final VoidCallback onUnlockPrivateProfile;
+  final VoidCallback onExitAdminMode;
   final ValueChanged<NoteEntry> onNoteSelected;
 
   @override
@@ -113,6 +212,7 @@ class _MobileNotesListState extends State<_MobileNotesList> {
     if (!identical(oldWidget.allVisibleNotes, widget.allVisibleNotes) ||
         oldWidget.activeIdentity.id != widget.activeIdentity.id ||
         oldWidget.showPrivateVaultNotice != widget.showPrivateVaultNotice ||
+        oldWidget.showAdminModeNotice != widget.showAdminModeNotice ||
         oldWidget.compactHeader != widget.compactHeader ||
         oldWidget.density != widget.density ||
         oldWidget.sortField != widget.sortField ||
@@ -128,6 +228,7 @@ class _MobileNotesListState extends State<_MobileNotesList> {
     final rows = _buildMobileNoteRows(
       activeIdentity: widget.activeIdentity,
       showPrivateVaultNotice: widget.showPrivateVaultNotice,
+      showAdminModeNotice: widget.showAdminModeNotice,
       compactHeader: widget.compactHeader,
       notes: widget.allVisibleNotes,
       density: widget.density,
@@ -161,6 +262,13 @@ class _MobileNotesListState extends State<_MobileNotesList> {
           _MobilePrivateNoticeRow() => const Padding(
             padding: EdgeInsets.only(bottom: 12),
             child: _PrivateVaultLockedNotice(),
+          ),
+          _MobileAdminModeNoticeRow() => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _AdminModeNotesNotice(
+              onUnlockPrivateProfile: widget.onUnlockPrivateProfile,
+              onExitAdminMode: widget.onExitAdminMode,
+            ),
           ),
           _MobileToolbarRow() => Padding(
             padding: const EdgeInsets.only(bottom: 16),
@@ -204,6 +312,7 @@ class _MobileNotesListState extends State<_MobileNotesList> {
 List<_MobileNoteRow> _buildMobileNoteRows({
   required UnlockIdentity activeIdentity,
   required bool showPrivateVaultNotice,
+  required bool showAdminModeNotice,
   required bool compactHeader,
   required List<NoteEntry> notes,
   required NotesListDensity density,
@@ -212,6 +321,7 @@ List<_MobileNoteRow> _buildMobileNoteRows({
   final rows = <_MobileNoteRow>[
     if (activeIdentity.id != 'daily') const _MobileIdentityRow(),
     if (showPrivateVaultNotice) const _MobilePrivateNoticeRow(),
+    if (showAdminModeNotice) const _MobileAdminModeNoticeRow(),
     _MobileToolbarRow(compactHeader),
   ];
   if (notes.isEmpty) {
@@ -266,6 +376,13 @@ class _MobileIdentityRow extends _MobileNoteRow {
 
 class _MobilePrivateNoticeRow extends _MobileNoteRow {
   const _MobilePrivateNoticeRow();
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
+}
+
+class _MobileAdminModeNoticeRow extends _MobileNoteRow {
+  const _MobileAdminModeNoticeRow();
 
   @override
   _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
@@ -1203,6 +1320,7 @@ class _SplitNotesListPane extends StatefulWidget {
   const _SplitNotesListPane({
     required this.activeIdentity,
     required this.showPrivateVaultNotice,
+    required this.showAdminModeNotice,
     required this.notes,
     required this.selectedNoteId,
     required this.vaultNameById,
@@ -1213,11 +1331,14 @@ class _SplitNotesListPane extends StatefulWidget {
     required this.query,
     required this.onAddNote,
     required this.onRefresh,
+    required this.onUnlockPrivateProfile,
+    required this.onExitAdminMode,
     required this.onNoteSelected,
   });
 
   final UnlockIdentity activeIdentity;
   final bool showPrivateVaultNotice;
+  final bool showAdminModeNotice;
   final List<NoteEntry> notes;
   final String? selectedNoteId;
   final Map<String, String> vaultNameById;
@@ -1228,6 +1349,8 @@ class _SplitNotesListPane extends StatefulWidget {
   final String query;
   final VoidCallback onAddNote;
   final Future<void> Function()? onRefresh;
+  final VoidCallback onUnlockPrivateProfile;
+  final VoidCallback onExitAdminMode;
   final ValueChanged<NoteEntry> onNoteSelected;
 
   @override
@@ -1251,6 +1374,7 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
         oldWidget.sortField != widget.sortField ||
         oldWidget.attachmentPreviewFit != widget.attachmentPreviewFit ||
         oldWidget.showPrivateVaultNotice != widget.showPrivateVaultNotice ||
+        oldWidget.showAdminModeNotice != widget.showAdminModeNotice ||
         oldWidget.activeIdentity.id != widget.activeIdentity.id) {
       _rows = _buildRows();
     }
@@ -1260,6 +1384,7 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
     return _buildSplitNoteRows(
       activeIdentity: widget.activeIdentity,
       showPrivateVaultNotice: widget.showPrivateVaultNotice,
+      showAdminModeNotice: widget.showAdminModeNotice,
       notes: widget.notes,
       density: widget.density,
       sortField: widget.sortField,
@@ -1285,6 +1410,13 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
           _SplitNotePrivateNoticeRow() => const Padding(
             padding: EdgeInsets.only(bottom: 12),
             child: _PrivateVaultLockedNotice(),
+          ),
+          _SplitNoteAdminModeNoticeRow() => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _AdminModeNotesNotice(
+              onUnlockPrivateProfile: widget.onUnlockPrivateProfile,
+              onExitAdminMode: widget.onExitAdminMode,
+            ),
           ),
           _SplitNoteToolbarRow() => const Padding(
             padding: EdgeInsets.only(bottom: 16),
@@ -1328,6 +1460,7 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
 List<_SplitNoteRow> _buildSplitNoteRows({
   required UnlockIdentity activeIdentity,
   required bool showPrivateVaultNotice,
+  required bool showAdminModeNotice,
   required List<NoteEntry> notes,
   required NotesListDensity density,
   required NotesListSortField sortField,
@@ -1335,6 +1468,7 @@ List<_SplitNoteRow> _buildSplitNoteRows({
   final rows = <_SplitNoteRow>[
     if (activeIdentity.id != 'daily') const _SplitNoteIdentityRow(),
     if (showPrivateVaultNotice) const _SplitNotePrivateNoticeRow(),
+    if (showAdminModeNotice) const _SplitNoteAdminModeNoticeRow(),
     const _SplitNoteToolbarRow(),
   ];
   if (notes.isEmpty) {
@@ -1390,6 +1524,13 @@ class _SplitNoteIdentityRow extends _SplitNoteRow {
 
 class _SplitNotePrivateNoticeRow extends _SplitNoteRow {
   const _SplitNotePrivateNoticeRow();
+
+  @override
+  _SplitNoteRow withPosition(_SplitNoteRowPosition position) => this;
+}
+
+class _SplitNoteAdminModeNoticeRow extends _SplitNoteRow {
+  const _SplitNoteAdminModeNoticeRow();
 
   @override
   _SplitNoteRow withPosition(_SplitNoteRowPosition position) => this;
