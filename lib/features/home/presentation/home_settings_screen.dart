@@ -84,13 +84,17 @@ class SettingsScreen extends ConsumerWidget {
   static const startTutorialKey = Key('start-highlight-tutorial');
   static final aboutSectionKey = GlobalKey();
   static final _appearanceSectionKey = GlobalKey();
+  static final _memoSettingsSectionKey = GlobalKey();
   static final _privateProfilesSectionKey = GlobalKey();
   static final _appSecuritySectionKey = GlobalKey();
   static final _syncSectionKey = GlobalKey();
+  static final _storageSectionKey = GlobalKey();
   static final _appearanceController = ExpansibleController();
+  static final _memoSettingsController = ExpansibleController();
   static final _privateProfilesController = ExpansibleController();
   static final _appSecurityController = ExpansibleController();
   static final _syncController = ExpansibleController();
+  static final _storageController = ExpansibleController();
   static final List<DateTime> _diagnosticModeTapTimes = <DateTime>[];
 
   Future<void> _handleVersionTap(
@@ -889,6 +893,26 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
             _SettingsOverviewItem(
+              label: strings.localized(en: 'Memo', ja: '\u30e1\u30e2'),
+              value: memoSettingsSummary,
+              icon: Icons.edit_note_outlined,
+              onTap: () => _openSettingsSection(
+                context,
+                _memoSettingsController,
+                _memoSettingsSectionKey,
+              ),
+            ),
+            _SettingsOverviewItem(
+              label: strings.text('home.storage'),
+              value: strings.noteCountSummary(noteCount),
+              icon: Icons.storage_outlined,
+              onTap: () => _openSettingsSection(
+                context,
+                _storageController,
+                _storageSectionKey,
+              ),
+            ),
+            _SettingsOverviewItem(
               label: strings.text('home.theme'),
               value: _themeModeLabel(context, activeThemeMode),
               icon: Icons.palette_outlined,
@@ -928,6 +952,8 @@ class SettingsScreen extends ConsumerWidget {
           ),
           summary: memoSettingsSummary,
           icon: Icons.edit_note_outlined,
+          sectionKey: _memoSettingsSectionKey,
+          controller: _memoSettingsController,
           semanticLabel: 'settings-memo',
           children: [
             ListTile(
@@ -3409,6 +3435,8 @@ class SettingsScreen extends ConsumerWidget {
           title: strings.text('home.storage'),
           summary: strings.noteCountSummary(noteCount),
           icon: Icons.storage_outlined,
+          sectionKey: _storageSectionKey,
+          controller: _storageController,
           children: [
             ListTile(
               contentPadding: EdgeInsets.zero,

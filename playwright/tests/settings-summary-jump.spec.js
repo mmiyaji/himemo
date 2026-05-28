@@ -16,6 +16,12 @@ test.describe('settings summary jumps', () => {
     await clickSummary(page, /Sync Off/);
     await expectSectionExpanded(page, /Backup and sync/, 'Selected target');
 
+    await clickSummary(page, /Memo Rich memo/);
+    await expectSectionExpanded(page, /Memo settings/, 'Quick memo');
+
+    await clickSummary(page, /Storage/);
+    await expectSectionExpanded(page, /Storage/, 'Saved notes on this device');
+
     await clickSummary(page, /App lock Disabled/);
     await expectSectionExpanded(page, /App security/, 'Set PIN');
 
@@ -81,7 +87,10 @@ async function openSettings(page) {
             (name) =>
               new Promise((resolve) => {
                 const request = indexedDB.deleteDatabase(name);
-                request.onsuccess = request.onerror = request.onblocked = resolve;
+                request.onsuccess =
+                  request.onerror =
+                  request.onblocked =
+                    resolve;
               }),
           ),
       );
@@ -95,7 +104,9 @@ async function openSettings(page) {
   await expect(page.locator('flutter-view')).toContainText('Profile', {
     timeout: 15000,
   });
-  await expect(page.getByRole('button', { name: /Profile Normal notes/ })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /Profile Normal notes/ }),
+  ).toBeVisible();
 }
 
 async function clickSummary(page, name) {
