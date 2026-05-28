@@ -42,6 +42,128 @@ test('rich memo grows naturally as you type', async ({ page }) => {
   await expect(page.locator('flutter-view')).toContainText('one was quiet and clear.');
 });
 
+test('note list swipe actions reveal pin share and delete controls', async ({ page }) => {
+  await page.goto('/');
+  await waitForApp(page);
+  await completeOnboarding(page);
+
+  await openEditor(page, 'Quick memo');
+  const memoInput = editorTextInput(page);
+  await memoInput.click();
+  await memoInput.pressSequentially('Swipe actions note\nSwipe body');
+  await expect(page.getByRole('button', { name: 'Create note' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Create note' }).click();
+
+  await expectNoteCard(page, /Swipe actions note/);
+  await expect(page.getByRole('button', { name: /Share|共有/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Delete|削除/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Pin$|固定/ })).toHaveCount(0);
+  await page.addStyleTag({
+    content: 'flt-semantics { pointer-events: none !important; }',
+  });
+  await swipeNoteTile(page, /Swipe actions note/, 'left');
+  await expect(page.getByRole('button', { name: /Share|共有/ }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /Delete|削除/ }).first()).toBeVisible();
+
+  await swipeNoteTile(page, /Swipe actions note/, 'right');
+  await expect(page.getByRole('button', { name: /^Pin$|固定/ }).first()).toBeVisible();
+});
+
+test('dark app lock screen renders with a continuous background', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/');
+  await page.evaluate(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    localStorage.setItem(
+      'flutter.app.onboarding_completed',
+      JSON.stringify(true),
+    );
+    localStorage.setItem(
+      'flutter.app.onboarding_completed_version',
+      JSON.stringify(2),
+    );
+    localStorage.setItem('flutter.settings.theme_mode', JSON.stringify('dark'));
+    localStorage.setItem(
+      'flutter.settings.app_lock_enabled',
+      JSON.stringify(true),
+    );
+  });
+  await page.reload();
+
+  const releaseNotesClose = page.getByRole('button', { name: /Close|閉じる/ });
+  if (await releaseNotesClose.count()) {
+    await releaseNotesClose.first().click();
+  }
+  await expect(
+    page.getByRole('button', { name: /Unlock with PIN|PIN/ }),
+  ).toBeVisible({ timeout: 15000 });
+  await page.waitForTimeout(1200);
+
+  await page.screenshot({
+    path: testInfo.outputPath('dark-app-lock-screen.png'),
+    fullPage: false,
+  });
+});
+
+test('dark app shell uses dark brand icon', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/');
+  await startOnboardedWithoutPin(page);
+  await page.evaluate(() => {
+    localStorage.setItem('flutter.settings.theme_mode', JSON.stringify('dark'));
+  });
+  await page.reload();
+  await closeReleaseNotesIfPresent(page);
+
+  await expect(
+    page.getByRole('button', { name: 'Add note' }).first(),
+  ).toBeVisible({
+    timeout: 15000,
+  });
+
+  await page.screenshot({
+    path: testInfo.outputPath('dark-app-brand-icon.png'),
+    fullPage: false,
+  });
+});
+
+test('setting an unlock PIN enables lock now in settings', async ({ page }) => {
+  await page.goto('/');
+  await startOnboardedWithoutPin(page);
+
+  await activateTabIndex(page, 4);
+  await expandSettingsSection(page, /App security|アプリ保護/);
+  const lockNow = await findRoleButtonByScrolling(
+    page,
+    /Lock the app now|アプリを今すぐロック/,
+    { requireEnabled: false },
+  );
+  await expect(lockNow).toBeDisabled();
+
+  const setPin = await findRoleButtonByScrolling(
+    page,
+    /Set PIN|PIN を設定|Set unlock PIN|解除用 PIN を設定/,
+  );
+  await setPin.click();
+  const pinFields = page.getByRole('textbox');
+  const pinInput = pinFields.first();
+  await pinInput.click();
+  await pinInput.pressSequentially('2468');
+  const confirmPinInput = pinFields.nth(1);
+  await confirmPinInput.click();
+  await confirmPinInput.pressSequentially('2468');
+  await page.getByRole('button', { name: /Save|保存/ }).click();
+
+  const enabledLockNow = await findRoleButtonByScrolling(
+    page,
+    /Lock the app now|アプリを今すぐロック/,
+  );
+  await expect(enabledLockNow).toBeEnabled({ timeout: 5000 });
+});
+
 test('advanced search stays folded until needed', async ({ page }) => {
   await page.goto('/');
   await waitForApp(page);
@@ -414,6 +536,58 @@ async function waitForApp(page) {
     .toBeGreaterThan(0);
 }
 
+async function startOnboardedWithoutPin(page) {
+  await page.evaluate(async () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    if (indexedDB.databases) {
+      const databases = await indexedDB.databases();
+      await Promise.all(
+        databases
+          .map((database) => database.name)
+          .filter(Boolean)
+          .map(
+            (name) =>
+              new Promise((resolve) => {
+                const request = indexedDB.deleteDatabase(name);
+                request.onsuccess = request.onerror = request.onblocked = resolve;
+              }),
+          ),
+      );
+    }
+    localStorage.setItem(
+      'flutter.app.onboarding_completed',
+      JSON.stringify(true),
+    );
+    localStorage.setItem(
+      'flutter.app.onboarding_completed_version',
+      JSON.stringify(2),
+    );
+  });
+  await page.reload();
+
+  await closeReleaseNotesIfPresent(page);
+  await expect
+    .poll(
+      async () =>
+        (await page.getByRole('button', { name: 'Add note' }).count()) +
+        (await page.getByRole('tab', { name: /Settings|設定/ }).count()),
+      { timeout: 15000 },
+    )
+    .toBeGreaterThan(0);
+  await closeReleaseNotesIfPresent(page);
+}
+
+async function closeReleaseNotesIfPresent(page) {
+  const releaseNotesClose = page.getByRole('button', { name: /Close|閉じる/ });
+  try {
+    await expect(releaseNotesClose.first()).toBeVisible({ timeout: 3000 });
+    await releaseNotesClose.first().click();
+  } catch (_) {
+    // Release notes are only shown for fresh version state.
+  }
+}
+
 async function activateNav(page, labels) {
   const labelPattern = new RegExp(labels.map(escapeRegExp).join('|'));
   const tab = page.getByRole('tab', { name: labelPattern });
@@ -481,6 +655,30 @@ async function expectNoteCard(page, name) {
     .toBeGreaterThan(0);
 }
 
+async function swipeNoteTile(page, name, direction) {
+  const noteTile = await visibleNoteTile(page, name);
+  const box = await noteTile.boundingBox();
+  expect(box).not.toBeNull();
+  const y = box.y + box.height / 2;
+  const startX = direction === 'left' ? box.x + box.width - 28 : box.x + 28;
+  const endX = direction === 'left' ? box.x + box.width - 330 : box.x + 300;
+  await page.mouse.move(startX, y);
+  await page.mouse.down();
+  await page.mouse.move(endX, y, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(220);
+}
+
+async function visibleNoteTile(page, name) {
+  const button = page.getByRole('button', { name }).first();
+  if ((await button.count()) && (await button.isVisible())) {
+    return button;
+  }
+  const group = page.getByRole('group', { name }).first();
+  await expect(group).toBeVisible();
+  return group;
+}
+
 async function dismissOpenDialog(page) {
   const closeButton = page.getByRole('button', { name: /Close|閉じる/ });
   if (await closeButton.count()) {
@@ -511,13 +709,16 @@ async function openSettingsGroup(page, name) {
   throw new Error(`Unable to open settings group: ${name}`);
 }
 
-async function findRoleButtonByScrolling(page, name) {
+async function findRoleButtonByScrolling(page, name, options = {}) {
+  const { requireEnabled = true } = options;
   const button = page.getByRole('button', { name });
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const first = button.first();
     if ((await button.count()) && (await first.isVisible())) {
       await first.scrollIntoViewIfNeeded();
-      await expect(first).toBeEnabled();
+      if (requireEnabled) {
+        await expect(first).toBeEnabled();
+      }
       return first;
     }
     await page.mouse.wheel(0, 420);

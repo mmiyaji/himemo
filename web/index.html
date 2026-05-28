@@ -123,6 +123,17 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <script src="vendor/sqljs/sql-wasm.js"></script>
+  <script>
+    window.himemoInitSqlJs = window.initSqlJs;
+    window.initSqlJs = function(config) {
+      return window.himemoInitSqlJs(Object.assign({
+        locateFile: function(file) {
+          return 'vendor/sqljs/' + file;
+        }
+      }, config || {}));
+    };
+  </script>
   <script src="flutter_bootstrap.js" async=""></script>
 
 

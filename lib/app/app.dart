@@ -1117,177 +1117,210 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     final lockScreen = Overlay(
       initialEntries: [
         OverlayEntry(
-          builder: (context) => Scaffold(
-            body: SafeArea(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final wide = constraints.maxWidth >= 960;
-                  final colorScheme = Theme.of(context).colorScheme;
-                  return Flex(
-                    direction: wide ? Axis.horizontal : Axis.vertical,
-                    children: [
-                      Expanded(
-                        flex: wide ? 6 : 1,
-                        child: Container(
-                          color: colorScheme.surface,
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: colorScheme.surfaceContainerHighest,
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Text(
-                                  'HiMemo',
-                                  style: Theme.of(context).textTheme.labelLarge,
-                                ),
-                              ),
-                              const Spacer(),
-                              _AppLockIcon(
-                                dimension: wide ? 136 : 128,
-                                shadowColor: colorScheme.primary.withValues(
-                                  alpha: 0.2,
-                                ),
-                              ),
-                              const SizedBox(height: 20),
-                              Text(
-                                strings.unlockHiMemo,
-                                style: Theme.of(
-                                  context,
-                                ).textTheme.headlineMedium,
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                usePinUnlock
-                                    ? strings.unlockWithPinInstruction
-                                    : strings.deviceAuthGate,
-                                style: Theme.of(context).textTheme.bodyLarge
-                                    ?.copyWith(
-                                      color: colorScheme.onSurfaceVariant,
-                                    ),
-                              ),
-                              const SizedBox(height: 24),
-                              if (wide)
-                                Text(
-                                  strings.privateVaultLockedMessage,
-                                  style: Theme.of(context).textTheme.bodyMedium
-                                      ?.copyWith(
-                                        color: colorScheme.onSurfaceVariant,
+          builder: (context) => Builder(
+            builder: (context) {
+              final colorScheme = Theme.of(context).colorScheme;
+              final lockBackgroundColor = colorScheme.surface;
+              return Scaffold(
+                backgroundColor: lockBackgroundColor,
+                body: ColoredBox(
+                  color: lockBackgroundColor,
+                  child: SafeArea(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final wide = constraints.maxWidth >= 960;
+                        return Flex(
+                          direction: wide ? Axis.horizontal : Axis.vertical,
+                          children: [
+                            Expanded(
+                              flex: wide ? 6 : 1,
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 8,
                                       ),
-                                ),
-                              const Spacer(),
-                            ],
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        flex: wide ? 5 : 1,
-                        child: Container(
-                          color: colorScheme.surfaceContainer,
-                          padding: const EdgeInsets.all(24),
-                          child: Center(
-                            child: ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 440),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    usePinUnlock
-                                        ? pinState.summary
-                                        : authState.summary,
-                                    textAlign: TextAlign.center,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(
-                                          color: colorScheme.onSurfaceVariant,
+                                      decoration: BoxDecoration(
+                                        color:
+                                            colorScheme.surfaceContainerHighest,
+                                        borderRadius: BorderRadius.circular(
+                                          999,
                                         ),
-                                  ),
-                                  const SizedBox(height: 24),
-                                  if (usePinUnlock)
-                                    const _PinUnlockPanel()
-                                  else if (canUseDeviceAuth)
-                                    FilledButton.icon(
-                                      onPressed: authState.isAuthenticating
-                                          ? null
-                                          : () async {
-                                              await ref
-                                                  .read(
-                                                    deviceAuthControllerProvider
-                                                        .notifier,
-                                                  )
-                                                  .authenticate(
-                                                    reason: strings
-                                                        .unlockWithDeviceAuthReason,
-                                                  );
-                                            },
-                                      icon: authState.isAuthenticating
-                                          ? SizedBox(
-                                              width: 18,
-                                              height: 18,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2.2,
-                                                valueColor:
-                                                    AlwaysStoppedAnimation<
-                                                      Color
-                                                    >(colorScheme.onPrimary),
-                                              ),
-                                            )
-                                          : const Icon(Icons.lock_open_rounded),
-                                      label: Text(
-                                        authState.isAuthenticating
-                                            ? strings.authenticating
-                                            : strings.authenticate,
                                       ),
-                                    )
-                                  else
+                                      child: Text(
+                                        'HiMemo',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.labelLarge,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    _AppLockIcon(
+                                      dimension: wide ? 136 : 128,
+                                      shadowColor:
+                                          Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? null
+                                          : colorScheme.primary.withValues(
+                                              alpha: 0.2,
+                                            ),
+                                    ),
+                                    const SizedBox(height: 20),
                                     Text(
-                                      strings.noUnlockMethodConfigured,
-                                      textAlign: TextAlign.center,
+                                      strings.unlockHiMemo,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.headlineMedium,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      usePinUnlock
+                                          ? strings.unlockWithPinInstruction
+                                          : strings.deviceAuthGate,
                                       style: Theme.of(context)
                                           .textTheme
-                                          .bodyMedium
+                                          .bodyLarge
                                           ?.copyWith(
                                             color: colorScheme.onSurfaceVariant,
                                           ),
                                     ),
-                                  if (kDebugMode) ...[
-                                    const SizedBox(height: 12),
-                                    TextButton(
-                                      onPressed: () async {
-                                        await ref
-                                            .read(
-                                              appLockSettingsControllerProvider
-                                                  .notifier,
-                                            )
-                                            .setEnabled(false);
-                                        ref
-                                            .read(
-                                              appSessionUnlockControllerProvider
-                                                  .notifier,
-                                            )
-                                            .unlock();
-                                      },
-                                      child: Text(strings.disableUnlockForNow),
-                                    ),
+                                    const SizedBox(height: 24),
+                                    if (wide)
+                                      Text(
+                                        strings.privateVaultLockedMessage,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              color:
+                                                  colorScheme.onSurfaceVariant,
+                                            ),
+                                      ),
+                                    const Spacer(),
                                   ],
-                                ],
+                                ),
                               ),
                             ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
+                            Expanded(
+                              flex: wide ? 5 : 1,
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Center(
+                                  child: ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      maxWidth: 440,
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          usePinUnlock
+                                              ? pinState.summary
+                                              : authState.summary,
+                                          textAlign: TextAlign.center,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyMedium
+                                              ?.copyWith(
+                                                color: colorScheme
+                                                    .onSurfaceVariant,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 24),
+                                        if (usePinUnlock)
+                                          const _PinUnlockPanel()
+                                        else if (canUseDeviceAuth)
+                                          FilledButton.icon(
+                                            onPressed:
+                                                authState.isAuthenticating
+                                                ? null
+                                                : () async {
+                                                    await ref
+                                                        .read(
+                                                          deviceAuthControllerProvider
+                                                              .notifier,
+                                                        )
+                                                        .authenticate(
+                                                          reason: strings
+                                                              .unlockWithDeviceAuthReason,
+                                                        );
+                                                  },
+                                            icon: authState.isAuthenticating
+                                                ? SizedBox(
+                                                    width: 18,
+                                                    height: 18,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2.2,
+                                                      valueColor:
+                                                          AlwaysStoppedAnimation<
+                                                            Color
+                                                          >(
+                                                            colorScheme
+                                                                .onPrimary,
+                                                          ),
+                                                    ),
+                                                  )
+                                                : const Icon(
+                                                    Icons.lock_open_rounded,
+                                                  ),
+                                            label: Text(
+                                              authState.isAuthenticating
+                                                  ? strings.authenticating
+                                                  : strings.authenticate,
+                                            ),
+                                          )
+                                        else
+                                          Text(
+                                            strings.noUnlockMethodConfigured,
+                                            textAlign: TextAlign.center,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodyMedium
+                                                ?.copyWith(
+                                                  color: colorScheme
+                                                      .onSurfaceVariant,
+                                                ),
+                                          ),
+                                        if (kDebugMode) ...[
+                                          const SizedBox(height: 12),
+                                          TextButton(
+                                            onPressed: () async {
+                                              await ref
+                                                  .read(
+                                                    appLockSettingsControllerProvider
+                                                        .notifier,
+                                                  )
+                                                  .setEnabled(false);
+                                              ref
+                                                  .read(
+                                                    appSessionUnlockControllerProvider
+                                                        .notifier,
+                                                  )
+                                                  .unlock();
+                                            },
+                                            child: Text(
+                                              strings.disableUnlockForNow,
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ],
@@ -1311,20 +1344,24 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
 class _AppPrivacyCover extends StatelessWidget {
   const _AppPrivacyCover();
 
-  static const _coverColor = Color(0xFFFDFCFF);
-
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Positioned.fill(
       child: IgnorePointer(
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
           child: ColoredBox(
-            color: _coverColor.withValues(alpha: 0.94),
+            color: colorScheme.surface.withValues(alpha: 0.94),
             child: Center(
               child: SizedBox.square(
                 dimension: 152,
-                child: const _AppLockIcon(dimension: 152),
+                child: _AppLockIcon(
+                  dimension: 152,
+                  shadowColor: Theme.of(context).brightness == Brightness.dark
+                      ? null
+                      : colorScheme.primary.withValues(alpha: 0.16),
+                ),
               ),
             ),
           ),
@@ -1340,12 +1377,16 @@ class _AppLockIcon extends StatelessWidget {
   final double dimension;
   final Color? shadowColor;
 
-  static const _assetPath = 'assets/privacy-icon.png';
+  static const _lightAssetPath = 'assets/privacy-icon.png';
+  static const _darkAssetPath = 'assets/privacy-icon-dark.png';
 
   @override
   Widget build(BuildContext context) {
+    final assetPath = Theme.of(context).brightness == Brightness.dark
+        ? _darkAssetPath
+        : _lightAssetPath;
     final image = Image.asset(
-      _assetPath,
+      assetPath,
       width: dimension,
       height: dimension,
       fit: BoxFit.contain,
@@ -1710,6 +1751,33 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                             ),
                           ),
                         const Spacer(),
+                        if (isLastPage)
+                          Padding(
+                            padding: const EdgeInsetsDirectional.only(end: 8),
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                ref
+                                    .read(
+                                      appTutorialControllerProvider.notifier,
+                                    )
+                                    .start(AppTutorialCourse.basics);
+                                await ref
+                                    .read(appLaunchControllerProvider.notifier)
+                                    .completeOnboarding();
+                              },
+                              icon: const Icon(Icons.tips_and_updates_outlined),
+                              label: Text(
+                                strings.localized(
+                                  en: 'Try first steps',
+                                  ja: '初歩ガイドを見る',
+                                  zh: '查看入门指南',
+                                  ko: '첫 단계 보기',
+                                  es: 'Ver primeros pasos',
+                                  de: 'Erste Schritte ansehen',
+                                ),
+                              ),
+                            ),
+                          ),
                         FilledButton(
                           key: const Key('onboarding-next-button'),
                           onPressed: () async {

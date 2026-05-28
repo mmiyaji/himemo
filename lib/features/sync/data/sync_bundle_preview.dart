@@ -11,6 +11,7 @@ class SyncBundlePreview {
     required this.updatedCount,
     required this.removedCount,
     required this.privateVaultNoteCount,
+    required this.privateVaultIds,
     required this.sampleTitles,
     required this.addedTitles,
     required this.updatedTitles,
@@ -25,6 +26,7 @@ class SyncBundlePreview {
   final int updatedCount;
   final int removedCount;
   final int privateVaultNoteCount;
+  final Set<String> privateVaultIds;
   final List<String> sampleTitles;
   final List<String> addedTitles;
   final List<String> updatedTitles;
@@ -41,6 +43,20 @@ SyncBundlePreview buildSyncBundlePreview({
       _PreviewChange.fromRaw(Map<String, dynamic>.from(rawEntry as Map)),
   ];
   final importedNotes = importedChanges.map((change) => change.note).toList();
+  final encryptedPrivateVaultIds = <String?>{
+    for (final rawEntry
+        in (decodedBundle['encryptedPrivateNotes'] as List<dynamic>? ??
+            const <dynamic>[]))
+      _encryptedPrivateVaultIdFromRaw(rawEntry),
+  };
+  encryptedPrivateVaultIds.removeWhere(
+    (vaultId) => vaultId == null || vaultId.isEmpty,
+  );
+  final privateVaultIds = {
+    for (final note in importedNotes)
+      if (_isPrivateVaultId(note.vaultId)) note.vaultId,
+    ...encryptedPrivateVaultIds.cast<String>(),
+  };
   final currentById = {for (final note in currentNotes) note.id: note};
 
   var addedCount = 0;
@@ -68,9 +84,13 @@ SyncBundlePreview buildSyncBundlePreview({
     }
   }
 
-  final privateVaultNoteCount = importedNotes
-      .where((note) => note.vaultId == 'private')
-      .length;
+  final encryptedPrivateNoteCount =
+      (decodedBundle['encryptedPrivateNotes'] as List<dynamic>? ??
+              const <dynamic>[])
+          .length;
+  final privateVaultNoteCount =
+      importedNotes.where((note) => _isPrivateVaultId(note.vaultId)).length +
+      encryptedPrivateNoteCount;
 
   return SyncBundlePreview(
     deviceId: decodedBundle['deviceId'] as String?,
@@ -85,6 +105,7 @@ SyncBundlePreview buildSyncBundlePreview({
     updatedCount: updatedCount,
     removedCount: removedCount,
     privateVaultNoteCount: privateVaultNoteCount,
+    privateVaultIds: Set.unmodifiable(privateVaultIds),
     sampleTitles: importedChanges
         .where((change) => change.action != PendingNoteChangeAction.delete)
         .map((change) => _displayTitle(change.note))
@@ -94,6 +115,22 @@ SyncBundlePreview buildSyncBundlePreview({
     updatedTitles: updatedTitles.take(5).toList(growable: false),
     removedTitles: removedTitles.take(5).toList(growable: false),
   );
+}
+
+String? _encryptedPrivateVaultIdFromRaw(Object? rawEntry) {
+  if (rawEntry is! Map) {
+    return null;
+  }
+  final note = rawEntry['note'];
+  if (note is! Map) {
+    return null;
+  }
+  final vaultId = note['vaultId'];
+  return vaultId is String ? vaultId : null;
+}
+
+bool _isPrivateVaultId(String vaultId) {
+  return vaultId == 'private' || vaultId.startsWith('private_profile:');
 }
 
 class _PreviewChange {

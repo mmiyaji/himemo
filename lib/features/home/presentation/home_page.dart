@@ -11,6 +11,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_flavor/flutter_flavor.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -72,6 +73,7 @@ part 'home_insights_screen.dart';
 part 'home_notes_screen.dart';
 part 'home_trash_screen.dart';
 part 'home_tags_screen.dart';
+part 'home_tutorials_screen.dart';
 part 'home_google_drive_panel.dart';
 
 const _appStoreId = String.fromEnvironment('HIMEMO_APP_STORE_ID');
@@ -132,13 +134,29 @@ String _notePerfLabel(NoteEntry note) {
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key, required this.child});
 
-  static const notesNavKey = Key('nav-notes');
-  static const calendarNavKey = Key('nav-calendar');
-  static const insightsNavKey = Key('nav-insights');
-  static const settingsNavKey = Key('nav-settings');
-  static const addNoteKey = Key('add-note-button');
-  static const syncIndicatorKey = Key('sync-progress-indicator-button');
-  static const privateProfileAccessKey = Key('private-profile-access-button');
+  static final notesNavKey = GlobalKey(debugLabel: 'nav-notes');
+  static final calendarNavKey = GlobalKey(debugLabel: 'nav-calendar');
+  static final insightsNavKey = GlobalKey(debugLabel: 'nav-insights');
+  static final trashNavKey = GlobalKey(debugLabel: 'nav-trash');
+  static final tagsNavKey = GlobalKey(debugLabel: 'nav-tags');
+  static final settingsNavKey = GlobalKey(debugLabel: 'nav-settings');
+  static final addNoteKey = GlobalKey(debugLabel: 'add-note-button');
+  static final notesSearchKey = GlobalKey(debugLabel: 'notes-search-input');
+  static final notesFilterKey = GlobalKey(debugLabel: 'notes-filter-button');
+  static final notesListKey = GlobalKey(debugLabel: 'notes-list-area');
+  static final headerAddNoteKey = GlobalKey(
+    debugLabel: 'header-add-note-button',
+  );
+  static final syncIndicatorKey = GlobalKey(
+    debugLabel: 'sync-progress-indicator-button',
+  );
+  static final privateProfileAccessKey = GlobalKey(
+    debugLabel: 'private-profile-access-button',
+  );
+  static final tutorialCardKey = GlobalKey(debugLabel: 'app-tutorial-card');
+  static final tutorialBackKey = GlobalKey(debugLabel: 'app-tutorial-back');
+  static final tutorialSkipKey = GlobalKey(debugLabel: 'app-tutorial-skip');
+  static final tutorialNextKey = GlobalKey(debugLabel: 'app-tutorial-next');
 
   final Widget child;
 
@@ -268,12 +286,18 @@ class _AppShellState extends ConsumerState<AppShell> {
         ? profileAccessBusyTooltip
         : profileAccessTooltip;
     final syncTransferState = ref.watch(syncTransferControllerProvider);
+    final tutorialState = ref.watch(appTutorialControllerProvider);
+    final tutorialStep = tutorialState?.step;
+    final showSyncIndicator =
+        syncTransferState.stage == SyncTransferStage.busy ||
+        tutorialStep == AppTutorialStep.syncStatus ||
+        tutorialStep == AppTutorialStep.syncTroubleshooting;
 
-    return Scaffold(
+    final shell = Scaffold(
       appBar: AppBar(
         title: const _AppBrandTitle(),
         actions: [
-          if (syncTransferState.stage == SyncTransferStage.busy)
+          if (showSyncIndicator)
             Padding(
               padding: EdgeInsetsDirectional.only(
                 end: privateProfileActive || adminMode ? 8 : 4,
@@ -287,7 +311,7 @@ class _AppShellState extends ConsumerState<AppShell> {
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 4),
               child: IconButton(
-                key: AppShell.addNoteKey,
+                key: AppShell.headerAddNoteKey,
                 tooltip: strings.addNote,
                 onPressed: () => showNoteEditorSheet(context, ref),
                 icon: const Icon(Icons.edit_note_rounded),
@@ -295,7 +319,7 @@ class _AppShellState extends ConsumerState<AppShell> {
             ),
           if (privateProfileActive || adminMode)
             Padding(
-              padding: const EdgeInsetsDirectional.only(end: 28),
+              padding: const EdgeInsetsDirectional.only(end: 12),
               child: ConstrainedBox(
                 constraints: BoxConstraints(
                   maxWidth: math.min(220, width * 0.42),
@@ -360,9 +384,9 @@ class _AppShellState extends ConsumerState<AppShell> {
             )
           else
             SizedBox(
-              width: 72,
+              width: 52,
               child: Align(
-                alignment: Alignment.centerLeft,
+                alignment: Alignment.center,
                 child: Tooltip(
                   message: effectiveProfileAccessTooltip,
                   child: SizedBox.square(
@@ -534,6 +558,29 @@ class _AppShellState extends ConsumerState<AppShell> {
             ),
       floatingActionButton: null,
     );
+    return Stack(
+      children: [
+        shell,
+        if (tutorialStep != null)
+          _AppTutorialOverlay(
+            state: tutorialState!,
+            useRail: useRail,
+            onPrevious: () {
+              final latest = ref.read(appTutorialControllerProvider);
+              if (latest != null) {
+                _previousTutorialStep(context, ref, latest);
+              }
+            },
+            onNext: () {
+              final latest = ref.read(appTutorialControllerProvider);
+              if (latest != null) {
+                _advanceTutorialStep(context, ref, latest);
+              }
+            },
+            onClose: ref.read(appTutorialControllerProvider.notifier).close,
+          ),
+      ],
+    );
   }
 
   int _bottomNavIndexForSection(AppSection section) {
@@ -651,10 +698,639 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (location.startsWith('/tags')) {
       return AppSection.tags;
     }
-    if (location.startsWith('/settings')) {
+    if (location.startsWith('/settings') || location.startsWith('/tutorials')) {
       return AppSection.settings;
     }
     return AppSection.notes;
+  }
+}
+
+String _tutorialRouteForStep(AppTutorialStep step) {
+  return switch (step) {
+    AppTutorialStep.privateProfile ||
+    AppTutorialStep.addNote ||
+    AppTutorialStep.search ||
+    AppTutorialStep.filters ||
+    AppTutorialStep.notesList ||
+    AppTutorialStep.attachments ||
+    AppTutorialStep.privateMemo ||
+    AppTutorialStep.syncTroubleshooting ||
+    AppTutorialStep.syncStatus ||
+    AppTutorialStep.navigation => '/notes',
+    AppTutorialStep.settings => '/settings',
+    AppTutorialStep.tags => '/tags',
+    AppTutorialStep.trash || AppTutorialStep.trashRecovery => '/trash',
+    AppTutorialStep.calendarInsights => '/calendar',
+  };
+}
+
+void _startTutorialCourse(
+  BuildContext context,
+  WidgetRef ref,
+  AppTutorialCourse course,
+) {
+  ref.read(appTutorialControllerProvider.notifier).start(course);
+  final started = ref.read(appTutorialControllerProvider);
+  final step = started?.step;
+  if (step != null) {
+    context.go(_tutorialRouteForStep(step));
+  }
+}
+
+void _advanceTutorialStep(
+  BuildContext context,
+  WidgetRef ref,
+  AppTutorialState current,
+) {
+  final controller = ref.read(appTutorialControllerProvider.notifier);
+  if (current.index >= current.steps.length - 1) {
+    unawaited(
+      ref
+          .read(appTutorialCompletionControllerProvider.notifier)
+          .markComplete(current.course),
+    );
+    controller.close();
+    context.go('/tutorials');
+    return;
+  }
+  final nextStep = current.steps[current.index + 1];
+  context.go(_tutorialRouteForStep(nextStep));
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    controller.next();
+  });
+}
+
+void _previousTutorialStep(
+  BuildContext context,
+  WidgetRef ref,
+  AppTutorialState current,
+) {
+  if (current.index <= 0) {
+    return;
+  }
+  final controller = ref.read(appTutorialControllerProvider.notifier);
+  final previousStep = current.steps[current.index - 1];
+  context.go(_tutorialRouteForStep(previousStep));
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    controller.previous();
+  });
+}
+
+class _AppTutorialOverlay extends StatefulWidget {
+  const _AppTutorialOverlay({
+    required this.state,
+    required this.useRail,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onClose,
+  });
+
+  final AppTutorialState state;
+  final bool useRail;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+  final VoidCallback onClose;
+
+  @override
+  State<_AppTutorialOverlay> createState() => _AppTutorialOverlayState();
+}
+
+class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
+  bool _remeasureScheduled = false;
+
+  AppTutorialStep get step => widget.state.step;
+
+  void _scheduleRemeasure() {
+    if (_remeasureScheduled) {
+      return;
+    }
+    _remeasureScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _remeasureScheduled = false;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final media = MediaQuery.of(context);
+    final size = media.size;
+    final highlightRect = _highlightRect(context);
+    if (highlightRect == null) {
+      return const Positioned.fill(child: SizedBox.shrink());
+    }
+    const edgeMargin = 18.0;
+    final cardWidth = math.min(360.0, size.width - edgeMargin * 2);
+    final cardOffset = _cardOffset(
+      size: size,
+      padding: media.padding,
+      highlightRect: highlightRect,
+      cardWidth: cardWidth,
+    );
+    final isFirst = widget.state.index == 0;
+    final isLast = widget.state.index == widget.state.steps.length - 1;
+    return Positioned.fill(
+      child: Material(
+        color: Colors.transparent,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: widget.onNext,
+                child: CustomPaint(
+                  painter: _TutorialScrimPainter(
+                    highlightRect: highlightRect,
+                    color: Colors.black.withValues(alpha: 0.62),
+                    borderColor: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ),
+            ),
+            Positioned.fromRect(
+              rect: highlightRect,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 3,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: 0.36),
+                        blurRadius: 22,
+                        spreadRadius: 4,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: cardOffset.dx,
+              top: cardOffset.dy,
+              width: cardWidth,
+              child: Card(
+                key: AppShell.tutorialCardKey,
+                margin: EdgeInsets.zero,
+                elevation: 10,
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.tips_and_updates_outlined,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _title(strings),
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: strings.close,
+                            onPressed: widget.onClose,
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _body(strings),
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        strings.localized(
+                          en: 'Step ${widget.state.stepNumber} of ${widget.state.stepCount}',
+                          ja: '${widget.state.stepNumber} / ${widget.state.stepCount}',
+                          zh: '第 ${widget.state.stepNumber} 步，共 ${widget.state.stepCount} 步',
+                          ko: '${widget.state.stepNumber}/${widget.state.stepCount}단계',
+                          es: 'Paso ${widget.state.stepNumber} de ${widget.state.stepCount}',
+                          de: 'Schritt ${widget.state.stepNumber} von ${widget.state.stepCount}',
+                        ),
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          TextButton(
+                            key: AppShell.tutorialBackKey,
+                            onPressed: isFirst ? null : widget.onPrevious,
+                            child: Text(
+                              strings.localized(
+                                en: 'Back',
+                                ja: '戻る',
+                                zh: '上一步',
+                                ko: '이전',
+                                es: 'Atras',
+                                de: 'Zurueck',
+                              ),
+                            ),
+                          ),
+                          const Spacer(),
+                          TextButton(
+                            key: AppShell.tutorialSkipKey,
+                            onPressed: widget.onClose,
+                            child: Text(strings.skip),
+                          ),
+                          const SizedBox(width: 8),
+                          FilledButton(
+                            key: AppShell.tutorialNextKey,
+                            onPressed: widget.onNext,
+                            child: Text(
+                              isLast
+                                  ? strings.localized(
+                                      en: 'Done',
+                                      ja: '完了',
+                                      zh: '完成',
+                                      ko: '완료',
+                                      es: 'Listo',
+                                      de: 'Fertig',
+                                    )
+                                  : strings.next,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Offset _cardOffset({
+    required Size size,
+    required EdgeInsets padding,
+    required Rect highlightRect,
+    required double cardWidth,
+  }) {
+    const edge = 18.0;
+    const gap = 16.0;
+    const estimatedCardHeight = 340.0;
+    final minLeft = edge + padding.left;
+    final maxLeft = math.max(
+      minLeft,
+      size.width - padding.right - edge - cardWidth,
+    );
+    double clampLeft(double value) => value.clamp(minLeft, maxLeft).toDouble();
+    double below() => math.min(
+      highlightRect.bottom + gap,
+      size.height - padding.bottom - edge - estimatedCardHeight,
+    );
+    double nearRight() => clampLeft(highlightRect.right - cardWidth);
+    double centered() => clampLeft((size.width - cardWidth) / 2);
+
+    final top = padding.top + edge;
+    return switch (step) {
+      AppTutorialStep.privateProfile => Offset(nearRight(), below()),
+      AppTutorialStep.addNote =>
+        widget.useRail
+            ? Offset(
+                highlightRect.top < top + 80
+                    ? nearRight()
+                    : clampLeft(highlightRect.right + gap),
+                highlightRect.top < top + 80
+                    ? below()
+                    : math.min(
+                        highlightRect.top,
+                        size.height -
+                            padding.bottom -
+                            edge -
+                            estimatedCardHeight,
+                      ),
+              )
+            : Offset(centered(), math.max(top, highlightRect.top - 300)),
+      AppTutorialStep.search ||
+      AppTutorialStep.filters ||
+      AppTutorialStep.notesList ||
+      AppTutorialStep.attachments ||
+      AppTutorialStep.privateMemo ||
+      AppTutorialStep.syncTroubleshooting => Offset(nearRight(), below()),
+      AppTutorialStep.syncStatus => Offset(nearRight(), below()),
+      AppTutorialStep.settings ||
+      AppTutorialStep.tags ||
+      AppTutorialStep.trash ||
+      AppTutorialStep.trashRecovery ||
+      AppTutorialStep.calendarInsights =>
+        widget.useRail
+            ? Offset(
+                clampLeft(highlightRect.right + gap),
+                math.max(top, highlightRect.top),
+              )
+            : Offset(centered(), math.max(top, highlightRect.top - 300)),
+      AppTutorialStep.navigation =>
+        widget.useRail
+            ? Offset(
+                clampLeft(highlightRect.right + gap),
+                math.max(top, highlightRect.top),
+              )
+            : Offset(centered(), math.max(top, highlightRect.top - 300)),
+    };
+  }
+
+  Rect? _highlightRect(BuildContext context) {
+    Rect? rectFor(GlobalKey key) {
+      final targetContext = key.currentContext;
+      final targetRenderObject = targetContext?.findRenderObject();
+      final overlayRenderObject = context.findRenderObject();
+      if (targetRenderObject is! RenderBox ||
+          overlayRenderObject is! RenderBox ||
+          !targetRenderObject.hasSize ||
+          !overlayRenderObject.hasSize) {
+        return null;
+      }
+      final targetTopLeft = targetRenderObject.localToGlobal(Offset.zero);
+      final overlayTopLeft = overlayRenderObject.localToGlobal(Offset.zero);
+      return (targetTopLeft - overlayTopLeft) & targetRenderObject.size;
+    }
+
+    Rect? unionRects(Iterable<GlobalKey> keys) {
+      Rect? result;
+      for (final key in keys) {
+        final rect = rectFor(key);
+        if (rect == null) {
+          continue;
+        }
+        result = result == null ? rect : result.expandToInclude(rect);
+      }
+      return result;
+    }
+
+    Rect fallbackRectForStep(AppTutorialStep step) {
+      final media = MediaQuery.of(context);
+      final size = media.size;
+      final padding = media.padding;
+      final top = padding.top + 16;
+      final contentTop = padding.top + kToolbarHeight + 24;
+      final contentHeight = math.min(180.0, size.height * 0.28);
+      final contentWidth = math.max(120.0, size.width - 32);
+      switch (step) {
+        case AppTutorialStep.privateProfile:
+        case AppTutorialStep.privateMemo:
+        case AppTutorialStep.syncStatus:
+        case AppTutorialStep.syncTroubleshooting:
+          return Rect.fromLTWH(
+            math.max(16, size.width - padding.right - 84),
+            top,
+            64,
+            56,
+          );
+        case AppTutorialStep.addNote:
+        case AppTutorialStep.attachments:
+          return Rect.fromCircle(
+            center: Offset(size.width / 2, size.height - padding.bottom - 76),
+            radius: 38,
+          );
+        case AppTutorialStep.navigation:
+          return Rect.fromLTWH(
+            16,
+            size.height - padding.bottom - 92,
+            size.width - 32,
+            72,
+          );
+        case AppTutorialStep.search:
+        case AppTutorialStep.filters:
+        case AppTutorialStep.notesList:
+        case AppTutorialStep.settings:
+        case AppTutorialStep.tags:
+        case AppTutorialStep.trash:
+        case AppTutorialStep.trashRecovery:
+        case AppTutorialStep.calendarInsights:
+          return Rect.fromLTWH(16, contentTop, contentWidth, contentHeight);
+      }
+    }
+
+    final keyedRect = switch (step) {
+      AppTutorialStep.privateProfile => rectFor(
+        AppShell.privateProfileAccessKey,
+      ),
+      AppTutorialStep.addNote =>
+        widget.useRail
+            ? rectFor(AppShell.addNoteKey) ?? rectFor(AppShell.headerAddNoteKey)
+            : rectFor(AppShell.addNoteKey),
+      AppTutorialStep.search => rectFor(AppShell.notesSearchKey),
+      AppTutorialStep.filters => rectFor(AppShell.notesFilterKey),
+      AppTutorialStep.notesList => rectFor(AppShell.notesListKey),
+      AppTutorialStep.attachments =>
+        widget.useRail
+            ? rectFor(AppShell.addNoteKey) ?? rectFor(AppShell.headerAddNoteKey)
+            : rectFor(AppShell.addNoteKey),
+      AppTutorialStep.privateMemo => rectFor(AppShell.privateProfileAccessKey),
+      AppTutorialStep.syncTroubleshooting => rectFor(AppShell.syncIndicatorKey),
+      AppTutorialStep.syncStatus => rectFor(AppShell.syncIndicatorKey),
+      AppTutorialStep.settings => rectFor(AppShell.settingsNavKey),
+      AppTutorialStep.tags =>
+        widget.useRail
+            ? rectFor(AppShell.tagsNavKey)
+            : rectFor(TagsScreen.tagSearchKey),
+      AppTutorialStep.trash || AppTutorialStep.trashRecovery =>
+        widget.useRail
+            ? rectFor(AppShell.trashNavKey)
+            : rectFor(TrashScreen.trashContentKey),
+      AppTutorialStep.calendarInsights => unionRects([
+        AppShell.calendarNavKey,
+        AppShell.insightsNavKey,
+      ]),
+      AppTutorialStep.navigation => unionRects([
+        AppShell.notesNavKey,
+        AppShell.calendarNavKey,
+        AppShell.insightsNavKey,
+        AppShell.trashNavKey,
+        AppShell.tagsNavKey,
+        AppShell.settingsNavKey,
+      ]),
+    };
+    if (keyedRect != null) {
+      return keyedRect.inflate(6);
+    }
+    _scheduleRemeasure();
+    return fallbackRectForStep(step).inflate(6);
+  }
+
+  String _title(AppStrings strings) {
+    return switch (step) {
+      AppTutorialStep.privateProfile => strings.localized(
+        en: 'Private profile unlock',
+        ja: 'プライベート解除',
+      ),
+      AppTutorialStep.addNote => strings.localized(
+        en: 'Create a memo',
+        ja: 'メモを作成',
+      ),
+      AppTutorialStep.search => strings.localized(
+        en: 'Search memos',
+        ja: 'メモを検索',
+      ),
+      AppTutorialStep.filters => strings.localized(
+        en: 'Filter the list',
+        ja: '一覧を絞り込み',
+      ),
+      AppTutorialStep.notesList => strings.localized(
+        en: 'Memo list',
+        ja: 'メモ一覧',
+      ),
+      AppTutorialStep.attachments => strings.localized(
+        en: 'Attach files',
+        ja: '添付を追加',
+      ),
+      AppTutorialStep.privateMemo => strings.localized(
+        en: 'Private memo flow',
+        ja: 'プライベートメモ',
+      ),
+      AppTutorialStep.syncTroubleshooting => strings.localized(
+        en: 'Sync checks',
+        ja: '同期の確認',
+      ),
+      AppTutorialStep.syncStatus => strings.localized(
+        en: 'Sync status',
+        ja: '同期状況',
+      ),
+      AppTutorialStep.settings => strings.localized(
+        en: 'Settings hub',
+        ja: '設定の入口',
+      ),
+      AppTutorialStep.tags => strings.localized(en: 'Tags', ja: 'タグ整理'),
+      AppTutorialStep.trash => strings.localized(en: 'Trash', ja: 'ゴミ箱'),
+      AppTutorialStep.trashRecovery => strings.localized(
+        en: 'Restore from trash',
+        ja: 'ゴミ箱から復元',
+      ),
+      AppTutorialStep.calendarInsights => strings.localized(
+        en: 'Calendar and insights',
+        ja: 'カレンダーと記録',
+      ),
+      AppTutorialStep.navigation => strings.localized(
+        en: 'Main navigation',
+        ja: '画面の切り替え',
+      ),
+    };
+  }
+
+  String _body(AppStrings strings) {
+    return switch (step) {
+      AppTutorialStep.privateProfile => strings.localized(
+        en: 'Use the lock icon in the header to unlock or switch private profiles. App lock also uses this area when protection is enabled.',
+        ja: '画面右上のロックアイコンから、プライベートプロファイルの解除や切り替えができます。アプリ保護を有効にした場合もここが入口になります。',
+      ),
+      AppTutorialStep.addNote => strings.localized(
+        en: 'Tap the compose button to add a new memo. You can attach photos, videos, audio, files, tags, and dates from the editor.',
+        ja: '作成ボタンから新しいメモを追加します。編集画面では写真、動画、音声、ファイル、タグ、日付を追加できます。',
+      ),
+      AppTutorialStep.search => strings.localized(
+        en: 'Use search to find memo text, diary entries, tags, and attachment labels from the main list.',
+        ja: 'メイン画面の検索欄から、本文、日記、タグ、添付ラベルをまとめて探せます。',
+      ),
+      AppTutorialStep.filters => strings.localized(
+        en: 'Open filters when search alone is not enough. You can narrow by tags, year, attachment type, pinned notes, and archive state.',
+        ja: '検索だけで足りないときはフィルタを開きます。タグ、年、添付の種類、ピン留め、アーカイブ状態で絞り込めます。',
+      ),
+      AppTutorialStep.notesList => strings.localized(
+        en: 'This is the main memo list. Memo cards show the title, text preview, tags, dates, and attachment thumbnails when available.',
+        ja: 'ここがメインのメモ一覧です。メモカードにはタイトル、本文プレビュー、タグ、日付、添付サムネイルが表示されます。',
+      ),
+      AppTutorialStep.attachments => strings.localized(
+        en: 'Start from the compose button, then use the editor toolbar to add photos, videos, audio, or files. Large files are handled in the background during sync.',
+        ja: '作成ボタンから編集画面を開き、ツールバーで写真、動画、音声、ファイルを添付します。大きなファイルは同期時にバックグラウンドで扱います。',
+      ),
+      AppTutorialStep.privateMemo => strings.localized(
+        en: 'Unlock a private profile from the header before writing private memos. In the editor, choose the private save destination before saving.',
+        ja: 'プライベートメモを書く前に、ヘッダーからプロファイルを解除します。編集画面では保存先がプライベートになっていることを確認して保存します。',
+      ),
+      AppTutorialStep.syncTroubleshooting => strings.localized(
+        en: 'When sync is active, tap the indicator to see progress, item counts, and the current step before opening settings for detailed history.',
+        ja: '同期中はインジケーターをタップして、進捗、件数、現在の処理を確認できます。詳しい履歴は設定から確認します。',
+      ),
+      AppTutorialStep.syncStatus => strings.localized(
+        en: 'When sync is running, this indicator rotates and shows progress. Tap it to see the current step and item counts.',
+        ja: '同期中はこのインジケーターが回転し、進捗を表示します。タップすると現在の処理や件数進捗を確認できます。',
+      ),
+      AppTutorialStep.settings => strings.localized(
+        en: 'Settings is where you manage sync, app protection, private profiles, appearance, storage, release notes, and help.',
+        ja: '設定では同期、アプリ保護、プライベートプロファイル、表示、ストレージ、更新履歴、ヘルプを管理できます。',
+      ),
+      AppTutorialStep.tags => strings.localized(
+        en: 'Use tags to group related memos. The Tags screen lets you search, rename, delete, and apply rules for organizing notes.',
+        ja: 'タグで関連するメモをまとめられます。タグ画面では検索、名前変更、削除、整理ルールの適用ができます。',
+      ),
+      AppTutorialStep.trash => strings.localized(
+        en: 'Deleted memos move to Trash first. Review them here before restoring or deleting them permanently.',
+        ja: '削除したメモはいったんゴミ箱に入ります。ここで確認してから復元または完全削除できます。',
+      ),
+      AppTutorialStep.trashRecovery => strings.localized(
+        en: 'Trash is the recovery point for accidental deletes. Open it from navigation, review the note, then restore or permanently delete it.',
+        ja: '誤って削除したメモはゴミ箱から確認できます。ナビゲーションから開き、内容を見て復元または完全削除します。',
+      ),
+      AppTutorialStep.calendarInsights => strings.localized(
+        en: 'Calendar helps you review memos by date, while insights show writing patterns and note activity.',
+        ja: 'カレンダーでは日付からメモを見返せます。記録では作成傾向やメモの活動を確認できます。',
+      ),
+      AppTutorialStep.navigation => strings.localized(
+        en: 'Use the navigation to move between notes, calendar, insights, trash, tags, and settings. Settings contains sync, app protection, profiles, and help.',
+        ja: 'ナビゲーションからノート、カレンダー、記録、ゴミ箱、タグ、設定へ移動できます。設定には同期、アプリ保護、プロファイル、ヘルプがあります。',
+      ),
+    };
+  }
+}
+
+class _TutorialScrimPainter extends CustomPainter {
+  const _TutorialScrimPainter({
+    required this.highlightRect,
+    required this.color,
+    required this.borderColor,
+  });
+
+  final Rect highlightRect;
+  final Color color;
+  final Color borderColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final overlayPath = Path()..addRect(Offset.zero & size);
+    final highlightPath = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(
+          highlightRect.inflate(3),
+          const Radius.circular(21),
+        ),
+      );
+    final path = Path.combine(
+      ui.PathOperation.difference,
+      overlayPath,
+      highlightPath,
+    );
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(covariant _TutorialScrimPainter oldDelegate) {
+    return oldDelegate.highlightRect != highlightRect ||
+        oldDelegate.color != color ||
+        oldDelegate.borderColor != borderColor;
   }
 }
 
@@ -997,23 +1673,27 @@ class _AppBrandTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final brandAssetPath = theme.brightness == Brightness.dark
+        ? 'assets/privacy-icon-dark.png'
+        : 'assets/app-icon.png';
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(6),
           child: Image.asset(
-            'assets/app-icon.png',
+            brandAssetPath,
             width: 28,
             height: 28,
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) {
               return ColoredBox(
-                color: Theme.of(context).colorScheme.primaryContainer,
+                color: theme.colorScheme.primaryContainer,
                 child: Icon(
                   Icons.lock_outline_rounded,
                   size: 18,
-                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                  color: theme.colorScheme.onPrimaryContainer,
                 ),
               );
             },
@@ -1024,9 +1704,9 @@ class _AppBrandTitle extends StatelessWidget {
           child: Text(
             'HiMemo',
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ],
@@ -1285,17 +1965,25 @@ Future<void> _showProfileAccessDialog(
   final strings = context.strings;
   final activeLabel = ref.read(activePrivateProfileLabelProvider);
   final adminMode = ref.read(adminModeSessionControllerProvider);
-  final result = await showDialog<String>(
+  final result = await showDialog<_ProfileAccessDialogResult>(
     context: context,
     builder: (_) =>
         _ProfileAccessDialog(adminMode: adminMode, activeLabel: activeLabel),
   );
-  if (result == null || result.isEmpty || !context.mounted) {
+  if (result == null || !context.mounted) {
+    return;
+  }
+  if (result.createProfile) {
+    await _showAddPrivateProfileDialogFromHeader(context, ref);
+    return;
+  }
+  final password = result.password;
+  if (password == null || password.isEmpty) {
     return;
   }
   final unlocked = await ref
       .read(privateProfileUnlockControllerProvider.notifier)
-      .unlockWithPassword(result);
+      .unlockWithPassword(password);
   if (!context.mounted) {
     return;
   }
@@ -1311,6 +1999,55 @@ Future<void> _showProfileAccessDialog(
       ),
     ),
   );
+}
+
+Future<void> _showAddPrivateProfileDialogFromHeader(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  final strings = context.strings;
+  final draft = await showDialog<_PrivateProfileDraft>(
+    context: context,
+    builder: (_) => const _AddPrivateProfileDialog(),
+  );
+  if (draft == null) {
+    return;
+  }
+  final error = await ref
+      .read(privateMemoProfilesControllerProvider.notifier)
+      .addProfile(name: draft.name, password: draft.password);
+  if (error == null) {
+    await ref
+        .read(privateProfileUnlockControllerProvider.notifier)
+        .unlockWithPassword(draft.password);
+  }
+  if (!context.mounted) {
+    return;
+  }
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      showCloseIcon: true,
+      content: Text(
+        error ?? (strings.text('home.private.profile.added.and.opened')),
+      ),
+    ),
+  );
+}
+
+class _ProfileAccessDialogResult {
+  const _ProfileAccessDialogResult._({
+    this.password,
+    this.createProfile = false,
+  });
+
+  const _ProfileAccessDialogResult.unlock(String password)
+    : this._(password: password);
+
+  const _ProfileAccessDialogResult.createProfile()
+    : this._(createProfile: true);
+
+  final String? password;
+  final bool createProfile;
 }
 
 class _ProfileAccessDialog extends ConsumerStatefulWidget {
@@ -1339,7 +2076,9 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
 
   void _submit() {
     if (_formKey.currentState?.validate() ?? false) {
-      Navigator.of(context).pop(_controller.text);
+      Navigator.of(
+        context,
+      ).pop(_ProfileAccessDialogResult.unlock(_controller.text));
     }
   }
 
@@ -1396,6 +2135,13 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
             },
             child: Text(strings.text('home.lock.private.access')),
           ),
+        TextButton(
+          key: const Key('private-profile-unlock-create-profile'),
+          onPressed: () => Navigator.of(
+            context,
+          ).pop(const _ProfileAccessDialogResult.createProfile()),
+          child: Text(strings.text('home.add.private.profile')),
+        ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: Text(strings.cancel),

@@ -163,6 +163,9 @@ void main() {
 
   test('app lock background privacy cover prevents delayed relock flashes', () {
     final appShell = File('lib/app/app.dart').readAsStringSync();
+    final homeSettings = File(
+      'lib/features/home/presentation/home_settings_screen.dart',
+    ).readAsStringSync();
     final appStrings = File('lib/l10n/app_strings.dart').readAsStringSync();
     final androidMainActivity = File(
       'android/app/src/main/kotlin/org/ruhenheim/himemo/MainActivity.kt',
@@ -173,8 +176,13 @@ void main() {
     expect(appShell, contains('_lifecyclePrivacyCoverVisible'));
     expect(appShell, contains('_AppPrivacyCover'));
     expect(appShell, contains('class _AppLockIcon'));
-    expect(appShell, contains('Color(0xFFFDFCFF)'));
+    expect(appShell, contains('colorScheme.surface.withValues(alpha: 0.94)'));
     expect(appShell, contains('assets/privacy-icon.png'));
+    expect(appShell, contains('assets/privacy-icon-dark.png'));
+    final homePage = _homePresentationSource();
+    expect(homePage, contains('final brandAssetPath'));
+    expect(homePage, contains('assets/privacy-icon-dark.png'));
+    expect(homePage, contains('assets/app-icon.png'));
     expect(appShell, contains('dimension: wide ? 136 : 128'));
     expect(appShell, contains('dimension: 152'));
     expect(appShell.contains('width: 104'), isFalse);
@@ -202,6 +210,10 @@ void main() {
     expect(appShell, contains('strings.authenticating'));
     expect(appShell, contains('strings.localizedPinLockError'));
     expect(appShell, contains('strings.unlockWithDeviceAuthReason'));
+    expect(homeSettings, contains('final hadPinConfigured'));
+    expect(homeSettings, contains('!hadPinConfigured'));
+    expect(homeSettings, contains('appLockSettingsControllerProvider'));
+    expect(homeSettings, contains('.setEnabled(true)'));
     expect(appStrings, contains('String get unlockWithPinInstruction'));
     expect(appStrings, contains('String get noUnlockMethodConfigured'));
     expect(appStrings, contains('String get authenticating'));

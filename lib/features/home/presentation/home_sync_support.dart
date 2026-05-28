@@ -1918,6 +1918,10 @@ Future<void> _importLocalArchive(BuildContext context, WidgetRef ref) async {
             es: 'Importar',
             de: 'Importieren',
           ),
+          revealSensitiveDetails: _canRevealSyncBundlePreviewDetails(
+            ref,
+            preview,
+          ),
         ) ??
         false;
     if (!confirmed || !context.mounted) {
@@ -2294,8 +2298,11 @@ Future<bool?> _showBundlePreviewDialog(
   BuildContext context,
   SyncBundlePreview preview, {
   required String confirmLabel,
+  required bool revealSensitiveDetails,
 }) {
   final strings = context.strings;
+  final hidePrivateDetails =
+      preview.privateVaultNoteCount > 0 && !revealSensitiveDetails;
   return showDialog<bool>(
     context: context,
     builder: (context) {
@@ -2327,22 +2334,33 @@ Future<bool?> _showBundlePreviewDialog(
                       _formatDateTime(preview.exportedAt!, strings),
                     ),
                   ),
-                if (preview.sampleTitles.isNotEmpty) ...[
+                if (hidePrivateDetails) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    strings.localized(
+                      en: 'This bundle includes locked private profile notes, so titles and note names are hidden. Unlock the target profile or enter admin mode to review details.',
+                      ja: 'このバンドルにはロック中のプライベートプロファイルのメモが含まれるため、タイトルやメモ名は非表示です。詳細を確認するには対象プロファイルを解除するか、管理者モードに入ってください。',
+                    ),
+                  ),
+                ],
+                if (!hidePrivateDetails && preview.sampleTitles.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Text(strings.bundleSample(preview.sampleTitles.join(', '))),
                 ],
-                _PreviewTitlesSection(
-                  title: strings.text('home.added.notes'),
-                  titles: preview.addedTitles,
-                ),
-                _PreviewTitlesSection(
-                  title: strings.text('home.updated.notes'),
-                  titles: preview.updatedTitles,
-                ),
-                _PreviewTitlesSection(
-                  title: strings.text('home.removed.locally.after.apply'),
-                  titles: preview.removedTitles,
-                ),
+                if (!hidePrivateDetails) ...[
+                  _PreviewTitlesSection(
+                    title: strings.text('home.added.notes'),
+                    titles: preview.addedTitles,
+                  ),
+                  _PreviewTitlesSection(
+                    title: strings.text('home.updated.notes'),
+                    titles: preview.updatedTitles,
+                  ),
+                  _PreviewTitlesSection(
+                    title: strings.text('home.removed.locally.after.apply'),
+                    titles: preview.removedTitles,
+                  ),
+                ],
               ],
             ),
           ),
@@ -2360,6 +2378,23 @@ Future<bool?> _showBundlePreviewDialog(
       );
     },
   );
+}
+
+bool _canRevealSyncBundlePreviewDetails(
+  WidgetRef ref,
+  SyncBundlePreview preview,
+) {
+  final privateVaultIds = preview.privateVaultIds;
+  if (privateVaultIds.isEmpty) {
+    return true;
+  }
+  if (ref.read(adminModeSessionControllerProvider)) {
+    return true;
+  }
+  final accessibleVaultIds = ref
+      .read(accessiblePrivateVaultIdsProvider)
+      .toSet();
+  return privateVaultIds.every(accessibleVaultIds.contains);
 }
 
 class _PreviewTitlesSection extends StatelessWidget {

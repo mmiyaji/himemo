@@ -82,6 +82,7 @@ class _Sidebar extends StatelessWidget {
                 ],
                 const SizedBox(height: 8),
                 _SidebarItem(
+                  itemKey: AppShell.notesNavKey,
                   icon: Icons.notes_outlined,
                   selectedIcon: Icons.notes_rounded,
                   label: strings.notes,
@@ -98,6 +99,7 @@ class _Sidebar extends StatelessWidget {
                     onTagSelected: onTagSelected,
                   ),
                 _SidebarItem(
+                  itemKey: AppShell.calendarNavKey,
                   icon: Icons.calendar_month_outlined,
                   selectedIcon: Icons.calendar_month_rounded,
                   label: strings.calendar,
@@ -106,6 +108,7 @@ class _Sidebar extends StatelessWidget {
                   onTap: () => onSectionSelected(AppSection.calendar),
                 ),
                 _SidebarItem(
+                  itemKey: AppShell.insightsNavKey,
                   icon: Icons.insert_chart_outlined_rounded,
                   selectedIcon: Icons.insert_chart_rounded,
                   label: strings.insights,
@@ -114,6 +117,7 @@ class _Sidebar extends StatelessWidget {
                   onTap: () => onSectionSelected(AppSection.insights),
                 ),
                 _SidebarItem(
+                  itemKey: AppShell.trashNavKey,
                   icon: Icons.delete_outline_rounded,
                   selectedIcon: Icons.delete_rounded,
                   label: strings.localized(
@@ -129,6 +133,7 @@ class _Sidebar extends StatelessWidget {
                   onTap: () => onSectionSelected(AppSection.trash),
                 ),
                 _SidebarItem(
+                  itemKey: AppShell.tagsNavKey,
                   icon: Icons.sell_outlined,
                   selectedIcon: Icons.sell_rounded,
                   label: strings.localized(
@@ -144,6 +149,7 @@ class _Sidebar extends StatelessWidget {
                   onTap: () => onSectionSelected(AppSection.tags),
                 ),
                 _SidebarItem(
+                  itemKey: AppShell.settingsNavKey,
                   icon: Icons.settings_outlined,
                   selectedIcon: Icons.settings_rounded,
                   label: strings.settings,
@@ -243,6 +249,7 @@ class _SidebarCreateNoteButton extends StatelessWidget {
 
 class _SidebarItem extends StatelessWidget {
   const _SidebarItem({
+    this.itemKey,
     required this.icon,
     required this.selectedIcon,
     required this.label,
@@ -251,6 +258,7 @@ class _SidebarItem extends StatelessWidget {
     required this.onTap,
   });
 
+  final Key? itemKey;
   final IconData icon;
   final IconData selectedIcon;
   final String label;
@@ -262,6 +270,7 @@ class _SidebarItem extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!showLabel) {
       return Padding(
+        key: itemKey,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         child: Tooltip(
           message: label,
@@ -285,6 +294,7 @@ class _SidebarItem extends StatelessWidget {
       );
     }
     return Padding(
+      key: itemKey,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       child: ListTile(
         key: Key('sidebar-${label.toLowerCase()}'),

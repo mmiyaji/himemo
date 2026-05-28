@@ -69,12 +69,14 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
     final query = ref.watch(searchQueryProvider).trim();
     final selectedNoteId = ref.watch(selectedNoteIdProvider);
     final syncProvider = ref.watch(syncProviderControllerProvider);
+    final adminMode = ref.watch(adminModeSessionControllerProvider);
 
     if (!useSplitView) {
       return _MobileNotesList(
         activeIdentity: activeIdentity,
         showPrivateVaultNotice:
             activeIdentity.id == 'private' && !privateVaultUnlocked,
+        showAdminModeNotice: adminMode,
         compactHeader: useCompactHeader,
         vaultNameById: vaultNameById,
         showVaultName: visibleVaults.length > 1,
@@ -87,6 +89,17 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         onRefresh: syncProvider == SyncProvider.off
             ? null
             : () => _refreshNotesFromCloud(context),
+        onUnlockPrivateProfile: () => _showProfileAccessDialog(context, ref),
+        onExitAdminMode: () => _exitAdminMode(ref),
+        onTogglePinned: (note) =>
+            ref.read(notesControllerProvider.notifier).togglePinned(note.id),
+        onShareNote: (note) => _handleNoteDetailAction(
+          context,
+          ref,
+          note,
+          _NoteDetailAction.share,
+        ),
+        onDeleteNote: (note) => _deleteNote(context, note),
         onNoteSelected: (note) =>
             _openMobileNoteActions(context, note, visibleNotes),
       );
@@ -120,6 +133,7 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 activeIdentity: activeIdentity,
                 showPrivateVaultNotice:
                     activeIdentity.id == 'private' && !privateVaultUnlocked,
+                showAdminModeNotice: adminMode,
                 notes: visibleNotes,
                 selectedNoteId: effectiveSelectedNoteId,
                 vaultNameById: vaultNameById,
@@ -132,6 +146,19 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 onRefresh: syncProvider == SyncProvider.off
                     ? null
                     : () => _refreshNotesFromCloud(context),
+                onUnlockPrivateProfile: () =>
+                    _showProfileAccessDialog(context, ref),
+                onExitAdminMode: () => _exitAdminMode(ref),
+                onTogglePinned: (note) => ref
+                    .read(notesControllerProvider.notifier)
+                    .togglePinned(note.id),
+                onShareNote: (note) => _handleNoteDetailAction(
+                  context,
+                  ref,
+                  note,
+                  _NoteDetailAction.share,
+                ),
+                onDeleteNote: (note) => _deleteNote(context, note),
                 onNoteSelected: (note) {
                   _debugNotePerf('select split-list ${_notePerfLabel(note)}');
                   ref.read(selectedNoteIdProvider.notifier).select(note.id);
@@ -168,6 +195,11 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
         );
       },
     );
+  }
+
+  void _exitAdminMode(WidgetRef ref) {
+    ref.read(adminModeSessionControllerProvider.notifier).lock();
+    ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
   }
 
   Future<void> _openMobileNoteActions(

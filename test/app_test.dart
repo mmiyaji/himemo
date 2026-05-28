@@ -1800,6 +1800,170 @@ void main() {
     );
   });
 
+  test(
+    'private profile deletion is admin-only and removes local notes',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(19));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(database),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: database,
+              directoryProvider: () async => Directory.systemTemp,
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(database.close);
+
+      final addError = await container
+          .read(privateMemoProfilesControllerProvider.notifier)
+          .addProfile(name: 'Old profile', password: 'old-pass-123');
+      expect(addError, isNull);
+      final profile = container.read(privateMemoProfilesProvider).single;
+      final unlocked = await container
+          .read(privateProfileUnlockControllerProvider.notifier)
+          .unlockWithPassword('old-pass-123');
+      expect(unlocked?.vaultId, profile.vaultId);
+
+      final notesController = container.read(notesControllerProvider.notifier);
+      await notesController.restoreCompleted;
+      await notesController.upsert(
+        NoteEntry(
+          id: 'old-private-note',
+          vaultId: profile.vaultId,
+          title: 'Old private note',
+          body: 'This belongs to the old profile.',
+          createdAt: DateTime.utc(2026, 5, 25, 1),
+        ),
+      );
+      expect((await database.loadAll()).map((entry) => entry.note.id), [
+        'old-private-note',
+      ]);
+
+      final blocked = await container
+          .read(privateMemoProfilesControllerProvider.notifier)
+          .deleteProfile(profile.id);
+      expect(blocked, isFalse);
+      expect(container.read(privateMemoProfilesProvider), hasLength(1));
+      expect(await database.loadAll(), hasLength(1));
+
+      container.read(adminModeSessionControllerProvider.notifier).unlock();
+      final deleted = await container
+          .read(privateMemoProfilesControllerProvider.notifier)
+          .deleteProfile(profile.id);
+      expect(deleted, isTrue);
+      expect(container.read(privateMemoProfilesProvider), isEmpty);
+      expect(await database.loadAll(), isEmpty);
+      expect(await database.loadPendingChanges(), isEmpty);
+      expect(container.read(searchFiltersControllerProvider).vaultId, isNull);
+    },
+  );
+
+  test(
+    'private profile unlock skips duplicate metadata without data key',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(23));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(database),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: database,
+              directoryProvider: () async => Directory.systemTemp,
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(database.close);
+
+      final addError = await container
+          .read(privateMemoProfilesControllerProvider.notifier)
+          .addProfile(name: 'Local private', password: 'same-pass-123');
+      expect(addError, isNull);
+      final localProfile = container.read(privateMemoProfilesProvider).single;
+      final notesController = container.read(notesControllerProvider.notifier);
+      await notesController.restoreCompleted;
+      await notesController.upsert(
+        NoteEntry(
+          id: 'local-private-note',
+          vaultId: localProfile.vaultId,
+          title: 'Local private note',
+          body: 'Must remain reachable after duplicate metadata import.',
+          createdAt: DateTime.utc(2026, 5, 25, 8),
+        ),
+      );
+      container.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+
+      final salt = encryptionService.generateSalt();
+      final verifier = await encryptionService.deriveSecretVerifier(
+        secret: 'same-pass-123',
+        salt: salt,
+      );
+      final imported = await container
+          .read(privateMemoProfileStoreProvider)
+          .importSyncPayload({
+            'version': 1,
+            'profiles': [
+              {
+                'id': 'profile_broken_remote',
+                'name': 'Broken remote',
+                'createdAt': DateTime.utc(2026, 1, 1).toIso8601String(),
+              },
+            ],
+            'verifiers': [
+              {
+                'profileId': 'profile_broken_remote',
+                'salt': base64Encode(salt),
+                'verifier': verifier,
+              },
+            ],
+            'dataKeys': const [],
+          });
+      expect(imported, greaterThanOrEqualTo(2));
+      await container
+          .read(privateMemoProfilesControllerProvider.notifier)
+          .refresh();
+      expect(container.read(privateMemoProfilesProvider), hasLength(2));
+
+      final unlocked = await container
+          .read(privateProfileUnlockControllerProvider.notifier)
+          .unlockWithPassword('same-pass-123');
+      expect(unlocked?.vaultId, localProfile.vaultId);
+      expect(
+        container.read(notesForVaultProvider(localProfile.vaultId)).single.id,
+        'local-private-note',
+      );
+    },
+  );
+
   test('private profile notes remain visible immediately after save', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();
@@ -1858,6 +2022,158 @@ void main() {
       container.read(notesForVaultProvider(unlocked.vaultId)).single.id,
       'private-after-save',
     );
+  });
+
+  test('sync upload keeps locked private profile changes encrypted', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-locked-private-sync-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(113));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final attachmentStore = EncryptedAttachmentStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final fakeTransport = InMemoryGoogleDriveSyncTransport(
+      uploadDelay: Duration.zero,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+        encryptedNoteStoreProvider.overrideWith(
+          (ref) => EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
+            database: database,
+            directoryProvider: () async => tempDirectory,
+            sharedPreferencesProvider: SharedPreferences.getInstance,
+          ),
+        ),
+        secureSyncBundleStoreProvider.overrideWith(
+          (ref) => SecureSyncBundleStore(
+            encryptionService: encryptionService,
+            syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
+            legacyMasterKeyService: masterKeyService,
+            directoryProvider: () async => tempDirectory,
+            sharedPreferencesProvider: SharedPreferences.getInstance,
+          ),
+        ),
+        googleDriveSyncTransportProvider.overrideWithValue(fakeTransport),
+        syncAuthGatewayProvider.overrideWithValue(
+          FakeGoogleDriveSyncAuthGateway(fallback: DefaultSyncAuthGateway()),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+    addTearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    });
+
+    await container
+        .read(syncProviderControllerProvider.notifier)
+        .setProvider(SyncProvider.googleDrive);
+    await container
+        .read(syncAuthControllerProvider.notifier)
+        .connect(SyncProvider.googleDrive);
+    final addError = await container
+        .read(privateMemoProfilesControllerProvider.notifier)
+        .addProfile(name: 'Private sync', password: 'sync-pass-123');
+    expect(addError, isNull);
+    final unlocked = await container
+        .read(privateProfileUnlockControllerProvider.notifier)
+        .unlockWithPassword('sync-pass-123');
+    expect(unlocked, isNotNull);
+
+    final controller = container.read(notesControllerProvider.notifier);
+    await controller.restoreCompleted;
+    await controller.upsert(
+      NoteEntry(
+        id: 'locked-private-delete',
+        vaultId: unlocked!.vaultId,
+        title: 'Private pending delete',
+        body: 'Must not upload while locked.',
+        createdAt: DateTime.utc(2026, 5, 24, 10),
+      ),
+    );
+    final snapshot = (await database.loadAll()).singleWhere(
+      (entry) => entry.note.id == 'locked-private-delete',
+    );
+    final deletedAt = DateTime.utc(2026, 5, 24, 11);
+    await database.upsertOne(
+      note: snapshot.note,
+      attachments: snapshot.attachments,
+      pendingChange: PendingNoteChangeRecord(
+        noteId: 'locked-private-delete',
+        vaultId: unlocked.vaultId,
+        revision: 2,
+        action: PendingNoteChangeAction.delete,
+        queuedAt: deletedAt,
+        deletedAt: deletedAt,
+      ),
+    );
+    container.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+
+    await container
+        .read(syncTransferControllerProvider.notifier)
+        .uploadCurrentBundle(force: true);
+
+    final remoteStatus = await fakeTransport.fetchLatestBundleStatus();
+    expect(remoteStatus?.noteCount, 1);
+    final remoteBundle = await fakeTransport.downloadLatestBundle();
+    expect(remoteBundle, isNotNull);
+    final localBundle = await container
+        .read(secureSyncBundleStoreProvider)
+        .writeEncryptedBundlePayload(
+          remoteBundle!.encodedPayload,
+          noteCount: remoteBundle.status.noteCount ?? 0,
+          attachmentCount: remoteBundle.status.attachmentCount ?? 0,
+          fileNameOverride: 'locked_private_sync_bundle.enc',
+        );
+    final decoded = await container
+        .read(secureSyncBundleStoreProvider)
+        .readBundleJson(localBundle.reference);
+    expect(decoded?['notes'], isEmpty);
+    expect(decoded?['encryptedPrivateNotes'], hasLength(1));
+    final pendingChanges = await database.loadPendingChanges();
+    expect(pendingChanges, isEmpty);
+    expect(
+      container.read(syncTransferControllerProvider).message,
+      'sync.info.upload_success',
+    );
+
+    await database.deleteNoteById('locked-private-delete');
+    expect(
+      (await database.loadAll()).where(
+        (entry) => entry.note.id == 'locked-private-delete',
+      ),
+      isEmpty,
+    );
+    final syncController = container.read(
+      syncTransferControllerProvider.notifier,
+    );
+    await syncController.downloadLatestBundle();
+    await syncController.applyDownloadedBundle();
+    final restored = (await database.loadAll()).singleWhere(
+      (entry) => entry.note.id == 'locked-private-delete',
+    );
+    expect(restored.note.deletedAt?.isAtSameMomentAs(deletedAt), isTrue);
+    expect(await database.loadPendingChanges(), isEmpty);
   });
 
   test('Spotlight indexing sends note body and rich text terms', () async {
@@ -2278,6 +2594,107 @@ void main() {
     expect(prefs.getString('release_notes.last_seen'), '9.8.7+654');
   });
 
+  test('app tutorial controller walks through highlight steps', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final controller = container.read(appTutorialControllerProvider.notifier);
+
+    expect(container.read(appTutorialControllerProvider), isNull);
+
+    controller.start();
+    expect(
+      container.read(appTutorialControllerProvider)?.step,
+      AppTutorialStep.privateProfile,
+    );
+
+    controller.next();
+    expect(
+      container.read(appTutorialControllerProvider)?.step,
+      AppTutorialStep.addNote,
+    );
+
+    controller.previous();
+    expect(
+      container.read(appTutorialControllerProvider)?.step,
+      AppTutorialStep.privateProfile,
+    );
+
+    controller.close();
+    expect(container.read(appTutorialControllerProvider), isNull);
+  });
+
+  test('app tutorial controller starts purpose-based courses', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final controller = container.read(appTutorialControllerProvider.notifier);
+
+    expect(AppTutorialCourse.values.length, greaterThanOrEqualTo(13));
+
+    controller.start(AppTutorialCourse.mainScreen);
+    var state = container.read(appTutorialControllerProvider);
+    expect(state?.course, AppTutorialCourse.mainScreen);
+    expect(state?.steps, [
+      AppTutorialStep.search,
+      AppTutorialStep.filters,
+      AppTutorialStep.notesList,
+      AppTutorialStep.privateProfile,
+      AppTutorialStep.syncStatus,
+      AppTutorialStep.navigation,
+    ]);
+
+    controller.start(AppTutorialCourse.organize);
+    state = container.read(appTutorialControllerProvider);
+    expect(state?.course, AppTutorialCourse.organize);
+    expect(state?.step, AppTutorialStep.tags);
+    expect(state?.stepCount, 3);
+
+    controller.next();
+    state = container.read(appTutorialControllerProvider);
+    expect(state?.step, AppTutorialStep.trash);
+
+    controller.start(AppTutorialCourse.find);
+    state = container.read(appTutorialControllerProvider);
+    expect(state?.step, AppTutorialStep.search);
+    expect(state?.steps, [
+      AppTutorialStep.search,
+      AppTutorialStep.filters,
+      AppTutorialStep.tags,
+    ]);
+
+    controller.start(AppTutorialCourse.privateMemo);
+    state = container.read(appTutorialControllerProvider);
+    expect(state?.step, AppTutorialStep.privateMemo);
+
+    controller.start(AppTutorialCourse.trashRecovery);
+    state = container.read(appTutorialControllerProvider);
+    expect(state?.steps, [
+      AppTutorialStep.trashRecovery,
+      AppTutorialStep.trash,
+      AppTutorialStep.navigation,
+    ]);
+  });
+
+  test('app tutorial completion is persisted by course', () async {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    final controller = container.read(
+      appTutorialCompletionControllerProvider.notifier,
+    );
+    await controller.markComplete(AppTutorialCourse.sync);
+
+    expect(
+      container.read(appTutorialCompletionControllerProvider),
+      contains(AppTutorialCourse.sync),
+    );
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getStringList('tutorials.completed_courses.v1'),
+      contains(AppTutorialCourse.sync.name),
+    );
+  });
+
   test('app lock policy providers expose secure defaults', () {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();
@@ -2459,6 +2876,512 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(SettingsScreen.privateProfileNameInputKey), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('profile unlock dialog links to private profile creation', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(37));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          packageInfoProvider.overrideWith(
+            (ref) async => const AppPackageDetails(
+              appName: 'HiMemo',
+              version: '0.0.0',
+              buildNumber: '0',
+            ),
+          ),
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(database),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: database,
+              directoryProvider: () async => Directory.systemTemp,
+            ),
+          ),
+        ],
+        child: const HiMemoApp(flavor: AppFlavor.development),
+      ),
+    );
+    addTearDown(database.close);
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(AppShell.privateProfileAccessKey));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('private-profile-unlock-password-input')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const Key('private-profile-unlock-create-profile')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(SettingsScreen.privateProfileNameInputKey),
+      findsOneWidget,
+    );
+    expect(find.text('Add private profile'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('profile access action is compact and tutorial targets fit', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(430, 932);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(41));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const HiMemoApp(flavor: AppFlavor.development),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+
+    final mobileProfileRect = tester.getRect(
+      find.byKey(AppShell.privateProfileAccessKey),
+    );
+    expect(mobileProfileRect.width, 40);
+    expect(mobileProfileRect.right, greaterThan(410));
+
+    tester.view.physicalSize = const Size(1024, 768);
+    await tester.pumpAndSettle();
+
+    container
+        .read(appTutorialControllerProvider.notifier)
+        .start(AppTutorialCourse.basics);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    Rect cardRect() => tester.getRect(find.byKey(AppShell.tutorialCardKey));
+    Rect padded(Rect rect) => rect.inflate(8);
+    expect(
+      cardRect().overlaps(
+        padded(tester.getRect(find.byKey(AppShell.privateProfileAccessKey))),
+      ),
+      isFalse,
+    );
+
+    container.read(appTutorialControllerProvider.notifier).next();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    final addNoteRect = tester.getRect(find.byKey(AppShell.addNoteKey));
+    expect(addNoteRect.left, lessThan(260));
+    expect(cardRect().overlaps(padded(addNoteRect)), isFalse);
+
+    container.read(appTutorialControllerProvider.notifier).next();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    final syncRect = tester.getRect(find.byKey(AppShell.syncIndicatorKey));
+    expect(syncRect.right, greaterThan(900));
+    expect(cardRect().overlaps(padded(syncRect)), isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('tutorial advances across tabs and marks completion', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(42));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const HiMemoApp(flavor: AppFlavor.development),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+
+    final router = container.read(appRouterProvider);
+    router.go('/tags');
+    container
+        .read(appTutorialControllerProvider.notifier)
+        .start(AppTutorialCourse.organize);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(router.routeInformationProvider.value.uri.path, '/tags');
+    expect(find.byKey(AppShell.tutorialCardKey), findsOneWidget);
+
+    await tester.tap(find.byKey(AppShell.tutorialNextKey));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(router.routeInformationProvider.value.uri.path, '/trash');
+    expect(
+      container.read(appTutorialControllerProvider)?.step,
+      AppTutorialStep.trash,
+    );
+
+    await tester.tap(find.byKey(AppShell.tutorialNextKey));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(router.routeInformationProvider.value.uri.path, '/calendar');
+    expect(
+      container.read(appTutorialControllerProvider)?.step,
+      AppTutorialStep.calendarInsights,
+    );
+
+    final doneButton = find.text('Done').hitTestable();
+    expect(doneButton, findsOneWidget);
+    await tester.tap(doneButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(router.routeInformationProvider.value.uri.path, '/tutorials');
+    expect(container.read(appTutorialControllerProvider), isNull);
+    expect(
+      container.read(appTutorialCompletionControllerProvider),
+      contains(AppTutorialCourse.organize),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('maintenance tutorial can finish on mobile trash screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(43));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const HiMemoApp(flavor: AppFlavor.development),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+
+    final router = container.read(appRouterProvider);
+    router.go('/settings');
+    container
+        .read(appTutorialControllerProvider.notifier)
+        .start(AppTutorialCourse.maintenance);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(router.routeInformationProvider.value.uri.path, '/settings');
+    expect(find.byKey(AppShell.tutorialCardKey), findsOneWidget);
+
+    await tester.tap(find.byKey(AppShell.tutorialNextKey));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(router.routeInformationProvider.value.uri.path, '/notes');
+    expect(find.byKey(AppShell.tutorialCardKey), findsOneWidget);
+
+    await tester.tap(find.byKey(AppShell.tutorialNextKey));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(router.routeInformationProvider.value.uri.path, '/trash');
+    expect(
+      container.read(appTutorialControllerProvider)?.step,
+      AppTutorialStep.trash,
+    );
+    expect(find.byKey(TrashScreen.trashContentKey), findsOneWidget);
+    expect(find.byKey(AppShell.tutorialCardKey), findsOneWidget);
+
+    final doneButton = find.text('Done').hitTestable();
+    expect(doneButton, findsOneWidget);
+    await tester.tap(doneButton);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(router.routeInformationProvider.value.uri.path, '/tutorials');
+    expect(container.read(appTutorialControllerProvider), isNull);
+    expect(
+      container.read(appTutorialCompletionControllerProvider),
+      contains(AppTutorialCourse.maintenance),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('all tutorial courses can advance on mobile width', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    String routeForStep(AppTutorialStep step) => switch (step) {
+      AppTutorialStep.privateProfile ||
+      AppTutorialStep.addNote ||
+      AppTutorialStep.search ||
+      AppTutorialStep.filters ||
+      AppTutorialStep.notesList ||
+      AppTutorialStep.attachments ||
+      AppTutorialStep.privateMemo ||
+      AppTutorialStep.syncTroubleshooting ||
+      AppTutorialStep.syncStatus ||
+      AppTutorialStep.navigation => '/notes',
+      AppTutorialStep.settings => '/settings',
+      AppTutorialStep.tags => '/tags',
+      AppTutorialStep.trash || AppTutorialStep.trashRecovery => '/trash',
+      AppTutorialStep.calendarInsights => '/calendar',
+    };
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(44));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const HiMemoApp(flavor: AppFlavor.development),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1200));
+    await tester.pumpAndSettle();
+
+    final router = container.read(appRouterProvider);
+    for (final course in AppTutorialCourse.values) {
+      container.read(appTutorialControllerProvider.notifier).start(course);
+      final firstStep = container.read(appTutorialControllerProvider)!.step;
+      router.go(routeForStep(firstStep));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      while (container.read(appTutorialControllerProvider) != null) {
+        final state = container.read(appTutorialControllerProvider)!;
+        expect(
+          find.byKey(AppShell.tutorialCardKey),
+          findsOneWidget,
+          reason: '${course.name} stopped on ${state.step.name}',
+        );
+
+        final nextButton = find.byKey(AppShell.tutorialNextKey).hitTestable();
+        expect(
+          nextButton,
+          findsOneWidget,
+          reason: '${course.name} next button hidden on ${state.step.name}',
+        );
+        await tester.tap(nextButton);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+      }
+
+      expect(router.routeInformationProvider.value.uri.path, '/tutorials');
+      expect(
+        container.read(appTutorialCompletionControllerProvider),
+        contains(course),
+      );
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('audit log settings are shown only in admin mode', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(41));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    configureFlavor(AppFlavor.development);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          localizationsDelegates: [
+            AppLocalizations.delegate,
+            AppStrings.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: SettingsScreen()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Audit logs'), findsNothing);
+
+    container.read(adminModeSessionControllerProvider.notifier).unlock();
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Audit logs'), 300);
+
+    expect(find.text('Audit logs'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -2779,6 +3702,79 @@ void main() {
       expect(planningIndex, lessThan(compoundIndex));
     },
   );
+
+  test('auto tag rules add matching tags without duplicates', () {
+    final rule = AutoTagRule(
+      id: 'rule-1',
+      tag: 'Finance',
+      keywords: splitAutoTagKeywords('receipt, invoice'),
+    );
+    final note = NoteEntry(
+      id: 'auto-tag-1',
+      vaultId: 'everyday',
+      title: 'Receipt from cafe',
+      body: 'Lunch meeting',
+      tags: const ['Work'],
+      createdAt: DateTime.utc(2026, 5, 20),
+    );
+
+    final tagged = applyAutoTagRules(note, [rule]);
+    expect(tagged.tags, ['Work', 'Finance']);
+    expect(applyAutoTagRules(tagged, [rule]).tags, ['Work', 'Finance']);
+    expect(applyAutoTagRules(note, [rule.copyWith(enabled: false)]).tags, [
+      'Work',
+    ]);
+  });
+
+  test('notes controller applies auto tag rules when saving notes', () async {
+    SharedPreferences.setMockInitialValues({});
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(76));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    await container
+        .read(autoTagRulesControllerProvider.notifier)
+        .addRule(tag: 'Finance', keywords: ['receipt']);
+    final controller = container.read(notesControllerProvider.notifier);
+    await controller.restoreCompleted;
+    await controller.upsert(
+      NoteEntry(
+        id: 'auto-tag-save',
+        vaultId: 'everyday',
+        title: 'Receipt from cafe',
+        body: 'Lunch meeting',
+        createdAt: DateTime.utc(2026, 5, 20),
+      ),
+    );
+
+    final saved = container
+        .read(notesControllerProvider)
+        .singleWhere((note) => note.id == 'auto-tag-save');
+    expect(saved.tags, ['Finance']);
+    expect(saved.syncState, NoteSyncState.pendingUpload);
+  });
 
   test('native tag suggestions strip markdown JSON wrappers', () {
     final suggestions = sanitizeSuggestedTags(

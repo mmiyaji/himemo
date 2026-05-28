@@ -62,6 +62,90 @@ class PreparedSyncNote {
   final PendingNoteChangeAction action;
 }
 
+class PreparedEncryptedPrivateSyncNote {
+  const PreparedEncryptedPrivateSyncNote({
+    required this.action,
+    required this.note,
+    required this.attachments,
+  });
+
+  final PendingNoteChangeAction action;
+  final EncryptedNoteRecord note;
+  final List<EncryptedAttachmentRecord> attachments;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'action': action.name,
+      'note': {
+        ...note.toPayloadJson(),
+        'encryptedPayload': note.encryptedPayload,
+      },
+      'attachments': [
+        for (final attachment in attachments)
+          {
+            'noteId': attachment.noteId,
+            'position': attachment.position,
+            'encryptedPayload': attachment.encryptedPayload,
+          },
+      ],
+    };
+  }
+
+  static PreparedEncryptedPrivateSyncNote? fromJson(Object? value) {
+    if (value is! Map) {
+      return null;
+    }
+    final entry = Map<String, dynamic>.from(value);
+    final rawNote = entry['note'];
+    if (rawNote is! Map) {
+      return null;
+    }
+    final notePayload = Map<String, dynamic>.from(rawNote);
+    final encryptedPayload = notePayload['encryptedPayload'] as String?;
+    if (encryptedPayload == null || encryptedPayload.isEmpty) {
+      return null;
+    }
+    final action = PendingNoteChangeAction.values.firstWhere(
+      (candidate) => candidate.name == entry['action'],
+      orElse: () => notePayload['deletedAt'] == null
+          ? PendingNoteChangeAction.upsert
+          : PendingNoteChangeAction.delete,
+    );
+    final attachments = <EncryptedAttachmentRecord>[];
+    for (final rawAttachment
+        in entry['attachments'] as List<dynamic>? ?? const <dynamic>[]) {
+      if (rawAttachment is! Map) {
+        continue;
+      }
+      final attachmentPayload = Map<String, dynamic>.from(rawAttachment);
+      final noteId = attachmentPayload['noteId'] as String?;
+      final encryptedAttachmentPayload =
+          attachmentPayload['encryptedPayload'] as String?;
+      if (noteId == null ||
+          noteId.isEmpty ||
+          encryptedAttachmentPayload == null ||
+          encryptedAttachmentPayload.isEmpty) {
+        continue;
+      }
+      attachments.add(
+        EncryptedAttachmentRecord(
+          noteId: noteId,
+          position: (attachmentPayload['position'] as num?)?.toInt() ?? 0,
+          encryptedPayload: encryptedAttachmentPayload,
+        ),
+      );
+    }
+    return PreparedEncryptedPrivateSyncNote(
+      action: action,
+      note: EncryptedNoteRecord.fromLegacyPayload(
+        encryptedPayload: encryptedPayload,
+        payload: notePayload,
+      ),
+      attachments: attachments,
+    );
+  }
+}
+
 class PreparedSyncSnapshot {
   const PreparedSyncSnapshot({
     required this.deviceId,

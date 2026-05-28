@@ -1081,6 +1081,9 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
     final isEdited = note.updatedAt != null && note.updatedAt != note.createdAt;
     final tags = note.normalizedTags;
     final hasSystemSyncExclusionTag = tags.any(isSystemSyncExclusionTag);
+    final showAdminPrivateUnlockPrompt =
+        ref.watch(adminModeSessionControllerProvider) &&
+        isPrivateVaultId(note.vaultId);
     final buildWatch = kDebugMode ? (Stopwatch()..start()) : null;
     if (buildWatch != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1310,6 +1313,12 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
                       ),
                     ],
                     const SizedBox(height: 8),
+                    if (showAdminPrivateUnlockPrompt) ...[
+                      _AdminPrivateProfileUnlockPrompt(
+                        onUnlock: () => _showProfileAccessDialog(context, ref),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     _HighlightedInlineText(
                       key: _detailTitleKey,
                       text: note.title,
@@ -1392,6 +1401,78 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
                 onNext: () => _jumpDetailSearch(detailSearchTargets, 1),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdminPrivateProfileUnlockPrompt extends StatelessWidget {
+  const _AdminPrivateProfileUnlockPrompt({required this.onUnlock});
+
+  final VoidCallback onUnlock;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      key: const Key('admin-private-profile-unlock-prompt'),
+      decoration: BoxDecoration(
+        color: colorScheme.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.28)),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.admin_panel_settings_outlined, color: colorScheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  strings.localized(
+                    en: 'Viewing through admin mode',
+                    ja: '管理者モードで表示中',
+                    zh: '正在通过管理员模式查看',
+                    ko: '관리자 모드로 보는 중',
+                    es: 'Viendo con modo administrador',
+                    de: 'Anzeige im Administratormodus',
+                  ),
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: colorScheme.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  strings.localized(
+                    en: 'Unlock the matching private profile to leave admin mode and continue in the normal private view.',
+                    ja: '一致するプライベートプロファイルを開くと、管理者モードを抜けて通常のプライベート表示に切り替わります。',
+                    zh: '解锁匹配的私密档案后，将退出管理员模式并继续使用普通私密视图。',
+                    ko: '일치하는 비공개 프로필을 열면 관리자 모드를 종료하고 일반 비공개 보기로 전환합니다.',
+                    es: 'Desbloquea el perfil privado correspondiente para salir del modo administrador y continuar en la vista privada normal.',
+                    de: 'Entsperre das passende private Profil, um den Administratormodus zu verlassen und in der normalen privaten Ansicht fortzufahren.',
+                  ),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: TextButton.icon(
+                    key: const Key('admin-private-profile-unlock-button'),
+                    onPressed: onUnlock,
+                    icon: const Icon(Icons.lock_open_rounded),
+                    label: Text(strings.text('home.unlock')),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

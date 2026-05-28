@@ -51,6 +51,8 @@ class SecureSyncBundleStore {
   Future<StoredSyncBundle> writeBundle(
     PreparedSyncSnapshot snapshot, {
     List<Map<String, dynamic>> privateProfiles = const <Map<String, dynamic>>[],
+    List<PreparedEncryptedPrivateSyncNote> encryptedPrivateNotes =
+        const <PreparedEncryptedPrivateSyncNote>[],
     bool inlineAttachments = false,
   }) async {
     final key = await _syncBundleKeyService.obtainOrCreate();
@@ -58,6 +60,7 @@ class SecureSyncBundleStore {
       payload: _syncBundlePayload(
         snapshot,
         privateProfiles: privateProfiles,
+        encryptedPrivateNotes: encryptedPrivateNotes,
         inlineAttachments: inlineAttachments,
       ),
       secretKey: key,
@@ -68,7 +71,7 @@ class SecureSyncBundleStore {
       await prefs.setString(webStorageKey, payload);
       return StoredSyncBundle(
         reference: webStorageKey,
-        noteCount: snapshot.notes.length,
+        noteCount: snapshot.notes.length + encryptedPrivateNotes.length,
         attachmentCount: snapshot.attachments.length,
       );
     }
@@ -79,7 +82,7 @@ class SecureSyncBundleStore {
     await file.writeAsString(payload, flush: true);
     return StoredSyncBundle(
       reference: file.path,
-      noteCount: snapshot.notes.length,
+      noteCount: snapshot.notes.length + encryptedPrivateNotes.length,
       attachmentCount: snapshot.attachments.length,
     );
   }
@@ -181,6 +184,7 @@ class SecureSyncBundleStore {
   Map<String, dynamic> _syncBundlePayload(
     PreparedSyncSnapshot snapshot, {
     required List<Map<String, dynamic>> privateProfiles,
+    required List<PreparedEncryptedPrivateSyncNote> encryptedPrivateNotes,
     required bool inlineAttachments,
   }) {
     return {
@@ -200,6 +204,10 @@ class SecureSyncBundleStore {
           {'action': entry.action.name, 'note': entry.note.toJson()},
       ],
       'privateProfiles': privateProfiles,
+      if (encryptedPrivateNotes.isNotEmpty)
+        'encryptedPrivateNotes': [
+          for (final entry in encryptedPrivateNotes) entry.toJson(),
+        ],
       'attachments': [
         for (final attachment in snapshot.attachments)
           attachment.toJson(inlineBytes: inlineAttachments),

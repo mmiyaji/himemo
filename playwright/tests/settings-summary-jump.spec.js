@@ -16,6 +16,12 @@ test.describe('settings summary jumps', () => {
     await clickSummary(page, /Sync Off/);
     await expectSectionExpanded(page, /Backup and sync/, 'Selected target');
 
+    await clickSummary(page, /Memo Rich memo/);
+    await expectSectionExpanded(page, /Memo settings/, 'Quick memo');
+
+    await clickSummary(page, /Storage/);
+    await expectSectionExpanded(page, /Storage/, 'Saved notes on this device');
+
     await clickSummary(page, /App lock Disabled/);
     await expectSectionExpanded(page, /App security/, 'Set PIN');
 
@@ -42,6 +48,41 @@ test.describe('settings summary jumps', () => {
     await expectSectionExpanded(page, /App security/, 'Session status');
   });
 
+  test('extended color theme sheet keeps its header above scrolled choices', async ({
+    page,
+  }) => {
+    await openSettings(page, { colorTheme: 'moegi' });
+
+    await clickSummary(page, /Theme Light/);
+    await expectSectionExpanded(
+      page,
+      /Appearance/,
+      'Choose the font used across notes',
+    );
+
+    await page
+      .getByRole('button', { name: /Extended themes \(\d+ total\)/ })
+      .click();
+    const sheetTitle = page.getByText('Extended themes').last();
+    await expect(sheetTitle).toBeVisible();
+
+    await page.mouse.move(220, 560);
+    await page.mouse.wheel(0, 1260);
+    await page.waitForTimeout(250);
+
+    const titleBoxAfter = await sheetTitle.boundingBox();
+    expect(titleBoxAfter).not.toBeNull();
+    await expect(sheetTitle).toBeVisible();
+
+    const selectedThemeCard = page.getByRole('button', { name: /Moegi/ });
+    await expect(selectedThemeCard).toBeVisible();
+    const selectedBox = await selectedThemeCard.boundingBox();
+    expect(selectedBox).not.toBeNull();
+    expect(selectedBox.y).toBeGreaterThan(
+      titleBoxAfter.y + titleBoxAfter.height,
+    );
+  });
+
   test.describe('desktop viewport', () => {
     test.use({ viewport: { width: 1280, height: 900 } });
 
@@ -66,7 +107,7 @@ test.describe('settings summary jumps', () => {
   });
 });
 
-async function openSettings(page) {
+async function openSettings(page, options = {}) {
   await page.goto('/');
   await page.evaluate(async () => {
     localStorage.clear();
@@ -81,7 +122,10 @@ async function openSettings(page) {
             (name) =>
               new Promise((resolve) => {
                 const request = indexedDB.deleteDatabase(name);
-                request.onsuccess = request.onerror = request.onblocked = resolve;
+                request.onsuccess =
+                  request.onerror =
+                  request.onblocked =
+                    resolve;
               }),
           ),
       );
@@ -91,11 +135,18 @@ async function openSettings(page) {
     localStorage.setItem('flutter.settings.locale', '"english"');
     localStorage.setItem('flutter.release_notes.last_seen', '"1.0.0+46"');
   });
+  if (options.colorTheme) {
+    await page.evaluate((colorTheme) => {
+      localStorage.setItem('flutter.settings.color_theme', JSON.stringify(colorTheme));
+    }, options.colorTheme);
+  }
   await page.goto('/#/settings');
   await expect(page.locator('flutter-view')).toContainText('Profile', {
     timeout: 15000,
   });
-  await expect(page.getByRole('button', { name: /Profile Normal notes/ })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /Profile Normal notes/ }),
+  ).toBeVisible();
 }
 
 async function clickSummary(page, name) {

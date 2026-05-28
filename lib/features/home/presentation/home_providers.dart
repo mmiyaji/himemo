@@ -183,6 +183,58 @@ bool get isICloudSyncSupported =>
 
 enum AppLaunchSurface { onboarding, ready }
 
+enum AppTutorialCourse {
+  basics,
+  mainScreen,
+  writing,
+  find,
+  attachments,
+  privateMemo,
+  review,
+  privacy,
+  sync,
+  syncTroubleshooting,
+  trashRecovery,
+  organize,
+  maintenance,
+}
+
+enum AppTutorialCourseLevel { beginner, intermediate, advanced }
+
+enum AppTutorialStep {
+  privateProfile,
+  addNote,
+  search,
+  filters,
+  notesList,
+  attachments,
+  privateMemo,
+  syncTroubleshooting,
+  trashRecovery,
+  syncStatus,
+  navigation,
+  settings,
+  tags,
+  trash,
+  calendarInsights,
+}
+
+class AppTutorialState {
+  const AppTutorialState({
+    required this.course,
+    required this.steps,
+    required this.index,
+  });
+
+  final AppTutorialCourse course;
+  final List<AppTutorialStep> steps;
+  final int index;
+
+  AppTutorialStep get step => steps[index];
+  int get stepNumber => index + 1;
+  int get stepCount => steps.length;
+}
+
 enum AppLockRelockDelay { immediate, seconds30, minutes2, minutes10 }
 
 enum DeviceAuthAvailability { unknown, available, unavailable }
@@ -3057,6 +3109,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         .where(
           (note) =>
               !isGeneratedSampleNote(note) &&
+              (!isPrivateVaultId(note.vaultId) ||
+                  ref
+                      .read(profileDataKeyServiceProvider)
+                      .isProfileUnlocked(note.vaultId)) &&
               !noteExcludedFromSync(note, syncExclusionTags),
         )
         .map((note) {
@@ -3485,6 +3541,40 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       var pendingChanges = await ref
           .read(syncEngineProvider)
           .loadPendingChanges();
+      if (pendingChanges.isEmpty) {
+        final queuedAt = DateTime.now();
+        pendingChanges = [
+          for (final note in ref.read(notesControllerProvider))
+            if (note.syncState == NoteSyncState.pendingUpload ||
+                note.syncState == NoteSyncState.pendingDelete)
+              PendingNoteChangeRecord(
+                noteId: note.id,
+                vaultId: note.vaultId,
+                revision: note.revision,
+                action: note.syncState == NoteSyncState.pendingDelete
+                    ? PendingNoteChangeAction.delete
+                    : PendingNoteChangeAction.upsert,
+                queuedAt: note.updatedAt ?? queuedAt,
+                contentHash: note.contentHash,
+                deletedAt: note.deletedAt,
+              ),
+        ];
+      }
+      final encryptedPrivateNotes = await _prepareLockedPrivateSyncNotes(
+        pendingChanges,
+      );
+      final encryptedPrivateNoteIds = {
+        for (final entry in encryptedPrivateNotes) entry.note.id,
+      };
+      if (encryptedPrivateNoteIds.isNotEmpty) {
+        _diagnostic(
+          'private profile pending changes prepared encrypted',
+          data: {'count': encryptedPrivateNoteIds.length},
+        );
+        pendingChanges = pendingChanges
+            .where((change) => !encryptedPrivateNoteIds.contains(change.noteId))
+            .toList(growable: false);
+      }
       final pendingIds = pendingChanges.map((change) => change.noteId).toSet();
       final notes = await ref
           .read(notesControllerProvider.notifier)
@@ -3525,8 +3615,37 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             .where((change) => !stalePendingChangeIds.contains(change.noteId))
             .toList(growable: false);
       }
+      if (pendingChanges.isEmpty && encryptedPrivateNotes.isEmpty) {
+        ref.invalidate(syncQueueSummaryProvider);
+        final queueAfterUpload = await _readLocalSyncQueueSummary();
+        _diagnostic(
+          'upload skipped no uploadable changes',
+          data: {
+            'queueChanges': queueAfterUpload.totalChanges,
+            'queueUpserts': queueAfterUpload.upserts,
+            'queueDeletes': queueAfterUpload.deletes,
+          },
+        );
+        state = SyncTransferState(
+          stage: SyncTransferStage.success,
+          message: 'sync.info.no_changes_to_upload',
+          remoteStatus: state.remoteStatus,
+          localBundle: state.localBundle,
+        );
+        await _recordSyncHistory(
+          startedAt: historyStartedAt,
+          operation: 'upload',
+          success: true,
+          message: state.message,
+          queueBefore: queueBeforeUpload,
+          queueAfter: queueAfterUpload,
+        );
+        return;
+      }
       final pendingHashes = {
         for (final change in pendingChanges) change.noteId: change.contentHash,
+        for (final entry in encryptedPrivateNotes)
+          entry.note.id: entry.note.contentHash,
       };
       final snapshot = await runFirebaseTrace(
         'sync_prepare_snapshot',
@@ -3581,6 +3700,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             .writeBundle(
               snapshot,
               privateProfiles: [privateProfiles],
+              encryptedPrivateNotes: encryptedPrivateNotes,
               inlineAttachments: provider == SyncProvider.off,
             ),
       );
@@ -3630,6 +3750,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             pendingHashes,
             preparedNotes: snapshot.notes,
           );
+      if (encryptedPrivateNoteIds.isNotEmpty) {
+        await ref
+            .read(encryptedNoteDatabaseProvider)
+            .deletePendingChangesByIds(encryptedPrivateNoteIds);
+      }
       ref.invalidate(syncQueueSummaryProvider);
       final queueAfterUpload = await _readLocalSyncQueueSummary();
       _diagnostic(
@@ -3720,6 +3845,50 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         localBundle: state.localBundle,
       );
     }
+  }
+
+  Future<List<PreparedEncryptedPrivateSyncNote>> _prepareLockedPrivateSyncNotes(
+    List<PendingNoteChangeRecord> pendingChanges,
+  ) async {
+    final lockedPrivateChanges = pendingChanges
+        .where(
+          (change) =>
+              isPrivateVaultId(change.vaultId) &&
+              !ref
+                  .read(profileDataKeyServiceProvider)
+                  .isProfileUnlocked(change.vaultId),
+        )
+        .toList(growable: false);
+    if (lockedPrivateChanges.isEmpty) {
+      return const <PreparedEncryptedPrivateSyncNote>[];
+    }
+    final snapshots = await ref.read(encryptedNoteDatabaseProvider).loadAll();
+    final snapshotsById = {
+      for (final snapshot in snapshots) snapshot.note.id: snapshot,
+    };
+    final encryptedNotes = <PreparedEncryptedPrivateSyncNote>[];
+    for (final change in lockedPrivateChanges) {
+      final snapshot = snapshotsById[change.noteId];
+      if (snapshot == null) {
+        continue;
+      }
+      encryptedNotes.add(
+        PreparedEncryptedPrivateSyncNote(
+          action: change.action,
+          note: snapshot.note.copyWith(
+            deletedAt: change.action == PendingNoteChangeAction.delete
+                ? (change.deletedAt ?? snapshot.note.deletedAt)
+                : null,
+            clearDeletedAt: change.action == PendingNoteChangeAction.upsert,
+            revision: math.max(snapshot.note.revision, change.revision),
+            syncState: NoteSyncState.synced,
+            contentHash: change.contentHash ?? snapshot.note.contentHash,
+          ),
+          attachments: snapshot.attachments,
+        ),
+      );
+    }
+    return encryptedNotes;
   }
 
   Future<bool> _restoreMissingAttachmentRemoteRefFromLatestBundle(
@@ -4434,12 +4603,41 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       if (decoded == null) {
         throw StateError('sync.error.downloaded_bundle_decryption_failed');
       }
+      var importedEncryptedPrivateCount = 0;
       for (final rawProfiles
           in (decoded['privateProfiles'] as List<dynamic>? ??
               const <dynamic>[])) {
         await ref
             .read(privateMemoProfileStoreProvider)
             .importSyncPayload(rawProfiles);
+      }
+      final encryptedPrivateEntries =
+          decoded['encryptedPrivateNotes'] as List<dynamic>? ??
+          const <dynamic>[];
+      if (encryptedPrivateEntries.isNotEmpty) {
+        final encryptedDatabase = ref.read(encryptedNoteDatabaseProvider);
+        final localPendingIds = {
+          for (final change in await encryptedDatabase.loadPendingChanges())
+            change.noteId,
+        };
+        for (final rawEntry in encryptedPrivateEntries) {
+          final entry = PreparedEncryptedPrivateSyncNote.fromJson(rawEntry);
+          if (entry == null || localPendingIds.contains(entry.note.id)) {
+            continue;
+          }
+          final remoteNote = entry.note.copyWith(
+            deletedAt: entry.action == PendingNoteChangeAction.delete
+                ? (entry.note.deletedAt ?? DateTime.now())
+                : null,
+            clearDeletedAt: entry.action == PendingNoteChangeAction.upsert,
+            syncState: NoteSyncState.synced,
+          );
+          await encryptedDatabase.upsertOne(
+            note: remoteNote,
+            attachments: entry.attachments,
+          );
+          importedEncryptedPrivateCount += 1;
+        }
       }
       final rawNoteEntries =
           decoded['notes'] as List<dynamic>? ?? const <dynamic>[];
@@ -4542,6 +4740,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         await ref
             .read(notesControllerProvider.notifier)
             .mergeFromSync(importedChanges);
+        ref.invalidate(syncQueueSummaryProvider);
+      }
+      if (importedEncryptedPrivateCount > 0) {
+        await ref.read(notesControllerProvider.notifier).reloadFromStorage();
         ref.invalidate(syncQueueSummaryProvider);
       }
       if (lockedPrivateVaultIds.isEmpty) {
@@ -5984,19 +6186,27 @@ class PrivateMemoProfileStore {
 
   Future<UnlockProfileResult?> verifyAny(String password) async {
     final profiles = await listProfiles();
+    final matches = <PrivateMemoProfile>[];
     for (final profile in profiles) {
       final matched = await _verifyProfilePassword(profile.id, password);
       if (matched) {
-        await _profileDataKeyService.unlockProfile(
+        final unlocked = await _profileDataKeyService.unlockProfile(
           vaultId: profile.vaultId,
           password: password,
         );
-        return UnlockProfileResult(
-          vaultId: profile.vaultId,
-          label: profile.name,
-          isLegacy: false,
-        );
+        if (unlocked) {
+          matches.add(profile);
+        }
       }
+    }
+    if (matches.isNotEmpty) {
+      matches.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final profile = matches.first;
+      return UnlockProfileResult(
+        vaultId: profile.vaultId,
+        label: profile.name,
+        isLegacy: false,
+      );
     }
     return null;
   }
@@ -6553,6 +6763,165 @@ final appLaunchControllerProvider =
     NotifierProvider<AppLaunchController, AppLaunchSurface>(
       AppLaunchController.new,
     );
+
+final appTutorialControllerProvider =
+    NotifierProvider<AppTutorialController, AppTutorialState?>(
+      AppTutorialController.new,
+    );
+
+class AppTutorialController extends Notifier<AppTutorialState?> {
+  static const _courseSteps = <AppTutorialCourse, List<AppTutorialStep>>{
+    AppTutorialCourse.basics: [
+      AppTutorialStep.privateProfile,
+      AppTutorialStep.addNote,
+      AppTutorialStep.syncStatus,
+      AppTutorialStep.navigation,
+    ],
+    AppTutorialCourse.mainScreen: [
+      AppTutorialStep.search,
+      AppTutorialStep.filters,
+      AppTutorialStep.notesList,
+      AppTutorialStep.privateProfile,
+      AppTutorialStep.syncStatus,
+      AppTutorialStep.navigation,
+    ],
+    AppTutorialCourse.writing: [
+      AppTutorialStep.addNote,
+      AppTutorialStep.tags,
+      AppTutorialStep.calendarInsights,
+    ],
+    AppTutorialCourse.find: [
+      AppTutorialStep.search,
+      AppTutorialStep.filters,
+      AppTutorialStep.tags,
+    ],
+    AppTutorialCourse.attachments: [
+      AppTutorialStep.attachments,
+      AppTutorialStep.filters,
+      AppTutorialStep.syncStatus,
+    ],
+    AppTutorialCourse.privateMemo: [
+      AppTutorialStep.privateMemo,
+      AppTutorialStep.addNote,
+      AppTutorialStep.settings,
+    ],
+    AppTutorialCourse.review: [
+      AppTutorialStep.calendarInsights,
+      AppTutorialStep.tags,
+      AppTutorialStep.navigation,
+    ],
+    AppTutorialCourse.privacy: [
+      AppTutorialStep.privateProfile,
+      AppTutorialStep.settings,
+    ],
+    AppTutorialCourse.sync: [
+      AppTutorialStep.syncStatus,
+      AppTutorialStep.settings,
+    ],
+    AppTutorialCourse.syncTroubleshooting: [
+      AppTutorialStep.syncTroubleshooting,
+      AppTutorialStep.settings,
+      AppTutorialStep.syncStatus,
+    ],
+    AppTutorialCourse.trashRecovery: [
+      AppTutorialStep.trashRecovery,
+      AppTutorialStep.trash,
+      AppTutorialStep.navigation,
+    ],
+    AppTutorialCourse.organize: [
+      AppTutorialStep.tags,
+      AppTutorialStep.trash,
+      AppTutorialStep.calendarInsights,
+    ],
+    AppTutorialCourse.maintenance: [
+      AppTutorialStep.settings,
+      AppTutorialStep.syncStatus,
+      AppTutorialStep.trash,
+    ],
+  };
+
+  @override
+  AppTutorialState? build() => null;
+
+  void start([AppTutorialCourse course = AppTutorialCourse.basics]) {
+    final steps =
+        _courseSteps[course] ?? _courseSteps[AppTutorialCourse.basics]!;
+    state = AppTutorialState(course: course, steps: steps, index: 0);
+  }
+
+  void next() {
+    final current = state;
+    if (current == null) {
+      return;
+    }
+    state = current.index >= current.steps.length - 1
+        ? null
+        : AppTutorialState(
+            course: current.course,
+            steps: current.steps,
+            index: current.index + 1,
+          );
+  }
+
+  void previous() {
+    final current = state;
+    if (current == null) {
+      return;
+    }
+    if (current.index <= 0) {
+      return;
+    }
+    state = AppTutorialState(
+      course: current.course,
+      steps: current.steps,
+      index: current.index - 1,
+    );
+  }
+
+  void close() {
+    state = null;
+  }
+}
+
+final appTutorialCompletionControllerProvider =
+    NotifierProvider<AppTutorialCompletionController, Set<AppTutorialCourse>>(
+      AppTutorialCompletionController.new,
+    );
+
+class AppTutorialCompletionController extends Notifier<Set<AppTutorialCourse>> {
+  static const _storageKey = 'tutorials.completed_courses.v1';
+
+  @override
+  Set<AppTutorialCourse> build() {
+    unawaited(_load());
+    return <AppTutorialCourse>{};
+  }
+
+  Future<void> markComplete(AppTutorialCourse course) async {
+    final next = {...state, course};
+    state = next;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _storageKey,
+      next.map((course) => course.name).toList(growable: false)..sort(),
+    );
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getStringList(_storageKey) ?? const <String>[];
+    final completed = <AppTutorialCourse>{};
+    for (final name in stored) {
+      for (final course in AppTutorialCourse.values) {
+        if (course.name == name) {
+          completed.add(course);
+          break;
+        }
+      }
+    }
+    state = {...completed, ...state};
+  }
+}
 
 class AppLaunchController extends Notifier<AppLaunchSurface> {
   static const _storageKey = 'app.onboarding_completed';
@@ -8095,6 +8464,251 @@ bool noteExcludedFromSync(NoteEntry note, Iterable<String> exclusionTags) {
   );
 }
 
+class AutoTagRule {
+  const AutoTagRule({
+    required this.id,
+    required this.tag,
+    required this.keywords,
+    this.enabled = true,
+    this.matchTitle = true,
+    this.matchBody = true,
+    this.matchAttachments = true,
+  });
+
+  final String id;
+  final String tag;
+  final List<String> keywords;
+  final bool enabled;
+  final bool matchTitle;
+  final bool matchBody;
+  final bool matchAttachments;
+
+  AutoTagRule copyWith({
+    String? id,
+    String? tag,
+    List<String>? keywords,
+    bool? enabled,
+    bool? matchTitle,
+    bool? matchBody,
+    bool? matchAttachments,
+  }) {
+    return AutoTagRule(
+      id: id ?? this.id,
+      tag: tag ?? this.tag,
+      keywords: keywords ?? this.keywords,
+      enabled: enabled ?? this.enabled,
+      matchTitle: matchTitle ?? this.matchTitle,
+      matchBody: matchBody ?? this.matchBody,
+      matchAttachments: matchAttachments ?? this.matchAttachments,
+    );
+  }
+
+  Map<String, Object?> toJson() {
+    return {
+      'id': id,
+      'tag': tag,
+      'keywords': keywords,
+      'enabled': enabled,
+      'matchTitle': matchTitle,
+      'matchBody': matchBody,
+      'matchAttachments': matchAttachments,
+    };
+  }
+
+  static AutoTagRule? fromJson(Object? value) {
+    if (value is! Map) {
+      return null;
+    }
+    final tag = normalizeNoteTag('${value['tag'] ?? ''}');
+    final id = '${value['id'] ?? ''}'.trim();
+    final keywords = _normalizeAutoTagKeywords(
+      value['keywords'] is List
+          ? (value['keywords'] as List).map((entry) => '$entry')
+          : const <String>[],
+    );
+    if (id.isEmpty || tag.isEmpty || keywords.isEmpty) {
+      return null;
+    }
+    return AutoTagRule(
+      id: id,
+      tag: tag,
+      keywords: keywords,
+      enabled: value['enabled'] != false,
+      matchTitle: value['matchTitle'] != false,
+      matchBody: value['matchBody'] != false,
+      matchAttachments: value['matchAttachments'] != false,
+    );
+  }
+}
+
+final autoTagRulesControllerProvider =
+    NotifierProvider<AutoTagRulesController, List<AutoTagRule>>(
+      AutoTagRulesController.new,
+    );
+
+class AutoTagRulesController extends Notifier<List<AutoTagRule>> {
+  static const _storageKey = 'settings.auto_tag_rules.v1';
+  bool _restored = false;
+  Future<void>? _restoreTask;
+
+  @override
+  List<AutoTagRule> build() {
+    if (!_restored) {
+      _restored = true;
+      _restoreTask = _restore();
+      unawaited(_restoreTask);
+    }
+    return const <AutoTagRule>[];
+  }
+
+  Future<void> addRule({
+    required String tag,
+    required Iterable<String> keywords,
+    bool matchTitle = true,
+    bool matchBody = true,
+    bool matchAttachments = true,
+  }) async {
+    await _restoreTask;
+    final normalizedTag = normalizeNoteTag(tag);
+    final normalizedKeywords = _normalizeAutoTagKeywords(keywords);
+    if (normalizedTag.isEmpty ||
+        normalizedKeywords.isEmpty ||
+        isSystemSyncExclusionTag(normalizedTag)) {
+      return;
+    }
+    final rule = AutoTagRule(
+      id: 'rule-${DateTime.now().microsecondsSinceEpoch}',
+      tag: normalizedTag,
+      keywords: normalizedKeywords,
+      matchTitle: matchTitle,
+      matchBody: matchBody,
+      matchAttachments: matchAttachments,
+    );
+    state = [...state, rule];
+    await _persist();
+  }
+
+  Future<void> setEnabled(String id, bool enabled) async {
+    await _restoreTask;
+    var changed = false;
+    final next = [
+      for (final rule in state)
+        if (rule.id == id)
+          (() {
+            changed = changed || rule.enabled != enabled;
+            return rule.copyWith(enabled: enabled);
+          })()
+        else
+          rule,
+    ];
+    if (!changed) {
+      return;
+    }
+    state = List.unmodifiable(next);
+    await _persist();
+  }
+
+  Future<void> removeRule(String id) async {
+    await _restoreTask;
+    final next = state.where((rule) => rule.id != id).toList(growable: false);
+    if (next.length == state.length) {
+      return;
+    }
+    state = List.unmodifiable(next);
+    await _persist();
+  }
+
+  Future<void> _restore() async {
+    final prefs = await SharedPreferences.getInstance();
+    final rules = <AutoTagRule>[];
+    for (final encoded
+        in prefs.getStringList(_storageKey) ?? const <String>[]) {
+      try {
+        final rule = AutoTagRule.fromJson(jsonDecode(encoded));
+        if (rule != null) {
+          rules.add(rule);
+        }
+      } on FormatException {
+        // Ignore malformed legacy/local entries.
+      }
+    }
+    state = List.unmodifiable(rules);
+  }
+
+  Future<void> _persist() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_storageKey, [
+      for (final rule in state) jsonEncode(rule.toJson()),
+    ]);
+  }
+}
+
+List<String> _normalizeAutoTagKeywords(Iterable<String> keywords) {
+  final seen = <String>{};
+  final values = <String>[];
+  for (final raw in keywords) {
+    final normalized = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (normalized.isEmpty) {
+      continue;
+    }
+    final key = normalized.toLowerCase();
+    if (!seen.add(key)) {
+      continue;
+    }
+    values.add(normalized);
+  }
+  return List.unmodifiable(values);
+}
+
+List<String> splitAutoTagKeywords(String value) {
+  return _normalizeAutoTagKeywords(value.split(RegExp(r'[,、\n\r]+')));
+}
+
+bool autoTagRuleMatchesNote(AutoTagRule rule, NoteEntry note) {
+  if (!rule.enabled) {
+    return false;
+  }
+  final fields = <String>[
+    if (rule.matchTitle) note.title,
+    if (rule.matchBody) note.body,
+    if (rule.matchAttachments)
+      for (final attachment in note.attachments) attachment.label,
+  ].where((value) => value.trim().isNotEmpty).join('\n').toLowerCase();
+  if (fields.isEmpty) {
+    return false;
+  }
+  return rule.keywords.any((keyword) {
+    final needle = keyword.trim().toLowerCase();
+    return needle.isNotEmpty && fields.contains(needle);
+  });
+}
+
+NoteEntry applyAutoTagRules(NoteEntry note, Iterable<AutoTagRule> rules) {
+  if (note.deletedAt != null || note.archivedAt != null) {
+    return note;
+  }
+  final tags = [...note.tags];
+  var changed = false;
+  final existing = {for (final tag in tags) canonicalizeNoteTag(tag)};
+  for (final rule in rules) {
+    final tag = normalizeNoteTag(rule.tag);
+    final key = canonicalizeNoteTag(tag);
+    if (tag.isEmpty ||
+        key.isEmpty ||
+        existing.contains(key) ||
+        !autoTagRuleMatchesNote(rule, note)) {
+      continue;
+    }
+    tags.add(tag);
+    existing.add(key);
+    changed = true;
+  }
+  if (!changed) {
+    return note;
+  }
+  return note.copyWith(tags: dedupeNoteTags(tags));
+}
+
 @Riverpod(keepAlive: true)
 class NotesListDensityController extends _$NotesListDensityController {
   static const _storageKey = 'notes.list_density';
@@ -8358,6 +8972,51 @@ class NotesController extends _$NotesController {
     }
   }
 
+  Future<int> applyAutoTagRulesToExisting({Iterable<String>? vaultIds}) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final rules = ref.read(autoTagRulesControllerProvider);
+    if (rules.where((rule) => rule.enabled).isEmpty) {
+      return 0;
+    }
+    final targetVaultIds = vaultIds?.toSet();
+    final now = DateTime.now();
+    var changed = 0;
+    final next = <NoteEntry>[];
+    for (final note in state) {
+      if (note.deletedAt != null ||
+          note.archivedAt != null ||
+          (targetVaultIds != null && !targetVaultIds.contains(note.vaultId))) {
+        next.add(note);
+        continue;
+      }
+      final tagged = applyAutoTagRules(note, rules);
+      if (_sameTagList(note.tags, tagged.tags)) {
+        next.add(note);
+        continue;
+      }
+      final changedBase = tagged.copyWith(
+        updatedAt: now,
+        revision: note.revision + 1,
+      );
+      final changedNote = changedBase.copyWith(
+        syncState: _syncStateForLocalChange(changedBase, deleted: false),
+      );
+      next.add(
+        changedNote.copyWith(contentHash: _computeContentHash(changedNote)),
+      );
+      changed++;
+    }
+    if (changed == 0) {
+      return 0;
+    }
+    _sort(next);
+    state = next;
+    await _persist();
+    logAudit('auto_tag_rules_apply', data: {'count': changed});
+    return changed;
+  }
+
   Future<void> delete(String noteId) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
@@ -8463,6 +9122,44 @@ class NotesController extends _$NotesController {
     await ref.read(encryptedNoteStoreProvider).deleteById(noteId);
     ref.invalidate(storageUsageSummaryProvider);
     logAudit('note_permanent_delete', data: _auditNoteData(note));
+  }
+
+  Future<int> deleteVaultLocally(String vaultId) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final removed = [
+      for (final note in state)
+        if (note.vaultId == vaultId) note,
+    ];
+    if (removed.isEmpty) {
+      await ref.read(encryptedNoteStoreProvider).deleteByVaultId(vaultId);
+      return 0;
+    }
+    final removedIds = {for (final note in removed) note.id};
+    state = [
+      for (final note in state)
+        if (!removedIds.contains(note.id)) note,
+    ];
+    final selectedNoteId = ref.read(selectedNoteIdProvider);
+    if (selectedNoteId != null && removedIds.contains(selectedNoteId)) {
+      ref.read(selectedNoteIdProvider.notifier).select(null);
+    }
+    final filters = ref.read(searchFiltersControllerProvider);
+    if (filters.vaultId == vaultId) {
+      ref.read(searchFiltersControllerProvider.notifier).setVault(null);
+    }
+    await _deleteAttachments([
+      for (final note in removed)
+        if (!_isLockedPrivatePlaceholder(note)) ..._attachmentsIn(note),
+    ]);
+    await ref.read(encryptedNoteStoreProvider).deleteByVaultId(vaultId);
+    ref.invalidate(storageUsageSummaryProvider);
+    ref.invalidate(syncQueueSummaryProvider);
+    logAudit(
+      'private_profile_notes_delete',
+      data: {'vaultId': vaultId, 'count': removed.length},
+    );
+    return removed.length;
   }
 
   Future<int> purgeTrashOlderThan([Duration retention = trashRetention]) async {
@@ -9357,6 +10054,10 @@ class NotesController extends _$NotesController {
     final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
     bool canUpload(NoteEntry note) =>
         !_isLockedPrivatePlaceholder(note) &&
+        (!isPrivateVaultId(note.vaultId) ||
+            ref
+                .read(profileDataKeyServiceProvider)
+                .isProfileUnlocked(note.vaultId)) &&
         !noteExcludedFromSync(note, syncExclusionTags);
     if (pendingNoteIds == null) {
       return List<NoteEntry>.unmodifiable(state.where(canUpload));
@@ -9438,6 +10139,10 @@ class NotesController extends _$NotesController {
     final next = <NoteEntry>[];
     for (final note in state) {
       if (_isLockedPrivatePlaceholder(note) ||
+          (isPrivateVaultId(note.vaultId) &&
+              !ref
+                  .read(profileDataKeyServiceProvider)
+                  .isProfileUnlocked(note.vaultId)) ||
           isGeneratedSampleNote(note) ||
           noteExcludedFromSync(note, syncExclusionTags)) {
         next.add(note);
@@ -9885,19 +10590,23 @@ class NotesController extends _$NotesController {
     NoteEntry note, {
     NoteEntry? previous,
   }) async {
+    final autoTagged = applyAutoTagRules(
+      note,
+      ref.read(autoTagRulesControllerProvider),
+    );
     final deviceId =
-        note.deviceId ??
+        autoTagged.deviceId ??
         previous?.deviceId ??
         await ref.read(deviceIdentityStoreProvider).obtain();
-    final createdAt = note.createdAt;
-    final updatedAt = note.updatedAt ?? DateTime.now();
-    final normalized = note.copyWith(
+    final createdAt = autoTagged.createdAt;
+    final updatedAt = autoTagged.updatedAt ?? DateTime.now();
+    final normalized = autoTagged.copyWith(
       createdAt: createdAt,
       updatedAt: updatedAt,
       deletedAt: null,
       deviceId: deviceId,
-      revision: previous == null ? note.revision : previous.revision + 1,
-      syncState: _syncStateForLocalChange(note, deleted: false),
+      revision: previous == null ? autoTagged.revision : previous.revision + 1,
+      syncState: _syncStateForLocalChange(autoTagged, deleted: false),
     );
     final protected = await _protectAttachmentsForVault(normalized);
     return protected.copyWith(contentHash: _computeContentHash(protected));
@@ -10227,17 +10936,32 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
     return error;
   }
 
-  Future<void> deleteProfile(String id) async {
+  Future<bool> deleteProfile(String id) async {
+    if (!ref.read(adminModeSessionControllerProvider)) {
+      return false;
+    }
+    final vaultId = '$customPrivateVaultPrefix$id';
+    final removedNoteCount = await ref
+        .read(notesControllerProvider.notifier)
+        .deleteVaultLocally(vaultId);
     await ref.read(privateMemoProfileStoreProvider).deleteProfile(id);
     final unlockedVaultId = ref.read(unlockedPrivateProfileVaultIdProvider);
-    final vaultId = '$customPrivateVaultPrefix$id';
     await ref
         .read(profileColorThemeControllerProvider.notifier)
         .clearTheme(vaultId);
     if (unlockedVaultId == vaultId) {
       ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
     }
+    final filters = ref.read(searchFiltersControllerProvider);
+    if (filters.vaultId == vaultId) {
+      ref.read(searchFiltersControllerProvider.notifier).setVault(null);
+    }
     await refresh();
+    logAudit(
+      'private_profile_delete',
+      data: {'vaultId': vaultId, 'removedNoteCount': removedNoteCount},
+    );
+    return true;
   }
 
   Future<void> renameProfile({required String id, required String name}) async {

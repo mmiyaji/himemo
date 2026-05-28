@@ -67,7 +67,14 @@ class EncryptedNoteStore {
       return fallbackNotes;
     }
 
-    final migrated = _decodePlaintextEntries(legacy);
+    late final List<NoteEntry> migrated;
+    try {
+      migrated = _decodePlaintextEntries(legacy);
+    } catch (_) {
+      await prefs.setString('$legacyStorageKey.corrupt', legacy);
+      await prefs.remove(legacyStorageKey);
+      return fallbackNotes;
+    }
     await save(migrated);
     await prefs.remove(legacyStorageKey);
     return migrated;
@@ -306,6 +313,16 @@ class EncryptedNoteStore {
     }
     final notes = await load(fallbackNotes: const <NoteEntry>[]);
     await save(notes.where((note) => note.id != noteId).toList());
+  }
+
+  Future<void> deleteByVaultId(String vaultId) async {
+    if (!kIsWeb) {
+      final database = _database ?? EncryptedNoteDatabase();
+      await database.deleteNotesByVaultId(vaultId);
+      return;
+    }
+    final notes = await load(fallbackNotes: const <NoteEntry>[]);
+    await save(notes.where((note) => note.vaultId != vaultId).toList());
   }
 
   Future<int> storagePayloadSizeBytes() async {

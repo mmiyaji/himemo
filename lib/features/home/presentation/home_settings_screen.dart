@@ -79,14 +79,22 @@ class SettingsScreen extends ConsumerWidget {
   static const privateProfileRenameSubmitKey = Key(
     'private-profile-rename-submit',
   );
+  static Key privateProfileDeleteKey(String id) =>
+      Key('private-profile-delete-$id');
+  static const startTutorialKey = Key('start-highlight-tutorial');
+  static final aboutSectionKey = GlobalKey();
   static final _appearanceSectionKey = GlobalKey();
+  static final _memoSettingsSectionKey = GlobalKey();
   static final _privateProfilesSectionKey = GlobalKey();
   static final _appSecuritySectionKey = GlobalKey();
   static final _syncSectionKey = GlobalKey();
+  static final _storageSectionKey = GlobalKey();
   static final _appearanceController = ExpansibleController();
+  static final _memoSettingsController = ExpansibleController();
   static final _privateProfilesController = ExpansibleController();
   static final _appSecurityController = ExpansibleController();
   static final _syncController = ExpansibleController();
+  static final _storageController = ExpansibleController();
   static final List<DateTime> _diagnosticModeTapTimes = <DateTime>[];
 
   Future<void> _handleVersionTap(
@@ -386,6 +394,70 @@ class SettingsScreen extends ConsumerWidget {
         showCloseIcon: true,
         content: Text(
           strings.localized(en: 'Profile renamed.', ja: 'プロファイル名を変更しました。'),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeletePrivateProfile(
+    BuildContext context,
+    WidgetRef ref,
+    PrivateMemoProfile profile,
+  ) async {
+    final strings = context.strings;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          strings.localized(
+            en: 'Delete private profile?',
+            ja: 'プライベートプロファイルを削除しますか？',
+          ),
+        ),
+        content: Text(
+          strings.localized(
+            en: 'This removes the profile, its unlock key, local notes, attachments, and pending sync changes from this device. This action cannot be undone.',
+            ja: 'この端末からプロファイル、解除キー、ローカルのメモ、添付、未同期の変更を削除します。この操作は元に戻せません。',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(strings.cancel),
+          ),
+          FilledButton.tonalIcon(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            icon: Icon(
+              Icons.delete_forever_outlined,
+              color: Theme.of(context).colorScheme.error,
+            ),
+            label: Text(strings.localized(en: 'Delete', ja: '削除')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+    final deleted = await ref
+        .read(privateMemoProfilesControllerProvider.notifier)
+        .deleteProfile(profile.id);
+    if (!context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(
+          deleted
+              ? strings.localized(
+                  en: 'Private profile deleted.',
+                  ja: 'プライベートプロファイルを削除しました。',
+                )
+              : strings.localized(
+                  en: 'Enter admin mode before deleting a private profile.',
+                  ja: 'プライベートプロファイルを削除するには管理者モードに入ってください。',
+                ),
         ),
       ),
     );
@@ -821,6 +893,26 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
             _SettingsOverviewItem(
+              label: strings.localized(en: 'Memo', ja: '\u30e1\u30e2'),
+              value: memoSettingsSummary,
+              icon: Icons.edit_note_outlined,
+              onTap: () => _openSettingsSection(
+                context,
+                _memoSettingsController,
+                _memoSettingsSectionKey,
+              ),
+            ),
+            _SettingsOverviewItem(
+              label: strings.text('home.storage'),
+              value: strings.noteCountSummary(noteCount),
+              icon: Icons.storage_outlined,
+              onTap: () => _openSettingsSection(
+                context,
+                _storageController,
+                _storageSectionKey,
+              ),
+            ),
+            _SettingsOverviewItem(
               label: strings.text('home.theme'),
               value: _themeModeLabel(context, activeThemeMode),
               icon: Icons.palette_outlined,
@@ -860,6 +952,8 @@ class SettingsScreen extends ConsumerWidget {
           ),
           summary: memoSettingsSummary,
           icon: Icons.edit_note_outlined,
+          sectionKey: _memoSettingsSectionKey,
+          controller: _memoSettingsController,
           semanticLabel: 'settings-memo',
           children: [
             ListTile(
@@ -1376,6 +1470,19 @@ class SettingsScreen extends ConsumerWidget {
                               ),
                               icon: const Icon(Icons.edit_outlined),
                             ),
+                            IconButton(
+                              key: privateProfileDeleteKey(profile.id),
+                              tooltip: strings.localized(
+                                en: 'Delete profile',
+                                ja: 'プロファイルを削除',
+                              ),
+                              onPressed: () => _confirmDeletePrivateProfile(
+                                context,
+                                ref,
+                                profile,
+                              ),
+                              icon: const Icon(Icons.delete_forever_outlined),
+                            ),
                           ],
                         ),
                       ),
@@ -1578,6 +1685,7 @@ class SettingsScreen extends ConsumerWidget {
                   children: [
                     FilledButton.tonal(
                       onPressed: () async {
+                        final hadPinConfigured = pinLockState.isConfigured;
                         final pin = await _showPinSetupDialog(
                           context,
                           title: pinLockState.isConfigured
@@ -1593,12 +1701,17 @@ class SettingsScreen extends ConsumerWidget {
                         await ref
                             .read(appPinLockControllerProvider.notifier)
                             .configure(pin);
+                        if (!hadPinConfigured) {
+                          await ref
+                              .read(appLockSettingsControllerProvider.notifier)
+                              .setEnabled(true);
+                        }
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               showCloseIcon: true,
                               content: Text(
-                                pinLockState.isConfigured
+                                hadPinConfigured
                                     ? (strings.text('home.unlock.pin.updated'))
                                     : (strings.text(
                                         'home.unlock.pin.configured',
@@ -2964,6 +3077,11 @@ class SettingsScreen extends ConsumerWidget {
                                           context,
                                           preview,
                                           confirmLabel: strings.close,
+                                          revealSensitiveDetails:
+                                              _canRevealSyncBundlePreviewDetails(
+                                                ref,
+                                                preview,
+                                              ),
                                         );
                                       } catch (error) {
                                         if (!context.mounted) {
@@ -3005,6 +3123,11 @@ class SettingsScreen extends ConsumerWidget {
                                               confirmLabel: strings.text(
                                                 'home.apply.bundle',
                                               ),
+                                              revealSensitiveDetails:
+                                                  _canRevealSyncBundlePreviewDetails(
+                                                    ref,
+                                                    preview,
+                                                  ),
                                             ) ??
                                             false;
                                         if (!shouldApply) {
@@ -3318,6 +3441,8 @@ class SettingsScreen extends ConsumerWidget {
           title: strings.text('home.storage'),
           summary: strings.noteCountSummary(noteCount),
           icon: Icons.storage_outlined,
+          sectionKey: _storageSectionKey,
+          controller: _storageController,
           children: [
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -3499,15 +3624,11 @@ class SettingsScreen extends ConsumerWidget {
           title: strings.about,
           summary: aboutSummary,
           icon: Icons.info_outlined,
+          sectionKey: aboutSectionKey,
           children: [
-            if (showFlavorInfo)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(displayName),
-                subtitle: Text(strings.currentFlavor(flavorName)),
-              ),
             ListTile(
               contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.info_outline_rounded),
               title: Text(strings.appVersion),
               subtitle: Text(
                 packageInfo.when(
@@ -3518,6 +3639,32 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
               onTap: () => _handleVersionTap(context, ref, strings),
+            ),
+            ListTile(
+              key: startTutorialKey,
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.tips_and_updates_outlined),
+              title: Text(
+                strings.localized(
+                  en: 'Tutorials',
+                  ja: 'チュートリアル',
+                  zh: '教程',
+                  ko: '튜토리얼',
+                  es: 'Tutoriales',
+                  de: 'Tutorials',
+                ),
+              ),
+              subtitle: Text(
+                strings.localized(
+                  en: 'Choose a guided tour by purpose.',
+                  ja: '目的別のガイドを選んで確認できます。',
+                  zh: '按目的选择教程。',
+                  ko: '목적별 가이드를 선택해 확인합니다.',
+                  es: 'Elige una guia segun el objetivo.',
+                  de: 'Waehle eine Tour nach Zweck aus.',
+                ),
+              ),
+              onTap: () => context.go('/tutorials'),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -3586,14 +3733,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(strings.appAuthor),
-              subtitle: const Text(_appAuthor),
-              trailing: const Icon(Icons.open_in_new_rounded, size: 18),
-              onTap: () =>
-                  _openExternalLink(context, Uri.parse(_appAuthorUrl), strings),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.system_update_alt_outlined),
               title: Text(strings.appUpdates),
               subtitle: Text(
                 inAppUpdateState.status == null
@@ -3760,15 +3900,33 @@ class SettingsScreen extends ConsumerWidget {
                 );
               },
             ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.person_outline_rounded),
+              title: Text(strings.appAuthor),
+              subtitle: const Text(_appAuthor),
+              trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+              onTap: () =>
+                  _openExternalLink(context, Uri.parse(_appAuthorUrl), strings),
+            ),
+            if (showFlavorInfo)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.developer_mode_outlined),
+                title: Text(displayName),
+                subtitle: Text(strings.currentFlavor(flavorName)),
+              ),
           ],
         ),
-        const SizedBox(height: 16),
-        _buildAuditLogSettingsGroup(
-          context: context,
-          ref: ref,
-          strings: strings,
-          snapshot: auditLogSnapshot,
-        ),
+        if (adminMode) ...[
+          const SizedBox(height: 16),
+          _buildAuditLogSettingsGroup(
+            context: context,
+            ref: ref,
+            strings: strings,
+            snapshot: auditLogSnapshot,
+          ),
+        ],
         if (diagnosticLogSnapshot?.enabled == true) ...[
           const SizedBox(height: 16),
           _buildDiagnosticLogSettingsGroup(
