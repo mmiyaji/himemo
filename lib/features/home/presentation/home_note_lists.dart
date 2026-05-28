@@ -888,53 +888,62 @@ class _SwipeableNoteListTile extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final pinLabel = note.isPinned
         ? strings.localized(
-            en: 'Unpin note',
-            ja: '\u56fa\u5b9a\u3092\u89e3\u9664',
+            en: 'Unpin',
+            ja: '\u56fa\u5b9a\u89e3\u9664',
             zh: '\u53d6\u6d88\u56fa\u5b9a',
             ko: '\uace0\uc815 \ud574\uc81c',
-            es: 'Desfijar nota',
-            de: 'Notiz losen',
+            es: 'Desfijar',
+            de: 'Losen',
           )
-        : strings.pinThisNote;
+        : strings.localized(
+            en: 'Pin',
+            ja: '\u56fa\u5b9a',
+            zh: '\u56fa\u5b9a',
+            ko: '\uace0\uc815',
+            es: 'Fijar',
+            de: 'Anheften',
+          );
 
-    return Slidable(
-      key: ValueKey('note-slidable-${note.id}'),
-      startActionPane: ActionPane(
-        motion: const BehindMotion(),
-        extentRatio: 0.22,
-        children: [
-          SlidableAction(
-            onPressed: (_) => onTogglePinned(note),
-            backgroundColor: colorScheme.primaryContainer,
-            foregroundColor: colorScheme.onPrimaryContainer,
-            icon: note.isPinned
-                ? Icons.push_pin_rounded
-                : Icons.push_pin_outlined,
-            label: pinLabel,
-          ),
-        ],
+    return ClipRect(
+      child: Slidable(
+        key: ValueKey('note-slidable-${note.id}'),
+        startActionPane: ActionPane(
+          motion: const BehindMotion(),
+          extentRatio: 0.22,
+          children: [
+            SlidableAction(
+              onPressed: (_) => onTogglePinned(note),
+              backgroundColor: colorScheme.primaryContainer,
+              foregroundColor: colorScheme.onPrimaryContainer,
+              icon: note.isPinned
+                  ? Icons.push_pin_rounded
+                  : Icons.push_pin_outlined,
+              label: pinLabel,
+            ),
+          ],
+        ),
+        endActionPane: ActionPane(
+          motion: const BehindMotion(),
+          extentRatio: 0.42,
+          children: [
+            SlidableAction(
+              onPressed: (_) => onShareNote(note),
+              backgroundColor: colorScheme.secondaryContainer,
+              foregroundColor: colorScheme.onSecondaryContainer,
+              icon: Icons.ios_share_rounded,
+              label: strings.share,
+            ),
+            SlidableAction(
+              onPressed: (_) => onDeleteNote(note),
+              backgroundColor: colorScheme.errorContainer,
+              foregroundColor: colorScheme.onErrorContainer,
+              icon: Icons.delete_outline_rounded,
+              label: strings.delete,
+            ),
+          ],
+        ),
+        child: child,
       ),
-      endActionPane: ActionPane(
-        motion: const BehindMotion(),
-        extentRatio: 0.42,
-        children: [
-          SlidableAction(
-            onPressed: (_) => onShareNote(note),
-            backgroundColor: colorScheme.secondaryContainer,
-            foregroundColor: colorScheme.onSecondaryContainer,
-            icon: Icons.ios_share_rounded,
-            label: strings.share,
-          ),
-          SlidableAction(
-            onPressed: (_) => onDeleteNote(note),
-            backgroundColor: colorScheme.errorContainer,
-            foregroundColor: colorScheme.onErrorContainer,
-            icon: Icons.delete_outline_rounded,
-            label: strings.delete,
-          ),
-        ],
-      ),
-      child: child,
     );
   }
 }

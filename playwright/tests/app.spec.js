@@ -57,7 +57,7 @@ test('note list swipe actions reveal pin share and delete controls', async ({ pa
   await expectNoteCard(page, /Swipe actions note/);
   await expect(page.getByRole('button', { name: /Share|共有/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Delete|削除/ })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /Pin this note|固定/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Pin$|固定/ })).toHaveCount(0);
   await page.addStyleTag({
     content: 'flt-semantics { pointer-events: none !important; }',
   });
@@ -66,7 +66,7 @@ test('note list swipe actions reveal pin share and delete controls', async ({ pa
   await expect(page.getByRole('button', { name: /Delete|削除/ }).first()).toBeVisible();
 
   await swipeNoteTile(page, /Swipe actions note/, 'right');
-  await expect(page.getByRole('button', { name: /Pin this note|固定/ }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Pin$|固定/ }).first()).toBeVisible();
 });
 
 test('advanced search stays folded until needed', async ({ page }) => {
