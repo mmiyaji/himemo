@@ -173,7 +173,7 @@ void main() {
     expect(appShell, contains('_lifecyclePrivacyCoverVisible'));
     expect(appShell, contains('_AppPrivacyCover'));
     expect(appShell, contains('class _AppLockIcon'));
-    expect(appShell, contains('Color(0xFFFDFCFF)'));
+    expect(appShell, contains('colorScheme.surface.withValues(alpha: 0.94)'));
     expect(appShell, contains('assets/privacy-icon.png'));
     expect(appShell, contains('dimension: wide ? 136 : 128'));
     expect(appShell, contains('dimension: 152'));

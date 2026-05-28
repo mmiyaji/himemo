@@ -69,6 +69,44 @@ test('note list swipe actions reveal pin share and delete controls', async ({ pa
   await expect(page.getByRole('button', { name: /^Pin$|固定/ }).first()).toBeVisible();
 });
 
+test('dark app lock screen renders with a continuous background', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/');
+  await page.evaluate(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    localStorage.setItem(
+      'flutter.app.onboarding_completed',
+      JSON.stringify(true),
+    );
+    localStorage.setItem(
+      'flutter.app.onboarding_completed_version',
+      JSON.stringify(2),
+    );
+    localStorage.setItem('flutter.settings.theme_mode', JSON.stringify('dark'));
+    localStorage.setItem(
+      'flutter.settings.app_lock_enabled',
+      JSON.stringify(true),
+    );
+  });
+  await page.reload();
+
+  const releaseNotesClose = page.getByRole('button', { name: /Close|閉じる/ });
+  if (await releaseNotesClose.count()) {
+    await releaseNotesClose.first().click();
+  }
+  await expect(
+    page.getByRole('button', { name: /Unlock with PIN|PIN/ }),
+  ).toBeVisible({ timeout: 15000 });
+
+  await page.screenshot({
+    path: testInfo.outputPath('dark-app-lock-screen.png'),
+    fullPage: false,
+  });
+});
+
 test('advanced search stays folded until needed', async ({ page }) => {
   await page.goto('/');
   await waitForApp(page);
