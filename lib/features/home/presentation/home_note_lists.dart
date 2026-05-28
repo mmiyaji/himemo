@@ -293,7 +293,6 @@ class _MobileNotesListState extends State<_MobileNotesList> {
                 onTogglePinned: widget.onTogglePinned,
                 onShareNote: widget.onShareNote,
                 onDeleteNote: widget.onDeleteNote,
-                onTap: () => widget.onNoteSelected(note),
                 child: _NoteListTile(
                   note: note,
                   vaultName: widget.vaultNameById[note.vaultId] ?? note.vaultId,
@@ -868,13 +867,12 @@ class _NoteListTile extends StatelessWidget {
   }
 }
 
-class _SwipeableNoteListTile extends StatefulWidget {
+class _SwipeableNoteListTile extends StatelessWidget {
   const _SwipeableNoteListTile({
     required this.note,
     required this.onTogglePinned,
     required this.onShareNote,
     required this.onDeleteNote,
-    required this.onTap,
     required this.child,
   });
 
@@ -882,151 +880,7 @@ class _SwipeableNoteListTile extends StatefulWidget {
   final Future<void> Function(NoteEntry note) onTogglePinned;
   final Future<void> Function(NoteEntry note) onShareNote;
   final Future<void> Function(NoteEntry note) onDeleteNote;
-  final VoidCallback onTap;
   final Widget child;
-
-  @override
-  State<_SwipeableNoteListTile> createState() => _SwipeableNoteListTileState();
-}
-
-class _SwipeableNoteListTileState extends State<_SwipeableNoteListTile> {
-  static const double _leadingRevealWidth = 76;
-  static const double _trailingRevealWidth = 148;
-  static const double _snapFraction = 0.38;
-  static const Duration _snapDuration = Duration(milliseconds: 180);
-
-  double _offset = 0;
-  bool _dragging = false;
-
-  bool get _leadingOpen => _offset > 12;
-  bool get _trailingOpen => _offset < -12;
-
-  @override
-  void didUpdateWidget(covariant _SwipeableNoteListTile oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.note.id != widget.note.id) {
-      _offset = 0;
-      _dragging = false;
-    }
-  }
-
-  void _handleDragStart(DragStartDetails details) {
-    setState(() {
-      _dragging = true;
-    });
-  }
-
-  void _handleDragUpdate(DragUpdateDetails details) {
-    setState(() {
-      _offset = (_offset + details.delta.dx).clamp(
-        -_trailingRevealWidth,
-        _leadingRevealWidth,
-      );
-    });
-  }
-
-  void _handleDragEnd(DragEndDetails details) {
-    final velocity = details.primaryVelocity ?? 0;
-    final nextOffset = switch (velocity) {
-      > 520 => _leadingRevealWidth,
-      < -520 => -_trailingRevealWidth,
-      _ when _offset > _leadingRevealWidth * _snapFraction =>
-        _leadingRevealWidth,
-      _ when _offset < -_trailingRevealWidth * _snapFraction =>
-        -_trailingRevealWidth,
-      _ => 0.0,
-    };
-    setState(() {
-      _dragging = false;
-      _offset = nextOffset;
-    });
-  }
-
-  void _handleDragCancel() {
-    setState(() {
-      _dragging = false;
-      _offset = 0;
-    });
-  }
-
-  Future<void> _runAction(Future<void> Function(NoteEntry note) action) async {
-    setState(() {
-      _dragging = false;
-      _offset = 0;
-    });
-    await action(widget.note);
-  }
-
-  void _handleTap() {
-    if (_offset != 0) {
-      setState(() {
-        _dragging = false;
-        _offset = 0;
-      });
-      return;
-    }
-    widget.onTap();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRect(
-      child: Stack(
-        fit: StackFit.passthrough,
-        children: [
-          Positioned.fill(
-            child: _SwipeActionBackground(
-              note: widget.note,
-              leadingEnabled: _leadingOpen,
-              trailingEnabled: _trailingOpen,
-              onTogglePinned: () => _runAction(widget.onTogglePinned),
-              onShareNote: () => _runAction(widget.onShareNote),
-              onDeleteNote: () => _runAction(widget.onDeleteNote),
-            ),
-          ),
-          Semantics(
-            button: true,
-            child: MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                key: Key('note-tile-${widget.note.id}'),
-                behavior: HitTestBehavior.translucent,
-                onTap: _handleTap,
-                onHorizontalDragStart: _handleDragStart,
-                onHorizontalDragUpdate: _handleDragUpdate,
-                onHorizontalDragEnd: _handleDragEnd,
-                onHorizontalDragCancel: _handleDragCancel,
-                child: AnimatedContainer(
-                  duration: _dragging ? Duration.zero : _snapDuration,
-                  curve: Curves.easeOutCubic,
-                  transform: Matrix4.translationValues(_offset, 0, 0),
-                  child: AbsorbPointer(absorbing: true, child: widget.child),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SwipeActionBackground extends StatelessWidget {
-  const _SwipeActionBackground({
-    required this.note,
-    required this.leadingEnabled,
-    required this.trailingEnabled,
-    required this.onTogglePinned,
-    required this.onShareNote,
-    required this.onDeleteNote,
-  });
-
-  final NoteEntry note;
-  final bool leadingEnabled;
-  final bool trailingEnabled;
-  final VoidCallback onTogglePinned;
-  final VoidCallback onShareNote;
-  final VoidCallback onDeleteNote;
 
   @override
   Widget build(BuildContext context) {
@@ -1042,82 +896,45 @@ class _SwipeActionBackground extends StatelessWidget {
             de: 'Notiz losen',
           )
         : strings.pinThisNote;
-    return Row(
-      children: [
-        ExcludeSemantics(
-          excluding: !leadingEnabled,
-          child: IgnorePointer(
-            ignoring: !leadingEnabled,
-            child: Container(
-              width: _SwipeableNoteListTileState._leadingRevealWidth,
-              alignment: Alignment.center,
-              color: colorScheme.primaryContainer,
-              child: Tooltip(
-                message: pinLabel,
-                child: Semantics(
-                  button: true,
-                  label: pinLabel,
-                  child: IconButton(
-                    onPressed: onTogglePinned,
-                    icon: Icon(
-                      note.isPinned
-                          ? Icons.push_pin_rounded
-                          : Icons.push_pin_outlined,
-                    ),
-                    color: colorScheme.onPrimaryContainer,
-                  ),
-                ),
-              ),
-            ),
+
+    return Slidable(
+      key: ValueKey('note-slidable-${note.id}'),
+      startActionPane: ActionPane(
+        motion: const BehindMotion(),
+        extentRatio: 0.22,
+        children: [
+          SlidableAction(
+            onPressed: (_) => onTogglePinned(note),
+            backgroundColor: colorScheme.primaryContainer,
+            foregroundColor: colorScheme.onPrimaryContainer,
+            icon: note.isPinned
+                ? Icons.push_pin_rounded
+                : Icons.push_pin_outlined,
+            label: pinLabel,
           ),
-        ),
-        const Spacer(),
-        ExcludeSemantics(
-          excluding: !trailingEnabled,
-          child: IgnorePointer(
-            ignoring: !trailingEnabled,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: _SwipeableNoteListTileState._trailingRevealWidth / 2,
-                  alignment: Alignment.center,
-                  color: colorScheme.secondaryContainer,
-                  child: Tooltip(
-                    message: strings.share,
-                    child: Semantics(
-                      button: true,
-                      label: strings.share,
-                      child: IconButton(
-                        onPressed: onShareNote,
-                        icon: const Icon(Icons.ios_share_rounded),
-                        color: colorScheme.onSecondaryContainer,
-                      ),
-                    ),
-                  ),
-                ),
-                Container(
-                  width: _SwipeableNoteListTileState._trailingRevealWidth / 2,
-                  alignment: Alignment.center,
-                  color: colorScheme.errorContainer,
-                  child: Tooltip(
-                    message: strings.delete,
-                    child: Semantics(
-                      button: true,
-                      label: strings.delete,
-                      child: IconButton(
-                        onPressed: onDeleteNote,
-                        icon: const Icon(Icons.delete_outline_rounded),
-                        color: colorScheme.onErrorContainer,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+        ],
+      ),
+      endActionPane: ActionPane(
+        motion: const BehindMotion(),
+        extentRatio: 0.42,
+        children: [
+          SlidableAction(
+            onPressed: (_) => onShareNote(note),
+            backgroundColor: colorScheme.secondaryContainer,
+            foregroundColor: colorScheme.onSecondaryContainer,
+            icon: Icons.ios_share_rounded,
+            label: strings.share,
           ),
-        ),
-      ],
+          SlidableAction(
+            onPressed: (_) => onDeleteNote(note),
+            backgroundColor: colorScheme.errorContainer,
+            foregroundColor: colorScheme.onErrorContainer,
+            icon: Icons.delete_outline_rounded,
+            label: strings.delete,
+          ),
+        ],
+      ),
+      child: child,
     );
   }
 }
@@ -1708,7 +1525,6 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
                 onTogglePinned: widget.onTogglePinned,
                 onShareNote: widget.onShareNote,
                 onDeleteNote: widget.onDeleteNote,
-                onTap: () => widget.onNoteSelected(note),
                 child: _NoteListTile(
                   note: note,
                   vaultName: widget.vaultNameById[note.vaultId] ?? note.vaultId,

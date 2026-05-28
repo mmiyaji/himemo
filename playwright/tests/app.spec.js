@@ -54,16 +54,18 @@ test('note list swipe actions reveal pin share and delete controls', async ({ pa
   await expect(page.getByRole('button', { name: 'Create note' })).toBeEnabled();
   await page.getByRole('button', { name: 'Create note' }).click();
 
-  const noteTile = page.getByRole('button', { name: /Swipe actions note/ }).first();
-  await expect(noteTile).toBeVisible();
+  await expectNoteCard(page, /Swipe actions note/);
+  await expect(page.getByRole('button', { name: /Share|共有/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Delete|削除/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Pin this note|固定/ })).toHaveCount(0);
   await page.addStyleTag({
     content: 'flt-semantics { pointer-events: none !important; }',
   });
-  await swipeNoteTile(page, noteTile, 'left');
+  await swipeNoteTile(page, /Swipe actions note/, 'left');
   await expect(page.getByRole('button', { name: /Share|共有/ }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: /Delete|削除/ }).first()).toBeVisible();
 
-  await swipeNoteTile(page, noteTile, 'right');
+  await swipeNoteTile(page, /Swipe actions note/, 'right');
   await expect(page.getByRole('button', { name: /Pin this note|固定/ }).first()).toBeVisible();
 });
 
@@ -506,7 +508,8 @@ async function expectNoteCard(page, name) {
     .toBeGreaterThan(0);
 }
 
-async function swipeNoteTile(page, noteTile, direction) {
+async function swipeNoteTile(page, name, direction) {
+  const noteTile = await visibleNoteTile(page, name);
   const box = await noteTile.boundingBox();
   expect(box).not.toBeNull();
   const y = box.y + box.height / 2;
@@ -517,6 +520,16 @@ async function swipeNoteTile(page, noteTile, direction) {
   await page.mouse.move(endX, y, { steps: 8 });
   await page.mouse.up();
   await page.waitForTimeout(220);
+}
+
+async function visibleNoteTile(page, name) {
+  const button = page.getByRole('button', { name }).first();
+  if ((await button.count()) && (await button.isVisible())) {
+    return button;
+  }
+  const group = page.getByRole('group', { name }).first();
+  await expect(group).toBeVisible();
+  return group;
 }
 
 async function dismissOpenDialog(page) {
