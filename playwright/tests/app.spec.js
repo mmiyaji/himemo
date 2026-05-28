@@ -108,6 +108,28 @@ test('dark app lock screen renders with a continuous background', async ({
   });
 });
 
+test('dark app shell uses dark brand icon', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/');
+  await startOnboardedWithoutPin(page);
+  await page.evaluate(() => {
+    localStorage.setItem('flutter.settings.theme_mode', JSON.stringify('dark'));
+  });
+  await page.reload();
+  await closeReleaseNotesIfPresent(page);
+
+  await expect(
+    page.getByRole('button', { name: 'Add note' }).first(),
+  ).toBeVisible({
+    timeout: 15000,
+  });
+
+  await page.screenshot({
+    path: testInfo.outputPath('dark-app-brand-icon.png'),
+    fullPage: false,
+  });
+});
+
 test('setting an unlock PIN enables lock now in settings', async ({ page }) => {
   await page.goto('/');
   await startOnboardedWithoutPin(page);

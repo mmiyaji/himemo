@@ -1673,23 +1673,27 @@ class _AppBrandTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final brandAssetPath = theme.brightness == Brightness.dark
+        ? 'assets/privacy-icon-dark.png'
+        : 'assets/app-icon.png';
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(6),
           child: Image.asset(
-            'assets/app-icon.png',
+            brandAssetPath,
             width: 28,
             height: 28,
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) {
               return ColoredBox(
-                color: Theme.of(context).colorScheme.primaryContainer,
+                color: theme.colorScheme.primaryContainer,
                 child: Icon(
                   Icons.lock_outline_rounded,
                   size: 18,
-                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                  color: theme.colorScheme.onPrimaryContainer,
                 ),
               );
             },
@@ -1700,9 +1704,9 @@ class _AppBrandTitle extends StatelessWidget {
           child: Text(
             'HiMemo',
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ],
