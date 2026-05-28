@@ -1161,8 +1161,13 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                                     const Spacer(),
                                     _AppLockIcon(
                                       dimension: wide ? 136 : 128,
-                                      shadowColor: colorScheme.primary
-                                          .withValues(alpha: 0.2),
+                                      shadowColor:
+                                          Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? null
+                                          : colorScheme.primary.withValues(
+                                              alpha: 0.2,
+                                            ),
                                     ),
                                     const SizedBox(height: 20),
                                     Text(
@@ -1353,7 +1358,9 @@ class _AppPrivacyCover extends StatelessWidget {
                 dimension: 152,
                 child: _AppLockIcon(
                   dimension: 152,
-                  shadowColor: colorScheme.primary.withValues(alpha: 0.16),
+                  shadowColor: Theme.of(context).brightness == Brightness.dark
+                      ? null
+                      : colorScheme.primary.withValues(alpha: 0.16),
                 ),
               ),
             ),
@@ -1370,12 +1377,16 @@ class _AppLockIcon extends StatelessWidget {
   final double dimension;
   final Color? shadowColor;
 
-  static const _assetPath = 'assets/privacy-icon.png';
+  static const _lightAssetPath = 'assets/privacy-icon.png';
+  static const _darkAssetPath = 'assets/privacy-icon-dark.png';
 
   @override
   Widget build(BuildContext context) {
+    final assetPath = Theme.of(context).brightness == Brightness.dark
+        ? _darkAssetPath
+        : _lightAssetPath;
     final image = Image.asset(
-      _assetPath,
+      assetPath,
       width: dimension,
       height: dimension,
       fit: BoxFit.contain,

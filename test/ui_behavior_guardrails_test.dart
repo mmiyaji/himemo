@@ -175,6 +175,7 @@ void main() {
     expect(appShell, contains('class _AppLockIcon'));
     expect(appShell, contains('colorScheme.surface.withValues(alpha: 0.94)'));
     expect(appShell, contains('assets/privacy-icon.png'));
+    expect(appShell, contains('assets/privacy-icon-dark.png'));
     expect(appShell, contains('dimension: wide ? 136 : 128'));
     expect(appShell, contains('dimension: 152'));
     expect(appShell.contains('width: 104'), isFalse);

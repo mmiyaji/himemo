@@ -100,6 +100,7 @@ test('dark app lock screen renders with a continuous background', async ({
   await expect(
     page.getByRole('button', { name: /Unlock with PIN|PIN/ }),
   ).toBeVisible({ timeout: 15000 });
+  await page.waitForTimeout(1200);
 
   await page.screenshot({
     path: testInfo.outputPath('dark-app-lock-screen.png'),
