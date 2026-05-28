@@ -67,7 +67,14 @@ class EncryptedNoteStore {
       return fallbackNotes;
     }
 
-    final migrated = _decodePlaintextEntries(legacy);
+    late final List<NoteEntry> migrated;
+    try {
+      migrated = _decodePlaintextEntries(legacy);
+    } catch (_) {
+      await prefs.setString('$legacyStorageKey.corrupt', legacy);
+      await prefs.remove(legacyStorageKey);
+      return fallbackNotes;
+    }
     await save(migrated);
     await prefs.remove(legacyStorageKey);
     return migrated;

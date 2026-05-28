@@ -105,6 +105,32 @@ void main() {
       );
     });
 
+    test(
+      'quarantines malformed legacy notes and keeps fallback notes',
+      () async {
+        await prefs.setString('notes.entries.v1', '{"not":"a note list"}');
+        final fallback = [
+          NoteEntry(
+            id: 'fallback-note',
+            vaultId: 'everyday',
+            title: 'Fallback survives',
+            body: 'Malformed legacy data should not block startup.',
+            createdAt: DateTime(2026, 5, 28, 10, 0),
+          ),
+        ];
+
+        final restored = await noteStore.load(fallbackNotes: fallback);
+
+        expect(restored, fallback);
+        expect(prefs.getString('notes.entries.v1'), isNull);
+        expect(
+          prefs.getString('notes.entries.v1.corrupt'),
+          '{"not":"a note list"}',
+        );
+        expect(await database.loadAll(), isEmpty);
+      },
+    );
+
     test('persists and restores notes without plaintext leakage', () async {
       final notes = [
         NoteEntry(
