@@ -48,6 +48,7 @@ playwright-debug.png
 node_modules/
 playwright-report/
 test-results/
+artifacts/chaosbringer/
 
 # Local secrets and build-time configuration
 .env

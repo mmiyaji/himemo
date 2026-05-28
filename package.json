@@ -5,6 +5,7 @@
   "scripts": {
     "e2e": "playwright test",
     "e2e:headed": "playwright test --headed",
+    "chaos": "chaosbringer --url http://127.0.0.1:4173 --max-pages 12 --max-actions 4 --seed 42 --strict --ignore-analytics --output artifacts/chaosbringer/chaos-report.json --failure-artifacts artifacts/chaosbringer/failures --cluster-artifacts",
     "web:prepare:sqljs": "node tools/copy_sqljs_assets.js",
     "web:build:flutter": ".\\.fvm\\flutter_sdk\\bin\\flutter.bat build web --no-wasm-dry-run -t lib/main_development.dart",
     "web:build": "npm run web:prepare:sqljs && npm run web:build:flutter",
@@ -25,6 +26,7 @@
   "homepage": "https://github.com/mmiyaji/himemo#readme",
   "devDependencies": {
     "@playwright/test": "^1.59.1",
+    "chaosbringer": "^0.9.0",
     "serve": "^14.2.6",
     "sql.js": "^1.14.1"
   }
