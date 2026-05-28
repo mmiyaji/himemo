@@ -91,6 +91,15 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
             : () => _refreshNotesFromCloud(context),
         onUnlockPrivateProfile: () => _showProfileAccessDialog(context, ref),
         onExitAdminMode: () => _exitAdminMode(ref),
+        onTogglePinned: (note) =>
+            ref.read(notesControllerProvider.notifier).togglePinned(note.id),
+        onShareNote: (note) => _handleNoteDetailAction(
+          context,
+          ref,
+          note,
+          _NoteDetailAction.share,
+        ),
+        onDeleteNote: (note) => _deleteNote(context, note),
         onNoteSelected: (note) =>
             _openMobileNoteActions(context, note, visibleNotes),
       );
@@ -140,6 +149,16 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
                 onUnlockPrivateProfile: () =>
                     _showProfileAccessDialog(context, ref),
                 onExitAdminMode: () => _exitAdminMode(ref),
+                onTogglePinned: (note) => ref
+                    .read(notesControllerProvider.notifier)
+                    .togglePinned(note.id),
+                onShareNote: (note) => _handleNoteDetailAction(
+                  context,
+                  ref,
+                  note,
+                  _NoteDetailAction.share,
+                ),
+                onDeleteNote: (note) => _deleteNote(context, note),
                 onNoteSelected: (note) {
                   _debugNotePerf('select split-list ${_notePerfLabel(note)}');
                   ref.read(selectedNoteIdProvider.notifier).select(note.id);

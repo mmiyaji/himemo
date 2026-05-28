@@ -42,6 +42,31 @@ test('rich memo grows naturally as you type', async ({ page }) => {
   await expect(page.locator('flutter-view')).toContainText('one was quiet and clear.');
 });
 
+test('note list swipe actions reveal pin share and delete controls', async ({ page }) => {
+  await page.goto('/');
+  await waitForApp(page);
+  await completeOnboarding(page);
+
+  await openEditor(page, 'Quick memo');
+  const memoInput = editorTextInput(page);
+  await memoInput.click();
+  await memoInput.pressSequentially('Swipe actions note\nSwipe body');
+  await expect(page.getByRole('button', { name: 'Create note' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Create note' }).click();
+
+  const noteTile = page.getByRole('button', { name: /Swipe actions note/ }).first();
+  await expect(noteTile).toBeVisible();
+  await page.addStyleTag({
+    content: 'flt-semantics { pointer-events: none !important; }',
+  });
+  await swipeNoteTile(page, noteTile, 'left');
+  await expect(page.getByRole('button', { name: /Share|共有/ }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /Delete|削除/ }).first()).toBeVisible();
+
+  await swipeNoteTile(page, noteTile, 'right');
+  await expect(page.getByRole('button', { name: /Pin this note|固定/ }).first()).toBeVisible();
+});
+
 test('advanced search stays folded until needed', async ({ page }) => {
   await page.goto('/');
   await waitForApp(page);
@@ -479,6 +504,19 @@ async function expectNoteCard(page, name) {
       { timeout: 5000 },
     )
     .toBeGreaterThan(0);
+}
+
+async function swipeNoteTile(page, noteTile, direction) {
+  const box = await noteTile.boundingBox();
+  expect(box).not.toBeNull();
+  const y = box.y + box.height / 2;
+  const startX = direction === 'left' ? box.x + box.width - 28 : box.x + 28;
+  const endX = direction === 'left' ? box.x + box.width - 330 : box.x + 300;
+  await page.mouse.move(startX, y);
+  await page.mouse.down();
+  await page.mouse.move(endX, y, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(220);
 }
 
 async function dismissOpenDialog(page) {
