@@ -108,6 +108,40 @@ test('dark app lock screen renders with a continuous background', async ({
   });
 });
 
+test('setting an unlock PIN enables lock now in settings', async ({ page }) => {
+  await page.goto('/');
+  await startOnboardedWithoutPin(page);
+
+  await activateTabIndex(page, 4);
+  await expandSettingsSection(page, /App security|アプリ保護/);
+  const lockNow = await findRoleButtonByScrolling(
+    page,
+    /Lock the app now|アプリを今すぐロック/,
+    { requireEnabled: false },
+  );
+  await expect(lockNow).toBeDisabled();
+
+  const setPin = await findRoleButtonByScrolling(
+    page,
+    /Set PIN|PIN を設定|Set unlock PIN|解除用 PIN を設定/,
+  );
+  await setPin.click();
+  const pinFields = page.getByRole('textbox');
+  const pinInput = pinFields.first();
+  await pinInput.click();
+  await pinInput.pressSequentially('2468');
+  const confirmPinInput = pinFields.nth(1);
+  await confirmPinInput.click();
+  await confirmPinInput.pressSequentially('2468');
+  await page.getByRole('button', { name: /Save|保存/ }).click();
+
+  const enabledLockNow = await findRoleButtonByScrolling(
+    page,
+    /Lock the app now|アプリを今すぐロック/,
+  );
+  await expect(enabledLockNow).toBeEnabled({ timeout: 5000 });
+});
+
 test('advanced search stays folded until needed', async ({ page }) => {
   await page.goto('/');
   await waitForApp(page);
@@ -480,6 +514,58 @@ async function waitForApp(page) {
     .toBeGreaterThan(0);
 }
 
+async function startOnboardedWithoutPin(page) {
+  await page.evaluate(async () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    if (indexedDB.databases) {
+      const databases = await indexedDB.databases();
+      await Promise.all(
+        databases
+          .map((database) => database.name)
+          .filter(Boolean)
+          .map(
+            (name) =>
+              new Promise((resolve) => {
+                const request = indexedDB.deleteDatabase(name);
+                request.onsuccess = request.onerror = request.onblocked = resolve;
+              }),
+          ),
+      );
+    }
+    localStorage.setItem(
+      'flutter.app.onboarding_completed',
+      JSON.stringify(true),
+    );
+    localStorage.setItem(
+      'flutter.app.onboarding_completed_version',
+      JSON.stringify(2),
+    );
+  });
+  await page.reload();
+
+  await closeReleaseNotesIfPresent(page);
+  await expect
+    .poll(
+      async () =>
+        (await page.getByRole('button', { name: 'Add note' }).count()) +
+        (await page.getByRole('tab', { name: /Settings|設定/ }).count()),
+      { timeout: 15000 },
+    )
+    .toBeGreaterThan(0);
+  await closeReleaseNotesIfPresent(page);
+}
+
+async function closeReleaseNotesIfPresent(page) {
+  const releaseNotesClose = page.getByRole('button', { name: /Close|閉じる/ });
+  try {
+    await expect(releaseNotesClose.first()).toBeVisible({ timeout: 3000 });
+    await releaseNotesClose.first().click();
+  } catch (_) {
+    // Release notes are only shown for fresh version state.
+  }
+}
+
 async function activateNav(page, labels) {
   const labelPattern = new RegExp(labels.map(escapeRegExp).join('|'));
   const tab = page.getByRole('tab', { name: labelPattern });
@@ -601,13 +687,16 @@ async function openSettingsGroup(page, name) {
   throw new Error(`Unable to open settings group: ${name}`);
 }
 
-async function findRoleButtonByScrolling(page, name) {
+async function findRoleButtonByScrolling(page, name, options = {}) {
+  const { requireEnabled = true } = options;
   const button = page.getByRole('button', { name });
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const first = button.first();
     if ((await button.count()) && (await first.isVisible())) {
       await first.scrollIntoViewIfNeeded();
-      await expect(first).toBeEnabled();
+      if (requireEnabled) {
+        await expect(first).toBeEnabled();
+      }
       return first;
     }
     await page.mouse.wheel(0, 420);

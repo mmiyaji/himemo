@@ -1685,6 +1685,7 @@ class SettingsScreen extends ConsumerWidget {
                   children: [
                     FilledButton.tonal(
                       onPressed: () async {
+                        final hadPinConfigured = pinLockState.isConfigured;
                         final pin = await _showPinSetupDialog(
                           context,
                           title: pinLockState.isConfigured
@@ -1700,12 +1701,17 @@ class SettingsScreen extends ConsumerWidget {
                         await ref
                             .read(appPinLockControllerProvider.notifier)
                             .configure(pin);
+                        if (!hadPinConfigured) {
+                          await ref
+                              .read(appLockSettingsControllerProvider.notifier)
+                              .setEnabled(true);
+                        }
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               showCloseIcon: true,
                               content: Text(
-                                pinLockState.isConfigured
+                                hadPinConfigured
                                     ? (strings.text('home.unlock.pin.updated'))
                                     : (strings.text(
                                         'home.unlock.pin.configured',
