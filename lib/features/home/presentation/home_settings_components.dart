@@ -458,6 +458,7 @@ class _ColorThemePickerState extends State<_ColorThemePicker> {
     final selected = await showModalBottomSheet<AppColorTheme>(
       context: context,
       isScrollControlled: true,
+      useRootNavigator: true,
       useSafeArea: true,
       showDragHandle: false,
       clipBehavior: Clip.antiAlias,
@@ -555,53 +556,55 @@ class _ExtendedColorThemeSheetBody extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final columns = constraints.maxWidth >= 720
-                    ? 3
-                    : constraints.maxWidth >= 460
-                    ? 2
-                    : 1;
-                return CustomScrollView(
-                  slivers: [
-                    for (final entry in grouped.entries) ...[
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                          child: Text(
-                            entry.key,
-                            style: Theme.of(context).textTheme.labelLarge,
+            child: ClipRect(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final columns = constraints.maxWidth >= 720
+                      ? 3
+                      : constraints.maxWidth >= 460
+                      ? 2
+                      : 1;
+                  return CustomScrollView(
+                    slivers: [
+                      for (final entry in grouped.entries) ...[
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                            child: Text(
+                              entry.key,
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
                           ),
                         ),
-                      ),
-                      SliverPadding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        sliver: SliverGrid.builder(
-                          itemCount: entry.value.length,
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: columns,
-                                crossAxisSpacing: 10,
-                                mainAxisSpacing: 10,
-                                childAspectRatio: columns == 1 ? 3.7 : 2.5,
-                              ),
-                          itemBuilder: (context, index) {
-                            final theme = entry.value[index];
-                            return _ColorThemeCard(
-                              title: titleFor(theme),
-                              subtitle: subtitleFor(theme),
-                              sampleColor: sampleColorFor(theme),
-                              selected: current == theme,
-                              onTap: () => Navigator.of(context).pop(theme),
-                            );
-                          },
+                        SliverPadding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          sliver: SliverGrid.builder(
+                            itemCount: entry.value.length,
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: columns,
+                                  crossAxisSpacing: 10,
+                                  mainAxisSpacing: 10,
+                                  childAspectRatio: columns == 1 ? 3.7 : 2.5,
+                                ),
+                            itemBuilder: (context, index) {
+                              final theme = entry.value[index];
+                              return _ColorThemeCard(
+                                title: titleFor(theme),
+                                subtitle: subtitleFor(theme),
+                                sampleColor: sampleColorFor(theme),
+                                selected: current == theme,
+                                onTap: () => Navigator.of(context).pop(theme),
+                              );
+                            },
+                          ),
                         ),
-                      ),
+                      ],
+                      const SliverToBoxAdapter(child: SizedBox(height: 16)),
                     ],
-                    const SliverToBoxAdapter(child: SizedBox(height: 16)),
-                  ],
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
         ],

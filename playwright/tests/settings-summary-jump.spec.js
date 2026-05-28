@@ -48,6 +48,36 @@ test.describe('settings summary jumps', () => {
     await expectSectionExpanded(page, /App security/, 'Session status');
   });
 
+  test('extended color theme sheet keeps its header above scrolled choices', async ({
+    page,
+  }) => {
+    await openSettings(page);
+
+    await clickSummary(page, /Theme Light/);
+    await expectSectionExpanded(
+      page,
+      /Appearance/,
+      'Choose the font used across notes',
+    );
+
+    await page
+      .getByRole('button', { name: /Extended themes \(\d+ total\)/ })
+      .click();
+    const sheetTitle = page.getByText('Extended themes').last();
+    await expect(sheetTitle).toBeVisible();
+
+    const titleBoxBefore = await sheetTitle.boundingBox();
+    expect(titleBoxBefore).not.toBeNull();
+    await page.mouse.move(220, 560);
+    await page.mouse.wheel(0, 1200);
+    await page.waitForTimeout(250);
+
+    const titleBoxAfter = await sheetTitle.boundingBox();
+    expect(titleBoxAfter).not.toBeNull();
+    expect(Math.abs(titleBoxAfter.y - titleBoxBefore.y)).toBeLessThan(2);
+    await expect(sheetTitle).toBeVisible();
+  });
+
   test.describe('desktop viewport', () => {
     test.use({ viewport: { width: 1280, height: 900 } });
 
