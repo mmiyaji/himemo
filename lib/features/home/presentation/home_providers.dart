@@ -2540,6 +2540,9 @@ class StorageDiagnosticsSummary {
     required this.syncExportBytes,
     required this.appContainerBytes,
     required this.documentsBytes,
+    required this.documentsInboxBytes,
+    required this.documentsRootFileBytes,
+    required this.documentsTopEntries,
     required this.libraryBytes,
     required this.appSupportBytes,
     required this.temporaryDirectoryBytes,
@@ -2556,6 +2559,9 @@ class StorageDiagnosticsSummary {
   final int syncExportBytes;
   final int appContainerBytes;
   final int documentsBytes;
+  final int documentsInboxBytes;
+  final int documentsRootFileBytes;
+  final List<Map<String, Object?>> documentsTopEntries;
   final int libraryBytes;
   final int appSupportBytes;
   final int temporaryDirectoryBytes;
@@ -2572,6 +2578,9 @@ class StorageDiagnosticsSummary {
     syncExportBytes: 0,
     appContainerBytes: 0,
     documentsBytes: 0,
+    documentsInboxBytes: 0,
+    documentsRootFileBytes: 0,
+    documentsTopEntries: <Map<String, Object?>>[],
     libraryBytes: 0,
     appSupportBytes: 0,
     temporaryDirectoryBytes: 0,
@@ -2584,14 +2593,21 @@ class StorageDiagnosticsSummary {
     sharedPreferencesApproxBytes: 0,
   );
 
-  int get measuredBytes =>
-      appContainerBytes + appGroupBytes + sharedPreferencesApproxBytes;
+  int get measuredBytes {
+    final visibleContainerBytes =
+        documentsBytes + libraryBytes + temporaryDirectoryBytes;
+    final containerBytes = math.max(appContainerBytes, visibleContainerBytes);
+    return containerBytes + appGroupBytes;
+  }
 
   Map<String, Object?> toDiagnosticData() {
     return {
       'measuredBytes': measuredBytes,
       'appContainerBytes': appContainerBytes,
       'documentsBytes': documentsBytes,
+      'documentsInboxBytes': documentsInboxBytes,
+      'documentsRootFileBytes': documentsRootFileBytes,
+      'documentsTopEntries': documentsTopEntries,
       'libraryBytes': libraryBytes,
       'appSupportBytes': appSupportBytes,
       'sqliteBytes': sqliteBytes,
@@ -2624,6 +2640,29 @@ class _NativeStorageDiagnostics {
     appGroupSharedImportsBytes: 0,
     appGroupPendingQuickCaptureBytes: 0,
   );
+}
+
+class _DirectoryEntryDiagnostics {
+  const _DirectoryEntryDiagnostics({
+    required this.name,
+    required this.path,
+    required this.isDirectory,
+    required this.bytes,
+  });
+
+  final String name;
+  final String path;
+  final bool isDirectory;
+  final int bytes;
+
+  Map<String, Object?> toData() {
+    return {
+      'name': name,
+      'path': path,
+      'isDirectory': isDirectory,
+      'bytes': bytes,
+    };
+  }
 }
 
 const _storageDiagnosticsChannel = MethodChannel('org.ruhenheim.himemo/widget');
@@ -2697,6 +2736,16 @@ final storageDiagnosticsSummaryProvider =
           documentsDirectory,
           label: 'documents',
         );
+        final documentsEntries = await _directoryEntryDiagnostics(
+          documentsDirectory,
+          label: 'documents',
+        );
+        final documentsInboxBytes = documentsEntries
+            .where((entry) => entry.name == 'Inbox')
+            .fold<int>(0, (sum, entry) => sum + entry.bytes);
+        final documentsRootFileBytes = documentsEntries
+            .where((entry) => !entry.isDirectory)
+            .fold<int>(0, (sum, entry) => sum + entry.bytes);
         final libraryBytes = defaultTargetPlatform == TargetPlatform.iOS
             ? await _directorySizeBytes(libraryDirectory, label: 'library')
             : 0;
@@ -2719,6 +2768,11 @@ final storageDiagnosticsSummaryProvider =
           syncExportBytes: syncExportBytes,
           appContainerBytes: appContainerBytes,
           documentsBytes: documentsBytes,
+          documentsInboxBytes: documentsInboxBytes,
+          documentsRootFileBytes: documentsRootFileBytes,
+          documentsTopEntries: [
+            for (final entry in documentsEntries.take(8)) entry.toData(),
+          ],
           libraryBytes: libraryBytes,
           appSupportBytes: appSupportBytes,
           temporaryDirectoryBytes: temporaryDirectoryBytes,
@@ -2799,21 +2853,47 @@ Future<int> _directorySizeBytes(Directory directory, {String? label}) async {
     );
     return 0;
   }
-  var total = 0;
+  return _directoryTreeSizeBytes(directory, label: label);
+}
+
+Future<List<_DirectoryEntryDiagnostics>> _directoryEntryDiagnostics(
+  Directory directory, {
+  String? label,
+}) async {
   try {
-    await for (final entity in directory.list(
-      recursive: true,
-      followLinks: false,
-    )) {
-      if (entity is! File) {
-        continue;
-      }
+    if (!await directory.exists()) {
+      return const <_DirectoryEntryDiagnostics>[];
+    }
+  } catch (error) {
+    logDiagnostic(
+      'storage',
+      'directory entry diagnostics existence check failed',
+      data: {'label': label, 'path': directory.path, 'error': '$error'},
+    );
+    return const <_DirectoryEntryDiagnostics>[];
+  }
+  final entries = <_DirectoryEntryDiagnostics>[];
+  try {
+    await for (final entity in directory.list(followLinks: false)) {
       try {
-        total += await entity.length();
+        final isDirectory = entity is Directory;
+        final bytes = entity is Directory
+            ? await _directoryTreeSizeBytes(entity, label: label)
+            : entity is File
+            ? await entity.length()
+            : 0;
+        entries.add(
+          _DirectoryEntryDiagnostics(
+            name: path.basename(entity.path),
+            path: entity.path,
+            isDirectory: isDirectory,
+            bytes: bytes,
+          ),
+        );
       } catch (error) {
         logDiagnostic(
           'storage',
-          'file size read failed',
+          'directory entry diagnostics skipped',
           data: {'label': label, 'path': entity.path, 'error': '$error'},
         );
       }
@@ -2821,11 +2901,12 @@ Future<int> _directorySizeBytes(Directory directory, {String? label}) async {
   } catch (error) {
     logDiagnostic(
       'storage',
-      'directory size calculation failed',
+      'directory entry diagnostics listing skipped',
       data: {'label': label, 'path': directory.path, 'error': '$error'},
     );
   }
-  return total;
+  entries.sort((a, b) => b.bytes.compareTo(a.bytes));
+  return entries;
 }
 
 Future<int> _sumFilesMatching(
@@ -2845,21 +2926,26 @@ Future<int> _sumFilesMatching(
     );
     return 0;
   }
+  return _matchingFileTreeSizeBytes(directory, matches, label: label);
+}
+
+Future<int> _directoryTreeSizeBytes(
+  Directory directory, {
+  String? label,
+}) async {
   var total = 0;
   try {
-    await for (final entity in directory.list(
-      recursive: true,
-      followLinks: false,
-    )) {
-      if (entity is! File || !matches(entity)) {
-        continue;
-      }
+    await for (final entity in directory.list(followLinks: false)) {
       try {
-        total += await entity.length();
+        if (entity is File) {
+          total += await entity.length();
+        } else if (entity is Directory) {
+          total += await _directoryTreeSizeBytes(entity, label: label);
+        }
       } catch (error) {
         logDiagnostic(
           'storage',
-          'file size read failed',
+          'directory entry size read failed',
           data: {'label': label, 'path': entity.path, 'error': '$error'},
         );
       }
@@ -2867,7 +2953,43 @@ Future<int> _sumFilesMatching(
   } catch (error) {
     logDiagnostic(
       'storage',
-      'matching file size calculation failed',
+      'directory listing skipped',
+      data: {'label': label, 'path': directory.path, 'error': '$error'},
+    );
+  }
+  return total;
+}
+
+Future<int> _matchingFileTreeSizeBytes(
+  Directory directory,
+  bool Function(File file) matches, {
+  String? label,
+}) async {
+  var total = 0;
+  try {
+    await for (final entity in directory.list(followLinks: false)) {
+      try {
+        if (entity is File && matches(entity)) {
+          total += await entity.length();
+        } else if (entity is Directory) {
+          total += await _matchingFileTreeSizeBytes(
+            entity,
+            matches,
+            label: label,
+          );
+        }
+      } catch (error) {
+        logDiagnostic(
+          'storage',
+          'matching directory entry size read failed',
+          data: {'label': label, 'path': entity.path, 'error': '$error'},
+        );
+      }
+    }
+  } catch (error) {
+    logDiagnostic(
+      'storage',
+      'matching directory listing skipped',
       data: {'label': label, 'path': directory.path, 'error': '$error'},
     );
   }

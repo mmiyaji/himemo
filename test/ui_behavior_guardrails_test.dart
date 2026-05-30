@@ -388,6 +388,12 @@ void main() {
     expect(homeProviders, contains('appGroupBytes'));
     expect(homeProviders, contains('storage diagnostics calculated'));
     expect(homeProviders, contains('force: true'));
+    expect(homeProviders, contains('visibleContainerBytes'));
+    expect(homeProviders, contains('directory listing skipped'));
+    expect(homeProviders, contains('_directoryTreeSizeBytes'));
+    expect(homeProviders, contains('documentsInboxBytes'));
+    expect(homeProviders, contains('documentsTopEntries'));
+    expect(homeProviders, contains('_directoryEntryDiagnostics'));
     expect(homePage, contains('App Group'));
     expect(homePage, contains('shared imports'));
     expect(appDelegate, contains('appGroupStorageDiagnostics'));
