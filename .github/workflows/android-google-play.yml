@@ -163,7 +163,7 @@ jobs:
           echo "AAB_PATH=$AAB_PATH" >> "$GITHUB_ENV"
 
       - name: Upload AAB artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: himemo-android-${{ env.VERSION_NAME }}-${{ env.VERSION_CODE }}
           path: ${{ env.AAB_PATH }}
