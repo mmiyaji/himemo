@@ -375,6 +375,26 @@ void main() {
     );
   });
 
+  test('storage diagnostics cover iOS container and app group sizes', () {
+    final homeProviders = File(
+      'lib/features/home/presentation/home_providers.dart',
+    ).readAsStringSync();
+    final homePage = _homePresentationSource();
+    final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+
+    expect(homeProviders, contains('appContainerBytes'));
+    expect(homeProviders, contains('documentsBytes'));
+    expect(homeProviders, contains('libraryBytes'));
+    expect(homeProviders, contains('appGroupBytes'));
+    expect(homeProviders, contains('storage diagnostics calculated'));
+    expect(homeProviders, contains('force: true'));
+    expect(homePage, contains('App Group'));
+    expect(homePage, contains('shared imports'));
+    expect(appDelegate, contains('appGroupStorageDiagnostics'));
+    expect(appDelegate, contains('directorySizeBytes'));
+    expect(appDelegate, contains('pendingQuickCaptureFileName'));
+  });
+
   test('tablet create note action lives at the bottom of the sidebar', () {
     final homePage = _homePresentationSource();
 

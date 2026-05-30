@@ -116,6 +116,8 @@ import FoundationModels
             }
           }
           result(nil)
+        case "appGroupStorageDiagnostics":
+          result(self.appGroupStorageDiagnostics())
         default:
           result(FlutterMethodNotImplemented)
         }
@@ -918,6 +920,70 @@ import FoundationModels
       return nil
     }
     return payload
+  }
+
+  private func appGroupStorageDiagnostics() -> [String: Any] {
+    guard let container = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: appGroupIdentifier
+    ) else {
+      return [
+        "appGroupBytes": 0,
+        "appGroupSharedImportsBytes": 0,
+        "appGroupPendingQuickCaptureBytes": 0,
+      ]
+    }
+    let sharedImports = container.appendingPathComponent(
+      "shared_imports",
+      isDirectory: true
+    )
+    let pendingQuickCapture = container.appendingPathComponent(
+      pendingQuickCaptureFileName,
+      isDirectory: false
+    )
+    return [
+      "appGroupBytes": Int(directorySizeBytes(container)),
+      "appGroupSharedImportsBytes": Int(directorySizeBytes(sharedImports)),
+      "appGroupPendingQuickCaptureBytes": Int(fileSizeBytes(pendingQuickCapture)),
+    ]
+  }
+
+  private func directorySizeBytes(_ url: URL) -> Int64 {
+    var isDirectory: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+          isDirectory.boolValue else {
+      return fileSizeBytes(url)
+    }
+    guard let enumerator = FileManager.default.enumerator(
+      at: url,
+      includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+      options: [.skipsHiddenFiles],
+      errorHandler: { _, _ in true }
+    ) else {
+      return 0
+    }
+    var total: Int64 = 0
+    for case let fileUrl as URL in enumerator {
+      guard
+        let values = try? fileUrl.resourceValues(
+          forKeys: [.isRegularFileKey, .fileSizeKey]
+        ),
+        values.isRegularFile == true
+      else {
+        continue
+      }
+      total += Int64(values.fileSize ?? 0)
+    }
+    return total
+  }
+
+  private func fileSizeBytes(_ url: URL) -> Int64 {
+    guard
+      let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+      values.isRegularFile == true
+    else {
+      return 0
+    }
+    return Int64(values.fileSize ?? 0)
   }
 
   private func handleCloudKitMethod(call: FlutterMethodCall, result: @escaping FlutterResult) {

@@ -2538,25 +2538,78 @@ class StorageDiagnosticsSummary {
   const StorageDiagnosticsSummary({
     required this.sqliteBytes,
     required this.syncExportBytes,
+    required this.appContainerBytes,
+    required this.documentsBytes,
+    required this.libraryBytes,
     required this.appSupportBytes,
     required this.temporaryDirectoryBytes,
     required this.cacheDirectoryBytes,
+    required this.libraryOtherBytes,
+    required this.appContainerOtherBytes,
+    required this.appGroupBytes,
+    required this.appGroupSharedImportsBytes,
+    required this.appGroupPendingQuickCaptureBytes,
     required this.sharedPreferencesApproxBytes,
   });
 
   final int sqliteBytes;
   final int syncExportBytes;
+  final int appContainerBytes;
+  final int documentsBytes;
+  final int libraryBytes;
   final int appSupportBytes;
   final int temporaryDirectoryBytes;
   final int cacheDirectoryBytes;
+  final int libraryOtherBytes;
+  final int appContainerOtherBytes;
+  final int appGroupBytes;
+  final int appGroupSharedImportsBytes;
+  final int appGroupPendingQuickCaptureBytes;
   final int sharedPreferencesApproxBytes;
 
   int get measuredBytes =>
-      appSupportBytes +
-      temporaryDirectoryBytes +
-      cacheDirectoryBytes +
-      sharedPreferencesApproxBytes;
+      appContainerBytes + appGroupBytes + sharedPreferencesApproxBytes;
+
+  Map<String, Object?> toDiagnosticData() {
+    return {
+      'measuredBytes': measuredBytes,
+      'appContainerBytes': appContainerBytes,
+      'documentsBytes': documentsBytes,
+      'libraryBytes': libraryBytes,
+      'appSupportBytes': appSupportBytes,
+      'sqliteBytes': sqliteBytes,
+      'syncExportBytes': syncExportBytes,
+      'temporaryDirectoryBytes': temporaryDirectoryBytes,
+      'cacheDirectoryBytes': cacheDirectoryBytes,
+      'libraryOtherBytes': libraryOtherBytes,
+      'appContainerOtherBytes': appContainerOtherBytes,
+      'appGroupBytes': appGroupBytes,
+      'appGroupSharedImportsBytes': appGroupSharedImportsBytes,
+      'appGroupPendingQuickCaptureBytes': appGroupPendingQuickCaptureBytes,
+      'sharedPreferencesApproxBytes': sharedPreferencesApproxBytes,
+    };
+  }
 }
+
+class _NativeStorageDiagnostics {
+  const _NativeStorageDiagnostics({
+    required this.appGroupBytes,
+    required this.appGroupSharedImportsBytes,
+    required this.appGroupPendingQuickCaptureBytes,
+  });
+
+  final int appGroupBytes;
+  final int appGroupSharedImportsBytes;
+  final int appGroupPendingQuickCaptureBytes;
+
+  static const empty = _NativeStorageDiagnostics(
+    appGroupBytes: 0,
+    appGroupSharedImportsBytes: 0,
+    appGroupPendingQuickCaptureBytes: 0,
+  );
+}
+
+const _storageDiagnosticsChannel = MethodChannel('org.ruhenheim.himemo/widget');
 
 final storageUsageSummaryProvider = FutureProvider<StorageUsageSummary>((
   ref,
@@ -2590,15 +2643,28 @@ final storageDiagnosticsSummaryProvider =
         return const StorageDiagnosticsSummary(
           sqliteBytes: 0,
           syncExportBytes: 0,
+          appContainerBytes: 0,
+          documentsBytes: 0,
+          libraryBytes: 0,
           appSupportBytes: 0,
           temporaryDirectoryBytes: 0,
           cacheDirectoryBytes: 0,
+          libraryOtherBytes: 0,
+          appContainerOtherBytes: 0,
+          appGroupBytes: 0,
+          appGroupSharedImportsBytes: 0,
+          appGroupPendingQuickCaptureBytes: 0,
           sharedPreferencesApproxBytes: 0,
         );
       }
       final appSupportDirectory = await getApplicationSupportDirectory();
       final temporaryDirectory = await getTemporaryDirectory();
       final cacheDirectory = await getApplicationCacheDirectory();
+      final libraryDirectory = appSupportDirectory.parent;
+      final appContainerDirectory = libraryDirectory.parent;
+      final documentsDirectory = Directory(
+        path.join(appContainerDirectory.path, 'Documents'),
+      );
       final sqliteBytes = await _sumFilesMatching(
         appSupportDirectory,
         (entity) =>
@@ -2612,16 +2678,48 @@ final storageDiagnosticsSummaryProvider =
         temporaryDirectory,
       );
       final cacheDirectoryBytes = await _directorySizeBytes(cacheDirectory);
+      final documentsBytes = await _directorySizeBytes(documentsDirectory);
+      final libraryBytes = await _directorySizeBytes(libraryDirectory);
+      final appContainerBytes = await _directorySizeBytes(
+        appContainerDirectory,
+      );
+      final nativeDiagnostics = await _nativeStorageDiagnostics();
       final sharedPreferencesApproxBytes =
           await _sharedPreferencesApproxBytes();
-      return StorageDiagnosticsSummary(
+      final libraryOtherBytes =
+          libraryBytes - appSupportBytes - cacheDirectoryBytes;
+      final appContainerOtherBytes =
+          appContainerBytes -
+          documentsBytes -
+          libraryBytes -
+          temporaryDirectoryBytes;
+      final summary = StorageDiagnosticsSummary(
         sqliteBytes: sqliteBytes,
         syncExportBytes: syncExportBytes,
+        appContainerBytes: appContainerBytes,
+        documentsBytes: documentsBytes,
+        libraryBytes: libraryBytes,
         appSupportBytes: appSupportBytes,
         temporaryDirectoryBytes: temporaryDirectoryBytes,
         cacheDirectoryBytes: cacheDirectoryBytes,
+        libraryOtherBytes: math.max(0, libraryOtherBytes),
+        appContainerOtherBytes: math.max(0, appContainerOtherBytes),
+        appGroupBytes: nativeDiagnostics.appGroupBytes,
+        appGroupSharedImportsBytes:
+            nativeDiagnostics.appGroupSharedImportsBytes,
+        appGroupPendingQuickCaptureBytes:
+            nativeDiagnostics.appGroupPendingQuickCaptureBytes,
         sharedPreferencesApproxBytes: sharedPreferencesApproxBytes,
       );
+      unawaited(
+        DiagnosticLogService.instance.record(
+          'storage',
+          'storage diagnostics calculated',
+          data: summary.toDiagnosticData(),
+          force: true,
+        ),
+      );
+      return summary;
     });
 
 final storageCacheClearInProgressProvider =
@@ -2690,6 +2788,45 @@ Future<int> _sharedPreferencesApproxBytes() async {
     }
   }
   return total;
+}
+
+Future<_NativeStorageDiagnostics> _nativeStorageDiagnostics() async {
+  if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
+    return _NativeStorageDiagnostics.empty;
+  }
+  try {
+    final result = await _storageDiagnosticsChannel
+        .invokeMapMethod<String, Object?>('appGroupStorageDiagnostics');
+    if (result == null) {
+      return _NativeStorageDiagnostics.empty;
+    }
+    return _NativeStorageDiagnostics(
+      appGroupBytes: _intFromPlatform(result['appGroupBytes']),
+      appGroupSharedImportsBytes: _intFromPlatform(
+        result['appGroupSharedImportsBytes'],
+      ),
+      appGroupPendingQuickCaptureBytes: _intFromPlatform(
+        result['appGroupPendingQuickCaptureBytes'],
+      ),
+    );
+  } catch (error) {
+    logDiagnostic(
+      'storage',
+      'native storage diagnostics unavailable',
+      data: {'error': error},
+    );
+    return _NativeStorageDiagnostics.empty;
+  }
+}
+
+int _intFromPlatform(Object? value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.round();
+  }
+  return int.tryParse('$value') ?? 0;
 }
 
 final syncEngineProvider = Provider<SyncEngine>((ref) {
