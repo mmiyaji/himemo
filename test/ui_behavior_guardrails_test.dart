@@ -394,6 +394,10 @@ void main() {
     expect(homeProviders, contains('documentsInboxBytes'));
     expect(homeProviders, contains('documentsTopEntries'));
     expect(homeProviders, contains('_directoryEntryDiagnostics'));
+    expect(homeProviders, contains('_iosPickedImagesDirectoryName'));
+    expect(homeProviders, contains('_pickedImagePickerCopiesSizeBytes'));
+    expect(homeProviders, contains('_clearPickedImagePickerCopies'));
+    expect(homeProviders, contains('picked image picker copies cleared'));
     expect(homePage, contains('App Group'));
     expect(homePage, contains('shared imports'));
     expect(appDelegate, contains('appGroupStorageDiagnostics'));
@@ -695,6 +699,9 @@ void main() {
     );
     expect(homeProviders, contains('picker.pickMultiImage'));
     expect(homeProviders, contains('picker.pickMultiVideo'));
+    expect(homeProviders, contains('deleteSourceAfterImport: true'));
+    expect(homeProviders, contains('_deleteTransientPickedMediaSource'));
+    expect(homeProviders, contains('transient picked media source deleted'));
     expect(homeProviders, contains('_deferredVideoPreviewThresholdBytes'));
     expect(homeProviders, contains('video preview deferred for large file'));
     expect(homeProviders, contains('attachment import build completed'));

@@ -2160,9 +2160,17 @@ class DefaultMediaImportService implements MediaImportService {
         tooLargeMessage: tooLargeMessage,
       );
       if (tooLarge != null) {
+        await _deleteTransientPickedMediaSource(
+          sourceFile,
+          reason: 'too_large',
+        );
         return tooLarge;
       }
-      final built = await _buildAttachment(type: type, sourceFile: sourceFile);
+      final built = await _buildAttachment(
+        type: type,
+        sourceFile: sourceFile,
+        deleteSourceAfterImport: true,
+      );
       attachments.add(built.attachment);
       if (built.deferredPreview != null && built.attachment.filePath != null) {
         deferredPreviews[built.attachment.filePath!] = built.deferredPreview!;
@@ -2317,6 +2325,7 @@ class DefaultMediaImportService implements MediaImportService {
   _buildAttachment({
     required AttachmentType type,
     required XFile sourceFile,
+    bool deleteSourceAfterImport = false,
   }) async {
     final label = sourceFile.name.isEmpty
         ? path.basename(sourceFile.path)
@@ -2346,7 +2355,15 @@ class DefaultMediaImportService implements MediaImportService {
             'thresholdBytes': _deferredVideoPreviewThresholdBytes,
           },
         );
-        deferredPreview = _videoPreviewBytesBase64ForSourceFile(sourceFile);
+        final preview = _videoPreviewBytesBase64ForSourceFile(sourceFile);
+        deferredPreview = deleteSourceAfterImport
+            ? preview.whenComplete(() async {
+                await _deleteTransientPickedMediaSource(
+                  sourceFile,
+                  reason: 'deferred_preview_completed',
+                );
+              })
+            : preview;
       } else {
         previewBytesBase64 = await _videoPreviewBytesBase64ForSourceFile(
           sourceFile,
@@ -2370,6 +2387,12 @@ class DefaultMediaImportService implements MediaImportService {
         'hasDeferredPreview': deferredPreview != null,
       },
     );
+    if (deleteSourceAfterImport && deferredPreview == null) {
+      await _deleteTransientPickedMediaSource(
+        sourceFile,
+        reason: 'import_completed',
+      );
+    }
     return (
       attachment: NoteAttachment(
         type: type,
@@ -2666,6 +2689,7 @@ class _DirectoryEntryDiagnostics {
 }
 
 const _storageDiagnosticsChannel = MethodChannel('org.ruhenheim.himemo/widget');
+const _iosPickedImagesDirectoryName = 'picked_images';
 
 final storageUsageSummaryProvider = FutureProvider<StorageUsageSummary>((
   ref,
@@ -2686,10 +2710,11 @@ final storageUsageSummaryProvider = FutureProvider<StorageUsageSummary>((
   final attachmentCacheBytes = await ref
       .watch(encryptedAttachmentStoreProvider)
       .materializedCacheSizeBytes();
+  final pickedImagePickerCopyBytes = await _pickedImagePickerCopiesSizeBytes();
   return StorageUsageSummary(
     notePayloadBytes: notePayloadBytes,
     attachmentPayloadBytes: attachmentPayloadBytes,
-    attachmentCacheBytes: attachmentCacheBytes,
+    attachmentCacheBytes: attachmentCacheBytes + pickedImagePickerCopyBytes,
   );
 });
 
@@ -2837,6 +2862,93 @@ Future<Directory> _applicationCacheDirectoryOrFallback(
       return Directory(path.join(appSupportDirectory.parent.path, 'Caches'));
     }
     return Directory(path.join(appSupportDirectory.parent.path, 'cache'));
+  }
+}
+
+Future<Directory?> _pickedImagePickerCopiesDirectory() async {
+  if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
+    return null;
+  }
+  final documentsDirectory = await getApplicationDocumentsDirectory();
+  return Directory(
+    path.join(documentsDirectory.path, _iosPickedImagesDirectoryName),
+  );
+}
+
+Future<int> _pickedImagePickerCopiesSizeBytes() async {
+  final directory = await _pickedImagePickerCopiesDirectory();
+  if (directory == null || !await directory.exists()) {
+    return 0;
+  }
+  return _directorySizeBytes(directory, label: 'picked_images');
+}
+
+Future<int> _clearPickedImagePickerCopies() async {
+  final directory = await _pickedImagePickerCopiesDirectory();
+  if (directory == null || !await directory.exists()) {
+    return 0;
+  }
+  final deletedBytes = await _directorySizeBytes(
+    directory,
+    label: 'picked_images_clear',
+  );
+  try {
+    await directory.delete(recursive: true);
+    logDiagnostic(
+      'storage',
+      'picked image picker copies cleared',
+      data: {'bytes': deletedBytes, 'path': directory.path},
+    );
+    return deletedBytes;
+  } catch (error) {
+    logDiagnostic(
+      'storage',
+      'picked image picker copies clear failed',
+      data: {'bytes': deletedBytes, 'path': directory.path, 'error': '$error'},
+    );
+    return 0;
+  }
+}
+
+Future<int> _deleteTransientPickedMediaSource(
+  XFile sourceFile, {
+  required String reason,
+}) async {
+  if (sourceFile.path.isEmpty) {
+    return 0;
+  }
+  final directory = await _pickedImagePickerCopiesDirectory();
+  if (directory == null) {
+    return 0;
+  }
+  final directoryPath = path.normalize(directory.path);
+  final sourcePath = path.normalize(sourceFile.path);
+  final relativePath = path.relative(sourcePath, from: directoryPath);
+  if (relativePath == '.' ||
+      relativePath.startsWith('..${path.separator}') ||
+      path.isAbsolute(relativePath)) {
+    return 0;
+  }
+  final file = File(sourcePath);
+  try {
+    if (!await file.exists()) {
+      return 0;
+    }
+    final bytes = await file.length();
+    await file.delete();
+    logDiagnostic(
+      'attachment',
+      'transient picked media source deleted',
+      data: {'reason': reason, 'bytes': bytes, 'path': sourcePath},
+    );
+    return bytes;
+  } catch (error) {
+    logDiagnostic(
+      'attachment',
+      'transient picked media source delete failed',
+      data: {'reason': reason, 'path': sourcePath, 'error': '$error'},
+    );
+    return 0;
   }
 }
 
@@ -10255,9 +10367,11 @@ class NotesController extends _$NotesController {
   }
 
   Future<int> clearStorageCaches() async {
-    final deletedBytes = await ref
+    final materializedCacheBytes = await ref
         .read(encryptedAttachmentStoreProvider)
         .clearMaterializedCache();
+    final pickedImagePickerCopyBytes = await _clearPickedImagePickerCopies();
+    final deletedBytes = materializedCacheBytes + pickedImagePickerCopyBytes;
     ref.invalidate(storageUsageSummaryProvider);
     ref.invalidate(storageDiagnosticsSummaryProvider);
     return deletedBytes;
