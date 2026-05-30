@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -17,6 +18,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -2532,6 +2534,30 @@ class StorageUsageSummary {
   bool get hasCache => attachmentCacheBytes > 0;
 }
 
+class StorageDiagnosticsSummary {
+  const StorageDiagnosticsSummary({
+    required this.sqliteBytes,
+    required this.syncExportBytes,
+    required this.appSupportBytes,
+    required this.temporaryDirectoryBytes,
+    required this.cacheDirectoryBytes,
+    required this.sharedPreferencesApproxBytes,
+  });
+
+  final int sqliteBytes;
+  final int syncExportBytes;
+  final int appSupportBytes;
+  final int temporaryDirectoryBytes;
+  final int cacheDirectoryBytes;
+  final int sharedPreferencesApproxBytes;
+
+  int get measuredBytes =>
+      appSupportBytes +
+      temporaryDirectoryBytes +
+      cacheDirectoryBytes +
+      sharedPreferencesApproxBytes;
+}
+
 final storageUsageSummaryProvider = FutureProvider<StorageUsageSummary>((
   ref,
 ) async {
@@ -2557,6 +2583,114 @@ final storageUsageSummaryProvider = FutureProvider<StorageUsageSummary>((
     attachmentCacheBytes: attachmentCacheBytes,
   );
 });
+
+final storageDiagnosticsSummaryProvider =
+    FutureProvider<StorageDiagnosticsSummary>((ref) async {
+      if (kIsWeb) {
+        return const StorageDiagnosticsSummary(
+          sqliteBytes: 0,
+          syncExportBytes: 0,
+          appSupportBytes: 0,
+          temporaryDirectoryBytes: 0,
+          cacheDirectoryBytes: 0,
+          sharedPreferencesApproxBytes: 0,
+        );
+      }
+      final appSupportDirectory = await getApplicationSupportDirectory();
+      final temporaryDirectory = await getTemporaryDirectory();
+      final cacheDirectory = await getApplicationCacheDirectory();
+      final sqliteBytes = await _sumFilesMatching(
+        appSupportDirectory,
+        (entity) =>
+            path.basename(entity.path).startsWith('himemo_notes.sqlite'),
+      );
+      final syncExportBytes = await _directorySizeBytes(
+        Directory(path.join(appSupportDirectory.path, 'sync_exports')),
+      );
+      final appSupportBytes = await _directorySizeBytes(appSupportDirectory);
+      final temporaryDirectoryBytes = await _directorySizeBytes(
+        temporaryDirectory,
+      );
+      final cacheDirectoryBytes = await _directorySizeBytes(cacheDirectory);
+      final sharedPreferencesApproxBytes =
+          await _sharedPreferencesApproxBytes();
+      return StorageDiagnosticsSummary(
+        sqliteBytes: sqliteBytes,
+        syncExportBytes: syncExportBytes,
+        appSupportBytes: appSupportBytes,
+        temporaryDirectoryBytes: temporaryDirectoryBytes,
+        cacheDirectoryBytes: cacheDirectoryBytes,
+        sharedPreferencesApproxBytes: sharedPreferencesApproxBytes,
+      );
+    });
+
+final storageCacheClearInProgressProvider =
+    NotifierProvider<StorageCacheClearInProgressController, bool>(
+      StorageCacheClearInProgressController.new,
+    );
+
+class StorageCacheClearInProgressController extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void setClearing(bool value) {
+    state = value;
+  }
+}
+
+Future<int> _directorySizeBytes(Directory directory) async {
+  if (!await directory.exists()) {
+    return 0;
+  }
+  var total = 0;
+  await for (final entity in directory.list(recursive: true)) {
+    if (entity is File) {
+      try {
+        total += await entity.length();
+      } catch (_) {}
+    }
+  }
+  return total;
+}
+
+Future<int> _sumFilesMatching(
+  Directory directory,
+  bool Function(File file) matches,
+) async {
+  if (!await directory.exists()) {
+    return 0;
+  }
+  var total = 0;
+  await for (final entity in directory.list(recursive: true)) {
+    if (entity is! File || !matches(entity)) {
+      continue;
+    }
+    try {
+      total += await entity.length();
+    } catch (_) {}
+  }
+  return total;
+}
+
+Future<int> _sharedPreferencesApproxBytes() async {
+  final prefs = await SharedPreferences.getInstance();
+  var total = 0;
+  for (final key in prefs.getKeys()) {
+    total += utf8.encode(key).length;
+    final value = prefs.get(key);
+    switch (value) {
+      case String text:
+        total += utf8.encode(text).length;
+      case List<String> list:
+        for (final text in list) {
+          total += utf8.encode(text).length;
+        }
+      default:
+        total += utf8.encode('$value').length;
+    }
+  }
+  return total;
+}
 
 final syncEngineProvider = Provider<SyncEngine>((ref) {
   return SyncEngine(
@@ -9762,6 +9896,7 @@ class NotesController extends _$NotesController {
         .read(encryptedAttachmentStoreProvider)
         .clearMaterializedCache();
     ref.invalidate(storageUsageSummaryProvider);
+    ref.invalidate(storageDiagnosticsSummaryProvider);
     return deletedBytes;
   }
 

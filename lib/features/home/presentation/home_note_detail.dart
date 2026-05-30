@@ -104,6 +104,7 @@ class _NoteDetailPager extends ConsumerStatefulWidget {
 class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
   static const double _edgeDismissThreshold = 72;
   late final PageController _pageController;
+  late int _currentIndex;
   int? _programmaticPageTarget;
   double _edgeDismissPull = 0;
   _EdgeDismissDirection? _edgeDismissDirection;
@@ -114,6 +115,7 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
   @override
   void initState() {
     super.initState();
+    _currentIndex = widget.selectedIndex;
     _pageController = PageController(initialPage: widget.selectedIndex);
   }
 
@@ -124,6 +126,7 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
       _debugNotePerf(
         'detail pager selectedIndex ${oldWidget.selectedIndex}->${widget.selectedIndex}',
       );
+      _currentIndex = widget.selectedIndex;
     }
     if (oldWidget.selectedIndex != widget.selectedIndex &&
         _pageController.hasClients) {
@@ -277,8 +280,9 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final canMovePrevious = widget.selectedIndex > 0;
-    final canMoveNext = widget.selectedIndex < widget.notes.length - 1;
+    final currentIndex = _currentIndex.clamp(0, widget.notes.length - 1);
+    final canMovePrevious = currentIndex > 0;
+    final canMoveNext = currentIndex < widget.notes.length - 1;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -321,7 +325,7 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
                   visualDensity: VisualDensity.compact,
                 ),
                 Text(
-                  '${widget.selectedIndex + 1} / ${widget.notes.length}',
+                  '${currentIndex + 1} / ${widget.notes.length}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: _mutedTextColor(context),
                   ),
@@ -345,6 +349,9 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
                     controller: _pageController,
                     itemCount: widget.notes.length,
                     onPageChanged: (index) {
+                      setState(() {
+                        _currentIndex = index;
+                      });
                       final programmaticTarget = _programmaticPageTarget;
                       if (programmaticTarget != null) {
                         if (index == programmaticTarget) {
@@ -366,7 +373,7 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
                         padding: const EdgeInsets.only(right: 4),
                         child: _NoteDetailPane(
                           note: note,
-                          isActive: index == widget.selectedIndex,
+                          isActive: index == _currentIndex,
                           vaultName: _vaultDisplayName(
                             context,
                             ref.watch(vaultByIdProvider(note.vaultId)),

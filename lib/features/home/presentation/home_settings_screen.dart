@@ -679,6 +679,10 @@ class SettingsScreen extends ConsumerWidget {
     final diagnosticLog = ref.watch(diagnosticLogControllerProvider);
     final auditLog = ref.watch(auditLogControllerProvider);
     final storageUsageSummary = ref.watch(storageUsageSummaryProvider);
+    final storageDiagnosticsSummary = ref.watch(
+      storageDiagnosticsSummaryProvider,
+    );
+    final storageCacheClearing = ref.watch(storageCacheClearInProgressProvider);
     final storageCacheBytes = storageUsageSummary.maybeWhen(
       data: (summary) => summary.attachmentCacheBytes,
       orElse: () => 0,
@@ -3536,6 +3540,48 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
             ),
+            if (adminMode)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  strings.localized(
+                    en: 'Storage diagnostics',
+                    ja: 'ストレージ診断',
+                    zh: '存储诊断',
+                    ko: '저장소 진단',
+                    es: 'Diagnóstico de almacenamiento',
+                    de: 'Speicherdiagnose',
+                  ),
+                ),
+                subtitle: Text(
+                  storageDiagnosticsSummary.when(
+                    data: (summary) => strings.localized(
+                      en: 'App Support ${strings.byteCount(summary.appSupportBytes)} / SQLite ${strings.byteCount(summary.sqliteBytes)} / sync exports ${strings.byteCount(summary.syncExportBytes)} / temp ${strings.byteCount(summary.temporaryDirectoryBytes)} / caches ${strings.byteCount(summary.cacheDirectoryBytes)} / preferences about ${strings.byteCount(summary.sharedPreferencesApproxBytes)}',
+                      ja: 'App Support ${strings.byteCount(summary.appSupportBytes)} / SQLite ${strings.byteCount(summary.sqliteBytes)} / 同期書き出し ${strings.byteCount(summary.syncExportBytes)} / tmp ${strings.byteCount(summary.temporaryDirectoryBytes)} / Caches ${strings.byteCount(summary.cacheDirectoryBytes)} / 設定 約 ${strings.byteCount(summary.sharedPreferencesApproxBytes)}',
+                      zh: 'App Support ${strings.byteCount(summary.appSupportBytes)} / SQLite ${strings.byteCount(summary.sqliteBytes)} / 同步导出 ${strings.byteCount(summary.syncExportBytes)} / tmp ${strings.byteCount(summary.temporaryDirectoryBytes)} / Caches ${strings.byteCount(summary.cacheDirectoryBytes)} / 设置约 ${strings.byteCount(summary.sharedPreferencesApproxBytes)}',
+                      ko: 'App Support ${strings.byteCount(summary.appSupportBytes)} / SQLite ${strings.byteCount(summary.sqliteBytes)} / 동기화 내보내기 ${strings.byteCount(summary.syncExportBytes)} / tmp ${strings.byteCount(summary.temporaryDirectoryBytes)} / Caches ${strings.byteCount(summary.cacheDirectoryBytes)} / 설정 약 ${strings.byteCount(summary.sharedPreferencesApproxBytes)}',
+                      es: 'App Support ${strings.byteCount(summary.appSupportBytes)} / SQLite ${strings.byteCount(summary.sqliteBytes)} / exportaciones de sincronización ${strings.byteCount(summary.syncExportBytes)} / tmp ${strings.byteCount(summary.temporaryDirectoryBytes)} / Caches ${strings.byteCount(summary.cacheDirectoryBytes)} / preferencias aprox. ${strings.byteCount(summary.sharedPreferencesApproxBytes)}',
+                      de: 'App Support ${strings.byteCount(summary.appSupportBytes)} / SQLite ${strings.byteCount(summary.sqliteBytes)} / Sync-Exporte ${strings.byteCount(summary.syncExportBytes)} / tmp ${strings.byteCount(summary.temporaryDirectoryBytes)} / Caches ${strings.byteCount(summary.cacheDirectoryBytes)} / Einstellungen ca. ${strings.byteCount(summary.sharedPreferencesApproxBytes)}',
+                    ),
+                    loading: () => strings.localized(
+                      en: 'Calculating diagnostics...',
+                      ja: '診断情報を計算中...',
+                      zh: '正在计算诊断信息...',
+                      ko: '진단 정보를 계산 중...',
+                      es: 'Calculando diagnóstico...',
+                      de: 'Diagnose wird berechnet...',
+                    ),
+                    error: (_, _) => strings.localized(
+                      en: 'Unable to calculate storage diagnostics.',
+                      ja: 'ストレージ診断を計算できませんでした。',
+                      zh: '无法计算存储诊断。',
+                      ko: '저장소 진단을 계산할 수 없습니다.',
+                      es: 'No se pudo calcular el diagnóstico de almacenamiento.',
+                      de: 'Speicherdiagnose konnte nicht berechnet werden.',
+                    ),
+                  ),
+                ),
+              ),
             Align(
               alignment: Alignment.centerLeft,
               child: Wrap(
@@ -3617,41 +3663,63 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                   OutlinedButton.icon(
                     key: clearStorageCacheKey,
-                    onPressed: storageCacheBytes == 0
+                    onPressed: storageCacheBytes == 0 || storageCacheClearing
                         ? null
                         : () async {
-                            final deletedBytes = await ref
-                                .read(notesControllerProvider.notifier)
-                                .clearStorageCaches();
-                            if (!context.mounted) {
-                              return;
-                            }
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                showCloseIcon: true,
-                                content: Text(
-                                  strings.localized(
-                                    en: 'Cleared ${strings.byteCount(deletedBytes)} of temporary cache.',
-                                    ja: '一時キャッシュ ${strings.byteCount(deletedBytes)} を削除しました。',
-                                    zh: '已清除 ${strings.byteCount(deletedBytes)} 临时缓存。',
-                                    ko: '임시 캐시 ${strings.byteCount(deletedBytes)}를 삭제했습니다.',
-                                    es: 'Se borró ${strings.byteCount(deletedBytes)} de caché temporal.',
-                                    de: '${strings.byteCount(deletedBytes)} temporaerer Cache geloescht.',
+                            final clearing = ref.read(
+                              storageCacheClearInProgressProvider.notifier,
+                            );
+                            clearing.setClearing(true);
+                            try {
+                              final deletedBytes = await ref
+                                  .read(notesControllerProvider.notifier)
+                                  .clearStorageCaches();
+                              if (!context.mounted) {
+                                return;
+                              }
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  showCloseIcon: true,
+                                  content: Text(
+                                    strings.localized(
+                                      en: 'Cleared ${strings.byteCount(deletedBytes)} of temporary cache.',
+                                      ja: '一時キャッシュ ${strings.byteCount(deletedBytes)} を削除しました。',
+                                      zh: '已清除 ${strings.byteCount(deletedBytes)} 临时缓存。',
+                                      ko: '임시 캐시 ${strings.byteCount(deletedBytes)}를 삭제했습니다.',
+                                      es: 'Se borró ${strings.byteCount(deletedBytes)} de caché temporal.',
+                                      de: '${strings.byteCount(deletedBytes)} temporaerer Cache geloescht.',
+                                    ),
                                   ),
                                 ),
-                              ),
-                            );
+                              );
+                            } finally {
+                              clearing.setClearing(false);
+                            }
                           },
-                    icon: const Icon(Icons.cleaning_services_outlined),
+                    icon: storageCacheClearing
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.cleaning_services_outlined),
                     label: Text(
-                      strings.localized(
-                        en: 'Clear cache',
-                        ja: 'キャッシュを削除',
-                        zh: '清除缓存',
-                        ko: '캐시 삭제',
-                        es: 'Borrar caché',
-                        de: 'Cache leeren',
-                      ),
+                      storageCacheClearing
+                          ? strings.localized(
+                              en: 'Clearing...',
+                              ja: '削除中...',
+                              zh: '正在清除...',
+                              ko: '삭제 중...',
+                              es: 'Borrando...',
+                              de: 'Wird geleert...',
+                            )
+                          : strings.localized(
+                              en: 'Clear cache',
+                              ja: 'キャッシュを削除',
+                              zh: '清除缓存',
+                              ko: '캐시 삭제',
+                              es: 'Borrar caché',
+                              de: 'Cache leeren',
+                            ),
                     ),
                   ),
                   OutlinedButton.icon(

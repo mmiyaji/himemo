@@ -3418,15 +3418,28 @@ class _AudioAttachmentViewerState
   bool _ready = false;
   String? _errorMessage;
   Duration? _dragPosition;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_load());
+    unawaited(_startLoad());
+  }
+
+  @override
+  void didUpdateWidget(covariant _AudioAttachmentViewer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.attachment.filePath == widget.attachment.filePath &&
+        oldWidget.attachment.type == widget.attachment.type &&
+        oldWidget.attachment.label == widget.attachment.label) {
+      return;
+    }
+    unawaited(_resetAndLoad());
   }
 
   @override
   void dispose() {
+    _loadGeneration += 1;
     unawaited(_player.dispose());
     final tempFilePath = _tempFilePath;
     if (tempFilePath != null) {
@@ -3439,10 +3452,36 @@ class _AudioAttachmentViewerState
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _resetAndLoad() async {
+    final generation = ++_loadGeneration;
+    final tempFilePath = _tempFilePath;
+    setState(() {
+      _tempFilePath = null;
+      _ready = false;
+      _errorMessage = null;
+      _dragPosition = null;
+    });
+    await _player.stop();
+    if (tempFilePath != null) {
+      await ref
+          .read(encryptedAttachmentStoreProvider)
+          .deleteMaterializedFile(tempFilePath);
+    }
+    if (!mounted || generation != _loadGeneration) {
+      return;
+    }
+    await _loadAttachment(generation: generation);
+  }
+
+  Future<void> _startLoad() async {
+    final generation = ++_loadGeneration;
+    await _loadAttachment(generation: generation);
+  }
+
+  Future<void> _loadAttachment({required int generation}) async {
     final filePath = widget.attachment.filePath;
     if (filePath == null || filePath.isEmpty) {
-      if (mounted) {
+      if (mounted && generation == _loadGeneration) {
         setState(() {
           _errorMessage = context.strings.audioPlaybackFailed;
         });
@@ -3452,11 +3491,8 @@ class _AudioAttachmentViewerState
     try {
       final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
       if (kIsWeb) {
-        final bytes = await attachmentStore.readAttachment(
-          filePath,
-          type: widget.attachment.type,
-        );
-        if (!mounted) {
+        final bytes = await _readDisplayAttachmentBytes(ref, widget.attachment);
+        if (!mounted || generation != _loadGeneration) {
           return;
         }
         if (bytes == null || bytes.isEmpty) {
@@ -3473,7 +3509,7 @@ class _AudioAttachmentViewerState
             ),
           ),
         );
-        if (!mounted) {
+        if (!mounted || generation != _loadGeneration) {
           return;
         }
         setState(() {
@@ -3482,12 +3518,27 @@ class _AudioAttachmentViewerState
         return;
       }
 
-      final tempFilePath = await attachmentStore.materializeDecryptedFile(
-        filePath,
-        type: widget.attachment.type,
-        preferredFileName: widget.attachment.label,
-      );
-      if (!mounted) {
+      String? tempFilePath;
+      if (isSyncAttachmentObjectRef(filePath)) {
+        final bytes = await _readDisplayAttachmentBytes(ref, widget.attachment);
+        if (bytes != null && bytes.isNotEmpty) {
+          tempFilePath = await attachmentStore.materializeDecryptedBytes(
+            bytes,
+            type: widget.attachment.type,
+            preferredFileName: widget.attachment.label,
+          );
+        }
+      } else {
+        tempFilePath = await attachmentStore.materializeDecryptedFile(
+          filePath,
+          type: widget.attachment.type,
+          preferredFileName: widget.attachment.label,
+        );
+      }
+      if (!mounted || generation != _loadGeneration) {
+        if (tempFilePath != null) {
+          await attachmentStore.deleteMaterializedFile(tempFilePath);
+        }
         return;
       }
       if (tempFilePath == null) {
@@ -3499,13 +3550,17 @@ class _AudioAttachmentViewerState
       await _player
           .setFilePath(tempFilePath)
           .timeout(const Duration(seconds: 15));
+      if (!mounted || generation != _loadGeneration) {
+        await attachmentStore.deleteMaterializedFile(tempFilePath);
+        return;
+      }
       setState(() {
         _tempFilePath = tempFilePath;
         _ready = true;
       });
     } catch (error, stackTrace) {
       debugPrint('Audio playback load failed: $error\n$stackTrace');
-      if (!mounted) {
+      if (!mounted || generation != _loadGeneration) {
         return;
       }
       setState(() {

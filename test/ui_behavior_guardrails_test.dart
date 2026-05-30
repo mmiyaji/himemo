@@ -161,6 +161,31 @@ void main() {
     expect(homePage, contains("Key('editor-delete-note-button')"));
   });
 
+  test('mobile note detail swipe activates the current page media', () {
+    final homePage = _homePresentationSource();
+
+    expect(homePage, contains('late int _currentIndex;'));
+    expect(homePage, contains('_currentIndex = widget.selectedIndex;'));
+    expect(
+      homePage,
+      contains('setState(() {\n                        _currentIndex = index;'),
+    );
+    expect(homePage, contains('isActive: index == _currentIndex'));
+    expect(
+      homePage,
+      isNot(contains('isActive: index == widget.selectedIndex')),
+    );
+    expect(
+      homePage,
+      contains(
+        'void didUpdateWidget(covariant _AudioAttachmentViewer oldWidget)',
+      ),
+    );
+    expect(homePage, contains('unawaited(_resetAndLoad());'));
+    expect(homePage, contains('if (isSyncAttachmentObjectRef(filePath))'));
+    expect(homePage, contains('materializeDecryptedBytes('));
+  });
+
   test('app lock background privacy cover prevents delayed relock flashes', () {
     final appShell = File('lib/app/app.dart').readAsStringSync();
     final homeSettings = File(
