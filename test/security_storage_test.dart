@@ -729,6 +729,43 @@ void main() {
         isFalse,
       );
     });
+
+    test('reports and clears materialized attachment cache', () async {
+      final source = File(
+        '${tempDirectory.path}${Platform.pathSeparator}voice.m4a',
+      );
+      await source.writeAsBytes(const [11, 12, 13, 14, 15], flush: true);
+      final storedReference = await attachmentStore.storeAttachment(
+        XFile(source.path, name: 'voice.m4a', mimeType: 'audio/mp4'),
+        type: AttachmentType.audio,
+      );
+      final materializedPath = await attachmentStore.materializeDecryptedFile(
+        storedReference!,
+        type: AttachmentType.audio,
+        preferredFileName: 'voice.m4a',
+      );
+      expect(materializedPath, isNotNull);
+      final tempPath = materializedPath!;
+      final marker = File('$tempPath.himemo-delete-after');
+      await marker.create(recursive: true);
+      await marker.writeAsString('not-expired-yet');
+
+      expect(await attachmentStore.materializedCacheSizeBytes(), 20);
+
+      final deletedBytes = await attachmentStore.clearMaterializedCache();
+
+      expect(deletedBytes, 20);
+      expect(await File(tempPath).exists(), isFalse);
+      expect(await marker.exists(), isFalse);
+      expect(await attachmentStore.materializedCacheSizeBytes(), 0);
+      expect(
+        await attachmentStore.readAttachment(
+          storedReference,
+          type: AttachmentType.audio,
+        ),
+        const [11, 12, 13, 14, 15],
+      );
+    });
   });
 
   test('NotesController deletes attachments removed during edit', () async {

@@ -2519,12 +2519,17 @@ class StorageUsageSummary {
   const StorageUsageSummary({
     required this.notePayloadBytes,
     required this.attachmentPayloadBytes,
+    required this.attachmentCacheBytes,
   });
 
   final int notePayloadBytes;
   final int attachmentPayloadBytes;
+  final int attachmentCacheBytes;
 
-  int get totalBytes => notePayloadBytes + attachmentPayloadBytes;
+  int get persistentBytes => notePayloadBytes + attachmentPayloadBytes;
+  int get totalBytes => persistentBytes;
+  int get onDeviceBytes => persistentBytes + attachmentCacheBytes;
+  bool get hasCache => attachmentCacheBytes > 0;
 }
 
 final storageUsageSummaryProvider = FutureProvider<StorageUsageSummary>((
@@ -2534,15 +2539,22 @@ final storageUsageSummaryProvider = FutureProvider<StorageUsageSummary>((
   await ref
       .read(notesControllerProvider.notifier)
       .cleanupUnreferencedAttachments();
+  await ref
+      .read(encryptedAttachmentStoreProvider)
+      .cleanupExpiredMaterializedFiles();
   final notePayloadBytes = await ref
       .watch(encryptedNoteStoreProvider)
       .storagePayloadSizeBytes();
   final attachmentPayloadBytes = await ref
       .watch(encryptedAttachmentStoreProvider)
       .storagePayloadSizeBytes();
+  final attachmentCacheBytes = await ref
+      .watch(encryptedAttachmentStoreProvider)
+      .materializedCacheSizeBytes();
   return StorageUsageSummary(
     notePayloadBytes: notePayloadBytes,
     attachmentPayloadBytes: attachmentPayloadBytes,
+    attachmentCacheBytes: attachmentCacheBytes,
   );
 });
 
@@ -9743,6 +9755,14 @@ class NotesController extends _$NotesController {
     return ref
         .read(encryptedAttachmentStoreProvider)
         .deleteUnreferencedAttachments(retainedAttachmentReferences);
+  }
+
+  Future<int> clearStorageCaches() async {
+    final deletedBytes = await ref
+        .read(encryptedAttachmentStoreProvider)
+        .clearMaterializedCache();
+    ref.invalidate(storageUsageSummaryProvider);
+    return deletedBytes;
   }
 
   Future<void> replaceFromSync(List<NoteEntry> notes) async {

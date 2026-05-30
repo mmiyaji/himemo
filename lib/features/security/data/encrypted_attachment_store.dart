@@ -302,10 +302,7 @@ class EncryptedAttachmentStore {
     if (kIsWeb) {
       return 0;
     }
-    final directory = await _directoryProvider();
-    final tmpDirectory = Directory(
-      path.join(directory.path, 'attachments', 'tmp'),
-    );
+    final tmpDirectory = await _materializedTempDirectory();
     if (!await tmpDirectory.exists()) {
       return 0;
     }
@@ -336,6 +333,48 @@ class EncryptedAttachmentStore {
       } catch (_) {}
     }
     return deletedCount;
+  }
+
+  Future<int> materializedCacheSizeBytes() async {
+    if (kIsWeb) {
+      return 0;
+    }
+    final tmpDirectory = await _materializedTempDirectory();
+    if (!await tmpDirectory.exists()) {
+      return 0;
+    }
+    var total = 0;
+    await for (final entity in tmpDirectory.list(recursive: true)) {
+      if (entity is File) {
+        total += await entity.length();
+      }
+    }
+    return total;
+  }
+
+  Future<int> clearMaterializedCache() async {
+    if (kIsWeb) {
+      return 0;
+    }
+    final tmpDirectory = await _materializedTempDirectory();
+    if (!await tmpDirectory.exists()) {
+      return 0;
+    }
+    var deletedBytes = 0;
+    await for (final entity in tmpDirectory.list(recursive: true)) {
+      if (entity is! File) {
+        continue;
+      }
+      try {
+        final size = await entity.length();
+        await entity.delete();
+        deletedBytes += size;
+      } catch (_) {}
+    }
+    try {
+      await tmpDirectory.delete(recursive: true);
+    } catch (_) {}
+    return deletedBytes;
   }
 
   Future<int> storagePayloadSizeBytes() async {
@@ -380,6 +419,11 @@ class EncryptedAttachmentStore {
       total += await entity.length();
     }
     return total;
+  }
+
+  Future<Directory> _materializedTempDirectory() async {
+    final directory = await _directoryProvider();
+    return Directory(path.join(directory.path, 'attachments', 'tmp'));
   }
 
   String _materializedDeleteMarkerPath(String filePath) {

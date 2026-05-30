@@ -21,6 +21,7 @@ class SettingsScreen extends ConsumerWidget {
   static const localeSystemKey = Key('locale-system-option');
   static const createDemoNotesKey = Key('create-demo-notes-button');
   static const deleteDemoNotesKey = Key('delete-demo-notes-button');
+  static const clearStorageCacheKey = Key('clear-storage-cache-button');
   static const localeJapaneseKey = Key('locale-japanese-option');
   static const localeEnglishKey = Key('locale-english-option');
   static const localeChineseKey = Key('locale-chinese-option');
@@ -678,6 +679,10 @@ class SettingsScreen extends ConsumerWidget {
     final diagnosticLog = ref.watch(diagnosticLogControllerProvider);
     final auditLog = ref.watch(auditLogControllerProvider);
     final storageUsageSummary = ref.watch(storageUsageSummaryProvider);
+    final storageCacheBytes = storageUsageSummary.maybeWhen(
+      data: (summary) => summary.attachmentCacheBytes,
+      orElse: () => 0,
+    );
     const showLegacyAccessSettings = bool.fromEnvironment(
       'HIMEMO_SHOW_LEGACY_ACCESS_SETTINGS',
     );
@@ -3490,6 +3495,47 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
             ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                strings.localized(
+                  en: 'Temporary cache',
+                  ja: '一時キャッシュ',
+                  zh: '临时缓存',
+                  ko: '임시 캐시',
+                  es: 'Caché temporal',
+                  de: 'Temporärer Cache',
+                ),
+              ),
+              subtitle: Text(
+                storageUsageSummary.when(
+                  data: (summary) => strings.localized(
+                    en: '${strings.byteCount(summary.attachmentCacheBytes)} for playback and sharing / estimated on-device total ${strings.byteCount(summary.onDeviceBytes)}',
+                    ja: '再生や共有に使う一時ファイル ${strings.byteCount(summary.attachmentCacheBytes)} / 端末上の推定合計 ${strings.byteCount(summary.onDeviceBytes)}',
+                    zh: '用于播放和分享的临时文件 ${strings.byteCount(summary.attachmentCacheBytes)} / 设备上估算总计 ${strings.byteCount(summary.onDeviceBytes)}',
+                    ko: '재생 및 공유용 임시 파일 ${strings.byteCount(summary.attachmentCacheBytes)} / 기기 내 예상 합계 ${strings.byteCount(summary.onDeviceBytes)}',
+                    es: '${strings.byteCount(summary.attachmentCacheBytes)} para reproducir y compartir / total estimado en el dispositivo ${strings.byteCount(summary.onDeviceBytes)}',
+                    de: '${strings.byteCount(summary.attachmentCacheBytes)} fuer Wiedergabe und Teilen / geschaetzte Geraetesumme ${strings.byteCount(summary.onDeviceBytes)}',
+                  ),
+                  loading: () => strings.localized(
+                    en: 'Calculating...',
+                    ja: '計算中...',
+                    zh: '正在计算...',
+                    ko: '계산 중...',
+                    es: 'Calculando...',
+                    de: 'Wird berechnet...',
+                  ),
+                  error: (_, _) => strings.localized(
+                    en: 'Unable to calculate cache size.',
+                    ja: 'キャッシュサイズを計算できませんでした。',
+                    zh: '无法计算缓存大小。',
+                    ko: '캐시 크기를 계산할 수 없습니다.',
+                    es: 'No se pudo calcular el tamaño de caché.',
+                    de: 'Cachegroesse konnte nicht berechnet werden.',
+                  ),
+                ),
+              ),
+            ),
             Align(
               alignment: Alignment.centerLeft,
               child: Wrap(
@@ -3568,6 +3614,45 @@ class SettingsScreen extends ConsumerWidget {
                           },
                     icon: const Icon(Icons.delete_outline_rounded),
                     label: Text(strings.deleteDemoNotes),
+                  ),
+                  OutlinedButton.icon(
+                    key: clearStorageCacheKey,
+                    onPressed: storageCacheBytes == 0
+                        ? null
+                        : () async {
+                            final deletedBytes = await ref
+                                .read(notesControllerProvider.notifier)
+                                .clearStorageCaches();
+                            if (!context.mounted) {
+                              return;
+                            }
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                showCloseIcon: true,
+                                content: Text(
+                                  strings.localized(
+                                    en: 'Cleared ${strings.byteCount(deletedBytes)} of temporary cache.',
+                                    ja: '一時キャッシュ ${strings.byteCount(deletedBytes)} を削除しました。',
+                                    zh: '已清除 ${strings.byteCount(deletedBytes)} 临时缓存。',
+                                    ko: '임시 캐시 ${strings.byteCount(deletedBytes)}를 삭제했습니다.',
+                                    es: 'Se borró ${strings.byteCount(deletedBytes)} de caché temporal.',
+                                    de: '${strings.byteCount(deletedBytes)} temporaerer Cache geloescht.',
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                    icon: const Icon(Icons.cleaning_services_outlined),
+                    label: Text(
+                      strings.localized(
+                        en: 'Clear cache',
+                        ja: 'キャッシュを削除',
+                        zh: '清除缓存',
+                        ko: '캐시 삭제',
+                        es: 'Borrar caché',
+                        de: 'Cache leeren',
+                      ),
+                    ),
                   ),
                   OutlinedButton.icon(
                     onPressed: noteCount == 0
