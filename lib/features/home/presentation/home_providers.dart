@@ -2567,6 +2567,23 @@ class StorageDiagnosticsSummary {
   final int appGroupPendingQuickCaptureBytes;
   final int sharedPreferencesApproxBytes;
 
+  static const empty = StorageDiagnosticsSummary(
+    sqliteBytes: 0,
+    syncExportBytes: 0,
+    appContainerBytes: 0,
+    documentsBytes: 0,
+    libraryBytes: 0,
+    appSupportBytes: 0,
+    temporaryDirectoryBytes: 0,
+    cacheDirectoryBytes: 0,
+    libraryOtherBytes: 0,
+    appContainerOtherBytes: 0,
+    appGroupBytes: 0,
+    appGroupSharedImportsBytes: 0,
+    appGroupPendingQuickCaptureBytes: 0,
+    sharedPreferencesApproxBytes: 0,
+  );
+
   int get measuredBytes =>
       appContainerBytes + appGroupBytes + sharedPreferencesApproxBytes;
 
@@ -2640,86 +2657,101 @@ final storageUsageSummaryProvider = FutureProvider<StorageUsageSummary>((
 final storageDiagnosticsSummaryProvider =
     FutureProvider<StorageDiagnosticsSummary>((ref) async {
       if (kIsWeb) {
-        return const StorageDiagnosticsSummary(
-          sqliteBytes: 0,
-          syncExportBytes: 0,
-          appContainerBytes: 0,
-          documentsBytes: 0,
-          libraryBytes: 0,
-          appSupportBytes: 0,
-          temporaryDirectoryBytes: 0,
-          cacheDirectoryBytes: 0,
-          libraryOtherBytes: 0,
-          appContainerOtherBytes: 0,
-          appGroupBytes: 0,
-          appGroupSharedImportsBytes: 0,
-          appGroupPendingQuickCaptureBytes: 0,
-          sharedPreferencesApproxBytes: 0,
-        );
+        return StorageDiagnosticsSummary.empty;
       }
-      final appSupportDirectory = await getApplicationSupportDirectory();
-      final temporaryDirectory = await getTemporaryDirectory();
-      final cacheDirectory = await getApplicationCacheDirectory();
-      final libraryDirectory = appSupportDirectory.parent;
-      final appContainerDirectory = libraryDirectory.parent;
-      final documentsDirectory = Directory(
-        path.join(appContainerDirectory.path, 'Documents'),
-      );
-      final sqliteBytes = await _sumFilesMatching(
-        appSupportDirectory,
-        (entity) =>
-            path.basename(entity.path).startsWith('himemo_notes.sqlite'),
-      );
-      final syncExportBytes = await _directorySizeBytes(
-        Directory(path.join(appSupportDirectory.path, 'sync_exports')),
-      );
-      final appSupportBytes = await _directorySizeBytes(appSupportDirectory);
-      final temporaryDirectoryBytes = await _directorySizeBytes(
-        temporaryDirectory,
-      );
-      final cacheDirectoryBytes = await _directorySizeBytes(cacheDirectory);
-      final documentsBytes = await _directorySizeBytes(documentsDirectory);
-      final libraryBytes = await _directorySizeBytes(libraryDirectory);
-      final appContainerBytes = await _directorySizeBytes(
-        appContainerDirectory,
-      );
-      final nativeDiagnostics = await _nativeStorageDiagnostics();
-      final sharedPreferencesApproxBytes =
-          await _sharedPreferencesApproxBytes();
-      final libraryOtherBytes =
-          libraryBytes - appSupportBytes - cacheDirectoryBytes;
-      final appContainerOtherBytes =
-          appContainerBytes -
-          documentsBytes -
-          libraryBytes -
-          temporaryDirectoryBytes;
-      final summary = StorageDiagnosticsSummary(
-        sqliteBytes: sqliteBytes,
-        syncExportBytes: syncExportBytes,
-        appContainerBytes: appContainerBytes,
-        documentsBytes: documentsBytes,
-        libraryBytes: libraryBytes,
-        appSupportBytes: appSupportBytes,
-        temporaryDirectoryBytes: temporaryDirectoryBytes,
-        cacheDirectoryBytes: cacheDirectoryBytes,
-        libraryOtherBytes: math.max(0, libraryOtherBytes),
-        appContainerOtherBytes: math.max(0, appContainerOtherBytes),
-        appGroupBytes: nativeDiagnostics.appGroupBytes,
-        appGroupSharedImportsBytes:
-            nativeDiagnostics.appGroupSharedImportsBytes,
-        appGroupPendingQuickCaptureBytes:
-            nativeDiagnostics.appGroupPendingQuickCaptureBytes,
-        sharedPreferencesApproxBytes: sharedPreferencesApproxBytes,
-      );
-      unawaited(
-        DiagnosticLogService.instance.record(
-          'storage',
-          'storage diagnostics calculated',
-          data: summary.toDiagnosticData(),
-          force: true,
-        ),
-      );
-      return summary;
+      try {
+        final appSupportDirectory = await getApplicationSupportDirectory();
+        final documentsDirectory = await getApplicationDocumentsDirectory();
+        final temporaryDirectory = await getTemporaryDirectory();
+        final cacheDirectory = await _applicationCacheDirectoryOrFallback(
+          appSupportDirectory,
+        );
+        final libraryDirectory = appSupportDirectory.parent;
+        final appContainerDirectory =
+            defaultTargetPlatform == TargetPlatform.iOS
+            ? libraryDirectory.parent
+            : appSupportDirectory.parent;
+        final sqliteBytes = await _sumFilesMatching(
+          appSupportDirectory,
+          (entity) =>
+              path.basename(entity.path).startsWith('himemo_notes.sqlite'),
+          label: 'sqlite',
+        );
+        final syncExportBytes = await _directorySizeBytes(
+          Directory(path.join(appSupportDirectory.path, 'sync_exports')),
+          label: 'sync_exports',
+        );
+        final appSupportBytes = await _directorySizeBytes(
+          appSupportDirectory,
+          label: 'app_support',
+        );
+        final temporaryDirectoryBytes = await _directorySizeBytes(
+          temporaryDirectory,
+          label: 'temporary',
+        );
+        final cacheDirectoryBytes = await _directorySizeBytes(
+          cacheDirectory,
+          label: 'cache',
+        );
+        final documentsBytes = await _directorySizeBytes(
+          documentsDirectory,
+          label: 'documents',
+        );
+        final libraryBytes = defaultTargetPlatform == TargetPlatform.iOS
+            ? await _directorySizeBytes(libraryDirectory, label: 'library')
+            : 0;
+        final appContainerBytes = await _directorySizeBytes(
+          appContainerDirectory,
+          label: 'app_container',
+        );
+        final nativeDiagnostics = await _nativeStorageDiagnostics();
+        final sharedPreferencesApproxBytes =
+            await _sharedPreferencesApproxBytes();
+        final libraryOtherBytes =
+            libraryBytes - appSupportBytes - cacheDirectoryBytes;
+        final appContainerOtherBytes =
+            appContainerBytes -
+            documentsBytes -
+            libraryBytes -
+            temporaryDirectoryBytes;
+        final summary = StorageDiagnosticsSummary(
+          sqliteBytes: sqliteBytes,
+          syncExportBytes: syncExportBytes,
+          appContainerBytes: appContainerBytes,
+          documentsBytes: documentsBytes,
+          libraryBytes: libraryBytes,
+          appSupportBytes: appSupportBytes,
+          temporaryDirectoryBytes: temporaryDirectoryBytes,
+          cacheDirectoryBytes: cacheDirectoryBytes,
+          libraryOtherBytes: math.max(0, libraryOtherBytes),
+          appContainerOtherBytes: math.max(0, appContainerOtherBytes),
+          appGroupBytes: nativeDiagnostics.appGroupBytes,
+          appGroupSharedImportsBytes:
+              nativeDiagnostics.appGroupSharedImportsBytes,
+          appGroupPendingQuickCaptureBytes:
+              nativeDiagnostics.appGroupPendingQuickCaptureBytes,
+          sharedPreferencesApproxBytes: sharedPreferencesApproxBytes,
+        );
+        unawaited(
+          DiagnosticLogService.instance.record(
+            'storage',
+            'storage diagnostics calculated',
+            data: summary.toDiagnosticData(),
+            force: true,
+          ),
+        );
+        return summary;
+      } catch (error) {
+        unawaited(
+          DiagnosticLogService.instance.record(
+            'storage',
+            'storage diagnostics failed',
+            data: {'error': '$error'},
+            force: true,
+          ),
+        );
+        return StorageDiagnosticsSummary.empty;
+      }
     });
 
 final storageCacheClearInProgressProvider =
@@ -2736,36 +2768,108 @@ class StorageCacheClearInProgressController extends Notifier<bool> {
   }
 }
 
-Future<int> _directorySizeBytes(Directory directory) async {
-  if (!await directory.exists()) {
+Future<Directory> _applicationCacheDirectoryOrFallback(
+  Directory appSupportDirectory,
+) async {
+  try {
+    return await getApplicationCacheDirectory();
+  } catch (error) {
+    logDiagnostic(
+      'storage',
+      'application cache directory unavailable',
+      data: {'error': '$error'},
+    );
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return Directory(path.join(appSupportDirectory.parent.path, 'Caches'));
+    }
+    return Directory(path.join(appSupportDirectory.parent.path, 'cache'));
+  }
+}
+
+Future<int> _directorySizeBytes(Directory directory, {String? label}) async {
+  try {
+    if (!await directory.exists()) {
+      return 0;
+    }
+  } catch (error) {
+    logDiagnostic(
+      'storage',
+      'directory existence check failed',
+      data: {'label': label, 'path': directory.path, 'error': '$error'},
+    );
     return 0;
   }
   var total = 0;
-  await for (final entity in directory.list(recursive: true)) {
-    if (entity is File) {
+  try {
+    await for (final entity in directory.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      if (entity is! File) {
+        continue;
+      }
       try {
         total += await entity.length();
-      } catch (_) {}
+      } catch (error) {
+        logDiagnostic(
+          'storage',
+          'file size read failed',
+          data: {'label': label, 'path': entity.path, 'error': '$error'},
+        );
+      }
     }
+  } catch (error) {
+    logDiagnostic(
+      'storage',
+      'directory size calculation failed',
+      data: {'label': label, 'path': directory.path, 'error': '$error'},
+    );
   }
   return total;
 }
 
 Future<int> _sumFilesMatching(
   Directory directory,
-  bool Function(File file) matches,
-) async {
-  if (!await directory.exists()) {
+  bool Function(File file) matches, {
+  String? label,
+}) async {
+  try {
+    if (!await directory.exists()) {
+      return 0;
+    }
+  } catch (error) {
+    logDiagnostic(
+      'storage',
+      'directory existence check failed',
+      data: {'label': label, 'path': directory.path, 'error': '$error'},
+    );
     return 0;
   }
   var total = 0;
-  await for (final entity in directory.list(recursive: true)) {
-    if (entity is! File || !matches(entity)) {
-      continue;
+  try {
+    await for (final entity in directory.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      if (entity is! File || !matches(entity)) {
+        continue;
+      }
+      try {
+        total += await entity.length();
+      } catch (error) {
+        logDiagnostic(
+          'storage',
+          'file size read failed',
+          data: {'label': label, 'path': entity.path, 'error': '$error'},
+        );
+      }
     }
-    try {
-      total += await entity.length();
-    } catch (_) {}
+  } catch (error) {
+    logDiagnostic(
+      'storage',
+      'matching file size calculation failed',
+      data: {'label': label, 'path': directory.path, 'error': '$error'},
+    );
   }
   return total;
 }
