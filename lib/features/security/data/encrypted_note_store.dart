@@ -80,7 +80,10 @@ class EncryptedNoteStore {
     return migrated;
   }
 
-  Future<void> save(List<NoteEntry> notes) async {
+  Future<void> save(
+    List<NoteEntry> notes, {
+    bool preserveOmittedPrivateNotes = false,
+  }) async {
     if (kIsWeb) {
       final payload = {'notes': notes.map((entry) => entry.toJson()).toList()};
       final key = await _keyForVault('everyday');
@@ -100,6 +103,7 @@ class EncryptedNoteStore {
     final existingById = {
       for (final snapshot in existingSnapshots) snapshot.note.id: snapshot,
     };
+    final savedIds = notes.map((note) => note.id).toSet();
     final records = <EncryptedNoteRecord>[];
     final attachments = <EncryptedAttachmentRecord>[];
     final pendingChanges = <PendingNoteChangeRecord>[];
@@ -114,6 +118,17 @@ class EncryptedNoteStore {
       }
       final key = await _keyForVault(note.vaultId);
       if (key == null) {
+        final existing = existingById[note.id];
+        if (preserveOmittedPrivateNotes &&
+            isProfileDataKeyPrivateVaultId(note.vaultId) &&
+            existing != null) {
+          records.add(existing.note);
+          attachments.addAll(existing.attachments);
+          final pendingChange = _pendingChangeForRecord(existing.note);
+          if (pendingChange != null) {
+            pendingChanges.add(pendingChange);
+          }
+        }
         continue;
       }
       final payload = await _encryptionService.encryptJson(
@@ -127,6 +142,20 @@ class EncryptedNoteStore {
       final pendingChange = _pendingChangeFor(note);
       if (pendingChange != null) {
         pendingChanges.add(pendingChange);
+      }
+    }
+    if (preserveOmittedPrivateNotes) {
+      for (final snapshot in existingSnapshots) {
+        if (savedIds.contains(snapshot.note.id) ||
+            !isProfileDataKeyPrivateVaultId(snapshot.note.vaultId)) {
+          continue;
+        }
+        records.add(snapshot.note);
+        attachments.addAll(snapshot.attachments);
+        final pendingChange = _pendingChangeForRecord(snapshot.note);
+        if (pendingChange != null) {
+          pendingChanges.add(pendingChange);
+        }
       }
     }
     await database.replaceAll(
@@ -287,6 +316,25 @@ class EncryptedNoteStore {
   }
 
   PendingNoteChangeRecord? _pendingChangeFor(NoteEntry note) {
+    if (note.syncState != NoteSyncState.pendingUpload &&
+        note.syncState != NoteSyncState.conflict &&
+        note.syncState != NoteSyncState.pendingDelete) {
+      return null;
+    }
+    return PendingNoteChangeRecord(
+      noteId: note.id,
+      vaultId: note.vaultId,
+      revision: note.revision,
+      action: note.deletedAt == null
+          ? PendingNoteChangeAction.upsert
+          : PendingNoteChangeAction.delete,
+      queuedAt: note.updatedAt ?? note.createdAt,
+      contentHash: note.contentHash,
+      deletedAt: note.deletedAt,
+    );
+  }
+
+  PendingNoteChangeRecord? _pendingChangeForRecord(EncryptedNoteRecord note) {
     if (note.syncState != NoteSyncState.pendingUpload &&
         note.syncState != NoteSyncState.conflict &&
         note.syncState != NoteSyncState.pendingDelete) {

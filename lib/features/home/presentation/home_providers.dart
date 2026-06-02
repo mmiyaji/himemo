@@ -3539,6 +3539,7 @@ final syncTransferControllerProvider =
 
 class SyncTransferController extends Notifier<SyncTransferState> {
   static const largeMobileSyncThresholdBytes = 50 * 1024 * 1024;
+  static const _automaticICloudPruneKeepLatest = 5;
   static const _remoteStatusCacheTtl = Duration(seconds: 20);
   static const _iCloudRemoteStatusCacheTtl = Duration(minutes: 2);
   static const _syncBundleDecryptionMessage =
@@ -4181,15 +4182,16 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               ),
         ];
       }
-      final encryptedPrivateNotes = await _prepareLockedPrivateSyncNotes(
+      final encryptedPrivateNotes = await _preparePrivateSyncNotes(
         pendingChanges,
+        includeAllPrivateSnapshots: force || pendingChanges.isNotEmpty,
       );
       final encryptedPrivateNoteIds = {
         for (final entry in encryptedPrivateNotes) entry.note.id,
       };
       if (encryptedPrivateNoteIds.isNotEmpty) {
         _diagnostic(
-          'private profile pending changes prepared encrypted',
+          'private profile notes prepared encrypted',
           data: {'count': encryptedPrivateNoteIds.length},
         );
         pendingChanges = pendingChanges
@@ -4263,10 +4265,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         );
         return;
       }
-      final pendingHashes = {
+      final publicPendingHashes = {
         for (final change in pendingChanges) change.noteId: change.contentHash,
-        for (final entry in encryptedPrivateNotes)
-          entry.note.id: entry.note.contentHash,
       };
       final snapshot = await runFirebaseTrace(
         'sync_prepare_snapshot',
@@ -4368,10 +4368,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await ref
           .read(notesControllerProvider.notifier)
           .markSnapshotChangesSynced(
-            pendingHashes,
+            publicPendingHashes,
             preparedNotes: snapshot.notes,
           );
       if (encryptedPrivateNoteIds.isNotEmpty) {
+        await ref
+            .read(encryptedNoteDatabaseProvider)
+            .markNotesSyncedByIds(encryptedPrivateNoteIds);
         await ref
             .read(encryptedNoteDatabaseProvider)
             .deletePendingChangesByIds(encryptedPrivateNoteIds);
@@ -4468,42 +4471,47 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  Future<List<PreparedEncryptedPrivateSyncNote>> _prepareLockedPrivateSyncNotes(
-    List<PendingNoteChangeRecord> pendingChanges,
-  ) async {
-    final lockedPrivateChanges = pendingChanges
-        .where(
-          (change) =>
-              isPrivateVaultId(change.vaultId) &&
-              !ref
-                  .read(profileDataKeyServiceProvider)
-                  .isProfileUnlocked(change.vaultId),
-        )
+  Future<List<PreparedEncryptedPrivateSyncNote>> _preparePrivateSyncNotes(
+    List<PendingNoteChangeRecord> pendingChanges, {
+    required bool includeAllPrivateSnapshots,
+  }) async {
+    final privateChanges = pendingChanges
+        .where((change) => isPrivateVaultId(change.vaultId))
         .toList(growable: false);
-    if (lockedPrivateChanges.isEmpty) {
+    if (!includeAllPrivateSnapshots && privateChanges.isEmpty) {
       return const <PreparedEncryptedPrivateSyncNote>[];
     }
-    final snapshots = await ref.read(encryptedNoteDatabaseProvider).loadAll();
-    final snapshotsById = {
-      for (final snapshot in snapshots) snapshot.note.id: snapshot,
+    final privateChangesById = {
+      for (final change in privateChanges) change.noteId: change,
     };
+    final snapshots = await ref.read(encryptedNoteDatabaseProvider).loadAll();
     final encryptedNotes = <PreparedEncryptedPrivateSyncNote>[];
-    for (final change in lockedPrivateChanges) {
-      final snapshot = snapshotsById[change.noteId];
-      if (snapshot == null) {
+    for (final snapshot in snapshots) {
+      if (!isPrivateVaultId(snapshot.note.vaultId)) {
         continue;
       }
+      final change = privateChangesById[snapshot.note.id];
+      if (!includeAllPrivateSnapshots && change == null) {
+        continue;
+      }
+      final action =
+          change?.action ??
+          (snapshot.note.deletedAt == null
+              ? PendingNoteChangeAction.upsert
+              : PendingNoteChangeAction.delete);
       encryptedNotes.add(
         PreparedEncryptedPrivateSyncNote(
-          action: change.action,
+          action: action,
           note: snapshot.note.copyWith(
-            deletedAt: change.action == PendingNoteChangeAction.delete
-                ? (change.deletedAt ?? snapshot.note.deletedAt)
+            deletedAt: action == PendingNoteChangeAction.delete
+                ? (change?.deletedAt ?? snapshot.note.deletedAt)
                 : null,
-            clearDeletedAt: change.action == PendingNoteChangeAction.upsert,
-            revision: math.max(snapshot.note.revision, change.revision),
+            clearDeletedAt: action == PendingNoteChangeAction.upsert,
+            revision: change == null
+                ? snapshot.note.revision
+                : math.max(snapshot.note.revision, change.revision),
             syncState: NoteSyncState.synced,
-            contentHash: change.contentHash ?? snapshot.note.contentHash,
+            contentHash: change?.contentHash ?? snapshot.note.contentHash,
           ),
           attachments: snapshot.attachments,
         ),
@@ -4644,13 +4652,33 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   Future<void> _pruneICloudStorageAfterUpload(StoredSyncBundle bundle) async {
     try {
+      final history = await ref
+          .read(iCloudSyncTransportProvider)
+          .listBundleHistory(limit: _automaticICloudPruneKeepLatest + 5);
+      final largerHistoricalNoteCounts = [
+        for (final status in history)
+          if (status.noteCount != null && status.noteCount! > bundle.noteCount)
+            status.noteCount!,
+      ];
+      if (largerHistoricalNoteCounts.isNotEmpty) {
+        _diagnostic(
+          'icloud post upload storage prune skipped note count decreased',
+          data: {
+            'latestNotes': bundle.noteCount,
+            'maxHistoryNotes': largerHistoricalNoteCounts.reduce(
+              (a, b) => a > b ? a : b,
+            ),
+          },
+        );
+        return;
+      }
       final referencedHashes = await _referencedAttachmentHashesFromBundle(
         bundle.reference,
       );
       final maintenance = await ref
           .read(iCloudSyncTransportProvider)
           .pruneObsoleteData(
-            keepLatest: 1,
+            keepLatest: _automaticICloudPruneKeepLatest,
             referencedAttachmentHashes: referencedHashes,
           );
       _diagnostic(
@@ -10381,13 +10409,16 @@ class NotesController extends _$NotesController {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
-    final retainedLocalNotes = [
-      for (final note in state)
-        if (noteExcludedFromSync(note, syncExclusionTags)) note,
-    ];
     final incomingNotes = [
       for (final note in notes)
         if (!noteExcludedFromSync(note, syncExclusionTags)) note,
+    ];
+    final incomingIds = incomingNotes.map((note) => note.id).toSet();
+    final retainedLocalNotes = [
+      for (final note in state)
+        if (noteExcludedFromSync(note, syncExclusionTags) ||
+            (isPrivateVaultId(note.vaultId) && !incomingIds.contains(note.id)))
+          note,
     ];
     final incomingPaths = {
       for (final note in incomingNotes) ..._attachmentFilePathsIn(note),
@@ -10401,7 +10432,6 @@ class NotesController extends _$NotesController {
             attachment,
     ];
     await _deleteAttachments(removedAttachments);
-    final incomingIds = incomingNotes.map((note) => note.id).toSet();
     final next = [
       ...incomingNotes,
       for (final note in retainedLocalNotes)
@@ -10746,10 +10776,7 @@ class NotesController extends _$NotesController {
     final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
     bool canUpload(NoteEntry note) =>
         !_isLockedPrivatePlaceholder(note) &&
-        (!isPrivateVaultId(note.vaultId) ||
-            ref
-                .read(profileDataKeyServiceProvider)
-                .isProfileUnlocked(note.vaultId)) &&
+        !isPrivateVaultId(note.vaultId) &&
         !noteExcludedFromSync(note, syncExclusionTags);
     if (pendingNoteIds == null) {
       return List<NoteEntry>.unmodifiable(state.where(canUpload));
@@ -10831,10 +10858,7 @@ class NotesController extends _$NotesController {
     final next = <NoteEntry>[];
     for (final note in state) {
       if (_isLockedPrivatePlaceholder(note) ||
-          (isPrivateVaultId(note.vaultId) &&
-              !ref
-                  .read(profileDataKeyServiceProvider)
-                  .isProfileUnlocked(note.vaultId)) ||
+          isPrivateVaultId(note.vaultId) ||
           isGeneratedSampleNote(note) ||
           noteExcludedFromSync(note, syncExclusionTags)) {
         next.add(note);
@@ -11161,7 +11185,9 @@ class NotesController extends _$NotesController {
     }
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
     try {
-      await ref.read(encryptedNoteStoreProvider).save(state);
+      await ref
+          .read(encryptedNoteStoreProvider)
+          .save(state, preserveOmittedPrivateNotes: true);
       ref.invalidate(syncQueueSummaryProvider);
       await _syncSpotlightIndexForAll();
       stopwatch?.stop();

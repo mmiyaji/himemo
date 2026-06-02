@@ -433,6 +433,78 @@ void main() {
     });
 
     test(
+      'normal saves preserve omitted private profile snapshots when guarded',
+      () async {
+        final tempDirectory = await Directory.systemTemp.createTemp(
+          'himemo-profile-key-preserve-',
+        );
+        final database = EncryptedNoteDatabase(
+          executor: NativeDatabase.memory(),
+        );
+        addTearDown(database.close);
+        addTearDown(() async {
+          if (await tempDirectory.exists()) {
+            await tempDirectory.delete(recursive: true);
+          }
+        });
+        final masterKeyService = MasterKeyService(
+          secureStore: secureStore,
+          keyFactory: encryptionService.generateKeyBytes,
+        );
+        final profileKeys = ProfileDataKeyService(
+          secureStore: secureStore,
+          encryptionService: encryptionService,
+          normalMasterKeyService: masterKeyService,
+        );
+        const vaultId = 'private_profile:a';
+        await profileKeys.configureProfile(
+          vaultId: vaultId,
+          password: 'correct horse battery staple',
+        );
+        final store = EncryptedNoteStore(
+          encryptionService: encryptionService,
+          masterKeyService: masterKeyService,
+          profileDataKeyService: profileKeys,
+          database: database,
+          directoryProvider: () async => tempDirectory,
+          sharedPreferencesProvider: () async => prefs,
+        );
+        final privateNote = NoteEntry(
+          id: 'private-a',
+          vaultId: vaultId,
+          title: 'Secret profile title',
+          body: 'Secret profile body',
+          createdAt: DateTime(2026, 5, 6, 8, 0),
+        );
+        final normalNote = NoteEntry(
+          id: 'normal-a',
+          vaultId: 'everyday',
+          title: 'Normal title',
+          body: 'Normal body',
+          createdAt: DateTime(2026, 5, 6, 9, 0),
+        );
+
+        await store.save([privateNote, normalNote]);
+        profileKeys.lockProfile(vaultId);
+        await store.save([normalNote], preserveOmittedPrivateNotes: true);
+
+        final guarded = await store.load(fallbackNotes: const []);
+        expect(
+          guarded.map((note) => note.id),
+          containsAll(['normal-a', 'private-a']),
+        );
+        expect(
+          guarded.singleWhere((note) => note.id == 'private-a').title,
+          'Locked private note',
+        );
+
+        await store.save([normalNote]);
+        final explicitlyReplaced = await store.load(fallbackNotes: const []);
+        expect(explicitlyReplaced.map((note) => note.id), ['normal-a']);
+      },
+    );
+
+    test(
       'stores and verifies private vault secret in secure storage',
       () async {
         expect(await secretStore.hasSecret(), isFalse);
@@ -2640,6 +2712,89 @@ void main() {
       await tempDirectory.delete(recursive: true);
     }
   });
+
+  test(
+    'NotesController replaceFromSync preserves local private profile notes',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-apply-private-preserve-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(70));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: noteDatabase,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+
+      final controller = container.read(notesControllerProvider.notifier);
+      await controller.restoreCompleted;
+      await controller.upsert(
+        NoteEntry(
+          id: 'local-everyday',
+          vaultId: 'everyday',
+          title: 'Local everyday',
+          body: 'Should be replaced',
+          createdAt: DateTime(2026, 4, 12, 8, 0),
+        ),
+      );
+      await controller.upsert(
+        NoteEntry(
+          id: 'local-private',
+          vaultId: legacyPrivateVaultId,
+          title: 'Local private',
+          body: 'Must survive a smaller remote snapshot',
+          createdAt: DateTime(2026, 4, 12, 8, 30),
+        ),
+      );
+
+      await controller.replaceFromSync([
+        NoteEntry(
+          id: 'remote-everyday',
+          vaultId: 'everyday',
+          title: 'Remote everyday',
+          body: 'From remote bundle',
+          createdAt: DateTime(2026, 4, 12, 18, 0),
+        ),
+      ]);
+
+      final ids = container
+          .read(notesControllerProvider)
+          .map((note) => note.id)
+          .toSet();
+      expect(ids, contains('remote-everyday'));
+      expect(ids, contains('local-private'));
+      expect(ids, isNot(contains('local-everyday')));
+    },
+  );
 
   test(
     'NotesController merges sync changes without replacing local state',

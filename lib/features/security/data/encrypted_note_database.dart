@@ -362,6 +362,17 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
     )..where((table) => table.noteId.isIn(noteIds))).go();
   }
 
+  Future<void> markNotesSyncedByIds(Set<String> noteIds) async {
+    if (noteIds.isEmpty) {
+      return;
+    }
+    await (update(
+      encryptedNotes,
+    )..where((table) => table.id.isIn(noteIds))).write(
+      EncryptedNotesCompanion(syncState: Value(NoteSyncState.synced.name)),
+    );
+  }
+
   EncryptedNoteRecord _mapRow(EncryptedNote row) {
     return EncryptedNoteRecord(
       id: row.id,

@@ -826,6 +826,124 @@ void main() {
   );
 
   test(
+    'iCloud auto prune preserves older larger bundles after smaller upload',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+      });
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-icloud-prune-regression-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(68));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final noteStore = EncryptedNoteStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        database: noteDatabase,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final attachmentStore = EncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final fakeTransport = InMemoryICloudSyncTransport();
+      final olderLarger = await fakeTransport.uploadBundle(
+        encodedPayload: 'older-larger-bundle',
+        deviceId: 'other-device',
+        noteCount: 8,
+        attachmentCount: 0,
+      );
+      await fakeTransport.uploadBundle(
+        encodedPayload: 'newer-smaller-bundle',
+        deviceId: 'other-device',
+        noteCount: 6,
+        attachmentCount: 0,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          iCloudSynchronizableKeyValueStoreProvider.overrideWithValue(
+            secureStore,
+          ),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteStoreProvider.overrideWithValue(noteStore),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+          secureSyncBundleStoreProvider.overrideWith(
+            (ref) => SecureSyncBundleStore(
+              encryptionService: encryptionService,
+              syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
+              legacyMasterKeyService: masterKeyService,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          iCloudSyncTransportProvider.overrideWithValue(fakeTransport),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+
+      await container
+          .read(syncProviderControllerProvider.notifier)
+          .setProvider(SyncProvider.iCloud);
+      await container
+          .read(syncAuthControllerProvider.notifier)
+          .connect(SyncProvider.iCloud);
+      await container.read(notesControllerProvider.notifier).restoreCompleted;
+      await container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'post-loss-note',
+              vaultId: 'everyday',
+              title: 'Post loss note',
+              body: 'This smaller local state must not erase history.',
+              createdAt: DateTime.utc(2026, 6, 2, 0, 27),
+              updatedAt: DateTime.utc(2026, 6, 2, 0, 27),
+            ),
+          );
+
+      await container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true);
+      await pumpEventQueue(times: 5);
+
+      final history = await fakeTransport.listBundleHistory(limit: 10);
+      expect(
+        history.map((status) => status.fileId),
+        contains(olderLarger.fileId),
+      );
+      expect(
+        await fakeTransport.downloadBundleByRecordName(olderLarger.fileId),
+        isNotNull,
+        reason:
+            'A smaller post-loss upload must not prune the older larger '
+            'bundle that may be the only recovery point.',
+      );
+      expect(history.length, 3);
+    },
+  );
+
+  test(
     'fake Google Drive sync sequence uploads and downloads bundle',
     () async {
       SharedPreferences.setMockInitialValues({});
@@ -2111,10 +2229,27 @@ void main() {
         createdAt: DateTime.utc(2026, 5, 24, 10),
       ),
     );
-    final snapshot = (await database.loadAll()).singleWhere(
+    await controller.upsert(
+      NoteEntry(
+        id: 'locked-private-stable',
+        vaultId: unlocked.vaultId,
+        title: 'Private stable',
+        body: 'This private note has no pending change.',
+        createdAt: DateTime.utc(2026, 5, 24, 10, 30),
+      ),
+    );
+    final privateSnapshots = await database.loadAll();
+    final snapshot = privateSnapshots.singleWhere(
       (entry) => entry.note.id == 'locked-private-delete',
     );
-    final deletedAt = DateTime.utc(2026, 5, 24, 11);
+    final stableSnapshot = privateSnapshots.singleWhere(
+      (entry) => entry.note.id == 'locked-private-stable',
+    );
+    await database.upsertOne(
+      note: stableSnapshot.note.copyWith(syncState: NoteSyncState.synced),
+      attachments: stableSnapshot.attachments,
+    );
+    final deletedAt = DateTime.now().toUtc().subtract(const Duration(hours: 1));
     await database.upsertOne(
       note: snapshot.note,
       attachments: snapshot.attachments,
@@ -2134,7 +2269,7 @@ void main() {
         .uploadCurrentBundle(force: true);
 
     final remoteStatus = await fakeTransport.fetchLatestBundleStatus();
-    expect(remoteStatus?.noteCount, 1);
+    expect(remoteStatus?.noteCount, 2);
     final remoteBundle = await fakeTransport.downloadLatestBundle();
     expect(remoteBundle, isNotNull);
     final localBundle = await container
@@ -2149,9 +2284,33 @@ void main() {
         .read(secureSyncBundleStoreProvider)
         .readBundleJson(localBundle.reference);
     expect(decoded?['notes'], isEmpty);
-    expect(decoded?['encryptedPrivateNotes'], hasLength(1));
+    final encryptedPrivateNotes =
+        decoded?['encryptedPrivateNotes'] as List<dynamic>?;
+    expect(encryptedPrivateNotes, hasLength(2));
+    final encryptedPrivateNoteIds = {
+      for (final rawEntry in encryptedPrivateNotes!)
+        ((rawEntry as Map)['note'] as Map)['id'],
+    };
+    final encryptedPrivateActions = {
+      for (final rawEntry in encryptedPrivateNotes)
+        ((rawEntry as Map)['note'] as Map)['id']: rawEntry['action'],
+    };
+    expect(
+      encryptedPrivateNoteIds,
+      containsAll({'locked-private-delete', 'locked-private-stable'}),
+    );
+    expect(encryptedPrivateActions['locked-private-delete'], 'delete');
+    expect(encryptedPrivateActions['locked-private-stable'], 'upsert');
     final pendingChanges = await database.loadPendingChanges();
     expect(pendingChanges, isEmpty);
+    final storedAfterUpload = await database.loadAll();
+    expect(
+      storedAfterUpload
+          .singleWhere((entry) => entry.note.id == 'locked-private-stable')
+          .note
+          .syncState,
+      NoteSyncState.synced,
+    );
     expect(
       container.read(syncTransferControllerProvider).message,
       'sync.info.upload_success',
@@ -2172,7 +2331,11 @@ void main() {
     final restored = (await database.loadAll()).singleWhere(
       (entry) => entry.note.id == 'locked-private-delete',
     );
-    expect(restored.note.deletedAt?.isAtSameMomentAs(deletedAt), isTrue);
+    expect(restored.note.deletedAt, isNotNull);
+    expect(
+      restored.note.deletedAt!.difference(deletedAt).abs(),
+      lessThan(const Duration(seconds: 2)),
+    );
     expect(await database.loadPendingChanges(), isEmpty);
   });
 
