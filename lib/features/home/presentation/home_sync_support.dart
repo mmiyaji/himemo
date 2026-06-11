@@ -338,6 +338,15 @@ String _localizedSyncTransferMessage(
             '- Wenn Notizen oder Anhange auf dem ursprunglichen Gerat repariert wurden, lade alle Notizen von dort erneut hoch und synchronisiere noch einmal.\n'
             '- Wenn Notizen privater Profile enthalten sind, offne das Zielprofil auf diesem Gerat und wende das Paket erneut an.',
       );
+    case 'sync.error.unlock_private_profiles_before_compact':
+      return strings.localized(
+        en: 'Open all private profiles on this device before compacting iCloud sync storage. This keeps private attachments from being pruned while their profile is locked.',
+        ja: 'iCloud同期ストレージを整理する前に、この端末ですべてのプライベートプロファイルを開いてください。プロファイルがロック中の添付が削除されるのを防ぎます。',
+        zh: '压缩 iCloud 同步存储前，请先在此设备上打开所有私密档案，以免锁定档案中的附件被清理。',
+        ko: 'iCloud 동기화 저장 공간을 정리하기 전에 이 기기에서 모든 비공개 프로필을 여세요. 잠긴 프로필의 첨부 파일이 정리되지 않도록 합니다.',
+        es: 'Abre todos los perfiles privados en este dispositivo antes de compactar el almacenamiento de sincronizacion de iCloud. Asi se evita eliminar adjuntos privados mientras el perfil esta bloqueado.',
+        de: 'Offne alle privaten Profile auf diesem Gerat, bevor du den iCloud-Sync-Speicher bereinigst. So werden private Anhange nicht entfernt, solange ihr Profil gesperrt ist.',
+      );
     case 'sync.error.bundle_key_missing':
       return strings.localized(
         en: 'The cloud recovery key for this sync bundle is not available on this device. Copy the cloud recovery key from the original device, import it here, then sync again.',

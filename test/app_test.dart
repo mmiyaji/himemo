@@ -2270,7 +2270,8 @@ void main() {
         .uploadCurrentBundle(force: true);
 
     final remoteStatus = await fakeTransport.fetchLatestBundleStatus();
-    expect(remoteStatus?.noteCount, 2);
+    expect(remoteStatus?.noteCount, 1);
+    expect(remoteStatus?.bundleKind, SyncBundleKind.delta);
     final remoteBundle = await fakeTransport.downloadLatestBundle();
     expect(remoteBundle, isNotNull);
     final localBundle = await container
@@ -2287,7 +2288,7 @@ void main() {
     expect(decoded?['notes'], isEmpty);
     final encryptedPrivateNotes =
         decoded?['encryptedPrivateNotes'] as List<dynamic>?;
-    expect(encryptedPrivateNotes, hasLength(2));
+    expect(encryptedPrivateNotes, hasLength(1));
     final encryptedPrivateNoteIds = {
       for (final rawEntry in encryptedPrivateNotes!)
         ((rawEntry as Map)['note'] as Map)['id'],
@@ -2296,12 +2297,9 @@ void main() {
       for (final rawEntry in encryptedPrivateNotes)
         ((rawEntry as Map)['note'] as Map)['id']: rawEntry['action'],
     };
-    expect(
-      encryptedPrivateNoteIds,
-      containsAll({'locked-private-delete', 'locked-private-stable'}),
-    );
+    expect(encryptedPrivateNoteIds, containsAll({'locked-private-delete'}));
+    expect(encryptedPrivateNoteIds, isNot(contains('locked-private-stable')));
     expect(encryptedPrivateActions['locked-private-delete'], 'delete');
-    expect(encryptedPrivateActions['locked-private-stable'], 'upsert');
     final pendingChanges = await database.loadPendingChanges();
     expect(pendingChanges, isEmpty);
     final storedAfterUpload = await database.loadAll();
@@ -2493,12 +2491,69 @@ void main() {
       final remoteStatus = await fakeTransport.fetchLatestBundleStatus();
       expect(remoteStatus?.noteCount, 1);
       expect(remoteStatus?.attachmentCount, 1);
+      final sourceProfileKey = await source.container
+          .read(profileDataKeyServiceProvider)
+          .keyForVault(sourceProfile.vaultId);
+      expect(sourceProfileKey, isNotNull);
+      final syncedSourceSnapshot = (await source.database.loadAll())
+          .singleWhere((entry) => entry.note.id == 'private-attachment-note');
+      final syncedSourceAttachmentPayload = await source.container
+          .read(encryptionServiceProvider)
+          .decryptJson(
+            encodedPayload:
+                syncedSourceSnapshot.attachments.single.encryptedPayload,
+            secretKey: sourceProfileKey!,
+          );
+      final syncedSourceAttachment = NoteAttachment.fromJson(
+        syncedSourceAttachmentPayload,
+      );
+      expect(
+        isSyncAttachmentObjectRef(syncedSourceAttachment.filePath),
+        isTrue,
+      );
+      final syncedAttachmentHash =
+          syncedSourceAttachment.syncAttachmentContentHash ??
+          syncAttachmentObjectContentHash(syncedSourceAttachment.filePath);
+      expect(syncedAttachmentHash, isNotNull);
+      final sourceSync = source.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      final remoteAttachmentHashesBeforeSecondUpload = await fakeTransport
+          .listAttachmentObjectContentHashes();
+      await sourceSync.uploadCurrentBundle(force: true, fullSnapshot: true);
+      final secondRemoteStatus = await fakeTransport.fetchLatestBundleStatus();
+      expect(secondRemoteStatus?.attachmentCount, 1);
+      expect(
+        await fakeTransport.listAttachmentObjectContentHashes(),
+        remoteAttachmentHashesBeforeSecondUpload,
+      );
+      final secondRemoteBundle = await fakeTransport.downloadLatestBundle();
+      expect(secondRemoteBundle, isNotNull);
+      final secondLocalBundle = await source.container
+          .read(secureSyncBundleStoreProvider)
+          .writeEncryptedBundlePayload(
+            secondRemoteBundle!.encodedPayload,
+            noteCount: secondRemoteBundle.status.noteCount ?? 0,
+            attachmentCount: secondRemoteBundle.status.attachmentCount ?? 0,
+            fileNameOverride: 'private_attachment_second_bundle.enc',
+          );
+      final secondDecoded = await source.container
+          .read(secureSyncBundleStoreProvider)
+          .readBundleJson(secondLocalBundle.reference);
+      final secondBundleAttachmentHashes = {
+        for (final raw
+            in (secondDecoded?['attachments'] as List<dynamic>? ??
+                const <dynamic>[]))
+          if (raw is Map) raw['contentHash'],
+      };
+      expect(secondBundleAttachmentHashes, contains(syncedAttachmentHash));
 
       final targetSync = target.container.read(
         syncTransferControllerProvider.notifier,
       );
       await targetSync.downloadLatestBundle();
       await targetSync.applyDownloadedBundle();
+      targetSync.clearLocalBundleCache();
 
       final targetProfile = await target.container
           .read(privateProfileUnlockControllerProvider.notifier)
@@ -2518,6 +2573,42 @@ void main() {
             type: AttachmentType.photo,
           );
       expect(restoredBytes, attachmentBytes);
+
+      await target.container
+          .read(notesControllerProvider.notifier)
+          .upsert(targetNote.copyWith(title: 'Local newer private attachment'));
+      final newerTargetSnapshot = (await target.database.loadAll()).singleWhere(
+        (entry) => entry.note.id == 'private-attachment-note',
+      );
+      await target.database.upsertOne(
+        note: newerTargetSnapshot.note.copyWith(
+          syncState: NoteSyncState.synced,
+        ),
+        attachments: newerTargetSnapshot.attachments,
+      );
+      await target.database.deletePendingChangesByIds({
+        'private-attachment-note',
+      });
+      await target.container
+          .read(notesControllerProvider.notifier)
+          .reloadFromStorage();
+      expect(
+        target.container
+            .read(notesControllerProvider)
+            .singleWhere((note) => note.id == 'private-attachment-note')
+            .title,
+        'Local newer private attachment',
+      );
+
+      await targetSync.downloadLatestBundle();
+      await targetSync.applyDownloadedBundle();
+      expect(
+        target.container
+            .read(notesControllerProvider)
+            .singleWhere((note) => note.id == 'private-attachment-note')
+            .title,
+        'Local newer private attachment',
+      );
     },
   );
 

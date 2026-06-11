@@ -131,6 +131,39 @@ class SecureSyncBundleStore {
     );
   }
 
+  Future<StoredSyncBundle?> readStoredEncryptedBundle({
+    String? fileNameOverride,
+  }) async {
+    final reference = kIsWeb
+        ? webStorageKey
+        : path.join(
+            (await _directoryProvider()).path,
+            'sync_exports',
+            fileNameOverride ?? fileName,
+          );
+    final encodedPayload = await readEncryptedBundlePayload(reference);
+    if (encodedPayload == null || encodedPayload.isEmpty) {
+      return null;
+    }
+    final decoded = await readBundleJson(reference);
+    if (decoded == null) {
+      return null;
+    }
+    final notes =
+        (decoded['notes'] as List<dynamic>? ?? const <dynamic>[]).length;
+    final encryptedPrivateNotes =
+        (decoded['encryptedPrivateNotes'] as List<dynamic>? ??
+                const <dynamic>[])
+            .length;
+    final attachments =
+        (decoded['attachments'] as List<dynamic>? ?? const <dynamic>[]).length;
+    return StoredSyncBundle(
+      reference: reference,
+      noteCount: notes + encryptedPrivateNotes,
+      attachmentCount: attachments,
+    );
+  }
+
   Future<String> writeAttachmentObjectPayload(
     PreparedSyncAttachment attachment,
   ) async {

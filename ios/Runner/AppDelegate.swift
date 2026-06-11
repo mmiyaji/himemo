@@ -61,6 +61,8 @@ import FoundationModels
       cloudKitNoteCountField,
       cloudKitAttachmentCountField,
       cloudKitExportedAtField,
+      cloudKitBundleKindField,
+      cloudKitBundleSizeField,
     ]
   }
 
@@ -1234,6 +1236,7 @@ import FoundationModels
       record[self.cloudKitAttachmentCountField] = NSNumber(value: attachmentCount)
       record[self.cloudKitExportedAtField] = Date() as CKRecordValue
       record[self.cloudKitBundleKindField] = bundleKind as CKRecordValue
+      record[self.cloudKitBundleSizeField] = NSNumber(value: encodedPayload.utf8.count)
       record[self.cloudKitAssetField] = CKAsset(fileURL: temporaryURL)
 
       database.save(record) { savedRecord, error in
@@ -1695,14 +1698,53 @@ import FoundationModels
     desiredKeys: [String]? = nil,
     completion: @escaping ([CKRecord], Error?) -> Void
   ) {
-    fetchAllCloudKitRecords(
-      database: database,
+    var records: [CKRecord] = []
+    let query = CKQuery(
       recordType: cloudKitRecordType,
-      sortedByModificationDate: true,
-      desiredKeys: desiredKeys
-    ) { records, error in
-      completion(Array(records.prefix(limit)), error)
+      predicate: NSPredicate(value: true)
+    )
+    query.sortDescriptors = [
+      NSSortDescriptor(key: "modificationDate", ascending: false)
+    ]
+
+    func finish(_ error: Error?) {
+      if let error {
+        completion(records, error)
+        return
+      }
+      completion(Array(records.prefix(limit)), nil)
     }
+
+    func fetch(cursor: CKQueryOperation.Cursor?) {
+      let operation: CKQueryOperation
+      if let cursor {
+        operation = CKQueryOperation(cursor: cursor)
+      } else {
+        operation = CKQueryOperation(query: query)
+        operation.zoneID = cloudKitSyncZoneID
+      }
+      operation.resultsLimit = max(limit - records.count, 1)
+      operation.desiredKeys = desiredKeys
+      operation.recordFetchedBlock = { record in
+        if records.count < limit {
+          records.append(record)
+        }
+      }
+      operation.queryCompletionBlock = { nextCursor, error in
+        if let error {
+          finish(error)
+          return
+        }
+        if let nextCursor, records.count < limit {
+          fetch(cursor: nextCursor)
+          return
+        }
+        finish(nil)
+      }
+      database.add(operation)
+    }
+
+    fetch(cursor: nil)
   }
 
   private func fetchAllCloudKitRecords(

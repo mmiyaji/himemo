@@ -778,9 +778,16 @@ void main() {
     expect(appDelegate, contains('cloudKitAccountAvailableUntil'));
     expect(appDelegate, contains('cloudKitSyncZoneReady'));
     expect(appDelegate, contains('private var cloudKitBundleMetadataFields'));
+    expect(appDelegate, contains('cloudKitBundleKindField,'));
     expect(appDelegate, contains('options.desiredKeys = desiredKeys'));
     expect(appDelegate, contains('cloudKitBundleSizeField'));
+    expect(appDelegate, contains('record[self.cloudKitBundleSizeField]'));
     expect(appDelegate, contains('bundleFileSize(for: record)'));
+    expect(appDelegate, contains('CKQueryOperation(query: query)'));
+    expect(
+      appDelegate,
+      contains('operation.resultsLimit = max(limit - records.count, 1)'),
+    );
     expect(
       appDelegate,
       contains('desiredKeys: self.cloudKitBundleMetadataFields'),
