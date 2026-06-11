@@ -8,12 +8,14 @@
       "fields": {
         "attachmentCount": "Int(64)",
         "bundleAsset": "Asset",
+        "bundleKind": "String",
         "deviceId": "String",
         "exportedAt": "Date/Time",
         "noteCount": "Int(64)"
       },
       "notes": [
-        "Stores encrypted change bundles. Production must include attachmentCount before split attachment sync is released."
+        "Stores encrypted change bundles. Production must include attachmentCount before split attachment sync is released.",
+        "bundleKind is 'full' or 'delta'. Records without bundleKind are legacy full snapshots. Required for delta sync history walking."
       ]
     },
     "HiMemoSyncAttachment": {

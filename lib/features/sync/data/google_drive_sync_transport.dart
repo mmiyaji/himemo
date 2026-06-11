@@ -9,6 +9,13 @@ import 'package:googleapis/drive/v3.dart' as drive;
 import 'google_sign_in_initializer.dart';
 import 'sync_bundle_key_service.dart';
 
+/// Identifies whether a remote bundle contains every syncable note (full
+/// snapshot) or only the changes queued since the previous upload (delta).
+abstract final class SyncBundleKind {
+  static const full = 'full';
+  static const delta = 'delta';
+}
+
 class RemoteSyncBundleStatus {
   const RemoteSyncBundleStatus({
     required this.fileId,
@@ -18,6 +25,7 @@ class RemoteSyncBundleStatus {
     this.noteCount,
     this.attachmentCount,
     this.deviceId,
+    this.bundleKind,
   });
 
   final String fileId;
@@ -27,6 +35,16 @@ class RemoteSyncBundleStatus {
   final int? noteCount;
   final int? attachmentCount;
   final String? deviceId;
+
+  /// [SyncBundleKind.full], [SyncBundleKind.delta], or null for bundles
+  /// uploaded before the kind was recorded (legacy bundles were always full
+  /// snapshots).
+  final String? bundleKind;
+
+  bool get isFullBundle =>
+      bundleKind == null ||
+      bundleKind!.isEmpty ||
+      bundleKind == SyncBundleKind.full;
 }
 
 class DownloadedRemoteSyncBundle {
@@ -49,6 +67,7 @@ abstract class GoogleDriveSyncTransport {
     required String deviceId,
     required int noteCount,
     required int attachmentCount,
+    String bundleKind = SyncBundleKind.full,
   });
 
   Future<void> uploadAttachmentObject({
@@ -108,6 +127,7 @@ class InMemoryGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     required String deviceId,
     required int noteCount,
     required int attachmentCount,
+    String bundleKind = SyncBundleKind.full,
   }) async {
     if (uploadDelay > Duration.zero) {
       await Future<void>.delayed(uploadDelay);
@@ -123,6 +143,7 @@ class InMemoryGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
       noteCount: noteCount,
       attachmentCount: attachmentCount,
       deviceId: deviceId,
+      bundleKind: bundleKind,
     );
     _bundles.add(
       _InMemoryGoogleDriveBundle(
@@ -315,6 +336,7 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     required String deviceId,
     required int noteCount,
     required int attachmentCount,
+    String bundleKind = SyncBundleKind.full,
   }) async {
     final api = await _openDriveApi(interactive: false);
     final bytes = utf8.encode(encodedPayload);
@@ -328,6 +350,7 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
         'deviceId': deviceId,
         'noteCount': '$noteCount',
         'attachmentCount': '$attachmentCount',
+        'bundleKind': bundleKind,
       };
 
     final result = await _withDriveRetry(
@@ -731,6 +754,7 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
       noteCount: int.tryParse(appProperties['noteCount'] ?? ''),
       attachmentCount: int.tryParse(appProperties['attachmentCount'] ?? ''),
       deviceId: appProperties['deviceId'],
+      bundleKind: appProperties['bundleKind'],
     );
   }
 

@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../security/data/encryption_service.dart';
 import '../../security/data/master_key_service.dart';
+import 'google_drive_sync_transport.dart' show SyncBundleKind;
 import 'sync_engine.dart';
 import 'sync_bundle_key_service.dart';
 
@@ -54,6 +55,7 @@ class SecureSyncBundleStore {
     List<PreparedEncryptedPrivateSyncNote> encryptedPrivateNotes =
         const <PreparedEncryptedPrivateSyncNote>[],
     bool inlineAttachments = false,
+    String bundleKind = SyncBundleKind.full,
   }) async {
     final key = await _syncBundleKeyService.obtainOrCreate();
     final payload = await _encryptSyncBundleJson(
@@ -62,6 +64,7 @@ class SecureSyncBundleStore {
         privateProfiles: privateProfiles,
         encryptedPrivateNotes: encryptedPrivateNotes,
         inlineAttachments: inlineAttachments,
+        bundleKind: bundleKind,
       ),
       secretKey: key,
     );
@@ -186,10 +189,12 @@ class SecureSyncBundleStore {
     required List<Map<String, dynamic>> privateProfiles,
     required List<PreparedEncryptedPrivateSyncNote> encryptedPrivateNotes,
     required bool inlineAttachments,
+    required String bundleKind,
   }) {
     return {
       'bundleVersion': inlineAttachments ? 2 : 3,
       'mode': 'changes',
+      'bundleKind': bundleKind,
       'deviceId': snapshot.deviceId,
       'exportedAt': snapshot.exportedAt.toIso8601String(),
       if (!inlineAttachments) 'attachmentStorage': 'objects',

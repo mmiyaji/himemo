@@ -19,6 +19,14 @@ Sync records are stored in the custom zone `HiMemoSyncZone`; the app creates thi
 - `noteCount`: Int(64)
 - `attachmentCount`: Int(64)
 - `exportedAt`: Date/Time
+- `bundleKind`: String — `full` または `delta`。デルタ同期の履歴ウォークが「どこからリプレイすれば全ノートが揃うか」を判定するために使う。未設定のレコードはレガシーのフルスナップショットとして扱われる。
+
+### bundleKind 追加時の iCloud (CloudKit Dev) 修正ポイント
+
+1. CloudKit Console → `iCloud.org.ruhenheim.himemo` → **Development** 環境 → Record Types → `HiMemoSyncBundle` に `bundleKind` (String) フィールドを追加する。
+   - クエリ条件には使用しないため Queryable/Sortable インデックスは不要（一覧は既存クエリのまま、判定はレコード読み出し後に行う）。
+2. `python tools/cloudkit/check_expected_schema.py` を実行して `expected-schema.json` と一致することを確認する。
+3. 動作確認後、CloudKit Console の **Deploy Schema Changes** で Production に反映する（デルタバンドルをアップロードする前に必須。フィールド未定義のまま Production でアップロードすると保存エラーになる）。
 
 `HiMemoSyncAttachment`
 

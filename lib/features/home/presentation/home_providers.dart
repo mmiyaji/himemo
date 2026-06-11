@@ -3540,6 +3540,14 @@ final syncTransferControllerProvider =
 class SyncTransferController extends Notifier<SyncTransferState> {
   static const largeMobileSyncThresholdBytes = 50 * 1024 * 1024;
   static const _automaticICloudPruneKeepLatest = 5;
+
+  // Upload a full snapshot every N delta uploads so remote history can be
+  // pruned and devices with an unknown apply anchor can always converge from
+  // the newest full bundle.
+  static const _fullSnapshotUploadInterval = 20;
+
+  // How many remote bundles to inspect when walking unapplied history.
+  static const _remoteBundleWalkHistoryLimit = 50;
   static const _remoteStatusCacheTtl = Duration(seconds: 20);
   static const _iCloudRemoteStatusCacheTtl = Duration(minutes: 2);
   static const _syncBundleDecryptionMessage =
@@ -4039,7 +4047,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       data: {'keepLatest': keepLatest},
     );
     await ref.read(notesControllerProvider.notifier).queueCurrentStateForSync();
-    await uploadCurrentBundle(force: true, pruneAfterUpload: false);
+    await uploadCurrentBundle(
+      force: true,
+      fullSnapshot: true,
+      pruneAfterUpload: false,
+    );
     final localBundle = state.localBundle;
     if (localBundle == null) {
       throw StateError('sync.error.local_bundle_prepare_failed');
@@ -4106,6 +4118,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   Future<void> uploadCurrentBundle({
     bool force = false,
+    bool fullSnapshot = false,
     bool allowLargeMobileTransfer = false,
     bool silentLargeMobileSkip = false,
     bool pruneAfterUpload = true,
@@ -4169,9 +4182,31 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     await _yieldToUi();
     try {
       await logFirebaseBreadcrumb('sync upload requested');
-      await ref
-          .read(notesControllerProvider.notifier)
-          .queueCurrentStateForSync();
+      final bundleStateBeforeUpload = await ref
+          .read(syncBundleStateStoreProvider)
+          .read();
+      // Delta sync: regular uploads carry only the queued changes. A full
+      // snapshot (all syncable notes) is uploaded on the first upload, every
+      // _fullSnapshotUploadInterval delta uploads, or when explicitly
+      // requested (force upload / re-upload / storage compaction).
+      final uploadFullSnapshot =
+          fullSnapshot ||
+          bundleStateBeforeUpload.lastFullUploadedAt == null ||
+          bundleStateBeforeUpload.deltaUploadsSinceFull >=
+              _fullSnapshotUploadInterval;
+      _diagnostic(
+        'upload mode selected',
+        data: {
+          'fullSnapshot': uploadFullSnapshot,
+          'deltaUploadsSinceFull':
+              bundleStateBeforeUpload.deltaUploadsSinceFull,
+        },
+      );
+      if (uploadFullSnapshot) {
+        await ref
+            .read(notesControllerProvider.notifier)
+            .queueCurrentStateForSync();
+      }
       var pendingChanges = await ref
           .read(syncEngineProvider)
           .loadPendingChanges();
@@ -4196,7 +4231,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       }
       final encryptedPrivateNotes = await _preparePrivateSyncNotes(
         pendingChanges,
-        includeAllPrivateSnapshots: force || pendingChanges.isNotEmpty,
+        includeAllPrivateSnapshots: uploadFullSnapshot,
       );
       final encryptedPrivateNoteIds = {
         for (final entry in encryptedPrivateNotes) entry.note.id,
@@ -4369,6 +4404,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               privateProfiles: [privateProfiles],
               encryptedPrivateNotes: encryptedPrivateNotes,
               inlineAttachments: provider == SyncProvider.off,
+              bundleKind: uploadFullSnapshot
+                  ? SyncBundleKind.full
+                  : SyncBundleKind.delta,
             ),
       );
       final encodedPayload = await runFirebaseTrace(
@@ -4437,6 +4475,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           deviceId: snapshot.deviceId,
           noteCount: bundle.noteCount,
           attachmentCount: bundle.attachmentCount,
+          bundleKind: uploadFullSnapshot
+              ? SyncBundleKind.full
+              : SyncBundleKind.delta,
         ),
       );
       _cacheRemoteStatus(provider, remoteStatus);
@@ -4483,7 +4524,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remoteStatus: remoteStatus,
         localBundle: bundle,
       );
-      await ref.read(syncBundleStateStoreProvider).recordUpload(remoteStatus);
+      await ref
+          .read(syncBundleStateStoreProvider)
+          .recordUpload(remoteStatus, fullSnapshot: uploadFullSnapshot);
       ref.invalidate(syncBundleStateProvider);
       await _recordSyncHistory(
         startedAt: historyStartedAt,
@@ -4495,7 +4538,12 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remoteStatus: remoteStatus,
         localBundle: bundle,
       );
-      if (provider == SyncProvider.iCloud && pruneAfterUpload) {
+      // Bundle pruning is only safe after a full snapshot upload: the new
+      // full bundle supersedes the whole history, while pruning after a
+      // delta upload could delete bundles other devices still need to walk.
+      if (provider == SyncProvider.iCloud &&
+          pruneAfterUpload &&
+          uploadFullSnapshot) {
         unawaited(_pruneICloudStorageAfterUpload(bundle));
       }
     } on SyncAttachmentMissingException catch (error) {
@@ -4520,6 +4568,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         );
         await uploadCurrentBundle(
           force: force,
+          fullSnapshot: fullSnapshot,
           allowLargeMobileTransfer: allowLargeMobileTransfer,
           silentLargeMobileSkip: silentLargeMobileSkip,
           pruneAfterUpload: pruneAfterUpload,
@@ -4733,6 +4782,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     await ref.read(notesControllerProvider.notifier).queueCurrentStateForSync();
     await uploadCurrentBundle(
       force: true,
+      fullSnapshot: true,
       allowLargeMobileTransfer: allowLargeMobileTransfer,
       silentLargeMobileSkip: silentLargeMobileSkip,
     );
@@ -4938,25 +4988,70 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         }
         _setProgress(SyncTransferProgress.downloadingBundle);
         await _yieldToUi();
-        final remoteBundle = await runFirebaseTrace(
-          'sync_download_latest_bundle',
-          _downloadLatestRemoteBundle,
-        );
+        // Delta sync: bundles may carry only a slice of the changes, so every
+        // unapplied bundle since this device's apply anchor has to be walked
+        // in order — applying just the newest one would drop the notes that
+        // only exist in skipped intermediate bundles.
+        List<RemoteSyncBundleStatus> history;
+        try {
+          history = await runFirebaseTrace(
+            'sync_list_remote_bundle_history',
+            () => _listRemoteHistory(limit: _remoteBundleWalkHistoryLimit),
+          );
+        } catch (error) {
+          _diagnostic(
+            'remote bundle history unavailable falling back to latest',
+            data: {'error': error},
+          );
+          history = const <RemoteSyncBundleStatus>[];
+        }
+        final bundlesToApply = history.isEmpty
+            ? <RemoteSyncBundleStatus>[remoteStatus]
+            : selectRemoteBundlesToApply(
+                history: history,
+                bundleState: bundleState,
+              );
         _diagnostic(
-          'latest remote bundle downloaded',
+          'remote bundles selected for apply',
           data: {
-            'hasBundle': remoteBundle != null,
-            'fileId': remoteBundle?.status.fileId,
-            'payloadLength': remoteBundle?.encodedPayload.length,
+            'historyCount': history.length,
+            'applyCount': bundlesToApply.length,
+            'fileIds': [
+              for (final status in bundlesToApply) status.fileId,
+            ].join(','),
           },
         );
-        await _storeDownloadedBundle(
-          remoteBundle,
-          emptyMessage: 'sync.info.no_bundle_to_sync',
-        );
-        if (remoteBundle != null) {
+        for (final bundleStatus in bundlesToApply) {
+          _setProgress(SyncTransferProgress.downloadingBundle);
+          await _yieldToUi();
+          final remoteBundle = await runFirebaseTrace(
+            'sync_download_remote_bundle_for_apply',
+            () => _downloadRemoteBundleById(bundleStatus.fileId),
+          );
+          if (remoteBundle == null) {
+            _diagnostic(
+              'remote bundle disappeared during walk',
+              data: {'fileId': bundleStatus.fileId},
+            );
+            continue;
+          }
+          _diagnostic(
+            'remote bundle downloaded for apply',
+            data: {
+              'fileId': remoteBundle.status.fileId,
+              'bundleKind': remoteBundle.status.bundleKind,
+              'payloadLength': remoteBundle.encodedPayload.length,
+            },
+          );
+          await _storeDownloadedBundle(
+            remoteBundle,
+            emptyMessage: 'sync.info.no_bundle_to_sync',
+          );
           _setProgress(SyncTransferProgress.applyingBundle);
           await _yieldToUi();
+          // applyDownloadedBundle records the apply anchor per bundle, so an
+          // interrupted walk resumes from the first bundle that was not yet
+          // applied instead of starting over or skipping ahead.
           await applyDownloadedBundle();
           if (state.stage == SyncTransferStage.error) {
             return;
@@ -6292,13 +6387,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     } catch (_) {}
   }
 
-  Future<List<RemoteSyncBundleStatus>> _listRemoteHistory() {
+  Future<List<RemoteSyncBundleStatus>> _listRemoteHistory({int limit = 10}) {
     final provider = ref.read(syncProviderControllerProvider);
     return switch (provider) {
       SyncProvider.iCloud =>
-        ref.read(iCloudSyncTransportProvider).listBundleHistory(),
+        ref.read(iCloudSyncTransportProvider).listBundleHistory(limit: limit),
       SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
-        () => ref.read(googleDriveSyncTransportProvider).listBundleHistory(),
+        () => ref
+            .read(googleDriveSyncTransportProvider)
+            .listBundleHistory(limit: limit),
       ),
       SyncProvider.off => Future.value(const <RemoteSyncBundleStatus>[]),
     };
@@ -6309,6 +6406,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     required String deviceId,
     required int noteCount,
     required int attachmentCount,
+    required String bundleKind,
   }) {
     final provider = ref.read(syncProviderControllerProvider);
     return switch (provider) {
@@ -6320,6 +6418,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               deviceId: deviceId,
               noteCount: noteCount,
               attachmentCount: attachmentCount,
+              bundleKind: bundleKind,
             ),
       SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
         () => ref
@@ -6329,6 +6428,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               deviceId: deviceId,
               noteCount: noteCount,
               attachmentCount: attachmentCount,
+              bundleKind: bundleKind,
             ),
       ),
       SyncProvider.off => Future.error(

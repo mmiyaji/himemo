@@ -89,6 +89,7 @@ abstract class ICloudSyncTransport {
     required String deviceId,
     required int noteCount,
     required int attachmentCount,
+    String bundleKind = SyncBundleKind.full,
   });
 
   Future<void> uploadAttachmentObject({
@@ -165,6 +166,7 @@ class InMemoryICloudSyncTransport implements ICloudSyncTransport {
     required String deviceId,
     required int noteCount,
     required int attachmentCount,
+    String bundleKind = SyncBundleKind.full,
   }) async {
     await _delay();
     _throwIfUnavailable();
@@ -179,6 +181,7 @@ class InMemoryICloudSyncTransport implements ICloudSyncTransport {
       noteCount: noteCount,
       attachmentCount: attachmentCount,
       deviceId: deviceId,
+      bundleKind: bundleKind,
     );
     _bundles.add(
       _InMemoryICloudBundle(status: status, encodedPayload: encodedPayload),
@@ -455,12 +458,14 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
     required String deviceId,
     required int noteCount,
     required int attachmentCount,
+    String bundleKind = SyncBundleKind.full,
   }) async {
     final result = await _invokeMap('cloudKitUploadBundle', {
       'encodedPayload': encodedPayload,
       'deviceId': deviceId,
       'noteCount': noteCount,
       'attachmentCount': attachmentCount,
+      'bundleKind': bundleKind,
     });
     if (result == null) {
       throw const FormatException('CloudKit did not return uploaded metadata.');
@@ -723,6 +728,7 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
       noteCount: map['noteCount'] as int?,
       attachmentCount: map['attachmentCount'] as int?,
       deviceId: map['deviceId'] as String?,
+      bundleKind: map['bundleKind'] as String?,
     );
   }
 

@@ -35,6 +35,7 @@ import FoundationModels
   private let cloudKitNoteCountField = "noteCount"
   private let cloudKitAttachmentCountField = "attachmentCount"
   private let cloudKitExportedAtField = "exportedAt"
+  private let cloudKitBundleKindField = "bundleKind"
   private let cloudKitAccountStatusCacheDuration: TimeInterval = 60
 
   private var widgetChannel: FlutterMethodChannel?
@@ -1018,6 +1019,7 @@ import FoundationModels
         deviceId: deviceId,
         noteCount: noteCount,
         attachmentCount: attachmentCount,
+        bundleKind: args["bundleKind"] as? String ?? "full",
         result: result
       )
     case "cloudKitDownloadLatestBundle":
@@ -1199,6 +1201,7 @@ import FoundationModels
     deviceId: String,
     noteCount: Int,
     attachmentCount: Int,
+    bundleKind: String,
     result: @escaping FlutterResult
   ) {
     withAvailableCloudKit(result: result) { database in
@@ -1227,6 +1230,7 @@ import FoundationModels
       record[self.cloudKitNoteCountField] = NSNumber(value: noteCount)
       record[self.cloudKitAttachmentCountField] = NSNumber(value: attachmentCount)
       record[self.cloudKitExportedAtField] = Date() as CKRecordValue
+      record[self.cloudKitBundleKindField] = bundleKind as CKRecordValue
       record[self.cloudKitAssetField] = CKAsset(fileURL: temporaryURL)
 
       database.save(record) { savedRecord, error in
@@ -1847,6 +1851,9 @@ import FoundationModels
     }
     if let deviceId = record[cloudKitDeviceIdField] as? String {
       payload["deviceId"] = deviceId
+    }
+    if let bundleKind = record[cloudKitBundleKindField] as? String {
+      payload["bundleKind"] = bundleKind
     }
     return payload
   }

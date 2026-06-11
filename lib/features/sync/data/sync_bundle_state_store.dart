@@ -11,6 +11,10 @@ class SyncBundleState {
     this.lastRemoteDeviceId,
     this.lastUploadedAt,
     this.lastAppliedAt,
+    this.lastAppliedRemoteFileId,
+    this.lastAppliedRemoteModifiedAt,
+    this.lastFullUploadedAt,
+    this.deltaUploadsSinceFull = 0,
   });
 
   final String? lastRemoteFileId;
@@ -19,12 +23,30 @@ class SyncBundleState {
   final DateTime? lastUploadedAt;
   final DateTime? lastAppliedAt;
 
+  /// The most recent remote bundle this device has actually applied locally
+  /// (or produced itself via upload). Unlike [lastRemoteFileId], which is
+  /// refreshed on every status check, this anchor only moves when the local
+  /// notes are known to contain that bundle's changes — it is what the delta
+  /// sync walk uses to decide which remote bundles still need to be applied.
+  final String? lastAppliedRemoteFileId;
+  final DateTime? lastAppliedRemoteModifiedAt;
+
+  /// When this device last uploaded a full snapshot bundle, and the number of
+  /// delta bundles uploaded since. Used to schedule periodic full snapshots
+  /// so remote history can converge and be pruned.
+  final DateTime? lastFullUploadedAt;
+  final int deltaUploadsSinceFull;
+
   SyncBundleState copyWith({
     String? lastRemoteFileId,
     DateTime? lastRemoteModifiedAt,
     String? lastRemoteDeviceId,
     DateTime? lastUploadedAt,
     DateTime? lastAppliedAt,
+    String? lastAppliedRemoteFileId,
+    DateTime? lastAppliedRemoteModifiedAt,
+    DateTime? lastFullUploadedAt,
+    int? deltaUploadsSinceFull,
   }) {
     return SyncBundleState(
       lastRemoteFileId: lastRemoteFileId ?? this.lastRemoteFileId,
@@ -32,6 +54,13 @@ class SyncBundleState {
       lastRemoteDeviceId: lastRemoteDeviceId ?? this.lastRemoteDeviceId,
       lastUploadedAt: lastUploadedAt ?? this.lastUploadedAt,
       lastAppliedAt: lastAppliedAt ?? this.lastAppliedAt,
+      lastAppliedRemoteFileId:
+          lastAppliedRemoteFileId ?? this.lastAppliedRemoteFileId,
+      lastAppliedRemoteModifiedAt:
+          lastAppliedRemoteModifiedAt ?? this.lastAppliedRemoteModifiedAt,
+      lastFullUploadedAt: lastFullUploadedAt ?? this.lastFullUploadedAt,
+      deltaUploadsSinceFull:
+          deltaUploadsSinceFull ?? this.deltaUploadsSinceFull,
     );
   }
 
@@ -42,6 +71,12 @@ class SyncBundleState {
       'lastRemoteDeviceId': lastRemoteDeviceId,
       'lastUploadedAt': _toUtcIso8601String(lastUploadedAt),
       'lastAppliedAt': _toUtcIso8601String(lastAppliedAt),
+      'lastAppliedRemoteFileId': lastAppliedRemoteFileId,
+      'lastAppliedRemoteModifiedAt': _toUtcIso8601String(
+        lastAppliedRemoteModifiedAt,
+      ),
+      'lastFullUploadedAt': _toUtcIso8601String(lastFullUploadedAt),
+      'deltaUploadsSinceFull': deltaUploadsSinceFull,
     };
   }
 
@@ -52,6 +87,13 @@ class SyncBundleState {
       lastRemoteDeviceId: json['lastRemoteDeviceId'] as String?,
       lastUploadedAt: _parseUtc(json['lastUploadedAt'] as String?),
       lastAppliedAt: _parseUtc(json['lastAppliedAt'] as String?),
+      lastAppliedRemoteFileId: json['lastAppliedRemoteFileId'] as String?,
+      lastAppliedRemoteModifiedAt: _parseUtc(
+        json['lastAppliedRemoteModifiedAt'] as String?,
+      ),
+      lastFullUploadedAt: _parseUtc(json['lastFullUploadedAt'] as String?),
+      deltaUploadsSinceFull:
+          (json['deltaUploadsSinceFull'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -93,14 +135,26 @@ class SyncBundleStateStore {
     );
   }
 
-  Future<void> recordUpload(RemoteSyncBundleStatus remoteStatus) async {
+  Future<void> recordUpload(
+    RemoteSyncBundleStatus remoteStatus, {
+    bool fullSnapshot = true,
+  }) async {
     final current = await read();
+    final now = DateTime.now().toUtc();
     await write(
       current.copyWith(
         lastRemoteFileId: remoteStatus.fileId,
         lastRemoteModifiedAt: remoteStatus.modifiedAt?.toUtc(),
         lastRemoteDeviceId: remoteStatus.deviceId,
-        lastUploadedAt: DateTime.now().toUtc(),
+        lastUploadedAt: now,
+        // A bundle this device uploaded is by definition contained in the
+        // local notes, so it also advances the applied anchor.
+        lastAppliedRemoteFileId: remoteStatus.fileId,
+        lastAppliedRemoteModifiedAt: remoteStatus.modifiedAt?.toUtc(),
+        lastFullUploadedAt: fullSnapshot ? now : current.lastFullUploadedAt,
+        deltaUploadsSinceFull: fullSnapshot
+            ? 0
+            : current.deltaUploadsSinceFull + 1,
       ),
     );
   }
@@ -115,6 +169,11 @@ class SyncBundleStateStore {
         lastRemoteDeviceId:
             remoteStatus?.deviceId ?? current.lastRemoteDeviceId,
         lastAppliedAt: DateTime.now().toUtc(),
+        lastAppliedRemoteFileId:
+            remoteStatus?.fileId ?? current.lastAppliedRemoteFileId,
+        lastAppliedRemoteModifiedAt:
+            remoteStatus?.modifiedAt?.toUtc() ??
+            current.lastAppliedRemoteModifiedAt,
       ),
     );
   }

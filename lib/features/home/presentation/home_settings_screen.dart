@@ -2943,6 +2943,7 @@ class SettingsScreen extends ConsumerWidget {
                                           )
                                           .uploadCurrentBundle(
                                             force: true,
+                                            fullSnapshot: true,
                                             allowLargeMobileTransfer: true,
                                           );
                                       if (!context.mounted) {
