@@ -144,7 +144,10 @@ class SecureSyncBundleStore {
         'type': attachment.type.name,
         'label': attachment.label,
         'sizeBytes': attachment.sizeBytes,
-        'bytesBase64': attachment.bytesBase64,
+        if (attachment.bytesBase64.isNotEmpty)
+          'bytesBase64': attachment.bytesBase64,
+        if (attachment.encryptedPayload?.isNotEmpty == true)
+          'encryptedPayload': attachment.encryptedPayload,
       },
       secretKey: key,
     );

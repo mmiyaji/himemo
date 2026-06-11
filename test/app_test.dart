@@ -31,6 +31,7 @@ import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/features/sync/data/secure_sync_bundle_store.dart';
 import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
 import 'package:himemo/features/sync/data/icloud_sync_transport.dart';
+import 'package:himemo/features/sync/data/sync_attachment_refs.dart';
 import 'package:himemo/features/sync/data/sync_engine.dart';
 import 'package:himemo/features/sync/data/sync_bundle_state_store.dart';
 import 'package:himemo/l10n/app_localizations.dart';
@@ -2338,6 +2339,187 @@ void main() {
     );
     expect(await database.loadPendingChanges(), isEmpty);
   });
+
+  test(
+    'private profile attachment sync materializes on another device',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final fakeTransport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final secureStore = MemorySecureKeyValueStore();
+
+      Future<
+        ({
+          ProviderContainer container,
+          EncryptedNoteDatabase database,
+          Directory directory,
+        })
+      >
+      createDevice(String prefix, int randomSeed) async {
+        final tempDirectory = await Directory.systemTemp.createTemp(prefix);
+        final encryptionService = EncryptionService(random: Random(randomSeed));
+        final masterKeyService = MasterKeyService(
+          secureStore: secureStore,
+          keyFactory: encryptionService.generateKeyBytes,
+        );
+        final database = EncryptedNoteDatabase(
+          executor: NativeDatabase.memory(),
+        );
+        final container = ProviderContainer(
+          overrides: [
+            secureKeyValueStoreProvider.overrideWithValue(secureStore),
+            encryptionServiceProvider.overrideWithValue(encryptionService),
+            masterKeyServiceProvider.overrideWithValue(masterKeyService),
+            encryptedNoteDatabaseProvider.overrideWithValue(database),
+            encryptedNoteStoreProvider.overrideWith(
+              (ref) => EncryptedNoteStore(
+                encryptionService: encryptionService,
+                masterKeyService: masterKeyService,
+                profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
+                database: database,
+                directoryProvider: () async => tempDirectory,
+                sharedPreferencesProvider: SharedPreferences.getInstance,
+              ),
+            ),
+            encryptedAttachmentStoreProvider.overrideWith(
+              (ref) => EncryptedAttachmentStore(
+                encryptionService: encryptionService,
+                masterKeyService: masterKeyService,
+                profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
+                directoryProvider: () async => tempDirectory,
+                sharedPreferencesProvider: SharedPreferences.getInstance,
+              ),
+            ),
+            secureSyncBundleStoreProvider.overrideWith(
+              (ref) => SecureSyncBundleStore(
+                encryptionService: encryptionService,
+                syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
+                legacyMasterKeyService: masterKeyService,
+                directoryProvider: () async => tempDirectory,
+                sharedPreferencesProvider: SharedPreferences.getInstance,
+              ),
+            ),
+            syncBundleStateStoreProvider.overrideWithValue(
+              SyncBundleStateStore(storageKey: 'sync.bundle_state.$prefix'),
+            ),
+            googleDriveSyncTransportProvider.overrideWithValue(fakeTransport),
+            syncAuthGatewayProvider.overrideWithValue(
+              FakeGoogleDriveSyncAuthGateway(
+                fallback: DefaultSyncAuthGateway(),
+              ),
+            ),
+          ],
+        );
+        await container
+            .read(syncProviderControllerProvider.notifier)
+            .setProvider(SyncProvider.googleDrive);
+        await container
+            .read(syncAuthControllerProvider.notifier)
+            .connect(SyncProvider.googleDrive);
+        await container.read(notesControllerProvider.notifier).restoreCompleted;
+        return (
+          container: container,
+          database: database,
+          directory: tempDirectory,
+        );
+      }
+
+      final source = await createDevice('himemo-private-attachment-src-', 151);
+      final target = await createDevice('himemo-private-attachment-dst-', 152);
+      addTearDown(source.container.dispose);
+      addTearDown(target.container.dispose);
+      addTearDown(source.database.close);
+      addTearDown(target.database.close);
+      addTearDown(() async {
+        if (await source.directory.exists()) {
+          await source.directory.delete(recursive: true);
+        }
+        if (await target.directory.exists()) {
+          await target.directory.delete(recursive: true);
+        }
+      });
+
+      final addError = await source.container
+          .read(privateMemoProfilesControllerProvider.notifier)
+          .addProfile(name: 'Attachment profile', password: 'attach-pass-123');
+      expect(addError, isNull);
+      final sourceProfile = await source.container
+          .read(privateProfileUnlockControllerProvider.notifier)
+          .unlockWithPassword('attach-pass-123');
+      expect(sourceProfile, isNotNull);
+
+      final sourceAttachmentStore = source.container.read(
+        encryptedAttachmentStoreProvider,
+      );
+      final attachmentBytes = Uint8List.fromList([1, 2, 3, 4, 5, 6]);
+      final encryptedPayload = await sourceAttachmentStore
+          .encryptAttachmentBytes(
+            bytes: attachmentBytes,
+            type: AttachmentType.photo,
+            vaultId: sourceProfile!.vaultId,
+          );
+      final storedPath = await sourceAttachmentStore.storeEncryptedPayload(
+        encodedPayload: encryptedPayload,
+        type: AttachmentType.photo,
+        fileNameHint: 'private-photo.jpg',
+        vaultId: sourceProfile.vaultId,
+      );
+      final attachment = NoteAttachment(
+        type: AttachmentType.photo,
+        label: 'private-photo.jpg',
+        filePath: storedPath,
+      );
+      await source.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'private-attachment-note',
+              vaultId: sourceProfile.vaultId,
+              title: 'Private attachment',
+              body: 'Contains a synced private image.',
+              createdAt: DateTime.utc(2026, 6, 11, 10),
+              updatedAt: DateTime.utc(2026, 6, 11, 10, 1),
+              attachments: [attachment],
+              blocks: [
+                NoteBlock(type: NoteBlockType.photo, attachment: attachment),
+              ],
+            ),
+          );
+
+      await source.container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true);
+      final remoteStatus = await fakeTransport.fetchLatestBundleStatus();
+      expect(remoteStatus?.noteCount, 1);
+      expect(remoteStatus?.attachmentCount, 1);
+
+      final targetSync = target.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      await targetSync.downloadLatestBundle();
+      await targetSync.applyDownloadedBundle();
+
+      final targetProfile = await target.container
+          .read(privateProfileUnlockControllerProvider.notifier)
+          .unlockWithPassword('attach-pass-123');
+      expect(targetProfile?.vaultId, sourceProfile.vaultId);
+
+      final targetNote = target.container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'private-attachment-note');
+      final targetAttachment = targetNote.attachments.single;
+      expect(targetAttachment.filePath, isNotNull);
+      expect(isSyncAttachmentObjectRef(targetAttachment.filePath), isFalse);
+      final restoredBytes = await target.container
+          .read(encryptedAttachmentStoreProvider)
+          .readAttachment(
+            targetAttachment.filePath!,
+            type: AttachmentType.photo,
+          );
+      expect(restoredBytes, attachmentBytes);
+    },
+  );
 
   test('Spotlight indexing sends note body and rich text terms', () async {
     TestWidgetsFlutterBinding.ensureInitialized();

@@ -923,6 +923,7 @@ class FakeGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     required String deviceId,
     required int noteCount,
     required int attachmentCount,
+    String bundleKind = SyncBundleKind.full,
   }) async {
     uploadCalls += 1;
     uploadedPayload = encodedPayload;

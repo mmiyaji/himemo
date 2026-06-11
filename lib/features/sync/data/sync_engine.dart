@@ -31,7 +31,8 @@ class PreparedSyncAttachment {
     required this.id,
     required this.type,
     required this.label,
-    required this.bytesBase64,
+    this.bytesBase64 = '',
+    this.encryptedPayload,
     required this.contentHash,
     required this.sizeBytes,
   });
@@ -40,6 +41,7 @@ class PreparedSyncAttachment {
   final AttachmentType type;
   final String label;
   final String bytesBase64;
+  final String? encryptedPayload;
   final String contentHash;
   final int sizeBytes;
 
@@ -50,7 +52,9 @@ class PreparedSyncAttachment {
       'label': label,
       'contentHash': contentHash,
       'sizeBytes': sizeBytes,
-      if (inlineBytes) 'bytesBase64': bytesBase64,
+      if (inlineBytes && bytesBase64.isNotEmpty) 'bytesBase64': bytesBase64,
+      if (inlineBytes && encryptedPayload?.isNotEmpty == true)
+        'encryptedPayload': encryptedPayload,
     };
   }
 }
