@@ -353,6 +353,16 @@ class EncryptedNoteDatabase extends _$EncryptedNoteDatabase {
     });
   }
 
+  Future<Set<String>> existingNoteIds(Set<String> noteIds) async {
+    if (noteIds.isEmpty) {
+      return const <String>{};
+    }
+    final rows = await (select(
+      encryptedNotes,
+    )..where((table) => table.id.isIn(noteIds))).get();
+    return {for (final row in rows) row.id};
+  }
+
   Future<void> deletePendingChangesByIds(Set<String> noteIds) async {
     if (noteIds.isEmpty) {
       return;

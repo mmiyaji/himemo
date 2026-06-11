@@ -4216,20 +4216,54 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             return note != null &&
                 noteExcludedFromSync(note, syncExclusionTags);
           })
-          .map((change) => change.noteId);
-      final stalePendingChangeIds = pendingChanges
+          .map((change) => change.noteId)
+          .toSet();
+      // Pending upserts whose note is not uploadable fall into three buckets:
+      // excluded by sync tags (safe to prune), gone from both memory and the
+      // encrypted database (safe to prune), or present somewhere but not
+      // uploadable right now (must NOT be pruned — pruning would silently
+      // drop a change that was never uploaded).
+      final unresolvedUpsertIds = pendingChanges
           .where(
             (change) =>
                 change.action == PendingNoteChangeAction.upsert &&
-                !uploadableNoteIds.contains(change.noteId),
+                !uploadableNoteIds.contains(change.noteId) &&
+                !excludedPendingIds.contains(change.noteId),
           )
           .map((change) => change.noteId)
-          .followedBy(excludedPendingIds)
           .toSet();
+      final missingEverywhereIds = <String>{};
+      if (unresolvedUpsertIds.isNotEmpty) {
+        final idsInDatabase = await ref
+            .read(encryptedNoteDatabaseProvider)
+            .existingNoteIds(unresolvedUpsertIds);
+        for (final noteId in unresolvedUpsertIds) {
+          if (!currentNotesById.containsKey(noteId) &&
+              !idsInDatabase.contains(noteId)) {
+            missingEverywhereIds.add(noteId);
+          }
+        }
+        final blockedCount =
+            unresolvedUpsertIds.length - missingEverywhereIds.length;
+        if (blockedCount > 0) {
+          _diagnostic(
+            'pending changes kept for notes not currently uploadable',
+            data: {'count': blockedCount},
+          );
+        }
+      }
+      final stalePendingChangeIds = {
+        ...excludedPendingIds,
+        ...missingEverywhereIds,
+      };
       if (stalePendingChangeIds.isNotEmpty) {
         _diagnostic(
           'stale pending changes pruned before upload',
-          data: {'count': stalePendingChangeIds.length},
+          data: {
+            'count': stalePendingChangeIds.length,
+            'excluded': excludedPendingIds.length,
+            'missingEverywhere': missingEverywhereIds.length,
+          },
         );
         await ref
             .read(encryptedNoteDatabaseProvider)
@@ -10523,6 +10557,13 @@ class NotesController extends _$NotesController {
       }
     }
 
+    _sort(next);
+    state = next;
+    await _persist();
+
+    // Delete replaced attachment files only after the merged notes are
+    // persisted, so a crash in between never leaves notes pointing at
+    // already-deleted files.
     final stillRetained = <String>{
       for (final note in next) ..._attachmentFilePathsIn(note),
     };
@@ -10534,10 +10575,6 @@ class NotesController extends _$NotesController {
           })
           .toList(growable: false),
     );
-
-    _sort(next);
-    state = next;
-    await _persist();
   }
 
   NoteEntry _mergeRemoteDeleteIntoCurrent(
@@ -10585,6 +10622,12 @@ class NotesController extends _$NotesController {
       removedAttachments.addAll(_attachmentsIn(next[index]));
       next[index] = applied;
     }
+    _sort(next);
+    state = next;
+    await _persist();
+
+    // Delete the replaced attachment files only after persisting, so a crash
+    // in between never leaves notes pointing at already-deleted files.
     final retained = <String>{
       for (final note in next) ..._attachmentFilePathsIn(note),
     };
@@ -10596,9 +10639,6 @@ class NotesController extends _$NotesController {
           })
           .toList(growable: false),
     );
-    _sort(next);
-    state = next;
-    await _persist();
   }
 
   Future<void> resolveConflictByMerging(NoteEntry remoteNote) async {
