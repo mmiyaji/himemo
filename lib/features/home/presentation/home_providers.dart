@@ -10653,6 +10653,12 @@ class NotesController extends _$NotesController {
     final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
     final next = [...state];
     final removedAttachments = <NoteAttachment>[];
+    final changedNotes = <NoteEntry>[];
+
+    void replaceAt(int index, NoteEntry note) {
+      next[index] = note;
+      changedNotes.add(note);
+    }
 
     for (final change in changes) {
       final incoming = change.note.copyWith(syncState: NoteSyncState.synced);
@@ -10666,7 +10672,7 @@ class NotesController extends _$NotesController {
       final shouldDelete = change.action == PendingNoteChangeAction.delete;
 
       if (shouldDelete && current != null && current.deletedAt != null) {
-        next[index] = _mergeRemoteDeleteIntoCurrent(current, incoming);
+        replaceAt(index, _mergeRemoteDeleteIntoCurrent(current, incoming));
         continue;
       }
 
@@ -10677,16 +10683,22 @@ class NotesController extends _$NotesController {
                 ? NoteSyncState.conflict
                 : NoteSyncState.pendingDelete,
           );
-          next[index] = queued.contentHash == null
-              ? queued.copyWith(contentHash: _computeContentHash(queued))
-              : queued;
+          replaceAt(
+            index,
+            queued.contentHash == null
+                ? queued.copyWith(contentHash: _computeContentHash(queued))
+                : queued,
+          );
         }
         continue;
       }
 
       if (current != null && _hasUnuploadedLocalChange(current)) {
         if (!_sameSyncedContent(current, incoming)) {
-          next[index] = current.copyWith(syncState: NoteSyncState.conflict);
+          replaceAt(
+            index,
+            current.copyWith(syncState: NoteSyncState.conflict),
+          );
         }
         continue;
       }
@@ -10699,9 +10711,12 @@ class NotesController extends _$NotesController {
                 ? NoteSyncState.pendingUpload
                 : NoteSyncState.pendingDelete,
           );
-          next[index] = queued.contentHash == null
-              ? queued.copyWith(contentHash: _computeContentHash(queued))
-              : queued;
+          replaceAt(
+            index,
+            queued.contentHash == null
+                ? queued.copyWith(contentHash: _computeContentHash(queued))
+                : queued,
+          );
         }
         continue;
       }
@@ -10717,8 +10732,9 @@ class NotesController extends _$NotesController {
 
       if (current == null) {
         next.add(applied);
+        changedNotes.add(applied);
       } else {
-        next[index] = applied;
+        replaceAt(index, applied);
         if (!shouldDelete) {
           removedAttachments.addAll(_attachmentsIn(current));
         }
@@ -10727,7 +10743,7 @@ class NotesController extends _$NotesController {
 
     _sort(next);
     state = next;
-    await _persist();
+    await _persistChanged(changedNotes);
 
     // Delete replaced attachment files only after the merged notes are
     // persisted, so a crash in between never leaves notes pointing at
@@ -10768,10 +10784,13 @@ class NotesController extends _$NotesController {
     }
     final current = next[index];
     final queued = current.copyWith(syncState: NoteSyncState.pendingUpload);
-    next[index] = queued.copyWith(contentHash: _computeContentHash(queued));
+    final withHash = queued.copyWith(
+      contentHash: _computeContentHash(queued),
+    );
+    next[index] = withHash;
     _sort(next);
     state = next;
-    await _persist();
+    await _persistChanged([withHash]);
   }
 
   Future<void> resolveConflictUsingRemote(NoteEntry remoteNote) async {
@@ -10792,7 +10811,7 @@ class NotesController extends _$NotesController {
     }
     _sort(next);
     state = next;
-    await _persist();
+    await _persistChanged([applied]);
 
     // Delete the replaced attachment files only after persisting, so a crash
     // in between never leaves notes pointing at already-deleted files.
@@ -10818,10 +10837,13 @@ class NotesController extends _$NotesController {
       final queued = remoteNote.copyWith(
         syncState: NoteSyncState.pendingUpload,
       );
-      next.add(queued.copyWith(contentHash: _computeContentHash(queued)));
+      final withHash = queued.copyWith(
+        contentHash: _computeContentHash(queued),
+      );
+      next.add(withHash);
       _sort(next);
       state = next;
-      await _persist();
+      await _persistChanged([withHash]);
       return;
     }
     final local = next[index];
@@ -10849,10 +10871,13 @@ class NotesController extends _$NotesController {
       blocks: mergedBlocks,
       syncState: NoteSyncState.pendingUpload,
     );
-    next[index] = merged.copyWith(contentHash: _computeContentHash(merged));
+    final withHash = merged.copyWith(
+      contentHash: _computeContentHash(merged),
+    );
+    next[index] = withHash;
     _sort(next);
     state = next;
-    await _persist();
+    await _persistChanged([withHash]);
   }
 
   Future<void> markCurrentStateSynced() async {
@@ -10860,11 +10885,14 @@ class NotesController extends _$NotesController {
     _ensureRestoreSucceeded();
     var changed = false;
     final next = <NoteEntry>[];
+    final changedNotes = <NoteEntry>[];
     for (final note in state) {
       if (note.syncState == NoteSyncState.pendingUpload ||
           note.syncState == NoteSyncState.pendingDelete ||
           note.syncState == NoteSyncState.conflict) {
-        next.add(note.copyWith(syncState: NoteSyncState.synced));
+        final synced = note.copyWith(syncState: NoteSyncState.synced);
+        next.add(synced);
+        changedNotes.add(synced);
         changed = true;
       } else {
         next.add(note);
@@ -10875,7 +10903,7 @@ class NotesController extends _$NotesController {
     }
     _sort(next);
     state = next;
-    await _persist();
+    await _persistChanged(changedNotes);
   }
 
   Future<void> markSnapshotChangesSynced(
@@ -10892,6 +10920,7 @@ class NotesController extends _$NotesController {
     };
     var changed = false;
     final next = <NoteEntry>[];
+    final changedNotes = <NoteEntry>[];
     for (final note in state) {
       final pendingHash = pendingContentHashes[note.id];
       if (!pendingContentHashes.containsKey(note.id) ||
@@ -10912,6 +10941,9 @@ class NotesController extends _$NotesController {
       } else {
         changed = changed || syncedNote != note;
       }
+      if (syncedNote != note) {
+        changedNotes.add(syncedNote);
+      }
       next.add(syncedNote);
     }
     if (!changed) {
@@ -10919,7 +10951,7 @@ class NotesController extends _$NotesController {
     }
     _sort(next);
     state = next;
-    await _persist();
+    await _persistChanged(changedNotes);
   }
 
   NoteEntry _copyPreparedSyncAttachmentMetadata(
@@ -11064,6 +11096,7 @@ class NotesController extends _$NotesController {
     final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
     var changed = false;
     final next = <NoteEntry>[];
+    final changedNotes = <NoteEntry>[];
     for (final note in state) {
       if (_isLockedPrivatePlaceholder(note) ||
           isPrivateVaultId(note.vaultId) ||
@@ -11080,11 +11113,11 @@ class NotesController extends _$NotesController {
         continue;
       }
       final queued = note.copyWith(syncState: syncState);
-      next.add(
-        queued.contentHash == null
-            ? queued.copyWith(contentHash: _computeContentHash(queued))
-            : queued,
-      );
+      final withHash = queued.contentHash == null
+          ? queued.copyWith(contentHash: _computeContentHash(queued))
+          : queued;
+      next.add(withHash);
+      changedNotes.add(withHash);
       changed = true;
     }
     if (!changed) {
@@ -11092,7 +11125,7 @@ class NotesController extends _$NotesController {
     }
     _sort(next);
     state = next;
-    await _persist();
+    await _persistChanged(changedNotes);
   }
 
   Future<void> createWidgetQuickCapture(String rawText) async {
@@ -11412,6 +11445,29 @@ class NotesController extends _$NotesController {
         stackTrace,
         reason: 'notes_persist_failed',
       );
+    }
+  }
+
+  // Above this count (or half the library), per-note transactions cost more
+  // than one full save.
+  static const _incrementalPersistMaxNotes = 25;
+
+  // Persists only the given notes. Incremental saves never delete rows, so
+  // this must only be used by callers that modify or add notes (sync merge,
+  // queue/synced state flips, conflict resolution) — removals still need the
+  // full _persist().
+  Future<void> _persistChanged(List<NoteEntry> changedNotes) async {
+    if (_restoreFailed || changedNotes.isEmpty) {
+      return;
+    }
+    if (kIsWeb ||
+        changedNotes.length > _incrementalPersistMaxNotes ||
+        changedNotes.length * 2 >= state.length) {
+      await _persist();
+      return;
+    }
+    for (final note in changedNotes) {
+      await _persistOne(note);
     }
   }
 
