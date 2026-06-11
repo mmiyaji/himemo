@@ -3825,7 +3825,19 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     );
   }
 
-  Future<void> _yieldToUi() => Future<void>.delayed(Duration.zero);
+  DateTime _lastUiYieldAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  // Yields to the event loop at most every few milliseconds. Sync loops call
+  // this once per note/attachment; an unthrottled timer hop per item adds
+  // seconds of pure scheduling overhead on large libraries.
+  Future<void> _yieldToUi() {
+    final now = DateTime.now();
+    if (now.difference(_lastUiYieldAt) < const Duration(milliseconds: 8)) {
+      return Future<void>.value();
+    }
+    _lastUiYieldAt = now;
+    return Future<void>.delayed(Duration.zero);
+  }
 
   Future<T> _measureSyncStep<T>(
     String message,
@@ -4376,6 +4388,48 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           'payloadLength': encodedPayload.length,
         },
       );
+      // Re-check the remote right before publishing the bundle. Preparation
+      // and attachment uploads can take a while; another device may have
+      // uploaded in the meantime, and overwriting the "latest" pointer
+      // without applying it first would hide that device's changes.
+      if (provider != SyncProvider.off && !force) {
+        final freshRemoteStatus = await runFirebaseTrace(
+          'sync_preupload_remote_recheck',
+          _fetchLatestRemoteStatus,
+        );
+        if (freshRemoteStatus != null) {
+          _cacheRemoteStatus(provider, freshRemoteStatus);
+          final latestBundleState = await ref
+              .read(syncBundleStateStoreProvider)
+              .read();
+          if (_remoteBundleNeedsApply(freshRemoteStatus, latestBundleState)) {
+            _diagnostic(
+              'upload aborted remote bundle changed during preparation',
+              data: {
+                'remoteFileId': freshRemoteStatus.fileId,
+                'remoteModifiedAt': freshRemoteStatus.modifiedAt
+                    ?.toUtc()
+                    .toIso8601String(),
+              },
+            );
+            state = state.copyWith(
+              stage: SyncTransferStage.error,
+              message: 'sync.error.conflict_download_first_or_force_upload',
+              remoteStatus: freshRemoteStatus,
+            );
+            await _recordSyncHistory(
+              startedAt: historyStartedAt,
+              operation: 'upload',
+              success: false,
+              message: state.message,
+              queueBefore: queueBeforeUpload,
+              remoteStatus: freshRemoteStatus,
+              localBundle: bundle,
+            );
+            return;
+          }
+        }
+      }
       final remoteStatus = await runFirebaseTrace(
         'sync_upload_remote_bundle',
         () => _uploadRemoteBundle(
@@ -6352,48 +6406,62 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       return;
     }
     final bundleStore = ref.read(secureSyncBundleStoreProvider);
+    const maxConcurrentAttachmentUploads = 3;
     var uploaded = 0;
-    for (final attachment in pendingUploads) {
-      final completedBefore = skipped + uploaded;
-      _setProgressDetail(
-        progress: SyncTransferProgress.uploadingBundle,
-        detail: 'Uploading attachment',
-        completedItems: completedBefore,
-        totalItems: unique.length,
-      );
-      await _yieldToUi();
-      final encodedPayload = await bundleStore.writeAttachmentObjectPayload(
-        attachment,
-      );
-      await _yieldToUi();
-      await _uploadRemoteAttachmentObject(
-        contentHash: attachment.contentHash,
-        encodedPayload: encodedPayload,
-        type: attachment.type.name,
-        label: attachment.label,
-        sizeBytes: attachment.sizeBytes,
-        skipExistingCheck: existingHashes != null,
-      );
-      uploaded += 1;
-      final completed = skipped + uploaded;
-      _setProgressDetail(
-        progress: SyncTransferProgress.uploadingBundle,
-        detail: 'Uploaded attachment',
-        completedItems: completed,
-        totalItems: unique.length,
-      );
-      await _yieldToUi();
-      if (completed % 5 == 0 || completed == unique.length) {
-        _diagnostic(
-          'attachment object upload progress',
-          data: {
-            'uploaded': completed,
-            'total': unique.length,
-            'skipped': skipped,
-          },
+    var nextUploadIndex = 0;
+    _setProgressDetail(
+      progress: SyncTransferProgress.uploadingBundle,
+      detail: 'Uploading attachment',
+      completedItems: skipped,
+      totalItems: unique.length,
+    );
+    await _yieldToUi();
+
+    Future<void> uploadWorker() async {
+      while (true) {
+        if (nextUploadIndex >= pendingUploads.length) {
+          return;
+        }
+        final attachment = pendingUploads[nextUploadIndex];
+        nextUploadIndex += 1;
+        final encodedPayload = await bundleStore.writeAttachmentObjectPayload(
+          attachment,
         );
+        await _uploadRemoteAttachmentObject(
+          contentHash: attachment.contentHash,
+          encodedPayload: encodedPayload,
+          type: attachment.type.name,
+          label: attachment.label,
+          sizeBytes: attachment.sizeBytes,
+          skipExistingCheck: existingHashes != null,
+        );
+        uploaded += 1;
+        final completed = skipped + uploaded;
+        _setProgressDetail(
+          progress: SyncTransferProgress.uploadingBundle,
+          detail: 'Uploaded attachment',
+          completedItems: completed,
+          totalItems: unique.length,
+        );
+        await _yieldToUi();
+        if (completed % 5 == 0 || completed == unique.length) {
+          _diagnostic(
+            'attachment object upload progress',
+            data: {
+              'uploaded': completed,
+              'total': unique.length,
+              'skipped': skipped,
+            },
+          );
+        }
       }
     }
+
+    final workerCount = math.min(
+      maxConcurrentAttachmentUploads,
+      pendingUploads.length,
+    );
+    await Future.wait([for (var i = 0; i < workerCount; i++) uploadWorker()]);
   }
 
   Future<Set<String>?> _listExistingRemoteAttachmentHashes() {
