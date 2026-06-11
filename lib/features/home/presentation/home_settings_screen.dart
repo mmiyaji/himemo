@@ -97,6 +97,7 @@ class SettingsScreen extends ConsumerWidget {
   static final _syncController = ExpansibleController();
   static final _storageController = ExpansibleController();
   static final List<DateTime> _diagnosticModeTapTimes = <DateTime>[];
+  static int _sectionScrollRequestId = 0;
 
   Future<void> _handleVersionTap(
     BuildContext context,
@@ -556,17 +557,44 @@ class SettingsScreen extends ConsumerWidget {
     ExpansibleController controller,
     GlobalKey key,
   ) {
+    final requestId = ++_sectionScrollRequestId;
     controller.expand();
-    unawaited(
-      Future<void>.delayed(const Duration(milliseconds: 360), () {
-        if (context.mounted) {
-          _scrollToSettingsSection(key);
-        }
-      }),
-    );
+    unawaited(_scrollToSettingsSectionWhenReady(context, key, requestId));
   }
 
-  void _scrollToSettingsSection(GlobalKey key) {
+  Future<void> _scrollToSettingsSectionWhenReady(
+    BuildContext context,
+    GlobalKey key,
+    int requestId,
+  ) async {
+    await _waitForSettingsFrame();
+    await Future<void>.delayed(const Duration(milliseconds: 260));
+    await _waitForSettingsFrame();
+    if (!context.mounted || requestId != _sectionScrollRequestId) {
+      return;
+    }
+    _scrollToSettingsSection(key);
+    await Future<void>.delayed(const Duration(milliseconds: 380));
+    await _waitForSettingsFrame();
+    if (!context.mounted || requestId != _sectionScrollRequestId) {
+      return;
+    }
+    _scrollToSettingsSection(key, duration: const Duration(milliseconds: 140));
+  }
+
+  Future<void> _waitForSettingsFrame() {
+    final completer = Completer<void>();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      completer.complete();
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+    return completer.future;
+  }
+
+  void _scrollToSettingsSection(
+    GlobalKey key, {
+    Duration duration = const Duration(milliseconds: 320),
+  }) {
     final targetContext = key.currentContext;
     if (targetContext == null) {
       return;
@@ -592,7 +620,7 @@ class SettingsScreen extends ConsumerWidget {
     unawaited(
       position.animateTo(
         clampedOffset,
-        duration: const Duration(milliseconds: 320),
+        duration: duration,
         curve: Curves.easeOutCubic,
       ),
     );

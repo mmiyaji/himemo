@@ -30,6 +30,7 @@ import FoundationModels
   private let cloudKitAttachmentTypeField = "attachmentType"
   private let cloudKitAttachmentLabelField = "attachmentLabel"
   private let cloudKitAttachmentSizeField = "attachmentSize"
+  // CloudKit production schema type: Int(64). This is metadata, not a Bytes field.
   private let cloudKitBundleSizeField = "bundleSize"
   private let cloudKitDeviceIdField = "deviceId"
   private let cloudKitNoteCountField = "noteCount"

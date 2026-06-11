@@ -780,8 +780,15 @@ void main() {
     expect(appDelegate, contains('private var cloudKitBundleMetadataFields'));
     expect(appDelegate, contains('cloudKitBundleKindField,'));
     expect(appDelegate, contains('options.desiredKeys = desiredKeys'));
-    expect(appDelegate, contains('cloudKitBundleSizeField'));
-    expect(appDelegate, contains('record[self.cloudKitBundleSizeField]'));
+    expect(appDelegate, contains('CloudKit production schema type: Int(64)'));
+    expect(
+      appDelegate,
+      contains('private let cloudKitBundleSizeField = "bundleSize"'),
+    );
+    expect(
+      appDelegate,
+      contains('record[self.cloudKitBundleSizeField] = NSNumber'),
+    );
     expect(appDelegate, contains('bundleFileSize(for: record)'));
     expect(appDelegate, contains('CKQueryOperation(query: query)'));
     expect(

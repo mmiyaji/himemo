@@ -92,7 +92,11 @@ test.describe('settings summary jumps', () => {
       await openSettings(page);
 
       await clickSummary(page, /Profile Normal notes/);
-      await expectSectionExpanded(page, /Private profiles/, 'Enter admin mode');
+      await expectSectionExpanded(
+        page,
+        /Private profiles/,
+        'Enter admin mode',
+      );
 
       await clickSummary(page, /Theme Light/);
       await expectSectionExpanded(
@@ -158,39 +162,122 @@ async function clickSummary(page, name) {
 
 async function expectSectionExpanded(page, heading, expandedText) {
   await expect(page.locator('flutter-view')).toContainText(expandedText);
-  const section = await visibleSection(page, heading);
-  await expect(section).toBeVisible();
 
   await expect
     .poll(
       async () => {
-        const box = await section.boundingBox();
+        const box = await stableSectionBoundingBox(page, heading, expandedText);
         if (!box) {
           return false;
         }
         return box.y >= 50 && box.y <= 430;
       },
-      { timeout: 5000 },
+      { timeout: 7000 },
     )
     .toBe(true);
 }
 
-async function visibleSection(page, heading) {
-  const text = page.getByText(heading).first();
-  if ((await text.count()) && (await text.isVisible())) {
-    return text;
+async function stableSectionBoundingBox(page, heading, expandedText) {
+  const first = await sectionBoundingBox(page, heading, expandedText);
+  if (!first) {
+    return null;
   }
-
-  const button = page.getByRole('button', { name: heading }).first();
-  if ((await button.count()) && (await button.isVisible())) {
-    return button;
+  await waitForAnimationFrames(page, 2);
+  const second = await sectionBoundingBox(page, heading, expandedText);
+  if (!second) {
+    return null;
   }
+  const stable =
+    Math.abs(first.y - second.y) <= 1 &&
+    Math.abs(first.height - second.height) <= 1;
+  return stable ? second : null;
+}
 
-  const group = page.getByRole('group', { name: heading }).first();
-  if ((await group.count()) && (await group.isVisible())) {
-    return group;
+async function waitForAnimationFrames(page, count) {
+  await page.evaluate(
+    (frames) =>
+      new Promise((resolve) => {
+        const tick = () => {
+          frames -= 1;
+          if (frames <= 0) {
+            resolve();
+            return;
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+    count,
+  );
+}
+
+async function sectionBoundingBox(page, heading, expandedText) {
+  const headingPattern = regexPayload(heading);
+  return page.evaluate(
+    ({ headingPattern, expandedText }) => {
+      const headingRegex = new RegExp(
+        headingPattern.source,
+        headingPattern.flags,
+      );
+      const candidates = Array.from(
+        document.querySelectorAll('flt-semantics'),
+      )
+        .map((node) => {
+          const rect = node.getBoundingClientRect();
+          const text = [
+            node.textContent || '',
+            node.getAttribute('aria-label') || '',
+          ].join('\n');
+          return {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            area: rect.width * rect.height,
+            text,
+          };
+        })
+        .filter((candidate) => {
+          if (!headingRegex.test(candidate.text)) {
+            return false;
+          }
+          if (!candidate.text.includes(expandedText)) {
+            return false;
+          }
+          if (candidate.width <= 0 || candidate.height <= 0) {
+            return false;
+          }
+          return candidate.x > 0 && candidate.width < window.innerWidth;
+        })
+        .sort(
+          (left, right) =>
+            left.area - right.area || right.text.length - left.text.length,
+        );
+      const match = candidates[0];
+      if (!match) {
+        return null;
+      }
+      return {
+        x: match.x,
+        y: match.y,
+        width: match.width,
+        height: match.height,
+      };
+    },
+    { headingPattern, expandedText },
+  );
+}
+
+function regexPayload(pattern) {
+  if (pattern instanceof RegExp) {
+    return {
+      source: pattern.source,
+      flags: pattern.flags.replace(/[gy]/g, ''),
+    };
   }
+  return { source: escapeRegExp(pattern), flags: '' };
+}
 
-  await expect(page.locator('flutter-view')).toContainText(heading);
-  return group;
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
