@@ -5482,6 +5482,21 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       final importedChanges = <PreparedSyncNote>[];
       var importedEntryCount = 0;
       final totalEntries = rawNoteEntries.length;
+      // Shared across notes (per vault) so attachments referenced by several
+      // notes are downloaded and stored once, and objects already present
+      // locally are not downloaded at all.
+      final storedBySyncAttachmentIdByVault = <String, Map<String, String?>>{};
+      final previewBySyncAttachmentIdByVault = <String, Map<String, String?>>{};
+      Future<Map<String, String?>> storedMapForVault(String vaultId) async {
+        final existing = storedBySyncAttachmentIdByVault[vaultId];
+        if (existing != null) {
+          return existing;
+        }
+        final seeded = await _localAttachmentPathsByContentHash(vaultId);
+        storedBySyncAttachmentIdByVault[vaultId] = seeded;
+        return seeded;
+      }
+
       for (final rawEntry in rawNoteEntries) {
         if (importedEntryCount > 0 && importedEntryCount % 25 == 0) {
           await _yieldToUi();
@@ -5510,8 +5525,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               ? PendingNoteChangeAction.upsert
               : PendingNoteChangeAction.delete,
         );
-        final storedBySyncAttachmentId = <String, String?>{};
-        final previewBySyncAttachmentId = <String, String?>{};
+        final storedBySyncAttachmentId = await storedMapForVault(note.vaultId);
+        final previewBySyncAttachmentId = previewBySyncAttachmentIdByVault
+            .putIfAbsent(note.vaultId, () => <String, String?>{});
 
         final importedAttachments = <NoteAttachment>[];
         for (final attachment in note.attachments) {
@@ -5639,6 +5655,20 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       final currentNotes = ref.read(notesControllerProvider);
       final totalNotes = currentNotes.length;
       final hydratedNotes = <NoteEntry>[];
+      // Shared across notes (per vault) so an object referenced by several
+      // notes is downloaded once and existing local files are reused.
+      final storedBySyncAttachmentIdByVault = <String, Map<String, String?>>{};
+      final previewBySyncAttachmentIdByVault = <String, Map<String, String?>>{};
+      Future<Map<String, String?>> storedMapForVault(String vaultId) async {
+        final existing = storedBySyncAttachmentIdByVault[vaultId];
+        if (existing != null) {
+          return existing;
+        }
+        final seeded = await _localAttachmentPathsByContentHash(vaultId);
+        storedBySyncAttachmentIdByVault[vaultId] = seeded;
+        return seeded;
+      }
+
       for (final note in currentNotes) {
         if (scannedNoteCount > 0 && scannedNoteCount % 25 == 0) {
           await _yieldToUi();
@@ -5650,8 +5680,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           completedItems: scannedNoteCount - 1,
           totalItems: totalNotes,
         );
-        final storedBySyncAttachmentId = <String, String?>{};
-        final previewBySyncAttachmentId = <String, String?>{};
+        final storedBySyncAttachmentId = await storedMapForVault(note.vaultId);
+        final previewBySyncAttachmentId = previewBySyncAttachmentIdByVault
+            .putIfAbsent(note.vaultId, () => <String, String?>{});
         Future<NoteAttachment> hydrate(NoteAttachment attachment) async {
           final remoteRef = attachment.filePath;
           if (!isSyncAttachmentObjectRef(remoteRef)) {
@@ -5788,6 +5819,49 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         .read(syncBundleStateStoreProvider)
         .recordApply(state.remoteStatus);
     ref.invalidate(syncBundleStateProvider);
+  }
+
+  // Maps contentHash -> existing local attachment path for the given vault,
+  // so applying a bundle reuses files that are already stored locally instead
+  // of re-downloading objects shared across notes. Scoped per vault because
+  // stored attachment payloads are encrypted with the vault key.
+  Future<Map<String, String?>> _localAttachmentPathsByContentHash(
+    String vaultId,
+  ) async {
+    final stored = <String, String?>{};
+    final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+
+    Future<void> consider(NoteAttachment attachment) async {
+      final hash = attachment.syncAttachmentContentHash;
+      final filePath = attachment.filePath;
+      if (hash == null ||
+          hash.isEmpty ||
+          filePath == null ||
+          filePath.isEmpty ||
+          isSyncAttachmentObjectRef(filePath) ||
+          stored.containsKey(hash)) {
+        return;
+      }
+      if (await attachmentStore.storedPayloadMetadata(filePath) != null) {
+        stored[hash] = filePath;
+      }
+    }
+
+    for (final note in ref.read(notesControllerProvider)) {
+      if (note.vaultId != vaultId) {
+        continue;
+      }
+      for (final attachment in note.attachments) {
+        await consider(attachment);
+      }
+      for (final block in note.blocks) {
+        final attachment = block.attachment;
+        if (attachment != null) {
+          await consider(attachment);
+        }
+      }
+    }
+    return stored;
   }
 
   Future<NoteAttachment> _importRemoteSyncAttachment({
@@ -6564,16 +6638,32 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     await Future.wait([for (var i = 0; i < workerCount; i++) uploadWorker()]);
   }
 
-  Future<Set<String>?> _listExistingRemoteAttachmentHashes() {
+  Future<Set<String>?> _listExistingRemoteAttachmentHashes() async {
     final provider = ref.read(syncProviderControllerProvider);
-    return switch (provider) {
-      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
-        () => ref
-            .read(googleDriveSyncTransportProvider)
-            .listAttachmentObjectContentHashes(),
-      ),
-      SyncProvider.iCloud || SyncProvider.off => Future<Set<String>?>.value(),
-    };
+    switch (provider) {
+      case SyncProvider.googleDrive:
+        return _withGoogleDriveAuthRecovery(
+          () => ref
+              .read(googleDriveSyncTransportProvider)
+              .listAttachmentObjectContentHashes(),
+        );
+      case SyncProvider.iCloud:
+        try {
+          return await ref
+              .read(iCloudSyncTransportProvider)
+              .listAttachmentObjectContentHashes();
+        } catch (error) {
+          // Fall back to per-object existence checks when the batch listing
+          // is unavailable (e.g. older native binary without the method).
+          _diagnostic(
+            'icloud attachment hash listing failed',
+            data: {'error': error},
+          );
+          return null;
+        }
+      case SyncProvider.off:
+        return null;
+    }
   }
 
   Future<void> _uploadRemoteAttachmentObject({
