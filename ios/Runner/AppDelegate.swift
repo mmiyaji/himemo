@@ -1049,8 +1049,11 @@ import FoundationModels
         type: type,
         label: label,
         sizeBytes: sizeBytes,
+        skipExistingCheck: args["skipExistingCheck"] as? Bool ?? false,
         result: result
       )
+    case "cloudKitListAttachmentHashes":
+      listCloudKitAttachmentHashes(result: result)
     case "cloudKitDownloadAttachmentObject":
       guard
         let args = call.arguments as? [String: Any],
@@ -1307,6 +1310,7 @@ import FoundationModels
     type: String,
     label: String,
     sizeBytes: Int,
+    skipExistingCheck: Bool,
     result: @escaping FlutterResult
   ) {
     withAvailableCloudKit(result: result) { database in
@@ -1314,20 +1318,8 @@ import FoundationModels
         recordName: "attachment-\(contentHash)",
         zoneID: self.cloudKitSyncZoneID
       )
-      database.fetch(withRecordID: recordID) { existingRecord, fetchError in
-        if existingRecord != nil {
-          DispatchQueue.main.async {
-            result(["recordName": recordID.recordName])
-          }
-          return
-        }
-        if let fetchError = fetchError as? CKError, fetchError.code != .unknownItem {
-          DispatchQueue.main.async {
-            result(self.flutterError(from: fetchError))
-          }
-          return
-        }
 
+      func saveNewRecord() {
         let record = CKRecord(recordType: self.cloudKitAttachmentRecordType, recordID: recordID)
         let temporaryURL = URL(fileURLWithPath: NSTemporaryDirectory())
           .appendingPathComponent("\(recordID.recordName).encjson")
@@ -1357,6 +1349,13 @@ import FoundationModels
         database.save(record) { savedRecord, error in
           try? FileManager.default.removeItem(at: temporaryURL)
           DispatchQueue.main.async {
+            // Attachment records are content-addressed, so a record that
+            // already exists holds identical content — treat it as success.
+            if let ckError = error as? CKError,
+               ckError.code == .serverRecordChanged {
+              result(["recordName": recordID.recordName])
+              return
+            }
             if let error {
               result(self.flutterError(from: error))
               return
@@ -1373,6 +1372,57 @@ import FoundationModels
             }
             result(["recordName": savedRecord.recordID.recordName])
           }
+        }
+      }
+
+      if skipExistingCheck {
+        saveNewRecord()
+        return
+      }
+
+      database.fetch(withRecordID: recordID) { existingRecord, fetchError in
+        if existingRecord != nil {
+          DispatchQueue.main.async {
+            result(["recordName": recordID.recordName])
+          }
+          return
+        }
+        if let fetchError = fetchError as? CKError, fetchError.code != .unknownItem {
+          DispatchQueue.main.async {
+            result(self.flutterError(from: fetchError))
+          }
+          return
+        }
+        saveNewRecord()
+      }
+    }
+  }
+
+  private func listCloudKitAttachmentHashes(result: @escaping FlutterResult) {
+    withAvailableCloudKit(result: result) { database in
+      self.fetchAllCloudKitRecords(
+        database: database,
+        recordType: self.cloudKitAttachmentRecordType,
+        sortedByModificationDate: false,
+        desiredKeys: [self.cloudKitContentHashField]
+      ) { records, error in
+        DispatchQueue.main.async {
+          if let error {
+            result(self.flutterError(from: error))
+            return
+          }
+          let hashes = records.compactMap { record -> String? in
+            if let contentHash = record[self.cloudKitContentHashField] as? String,
+               !contentHash.isEmpty {
+              return contentHash
+            }
+            let recordName = record.recordID.recordName
+            guard recordName.hasPrefix("attachment-") else {
+              return nil
+            }
+            return String(recordName.dropFirst("attachment-".count))
+          }
+          result(hashes)
         }
       }
     }

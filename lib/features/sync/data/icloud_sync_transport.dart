@@ -101,6 +101,8 @@ abstract class ICloudSyncTransport {
     bool skipExistingCheck = false,
   });
 
+  Future<Set<String>> listAttachmentObjectContentHashes();
+
   Future<String?> downloadAttachmentObject(String contentHash);
 
   Future<DownloadedRemoteSyncBundle?> downloadLatestBundle();
@@ -207,6 +209,13 @@ class InMemoryICloudSyncTransport implements ICloudSyncTransport {
       encodedPayload: encodedPayload,
       sizeBytes: sizeBytes,
     );
+  }
+
+  @override
+  Future<Set<String>> listAttachmentObjectContentHashes() async {
+    await _delay();
+    _throwIfUnavailable();
+    return _attachmentObjects.keys.toSet();
   }
 
   @override
@@ -488,7 +497,17 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
       'type': type,
       'label': label,
       'sizeBytes': sizeBytes,
+      'skipExistingCheck': skipExistingCheck,
     });
+  }
+
+  @override
+  Future<Set<String>> listAttachmentObjectContentHashes() async {
+    final result = await _invokeList('cloudKitListAttachmentHashes');
+    return {
+      for (final entry in result)
+        if (entry is String && entry.isNotEmpty) entry,
+    };
   }
 
   @override
