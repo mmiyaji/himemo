@@ -4525,6 +4525,7 @@ class _FailingAttachmentUploadTransport
     required String deviceId,
     required int noteCount,
     required int attachmentCount,
+    String bundleKind = SyncBundleKind.full,
   }) {
     bundleUploadCalls += 1;
     return super.uploadBundle(
@@ -4532,6 +4533,7 @@ class _FailingAttachmentUploadTransport
       deviceId: deviceId,
       noteCount: noteCount,
       attachmentCount: attachmentCount,
+      bundleKind: bundleKind,
     );
   }
 }
@@ -4568,6 +4570,7 @@ class _FailingBundleUploadTransport extends InMemoryGoogleDriveSyncTransport {
     required String deviceId,
     required int noteCount,
     required int attachmentCount,
+    String bundleKind = SyncBundleKind.full,
   }) async {
     bundleUploadCalls += 1;
     throw StateError('simulated bundle upload failure');
