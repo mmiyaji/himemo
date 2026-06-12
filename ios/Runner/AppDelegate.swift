@@ -37,7 +37,8 @@ import FoundationModels
   private let cloudKitAttachmentCountField = "attachmentCount"
   private let cloudKitExportedAtField = "exportedAt"
   private let cloudKitBundleKindField = "bundleKind"
-  private let cloudKitAccountStatusCacheDuration: TimeInterval = 60
+  private let cloudKitAccountStatusCacheDuration: TimeInterval = 900
+  private let cloudKitSyncZoneReadyDefaultsKey = "cloudkit.sync_zone_ready.v1"
 
   private var widgetChannel: FlutterMethodChannel?
   private var cloudKitChannel: FlutterMethodChannel?
@@ -50,7 +51,23 @@ import FoundationModels
   private var privacyProtectionEnabled = false
   private var privacyOverlayView: UIView?
   private var cloudKitAccountAvailableUntil: Date?
-  private var cloudKitSyncZoneReady = false
+  private var cloudKitSyncZoneReadyValue: Bool?
+  private var cloudKitAccountChangedObserver: NSObjectProtocol?
+
+  private var cloudKitSyncZoneReady: Bool {
+    get {
+      if let cached = cloudKitSyncZoneReadyValue {
+        return cached
+      }
+      let stored = UserDefaults.standard.bool(forKey: cloudKitSyncZoneReadyDefaultsKey)
+      cloudKitSyncZoneReadyValue = stored
+      return stored
+    }
+    set {
+      cloudKitSyncZoneReadyValue = newValue
+      UserDefaults.standard.set(newValue, forKey: cloudKitSyncZoneReadyDefaultsKey)
+    }
+  }
 
   private var cloudKitSyncZoneID: CKRecordZone.ID {
     CKRecordZone.ID(zoneName: cloudKitZoneName, ownerName: CKCurrentUserDefaultName)
@@ -72,6 +89,7 @@ import FoundationModels
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    registerCloudKitAccountChangeObserver()
     let result = super.application(application, didFinishLaunchingWithOptions: launchOptions)
 
     if let controller = window?.rootViewController as? FlutterViewController {
@@ -990,6 +1008,178 @@ import FoundationModels
     return Int64(values.fileSize ?? 0)
   }
 
+  private func registerCloudKitAccountChangeObserver() {
+    if cloudKitAccountChangedObserver != nil {
+      return
+    }
+    cloudKitAccountChangedObserver = NotificationCenter.default.addObserver(
+      forName: .CKAccountChanged,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      guard let self else {
+        return
+      }
+      self.cloudKitAccountAvailableUntil = nil
+      self.invalidateCloudKitSyncZoneReady()
+    }
+  }
+
+  private func invalidateCloudKitSyncZoneReady() {
+    cloudKitSyncZoneReady = false
+  }
+
+  // Clears cached zone-ready state (memory + persisted) when CloudKit reports
+  // that the sync zone no longer exists, so the next withAvailableCloudKit call
+  // recreates it. Returns true when the error was a missing-zone condition.
+  @discardableResult
+  private func handleCloudKitZoneError(_ error: Error?) -> Bool {
+    guard let cloudError = error as? CKError else {
+      return false
+    }
+    if cloudError.code == .zoneNotFound || cloudError.code == .userDeletedZone {
+      invalidateCloudKitSyncZoneReady()
+      return true
+    }
+    return false
+  }
+
+  // QoS-tagged replacement for database.fetch(withRecordID:). Mirrors the
+  // convenience API: returns (nil, error) on failure, (record, nil) on success.
+  // CKFetchRecordsOperation reports a missing record as a `.partialFailure`
+  // wrapping a per-record `.unknownItem`; this normalizes that single-record
+  // case back to a top-level `.unknownItem` so callers that branch on
+  // `.unknownItem` keep working exactly as with the convenience API.
+  private func fetchRecord(
+    database: CKDatabase,
+    recordID: CKRecord.ID,
+    completion: @escaping (CKRecord?, Error?) -> Void
+  ) {
+    let operation = CKFetchRecordsOperation(recordIDs: [recordID])
+    operation.qualityOfService = .userInitiated
+    var fetchedRecord: CKRecord?
+    operation.perRecordCompletionBlock = { record, _, _ in
+      if let record {
+        fetchedRecord = record
+      }
+    }
+    operation.fetchRecordsCompletionBlock = { _, error in
+      if let error {
+        completion(nil, self.normalizedFetchRecordError(error, recordID: recordID))
+        return
+      }
+      completion(fetchedRecord, nil)
+    }
+    database.add(operation)
+  }
+
+  private func normalizedFetchRecordError(
+    _ error: Error,
+    recordID: CKRecord.ID
+  ) -> Error {
+    guard let cloudError = error as? CKError,
+          cloudError.code == .partialFailure,
+          let perItem = cloudError.partialErrorsByItemID as? [CKRecord.ID: Error],
+          let itemError = perItem[recordID] as? CKError else {
+      return error
+    }
+    return itemError
+  }
+
+  // QoS-tagged replacement for database.save(record). Returns the saved record
+  // on success, matching the convenience API contract. The default
+  // convenience save policy (.ifServerRecordUnchanged) is preserved so that an
+  // existing content-addressed record surfaces as `.serverRecordChanged`, which
+  // upload callers treat as success. CKModifyRecordsOperation wraps that in a
+  // `.partialFailure`, so it is normalized back to a top-level error here.
+  private func saveRecord(
+    database: CKDatabase,
+    record: CKRecord,
+    completion: @escaping (CKRecord?, Error?) -> Void
+  ) {
+    let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+    operation.qualityOfService = .userInitiated
+    operation.savePolicy = .ifServerRecordUnchanged
+    operation.modifyRecordsCompletionBlock = { savedRecords, _, error in
+      if let error {
+        completion(nil, self.normalizedSaveRecordError(error, recordID: record.recordID))
+        return
+      }
+      completion(savedRecords?.first, nil)
+    }
+    database.add(operation)
+  }
+
+  private func normalizedSaveRecordError(
+    _ error: Error,
+    recordID: CKRecord.ID
+  ) -> Error {
+    guard let cloudError = error as? CKError,
+          cloudError.code == .partialFailure,
+          let perItem = cloudError.partialErrorsByItemID as? [CKRecord.ID: Error],
+          let itemError = perItem[recordID] as? CKError else {
+      return error
+    }
+    return itemError
+  }
+
+  // QoS-tagged replacement for database.fetch(withRecordZoneID:). Returns the
+  // zone when it exists, otherwise (nil, error) where error carries .zoneNotFound.
+  // CKFetchRecordZonesOperation reports a missing zone as a `.partialFailure`
+  // wrapping a per-zone `.zoneNotFound`; this normalizes that single-zone case
+  // back to a top-level `.zoneNotFound` so ensureCloudKitSyncZone keeps creating
+  // the zone exactly as it did with the convenience API.
+  private func fetchRecordZone(
+    database: CKDatabase,
+    zoneID: CKRecordZone.ID,
+    completion: @escaping (CKRecordZone?, Error?) -> Void
+  ) {
+    let operation = CKFetchRecordZonesOperation(recordZoneIDs: [zoneID])
+    operation.qualityOfService = .userInitiated
+    operation.fetchRecordZonesCompletionBlock = { zonesByID, error in
+      if let error {
+        completion(nil, self.normalizedZoneError(error, zoneID: zoneID))
+        return
+      }
+      completion(zonesByID?[zoneID], nil)
+    }
+    database.add(operation)
+  }
+
+  private func normalizedZoneError(
+    _ error: Error,
+    zoneID: CKRecordZone.ID
+  ) -> Error {
+    guard let cloudError = error as? CKError,
+          cloudError.code == .partialFailure,
+          let perItem = cloudError.partialErrorsByItemID as? [CKRecordZone.ID: Error],
+          let itemError = perItem[zoneID] as? CKError else {
+      return error
+    }
+    return itemError
+  }
+
+  // QoS-tagged replacement for database.save(zone).
+  private func saveRecordZone(
+    database: CKDatabase,
+    zone: CKRecordZone,
+    completion: @escaping (CKRecordZone?, Error?) -> Void
+  ) {
+    let operation = CKModifyRecordZonesOperation(
+      recordZonesToSave: [zone],
+      recordZoneIDsToDelete: nil
+    )
+    operation.qualityOfService = .userInitiated
+    operation.modifyRecordZonesCompletionBlock = { savedZones, _, error in
+      if let error {
+        completion(nil, error)
+        return
+      }
+      completion(savedZones?.first, nil)
+    }
+    database.add(operation)
+  }
+
   private func handleCloudKitMethod(call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
     case "cloudKitAccountStatus":
@@ -1240,7 +1430,7 @@ import FoundationModels
       record[self.cloudKitBundleSizeField] = NSNumber(value: encodedPayload.utf8.count)
       record[self.cloudKitAssetField] = CKAsset(fileURL: temporaryURL)
 
-      database.save(record) { savedRecord, error in
+      self.saveRecord(database: database, record: record) { savedRecord, error in
         try? FileManager.default.removeItem(at: temporaryURL)
         DispatchQueue.main.async {
           if let error {
@@ -1285,8 +1475,9 @@ import FoundationModels
 
   private func downloadCloudKitBundle(recordName: String, result: @escaping FlutterResult) {
     withAvailableCloudKit(result: result) { database in
-      database.fetch(
-        withRecordID: CKRecord.ID(
+      self.fetchRecord(
+        database: database,
+        recordID: CKRecord.ID(
           recordName: recordName,
           zoneID: self.cloudKitSyncZoneID
         )
@@ -1350,7 +1541,7 @@ import FoundationModels
         record[self.cloudKitExportedAtField] = Date() as CKRecordValue
         record[self.cloudKitAttachmentAssetField] = CKAsset(fileURL: temporaryURL)
 
-        database.save(record) { savedRecord, error in
+        self.saveRecord(database: database, record: record) { savedRecord, error in
           try? FileManager.default.removeItem(at: temporaryURL)
           DispatchQueue.main.async {
             // Attachment records are content-addressed, so a record that
@@ -1384,7 +1575,7 @@ import FoundationModels
         return
       }
 
-      database.fetch(withRecordID: recordID) { existingRecord, fetchError in
+      self.fetchRecord(database: database, recordID: recordID) { existingRecord, fetchError in
         if existingRecord != nil {
           DispatchQueue.main.async {
             result(["recordName": recordID.recordName])
@@ -1441,7 +1632,7 @@ import FoundationModels
         recordName: "attachment-\(contentHash)",
         zoneID: self.cloudKitSyncZoneID
       )
-      database.fetch(withRecordID: recordID) { record, error in
+      self.fetchRecord(database: database, recordID: recordID) { record, error in
         if let error = error as? CKError, error.code == .unknownItem {
           DispatchQueue.main.async {
             result(nil)
@@ -1673,7 +1864,7 @@ import FoundationModels
       return
     }
     let zoneID = cloudKitSyncZoneID
-    database.fetch(withRecordZoneID: zoneID) { zone, error in
+    fetchRecordZone(database: database, zoneID: zoneID) { zone, error in
       if zone != nil {
         self.cloudKitSyncZoneReady = true
         completion(nil)
@@ -1684,7 +1875,7 @@ import FoundationModels
         return
       }
       let zone = CKRecordZone(zoneID: zoneID)
-      database.save(zone) { _, saveError in
+      self.saveRecordZone(database: database, zone: zone) { _, saveError in
         if saveError == nil {
           self.cloudKitSyncZoneReady = true
         }
@@ -1724,6 +1915,7 @@ import FoundationModels
         operation = CKQueryOperation(query: query)
         operation.zoneID = cloudKitSyncZoneID
       }
+      operation.qualityOfService = .userInitiated
       operation.resultsLimit = max(limit - records.count, 1)
       operation.desiredKeys = desiredKeys
       operation.recordFetchedBlock = { record in
@@ -1779,6 +1971,7 @@ import FoundationModels
         recordZoneIDs: [zoneID],
         optionsByRecordZoneID: [zoneID: options]
       )
+      operation.qualityOfService = .userInitiated
       var requestedMore = false
       operation.recordChangedBlock = { (record: CKRecord) in
         if record.recordType == recordType {
@@ -1832,6 +2025,7 @@ import FoundationModels
       let batch = Array(recordIDs[index..<end])
       index = end
       let operation = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: batch)
+      operation.qualityOfService = .userInitiated
       operation.modifyRecordsCompletionBlock = { _, _, error in
         if let error {
           completion(error)
@@ -2070,8 +2264,14 @@ import FoundationModels
       )
     }
 
+    // Self-heal: if the sync zone was deleted, clear the cached ready flag so the
+    // next withAvailableCloudKit call recreates it.
+    let isMissingZone = handleCloudKitZoneError(cloudError)
+
     let message: String
     switch cloudError.code {
+    case .zoneNotFound, .userDeletedZone:
+      message = "The iCloud sync zone was reset. Retry iCloud sync to recreate it."
     case .quotaExceeded:
       message = "The user's iCloud storage is full. Ask them to manage iCloud storage in Settings."
     case .networkUnavailable:
@@ -2097,6 +2297,10 @@ import FoundationModels
     var details: [String: Any] = ["message": message]
     if let retryAfter = cloudError.retryAfterSeconds {
       details["retryAfterSeconds"] = retryAfter
+    } else if isMissingZone {
+      // Surface a short retry hint so the Dart layer treats a reset zone as a
+      // temporary failure and retries, letting ensureCloudKitSyncZone recreate it.
+      details["retryAfterSeconds"] = 1
     }
     details["code"] = cloudError.code.rawValue
 
