@@ -365,7 +365,7 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
   @override
   Future<ICloudAccountStatusResult> checkAccountStatus() async {
     final stopwatch = Stopwatch()..start();
-    await logFirebaseBreadcrumb('icloud cloudKitAccountStatus start');
+    unawaited(logFirebaseBreadcrumb('icloud cloudKitAccountStatus start'));
     logDiagnostic('icloud', 'account status start');
     try {
       final result = _stringMapFrom(
@@ -378,8 +378,10 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
             result['message'] as String? ??
             'Unable to determine this device\'s iCloud availability.',
       );
-      await logFirebaseBreadcrumb(
-        'icloud cloudKitAccountStatus ${status.availability.name}',
+      unawaited(
+        logFirebaseBreadcrumb(
+          'icloud cloudKitAccountStatus ${status.availability.name}',
+        ),
       );
       stopwatch.stop();
       logDiagnostic(
@@ -604,12 +606,12 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
     Future<T> Function() operation,
   ) async {
     final stopwatch = Stopwatch()..start();
-    await logFirebaseBreadcrumb('icloud $method start');
+    unawaited(logFirebaseBreadcrumb('icloud $method start'));
     logDiagnostic('icloud', 'method start', data: {'method': method});
     for (var attempt = 0; attempt <= _retryDelays.length; attempt += 1) {
       try {
         final result = await operation();
-        await logFirebaseBreadcrumb('icloud $method success');
+        unawaited(logFirebaseBreadcrumb('icloud $method success'));
         stopwatch.stop();
         logDiagnostic(
           'icloud',
@@ -652,7 +654,7 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
           );
           throw mapped;
         }
-        await logFirebaseBreadcrumb('icloud $method retry ${attempt + 1}');
+        unawaited(logFirebaseBreadcrumb('icloud $method retry ${attempt + 1}'));
         logDiagnostic(
           'icloud',
           'method retry',
