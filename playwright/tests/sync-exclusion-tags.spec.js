@@ -56,9 +56,7 @@ test.describe('sync exclusion tags', () => {
     await addEditorTag(page, 'sync:excluded');
     await page.getByRole('button', { name: /Save changes|変更を保存/ }).click();
 
-    await expect(page.locator('flutter-view')).toContainText(
-      /#Local only|#この端末のみ/,
-    );
+    await expectDetailLocalOnlyTagCount(page).toBeGreaterThan(0);
 
     await page.getByRole('button', { name: /Edit note|メモを編集/ }).click();
     await deleteChipByText(page, 'Local only');
@@ -67,9 +65,7 @@ test.describe('sync exclusion tags', () => {
     await expect(page.locator('flutter-view')).toContainText(
       /Sync exclusion editor/,
     );
-    await expect(page.locator('flutter-view')).not.toContainText(
-      /#Local only|#この端末のみ/,
-    );
+    await expectDetailLocalOnlyTagCount(page).toBe(0);
   });
 });
 
@@ -200,6 +196,15 @@ async function addEditorTag(page, tag) {
 }
 
 async function deleteChipByText(page, text) {
+  const deleteAction = page.getByRole('button', {
+    name: new RegExp(`Remove tag #${escapeRegExp(text)}`),
+  });
+  if (await deleteAction.count()) {
+    await deleteAction.first().click();
+    await expectDetailChipButtonCount(page, text).toBe(0);
+    return;
+  }
+
   const chipButton = page.getByRole('button', { name: new RegExp(text) });
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const count = await chipButton.count();
@@ -208,30 +213,88 @@ async function deleteChipByText(page, text) {
       if (!(await candidate.isVisible())) {
         continue;
       }
-      const box = await candidate.boundingBox();
-      if (!box || box.x < 250) {
+      const box = await safeBoundingBox(candidate);
+      if (!box || box.x <= 520) {
         continue;
       }
       await candidate.click();
-      await page.waitForTimeout(200);
-      if ((await page.locator('flutter-view').getByText(text).count()) === 0) {
-        return;
-      }
+      await expectDetailChipButtonCount(page, text).toBe(0);
+      return;
     }
     const deleteButton = page.getByRole('button', { name: /Delete|削除|Remove|削除/ });
     if (await deleteButton.count()) {
       const button = deleteButton.first();
-      const box = await button.boundingBox();
+      const box = await safeBoundingBox(button);
       if (box) {
         await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
       } else {
         await button.click({ force: true });
       }
       await page.waitForTimeout(200);
-      if ((await page.locator('flutter-view').getByText(text).count()) === 0) {
+      if ((await detailChipButtonCount(page, text)) === 0) {
         return;
       }
     }
   }
   throw new Error(`Unable to delete chip: ${text}`);
+}
+
+function expectDetailLocalOnlyTagCount(page) {
+  return expect.poll(
+    async () => {
+      const tags = page.getByRole('checkbox', {
+        name: /#Local only|#この端末のみ/,
+      });
+      let detailCount = 0;
+      const count = await tags.count();
+      for (let index = 0; index < count; index += 1) {
+        const candidate = tags.nth(index);
+        if (!(await candidate.isVisible())) {
+          continue;
+        }
+        const box = await safeBoundingBox(candidate);
+        if (box && box.x > 520) {
+          detailCount += 1;
+        }
+      }
+      return detailCount;
+    },
+    { timeout: 5_000 },
+  );
+}
+
+function expectDetailChipButtonCount(page, text) {
+  return expect.poll(
+    () => detailChipButtonCount(page, text),
+    { timeout: 5_000 },
+  );
+}
+
+async function detailChipButtonCount(page, text) {
+  const chips = page.getByRole('button', { name: new RegExp(text) });
+  let detailCount = 0;
+  const count = await chips.count();
+  for (let index = 0; index < count; index += 1) {
+    const candidate = chips.nth(index);
+    if (!(await candidate.isVisible())) {
+      continue;
+    }
+    const box = await safeBoundingBox(candidate);
+    if (box && box.x > 520) {
+      detailCount += 1;
+    }
+  }
+  return detailCount;
+}
+
+async function safeBoundingBox(locator) {
+  try {
+    return await locator.boundingBox({ timeout: 500 });
+  } catch (_) {
+    return null;
+  }
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

@@ -150,11 +150,9 @@ test('setting an unlock PIN enables lock now in settings', async ({ page }) => {
   await setPin.click();
   const pinFields = page.getByRole('textbox');
   const pinInput = pinFields.first();
-  await pinInput.click();
-  await pinInput.pressSequentially('2468');
+  await fillInputReliably(page, pinInput, '2468');
   const confirmPinInput = pinFields.nth(1);
-  await confirmPinInput.click();
-  await confirmPinInput.pressSequentially('2468');
+  await fillInputReliably(page, confirmPinInput, '2468');
   await page.getByRole('button', { name: /Save|保存/ }).click();
 
   const enabledLockNow = await findRoleButtonByScrolling(
@@ -334,10 +332,21 @@ test('private profile unlock and relock work from the app bar', async ({
   await activateTabIndex(page, 4);
   await expandSettingsSection(page, /Private profiles|プライベートプロファイル/);
   await page.getByRole('button', { name: /Add profile|プロファイルを追加/ }).click();
-  await page.getByLabel(/Profile name|プロフィール名/).fill('Cover profile');
-  await page.getByLabel(/Profile password|プロフィールパスワード/).fill('cover-pass-123');
-  await page.getByLabel(/Confirm password|パスワードを確認/).fill('cover-pass-123');
-  await page.getByRole('button', { name: /Add|追加/ }).click();
+  const addProfileDialog = page.getByRole('alertdialog');
+  await expect(addProfileDialog).toContainText(/Add private profile|プライベートプロファイルを追加/);
+  const profileNameInput = addProfileDialog.getByLabel(/Profile name|プロフィール名/);
+  await fillInputReliably(page, profileNameInput, 'Cover profile');
+  await fillInputReliably(
+    page,
+    addProfileDialog.getByLabel(/Profile password|プロフィールパスワード/),
+    'cover-pass-123',
+  );
+  await fillInputReliably(
+    page,
+    addProfileDialog.getByLabel(/Confirm password|パスワードを確認/),
+    'cover-pass-123',
+  );
+  await addProfileDialog.getByRole('button', { name: /^Add$|^追加$/ }).click();
   await expect(page.locator('flutter-view')).toContainText(
     /Viewing Cover profile|Cover profile を表示中/,
   );
@@ -682,18 +691,44 @@ async function visibleNoteTile(page, name) {
 async function dismissOpenDialog(page) {
   const closeButton = page.getByRole('button', { name: /Close|閉じる/ });
   if (await closeButton.count()) {
-    await closeButton.first().click();
-    await expect(page.getByRole('checkbox', { name: /Pinned only|固定/ })).toHaveCount(0);
+    await clickDialogButton(page, closeButton.first());
+    await expectNoAlertDialog(page);
+    return;
+  }
+  const cancelButton = page.getByRole('button', { name: /Cancel|キャンセル/ });
+  if (await cancelButton.count()) {
+    await clickDialogButton(page, cancelButton.last());
+    await expectNoAlertDialog(page);
     return;
   }
   const dismissButton = page.getByRole('button', { name: /Dismiss/ });
   if (await dismissButton.count()) {
-    await dismissButton.first().click();
-    await expect(page.getByRole('checkbox', { name: /Pinned only|固定/ })).toHaveCount(0);
+    await clickDialogButton(page, dismissButton.first());
+    await expectNoAlertDialog(page);
     return;
   }
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('checkbox', { name: /Pinned only|固定/ })).toHaveCount(0);
+  await expectNoAlertDialog(page);
+}
+
+async function clickDialogButton(page, button) {
+  const box = await button.boundingBox({ timeout: 1000 }).catch(() => null);
+  if (box) {
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  } else {
+    await button.click({ force: true });
+  }
+}
+
+async function expectNoAlertDialog(page) {
+  try {
+    await expect(page.getByRole('alertdialog')).toHaveCount(0, {
+      timeout: 1500,
+    });
+  } catch (error) {
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  }
 }
 
 async function openSettingsGroup(page, name) {
@@ -726,4 +761,22 @@ async function findRoleButtonByScrolling(page, name, options = {}) {
   }
   await expect(button).toHaveCount(1);
   return button.first();
+}
+
+async function fillInputReliably(page, input, value) {
+  await expect(input).toBeVisible();
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await input.click();
+    await page.keyboard.press('ControlOrMeta+A');
+    await input.pressSequentially(value);
+    try {
+      await expect(input).toHaveValue(value, { timeout: 1200 });
+      return;
+    } catch (error) {
+      if (attempt === 3) {
+        throw error;
+      }
+      await page.waitForTimeout(150);
+    }
+  }
 }

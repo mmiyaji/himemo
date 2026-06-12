@@ -44,10 +44,10 @@ test.describe('fake Google Drive sync', () => {
       { timeout: 20_000 },
     );
 
-    const upload = page
-      .getByRole('button', { name: /Send this device backup|Upload bundle/ })
-      .first();
     for (let index = 0; index < 6; index += 1) {
+      const upload = page
+        .getByRole('button', { name: /Send this device backup|Upload bundle/ })
+        .first();
       if ((await upload.count()) && (await upload.isEnabled())) {
         await upload.click();
       }
@@ -158,17 +158,24 @@ async function clickSettingsSummary(page, name) {
 }
 
 async function clickButton(page, name) {
-  const button = page.getByRole('button', { name }).first();
   for (let attempt = 0; attempt < 16; attempt += 1) {
-    if ((await button.count()) && (await button.isVisible())) {
-      await button.scrollIntoViewIfNeeded();
-      await expect(button).toBeEnabled();
-      await button.click();
-      return;
+    const button = page.getByRole('button', { name }).first();
+    try {
+      if ((await button.count()) && (await button.isVisible())) {
+        await button.scrollIntoViewIfNeeded();
+        await expect(button).toBeEnabled({ timeout: 1000 });
+        await button.click();
+        return;
+      }
+    } catch (error) {
+      if (!/not attached|detached|Target closed/i.test(String(error))) {
+        throw error;
+      }
     }
     await page.mouse.wheel(0, 360);
     await page.waitForTimeout(120);
   }
+  const button = page.getByRole('button', { name }).first();
   await expect(button).toHaveCount(1);
   await button.click();
 }

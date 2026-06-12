@@ -6,27 +6,32 @@ test.describe('settings summary jumps', () => {
   }) => {
     await openSettings(page);
 
-    await clickSummary(page, /Theme Light/);
-    await expectSectionExpanded(
+    await openSummaryAndExpect(
       page,
+      /Theme Light/,
       /Appearance/,
       'Choose the font used across notes',
     );
 
-    await clickSummary(page, /Sync Off/);
-    await expectSectionExpanded(page, /Backup and sync/, 'Selected target');
+    await openSummaryAndExpect(page, /Sync Off/, /Backup and sync/, 'Selected target');
 
-    await clickSummary(page, /Memo Rich memo/);
-    await expectSectionExpanded(page, /Memo settings/, 'Quick memo');
+    await openSummaryAndExpect(page, /Memo Rich memo/, /Memo settings/, 'Quick memo');
 
-    await clickSummary(page, /Storage/);
-    await expectSectionExpanded(page, /Storage/, 'Saved notes on this device');
+    await openSummaryAndExpect(
+      page,
+      /Storage/,
+      /Storage/,
+      'Saved notes on this device',
+    );
 
-    await clickSummary(page, /App lock Disabled/);
-    await expectSectionExpanded(page, /App security/, 'Set PIN');
+    await openSummaryAndExpect(page, /App lock Disabled/, /App security/, 'Set PIN');
 
-    await clickSummary(page, /Profile Normal notes/);
-    await expectSectionExpanded(page, /Private profiles/, 'Add profile');
+    await openSummaryAndExpect(
+      page,
+      /Profile Normal notes/,
+      /Private profiles/,
+      'Add profile',
+    );
   });
 
   test('mobile summary jump remains aligned when another long section is already open', async ({
@@ -34,18 +39,21 @@ test.describe('settings summary jumps', () => {
   }) => {
     await openSettings(page);
 
-    await clickSummary(page, /Theme Light/);
-    await expectSectionExpanded(
+    await openSummaryAndExpect(
       page,
+      /Theme Light/,
       /Appearance/,
       'Choose the font used across notes',
     );
 
-    await clickSummary(page, /Sync Off/);
-    await expectSectionExpanded(page, /Backup and sync/, 'Selected target');
+    await openSummaryAndExpect(page, /Sync Off/, /Backup and sync/, 'Selected target');
 
-    await clickSummary(page, /App lock Disabled/);
-    await expectSectionExpanded(page, /App security/, 'Session status');
+    await openSummaryAndExpect(
+      page,
+      /App lock Disabled/,
+      /App security/,
+      'Session status',
+    );
   });
 
   test('extended color theme sheet keeps its header above scrolled choices', async ({
@@ -53,9 +61,9 @@ test.describe('settings summary jumps', () => {
   }) => {
     await openSettings(page, { colorTheme: 'moegi' });
 
-    await clickSummary(page, /Theme Light/);
-    await expectSectionExpanded(
+    await openSummaryAndExpect(
       page,
+      /Theme Light/,
       /Appearance/,
       'Choose the font used across notes',
     );
@@ -91,22 +99,26 @@ test.describe('settings summary jumps', () => {
     }) => {
       await openSettings(page);
 
-      await clickSummary(page, /Profile Normal notes/);
-      await expectSectionExpanded(
+      await openSummaryAndExpect(
         page,
+        /Profile Normal notes/,
         /Private profiles/,
         'Enter admin mode',
       );
 
-      await clickSummary(page, /Theme Light/);
-      await expectSectionExpanded(
+      await openSummaryAndExpect(
         page,
+        /Theme Light/,
         /Appearance/,
         'Choose the font used across notes',
       );
 
-      await clickSummary(page, /Sync Off/);
-      await expectSectionExpanded(page, /Backup and sync/, 'Selected target');
+      await openSummaryAndExpect(
+        page,
+        /Sync Off/,
+        /Backup and sync/,
+        'Selected target',
+      );
     });
   });
 });
@@ -157,7 +169,30 @@ async function clickSummary(page, name) {
   const summary = page.getByRole('button', { name }).first();
   await summary.scrollIntoViewIfNeeded();
   await expect(summary).toBeVisible();
-  await summary.click();
+  try {
+    await summary.click({ force: true });
+  } catch (error) {
+    if (!/outside of the viewport|not attached|detached/i.test(String(error))) {
+      throw error;
+    }
+    await summary.focus();
+    await summary.press('Enter');
+  }
+}
+
+async function openSummaryAndExpect(page, summary, heading, expandedText) {
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await clickSummary(page, summary);
+    try {
+      await expectSectionExpanded(page, heading, expandedText);
+      return;
+    } catch (error) {
+      lastError = error;
+      await page.waitForTimeout(180);
+    }
+  }
+  throw lastError;
 }
 
 async function expectSectionExpanded(page, heading, expandedText) {

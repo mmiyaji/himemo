@@ -2919,6 +2919,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                     _displayNoteTagWithHash(context, tag),
                                   ),
                                   onPressed: () {},
+                                  deleteButtonTooltipMessage:
+                                      'Remove tag ${_displayNoteTagWithHash(context, tag)}',
                                   onDeleted: () {
                                     setState(() {
                                       _tags = _tags

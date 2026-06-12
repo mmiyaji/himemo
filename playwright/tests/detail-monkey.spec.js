@@ -182,9 +182,15 @@ async function clickFirstVisible(page, locators) {
     const count = await locator.count();
     for (let index = 0; index < count; index += 1) {
       const item = locator.nth(index);
-      if ((await item.isVisible()) && (await item.isEnabled())) {
-        await item.click();
-        return true;
+      try {
+        if ((await item.isVisible()) && (await item.isEnabled({ timeout: 500 }))) {
+          await item.click();
+          return true;
+        }
+      } catch (error) {
+        if (!/not attached|detached|Target closed|Timeout/i.test(String(error))) {
+          throw error;
+        }
       }
     }
   }

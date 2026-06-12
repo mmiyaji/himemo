@@ -573,13 +573,25 @@ class SettingsScreen extends ConsumerWidget {
     if (!context.mounted || requestId != _sectionScrollRequestId) {
       return;
     }
-    _scrollToSettingsSection(key);
+    await _scrollToSettingsSection(key);
     await Future<void>.delayed(const Duration(milliseconds: 380));
     await _waitForSettingsFrame();
     if (!context.mounted || requestId != _sectionScrollRequestId) {
       return;
     }
-    _scrollToSettingsSection(key, duration: const Duration(milliseconds: 140));
+    await _scrollToSettingsSection(
+      key,
+      duration: const Duration(milliseconds: 140),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 180));
+    await _waitForSettingsFrame();
+    if (!context.mounted || requestId != _sectionScrollRequestId) {
+      return;
+    }
+    await _scrollToSettingsSection(
+      key,
+      duration: const Duration(milliseconds: 100),
+    );
   }
 
   Future<void> _waitForSettingsFrame() {
@@ -591,39 +603,25 @@ class SettingsScreen extends ConsumerWidget {
     return completer.future;
   }
 
-  void _scrollToSettingsSection(
+  Future<void> _scrollToSettingsSection(
     GlobalKey key, {
     Duration duration = const Duration(milliseconds: 320),
-  }) {
+  }) async {
     final targetContext = key.currentContext;
     if (targetContext == null) {
       return;
     }
-    final scrollable = Scrollable.maybeOf(targetContext);
-    final targetObject = targetContext.findRenderObject();
-    final scrollObject = scrollable?.context.findRenderObject();
-    if (scrollable == null ||
-        targetObject is! RenderBox ||
-        scrollObject is! RenderBox) {
-      return;
-    }
-    final position = scrollable.position;
-    final targetOffset = targetObject
-        .localToGlobal(Offset.zero, ancestor: scrollObject)
-        .dy;
-    final nextOffset =
-        position.pixels + targetOffset - position.viewportDimension * 0.04;
-    final clampedOffset = nextOffset.clamp(
-      position.minScrollExtent,
-      position.maxScrollExtent,
-    );
-    unawaited(
-      position.animateTo(
-        clampedOffset,
+    try {
+      await Scrollable.ensureVisible(
+        targetContext,
+        alignment: 0.06,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
         duration: duration,
         curve: Curves.easeOutCubic,
-      ),
-    );
+      );
+    } catch (_) {
+      // The scrollable can detach if the settings route is replaced mid-jump.
+    }
   }
 
   @override
