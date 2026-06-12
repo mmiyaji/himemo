@@ -4,6 +4,8 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:cryptography/cryptography.dart';
+import 'package:drift/drift.dart' hide isNotNull, isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -538,6 +540,221 @@ void main() {
     });
   });
 
+  group('EncryptedNoteDatabase edge paths', () {
+    late EncryptedNoteDatabase database;
+
+    setUp(() {
+      database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    });
+
+    tearDown(() => database.close());
+
+    test('loads records, pending fallbacks, and storage sizes', () async {
+      final createdAt = DateTime(2026, 6, 12, 8, 0);
+      final updatedAt = DateTime(2026, 6, 12, 9, 0);
+      final deletedAt = DateTime(2026, 6, 12, 10, 0);
+      final plain = EncryptedNoteRecord(
+        id: 'plain',
+        vaultId: 'everyday',
+        encryptedPayload: 'plain-payload',
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+        deletedAt: null,
+        isPinned: false,
+        revision: 2,
+        syncState: NoteSyncState.pendingUpload,
+        deviceId: 'device-a',
+        contentHash: 'hash-plain',
+      );
+      final pinned = EncryptedNoteRecord(
+        id: 'pinned',
+        vaultId: 'private_profile:db',
+        encryptedPayload: 'pinned-payload',
+        createdAt: createdAt.subtract(const Duration(hours: 1)),
+        updatedAt: null,
+        deletedAt: deletedAt,
+        isPinned: true,
+        revision: 3,
+        syncState: NoteSyncState.pendingDelete,
+        deviceId: null,
+        contentHash: null,
+      );
+
+      await database.replaceAll(
+        notes: [plain, pinned],
+        attachments: const [
+          EncryptedAttachmentRecord(
+            noteId: 'plain',
+            position: 1,
+            encryptedPayload: 'attachment-1',
+          ),
+          EncryptedAttachmentRecord(
+            noteId: 'plain',
+            position: 0,
+            encryptedPayload: 'attachment-0',
+          ),
+        ],
+        pendingChanges: [
+          PendingNoteChangeRecord(
+            noteId: 'plain',
+            vaultId: 'everyday',
+            revision: 2,
+            action: PendingNoteChangeAction.upsert,
+            queuedAt: updatedAt,
+            contentHash: 'hash-plain',
+          ),
+          PendingNoteChangeRecord(
+            noteId: 'pinned',
+            vaultId: 'private_profile:db',
+            revision: 3,
+            action: PendingNoteChangeAction.delete,
+            queuedAt: deletedAt,
+            deletedAt: deletedAt,
+          ),
+        ],
+      );
+
+      final snapshots = await database.loadAll();
+      expect(snapshots.map((snapshot) => snapshot.note.id), [
+        'pinned',
+        'plain',
+      ]);
+      expect(snapshots.last.attachments.map((record) => record.position), [
+        0,
+        1,
+      ]);
+      expect(await database.storagePayloadSizeBytes(), greaterThan(0));
+      expect(await database.existingNoteIds({'plain', 'missing'}), {'plain'});
+
+      await database.customStatement(
+        "UPDATE encrypted_notes SET sync_state = 'legacy' WHERE id = ?",
+        ['plain'],
+      );
+      await database.customStatement(
+        "UPDATE pending_note_changes SET sync_action = 'legacy' "
+        'WHERE note_id = ?',
+        ['plain'],
+      );
+
+      final fallbackSnapshot = (await database.loadAll()).singleWhere(
+        (snapshot) => snapshot.note.id == 'plain',
+      );
+      expect(fallbackSnapshot.note.syncState, NoteSyncState.localOnly);
+      final fallbackPending = (await database.loadPendingChanges()).singleWhere(
+        (change) => change.noteId == 'plain',
+      );
+      expect(fallbackPending.action, PendingNoteChangeAction.upsert);
+    });
+
+    test('deletes vault data and handles empty set guards', () async {
+      final now = DateTime(2026, 6, 12, 11, 0);
+
+      expect(await database.existingNoteIds(const <String>{}), isEmpty);
+      await database.deletePendingChangesByIds(const <String>{});
+      await database.markNotesSyncedByIds(const <String>{});
+
+      await database.replaceAll(
+        notes: [
+          EncryptedNoteRecord(
+            id: 'private-note',
+            vaultId: 'private_profile:db',
+            encryptedPayload: 'private-payload',
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: null,
+            isPinned: false,
+            revision: 1,
+            syncState: NoteSyncState.pendingUpload,
+            deviceId: null,
+            contentHash: 'hash-private',
+          ),
+        ],
+        attachments: const [
+          EncryptedAttachmentRecord(
+            noteId: 'private-note',
+            position: 0,
+            encryptedPayload: 'attachment',
+          ),
+        ],
+        pendingChanges: [
+          PendingNoteChangeRecord(
+            noteId: 'private-note',
+            vaultId: 'private_profile:db',
+            revision: 1,
+            action: PendingNoteChangeAction.upsert,
+            queuedAt: now,
+          ),
+          PendingNoteChangeRecord(
+            noteId: 'orphan-pending',
+            vaultId: 'private_profile:missing',
+            revision: 1,
+            action: PendingNoteChangeAction.delete,
+            queuedAt: now,
+            deletedAt: now,
+          ),
+        ],
+      );
+
+      await database.markNotesSyncedByIds({'private-note'});
+      expect(
+        (await database.loadAll()).single.note.syncState,
+        NoteSyncState.synced,
+      );
+      await database.deletePendingChangesByIds({'private-note'});
+      expect(
+        (await database.loadPendingChanges()).map((change) => change.noteId),
+        ['orphan-pending'],
+      );
+
+      await database.deleteNotesByVaultId('private_profile:missing');
+      expect(await database.loadPendingChanges(), isEmpty);
+
+      await database.replaceAll(
+        notes: [
+          EncryptedNoteRecord(
+            id: 'private-note',
+            vaultId: 'private_profile:db',
+            encryptedPayload: 'private-payload',
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: null,
+            isPinned: false,
+            revision: 2,
+            syncState: NoteSyncState.pendingUpload,
+            deviceId: null,
+            contentHash: null,
+          ),
+        ],
+        attachments: const [
+          EncryptedAttachmentRecord(
+            noteId: 'private-note',
+            position: 0,
+            encryptedPayload: 'attachment',
+          ),
+        ],
+        pendingChanges: [
+          PendingNoteChangeRecord(
+            noteId: 'private-note',
+            vaultId: 'private_profile:db',
+            revision: 2,
+            action: PendingNoteChangeAction.upsert,
+            queuedAt: now,
+          ),
+        ],
+      );
+      await database.deleteNotesByVaultId('private_profile:db');
+      expect(await database.loadAll(), isEmpty);
+      expect(await database.loadPendingChanges(), isEmpty);
+
+      await database.replaceAll(
+        notes: const [],
+        attachments: const [],
+        pendingChanges: const [],
+      );
+      expect(await database.storagePayloadSizeBytes(), 0);
+    });
+  });
+
   group('EncryptedAttachmentStore', () {
     late Directory tempDirectory;
     late MemorySecureKeyValueStore secureStore;
@@ -759,6 +976,147 @@ void main() {
       expect(await File(keptReference).exists(), isTrue);
       expect(await File(orphanReference!).exists(), isFalse);
     });
+
+    test(
+      'keeps attachments retained by migrated basename references',
+      () async {
+        expect(
+          await attachmentStore.deleteUnreferencedAttachments(const <String>{}),
+          0,
+        );
+
+        final source = File(
+          '${tempDirectory.path}${Platform.pathSeparator}migrated.jpg',
+        );
+        await source.writeAsBytes(const [21, 22, 23], flush: true);
+        final storedReference = await attachmentStore.storeAttachment(
+          XFile(source.path, name: 'migrated.jpg'),
+          type: AttachmentType.photo,
+        );
+        final retainedByPreviousContainer = path.join(
+          tempDirectory.path,
+          'old-container',
+          'attachments',
+          path.basename(storedReference!),
+        );
+
+        expect(
+          await attachmentStore.deleteUnreferencedAttachments({
+            retainedByPreviousContainer,
+          }),
+          0,
+        );
+        expect(await File(storedReference).exists(), isTrue);
+      },
+    );
+
+    test('reports native payload metadata and direct payload reads', () async {
+      final source = File(
+        '${tempDirectory.path}${Platform.pathSeparator}metadata.png',
+      );
+      await source.writeAsBytes(const [31, 32, 33, 34], flush: true);
+      final storedReference = await attachmentStore.storeAttachment(
+        XFile(source.path, name: 'metadata.png'),
+        type: AttachmentType.photo,
+      );
+
+      final estimated = await attachmentStore
+          .estimateStoredAttachmentPayloadBytes(storedReference!);
+      final metadata = await attachmentStore.storedPayloadMetadata(
+        storedReference,
+      );
+      final diagnostics = await attachmentStore.storedPayloadDiagnostics(
+        storedReference,
+      );
+      final storedPayload = await attachmentStore.readStoredPayload(
+        storedReference,
+      );
+
+      expect(estimated, greaterThan(0));
+      expect(metadata?.sizeBytes, estimated);
+      expect(metadata?.modifiedAtMillis, isNotNull);
+      expect(diagnostics['payloadLocation'], 'file');
+      expect(diagnostics['originalFileExists'], isTrue);
+      expect(diagnostics['resolvedFileExists'], isTrue);
+      expect(diagnostics['encryptedPayloadChars'], isNull);
+      expect(storedPayload, startsWith('binary:'));
+      expect(await attachmentStore.storagePayloadSizeBytes(), estimated);
+
+      await attachmentStore.deleteAttachment(storedReference);
+      expect(await File(storedReference).exists(), isFalse);
+      expect(prefs.getString('attachments.vault.$storedReference'), isNull);
+    });
+
+    test('materializes raw bytes and ignores empty cleanup requests', () async {
+      expect(
+        await attachmentStore.materializeDecryptedBytes(
+          const [],
+          type: AttachmentType.file,
+        ),
+        isNull,
+      );
+
+      await attachmentStore.markMaterializedFileForCleanup(
+        '',
+        deleteAfter: DateTime.utc(2026, 6, 12),
+      );
+      await attachmentStore.markMaterializedFileForCleanup(
+        path.join(tempDirectory.path, 'missing.tmp'),
+        deleteAfter: DateTime.utc(2026, 6, 12),
+      );
+
+      final unnamed = await attachmentStore.materializeDecryptedBytes(const [
+        41,
+        42,
+      ], type: AttachmentType.file);
+      final named = await attachmentStore.materializeDecryptedBytes(
+        const [43, 44, 45],
+        type: AttachmentType.photo,
+        preferredFileName: 'named.jpg',
+      );
+
+      expect(path.basename(unnamed!), endsWith('.bin'));
+      expect(path.basename(named!), endsWith('.jpg'));
+      expect(await File(unnamed).readAsBytes(), const [41, 42]);
+      expect(await File(named).readAsBytes(), const [43, 44, 45]);
+
+      await attachmentStore.deleteMaterializedFile(unnamed);
+      expect(await File(unnamed).exists(), isFalse);
+      expect(await attachmentStore.clearMaterializedCache(), 3);
+    });
+
+    test(
+      'protects attachment vault metadata without unnecessary rewrites',
+      () async {
+        final source = File(
+          '${tempDirectory.path}${Platform.pathSeparator}protect.jpg',
+        );
+        await source.writeAsBytes(const [51, 52, 53], flush: true);
+        final storedReference = await attachmentStore.storeAttachment(
+          XFile(source.path, name: 'protect.jpg'),
+          type: AttachmentType.photo,
+        );
+
+        await attachmentStore.protectAttachmentForVault(
+          storedReference!,
+          type: AttachmentType.photo,
+          vaultId: 'everyday',
+        );
+        expect(
+          await attachmentStore.readAttachment(
+            storedReference,
+            type: AttachmentType.photo,
+          ),
+          const [51, 52, 53],
+        );
+
+        await attachmentStore.protectAttachmentForVault(
+          path.join(tempDirectory.path, 'attachments', 'missing.enc'),
+          type: AttachmentType.photo,
+          vaultId: 'private_profile:locked',
+        );
+      },
+    );
 
     test('cleans materialized files after persisted marker expires', () async {
       final source = File(
@@ -2376,6 +2734,169 @@ void main() {
   );
 
   test(
+    'SecureSyncBundleStore writes inline attachment bundle payloads',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-bundle-inline-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(54));
+      final bundleStore = SecureSyncBundleStore(
+        encryptionService: encryptionService,
+        syncBundleKeyService: SyncBundleKeyService(
+          secureStore: secureStore,
+          keyFactory: encryptionService.generateKeyBytes,
+        ),
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+
+      final stored = await bundleStore.writeBundle(
+        PreparedSyncSnapshot(
+          deviceId: 'inline-device',
+          exportedAt: DateTime(2026, 6, 12, 15),
+          summary: const SyncQueueSummary(
+            totalChanges: 0,
+            upserts: 0,
+            deletes: 0,
+          ),
+          notes: const [],
+          attachments: [
+            PreparedSyncAttachment(
+              id: 'inline-attachment',
+              type: AttachmentType.file,
+              label: 'inline.bin',
+              bytesBase64: base64Encode(const [9, 8, 7]),
+              encryptedPayload: 'encrypted-inline-payload',
+              contentHash: 'inline-hash',
+              sizeBytes: 3,
+            ),
+          ],
+        ),
+        inlineAttachments: true,
+        bundleKind: SyncBundleKind.delta,
+      );
+
+      final bundle = await bundleStore.readBundleJson(stored.reference);
+      final attachment =
+          (bundle?['attachments'] as List<Object?>).single
+              as Map<String, dynamic>;
+
+      expect(stored.noteCount, 0);
+      expect(stored.attachmentCount, 1);
+      expect(bundle?['bundleVersion'], 2);
+      expect(bundle?['bundleKind'], SyncBundleKind.delta);
+      expect(bundle?.containsKey('attachmentStorage'), isFalse);
+      expect(attachment['bytesBase64'], base64Encode(const [9, 8, 7]));
+      expect(attachment['encryptedPayload'], 'encrypted-inline-payload');
+      expect(attachment['contentHash'], 'inline-hash');
+      expect(attachment['sizeBytes'], 3);
+
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'SecureSyncBundleStore reads stored metadata and legacy encrypted bundles',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-bundle-legacy-',
+      );
+      final syncSecureStore = MemorySecureKeyValueStore();
+      final legacySecureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(53));
+      final syncBundleKeyService = SyncBundleKeyService(
+        secureStore: syncSecureStore,
+        keyFactory: () => List<int>.filled(32, 1),
+      );
+      final legacyMasterKeyService = MasterKeyService(
+        secureStore: legacySecureStore,
+        keyFactory: () => List<int>.filled(32, 2),
+      );
+      final bundleStore = SecureSyncBundleStore(
+        encryptionService: encryptionService,
+        syncBundleKeyService: syncBundleKeyService,
+        legacyMasterKeyService: legacyMasterKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+
+      expect(await bundleStore.readEncryptedBundlePayload('missing'), isNull);
+      expect(await bundleStore.readBundleJson('missing'), isNull);
+      expect(await bundleStore.readStoredEncryptedBundle(), isNull);
+
+      await bundleStore.writeEncryptedBundlePayload(
+        '',
+        noteCount: 0,
+        attachmentCount: 0,
+        fileNameOverride: 'empty.enc',
+      );
+      expect(
+        await bundleStore.readStoredEncryptedBundle(
+          fileNameOverride: 'empty.enc',
+        ),
+        isNull,
+      );
+
+      await syncBundleKeyService.obtainOrCreate();
+      final legacyKey = await legacyMasterKeyService.obtainOrCreate();
+      final legacyPayload = await encryptionService.encryptJson(
+        payload: {
+          'bundleVersion': 1,
+          'deviceId': 'legacy-device',
+          'notes': [
+            {
+              'action': PendingNoteChangeAction.upsert.name,
+              'note': NoteEntry(
+                id: 'legacy-note',
+                vaultId: 'everyday',
+                title: 'Legacy note',
+                body: 'Legacy body',
+                createdAt: DateTime(2026, 6, 12, 12),
+              ).toJson(),
+            },
+          ],
+          'encryptedPrivateNotes': [
+            {
+              'note': {'id': 'private-legacy'},
+            },
+          ],
+          'attachments': [
+            {'id': 'legacy-attachment'},
+          ],
+        },
+        secretKey: legacyKey,
+      );
+      await bundleStore.writeEncryptedBundlePayload(
+        legacyPayload,
+        noteCount: 0,
+        attachmentCount: 0,
+        fileNameOverride: 'legacy.enc',
+      );
+
+      final decoded = await bundleStore.readBundleJson(
+        path.join(tempDirectory.path, 'sync_exports', 'legacy.enc'),
+      );
+      expect(decoded?['deviceId'], 'legacy-device');
+
+      final stored = await bundleStore.readStoredEncryptedBundle(
+        fileNameOverride: 'legacy.enc',
+      );
+      expect(stored?.noteCount, 2);
+      expect(stored?.attachmentCount, 1);
+      expect(path.basename(stored!.reference), 'legacy.enc');
+
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
     'ProfileDataKeyService exports and imports wrapped profile keys',
     () async {
       final encryptionService = EncryptionService(random: Random(71));
@@ -2417,6 +2938,139 @@ void main() {
       expect(target.isProfileUnlocked(vaultId), isTrue);
     },
   );
+
+  test(
+    'ProfileDataKeyService changes, locks, and deletes profile keys',
+    () async {
+      final encryptionService = EncryptionService(random: Random(72));
+      final secureStore = MemorySecureKeyValueStore();
+      final masterKey = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final service = ProfileDataKeyService(
+        secureStore: secureStore,
+        encryptionService: encryptionService,
+        normalMasterKeyService: masterKey,
+      );
+      const vaultId = 'private_profile:password-change';
+
+      expect(await service.keyForVault('everyday'), isA<SecretKey>());
+      expect(
+        await service.changeProfilePassword(
+          vaultId: vaultId,
+          newPassword: 'missing-key',
+        ),
+        isFalse,
+      );
+
+      await service.configureProfile(vaultId: vaultId, password: 'old-pass');
+      expect(service.isProfileUnlocked(vaultId), isTrue);
+      expect(
+        await service.changeProfilePassword(
+          vaultId: vaultId,
+          newPassword: 'new-pass',
+        ),
+        isTrue,
+      );
+
+      service.lockProfile(vaultId);
+      expect(service.isProfileUnlocked(vaultId), isFalse);
+      expect(
+        await service.unlockProfile(vaultId: vaultId, password: 'old-pass'),
+        isFalse,
+      );
+      expect(
+        await service.unlockProfile(vaultId: vaultId, password: 'new-pass'),
+        isTrue,
+      );
+
+      service.lockAllPrivateProfiles();
+      expect(service.isProfileUnlocked(vaultId), isFalse);
+
+      await service.deleteProfileKey(vaultId);
+      expect(await service.exportWrappedProfileKey(vaultId), isNull);
+      expect(
+        await service.unlockProfile(vaultId: vaultId, password: 'new-pass'),
+        isFalse,
+      );
+    },
+  );
+
+  test('ProfileDataKeyService skips invalid wrapped key imports', () async {
+    final encryptionService = EncryptionService(random: Random(73));
+    final sourceStore = MemorySecureKeyValueStore();
+    final targetStore = MemorySecureKeyValueStore();
+    final sourceMasterKey = MasterKeyService(
+      secureStore: sourceStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final targetMasterKey = MasterKeyService(
+      secureStore: targetStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final source = ProfileDataKeyService(
+      secureStore: sourceStore,
+      encryptionService: encryptionService,
+      normalMasterKeyService: sourceMasterKey,
+    );
+    final target = ProfileDataKeyService(
+      secureStore: targetStore,
+      encryptionService: encryptionService,
+      normalMasterKeyService: targetMasterKey,
+    );
+    const vaultId = 'private_profile:import-valid';
+
+    expect(await source.exportWrappedProfileKey('everyday'), isNull);
+    expect(await source.exportWrappedProfileKey(vaultId), isNull);
+    await source.configureProfile(vaultId: vaultId, password: 'profile-pass');
+    final exported = await source.exportWrappedProfileKeys([
+      vaultId,
+      vaultId,
+      'everyday',
+    ]);
+    expect(exported, hasLength(1));
+
+    final invalidImports = [
+      null,
+      'not-a-map',
+      {'vaultId': 'everyday'},
+      {'vaultId': 'private_profile:bad'},
+      {
+        'vaultId': 'private_profile:bad',
+        'version': 2,
+        'kdf': 'pbkdf2-sha256',
+        'salt': 'salt',
+        'wrappedDataKey': 'wrapped',
+      },
+      {
+        'vaultId': 'private_profile:bad',
+        'version': 1,
+        'kdf': 'argon2',
+        'salt': 'salt',
+        'wrappedDataKey': 'wrapped',
+      },
+      {
+        'vaultId': 'private_profile:bad',
+        'version': 1,
+        'kdf': 'pbkdf2-sha256',
+        'salt': '',
+        'wrappedDataKey': 'wrapped',
+      },
+      {
+        'vaultId': 'private_profile:bad',
+        'version': 1,
+        'kdf': 'pbkdf2-sha256',
+        'salt': 'salt',
+        'wrappedDataKey': '',
+      },
+    ];
+    expect(await target.importWrappedProfileKeys(invalidImports), 0);
+
+    expect(await target.importWrappedProfileKeys(exported), 1);
+    expect(await target.importWrappedProfileKeys(exported), 0);
+    expect(await target.importWrappedProfileKeys(exported, overwrite: true), 1);
+  });
 
   test(
     'SyncBundleKeyService creates stable fingerprint from secure storage',
