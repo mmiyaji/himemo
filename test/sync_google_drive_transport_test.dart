@@ -93,6 +93,28 @@ void main() {
       await keyStore.writeBackupCode('backup-code');
       expect(await keyStore.readBackupCode(), 'backup-code');
     });
+
+    test(
+      'delays uploads when configured and keeps empty history limits stable',
+      () async {
+        final transport = InMemoryGoogleDriveSyncTransport(
+          uploadDelay: const Duration(milliseconds: 1),
+        );
+
+        final before = DateTime.now();
+        final status = await transport.uploadBundle(
+          encodedPayload: '',
+          deviceId: 'device-delay',
+          noteCount: 0,
+          attachmentCount: 0,
+        );
+
+        expect(DateTime.now().difference(before), isNot(Duration.zero));
+        expect(status.sizeBytes, 0);
+        expect(status.bundleKind, SyncBundleKind.full);
+        expect(await transport.listBundleHistory(limit: 0), isEmpty);
+      },
+    );
   });
 
   group('GoogleDriveAuthConfig', () {
@@ -125,6 +147,18 @@ void main() {
         const GoogleDriveSyncException('sync failed').toString(),
         'sync failed',
       );
+      final rateLimited = GoogleDriveSyncException(
+        'limited',
+        statusCode: 429,
+        retryAfter: const Duration(minutes: 2),
+        isRateLimited: true,
+        details: const {'reason': 'rateLimitExceeded'},
+      );
+      expect(rateLimited.toString(), 'limited');
+      expect(rateLimited.statusCode, 429);
+      expect(rateLimited.retryAfter, const Duration(minutes: 2));
+      expect(rateLimited.isRateLimited, isTrue);
+      expect(rateLimited.details, isA<Map>());
     });
   });
 }

@@ -60,6 +60,156 @@ Map<String, dynamic> _change(
 }
 
 void main() {
+  group('Prepared sync DTOs', () {
+    test('private encrypted note parser rejects malformed payloads', () {
+      expect(PreparedEncryptedPrivateSyncNote.fromJson(null), isNull);
+      expect(PreparedEncryptedPrivateSyncNote.fromJson('bad'), isNull);
+      expect(
+        PreparedEncryptedPrivateSyncNote.fromJson({'note': 'bad'}),
+        isNull,
+      );
+      expect(
+        PreparedEncryptedPrivateSyncNote.fromJson({
+          'note': {'id': 'private'},
+        }),
+        isNull,
+      );
+      expect(
+        PreparedEncryptedPrivateSyncNote.fromJson({
+          'note': {'encryptedPayload': ''},
+        }),
+        isNull,
+      );
+    });
+
+    test(
+      'private encrypted note parser normalizes actions and attachments',
+      () {
+        final queuedAt = DateTime.utc(2026, 6, 12, 9);
+        final decoded = PreparedEncryptedPrivateSyncNote.fromJson({
+          'action': 'legacy',
+          'note': {
+            'id': 'private-delete',
+            'vaultId': 'private_profile:a',
+            'encryptedPayload': 'encrypted-note',
+            'createdAt': queuedAt.toIso8601String(),
+            'updatedAt': queuedAt.toIso8601String(),
+            'deletedAt': queuedAt.toIso8601String(),
+            'isPinned': true,
+            'revision': 7,
+            'syncState': NoteSyncState.pendingDelete.name,
+            'deviceId': 'device-a',
+            'contentHash': 'hash-a',
+          },
+          'attachments': [
+            'bad',
+            {'noteId': '', 'encryptedPayload': 'skip'},
+            {'noteId': 'private-delete', 'encryptedPayload': ''},
+            {
+              'noteId': 'private-delete',
+              'position': 2.9,
+              'encryptedPayload': 'encrypted-attachment',
+            },
+          ],
+        });
+
+        expect(decoded, isNotNull);
+        expect(decoded!.action, PendingNoteChangeAction.delete);
+        expect(decoded.note.id, 'private-delete');
+        expect(decoded.note.deletedAt, queuedAt);
+        expect(decoded.note.isPinned, isTrue);
+        expect(decoded.attachments, hasLength(1));
+        expect(decoded.attachments.single.noteId, 'private-delete');
+        expect(decoded.attachments.single.position, 2);
+        expect(
+          decoded.attachments.single.encryptedPayload,
+          'encrypted-attachment',
+        );
+        expect(decoded.toJson()['action'], PendingNoteChangeAction.delete.name);
+      },
+    );
+
+    test('snapshot estimates include metadata and inline attachment bytes', () {
+      final note = _note(
+        'estimate',
+        attachments: const [
+          NoteAttachment(
+            type: AttachmentType.photo,
+            label: 'photo.jpg',
+            filePath: 'sync-attachment://hash-a',
+          ),
+        ],
+      );
+      final snapshot = PreparedSyncSnapshot(
+        deviceId: 'device-estimate',
+        exportedAt: DateTime.utc(2026, 6, 12),
+        summary: const SyncQueueSummary(
+          totalChanges: 1,
+          upserts: 1,
+          deletes: 0,
+        ),
+        notes: [
+          PreparedSyncNote(note: note, action: PendingNoteChangeAction.upsert),
+        ],
+        attachments: const [
+          PreparedSyncAttachment(
+            id: 'hash-a',
+            type: AttachmentType.photo,
+            label: 'photo.jpg',
+            bytesBase64: 'AQID',
+            encryptedPayload: '',
+            contentHash: 'hash-a',
+            sizeBytes: 3,
+          ),
+        ],
+      );
+
+      expect(snapshot.summary.hasPendingChanges, isTrue);
+      expect(snapshot.estimatedMetadataPayloadBytes, greaterThan(4096));
+      expect(snapshot.estimatedPayloadBytes, greaterThan(4096));
+      expect(
+        snapshot.estimatedPayloadBytes,
+        isNot(snapshot.estimatedMetadataPayloadBytes),
+      );
+      expect(
+        snapshot.attachments.single.toJson(inlineBytes: false),
+        isNot(contains('bytesBase64')),
+      );
+      expect(
+        snapshot.attachments.single.toJson(inlineBytes: true),
+        containsPair('bytesBase64', 'AQID'),
+      );
+      expect(
+        const SyncQueueSummary(
+          totalChanges: 0,
+          upserts: 0,
+          deletes: 0,
+        ).hasPendingChanges,
+        isFalse,
+      );
+    });
+
+    test('attachment missing exception includes diagnostic fields', () {
+      expect(
+        const SyncAttachmentMissingException(
+          noteId: 'note-a',
+          attachmentLabel: 'photo.jpg',
+          attachmentType: AttachmentType.photo,
+          filePath: '/missing/photo.jpg',
+          index: 3,
+        ).toString(),
+        allOf(
+          contains('sync.error.local_attachment_missing'),
+          contains('noteId=note-a'),
+          contains('attachmentLabel=photo.jpg'),
+          contains('attachmentType=photo'),
+          contains('filePath=/missing/photo.jpg'),
+          contains('index=3'),
+        ),
+      );
+    });
+  });
+
   group('selectRemoteBundlesToApply', () {
     test('returns nothing for empty history', () {
       expect(

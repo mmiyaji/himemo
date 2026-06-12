@@ -243,17 +243,19 @@ void main() {
   group('visibleNotesProvider filters', () {
     NoteEntry note({
       required String id,
+      String vaultId = 'everyday',
       required DateTime createdAt,
       DateTime? updatedAt,
       bool isPinned = false,
       DateTime? archivedAt,
       DateTime? deletedAt,
+      List<String> tags = const <String>[],
       List<NoteAttachment> attachments = const <NoteAttachment>[],
       NoteLocation? location,
     }) {
       return NoteEntry(
         id: id,
-        vaultId: 'everyday',
+        vaultId: vaultId,
         title: id,
         body: 'body',
         createdAt: createdAt,
@@ -261,6 +263,7 @@ void main() {
         isPinned: isPinned,
         archivedAt: archivedAt,
         deletedAt: deletedAt,
+        tags: tags,
         attachments: attachments,
         location: location,
       );
@@ -359,6 +362,123 @@ void main() {
       ]);
     });
 
+    test('filter controller normalizes toggles and clear operations', () {
+      SharedPreferences.setMockInitialValues({});
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final controller = container.read(
+        searchFiltersControllerProvider.notifier,
+      );
+
+      controller.setAttachmentFilters(const [
+        SearchAttachmentFilter.all,
+        SearchAttachmentFilter.photo,
+        SearchAttachmentFilter.photo,
+        SearchAttachmentFilter.video,
+      ]);
+      expect(
+        container.read(searchFiltersControllerProvider).attachmentFilters,
+        [SearchAttachmentFilter.photo, SearchAttachmentFilter.video],
+      );
+
+      controller.toggleAttachmentFilter(SearchAttachmentFilter.photo);
+      expect(
+        container.read(searchFiltersControllerProvider).attachmentFilters,
+        [SearchAttachmentFilter.video],
+      );
+      controller.toggleAttachmentFilter(SearchAttachmentFilter.video);
+      expect(
+        container.read(searchFiltersControllerProvider).attachmentFilters,
+        [SearchAttachmentFilter.any],
+      );
+      controller.toggleAttachmentFilter(SearchAttachmentFilter.audio);
+      expect(
+        container.read(searchFiltersControllerProvider).attachmentFilters,
+        [SearchAttachmentFilter.audio],
+      );
+      controller.toggleAttachmentFilter(SearchAttachmentFilter.any);
+      expect(
+        container.read(searchFiltersControllerProvider).attachmentFilters,
+        [SearchAttachmentFilter.any],
+      );
+      controller.toggleAttachmentFilter(SearchAttachmentFilter.all);
+      expect(
+        container.read(searchFiltersControllerProvider).attachmentFilters,
+        isEmpty,
+      );
+
+      controller.setArchivedOnly(true);
+      controller.setIncludeArchived(true);
+      expect(
+        container.read(searchFiltersControllerProvider).archivedOnly,
+        isFalse,
+      );
+      expect(
+        container.read(searchFiltersControllerProvider).includeArchived,
+        isTrue,
+      );
+
+      controller.setYear(2026);
+      controller.setYear(null);
+      expect(container.read(searchFiltersControllerProvider).year, isNull);
+
+      controller.setVault('everyday');
+      controller.setVault('');
+      expect(container.read(searchFiltersControllerProvider).vaultId, isNull);
+
+      controller.setTags(const ['Alpha', 'Beta']);
+      controller.setRequireAllTags(true);
+      controller.removeTag(' beta ');
+      final filters = container.read(searchFiltersControllerProvider);
+      expect(filters.tags, ['Alpha']);
+      expect(filters.requireAllTags, isFalse);
+    });
+
+    test('matches query text from attachment labels and locations', () {
+      final container = containerFor([
+        note(
+          id: 'attachment-label',
+          createdAt: DateTime(2026, 6, 12, 10),
+          attachments: const [
+            NoteAttachment(
+              type: AttachmentType.file,
+              label: 'boarding-pass.pdf',
+            ),
+          ],
+        ),
+        note(
+          id: 'location-address',
+          createdAt: DateTime(2026, 6, 12, 9),
+          location: NoteLocation(
+            latitude: 35,
+            longitude: 139,
+            address: 'Shibuya Station',
+          ),
+        ),
+        note(
+          id: 'deleted-match',
+          createdAt: DateTime(2026, 6, 12, 8),
+          deletedAt: DateTime(2026, 6, 13),
+          attachments: const [
+            NoteAttachment(
+              type: AttachmentType.file,
+              label: 'boarding-pass.pdf',
+            ),
+          ],
+        ),
+      ]);
+
+      container.read(searchQueryProvider.notifier).setQuery('boarding');
+      expect(container.read(visibleNotesProvider).map((entry) => entry.id), [
+        'attachment-label',
+      ]);
+
+      container.read(searchQueryProvider.notifier).setQuery('shibuya');
+      expect(container.read(visibleNotesProvider).map((entry) => entry.id), [
+        'location-address',
+      ]);
+    });
+
     test('narrows by archive, year, and updated-at date ranges', () {
       final container = containerFor([
         note(
@@ -412,6 +532,194 @@ void main() {
       expect(container.read(visibleNotesProvider).map((entry) => entry.id), [
         'recent',
       ]);
+    });
+
+    test('narrows recent ranges and switches created-at sorting', () {
+      final now = DateTime.now();
+      final container = containerFor([
+        note(
+          id: 'updated-recent-created-old',
+          createdAt: now.subtract(const Duration(days: 90)),
+          updatedAt: now.subtract(const Duration(days: 1)),
+        ),
+        note(
+          id: 'created-recent',
+          createdAt: now.subtract(const Duration(days: 2)),
+          updatedAt: now.subtract(const Duration(days: 60)),
+        ),
+        note(
+          id: 'eight-days-old',
+          createdAt: now.subtract(const Duration(days: 8)),
+          updatedAt: now.subtract(const Duration(days: 8)),
+        ),
+        note(
+          id: 'previous-month',
+          createdAt: DateTime(
+            now.year,
+            now.month,
+            1,
+          ).subtract(const Duration(days: 1)),
+          updatedAt: DateTime(
+            now.year,
+            now.month,
+            1,
+          ).subtract(const Duration(days: 1)),
+        ),
+      ]);
+
+      container
+          .read(searchFiltersControllerProvider.notifier)
+          .setDateRange(SearchDateRange.last7Days);
+      expect(container.read(visibleNotesProvider).map((entry) => entry.id), [
+        'created-recent',
+      ]);
+
+      container
+          .read(searchFiltersControllerProvider.notifier)
+          .setDateField(SearchDateField.updatedAt);
+      expect(container.read(visibleNotesProvider).map((entry) => entry.id), [
+        'updated-recent-created-old',
+      ]);
+
+      container.read(searchFiltersControllerProvider.notifier).reset();
+      container
+          .read(searchFiltersControllerProvider.notifier)
+          .setDateRange(SearchDateRange.thisMonth);
+      container
+          .read(notesListSortControllerProvider.notifier)
+          .setSortField(NotesListSortField.createdAt);
+      expect(container.read(visibleNotesProvider).map((entry) => entry.id), [
+        'created-recent',
+        'eight-days-old',
+      ]);
+    });
+
+    test('visible tag summaries dedupe and ignore hidden notes', () {
+      final latest = DateTime(2026, 6, 12, 12);
+      final container = containerFor([
+        note(id: 'work-new', createdAt: latest, tags: const ['Work', '']),
+        note(
+          id: 'work-old',
+          createdAt: latest.subtract(const Duration(days: 1)),
+          updatedAt: latest.subtract(const Duration(hours: 2)),
+          tags: const [' work ', '#Personal'],
+        ),
+        note(
+          id: 'archived-work',
+          createdAt: latest,
+          archivedAt: latest,
+          tags: const ['Work'],
+        ),
+        note(
+          id: 'deleted-work',
+          createdAt: latest,
+          deletedAt: latest,
+          tags: const ['Work'],
+        ),
+        note(
+          id: 'hidden-work',
+          vaultId: 'private_profile:hidden',
+          createdAt: latest,
+          tags: const ['Work'],
+        ),
+      ]);
+
+      final summaries = container.read(visibleTagSummariesProvider);
+
+      expect(summaries.map((summary) => summary.name), ['Work', 'Personal']);
+      expect(summaries.first.count, 2);
+      expect(summaries.first.latestAt, latest);
+      expect(summaries.last.count, 1);
+    });
+
+    test(
+      'list display controllers restore, persist, and fallback safely',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'notes.list_density': NotesListDensity.compact.name,
+          'notes.attachment_preview_fit': AttachmentPreviewFit.icon.name,
+          'notes.list_sort_field': NotesListSortField.createdAt.name,
+        });
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+
+        expect(
+          container.read(notesListDensityControllerProvider),
+          NotesListDensity.standard,
+        );
+        expect(
+          container.read(attachmentPreviewFitControllerProvider),
+          AttachmentPreviewFit.preview,
+        );
+        expect(
+          container.read(notesListSortControllerProvider),
+          NotesListSortField.updatedAt,
+        );
+        await pumpEventQueue();
+        expect(
+          container.read(notesListDensityControllerProvider),
+          NotesListDensity.compact,
+        );
+        expect(
+          container.read(attachmentPreviewFitControllerProvider),
+          AttachmentPreviewFit.icon,
+        );
+        expect(
+          container.read(notesListSortControllerProvider),
+          NotesListSortField.createdAt,
+        );
+
+        await container
+            .read(notesListDensityControllerProvider.notifier)
+            .setDensity(NotesListDensity.standard);
+        await container
+            .read(attachmentPreviewFitControllerProvider.notifier)
+            .setFit(AttachmentPreviewFit.preview);
+        await container
+            .read(notesListSortControllerProvider.notifier)
+            .setSortField(NotesListSortField.updatedAt);
+        final prefs = await SharedPreferences.getInstance();
+        expect(
+          prefs.getString('notes.list_density'),
+          NotesListDensity.standard.name,
+        );
+        expect(
+          prefs.getString('notes.attachment_preview_fit'),
+          AttachmentPreviewFit.preview.name,
+        );
+        expect(
+          prefs.getString('notes.list_sort_field'),
+          NotesListSortField.updatedAt.name,
+        );
+      },
+    );
+
+    test('list display controllers ignore invalid restored values', () async {
+      SharedPreferences.setMockInitialValues({
+        'notes.list_density': 'tiny',
+        'notes.attachment_preview_fit': 'cover',
+        'notes.list_sort_field': 'title',
+      });
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      container.read(notesListDensityControllerProvider);
+      container.read(attachmentPreviewFitControllerProvider);
+      container.read(notesListSortControllerProvider);
+      await pumpEventQueue();
+
+      expect(
+        container.read(notesListDensityControllerProvider),
+        NotesListDensity.standard,
+      );
+      expect(
+        container.read(attachmentPreviewFitControllerProvider),
+        AttachmentPreviewFit.preview,
+      );
+      expect(
+        container.read(notesListSortControllerProvider),
+        NotesListSortField.updatedAt,
+      );
     });
   });
 }

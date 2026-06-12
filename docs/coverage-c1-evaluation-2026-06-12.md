@@ -4,7 +4,7 @@
 
 - Target: Flutter/Dart unit tests under `test/`
 - Command: `flutter test --concurrency=1 --branch-coverage --coverage-path coverage\lcov_branch.info`
-- Result: 247 tests passed
+- Result: 258 tests passed
 - Raw report: `coverage/lcov_branch.info`
 - Branch metric: LCOV `BRDA` entries, counted as covered when `taken > 0`
 - Line metric: LCOV `LH / LF`
@@ -13,8 +13,8 @@
 
 | Set | Branch covered | Branches | C1 | Line covered | Lines | C0 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| All measured files | 3,125 | 8,509 | 36.7% | 10,631 | 26,426 | 40.2% |
-| Adjusted | 2,813 | 7,655 | 36.7% | 9,869 | 24,638 | 40.1% |
+| All measured files | 3,169 | 8,509 | 37.2% | 10,720 | 26,426 | 40.6% |
+| Adjusted | 2,857 | 7,655 | 37.3% | 9,958 | 24,638 | 40.4% |
 
 Adjusted excludes generated localization/model files:
 
@@ -24,9 +24,9 @@ Adjusted excludes generated localization/model files:
 
 Compared with the baseline taken before adding focused tests in this change:
 
-- All measured C1: 33.0% -> 36.7% (`+315` covered branches)
-- Adjusted C1: 32.8% -> 36.7% (`+305` covered branches)
-- Test count: 185 -> 247
+- All measured C1: 33.0% -> 37.2% (`+359` covered branches)
+- Adjusted C1: 32.8% -> 37.3% (`+349` covered branches)
+- Test count: 185 -> 258
 
 ## Module Breakdown
 
@@ -37,9 +37,9 @@ Compared with the baseline taken before adding focused tests in this change:
 | `app` | 11 | 184 | 486 | 37.9% | 663 | 1,503 | 44.1% |
 | `features/home/data` | 1 | 8 | 8 | 100.0% | 105 | 105 | 100.0% |
 | `features/home/domain` | 5 | 30 | 31 | 96.8% | 149 | 150 | 99.3% |
-| `features/home/presentation` | 26 | 1,953 | 6,065 | 32.2% | 7,113 | 20,293 | 35.1% |
+| `features/home/presentation` | 26 | 1,983 | 6,065 | 32.7% | 7,171 | 20,293 | 35.3% |
 | `features/security/data` | 13 | 396 | 764 | 51.8% | 1,252 | 2,114 | 59.2% |
-| `features/sync/data` | 10 | 281 | 414 | 67.9% | 858 | 1,202 | 71.4% |
+| `features/sync/data` | 10 | 295 | 414 | 71.3% | 889 | 1,202 | 74.0% |
 | `features/sync/presentation` | 1 | 1 | 1 | 100.0% | 1 | 1 | 100.0% |
 | `l10n` | 8 | 272 | 740 | 36.8% | 490 | 1,058 | 46.3% |
 
@@ -50,9 +50,9 @@ Compared with the baseline taken before adding focused tests in this change:
 | `app` | 10 | 178 | 479 | 37.2% | 653 | 1,490 | 43.8% |
 | `features/home/data` | 1 | 8 | 8 | 100.0% | 105 | 105 | 100.0% |
 | `features/home/domain` | 3 | 13 | 13 | 100.0% | 29 | 29 | 100.0% |
-| `features/home/presentation` | 25 | 1,782 | 5,845 | 30.5% | 6,794 | 19,853 | 34.2% |
+| `features/home/presentation` | 25 | 1,812 | 5,845 | 31.0% | 6,852 | 19,853 | 34.5% |
 | `features/security/data` | 12 | 290 | 413 | 70.2% | 951 | 1,158 | 82.1% |
-| `features/sync/data` | 10 | 281 | 414 | 67.9% | 858 | 1,202 | 71.4% |
+| `features/sync/data` | 10 | 295 | 414 | 71.3% | 889 | 1,202 | 74.0% |
 | `features/sync/presentation` | 1 | 1 | 1 | 100.0% | 1 | 1 | 100.0% |
 | `l10n` | 2 | 260 | 482 | 53.9% | 478 | 800 | 59.8% |
 
@@ -66,11 +66,12 @@ The added tests target pure logic that is directly related to sync safety:
 | `lib/features/sync/data/sync_attachment_refs.dart` | 100.0% | 12 / 12 | 100.0% |
 | `lib/features/sync/data/sync_bundle_key_service.dart` | 100.0% | 27 / 27 | 98.3% |
 | `lib/features/sync/data/sync_bundle_preview.dart` | 96.0% | 24 / 25 | 100.0% |
+| `lib/features/sync/data/sync_engine.dart` | 85.7% | 60 / 70 | 88.2% |
 | `lib/features/sync/data/icloud_sync_transport.dart` | 85.1% | 86 / 101 | 85.9% |
 | `lib/features/sync/data/secure_sync_bundle_store.dart` | 77.4% | 24 / 31 | 86.8% |
-| `lib/features/sync/data/google_drive_sync_transport.dart` | 29.1% | 34 / 117 | 23.1% |
+| `lib/features/sync/data/google_drive_sync_transport.dart` | 29.9% | 35 / 117 | 23.4% |
 | `lib/l10n/app_strings.dart` | 52.9% | 248 / 469 | 58.8% |
-| `lib/features/home/presentation/home_providers.dart` | 50.3% | 1,077 / 2,140 | 56.4% |
+| `lib/features/home/presentation/home_providers.dart` | 51.7% | 1,107 / 2,140 | 57.3% |
 | `lib/features/home/domain/vault_models.dart` | 100.0% | 2 / 2 | 100.0% |
 | `lib/features/home/domain/note_tags.dart` | 100.0% | 6 / 6 | 100.0% |
 | `lib/features/security/data/profile_data_key_service.dart` | 94.1% | 32 / 34 | 100.0% |
@@ -106,7 +107,7 @@ Release-relevant backend/state modules have stronger unit coverage than UI-heavy
 - `features/home/data`: C1 100.0%
 - `features/home/domain`: adjusted C1 100.0%
 - `features/security/data`: adjusted C1 70.2%
-- `features/sync/data`: adjusted C1 67.9%
+- `features/sync/data`: adjusted C1 71.3%
 - `l10n`: adjusted C1 53.9%
 
 The main gaps are UI/presentation-heavy files and platform-specific entry points. These files often require widget tests or E2E tests to exercise branches; their current unit-test C1 values are low and should not be interpreted as exhaustive release proof.
