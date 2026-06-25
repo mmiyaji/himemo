@@ -19,6 +19,7 @@ Sync records are stored in the custom zone `HiMemoSyncZone`; the app creates thi
 - `noteCount`: Int(64)
 - `attachmentCount`: Int(64)
 - `exportedAt`: Date/Time
+- `bundleSize`: Int(64) - optional metadata for encrypted bundle payload bytes. The app retries uploads without this field when an older Production schema has not deployed it yet.
 - `bundleKind`: String — `full` または `delta`。デルタ同期の履歴ウォークが「どこからリプレイすれば全ノートが揃うか」を判定するために使う。未設定のレコードはレガシーのフルスナップショットとして扱われる。
 
 ### bundleKind 追加時の iCloud (CloudKit Dev) 修正ポイント

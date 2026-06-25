@@ -30,7 +30,8 @@ import FoundationModels
   private let cloudKitAttachmentTypeField = "attachmentType"
   private let cloudKitAttachmentLabelField = "attachmentLabel"
   private let cloudKitAttachmentSizeField = "attachmentSize"
-  // CloudKit production schema type: Int(64). This is metadata, not a Bytes field.
+  // CloudKit production schema type: Int(64). Optional metadata; uploads fall
+  // back without it when an older Production schema has not deployed the field.
   private let cloudKitBundleSizeField = "bundleSize"
   private let cloudKitDeviceIdField = "deviceId"
   private let cloudKitNoteCountField = "noteCount"
@@ -73,15 +74,18 @@ import FoundationModels
     CKRecordZone.ID(zoneName: cloudKitZoneName, ownerName: CKCurrentUserDefaultName)
   }
 
-  private var cloudKitBundleMetadataFields: [String] {
+  private var cloudKitRequiredBundleMetadataFields: [String] {
     [
       cloudKitDeviceIdField,
       cloudKitNoteCountField,
       cloudKitAttachmentCountField,
       cloudKitExportedAtField,
       cloudKitBundleKindField,
-      cloudKitBundleSizeField,
     ]
+  }
+
+  private var cloudKitBundleMetadataFields: [String] {
+    cloudKitRequiredBundleMetadataFields + [cloudKitBundleSizeField]
   }
 
   override func application(
@@ -1044,6 +1048,35 @@ import FoundationModels
     return false
   }
 
+  private func isOptionalBundleSizeFieldError(_ error: Error) -> Bool {
+    let mentionsBundleSize = errorMentionsCloudKitField(
+      error,
+      fieldName: cloudKitBundleSizeField
+    )
+    guard let cloudError = error as? CKError else {
+      return mentionsBundleSize
+    }
+    switch cloudError.code {
+    case .invalidArguments, .serverRejectedRequest, .partialFailure:
+      return mentionsBundleSize
+    default:
+      return false
+    }
+  }
+
+  private func errorMentionsCloudKitField(_ error: Error, fieldName: String) -> Bool {
+    if error.localizedDescription.range(of: fieldName, options: .caseInsensitive) != nil {
+      return true
+    }
+    guard let cloudError = error as? CKError,
+          let partialErrors = cloudError.partialErrorsByItemID else {
+      return false
+    }
+    return partialErrors.values.contains { nestedError in
+      errorMentionsCloudKitField(nestedError, fieldName: fieldName)
+    }
+  }
+
   // QoS-tagged replacement for database.fetch(withRecordID:). Mirrors the
   // convenience API: returns (nil, error) on failure, (record, nil) on success.
   // CKFetchRecordsOperation reports a missing record as a `.partialFailure`
@@ -1358,10 +1391,9 @@ import FoundationModels
 
   private func fetchLatestCloudKitBundleStatus(result: @escaping FlutterResult) {
     withAvailableCloudKit(result: result) { database in
-      self.fetchCloudKitRecords(
+      self.fetchCloudKitBundleMetadataRecords(
         database: database,
-        limit: 1,
-        desiredKeys: self.cloudKitBundleMetadataFields
+        limit: 1
       ) { records, error in
         DispatchQueue.main.async {
           if let error {
@@ -1376,10 +1408,9 @@ import FoundationModels
 
   private func listCloudKitBundleHistory(limit: Int, result: @escaping FlutterResult) {
     withAvailableCloudKit(result: result) { database in
-      self.fetchCloudKitRecords(
+      self.fetchCloudKitBundleMetadataRecords(
         database: database,
-        limit: max(limit, 1),
-        desiredKeys: self.cloudKitBundleMetadataFields
+        limit: max(limit, 1)
       ) { records, error in
         DispatchQueue.main.async {
           if let error {
@@ -1405,7 +1436,6 @@ import FoundationModels
         recordName: "sync-\(UUID().uuidString)",
         zoneID: self.cloudKitSyncZoneID
       )
-      let record = CKRecord(recordType: self.cloudKitRecordType, recordID: recordID)
       let temporaryURL = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("\(recordID.recordName).enc")
 
@@ -1422,22 +1452,15 @@ import FoundationModels
         return
       }
 
-      record[self.cloudKitDeviceIdField] = deviceId as CKRecordValue
-      record[self.cloudKitNoteCountField] = NSNumber(value: noteCount)
-      record[self.cloudKitAttachmentCountField] = NSNumber(value: attachmentCount)
-      record[self.cloudKitExportedAtField] = Date() as CKRecordValue
-      record[self.cloudKitBundleKindField] = bundleKind as CKRecordValue
-      record[self.cloudKitBundleSizeField] = NSNumber(value: encodedPayload.utf8.count)
-      record[self.cloudKitAssetField] = CKAsset(fileURL: temporaryURL)
-
-      self.saveRecord(database: database, record: record) { savedRecord, error in
+      func finishUpload(savedRecord: CKRecord?, error: Error?) {
+        let payload = savedRecord.map(self.serializeRecord)
         try? FileManager.default.removeItem(at: temporaryURL)
         DispatchQueue.main.async {
           if let error {
             result(self.flutterError(from: error))
             return
           }
-          guard let savedRecord else {
+          guard let payload else {
             result(
               FlutterError(
                 code: "saveFailed",
@@ -1447,10 +1470,57 @@ import FoundationModels
             )
             return
           }
-          result(self.serializeRecord(savedRecord))
+          result(payload)
         }
       }
+
+      func saveBundleRecord(includeBundleSize: Bool) {
+        let record = self.makeCloudKitBundleRecord(
+          recordID: recordID,
+          temporaryURL: temporaryURL,
+          deviceId: deviceId,
+          noteCount: noteCount,
+          attachmentCount: attachmentCount,
+          bundleKind: bundleKind,
+          bundleSizeBytes: encodedPayload.utf8.count,
+          includeBundleSize: includeBundleSize
+        )
+        self.saveRecord(database: database, record: record) { savedRecord, error in
+          if includeBundleSize,
+             let error,
+             self.isOptionalBundleSizeFieldError(error) {
+            saveBundleRecord(includeBundleSize: false)
+            return
+          }
+          finishUpload(savedRecord: savedRecord, error: error)
+        }
+      }
+
+      saveBundleRecord(includeBundleSize: true)
     }
+  }
+
+  private func makeCloudKitBundleRecord(
+    recordID: CKRecord.ID,
+    temporaryURL: URL,
+    deviceId: String,
+    noteCount: Int,
+    attachmentCount: Int,
+    bundleKind: String,
+    bundleSizeBytes: Int,
+    includeBundleSize: Bool
+  ) -> CKRecord {
+    let record = CKRecord(recordType: cloudKitRecordType, recordID: recordID)
+    record[cloudKitDeviceIdField] = deviceId as CKRecordValue
+    record[cloudKitNoteCountField] = NSNumber(value: noteCount)
+    record[cloudKitAttachmentCountField] = NSNumber(value: attachmentCount)
+    record[cloudKitExportedAtField] = Date() as CKRecordValue
+    record[cloudKitBundleKindField] = bundleKind as CKRecordValue
+    if includeBundleSize {
+      record[cloudKitBundleSizeField] = NSNumber(value: bundleSizeBytes)
+    }
+    record[cloudKitAssetField] = CKAsset(fileURL: temporaryURL)
+    return record
   }
 
   private func downloadLatestCloudKitBundle(result: @escaping FlutterResult) {
@@ -1881,6 +1951,29 @@ import FoundationModels
         }
         completion(saveError)
       }
+    }
+  }
+
+  private func fetchCloudKitBundleMetadataRecords(
+    database: CKDatabase,
+    limit: Int,
+    completion: @escaping ([CKRecord], Error?) -> Void
+  ) {
+    fetchCloudKitRecords(
+      database: database,
+      limit: limit,
+      desiredKeys: cloudKitBundleMetadataFields
+    ) { records, error in
+      if let error, self.isOptionalBundleSizeFieldError(error) {
+        self.fetchCloudKitRecords(
+          database: database,
+          limit: limit,
+          desiredKeys: self.cloudKitRequiredBundleMetadataFields,
+          completion: completion
+        )
+        return
+      }
+      completion(records, error)
     }
   }
 

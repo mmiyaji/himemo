@@ -35,6 +35,12 @@ def main() -> int:
         failures.append("expected-schema.json must define recordTypes")
 
     swift_string_literals = set(re.findall(r'"([^"]+)"', app_delegate))
+    swift_field_literals = set(
+        re.findall(
+            r"private let cloudKit\w+Field\s*=\s*\"([^\"]+)\"",
+            app_delegate,
+        )
+    )
     for record_type, record_spec in record_types.items():
         if record_type not in swift_string_literals:
             failures.append(f"Missing record type constant in AppDelegate.swift: {record_type}")
@@ -47,6 +53,17 @@ def main() -> int:
                 failures.append(
                     f"Missing field constant in AppDelegate.swift: {record_type}.{field_name}"
                 )
+
+    expected_fields = {
+        field_name
+        for record_spec in record_types.values()
+        for field_name in record_spec.get("fields", {})
+    }
+    for field_name in sorted(swift_field_literals - expected_fields):
+        failures.append(
+            "CloudKit field constant is missing from expected-schema.json: "
+            f"{field_name}"
+        )
 
     for ckdb_path in [Path(arg) for arg in sys.argv[1:]]:
         failures.extend(validate_ckdb_schema(schema, ckdb_path))

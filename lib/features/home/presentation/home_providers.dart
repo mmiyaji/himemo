@@ -4288,6 +4288,52 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       final bundleStateBeforeUpload = await ref
           .read(syncBundleStateStoreProvider)
           .read();
+      if (provider == SyncProvider.iCloud) {
+        final preuploadRemoteStatus = await runFirebaseTrace(
+          'sync_icloud_preupload_remote_key_guard',
+          _fetchLatestRemoteStatus,
+        );
+        if (preuploadRemoteStatus != null) {
+          _cacheRemoteStatus(provider, preuploadRemoteStatus);
+          await ref
+              .read(syncBundleStateStoreProvider)
+              .recordRemoteStatus(preuploadRemoteStatus);
+          final latestBundleState = await ref
+              .read(syncBundleStateStoreProvider)
+              .read();
+          state = state.copyWith(remoteStatus: preuploadRemoteStatus);
+          await ref.read(syncBundleKeyServiceProvider).requireExisting();
+          if (_remoteBundleNeedsApply(
+                preuploadRemoteStatus,
+                latestBundleState,
+              ) &&
+              !force) {
+            _diagnostic(
+              'upload aborted remote bundle exists before iCloud key-safe preparation',
+              data: {
+                'remoteFileId': preuploadRemoteStatus.fileId,
+                'remoteModifiedAt': preuploadRemoteStatus.modifiedAt
+                    ?.toUtc()
+                    .toIso8601String(),
+              },
+            );
+            state = state.copyWith(
+              stage: SyncTransferStage.error,
+              message: 'sync.error.conflict_download_first_or_force_upload',
+              remoteStatus: preuploadRemoteStatus,
+            );
+            await _recordSyncHistory(
+              startedAt: historyStartedAt,
+              operation: 'upload',
+              success: false,
+              message: state.message,
+              queueBefore: queueBeforeUpload,
+              remoteStatus: preuploadRemoteStatus,
+            );
+            return;
+          }
+        }
+      }
       // Delta sync: regular uploads carry only the queued changes. A full
       // snapshot (all syncable notes) is uploaded on the first upload, every
       // _fullSnapshotUploadInterval delta uploads, or when explicitly
@@ -4534,7 +4580,6 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       final privateProfiles = await ref
           .read(privateMemoProfileStoreProvider)
           .exportSyncPayload();
-      final provider = ref.read(syncProviderControllerProvider);
       if (provider != SyncProvider.off) {
         _setProgress(SyncTransferProgress.uploadingBundle);
         await _yieldToUi();
@@ -5247,7 +5292,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     bool forceUpload = false,
     bool allowLargeMobileTransfer = false,
     bool silentLargeMobileSkip = false,
-    bool allowCachedRemoteStatus = true,
+    bool allowCachedRemoteStatus = false,
   }) async {
     final provider = ref.read(syncProviderControllerProvider);
     _diagnostic(

@@ -945,6 +945,159 @@ void main() {
   );
 
   test(
+    'iCloud syncNow refreshes remote status instead of using stale cache',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+      });
+      SharedPreferences.setMockInitialValues({});
+      final fakeTransport = _CountingICloudSyncTransport();
+      final harness = await _createICloudSyncHarness(
+        fakeTransport,
+        tempPrefix: 'himemo-icloud-status-cache-',
+        randomSeed: 69,
+      );
+
+      final syncController = harness.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      await syncController.syncNow();
+      expect(fakeTransport.fetchLatestBundleStatusCalls, 1);
+      expect(
+        harness.container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+
+      final bundle = await harness.container
+          .read(secureSyncBundleStoreProvider)
+          .writeBundle(
+            PreparedSyncSnapshot(
+              deviceId: 'other-device',
+              exportedAt: DateTime.utc(2026, 6, 12, 10),
+              summary: const SyncQueueSummary(
+                totalChanges: 0,
+                upserts: 0,
+                deletes: 0,
+              ),
+              notes: const [],
+              attachments: const [],
+            ),
+          );
+      final encodedPayload = await harness.container
+          .read(secureSyncBundleStoreProvider)
+          .readEncryptedBundlePayload(bundle.reference);
+      expect(encodedPayload, isNotNull);
+      final remoteStatus = await fakeTransport.uploadBundle(
+        encodedPayload: encodedPayload!,
+        deviceId: 'other-device',
+        noteCount: 0,
+        attachmentCount: 0,
+      );
+
+      await syncController.syncNow();
+
+      expect(fakeTransport.fetchLatestBundleStatusCalls, 2);
+      final transferState = harness.container.read(
+        syncTransferControllerProvider,
+      );
+      expect(transferState.stage, SyncTransferStage.success);
+      expect(transferState.remoteStatus?.fileId, remoteStatus.fileId);
+      final bundleState = await harness.container
+          .read(syncBundleStateStoreProvider)
+          .read();
+      expect(bundleState.lastAppliedRemoteFileId, remoteStatus.fileId);
+    },
+  );
+
+  test(
+    'iCloud upload waits for shared sync key when remote data exists',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+      });
+      SharedPreferences.setMockInitialValues({});
+      final fakeTransport = InMemoryICloudSyncTransport();
+      final firstDevice = await _createICloudSyncHarness(
+        fakeTransport,
+        tempPrefix: 'himemo-icloud-key-first-',
+        randomSeed: 70,
+        localSecureStore: MemorySecureKeyValueStore(),
+        iCloudKeyStore: MemorySecureKeyValueStore(),
+      );
+
+      await firstDevice.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'icloud-key-source-note',
+              vaultId: 'everyday',
+              title: 'Source iCloud note',
+              body: 'The remote bundle establishes the shared sync key.',
+              createdAt: DateTime.utc(2026, 6, 13, 9),
+              updatedAt: DateTime.utc(2026, 6, 13, 9),
+            ),
+          );
+      await firstDevice.container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true);
+      expect(
+        firstDevice.container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+      expect(await fakeTransport.listBundleHistory(), hasLength(1));
+
+      final secondLocalStore = MemorySecureKeyValueStore();
+      final secondCloudKeyStore = MemorySecureKeyValueStore();
+      final secondDevice = await _createICloudSyncHarness(
+        fakeTransport,
+        tempPrefix: 'himemo-icloud-key-second-',
+        randomSeed: 71,
+        localSecureStore: secondLocalStore,
+        iCloudKeyStore: secondCloudKeyStore,
+      );
+      await secondDevice.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'icloud-key-waiting-note',
+              vaultId: 'everyday',
+              title: 'Second iCloud note',
+              body: 'This device must wait for the shared sync key.',
+              createdAt: DateTime.utc(2026, 6, 13, 9, 5),
+              updatedAt: DateTime.utc(2026, 6, 13, 9, 5),
+            ),
+          );
+
+      await secondDevice.container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true);
+
+      final transferState = secondDevice.container.read(
+        syncTransferControllerProvider,
+      );
+      expect(transferState.stage, SyncTransferStage.error);
+      expect(transferState.message, 'sync.error.icloud_keychain_waiting');
+      expect(
+        await secondCloudKeyStore.read('security.sync_bundle_key.v1'),
+        isNull,
+      );
+      expect(
+        await secondLocalStore.read('security.sync_bundle_key.v1'),
+        isNull,
+      );
+      expect(
+        await fakeTransport.listBundleHistory(),
+        hasLength(1),
+        reason:
+            'A device that has not received the shared iCloud sync key must '
+            'not publish a bundle encrypted with a newly generated key.',
+      );
+    },
+  );
+
+  test(
     'fake Google Drive sync sequence uploads and downloads bundle',
     () async {
       SharedPreferences.setMockInitialValues({});
@@ -4699,6 +4852,80 @@ Future<_GoogleDriveSyncHarness> _createGoogleDriveSyncHarness(
   );
 }
 
+Future<_ICloudSyncHarness> _createICloudSyncHarness(
+  ICloudSyncTransport transport, {
+  required String tempPrefix,
+  int randomSeed = 67,
+  SecureKeyValueStore? localSecureStore,
+  SecureKeyValueStore? iCloudKeyStore,
+}) async {
+  final tempDirectory = await Directory.systemTemp.createTemp(tempPrefix);
+  final secureStore = localSecureStore ?? MemorySecureKeyValueStore();
+  final cloudKeyStore = iCloudKeyStore ?? secureStore;
+  final encryptionService = EncryptionService(random: Random(randomSeed));
+  final masterKeyService = MasterKeyService(
+    secureStore: secureStore,
+    keyFactory: encryptionService.generateKeyBytes,
+  );
+  final noteDatabase = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+  final noteStore = EncryptedNoteStore(
+    encryptionService: encryptionService,
+    masterKeyService: masterKeyService,
+    database: noteDatabase,
+    directoryProvider: () async => tempDirectory,
+    sharedPreferencesProvider: SharedPreferences.getInstance,
+  );
+  final attachmentStore = EncryptedAttachmentStore(
+    encryptionService: encryptionService,
+    masterKeyService: masterKeyService,
+    directoryProvider: () async => tempDirectory,
+    sharedPreferencesProvider: SharedPreferences.getInstance,
+  );
+  final container = ProviderContainer(
+    overrides: [
+      secureKeyValueStoreProvider.overrideWithValue(secureStore),
+      iCloudSynchronizableKeyValueStoreProvider.overrideWithValue(
+        cloudKeyStore,
+      ),
+      encryptionServiceProvider.overrideWithValue(encryptionService),
+      masterKeyServiceProvider.overrideWithValue(masterKeyService),
+      encryptedNoteStoreProvider.overrideWithValue(noteStore),
+      encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+      encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+      secureSyncBundleStoreProvider.overrideWith(
+        (ref) => SecureSyncBundleStore(
+          encryptionService: encryptionService,
+          syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
+          legacyMasterKeyService: masterKeyService,
+          directoryProvider: () async => tempDirectory,
+          sharedPreferencesProvider: SharedPreferences.getInstance,
+        ),
+      ),
+      syncBundleStateStoreProvider.overrideWithValue(
+        SyncBundleStateStore(storageKey: 'sync.bundle_state.$tempPrefix'),
+      ),
+      iCloudSyncTransportProvider.overrideWithValue(transport),
+    ],
+  );
+  addTearDown(container.dispose);
+  addTearDown(noteDatabase.close);
+  addTearDown(() async {
+    if (await tempDirectory.exists()) {
+      await tempDirectory.delete(recursive: true);
+    }
+  });
+
+  await container
+      .read(syncProviderControllerProvider.notifier)
+      .setProvider(SyncProvider.iCloud);
+  await container
+      .read(syncAuthControllerProvider.notifier)
+      .connect(SyncProvider.iCloud);
+  await container.read(notesControllerProvider.notifier).restoreCompleted;
+
+  return _ICloudSyncHarness(container: container);
+}
+
 class _GoogleDriveSyncHarness {
   const _GoogleDriveSyncHarness({
     required this.container,
@@ -4709,6 +4936,12 @@ class _GoogleDriveSyncHarness {
   final ProviderContainer container;
   final Directory tempDirectory;
   final EncryptedAttachmentStore attachmentStore;
+}
+
+class _ICloudSyncHarness {
+  const _ICloudSyncHarness({required this.container});
+
+  final ProviderContainer container;
 }
 
 class MemoryHomeRepository implements HomeRepository {
@@ -4770,6 +5003,16 @@ class _FakeNetworkConnectionService extends NetworkConnectionService {
 
   @override
   Future<NetworkConnectionKind> currentKind() async => kind;
+}
+
+class _CountingICloudSyncTransport extends InMemoryICloudSyncTransport {
+  int fetchLatestBundleStatusCalls = 0;
+
+  @override
+  Future<RemoteSyncBundleStatus?> fetchLatestBundleStatus() {
+    fetchLatestBundleStatusCalls += 1;
+    return super.fetchLatestBundleStatus();
+  }
 }
 
 class _FailingAttachmentUploadTransport

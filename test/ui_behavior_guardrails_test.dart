@@ -777,28 +777,28 @@ void main() {
     expect(appDelegate, contains('cloudKitAccountStatusCacheDuration'));
     expect(appDelegate, contains('cloudKitAccountAvailableUntil'));
     expect(appDelegate, contains('cloudKitSyncZoneReady'));
+    expect(
+      appDelegate,
+      contains('private var cloudKitRequiredBundleMetadataFields'),
+    );
     expect(appDelegate, contains('private var cloudKitBundleMetadataFields'));
     expect(appDelegate, contains('cloudKitBundleKindField,'));
+    expect(appDelegate, contains('isOptionalBundleSizeFieldError'));
+    expect(appDelegate, contains('makeCloudKitBundleRecord'));
     expect(appDelegate, contains('options.desiredKeys = desiredKeys'));
     expect(appDelegate, contains('CloudKit production schema type: Int(64)'));
     expect(
       appDelegate,
       contains('private let cloudKitBundleSizeField = "bundleSize"'),
     );
-    expect(
-      appDelegate,
-      contains('record[self.cloudKitBundleSizeField] = NSNumber'),
-    );
+    expect(appDelegate, contains('record[cloudKitBundleSizeField] = NSNumber'));
     expect(appDelegate, contains('bundleFileSize(for: record)'));
     expect(appDelegate, contains('CKQueryOperation(query: query)'));
     expect(
       appDelegate,
       contains('operation.resultsLimit = max(limit - records.count, 1)'),
     );
-    expect(
-      appDelegate,
-      contains('desiredKeys: self.cloudKitBundleMetadataFields'),
-    );
+    expect(appDelegate, contains('desiredKeys: cloudKitBundleMetadataFields'));
   });
 
   test('cloud sync heavy work does not run on the UI isolate', () {
@@ -903,7 +903,7 @@ void main() {
         'static const _automaticCloudSyncRemoteMinInterval = Duration(minutes: 10);',
       ),
     );
-    expect(appShell, contains('allowCachedRemoteStatus: !hasPendingChanges'));
+    expect(appShell, contains('allowCachedRemoteStatus: false'));
     expect(appShell, contains('if (remainingPendingChanges)'));
     expect(appShell, contains('_cloudSyncScheduledForLocalChanges = false;'));
     expect(appShell, contains('_cloudSyncRescheduleRequested = false;'));
