@@ -353,16 +353,19 @@ jobs:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           APP_STORE_CONNECT_API_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+          APP_STORE_APPLE_ID: ${{ secrets.APP_STORE_APPLE_ID || secrets.HIMEMO_APP_STORE_ID }}
         run: |
           set -euo pipefail
           : "${APP_STORE_CONNECT_API_KEY_ID:?Missing APP_STORE_CONNECT_API_KEY_ID secret}"
           : "${APP_STORE_CONNECT_API_ISSUER_ID:?Missing APP_STORE_CONNECT_API_ISSUER_ID secret}"
           : "${APP_STORE_CONNECT_API_PRIVATE_KEY:?Missing APP_STORE_CONNECT_API_PRIVATE_KEY secret}"
+          : "${APP_STORE_APPLE_ID:?Missing APP_STORE_APPLE_ID or HIMEMO_APP_STORE_ID secret}"
           mkdir -p "$HOME/.appstoreconnect/private_keys"
           printf '%s' "$APP_STORE_CONNECT_API_PRIVATE_KEY" > "$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
           xcrun altool --upload-app \
             --type ios \
             --file "$IPA_PATH" \
+            --apple-id "$APP_STORE_APPLE_ID" \
             --apiKey "$APP_STORE_CONNECT_API_KEY_ID" \
             --apiIssuer "$APP_STORE_CONNECT_API_ISSUER_ID"
 
