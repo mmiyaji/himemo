@@ -173,18 +173,60 @@ class MainActivity : FlutterFragmentActivity() {
         val isShare = isShareIntent(intent)
         val subject = intent?.getStringExtra(Intent.EXTRA_SUBJECT)?.trim().orEmpty()
         val body = intent?.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty()
-        val combined = listOf(subject, body)
-            .filter { it.isNotBlank() }
-            .joinToString(separator = "\n\n")
-            .trim()
+        val webUrl = firstWebUrl(body)
+        val selectedText = if (webUrl.isBlank()) {
+            body
+        } else {
+            body.replace(webUrl, "").trim()
+        }
+        val webClip = if (webUrl.isNotBlank()) {
+            mapOf(
+                "title" to subject,
+                "url" to webUrl,
+                "selectedText" to selectedText,
+            )
+        } else {
+            null
+        }
+        val combined = if (webClip != null) {
+            editableWebClipText(subject, webUrl, selectedText)
+        } else {
+            listOf(subject, body)
+                .filter { it.isNotBlank() }
+                .joinToString(separator = "\n\n")
+                .trim()
+        }
         val sharedFiles = sharedFilePayloadFromIntent(intent)
-        return mapOf(
+        val payload = mutableMapOf<String, Any>(
             "nonce" to quickCaptureNonce(intent),
             "source" to if (isShare) "share" else "widget",
             "text" to combined,
             "files" to sharedFiles.first,
             "rejectedFiles" to sharedFiles.second,
         )
+        if (webClip != null) {
+            payload["webClip"] = webClip
+        }
+        return payload
+    }
+
+    private fun firstWebUrl(text: String): String {
+        return Regex("""https?://\S+""")
+            .find(text)
+            ?.value
+            ?.trimEnd(')', ']', '.', ',', ';', ':', '!', '?')
+            .orEmpty()
+    }
+
+    private fun editableWebClipText(
+        title: String,
+        url: String,
+        selectedText: String,
+    ): String {
+        return listOf(title, url, selectedText)
+            .filter { it.isNotBlank() }
+            .joinToString(separator = "\n\n")
+            .trim()
     }
 
     private fun quickCaptureNonce(intent: Intent?): String {

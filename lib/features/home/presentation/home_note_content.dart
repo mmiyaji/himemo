@@ -1777,6 +1777,7 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
   late final ValueNotifier<bool> _canSubmitNotifier;
   late final String _newNoteId;
   late bool _captureLocationEnabled;
+  bool _captureLocationPreferenceChanged = false;
   final Set<String> _pendingAttachmentDeletes = <String>{};
   int? _activeRichParagraphIndex;
   String? _selectedVaultId;
@@ -3005,14 +3006,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                           _location = null;
                           _captureLocationEnabled = false;
                         });
-                        unawaited(
-                          ref
-                              .read(
-                                lastNoteEditorSettingsControllerProvider
-                                    .notifier,
-                              )
-                              .setCaptureLocation(false),
-                        );
                         _scheduleDraftPersist();
                       },
                     ),
@@ -3442,13 +3435,11 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
     final nextEnabled = !_captureLocationEnabled;
     setState(() {
       _captureLocationEnabled = nextEnabled;
+      _captureLocationPreferenceChanged = true;
       if (!nextEnabled) {
         _location = null;
       }
     });
-    await ref
-        .read(lastNoteEditorSettingsControllerProvider.notifier)
-        .setCaptureLocation(nextEnabled);
     _scheduleDraftPersist();
     if (nextEnabled) {
       await _captureCurrentLocationForNote(showErrors: true);
@@ -3595,13 +3586,18 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         await attachmentStore.deleteAttachment(filePath);
       }
       _pendingAttachmentDeletes.clear();
-      await ref
-          .read(lastNoteEditorSettingsControllerProvider.notifier)
-          .remember(
-            mode: _editorMode,
-            vaultId: _selectedVaultId!,
-            captureLocation: _captureLocationEnabled,
-          );
+      final lastSettingsController = ref.read(
+        lastNoteEditorSettingsControllerProvider.notifier,
+      );
+      await lastSettingsController.ensureRestored();
+      await lastSettingsController.remember(
+        mode: _editorMode,
+        vaultId: _selectedVaultId!,
+        captureLocation:
+            widget.note == null && _captureLocationPreferenceChanged
+            ? _captureLocationEnabled
+            : null,
+      );
       await ref.read(notesControllerProvider.notifier).upsert(note);
       if (widget.note == null) {
         await ref.read(noteEditorDraftStoreProvider).clear();

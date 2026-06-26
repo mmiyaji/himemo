@@ -29,16 +29,40 @@ final class ShareViewController: UIViewController {
 
   private func buildPayload() async -> [String: Any] {
     var textItems: [String] = []
+    var webTitle: String?
+    var webURL: String?
     var files: [[String: String]] = []
     var rejectedFiles: [[String: String]] = []
 
     let inputItems = extensionContext?.inputItems as? [NSExtensionItem] ?? []
     for item in inputItems {
+      if webTitle == nil,
+         let title = item.attributedTitle?.string.trimmingCharacters(
+          in: .whitespacesAndNewlines
+         ),
+         !title.isEmpty {
+        webTitle = title
+      }
+      if let selectedText = item.attributedContentText?.string.trimmingCharacters(
+        in: .whitespacesAndNewlines
+      ),
+         !selectedText.isEmpty {
+        textItems.append(selectedText)
+      }
       for provider in item.attachments ?? [] {
+        if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier),
+           let url = await loadURL(from: provider) {
+          webURL = webURL ?? url.absoluteString
+          continue
+        }
+
         if provider.hasItemConformingToTypeIdentifier(UTType.text.identifier),
            let text = await loadText(from: provider),
            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
           textItems.append(text)
+          if webURL == nil, let detectedURL = firstWebURL(in: text) {
+            webURL = detectedURL
+          }
           continue
         }
 
@@ -65,12 +89,38 @@ final class ShareViewController: UIViewController {
       }
     }
 
-    return [
+    let selectedText = textItems
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty && (webURL == nil || $0 != webURL!) }
+      .joined(separator: "\n\n")
+    let webClip = webClipPayload(title: webTitle, url: webURL, selectedText: selectedText)
+    var payload: [String: Any] = [
       "source": "share",
-      "text": textItems.joined(separator: "\n\n"),
+      "text": editableText(webClip: webClip, fallbackText: textItems.joined(separator: "\n\n")),
       "files": files,
       "rejectedFiles": rejectedFiles
     ]
+    if let webClip {
+      payload["webClip"] = webClip
+    }
+    return payload
+  }
+
+  private func loadURL(from provider: NSItemProvider) async -> URL? {
+    await withCheckedContinuation { continuation in
+      provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
+        if let url = item as? URL {
+          continuation.resume(returning: url)
+        } else if let text = item as? String {
+          continuation.resume(returning: URL(string: text))
+        } else if let data = item as? Data,
+                  let text = String(data: data, encoding: .utf8) {
+          continuation.resume(returning: URL(string: text))
+        } else {
+          continuation.resume(returning: nil)
+        }
+      }
+    }
   }
 
   private func loadText(from provider: NSItemProvider) async -> String? {
@@ -85,6 +135,56 @@ final class ShareViewController: UIViewController {
         }
       }
     }
+  }
+
+  private func firstWebURL(in text: String) -> String? {
+    guard
+      let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    else {
+      return nil
+    }
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    return detector.firstMatch(in: text, options: [], range: range)?
+      .url?
+      .absoluteString
+  }
+
+  private func webClipPayload(
+    title: String?,
+    url: String?,
+    selectedText: String
+  ) -> [String: String]? {
+    var payload: [String: String] = [:]
+    if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !title.isEmpty {
+      payload["title"] = title
+    }
+    if let url = url?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !url.isEmpty {
+      payload["url"] = url
+    }
+    let selectedText = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !selectedText.isEmpty {
+      payload["selectedText"] = selectedText
+    }
+    return payload.isEmpty ? nil : payload
+  }
+
+  private func editableText(
+    webClip: [String: String]?,
+    fallbackText: String
+  ) -> String {
+    guard let webClip else {
+      return fallbackText
+    }
+    return [
+      webClip["title"],
+      webClip["url"],
+      webClip["selectedText"],
+    ]
+      .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+      .joined(separator: "\n\n")
   }
 
   private func copyProvider(

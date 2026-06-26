@@ -231,6 +231,55 @@ void main() {
     expect(note.blocks.single.text, 'Body line');
   });
 
+  test('shared web clip stores page title, url, and selection', () async {
+    SharedPreferences.setMockInitialValues({});
+    final repository = MemoryHomeRepository();
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(12));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        homeRepositoryProvider.overrideWithValue(repository),
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    await container
+        .read(notesControllerProvider.notifier)
+        .createSharedFileCapture(
+          rawText: 'https://example.com/story',
+          files: const <QuickCaptureFile>[],
+          webClip: const QuickCaptureWebClip(
+            title: 'Example Story',
+            url: 'https://example.com/story',
+            selectedText: 'Important quote',
+          ),
+        );
+
+    final note = container.read(notesControllerProvider).single;
+    expect(note.title, 'Example Story');
+    expect(note.body, contains('https://example.com/story'));
+    expect(note.body, contains('Important quote'));
+    expect(note.blocks.single.text, note.body);
+  });
+
   test(
     'widget quick capture is enabled by default but respects opt out',
     () async {
@@ -489,6 +538,50 @@ void main() {
     );
   });
 
+  test('sync auth keeps restored provider states when changed early', () async {
+    SharedPreferences.setMockInitialValues({
+      'sync.auth_accounts.v1': jsonEncode({
+        'googleDrive': const SyncAuthState(
+          provider: SyncProvider.googleDrive,
+          stage: SyncAuthStage.authenticated,
+          userId: 'restored-google-user',
+          displayName: 'Restored Google',
+          email: 'restored-google@example.test',
+        ).toJson(),
+      }),
+    });
+    final container = ProviderContainer(
+      overrides: [
+        syncAuthGatewayProvider.overrideWithValue(
+          const _ImmediateSyncAuthGateway(),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container
+        .read(syncAuthControllerProvider.notifier)
+        .connect(SyncProvider.iCloud);
+
+    final state = container.read(syncAuthControllerProvider);
+    expect(state[SyncProvider.googleDrive]?.stage, SyncAuthStage.authenticated);
+    expect(state[SyncProvider.googleDrive]?.userId, 'restored-google-user');
+    expect(state[SyncProvider.iCloud]?.stage, SyncAuthStage.authenticated);
+
+    final prefs = await SharedPreferences.getInstance();
+    final stored = Map<String, dynamic>.from(
+      jsonDecode(prefs.getString('sync.auth_accounts.v1')!) as Map,
+    );
+    final googleDrive = Map<String, dynamic>.from(
+      stored[SyncProvider.googleDrive.name] as Map,
+    );
+    final iCloud = Map<String, dynamic>.from(
+      stored[SyncProvider.iCloud.name] as Map,
+    );
+    expect(googleDrive['userId'], 'restored-google-user');
+    expect(iCloud['stage'], SyncAuthStage.authenticated.name);
+  });
+
   test('last note editor location capture setting is restored', () async {
     SharedPreferences.setMockInitialValues({
       'notes.last_editor_mode': NoteEditorMode.quick.name,
@@ -507,6 +600,30 @@ void main() {
     expect(settings.vaultId, 'everyday');
     expect(settings.captureLocation, isTrue);
   });
+
+  test(
+    'remembering editor mode does not reset location capture before restore',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'notes.last_capture_location': true,
+      });
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      await container
+          .read(lastNoteEditorSettingsControllerProvider.notifier)
+          .remember(mode: NoteEditorMode.quick, vaultId: 'everyday');
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('notes.last_capture_location'), isTrue);
+      expect(
+        container
+            .read(lastNoteEditorSettingsControllerProvider)
+            .captureLocation,
+        isTrue,
+      );
+    },
+  );
 
   test('iCloud connect does not require an Apple sign-in plugin', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
@@ -2015,6 +2132,58 @@ void main() {
     expect(container.read(effectiveAppColorThemeProvider), AppColorTheme.fuji);
   });
 
+  test(
+    'profile appearance settings keep restored scopes when changed early',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'settings.profile_color_themes': jsonEncode({
+          'private_profile:p1': AppColorTheme.fuji.name,
+        }),
+        'settings.profile_theme_modes': jsonEncode({
+          'private_profile:p1': ThemeMode.dark.name,
+        }),
+        'settings.profile_font_families': jsonEncode({
+          'private_profile:p1': AppFontFamily.mincho.name,
+        }),
+        'settings.profile_locales': jsonEncode({
+          'private_profile:p1': AppLocaleSetting.japanese.name,
+        }),
+      });
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      await container
+          .read(profileColorThemeControllerProvider.notifier)
+          .setTheme('private_profile:p2', AppColorTheme.konjyo);
+      await container
+          .read(profileThemeModeControllerProvider.notifier)
+          .setMode('private_profile:p2', ThemeMode.light);
+      await container
+          .read(profileFontFamilyControllerProvider.notifier)
+          .setFont('private_profile:p2', AppFontFamily.rounded);
+      await container
+          .read(profileLocaleControllerProvider.notifier)
+          .setLocale('private_profile:p2', AppLocaleSetting.english);
+
+      expect(container.read(profileColorThemeControllerProvider), {
+        'private_profile:p1': AppColorTheme.fuji,
+        'private_profile:p2': AppColorTheme.konjyo,
+      });
+      expect(container.read(profileThemeModeControllerProvider), {
+        'private_profile:p1': ThemeMode.dark,
+        'private_profile:p2': ThemeMode.light,
+      });
+      expect(container.read(profileFontFamilyControllerProvider), {
+        'private_profile:p1': AppFontFamily.mincho,
+        'private_profile:p2': AppFontFamily.rounded,
+      });
+      expect(container.read(profileLocaleControllerProvider), {
+        'private_profile:p1': AppLocaleSetting.japanese,
+        'private_profile:p2': AppLocaleSetting.english,
+      });
+    },
+  );
+
   test('color theme settings target resets to active profile scope', () {
     SharedPreferences.setMockInitialValues({});
     final container = ProviderContainer();
@@ -3371,6 +3540,32 @@ void main() {
     );
   });
 
+  test(
+    'app tutorial completion keeps restored courses when changed early',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'tutorials.completed_courses.v1': [AppTutorialCourse.basics.name],
+      });
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      final controller = container.read(
+        appTutorialCompletionControllerProvider.notifier,
+      );
+      await controller.markComplete(AppTutorialCourse.sync);
+
+      expect(container.read(appTutorialCompletionControllerProvider), {
+        AppTutorialCourse.basics,
+        AppTutorialCourse.sync,
+      });
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getStringList('tutorials.completed_courses.v1'), [
+        AppTutorialCourse.basics.name,
+        AppTutorialCourse.sync.name,
+      ]);
+    },
+  );
+
   test('app lock policy providers expose secure defaults', () {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();
@@ -4621,6 +4816,30 @@ void main() {
     ]);
   });
 
+  test('sync exclusion tags keep restored values when changed early', () async {
+    SharedPreferences.setMockInitialValues({
+      'settings.sync_exclusion_tags.v1': [systemSyncExcludedTag, 'Existing'],
+    });
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    await container
+        .read(syncExclusionTagsControllerProvider.notifier)
+        .addTag('New Tag');
+
+    expect(container.read(syncExclusionTagsControllerProvider), [
+      systemSyncExcludedTag,
+      'Existing',
+      'New Tag',
+    ]);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getStringList('settings.sync_exclusion_tags.v1'), [
+      systemSyncExcludedTag,
+      'Existing',
+      'New Tag',
+    ]);
+  });
+
   test('tag rename and delete update every visible note safely', () async {
     SharedPreferences.setMockInitialValues({});
     final secureStore = MemorySecureKeyValueStore();
@@ -5148,6 +5367,28 @@ class MemoryHomeRepository implements HomeRepository {
   List<VaultBucket> get vaults => const [
     VaultBucket(id: 'everyday', name: 'Notes', description: ''),
   ];
+}
+
+class _ImmediateSyncAuthGateway implements SyncAuthGateway {
+  const _ImmediateSyncAuthGateway();
+
+  @override
+  Future<SyncAuthState> connect(SyncProvider provider) async {
+    if (provider == SyncProvider.off) {
+      return SyncAuthState.idle(provider);
+    }
+    return SyncAuthState(
+      provider: provider,
+      stage: SyncAuthStage.authenticated,
+      userId: '${provider.name}-user',
+      displayName: '${provider.name} user',
+      email: '${provider.name}@example.test',
+      message: '${provider.name} connected.',
+    );
+  }
+
+  @override
+  Future<void> disconnect(SyncProvider provider) async {}
 }
 
 class _FakeDeviceAuthGateway implements DeviceAuthGateway {

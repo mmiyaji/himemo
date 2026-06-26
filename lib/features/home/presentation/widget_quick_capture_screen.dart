@@ -150,7 +150,11 @@ class _WidgetQuickCaptureScreenState
     try {
       await ref
           .read(notesControllerProvider.notifier)
-          .createSharedFileCapture(rawText: text, files: files);
+          .createSharedFileCapture(
+            rawText: text,
+            files: files,
+            webClip: request?.webClip,
+          );
       await ref
           .read(widgetQuickCaptureBridgeProvider)
           .deleteImportedFiles(files);

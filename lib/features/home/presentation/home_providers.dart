@@ -129,6 +129,7 @@ AppColorTheme? _appColorThemeFromName(String? value) {
 ({String title, String body}) _splitExternalCaptureText(
   String rawText,
   List<QuickCaptureFile> validFiles,
+  QuickCaptureWebClip? webClip,
 ) {
   final text = rawText.trim();
   final lines = const LineSplitter()
@@ -136,10 +137,57 @@ AppColorTheme? _appColorThemeFromName(String? value) {
       .map((line) => line.trim())
       .where((line) => line.isNotEmpty)
       .toList(growable: false);
+  if (webClip != null && webClip.url.trim().isNotEmpty) {
+    final url = webClip.url.trim();
+    final selectedText = webClip.selectedText.trim();
+    final metadataTitle = webClip.title.trim();
+    final firstNonUrlLine = lines.firstWhere(
+      (line) => !_sameWebClipUrl(line, url),
+      orElse: () => '',
+    );
+    final title = firstNonUrlLine.isNotEmpty && firstNonUrlLine != selectedText
+        ? firstNonUrlLine
+        : (metadataTitle.isNotEmpty
+              ? metadataTitle
+              : _webClipFallbackTitle(url));
+    final bodyLines = <String>[url];
+    var removedTitle = false;
+    final remaining = <String>[];
+    for (final line in lines) {
+      if (_sameWebClipUrl(line, url)) {
+        continue;
+      }
+      if (!removedTitle && line == title) {
+        removedTitle = true;
+        continue;
+      }
+      remaining.add(line);
+    }
+    if (remaining.isEmpty && selectedText.isNotEmpty && selectedText != title) {
+      remaining.add(selectedText);
+    }
+    if (remaining.isNotEmpty) {
+      bodyLines.add(remaining.join('\n'));
+    }
+    return (title: title, body: bodyLines.join('\n\n'));
+  }
   final title = lines.isEmpty
       ? (validFiles.length == 1 ? validFiles.single.name : 'Shared attachments')
       : lines.first;
   return (title: title, body: lines.skip(1).join('\n'));
+}
+
+bool _sameWebClipUrl(String left, String right) {
+  return left.trim().replaceFirst(RegExp(r'[)\].,;:!?]+$'), '') == right.trim();
+}
+
+String _webClipFallbackTitle(String url) {
+  final uri = Uri.tryParse(url);
+  final host = uri?.host.trim() ?? '';
+  if (host.isNotEmpty) {
+    return host;
+  }
+  return 'Web clip';
 }
 
 enum AppLocaleSetting {
@@ -552,6 +600,42 @@ class LastNoteEditorSettings {
 
 enum QuickCaptureSource { widget, share }
 
+class QuickCaptureWebClip {
+  const QuickCaptureWebClip({
+    this.title = '',
+    this.url = '',
+    this.selectedText = '',
+  });
+
+  final String title;
+  final String url;
+  final String selectedText;
+
+  bool get isEmpty =>
+      title.trim().isEmpty && url.trim().isEmpty && selectedText.trim().isEmpty;
+
+  String get editableText {
+    final lines = <String>[
+      if (title.trim().isNotEmpty) title.trim(),
+      if (url.trim().isNotEmpty) url.trim(),
+      if (selectedText.trim().isNotEmpty) selectedText.trim(),
+    ];
+    return lines.join('\n\n');
+  }
+
+  static QuickCaptureWebClip? fromJson(Map<String, dynamic>? json) {
+    if (json == null) {
+      return null;
+    }
+    final clip = QuickCaptureWebClip(
+      title: '${json['title'] ?? ''}'.trim(),
+      url: '${json['url'] ?? ''}'.trim(),
+      selectedText: '${json['selectedText'] ?? ''}'.trim(),
+    );
+    return clip.isEmpty ? null : clip;
+  }
+}
+
 class QuickCaptureFile {
   const QuickCaptureFile({
     required this.path,
@@ -611,6 +695,7 @@ class QuickCaptureRequest {
     required this.nonce,
     required this.source,
     this.initialText = '',
+    this.webClip,
     this.files = const <QuickCaptureFile>[],
     this.rejectedFiles = const <QuickCaptureRejectedFile>[],
   });
@@ -618,6 +703,7 @@ class QuickCaptureRequest {
   final String nonce;
   final QuickCaptureSource source;
   final String initialText;
+  final QuickCaptureWebClip? webClip;
   final List<QuickCaptureFile> files;
   final List<QuickCaptureRejectedFile> rejectedFiles;
 }
@@ -698,7 +784,15 @@ class WidgetQuickCaptureBridge {
     final source = sourceValue == 'share'
         ? QuickCaptureSource.share
         : QuickCaptureSource.widget;
-    final initialText = '${arguments['text'] ?? ''}'.trim();
+    final webClip = QuickCaptureWebClip.fromJson(
+      arguments['webClip'] is Map
+          ? Map<String, dynamic>.from(arguments['webClip'] as Map)
+          : null,
+    );
+    final rawText = '${arguments['text'] ?? ''}'.trim();
+    final initialText = rawText.isNotEmpty
+        ? rawText
+        : webClip?.editableText ?? '';
     final files = (arguments['files'] as List<dynamic>? ?? const <dynamic>[])
         .whereType<Map>()
         .map(
@@ -722,6 +816,7 @@ class WidgetQuickCaptureBridge {
           .trim(),
       source: source,
       initialText: initialText,
+      webClip: webClip,
       files: files,
       rejectedFiles: rejectedFiles,
     );
@@ -8228,12 +8323,13 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
     'https://www.googleapis.com/auth/drive.appdata',
   ];
   bool _restored = false;
+  Future<void>? _restoreTask;
 
   @override
   Map<SyncProvider, SyncAuthState> build() {
     if (!_restored) {
-      _restored = true;
-      unawaited(_restore());
+      _restoreTask ??= _restore();
+      unawaited(_restoreTask);
     }
     return {
       for (final provider in SyncProvider.values)
@@ -8249,6 +8345,7 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
   }
 
   Future<void> connect(SyncProvider provider) async {
+    await ensureRestored();
     if (provider == SyncProvider.off) {
       _update(provider, SyncAuthState.idle(provider));
       return;
@@ -8293,6 +8390,7 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
   Future<void> completeGoogleDriveWebAuthentication(
     GoogleSignInAccount account,
   ) async {
+    await ensureRestored();
     const provider = SyncProvider.googleDrive;
     _update(
       provider,
@@ -8372,6 +8470,7 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
   }
 
   Future<void> disconnect(SyncProvider provider) async {
+    await ensureRestored();
     await ref.read(syncAuthGatewayProvider).disconnect(provider);
     _update(provider, SyncAuthState.idle(provider));
     await _persist();
@@ -8379,6 +8478,13 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
 
   void _update(SyncProvider provider, SyncAuthState next) {
     state = {...state, provider: next};
+  }
+
+  Future<void> ensureRestored() {
+    if (_restored) {
+      return Future<void>.value();
+    }
+    return _restoreTask ??= _restore();
   }
 
   Future<void> _restore() async {
@@ -8402,7 +8508,10 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
                   ),
           ),
       };
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _restored = true;
+    }
   }
 
   SyncAuthState _normalizeRestoredState(
@@ -8577,14 +8686,20 @@ final appTutorialCompletionControllerProvider =
 
 class AppTutorialCompletionController extends Notifier<Set<AppTutorialCourse>> {
   static const _storageKey = 'tutorials.completed_courses.v1';
+  bool _restored = false;
+  Future<void>? _restoreTask;
 
   @override
   Set<AppTutorialCourse> build() {
-    unawaited(_load());
+    if (!_restored) {
+      _restoreTask ??= _load();
+      unawaited(_restoreTask);
+    }
     return <AppTutorialCourse>{};
   }
 
   Future<void> markComplete(AppTutorialCourse course) async {
+    await ensureRestored();
     final next = {...state, course};
     state = next;
     final prefs = await SharedPreferences.getInstance();
@@ -8594,19 +8709,30 @@ class AppTutorialCompletionController extends Notifier<Set<AppTutorialCourse>> {
     );
   }
 
+  Future<void> ensureRestored() {
+    if (_restored) {
+      return Future<void>.value();
+    }
+    return _restoreTask ??= _load();
+  }
+
   Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getStringList(_storageKey) ?? const <String>[];
-    final completed = <AppTutorialCourse>{};
-    for (final name in stored) {
-      for (final course in AppTutorialCourse.values) {
-        if (course.name == name) {
-          completed.add(course);
-          break;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getStringList(_storageKey) ?? const <String>[];
+      final completed = <AppTutorialCourse>{};
+      for (final name in stored) {
+        for (final course in AppTutorialCourse.values) {
+          if (course.name == name) {
+            completed.add(course);
+            break;
+          }
         }
       }
+      state = {...completed, ...state};
+    } finally {
+      _restored = true;
     }
-    state = {...completed, ...state};
   }
 }
 
@@ -8716,22 +8842,31 @@ final profileThemeModeControllerProvider =
 class ProfileThemeModeController extends Notifier<Map<String, ThemeMode>> {
   static const _storageKey = 'settings.profile_theme_modes';
   bool _restored = false;
+  Future<void>? _restoreTask;
 
   @override
   Map<String, ThemeMode> build() {
     if (!_restored) {
-      _restored = true;
-      unawaited(_restore());
+      _restoreTask ??= _restore();
+      unawaited(_restoreTask);
     }
     return const <String, ThemeMode>{};
   }
 
   Future<void> setMode(String scope, ThemeMode mode) async {
+    await ensureRestored();
     if (scope == defaultColorThemeScope) {
       return;
     }
     state = {...state, scope: mode};
     await _persist();
+  }
+
+  Future<void> ensureRestored() {
+    if (_restored) {
+      return Future<void>.value();
+    }
+    return _restoreTask ??= _restore();
   }
 
   Future<void> _restore() async {
@@ -8749,7 +8884,10 @@ class ProfileThemeModeController extends Notifier<Map<String, ThemeMode>> {
           if (_themeModeFromName(entry.value as String?) != null)
             entry.key: _themeModeFromName(entry.value as String?)!,
       };
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _restored = true;
+    }
   }
 
   Future<void> _persist() async {
@@ -8831,22 +8969,31 @@ final profileFontFamilyControllerProvider =
 class ProfileFontFamilyController extends Notifier<Map<String, AppFontFamily>> {
   static const _storageKey = 'settings.profile_font_families';
   bool _restored = false;
+  Future<void>? _restoreTask;
 
   @override
   Map<String, AppFontFamily> build() {
     if (!_restored) {
-      _restored = true;
-      unawaited(_restore());
+      _restoreTask ??= _restore();
+      unawaited(_restoreTask);
     }
     return const <String, AppFontFamily>{};
   }
 
   Future<void> setFont(String scope, AppFontFamily font) async {
+    await ensureRestored();
     if (scope == defaultColorThemeScope) {
       return;
     }
     state = {...state, scope: font};
     await _persist();
+  }
+
+  Future<void> ensureRestored() {
+    if (_restored) {
+      return Future<void>.value();
+    }
+    return _restoreTask ??= _restore();
   }
 
   Future<void> _restore() async {
@@ -8864,7 +9011,10 @@ class ProfileFontFamilyController extends Notifier<Map<String, AppFontFamily>> {
           if (_fontFamilyFromName(entry.value as String?) != null)
             entry.key: _fontFamilyFromName(entry.value as String?)!,
       };
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _restored = true;
+    }
   }
 
   Future<void> _persist() async {
@@ -8951,17 +9101,19 @@ final profileColorThemeControllerProvider =
 class ProfileColorThemeController extends Notifier<Map<String, AppColorTheme>> {
   static const _storageKey = 'settings.profile_color_themes';
   bool _restored = false;
+  Future<void>? _restoreTask;
 
   @override
   Map<String, AppColorTheme> build() {
     if (!_restored) {
-      _restored = true;
-      unawaited(_restore());
+      _restoreTask ??= _restore();
+      unawaited(_restoreTask);
     }
     return const <String, AppColorTheme>{};
   }
 
   Future<void> setTheme(String scope, AppColorTheme theme) async {
+    await ensureRestored();
     if (scope == defaultColorThemeScope) {
       return;
     }
@@ -8970,12 +9122,20 @@ class ProfileColorThemeController extends Notifier<Map<String, AppColorTheme>> {
   }
 
   Future<void> clearTheme(String scope) async {
+    await ensureRestored();
     if (!state.containsKey(scope)) {
       return;
     }
     final next = {...state}..remove(scope);
     state = next;
     await _persist();
+  }
+
+  Future<void> ensureRestored() {
+    if (_restored) {
+      return Future<void>.value();
+    }
+    return _restoreTask ??= _restore();
   }
 
   Future<void> _restore() async {
@@ -8993,7 +9153,10 @@ class ProfileColorThemeController extends Notifier<Map<String, AppColorTheme>> {
           if (_themeFromName(entry.value as String?) != null)
             entry.key: _themeFromName(entry.value as String?)!,
       };
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _restored = true;
+    }
   }
 
   Future<void> _persist() async {
@@ -9078,22 +9241,31 @@ final profileLocaleControllerProvider =
 class ProfileLocaleController extends Notifier<Map<String, AppLocaleSetting>> {
   static const _storageKey = 'settings.profile_locales';
   bool _restored = false;
+  Future<void>? _restoreTask;
 
   @override
   Map<String, AppLocaleSetting> build() {
     if (!_restored) {
-      _restored = true;
-      unawaited(_restore());
+      _restoreTask ??= _restore();
+      unawaited(_restoreTask);
     }
     return const <String, AppLocaleSetting>{};
   }
 
   Future<void> setLocale(String scope, AppLocaleSetting locale) async {
+    await ensureRestored();
     if (scope == defaultColorThemeScope) {
       return;
     }
     state = {...state, scope: locale};
     await _persist();
+  }
+
+  Future<void> ensureRestored() {
+    if (_restored) {
+      return Future<void>.value();
+    }
+    return _restoreTask ??= _restore();
   }
 
   Future<void> _restore() async {
@@ -9111,7 +9283,10 @@ class ProfileLocaleController extends Notifier<Map<String, AppLocaleSetting>> {
           if (_localeSettingFromName(entry.value as String?) != null)
             entry.key: _localeSettingFromName(entry.value as String?)!,
       };
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _restored = true;
+    }
   }
 
   Future<void> _persist() async {
@@ -10071,17 +10246,19 @@ final syncExclusionTagsControllerProvider =
 class SyncExclusionTagsController extends Notifier<List<String>> {
   static const _storageKey = 'settings.sync_exclusion_tags.v1';
   bool _restored = false;
+  Future<void>? _restoreTask;
 
   @override
   List<String> build() {
     if (!_restored) {
-      _restored = true;
-      unawaited(_restore());
+      _restoreTask ??= _restore();
+      unawaited(_restoreTask);
     }
     return const <String>[systemSyncExcludedTag];
   }
 
   Future<void> addTag(String rawTag) async {
+    await ensureRestored();
     final next = _normalizeSyncExclusionTags([...state, rawTag]);
     if (_sameTagList(state, next)) {
       return;
@@ -10091,6 +10268,7 @@ class SyncExclusionTagsController extends Notifier<List<String>> {
   }
 
   Future<void> removeTag(String rawTag) async {
+    await ensureRestored();
     final key = canonicalizeNoteTag(rawTag);
     if (key.isEmpty || key == canonicalizeNoteTag(systemSyncExcludedTag)) {
       return;
@@ -10105,13 +10283,24 @@ class SyncExclusionTagsController extends Notifier<List<String>> {
     await _persist();
   }
 
+  Future<void> ensureRestored() {
+    if (_restored) {
+      return Future<void>.value();
+    }
+    return _restoreTask ??= _restore();
+  }
+
   Future<void> _restore() async {
-    final prefs = await SharedPreferences.getInstance();
-    state = _normalizeSyncExclusionTags([
-      ...?prefs.getStringList(_storageKey),
-      ...state,
-    ]);
-    await _persist();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      state = _normalizeSyncExclusionTags([
+        ...?prefs.getStringList(_storageKey),
+        ...state,
+      ]);
+      await _persist();
+    } finally {
+      _restored = true;
+    }
   }
 
   Future<void> _persist() async {
@@ -10618,15 +10807,22 @@ class LastNoteEditorSettingsController
     if (!_restored) {
       _changedBeforeRestoreCompleted = true;
     }
+    final prefs = await SharedPreferences.getInstance();
+    final nextCaptureLocation =
+        captureLocation ??
+        (!_restored
+            ? prefs.getBool(_captureLocationKey) ?? state.captureLocation
+            : state.captureLocation);
     state = LastNoteEditorSettings(
       mode: mode,
       vaultId: vaultId,
-      captureLocation: captureLocation ?? state.captureLocation,
+      captureLocation: nextCaptureLocation,
     );
-    final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_modeKey, mode.name);
     await prefs.setString(_vaultKey, vaultId);
-    await prefs.setBool(_captureLocationKey, state.captureLocation);
+    if (captureLocation != null) {
+      await prefs.setBool(_captureLocationKey, captureLocation);
+    }
   }
 
   Future<void> setCaptureLocation(bool enabled) async {
@@ -11966,26 +12162,33 @@ class NotesController extends _$NotesController {
   Future<void> createSharedFileCapture({
     required String rawText,
     required List<QuickCaptureFile> files,
+    QuickCaptureWebClip? webClip,
   }) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
-    await _createExternalCapture(rawText: rawText, files: files);
+    await _createExternalCapture(
+      rawText: rawText,
+      files: files,
+      webClip: webClip,
+    );
   }
 
   Future<void> _createExternalCapture({
     required String rawText,
     List<QuickCaptureFile> files = const <QuickCaptureFile>[],
+    QuickCaptureWebClip? webClip,
   }) async {
     final text = rawText.trim();
     final validFiles = files
         .where((file) => file.path.isNotEmpty && file.attachmentType != null)
         .toList(growable: false);
-    if (text.isEmpty && validFiles.isEmpty) {
+    final hasWebClip = webClip != null && !webClip.isEmpty;
+    if (text.isEmpty && validFiles.isEmpty && !hasWebClip) {
       return;
     }
     await logFirebaseBreadcrumb('widget quick capture saved');
     final now = DateTime.now();
-    final content = _splitExternalCaptureText(text, validFiles);
+    final content = _splitExternalCaptureText(text, validFiles, webClip);
     final attachments = <NoteAttachment>[];
     final deferredPreviews = <String, Future<String?>>{};
     final attachmentStore = ref.read(encryptedAttachmentStoreProvider);

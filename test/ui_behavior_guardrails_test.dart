@@ -566,6 +566,12 @@ void main() {
     final androidMainActivity = File(
       'android/app/src/main/kotlin/org/ruhenheim/himemo/MainActivity.kt',
     ).readAsStringSync();
+    final shareExtension = File(
+      'ios/ShareExtension/ShareViewController.swift',
+    ).readAsStringSync();
+    final shareExtensionInfo = File(
+      'ios/ShareExtension/Info.plist',
+    ).readAsStringSync();
     final homeProviders = File(
       'lib/features/home/presentation/home_providers.dart',
     ).readAsStringSync();
@@ -581,9 +587,23 @@ void main() {
     );
     expect(androidMainActivity, contains('consumeQuickCaptureIntent(intent)'));
     expect(androidMainActivity, contains('setAction(Intent.ACTION_MAIN)'));
+    expect(androidMainActivity, contains('firstWebUrl(body)'));
+    expect(androidMainActivity, contains('"webClip"'));
+    expect(shareExtension, contains('UTType.url.identifier'));
+    expect(shareExtension, contains('webClipPayload'));
+    expect(shareExtension, contains('"webClip"'));
+    expect(
+      shareExtensionInfo,
+      contains('NSExtensionActivationSupportsWebURLWithMaxCount'),
+    );
+    expect(
+      shareExtensionInfo,
+      contains('NSExtensionActivationSupportsWebPageWithMaxCount'),
+    );
     expect(homeProviders, contains('final Set<String> _seenNonces'));
     expect(homeProviders, contains('!_seenNonces.add(request.nonce)'));
     expect(homeProviders, contains('arguments[\'nonce\']'));
+    expect(homeProviders, contains('QuickCaptureWebClip'));
   });
 
   test('google drive bundle lookup excludes trash and tags new bundles', () {
@@ -697,6 +717,15 @@ void main() {
     expect(homePage, contains('pendingAttachmentCount'));
     expect(homePage, contains('createLocalVideoController(tempFilePath)'));
     expect(homePage, contains('timeout(const Duration(seconds: 15))'));
+    expect(homePage, contains('_captureLocationPreferenceChanged'));
+    expect(
+      homePage,
+      contains('await lastSettingsController.ensureRestored();'),
+    );
+    expect(
+      homePage,
+      contains('widget.note == null && _captureLocationPreferenceChanged'),
+    );
     expect(videoFactory, contains('VideoPlayerController.file'));
     expect(homeProviders, contains('_pickIOSPhotoLibraryMedia'));
     expect(

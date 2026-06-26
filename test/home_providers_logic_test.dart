@@ -96,6 +96,21 @@ void main() {
       expect(rejected.name, 'bad.exe');
       expect(rejected.mimeType, '');
       expect(rejected.reason, '404');
+
+      final webClip = QuickCaptureWebClip.fromJson({
+        'title': ' Example page ',
+        'url': ' https://example.com/story ',
+        'selectedText': ' Pull quote ',
+      });
+      expect(webClip, isNotNull);
+      expect(webClip!.title, 'Example page');
+      expect(webClip.url, 'https://example.com/story');
+      expect(webClip.selectedText, 'Pull quote');
+      expect(
+        webClip.editableText,
+        'Example page\n\nhttps://example.com/story\n\nPull quote',
+      );
+      expect(QuickCaptureWebClip.fromJson(const {}), isNull);
     });
   });
 
