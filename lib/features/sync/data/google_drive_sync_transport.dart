@@ -99,9 +99,9 @@ class InMemoryGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
 
   final Duration uploadDelay;
 
-  static final Map<String, String> _attachmentObjects = {};
-  static final List<_InMemoryGoogleDriveBundle> _bundles = [];
-  static String? _syncKeyBackupCode;
+  final Map<String, String> _attachmentObjects = {};
+  final List<_InMemoryGoogleDriveBundle> _bundles = [];
+  String? _syncKeyBackupCode;
 
   @override
   Future<RemoteSyncBundleStatus?> fetchLatestBundleStatus() async {
@@ -325,6 +325,9 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   Future<List<RemoteSyncBundleStatus>> listBundleHistory({
     int limit = 10,
   }) async {
+    if (limit <= 0) {
+      return const <RemoteSyncBundleStatus>[];
+    }
     final api = await _openDriveApi(interactive: false);
     final files = await _findBundleHistory(api, limit: limit);
     return files.map(_toStatus).toList(growable: false);
@@ -482,14 +485,15 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     });
     final bytes = utf8.encode(payload);
     final media = drive.Media(Stream<List<int>>.value(bytes), bytes.length);
-    final metadata = drive.File()
+    final createMetadata = drive.File()
       ..name = _syncKeyFileName
       ..parents = ['appDataFolder'];
+    final updateMetadata = drive.File()..name = _syncKeyFileName;
 
     if (existing?.id != null && existing!.id!.isNotEmpty) {
       await _withDriveRetry(
         () => api.files.update(
-          metadata,
+          updateMetadata,
           existing.id!,
           uploadMedia: media,
           $fields: 'id,name,modifiedTime,size',
@@ -500,7 +504,7 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
 
     await _withDriveRetry(
       () => api.files.create(
-        metadata,
+        createMetadata,
         uploadMedia: media,
         $fields: 'id,name,modifiedTime,size',
       ),
@@ -728,6 +732,9 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     drive.DriveApi api, {
     int limit = 10,
   }) async {
+    if (limit <= 0) {
+      return const <drive.File>[];
+    }
     final response = await _withDriveRetry(
       () => api.files.list(
         spaces: _spaces,

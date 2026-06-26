@@ -115,6 +115,40 @@ void main() {
         expect(await transport.listBundleHistory(limit: 0), isEmpty);
       },
     );
+
+    test('keeps simulator state isolated per transport instance', () async {
+      final first = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final second = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+
+      await first.uploadBundle(
+        encodedPayload: 'first-payload',
+        deviceId: 'device-a',
+        noteCount: 1,
+        attachmentCount: 0,
+      );
+      await first.uploadAttachmentObject(
+        contentHash: 'hash-isolated',
+        encodedPayload: 'attachment',
+        type: 'file',
+        label: 'file.bin',
+        sizeBytes: 10,
+      );
+      await GoogleDriveCloudSyncBundleKeyStore(
+        first,
+      ).writeBackupCode('backup-code');
+
+      expect(await second.fetchLatestBundleStatus(), isNull);
+      expect(await second.listBundleHistory(), isEmpty);
+      expect(await second.downloadAttachmentObject('hash-isolated'), isNull);
+      expect(
+        await GoogleDriveCloudSyncBundleKeyStore(second).readBackupCode(),
+        isNull,
+      );
+    });
   });
 
   group('GoogleDriveAuthConfig', () {

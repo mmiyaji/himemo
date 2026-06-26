@@ -1011,6 +1011,93 @@ void main() {
   );
 
   test(
+    'iCloud syncNow reuses the fresh remote status before uploading local changes',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+      });
+      SharedPreferences.setMockInitialValues({});
+      final fakeTransport = _CountingICloudSyncTransport();
+      final harness = await _createICloudSyncHarness(
+        fakeTransport,
+        tempPrefix: 'himemo-icloud-prechecked-upload-',
+        randomSeed: 72,
+      );
+
+      await harness.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'icloud-prechecked-upload-note',
+              vaultId: 'everyday',
+              title: 'Prechecked upload',
+              body: 'Avoids a duplicate CloudKit metadata fetch.',
+              createdAt: DateTime.utc(2026, 6, 15, 9),
+              updatedAt: DateTime.utc(2026, 6, 15, 9, 1),
+            ),
+          );
+
+      final syncController = harness.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      await syncController.syncNow();
+
+      expect(fakeTransport.fetchLatestBundleStatusCalls, 2);
+      final transferState = harness.container.read(
+        syncTransferControllerProvider,
+      );
+      expect(transferState.stage, SyncTransferStage.success);
+      expect(transferState.message, 'sync.info.upload_success');
+      expect((await fakeTransport.downloadLatestBundle())?.status.noteCount, 1);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    },
+  );
+
+  test(
+    'iCloud background remote refresh ignores stale provider results',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+      });
+      SharedPreferences.setMockInitialValues({});
+      final fakeTransport = _CountingICloudSyncTransport(
+        operationDelay: const Duration(milliseconds: 50),
+      );
+      await fakeTransport.uploadBundle(
+        encodedPayload: 'remote-payload',
+        deviceId: 'other-device',
+        noteCount: 1,
+        attachmentCount: 0,
+      );
+      final harness = await _createICloudSyncHarness(
+        fakeTransport,
+        tempPrefix: 'himemo-icloud-background-provider-switch-',
+        randomSeed: 73,
+        networkConnectionService: const _FakeNetworkConnectionService(
+          NetworkConnectionKind.mobile,
+        ),
+      );
+      final syncController = harness.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+
+      await syncController.largeMobileTransferWarning(includeUpload: false);
+      await harness.container
+          .read(syncProviderControllerProvider.notifier)
+          .setProvider(SyncProvider.off);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(fakeTransport.fetchLatestBundleStatusCalls, 1);
+      expect(
+        harness.container.read(syncTransferControllerProvider).remoteStatus,
+        isNull,
+      );
+    },
+  );
+
+  test(
     'iCloud upload waits for shared sync key when remote data exists',
     () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
@@ -3352,6 +3439,97 @@ void main() {
     },
   );
 
+  testWidgets(
+    'app lock lifecycle relock stays locked until explicit authentication',
+    (tester) async {
+      tester.view.physicalSize = const Size(430, 932);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      SharedPreferences.setMockInitialValues({
+        'app.onboarding_completed': true,
+        'app.onboarding_completed_version': 2,
+        'release_notes.last_seen': '1.0.0+46',
+        'settings.locale': 'english',
+        'settings.app_lock_enabled': true,
+        'settings.app_lock_relock_delay': 'immediate',
+      });
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(35));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+      final gateway = _ImmediateDeviceAuthGateway([true, true]);
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(database),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: database,
+              directoryProvider: () async => Directory.systemTemp,
+            ),
+          ),
+          deviceAuthGatewayProvider.overrideWithValue(gateway),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(database.close);
+
+      configureFlavor(AppFlavor.development);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const TooltipVisibility(
+            visible: false,
+            child: HiMemoApp(flavor: AppFlavor.development),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 1200));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(gateway.authenticateCalls, 1);
+      expect(container.read(appSessionUnlockControllerProvider), isTrue);
+      expect(find.text('Unlock HiMemo'), findsNothing);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump(const Duration(milliseconds: 300));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      await tester.pump(const Duration(milliseconds: 300));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(container.read(appSessionUnlockControllerProvider), isFalse);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      await tester.pump(const Duration(milliseconds: 300));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump(const Duration(milliseconds: 300));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+
+      expect(gateway.authenticateCalls, 1);
+      expect(container.read(appSessionUnlockControllerProvider), isFalse);
+      expect(find.text('Unlock HiMemo'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Authenticate').last);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+
+      expect(gateway.authenticateCalls, 2);
+      expect(container.read(appSessionUnlockControllerProvider), isTrue);
+      expect(find.text('Unlock HiMemo'), findsNothing);
+    },
+  );
+
   testWidgets('app renders HiMemo shell', (tester) async {
     SharedPreferences.setMockInitialValues({
       'app.onboarding_completed': true,
@@ -4858,6 +5036,7 @@ Future<_ICloudSyncHarness> _createICloudSyncHarness(
   int randomSeed = 67,
   SecureKeyValueStore? localSecureStore,
   SecureKeyValueStore? iCloudKeyStore,
+  NetworkConnectionService? networkConnectionService,
 }) async {
   final tempDirectory = await Directory.systemTemp.createTemp(tempPrefix);
   final secureStore = localSecureStore ?? MemorySecureKeyValueStore();
@@ -4905,6 +5084,10 @@ Future<_ICloudSyncHarness> _createICloudSyncHarness(
         SyncBundleStateStore(storageKey: 'sync.bundle_state.$tempPrefix'),
       ),
       iCloudSyncTransportProvider.overrideWithValue(transport),
+      if (networkConnectionService != null)
+        networkConnectionServiceProvider.overrideWithValue(
+          networkConnectionService,
+        ),
     ],
   );
   addTearDown(container.dispose);
@@ -4996,6 +5179,34 @@ class _FakeDeviceAuthGateway implements DeviceAuthGateway {
   }
 }
 
+class _ImmediateDeviceAuthGateway implements DeviceAuthGateway {
+  _ImmediateDeviceAuthGateway(List<bool> results)
+    : _results = List<bool>.from(results);
+
+  final List<bool> _results;
+  int authenticateCalls = 0;
+
+  @override
+  Future<DeviceAuthState> checkAvailability() async {
+    return const DeviceAuthState(
+      availability: DeviceAuthAvailability.available,
+      methods: ['Face ID'],
+    );
+  }
+
+  @override
+  Future<bool> authenticate({
+    required String reason,
+    bool biometricOnly = false,
+  }) async {
+    authenticateCalls += 1;
+    if (_results.isEmpty) {
+      return true;
+    }
+    return _results.removeAt(0);
+  }
+}
+
 class _FakeNetworkConnectionService extends NetworkConnectionService {
   const _FakeNetworkConnectionService(this.kind);
 
@@ -5006,6 +5217,8 @@ class _FakeNetworkConnectionService extends NetworkConnectionService {
 }
 
 class _CountingICloudSyncTransport extends InMemoryICloudSyncTransport {
+  _CountingICloudSyncTransport({super.operationDelay});
+
   int fetchLatestBundleStatusCalls = 0;
 
   @override

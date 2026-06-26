@@ -569,7 +569,7 @@ Color? _noteDayWeekendColor(BuildContext context, DateTime date) {
   return null;
 }
 
-class _NoteListTile extends StatelessWidget {
+class _NoteListTile extends ConsumerWidget {
   const _NoteListTile({
     required this.note,
     required this.vaultName,
@@ -591,8 +591,11 @@ class _NoteListTile extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
+    final syncProvider = ref.watch(syncProviderControllerProvider);
+    final showPendingSyncMarker =
+        syncProvider != SyncProvider.off && _noteHasPendingSync(note);
     final isPrivateNote = isPrivateVaultId(note.vaultId);
     final changedAt = (note.updatedAt ?? note.createdAt).toLocal();
     final dateLabel =
@@ -687,6 +690,10 @@ class _NoteListTile extends StatelessWidget {
                     size: 14,
                     color: _mutedTextColor(context),
                   ),
+                ],
+                if (showPendingSyncMarker) ...[
+                  const SizedBox(width: 8),
+                  _PendingSyncMarker(note: note, compact: true),
                 ],
                 if (hasLocationPreview) ...[
                   const SizedBox(width: 8),
@@ -840,6 +847,10 @@ class _NoteListTile extends StatelessWidget {
               const SizedBox(height: 10),
               Row(
                 children: [
+                  if (showPendingSyncMarker) ...[
+                    _PendingSyncMarker(note: note),
+                    const SizedBox(width: 8),
+                  ],
                   if (showVaultName)
                     Text(
                       vaultName,
@@ -1043,6 +1054,52 @@ class _SyncConflictChip extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+bool _noteHasPendingSync(NoteEntry note) {
+  return note.syncState == NoteSyncState.pendingUpload ||
+      note.syncState == NoteSyncState.pendingDelete;
+}
+
+class _PendingSyncMarker extends StatelessWidget {
+  const _PendingSyncMarker({required this.note, this.compact = false});
+
+  final NoteEntry note;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDelete = note.syncState == NoteSyncState.pendingDelete;
+    final icon = isDelete
+        ? Icons.cloud_off_outlined
+        : Icons.cloud_upload_outlined;
+    final label = isDelete
+        ? context.strings.localized(
+            en: 'This deletion has not synced yet.',
+            ja: 'この削除はまだ同期されていません。',
+            zh: '此删除尚未同步。',
+            ko: '이 삭제는 아직 동기화되지 않았습니다.',
+            es: 'Esta eliminacion aun no se ha sincronizado.',
+            de: 'Diese Löschung wurde noch nicht synchronisiert.',
+          )
+        : context.strings.localized(
+            en: 'This note has not synced yet.',
+            ja: 'このメモはまだ同期されていません。',
+            zh: '此笔记尚未同步。',
+            ko: '이 메모는 아직 동기화되지 않았습니다.',
+            es: 'Esta nota aun no se ha sincronizado.',
+            de: 'Diese Notiz wurde noch nicht synchronisiert.',
+          );
+    return Tooltip(
+      message: label,
+      child: Icon(
+        icon,
+        size: compact ? 14 : 15,
+        color: colorScheme.onSurfaceVariant.withValues(alpha: 0.72),
       ),
     );
   }

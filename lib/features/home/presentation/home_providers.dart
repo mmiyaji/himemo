@@ -4225,6 +4225,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     bool allowLargeMobileTransfer = false,
     bool silentLargeMobileSkip = false,
     bool pruneAfterUpload = true,
+    bool hasPrecheckedRemoteStatus = false,
+    RemoteSyncBundleStatus? precheckedRemoteStatus,
   }) async {
     final historyStartedAt = DateTime.now();
     final provider = ref.read(syncProviderControllerProvider);
@@ -4289,10 +4291,24 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           .read(syncBundleStateStoreProvider)
           .read();
       if (provider == SyncProvider.iCloud) {
-        final preuploadRemoteStatus = await runFirebaseTrace(
-          'sync_icloud_preupload_remote_key_guard',
-          _fetchLatestRemoteStatus,
-        );
+        final preuploadRemoteStatus = hasPrecheckedRemoteStatus
+            ? precheckedRemoteStatus
+            : await runFirebaseTrace(
+                'sync_icloud_preupload_remote_key_guard',
+                _fetchLatestRemoteStatus,
+              );
+        if (hasPrecheckedRemoteStatus) {
+          _diagnostic(
+            'using prechecked iCloud remote status before upload',
+            data: {
+              'hasRemote': preuploadRemoteStatus != null,
+              'fileId': preuploadRemoteStatus?.fileId,
+              'modifiedAt': preuploadRemoteStatus?.modifiedAt
+                  ?.toUtc()
+                  .toIso8601String(),
+            },
+          );
+        }
         if (preuploadRemoteStatus != null) {
           _cacheRemoteStatus(provider, preuploadRemoteStatus);
           await ref
@@ -5539,6 +5555,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           force: forceUpload || forceConvergenceUpload,
           allowLargeMobileTransfer: allowLargeMobileTransfer,
           silentLargeMobileSkip: silentLargeMobileSkip,
+          hasPrecheckedRemoteStatus: !allowCachedRemoteStatus,
+          precheckedRemoteStatus: remoteStatus,
         );
         return;
       }
@@ -7124,11 +7142,30 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     try {
       final provider = ref.read(syncProviderControllerProvider);
       final remoteStatus = await _fetchLatestRemoteStatus();
+      final currentProvider = ref.read(syncProviderControllerProvider);
+      if (currentProvider != provider) {
+        _diagnostic(
+          'background remote status discarded after provider changed',
+          data: {
+            'startedProvider': provider.name,
+            'currentProvider': currentProvider.name,
+            'hasRemote': remoteStatus != null,
+          },
+        );
+        return;
+      }
       _cacheRemoteStatus(provider, remoteStatus);
       if (remoteStatus != null) {
         await ref
             .read(syncBundleStateStoreProvider)
             .recordRemoteStatus(remoteStatus);
+        if (ref.read(syncProviderControllerProvider) != provider) {
+          _diagnostic(
+            'background remote status state update skipped after provider changed',
+            data: {'provider': provider.name, 'fileId': remoteStatus.fileId},
+          );
+          return;
+        }
         state = state.copyWith(remoteStatus: remoteStatus);
       }
     } catch (_) {}

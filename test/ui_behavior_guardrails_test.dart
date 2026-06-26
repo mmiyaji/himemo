@@ -597,6 +597,12 @@ void main() {
       googleDriveTransport,
       contains("appProperties has { key='kind' and value='bundle' }"),
     );
+    expect(
+      googleDriveTransport,
+      contains('final updateMetadata = drive.File()..name = _syncKeyFileName;'),
+    );
+    expect(googleDriveTransport, contains('api.files.update('));
+    expect(googleDriveTransport, contains('updateMetadata,'));
   });
 
   test('iOS network kind lookup returns asynchronously', () {
@@ -891,6 +897,11 @@ void main() {
     expect(homePage, contains('syncTransferControllerProvider'));
     expect(homePage, contains('_syncProgressValueForState'));
     expect(homePage, contains('_syncProgressItemProgressText'));
+    expect(homePage, contains('class _PendingSyncMarker'));
+    expect(homePage, contains('_noteHasPendingSync(note)'));
+    expect(homePage, contains('syncProvider != SyncProvider.off'));
+    expect(homePage, contains('Icons.cloud_upload_outlined'));
+    expect(homePage, contains('このメモはまだ同期されていません。'));
   });
 
   test('automatic cloud sync does not loop while idle', () {

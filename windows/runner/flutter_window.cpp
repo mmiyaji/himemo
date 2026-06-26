@@ -1,6 +1,8 @@
 #include "flutter_window.h"
 
+#include <flutter/standard_method_codec.h>
 #include <optional>
+#include <wtsapi32.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -25,6 +27,14 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  system_lock_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(),
+          "org.ruhenheim.himemo/system_lock",
+          &flutter::StandardMethodCodec::GetInstance());
+  session_notifications_registered_ =
+      WTSRegisterSessionNotification(GetHandle(), NOTIFY_FOR_THIS_SESSION) ==
+      TRUE;
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -40,6 +50,11 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  if (session_notifications_registered_) {
+    WTSUnRegisterSessionNotification(GetHandle());
+    session_notifications_registered_ = false;
+  }
+  system_lock_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -65,7 +80,23 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
+    case WM_WTSSESSION_CHANGE:
+      if (wparam == WTS_SESSION_LOCK) {
+        NotifySystemLockState(true);
+      } else if (wparam == WTS_SESSION_UNLOCK) {
+        NotifySystemLockState(false);
+      }
+      break;
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
+}
+
+void FlutterWindow::NotifySystemLockState(bool locked) {
+  if (!system_lock_channel_) {
+    return;
+  }
+  system_lock_channel_->InvokeMethod(
+      locked ? "screenLocked" : "screenUnlocked",
+      std::make_unique<flutter::EncodableValue>());
 }

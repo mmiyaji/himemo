@@ -286,6 +286,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     with WidgetsBindingObserver {
   static const _privateSessionTimeout = Duration(minutes: 5);
   static const _privacyChannel = MethodChannel('org.ruhenheim.himemo/privacy');
+  static const _systemLockChannel = MethodChannel(
+    'org.ruhenheim.himemo/system_lock',
+  );
   static const _backgroundedAtStorageKey = 'runtime.app_lock_backgrounded_at';
   static const _automaticCloudSyncedAtStorageKey =
       'runtime.cloud_sync_automatic_synced_at';
@@ -310,6 +313,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   bool _cloudSyncForeground = true;
   bool _lifecyclePrivacyProtectionEnabled = false;
   bool _lifecyclePrivacyCoverVisible = false;
+  bool _manualUnlockRequiredAfterLifecycleLock = false;
   Duration? _cloudSyncRescheduleDelay;
   DateTime? _backgroundedAt;
   DateTime? _lastAutomaticCloudSyncSucceededAt;
@@ -323,6 +327,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      _systemLockChannel.setMethodCallHandler(_handleSystemLockMethodCall);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncLockState(triggerPrompt: true);
       _checkForInAppUpdate();
@@ -335,6 +342,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      _systemLockChannel.setMethodCallHandler(null);
+    }
     _privateSessionTimer?.cancel();
     _cloudSyncDebounceTimer?.cancel();
     for (final timer in _initialCloudSyncProbeTimers) {
@@ -354,24 +364,40 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused) {
-      _cloudSyncForeground = false;
-      _cloudSyncDebounceTimer?.cancel();
-      _cloudSyncScheduled = false;
-      _activateAppLockPrivacyCoverIfEnabled();
-      if (ref.read(deviceAuthControllerProvider).isAuthenticating) {
-        return;
-      }
-      unawaited(_markAppBackgrounded());
-      unawaited(_lockImmediatelyIfConfigured());
+      _handleAppLeftForeground();
     }
   }
 
-  Future<void> _handleAppResumed() async {
+  Future<void> _handleSystemLockMethodCall(MethodCall call) async {
+    switch (call.method) {
+      case 'screenLocked':
+        _handleAppLeftForeground();
+        return;
+      case 'screenUnlocked':
+        _cloudSyncForeground = true;
+        await _handleAppResumed(triggerPrompt: false);
+        return;
+    }
+  }
+
+  void _handleAppLeftForeground() {
+    _cloudSyncForeground = false;
+    _cloudSyncDebounceTimer?.cancel();
+    _cloudSyncScheduled = false;
+    _activateAppLockPrivacyCoverIfEnabled();
+    if (ref.read(deviceAuthControllerProvider).isAuthenticating) {
+      return;
+    }
+    unawaited(_markAppBackgrounded());
+    unawaited(_lockImmediatelyIfConfigured());
+  }
+
+  Future<void> _handleAppResumed({bool triggerPrompt = true}) async {
     await _restoreBackgroundedAt();
     if (_shouldLockPrivateAfterBackground()) {
       _lockProtectedSessions(lockAppSession: false);
     }
-    await _syncLockState(triggerPrompt: true);
+    await _syncLockState(triggerPrompt: triggerPrompt);
     _deactivateAppLockPrivacyCover();
     _cleanupExpiredSharedAttachments();
     _refreshPrivateSessionTimer();
@@ -444,6 +470,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   Future<void> _syncLockState({required bool triggerPrompt}) async {
     final policy = await _resolveAppLockPolicy();
     if (!policy.enabled) {
+      _manualUnlockRequiredAfterLifecycleLock = false;
       ref.read(appSessionUnlockControllerProvider.notifier).unlock();
       unawaited(_clearBackgroundedAt());
       _refreshPrivateSessionTimer();
@@ -456,16 +483,19 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     }
 
     if (_shouldRelockAfterBackground(policy.relockDelay)) {
-      _lockProtectedSessions(lockAppSession: true);
+      _lockProtectedSessions(lockAppSession: true, requireManualUnlock: true);
     }
 
     if (ref.read(appSessionUnlockControllerProvider)) {
+      _manualUnlockRequiredAfterLifecycleLock = false;
       unawaited(_clearBackgroundedAt());
       _refreshPrivateSessionTimer();
       return;
     }
 
-    if (!triggerPrompt || _autoPrompted) {
+    if (!triggerPrompt ||
+        _autoPrompted ||
+        _manualUnlockRequiredAfterLifecycleLock) {
       return;
     }
     if (kIsWeb) {
@@ -479,6 +509,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         .read(deviceAuthControllerProvider.notifier)
         .authenticate(reason: strings.unlockWithDeviceAuthReason);
     if (mounted && ref.read(appSessionUnlockControllerProvider)) {
+      _manualUnlockRequiredAfterLifecycleLock = false;
       unawaited(_clearBackgroundedAt());
       setState(() {
         _autoPrompted = true;
@@ -497,7 +528,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         policy.relockDelay != AppLockRelockDelay.immediate) {
       return;
     }
-    _lockProtectedSessions(lockAppSession: true);
+    _lockProtectedSessions(lockAppSession: true, requireManualUnlock: true);
   }
 
   Future<_ResolvedAppLockPolicy> _resolveAppLockPolicy() async {
@@ -547,10 +578,16 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     };
   }
 
-  void _lockProtectedSessions({required bool lockAppSession}) {
+  void _lockProtectedSessions({
+    required bool lockAppSession,
+    bool requireManualUnlock = false,
+  }) {
     final wasPrivateActive = _isPrivateOrAdminActive();
     if (lockAppSession) {
       ref.read(appSessionUnlockControllerProvider.notifier).lock();
+      if (requireManualUnlock) {
+        _manualUnlockRequiredAfterLifecycleLock = true;
+      }
     }
     _lockPrivateSessions();
     if (wasPrivateActive) {
@@ -1044,6 +1081,11 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
 
     ref.listen<bool>(privacyScreenActiveProvider, (previous, next) {
       unawaited(_refreshNativePrivacyScreen(privatePrivacyActive: next));
+    });
+    ref.listen<bool>(appSessionUnlockControllerProvider, (previous, next) {
+      if (next) {
+        _manualUnlockRequiredAfterLifecycleLock = false;
+      }
     });
     ref.listen<SyncProvider>(syncProviderControllerProvider, (previous, next) {
       if (next != SyncProvider.off && next != previous) {

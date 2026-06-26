@@ -448,6 +448,15 @@ String _localizedSyncTransferMessage(
         es: 'Paquete cifrado subido a $providerName.',
         de: 'Verschlusseltes Paket wurde zu $providerName hochgeladen.',
       );
+    case 'sync.info.no_changes_to_upload':
+      return strings.localized(
+        en: 'No note changes need to be uploaded.',
+        ja: 'アップロードするメモの変更はありません。',
+        zh: '没有需要上传的笔记更改。',
+        ko: '업로드할 메모 변경 사항이 없습니다.',
+        es: 'No hay cambios de notas para subir.',
+        de: 'Es gibt keine Notizänderungen zum Hochladen.',
+      );
     case 'sync.error.conflict_review_remote':
       return strings.localized(
         en: 'This device has unsynced changes and the remote bundle may be newer. Review the remote changes before syncing.',
@@ -875,6 +884,138 @@ enum _CloudSyncSnackBarAction {
   apply,
 }
 
+String? _cloudSyncDetailedSnackBarMessage(
+  AppStrings strings,
+  SyncTransferState state,
+  _CloudSyncSnackBarAction action,
+  SyncProvider provider,
+) {
+  final providerName = _syncProviderName(provider);
+  final message = state.message;
+  if (message == null || message.isEmpty) {
+    return null;
+  }
+  return switch (message) {
+    'sync.info.upload_success' =>
+      action == _CloudSyncSnackBarAction.upload ||
+              action == _CloudSyncSnackBarAction.syncNow
+          ? _cloudSyncUploadedNotesMessage(strings, state, providerName)
+          : null,
+    'sync.info.no_changes_to_upload' =>
+      action == _CloudSyncSnackBarAction.upload ||
+              action == _CloudSyncSnackBarAction.syncNow
+          ? _localizedSyncTransferMessage(strings, message, provider)
+          : null,
+    'sync.info.remote_bundle_saved_locally' =>
+      action == _CloudSyncSnackBarAction.download
+          ? _cloudSyncDownloadedNotesMessage(strings, state, providerName)
+          : null,
+    'sync.info.apply_success' =>
+      action == _CloudSyncSnackBarAction.apply ||
+              action == _CloudSyncSnackBarAction.syncNow
+          ? _cloudSyncAppliedNotesMessage(strings, state)
+          : null,
+    'sync.info.no_bundle_to_sync' ||
+    'sync.info.no_usable_remote_bundle' ||
+    'sync.info.private_profile_notes_pending_unlock' =>
+      _localizedSyncTransferMessage(strings, message, provider),
+    _ => null,
+  };
+}
+
+String _cloudSyncUploadedNotesMessage(
+  AppStrings strings,
+  SyncTransferState state,
+  String providerName,
+) {
+  final noteCount = _syncTransferredNoteCount(state);
+  if (noteCount == null) {
+    return strings.localized(
+      en: 'Uploaded note changes to $providerName.',
+      ja: '$providerName にメモの変更をアップロードしました。',
+      zh: '已将笔记更改上传到 $providerName。',
+      ko: '$providerName에 메모 변경 사항을 업로드했습니다.',
+      es: 'Cambios de notas subidos a $providerName.',
+      de: 'Notizänderungen wurden zu $providerName hochgeladen.',
+    );
+  }
+  return strings.localized(
+    en: '${_englishNoteCount(noteCount)} uploaded to $providerName.',
+    ja: '$noteCount件のメモを $providerName にアップロードしました。',
+    zh: '已将 $noteCount 条笔记上传到 $providerName。',
+    ko: '$noteCount개의 메모를 $providerName에 업로드했습니다.',
+    es: 'Se subieron $noteCount notas a $providerName.',
+    de: '$noteCount Notizen wurden zu $providerName hochgeladen.',
+  );
+}
+
+String _cloudSyncDownloadedNotesMessage(
+  AppStrings strings,
+  SyncTransferState state,
+  String providerName,
+) {
+  final noteCount = _syncTransferredNoteCount(state);
+  if (noteCount == null) {
+    return strings.localized(
+      en: 'Downloaded the latest bundle from $providerName.',
+      ja: '$providerName から最新バンドルをダウンロードしました。',
+      zh: '已从 $providerName 下载最新同步包。',
+      ko: '$providerName에서 최신 번들을 다운로드했습니다.',
+      es: 'Ultimo paquete descargado desde $providerName.',
+      de: 'Das neueste Paket wurde von $providerName heruntergeladen.',
+    );
+  }
+  return strings.localized(
+    en: '${_englishNoteCount(noteCount)} downloaded from $providerName.',
+    ja: '$providerName から$noteCount件のメモをダウンロードしました。',
+    zh: '已从 $providerName 下载 $noteCount 条笔记。',
+    ko: '$providerName에서 $noteCount개의 메모를 다운로드했습니다.',
+    es: 'Se descargaron $noteCount notas desde $providerName.',
+    de: '$noteCount Notizen wurden von $providerName heruntergeladen.',
+  );
+}
+
+String _cloudSyncAppliedNotesMessage(
+  AppStrings strings,
+  SyncTransferState state,
+) {
+  final noteCount = _syncTransferredNoteCount(state);
+  if (noteCount == null) {
+    return strings.localized(
+      en: 'Applied downloaded note changes to this device.',
+      ja: 'ダウンロードしたメモの変更をこの端末に反映しました。',
+      zh: '已将下载的笔记更改应用到此设备。',
+      ko: '다운로드한 메모 변경 사항을 이 기기에 적용했습니다.',
+      es: 'Cambios de notas descargados aplicados a este dispositivo.',
+      de: 'Heruntergeladene Notizänderungen wurden auf diesem Gerät angewendet.',
+    );
+  }
+  return strings.localized(
+    en: '${_englishNoteCount(noteCount)} applied to this device.',
+    ja: '$noteCount件のメモをこの端末に反映しました。',
+    zh: '已将 $noteCount 条笔记应用到此设备。',
+    ko: '$noteCount개의 메모를 이 기기에 적용했습니다.',
+    es: 'Se aplicaron $noteCount notas a este dispositivo.',
+    de: '$noteCount Notizen wurden auf diesem Gerät angewendet.',
+  );
+}
+
+int? _syncTransferredNoteCount(SyncTransferState state) {
+  final localCount = state.localBundle?.noteCount;
+  if (localCount != null && localCount > 0) {
+    return localCount;
+  }
+  final remoteCount = state.remoteStatus?.noteCount;
+  if (remoteCount != null && remoteCount > 0) {
+    return remoteCount;
+  }
+  return null;
+}
+
+String _englishNoteCount(int count) {
+  return count == 1 ? '1 note' : '$count notes';
+}
+
 String _cloudSyncSnackBarMessage(
   AppStrings strings,
   SyncTransferState state,
@@ -925,6 +1066,15 @@ String _cloudSyncSnackBarMessage(
         de: 'Die Cloud-Synchronisierung konnte nicht abgeschlossen werden.',
       ),
     };
+  }
+  final detailedMessage = _cloudSyncDetailedSnackBarMessage(
+    strings,
+    state,
+    action,
+    provider,
+  );
+  if (detailedMessage != null) {
+    return detailedMessage;
   }
   return switch (action) {
     _CloudSyncSnackBarAction.refreshRemote =>
