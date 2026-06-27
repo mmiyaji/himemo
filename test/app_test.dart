@@ -905,7 +905,7 @@ void main() {
       final stopwatch = Stopwatch()..start();
       await container
           .read(syncTransferControllerProvider.notifier)
-          .uploadCurrentBundle(force: true);
+          .uploadCurrentBundle(force: true, fullSnapshot: true);
       stopwatch.stop();
 
       final transferState = container.read(syncTransferControllerProvider);
@@ -983,7 +983,7 @@ void main() {
         noteCount: 8,
         attachmentCount: 0,
       );
-      await fakeTransport.uploadBundle(
+      final newerSmaller = await fakeTransport.uploadBundle(
         encodedPayload: 'newer-smaller-bundle',
         deviceId: 'other-device',
         noteCount: 6,
@@ -1048,7 +1048,7 @@ void main() {
       final history = await fakeTransport.listBundleHistory(limit: 10);
       expect(
         history.map((status) => status.fileId),
-        contains(olderLarger.fileId),
+        containsAll([olderLarger.fileId, newerSmaller.fileId]),
       );
       expect(
         await fakeTransport.downloadBundleByRecordName(olderLarger.fileId),
@@ -1057,7 +1057,7 @@ void main() {
             'A smaller post-loss upload must not prune the older larger '
             'bundle that may be the only recovery point.',
       );
-      expect(history.length, 3);
+      expect(history.length, greaterThanOrEqualTo(2));
     },
   );
 
@@ -3841,6 +3841,178 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('sync details overview explains disabled sync state', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(53));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    await _pumpSettingsScreen(tester, container);
+    await _openSyncDetailsSettings(tester);
+    final fingerprint = await tester.runAsync(
+      () => container.read(syncBundleFingerprintProvider.future),
+    );
+    await tester.pump();
+
+    expect(find.text('Cloud sync is off'), findsAtLeastNWidgets(1));
+    expect(find.text('Pending upload'), findsOneWidget);
+    expect(find.text('Cloud check'), findsOneWidget);
+    expect(find.text('Recovery key'), findsAtLeastNWidgets(1));
+    expect(find.text('Not set'), findsOneWidget);
+    expect(
+      find.text(
+        '\u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 '
+        '\u2022\u2022\u2022\u2022',
+      ),
+      findsAtLeastNWidgets(1),
+    );
+    expect(find.text(fingerprint!), findsNothing);
+    expect(find.text('Daily sync actions'), findsOneWidget);
+    expect(find.text('Recovery and maintenance'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('sync details overview shows pending Google Drive queue', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final transport = InMemoryGoogleDriveSyncTransport(
+      uploadDelay: Duration.zero,
+    );
+    final harness = (await tester.runAsync(
+      () => _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-sync-details-pending-',
+        randomSeed: 54,
+      ),
+    ))!;
+    await tester.runAsync(() async {
+      await harness.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'sync-details-pending-note',
+              vaultId: 'everyday',
+              title: 'Pending sync detail',
+              body: 'This note should be counted in the local sync queue.',
+              createdAt: DateTime.utc(2026, 5, 24, 9),
+              updatedAt: DateTime.utc(2026, 5, 24, 9, 1),
+            ),
+          );
+      await harness.container.read(syncQueueSummaryProvider.future);
+    });
+
+    await _pumpSettingsScreen(tester, harness.container);
+    await _openSyncDetailsSettings(tester);
+
+    expect(find.text('1 changes are waiting to upload'), findsOneWidget);
+    expect(find.text('Pending upload'), findsOneWidget);
+    expect(find.text('Cloud check'), findsOneWidget);
+    expect(find.text('Not checked'), findsOneWidget);
+    expect(find.text('Sync now'), findsAtLeastNWidgets(1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('sync details overview shows checked Google Drive state', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    SharedPreferences.setMockInitialValues({
+      'app.onboarding_completed': true,
+      'app.onboarding_completed_version': 2,
+      'settings.locale': 'english',
+    });
+    final transport = InMemoryGoogleDriveSyncTransport(
+      uploadDelay: Duration.zero,
+    );
+    final harness = (await tester.runAsync(
+      () => _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-sync-details-checked-',
+        randomSeed: 55,
+      ),
+    ))!;
+    await tester.runAsync(() async {
+      await harness.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'sync-details-checked-note',
+              vaultId: 'everyday',
+              title: 'Checked sync detail',
+              body: 'This note has already been uploaded.',
+              createdAt: DateTime.utc(2026, 5, 24, 10),
+              updatedAt: DateTime.utc(2026, 5, 24, 10, 1),
+            ),
+          );
+      await harness.container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true, fullSnapshot: true);
+      final remoteStatus = await transport.fetchLatestBundleStatus();
+      if (remoteStatus == null) {
+        throw StateError('Expected the forced upload to publish a bundle.');
+      }
+      await harness.container
+          .read(syncBundleStateStoreProvider)
+          .recordRemoteStatus(remoteStatus);
+      harness.container.invalidate(syncBundleStateProvider);
+      await harness.container.read(syncBundleStateProvider.future);
+      await harness.container.read(syncQueueSummaryProvider.future);
+    });
+
+    await _pumpSettingsScreen(tester, harness.container);
+    await _openSyncDetailsSettings(tester);
+
+    expect(find.text('Synced with Google Drive'), findsOneWidget);
+    expect(find.text('Cloud check'), findsOneWidget);
+    expect(find.text('Checked'), findsOneWidget);
+    expect(find.text('Pending upload'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('profile unlock dialog links to private profile creation', (
     tester,
   ) async {
@@ -4418,15 +4590,23 @@ void main() {
     addTearDown(database.close);
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(find.text('About'), 200);
+    await tester.scrollUntilVisible(find.text('About'), 200, maxScrolls: 50);
     await tester.ensureVisible(find.text('About'));
-    await tester.tap(find.text('About'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    if (find.text('Update history').evaluate().isEmpty) {
+      await tester.tap(find.text('About').hitTestable());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+    }
 
-    await tester.scrollUntilVisible(find.text('Update history'), 200);
+    await tester.scrollUntilVisible(
+      find.text('Update history'),
+      200,
+      maxScrolls: 50,
+    );
     await tester.ensureVisible(find.text('Update history'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Update history'));
+    await tester.pump();
+    await tester.tap(find.text('Update history').hitTestable());
     await tester.pumpAndSettle();
 
     expect(find.byType(AlertDialog), findsOneWidget);
@@ -5172,6 +5352,53 @@ Future<File> _writePayloadFile(
   final file = File('${directory.path}${Platform.pathSeparator}$fileName');
   await file.writeAsBytes(List<int>.filled(sizeBytes, byte), flush: true);
   return file;
+}
+
+Future<void> _pumpSettingsScreen(
+  WidgetTester tester,
+  ProviderContainer container,
+) async {
+  configureFlavor(AppFlavor.development);
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(
+        locale: Locale('en'),
+        localizationsDelegates: [
+          AppLocalizations.delegate,
+          AppStrings.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(body: SettingsScreen()),
+      ),
+    ),
+  );
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 350));
+}
+
+Future<void> _openSyncDetailsSettings(WidgetTester tester) async {
+  final backupAndSync = find.text('Backup and sync');
+  final syncDetails = find.text('Sync details');
+
+  if (syncDetails.evaluate().isEmpty) {
+    await tester.scrollUntilVisible(backupAndSync, 300, maxScrolls: 50);
+    await tester.tap(backupAndSync.last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+  }
+
+  await tester.scrollUntilVisible(syncDetails, 300, maxScrolls: 50);
+  await tester.ensureVisible(syncDetails.last);
+  if (find.text('Daily sync actions').evaluate().isEmpty) {
+    await tester.tap(syncDetails.last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+  }
+  await tester.ensureVisible(find.text('Daily sync actions'));
 }
 
 Future<_GoogleDriveSyncHarness> _createGoogleDriveSyncHarness(

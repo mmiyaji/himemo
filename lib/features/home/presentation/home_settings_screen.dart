@@ -873,6 +873,495 @@ class SettingsScreen extends ConsumerWidget {
             : appUpdatesDescription,
     };
 
+    Future<void> copyRecoveryKey() async {
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        final backupCode = await ref
+            .read(syncBundleKeyServiceProvider)
+            .exportBackupCode();
+        await Clipboard.setData(ClipboardData(text: backupCode));
+        if (!context.mounted) {
+          return;
+        }
+        messenger.showSnackBar(
+          SnackBar(
+            showCloseIcon: true,
+            content: Text(
+              strings.text('home.cloud.recovery.key.copied.to.clipboard'),
+            ),
+          ),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text('$error')),
+        );
+      }
+    }
+
+    Future<void> showRecoveryKeyQr() async {
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        final backupCode = await ref
+            .read(syncBundleKeyServiceProvider)
+            .exportBackupCode();
+        if (!context.mounted) {
+          return;
+        }
+        await _showSyncKeyQrDialog(context, backupCode: backupCode);
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text('$error')),
+        );
+      }
+    }
+
+    Future<void> importRecoveryKey() async {
+      final backupCode = await _showSyncKeyImportDialog(context);
+      if (!context.mounted || backupCode == null) {
+        return;
+      }
+      await _handleSyncKeyImport(context, ref, backupCode);
+    }
+
+    Future<void> scanRecoveryKey() async {
+      final backupCode = await _showSyncKeyQrScannerDialog(context);
+      if (!context.mounted || backupCode == null) {
+        return;
+      }
+      await _handleSyncKeyImport(context, ref, backupCode);
+    }
+
+    Future<void> refreshRemoteStatus() async {
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        final confirmed = await _confirmLargeMobileSyncIfNeeded(
+          context,
+          ref,
+          includeUpload: false,
+          includeDownload: true,
+        );
+        if (!confirmed || !context.mounted) {
+          return;
+        }
+        await ref
+            .read(syncTransferControllerProvider.notifier)
+            .refreshRemoteStatus();
+        if (!context.mounted) {
+          return;
+        }
+        final message = _cloudSyncSnackBarMessage(
+          strings,
+          ref.read(syncTransferControllerProvider),
+          _CloudSyncSnackBarAction.refreshRemote,
+          syncProvider,
+        );
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text(message)),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text('$error')),
+        );
+      }
+    }
+
+    Future<void> uploadDeviceBackup() async {
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        final confirmed = await _confirmLargeMobileSyncIfNeeded(
+          context,
+          ref,
+          includeUpload: true,
+          includeDownload: false,
+        );
+        if (!confirmed || !context.mounted) {
+          return;
+        }
+        await ref
+            .read(syncTransferControllerProvider.notifier)
+            .uploadCurrentBundle(allowLargeMobileTransfer: true);
+        if (!context.mounted) {
+          return;
+        }
+        final message = _cloudSyncSnackBarMessage(
+          strings,
+          ref.read(syncTransferControllerProvider),
+          _CloudSyncSnackBarAction.upload,
+          syncProvider,
+        );
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text(message)),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text('$error')),
+        );
+      }
+    }
+
+    Future<void> reuploadAllNotes() async {
+      final messenger = ScaffoldMessenger.of(context);
+      final shouldReupload =
+          await showDialog<bool>(
+            context: context,
+            builder: (context) {
+              return AlertDialog(
+                title: Text(
+                  strings.localized(
+                    en: 'Re-upload all notes',
+                    ja: '全メモを再アップロード',
+                    zh: '重新上传全部备忘',
+                    ko: '전체 메모 다시 업로드',
+                    es: 'Volver a subir todas las notas',
+                    de: 'Alle Notizen erneut hochladen',
+                  ),
+                ),
+                content: Text(
+                  strings.localized(
+                    en: 'This queues all notes on this device and uploads a new encrypted bundle to the selected sync target. Use this after changing sync targets or repairing attachments on this device. It may overwrite the remote bundle.',
+                    ja: 'この端末の全メモを同期キューに入れ、選択中の同期先へ新しい暗号化バンドルをアップロードします。同期先の切り替え後や、この端末で添付を修復した後に使用してください。リモートのバンドルは上書きされる場合があります。',
+                    zh: '这会将本机全部备忘加入同步队列，并向当前同步目标上传新的加密包。请在切换同步目标或修复本机附件后使用。远端包可能会被覆盖。',
+                    ko: '이 기기의 모든 메모를 동기화 대기열에 넣고 선택한 동기화 대상으로 새 암호화 번들을 업로드합니다. 동기화 대상 변경 후나 이 기기에서 첨부 파일을 복구한 뒤 사용하세요. 원격 번들을 덮어쓸 수 있습니다.',
+                    es: 'Esto pone todas las notas de este dispositivo en la cola de sincronizacion y sube un nuevo paquete cifrado al destino seleccionado. Usalo tras cambiar de destino o reparar adjuntos en este dispositivo. Puede sobrescribir el paquete remoto.',
+                    de: 'Dadurch werden alle Notizen dieses Gerats in die Synchronisierungswarteschlange gestellt und als neues verschlusseltes Paket zum ausgewahlten Ziel hochgeladen. Nutze dies nach Zielwechseln oder reparierten Anhangen. Das Remote-Paket kann uberschrieben werden.',
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: Text(strings.cancel),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child: Text(
+                      strings.localized(
+                        en: 'Re-upload',
+                        ja: '再アップロード',
+                        zh: '重新上传',
+                        ko: '다시 업로드',
+                        es: 'Volver a subir',
+                        de: 'Erneut hochladen',
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ) ??
+          false;
+      if (!shouldReupload || !context.mounted) {
+        return;
+      }
+      try {
+        final confirmed = await _confirmLargeMobileSyncIfNeeded(
+          context,
+          ref,
+          includeUpload: true,
+          includeDownload: false,
+          estimateAllLocalNotes: true,
+        );
+        if (!confirmed || !context.mounted) {
+          return;
+        }
+        await ref
+            .read(syncTransferControllerProvider.notifier)
+            .reuploadAllCurrentNotes(allowLargeMobileTransfer: true);
+        if (!context.mounted) {
+          return;
+        }
+        final message = _cloudSyncSnackBarMessage(
+          strings,
+          ref.read(syncTransferControllerProvider),
+          _CloudSyncSnackBarAction.upload,
+          syncProvider,
+        );
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text(message)),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text('$error')),
+        );
+      }
+    }
+
+    Future<void> forceUploadDeviceBackup() async {
+      final messenger = ScaffoldMessenger.of(context);
+      final shouldForce =
+          await showDialog<bool>(
+            context: context,
+            builder: (context) {
+              return AlertDialog(
+                title: Text(strings.text('home.force.upload.2')),
+                content: Text(
+                  strings.text(
+                    'home.a.newer.remote.bundle.was.found.while.this.device.still',
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: Text(strings.cancel),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child: Text(strings.text('home.force.upload')),
+                  ),
+                ],
+              );
+            },
+          ) ??
+          false;
+      if (!shouldForce || !context.mounted) {
+        return;
+      }
+      final confirmed = await _confirmLargeMobileSyncIfNeeded(
+        context,
+        ref,
+        includeUpload: true,
+        includeDownload: false,
+      );
+      if (!confirmed || !context.mounted) {
+        return;
+      }
+      await ref
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(
+            force: true,
+            fullSnapshot: true,
+            allowLargeMobileTransfer: true,
+          );
+      if (!context.mounted) {
+        return;
+      }
+      final message = _cloudSyncSnackBarMessage(
+        strings,
+        ref.read(syncTransferControllerProvider),
+        _CloudSyncSnackBarAction.upload,
+        syncProvider,
+      );
+      messenger.showSnackBar(
+        SnackBar(showCloseIcon: true, content: Text(message)),
+      );
+    }
+
+    Future<void> showRemoteBundleHistory() async {
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        final history = await ref
+            .read(syncTransferControllerProvider.notifier)
+            .listRemoteBundleHistory();
+        if (!context.mounted) {
+          return;
+        }
+        if (history.isEmpty) {
+          messenger.showSnackBar(
+            SnackBar(
+              showCloseIcon: true,
+              content: Text(
+                strings.text('home.no.remote.bundle.history.is.available'),
+              ),
+            ),
+          );
+          return;
+        }
+        await _showBundleHistoryDialog(context, history);
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text('$error')),
+        );
+      }
+    }
+
+    Future<void> downloadLatestBundle() async {
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        await ref
+            .read(syncTransferControllerProvider.notifier)
+            .downloadLatestBundle();
+        if (!context.mounted) {
+          return;
+        }
+        final message = _cloudSyncSnackBarMessage(
+          strings,
+          ref.read(syncTransferControllerProvider),
+          _CloudSyncSnackBarAction.download,
+          syncProvider,
+        );
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text(message)),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text('$error')),
+        );
+      }
+    }
+
+    Future<void> reviewDownloadedBundle() async {
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        final preview = await ref
+            .read(syncTransferControllerProvider.notifier)
+            .previewDownloadedBundle();
+        if (!context.mounted) {
+          return;
+        }
+        await _showBundlePreviewDialog(
+          context,
+          preview,
+          confirmLabel: strings.close,
+          revealSensitiveDetails: _canRevealSyncBundlePreviewDetails(
+            ref,
+            preview,
+          ),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text('$error')),
+        );
+      }
+    }
+
+    Future<void> applyDownloadedBundle() async {
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        final preview = await ref
+            .read(syncTransferControllerProvider.notifier)
+            .previewDownloadedBundle();
+        if (!context.mounted) {
+          return;
+        }
+        final shouldApply =
+            await _showBundlePreviewDialog(
+              context,
+              preview,
+              confirmLabel: strings.text('home.apply.bundle'),
+              revealSensitiveDetails: _canRevealSyncBundlePreviewDetails(
+                ref,
+                preview,
+              ),
+            ) ??
+            false;
+        if (!shouldApply) {
+          return;
+        }
+        await ref
+            .read(syncTransferControllerProvider.notifier)
+            .applyDownloadedBundle();
+        if (!context.mounted) {
+          return;
+        }
+        final message = _cloudSyncSnackBarMessage(
+          strings,
+          ref.read(syncTransferControllerProvider),
+          _CloudSyncSnackBarAction.apply,
+          syncProvider,
+        );
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text(message)),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text('$error')),
+        );
+      }
+    }
+
+    Future<void> downloadDeferredAttachments() async {
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        final count = await ref
+            .read(syncTransferControllerProvider.notifier)
+            .downloadDeferredAttachments();
+        if (!context.mounted) {
+          return;
+        }
+        messenger.showSnackBar(
+          SnackBar(
+            showCloseIcon: true,
+            content: Text(
+              count == 0
+                  ? strings.text('home.no.deferred.attachments')
+                  : strings.text('home.deferred.attachments.downloaded'),
+            ),
+          ),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text('$error')),
+        );
+      }
+    }
+
+    Future<void> inspectPreparedSnapshot() async {
+      final syncEngine = ref.read(syncEngineProvider);
+      final pendingChanges = await syncEngine.loadPendingChanges();
+      final pendingIds = pendingChanges.map((change) => change.noteId).toSet();
+      final notes = await ref
+          .read(notesControllerProvider.notifier)
+          .notesForSyncSnapshot(pendingNoteIds: pendingIds);
+      final snapshot = await syncEngine.prepareSnapshot(
+        notes,
+        pendingChanges: pendingChanges,
+      );
+      if (!context.mounted) {
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: Text(strings.text('home.prepared.sync.snapshot')),
+            content: Text(
+              strings.syncSnapshotSummary(
+                notes: snapshot.notes.length,
+                attachments: snapshot.attachments.length,
+                pending: snapshot.summary.totalChanges,
+                deviceId: snapshot.deviceId,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(strings.close),
+              ),
+            ],
+          );
+        },
+      );
+    }
+
     return ListView(
       cacheExtent: 6000,
       padding: const EdgeInsets.all(16),
@@ -2273,1044 +2762,412 @@ class SettingsScreen extends ConsumerWidget {
                     vertical: 2,
                   ),
                   childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                  title: Text(strings.syncDetailsTitle),
-                  subtitle: Text(strings.syncDetailsSummary),
+                  title: Text(
+                    strings.localized(
+                      en: 'Sync details',
+                      ja: '同期詳細',
+                      zh: '同步详情',
+                      ko: '동기화 상세',
+                      es: 'Detalles de sincronizacion',
+                      de: 'Synchronisierungsdetails',
+                    ),
+                  ),
+                  subtitle: Text(
+                    strings.localized(
+                      en: 'Review status, pending changes, recovery key, history, and maintenance actions.',
+                      ja: '状態、未送信キュー、復元キー、履歴、メンテナンス操作を確認します。',
+                      zh: '查看状态、待同步队列、恢复密钥、历史记录和维护操作。',
+                      ko: '상태, 미전송 대기열, 복구 키, 기록, 유지 관리 작업을 확인합니다.',
+                      es: 'Revisa estado, cola pendiente, clave de recuperacion, historial y mantenimiento.',
+                      de: 'Status, ausstehende Anderungen, Wiederherstellungsschlussel, Verlauf und Wartung prufen.',
+                    ),
+                  ),
                   children: [
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        strings.localized(
-                          en: 'Sync progress',
-                          ja: '同期の進捗',
-                          zh: '同步进度',
-                          ko: '동기화 진행률',
-                          es: 'Progreso de sincronizacion',
-                          de: 'Synchronisierungsfortschritt',
-                        ),
-                      ),
-                      subtitle: Text(
-                        _syncProgressDescription(
-                          strings,
-                          syncTransferState,
-                          syncProvider,
-                        ),
-                      ),
+                    _SyncDetailsOverviewPanel(
+                      strings: strings,
+                      syncProvider: syncProvider,
+                      syncAuthState: syncAuthState,
+                      syncTransferState: syncTransferState,
+                      syncQueueSummary: syncQueueSummary,
+                      syncBundleState: syncBundleState,
+                      syncBundleFingerprint: syncBundleFingerprint,
+                      onSyncNow:
+                          syncProvider == SyncProvider.off ||
+                              !syncAuthState.isAuthenticated ||
+                              syncTransferState.isBusy
+                          ? null
+                          : () => _syncNow(context, ref),
                     ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(strings.text('home.pending.sync.queue')),
-                      subtitle: Text(
-                        syncQueueSummary.when(
-                          data: (summary) {
-                            if (!summary.hasPendingChanges) {
-                              return strings.text(
-                                'home.no.pending.device.changes',
-                              );
-                            }
-                            final timestamp = summary.lastQueuedAt;
-                            final stampText = timestamp == null
-                                ? (strings.text('home.queue.ready'))
-                                : strings.lastQueuedAt(
-                                    _formatDateTime(timestamp, strings),
-                                  );
-                            return strings.pendingSyncSummary(
-                              total: summary.totalChanges,
-                              upserts: summary.upserts,
-                              deletes: summary.deletes,
-                              stamp: stampText,
-                            );
-                          },
-                          loading: () =>
-                              strings.text('home.checking.pending.changes'),
-                          error: (_, _) => strings.text(
-                            'home.unable.to.inspect.the.local.sync.queue',
+                    const SizedBox(height: 12),
+                    _SyncDetailsActionGrid(
+                      children: [
+                        _SyncDetailsActionCard(
+                          title: strings.localized(
+                            en: 'Daily sync actions',
+                            ja: '日常の同期操作',
                           ),
-                        ),
-                      ),
-                    ),
-                    if (conflictedNotes.isNotEmpty)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.report_problem_outlined),
-                        title: Text(
-                          strings.localized(
-                            en: 'Conflicts to resolve',
-                            ja: '\u89e3\u6c7a\u304c\u5fc5\u8981\u306a\u7af6\u5408',
+                          description: strings.localized(
+                            en: 'Start here for normal checks and sending this device backup.',
+                            ja: '通常の確認と、この端末のバックアップ送信はここから行います。',
                           ),
-                        ),
-                        subtitle: Text(
-                          strings.localized(
-                            en: '${conflictedNotes.length} notes need review before sync can settle.',
-                            ja: '${conflictedNotes.length} \u4ef6\u306e\u30e1\u30e2\u306e\u78ba\u8a8d\u304c\u5fc5\u8981\u3067\u3059\u3002',
-                          ),
-                        ),
-                        trailing: TextButton(
-                          onPressed: () => _showSyncConflictListDialog(
-                            context,
-                            ref,
-                            conflictedNotes,
-                          ),
-                          child: Text(
-                            strings.localized(en: 'Review', ja: '\u78ba\u8a8d'),
-                          ),
-                        ),
-                        onTap: () => _showSyncConflictListDialog(
-                          context,
-                          ref,
-                          conflictedNotes,
-                        ),
-                      ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(strings.text('home.remote.bundle')),
-                      subtitle: Text(
-                        _remoteBundleSummary(
-                          strings,
-                          syncProvider,
-                          syncTransferState,
-                          syncBundleState.asData?.value,
-                        ),
-                      ),
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.help_outline_rounded),
-                      title: Text(strings.syncHelp),
-                      subtitle: Text(strings.syncHelpDesc),
-                      trailing: const Icon(Icons.open_in_new_rounded, size: 18),
-                      onTap: () => _openExternalLink(
-                        context,
-                        Uri.parse(_helpUrl),
-                        strings,
-                      ),
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        strings.text('home.cloud.recovery.key.fingerprint'),
-                      ),
-                      subtitle: Text(
-                        syncBundleFingerprint.when(
-                          data: (value) => value,
-                          loading: () =>
-                              strings.text('home.preparing.cloud.recovery.key'),
-                          error: (_, _) => strings.text(
-                            'home.unable.to.read.the.cloud.recovery.key.fingerprint',
-                          ),
-                        ),
-                      ),
-                    ),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          OutlinedButton(
-                            onPressed: () async {
-                              final messenger = ScaffoldMessenger.of(context);
-                              try {
-                                final backupCode = await ref
-                                    .read(syncBundleKeyServiceProvider)
-                                    .exportBackupCode();
-                                await Clipboard.setData(
-                                  ClipboardData(text: backupCode),
-                                );
-                                if (!context.mounted) {
-                                  return;
-                                }
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    showCloseIcon: true,
-                                    content: Text(
-                                      strings.text(
-                                        'home.cloud.recovery.key.copied.to.clipboard',
-                                      ),
+                          children: [
+                            if (syncProvider == SyncProvider.off)
+                              _SyncDetailsActionRow(
+                                icon: Icons.sync_disabled_rounded,
+                                title: strings.localized(
+                                  en: 'Cloud sync is off',
+                                  ja: 'クラウド同期はオフです',
+                                ),
+                                description: strings.text(
+                                  'home.keep.data.on.this.device.only',
+                                ),
+                              ),
+                            if (syncProvider != SyncProvider.off)
+                              _SyncDetailsActionRow(
+                                icon: Icons.cloud_sync_outlined,
+                                title: strings.text('home.refresh.remote'),
+                                description: strings.localized(
+                                  en: 'Check whether the cloud has newer changes before receiving data from another device.',
+                                  ja: '別端末の変更を受け取る前に、クラウド側の新しい変更を確認します。',
+                                ),
+                                actions: [
+                                  OutlinedButton(
+                                    key: syncRefreshRemoteKey,
+                                    onPressed: syncTransferState.isBusy
+                                        ? null
+                                        : () async => refreshRemoteStatus(),
+                                    child: Text(
+                                      strings.localized(en: 'Check', ja: '確認'),
                                     ),
                                   ),
-                                );
-                              } catch (error) {
-                                if (!context.mounted) {
-                                  return;
-                                }
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    showCloseIcon: true,
-                                    content: Text('$error'),
-                                  ),
-                                );
-                              }
-                            },
-                            child: Text(strings.text('home.copy.recovery.key')),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: () async {
-                              final messenger = ScaffoldMessenger.of(context);
-                              try {
-                                final backupCode = await ref
-                                    .read(syncBundleKeyServiceProvider)
-                                    .exportBackupCode();
-                                if (!context.mounted) {
-                                  return;
-                                }
-                                await _showSyncKeyQrDialog(
-                                  context,
-                                  backupCode: backupCode,
-                                );
-                              } catch (error) {
-                                if (!context.mounted) {
-                                  return;
-                                }
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    showCloseIcon: true,
-                                    content: Text('$error'),
-                                  ),
-                                );
-                              }
-                            },
-                            icon: const Icon(Icons.qr_code_2_rounded),
-                            label: Text(
-                              strings.localized(
-                                en: 'Show QR',
-                                ja: 'QRを表示',
-                                zh: '显示 QR',
-                                ko: 'QR 표시',
-                                es: 'Mostrar QR',
-                                de: 'QR anzeigen',
+                                ],
                               ),
-                            ),
-                          ),
-                          OutlinedButton(
-                            onPressed: () async {
-                              final backupCode = await _showSyncKeyImportDialog(
-                                context,
-                              );
-                              if (!context.mounted || backupCode == null) {
-                                return;
-                              }
-                              await _handleSyncKeyImport(
-                                context,
-                                ref,
-                                backupCode,
-                              );
-                            },
-                            child: Text(
-                              strings.text('home.import.recovery.key'),
-                            ),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: () async {
-                              final backupCode =
-                                  await _showSyncKeyQrScannerDialog(context);
-                              if (!context.mounted || backupCode == null) {
-                                return;
-                              }
-                              await _handleSyncKeyImport(
-                                context,
-                                ref,
-                                backupCode,
-                              );
-                            },
-                            icon: const Icon(Icons.qr_code_scanner_rounded),
-                            label: Text(
-                              strings.localized(
-                                en: 'Scan QR',
-                                ja: 'QRを読み取り',
-                                zh: '扫描 QR',
-                                ko: 'QR 스캔',
-                                es: 'Escanear QR',
-                                de: 'QR scannen',
+                            if (syncProvider != SyncProvider.off &&
+                                syncAuthState.isAuthenticated)
+                              _SyncDetailsActionRow(
+                                icon: Icons.cloud_upload_outlined,
+                                title: strings.text('home.upload.bundle'),
+                                description: strings.localized(
+                                  en: 'Upload pending local changes as an encrypted backup.',
+                                  ja: 'この端末の未送信の変更だけを暗号化バックアップとして送信します。',
+                                ),
+                                actions: [
+                                  OutlinedButton(
+                                    key: syncUploadBundleKey,
+                                    onPressed:
+                                        syncTransferState.isBusy ||
+                                            syncConflictWarning != null
+                                        ? null
+                                        : () async => uploadDeviceBackup(),
+                                    child: Text(
+                                      strings.localized(en: 'Send', ja: '送信'),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(strings.text('home.last.sync.activity')),
-                      subtitle: Text(
-                        syncBundleState.when(
-                          data: (value) {
-                            final entries = <String>[];
-                            if (value.lastUploadedAt != null) {
-                              entries.add(
-                                strings.lastUploadAt(
-                                  _formatDateTime(
-                                    value.lastUploadedAt!,
-                                    strings,
+                            if (syncProvider != SyncProvider.off &&
+                                syncAuthState.isAuthenticated &&
+                                syncConflictWarning != null)
+                              _SyncDetailsActionRow(
+                                icon: Icons.warning_amber_rounded,
+                                warning: true,
+                                title: strings.text('home.force.upload'),
+                                description: strings.text(
+                                  'home.a.newer.remote.bundle.was.found.while.this.device.still',
+                                ),
+                                actions: [
+                                  FilledButton.tonal(
+                                    onPressed: syncTransferState.isBusy
+                                        ? null
+                                        : () async => forceUploadDeviceBackup(),
+                                    child: Text(
+                                      strings.text('home.force.upload'),
+                                    ),
                                   ),
-                                ),
-                              );
-                            }
-                            if (value.lastAppliedAt != null) {
-                              entries.add(
-                                strings.lastApplyAt(
-                                  _formatDateTime(
-                                    value.lastAppliedAt!,
-                                    strings,
-                                  ),
-                                ),
-                              );
-                            }
-                            if (value.lastRemoteModifiedAt != null) {
-                              entries.add(
-                                strings.remoteBundleAt(
-                                  _formatDateTime(
-                                    value.lastRemoteModifiedAt!,
-                                    strings,
-                                  ),
-                                ),
-                              );
-                            }
-                            if (entries.isEmpty) {
-                              return strings.text(
-                                'home.no.sync.activity.has.been.recorded.on.this.device.yet',
-                              );
-                            }
-                            return entries.join('\n');
-                          },
-                          loading: () =>
-                              strings.text('home.reading.sync.activity'),
-                          error: (_, _) => strings.text(
-                            'home.unable.to.read.local.sync.activity',
-                          ),
-                        ),
-                      ),
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.history_rounded),
-                      title: Text(
-                        strings.localized(
-                          en: 'Sync history',
-                          ja: '\u540c\u671f\u5c65\u6b74',
-                        ),
-                      ),
-                      subtitle: Text(
-                        syncHistory.when(
-                          data: (entries) => entries.isEmpty
-                              ? strings.localized(
-                                  en: 'No sync history has been recorded yet.',
-                                  ja: '\u307e\u3060\u540c\u671f\u5c65\u6b74\u306f\u3042\u308a\u307e\u305b\u3093\u3002',
-                                )
-                              : _syncHistoryEntrySummary(
-                                  strings,
-                                  entries.first,
-                                  syncProvider,
-                                ),
-                          loading: () => strings.localized(
-                            en: 'Reading sync history...',
-                            ja: '\u540c\u671f\u5c65\u6b74\u3092\u8aad\u307f\u8fbc\u3093\u3067\u3044\u307e\u3059\u2026',
-                          ),
-                          error: (_, _) => strings.localized(
-                            en: 'Unable to read sync history.',
-                            ja: '\u540c\u671f\u5c65\u6b74\u3092\u8aad\u307f\u8fbc\u3081\u307e\u305b\u3093\u3002',
-                          ),
-                        ),
-                      ),
-                      trailing: TextButton(
-                        onPressed: syncHistory.asData?.value == null
-                            ? null
-                            : () => _showSyncHistoryDialog(
-                                context,
-                                syncHistory.asData!.value,
+                                ],
                               ),
-                        child: Text(
-                          strings.localized(en: 'Show', ja: '\u8868\u793a'),
-                        ),
-                      ),
-                      onTap: syncHistory.asData?.value == null
-                          ? null
-                          : () => _showSyncHistoryDialog(
-                              context,
-                              syncHistory.asData!.value,
+                            if (conflictedNotes.isNotEmpty)
+                              _SyncDetailsActionRow(
+                                icon: Icons.report_problem_outlined,
+                                warning: true,
+                                title: strings.localized(
+                                  en: 'Note conflicts',
+                                  ja: 'メモの競合',
+                                ),
+                                description: strings.localized(
+                                  en: '${conflictedNotes.length} notes need manual review before sync can finish.',
+                                  ja: '${conflictedNotes.length}件のメモで手動確認が必要です。',
+                                ),
+                                actions: [
+                                  OutlinedButton(
+                                    onPressed: () async =>
+                                        _showSyncConflictListDialog(
+                                          context,
+                                          ref,
+                                          conflictedNotes,
+                                        ),
+                                    child: Text(
+                                      strings.localized(en: 'Review', ja: '確認'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            _SyncDetailsActionRow(
+                              icon: Icons.fact_check_outlined,
+                              title: strings.text('home.inspect.snapshot'),
+                              description: strings.localized(
+                                en: 'Preview the encrypted snapshot that would be sent from this device.',
+                                ja: 'この端末から送信される暗号化スナップショットの概要を確認します。',
+                              ),
+                              actions: [
+                                OutlinedButton(
+                                  onPressed: () async =>
+                                      inspectPreparedSnapshot(),
+                                  child: Text(
+                                    strings.localized(en: 'Preview', ja: '確認'),
+                                  ),
+                                ),
+                              ],
                             ),
-                    ),
-                    if (syncTransferState.localBundle != null)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(strings.text('home.local.bundle.cache')),
-                        subtitle: Text(
-                          strings.localBundleStoredAt(
-                            syncTransferState.localBundle!.reference,
+                          ],
+                        ),
+                        _SyncDetailsActionCard(
+                          title: strings.localized(
+                            en: 'Recovery and maintenance',
+                            ja: '復元とメンテナンス',
                           ),
-                        ),
-                      ),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          if (syncProvider != SyncProvider.off)
-                            OutlinedButton(
-                              key: syncRefreshRemoteKey,
-                              onPressed: syncTransferState.isBusy
-                                  ? null
-                                  : () async {
-                                      final messenger = ScaffoldMessenger.of(
-                                        context,
-                                      );
-                                      try {
-                                        final confirmed =
-                                            await _confirmLargeMobileSyncIfNeeded(
-                                              context,
-                                              ref,
-                                              includeUpload: false,
-                                              includeDownload: true,
-                                            );
-                                        if (!confirmed || !context.mounted) {
-                                          return;
-                                        }
-                                        await ref
-                                            .read(
-                                              syncTransferControllerProvider
-                                                  .notifier,
-                                            )
-                                            .refreshRemoteStatus();
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        final message =
-                                            _cloudSyncSnackBarMessage(
-                                              strings,
-                                              ref.read(
-                                                syncTransferControllerProvider,
-                                              ),
-                                              _CloudSyncSnackBarAction
-                                                  .refreshRemote,
-                                              syncProvider,
-                                            );
-                                        messenger.showSnackBar(
-                                          SnackBar(
-                                            showCloseIcon: true,
-                                            content: Text(message),
-                                          ),
-                                        );
-                                      } catch (error) {
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        messenger.showSnackBar(
-                                          SnackBar(
-                                            showCloseIcon: true,
-                                            content: Text('$error'),
-                                          ),
-                                        );
-                                      }
-                                    },
-                              child: Text(strings.text('home.refresh.remote')),
+                          description: strings.localized(
+                            en: 'Use these when moving to another device, restoring data, or repairing sync.',
+                            ja: '別端末への移行、復元、同期の修復が必要なときに使用します。',
+                          ),
+                          children: [
+                            _SyncDetailsActionRow(
+                              icon: Icons.key_outlined,
+                              title: strings.text(
+                                'home.cloud.recovery.key.fingerprint',
+                              ),
+                              description: syncBundleFingerprint.when(
+                                data: _maskSyncFingerprint,
+                                loading: () => strings.text(
+                                  'home.preparing.cloud.recovery.key',
+                                ),
+                                error: (_, _) => strings.text(
+                                  'home.unable.to.read.the.cloud.recovery.key.fingerprint',
+                                ),
+                              ),
+                              actions: [
+                                OutlinedButton(
+                                  onPressed: () async => copyRecoveryKey(),
+                                  child: Text(
+                                    strings.localized(en: 'Copy', ja: 'コピー'),
+                                  ),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: () async => showRecoveryKeyQr(),
+                                  icon: const Icon(Icons.qr_code_2_rounded),
+                                  label: Text(
+                                    strings.localized(en: 'QR', ja: 'QR'),
+                                  ),
+                                ),
+                                OutlinedButton(
+                                  onPressed: () async => importRecoveryKey(),
+                                  child: Text(
+                                    strings.localized(en: 'Import', ja: '読み込む'),
+                                  ),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: () async => scanRecoveryKey(),
+                                  icon: const Icon(
+                                    Icons.qr_code_scanner_rounded,
+                                  ),
+                                  label: Text(
+                                    strings.localized(en: 'Scan', ja: '読み取り'),
+                                  ),
+                                ),
+                              ],
                             ),
-                          if (syncProvider != SyncProvider.off &&
-                              syncAuthState.isAuthenticated)
-                            OutlinedButton(
-                              key: syncUploadBundleKey,
-                              onPressed:
-                                  syncTransferState.isBusy ||
-                                      syncConflictWarning != null
-                                  ? null
-                                  : () async {
-                                      final messenger = ScaffoldMessenger.of(
-                                        context,
-                                      );
-                                      try {
-                                        final confirmed =
-                                            await _confirmLargeMobileSyncIfNeeded(
-                                              context,
-                                              ref,
-                                              includeUpload: true,
-                                              includeDownload: false,
-                                            );
-                                        if (!confirmed || !context.mounted) {
-                                          return;
-                                        }
-                                        await ref
-                                            .read(
-                                              syncTransferControllerProvider
-                                                  .notifier,
-                                            )
-                                            .uploadCurrentBundle(
-                                              allowLargeMobileTransfer: true,
-                                            );
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        final message =
-                                            _cloudSyncSnackBarMessage(
-                                              strings,
-                                              ref.read(
-                                                syncTransferControllerProvider,
-                                              ),
-                                              _CloudSyncSnackBarAction.upload,
-                                              syncProvider,
-                                            );
-                                        messenger.showSnackBar(
-                                          SnackBar(
-                                            showCloseIcon: true,
-                                            content: Text(message),
-                                          ),
-                                        );
-                                      } catch (error) {
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        messenger.showSnackBar(
-                                          SnackBar(
-                                            showCloseIcon: true,
-                                            content: Text('$error'),
-                                          ),
-                                        );
-                                      }
-                                    },
-                              child: Text(strings.text('home.upload.bundle')),
+                            _SyncDetailsActionRow(
+                              icon: Icons.history_rounded,
+                              title: strings.localized(
+                                en: 'Sync history',
+                                ja: '同期履歴',
+                              ),
+                              description: syncHistory.when(
+                                data: (entries) => entries.isEmpty
+                                    ? strings.localized(
+                                        en: 'No sync history has been recorded yet.',
+                                        ja: 'まだ同期履歴はありません。',
+                                      )
+                                    : _syncHistoryEntrySummary(
+                                        strings,
+                                        entries.first,
+                                        syncProvider,
+                                      ),
+                                loading: () => strings.localized(
+                                  en: 'Reading sync history...',
+                                  ja: '同期履歴を読み込んでいます...',
+                                ),
+                                error: (_, _) => strings.localized(
+                                  en: 'Unable to read sync history.',
+                                  ja: '同期履歴を読み込めません。',
+                                ),
+                              ),
+                              actions: [
+                                OutlinedButton(
+                                  onPressed: syncHistory.asData?.value == null
+                                      ? null
+                                      : () => _showSyncHistoryDialog(
+                                          context,
+                                          syncHistory.asData!.value,
+                                        ),
+                                  child: Text(
+                                    strings.localized(en: 'Show', ja: '表示'),
+                                  ),
+                                ),
+                              ],
                             ),
-                          if (syncProvider != SyncProvider.off &&
-                              syncAuthState.isAuthenticated)
-                            OutlinedButton.icon(
-                              icon: const Icon(Icons.cloud_upload_outlined),
-                              onPressed: syncTransferState.isBusy
-                                  ? null
-                                  : () async {
-                                      final messenger = ScaffoldMessenger.of(
-                                        context,
-                                      );
-                                      final shouldReupload =
-                                          await showDialog<bool>(
-                                            context: context,
-                                            builder: (context) {
-                                              return AlertDialog(
-                                                title: Text(
-                                                  strings.localized(
-                                                    en: 'Re-upload all notes',
-                                                    ja: '全メモを再アップロード',
-                                                    zh: '重新上传全部备忘',
-                                                    ko: '모든 메모 다시 업로드',
-                                                    es: 'Volver a subir todas las notas',
-                                                    de: 'Alle Notizen erneut hochladen',
-                                                  ),
-                                                ),
-                                                content: Text(
-                                                  strings.localized(
-                                                    en: 'This queues all notes on this device and uploads a new encrypted bundle to the selected sync target. Use this after changing sync targets or repairing attachments on this device. It may overwrite the remote bundle.',
-                                                    ja: 'この端末の全メモを同期キューに入れ、選択中の同期先へ新しい暗号化バンドルをアップロードします。同期先の切り替え後や、この端末で添付を修復した後に使用してください。リモートのバンドルは上書きされる場合があります。',
-                                                    zh: '这会将本机全部备忘加入同步队列，并向选定同步目标上传新的加密包。请在切换同步目标或在本机修复附件后使用。远程包可能会被覆盖。',
-                                                    ko: '이 기기의 모든 메모를 동기화 대기열에 넣고 선택한 동기화 대상으로 새 암호화 번들을 업로드합니다. 동기화 대상을 변경했거나 이 기기에서 첨부 파일을 복구한 뒤 사용하세요. 원격 번들을 덮어쓸 수 있습니다.',
-                                                    es: 'Esto pone todas las notas de este dispositivo en la cola de sincronizacion y sube un nuevo paquete cifrado al destino seleccionado. Usalo tras cambiar de destino o reparar adjuntos en este dispositivo. Puede sobrescribir el paquete remoto.',
-                                                    de: 'Dadurch werden alle Notizen dieses Gerats in die Synchronisierungswarteschlange gestellt und als neues verschlusseltes Paket zum ausgewahlten Ziel hochgeladen. Nutze dies nach Zielwechseln oder reparierten Anhangen. Das Remote-Paket kann uberschrieben werden.',
-                                                  ),
-                                                ),
-                                                actions: [
-                                                  TextButton(
-                                                    onPressed: () =>
-                                                        Navigator.of(
-                                                          context,
-                                                        ).pop(false),
-                                                    child: Text(strings.cancel),
-                                                  ),
-                                                  FilledButton(
-                                                    onPressed: () =>
-                                                        Navigator.of(
-                                                          context,
-                                                        ).pop(true),
-                                                    child: Text(
-                                                      strings.localized(
-                                                        en: 'Re-upload',
-                                                        ja: '再アップロード',
-                                                        zh: '重新上传',
-                                                        ko: '다시 업로드',
-                                                        es: 'Volver a subir',
-                                                        de: 'Erneut hochladen',
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              );
-                                            },
-                                          ) ??
-                                          false;
-                                      if (!shouldReupload) {
-                                        return;
-                                      }
-                                      if (!context.mounted) {
-                                        return;
-                                      }
-                                      try {
-                                        final confirmed =
-                                            await _confirmLargeMobileSyncIfNeeded(
-                                              context,
-                                              ref,
-                                              includeUpload: true,
-                                              includeDownload: false,
-                                              estimateAllLocalNotes: true,
-                                            );
-                                        if (!confirmed || !context.mounted) {
-                                          return;
-                                        }
-                                        await ref
-                                            .read(
-                                              syncTransferControllerProvider
-                                                  .notifier,
-                                            )
-                                            .reuploadAllCurrentNotes(
-                                              allowLargeMobileTransfer: true,
-                                            );
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        final message =
-                                            _cloudSyncSnackBarMessage(
-                                              strings,
-                                              ref.read(
-                                                syncTransferControllerProvider,
-                                              ),
-                                              _CloudSyncSnackBarAction.upload,
-                                              syncProvider,
-                                            );
-                                        messenger.showSnackBar(
-                                          SnackBar(
-                                            showCloseIcon: true,
-                                            content: Text(message),
-                                          ),
-                                        );
-                                      } catch (error) {
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        messenger.showSnackBar(
-                                          SnackBar(
-                                            showCloseIcon: true,
-                                            content: Text('$error'),
-                                          ),
-                                        );
-                                      }
-                                    },
-                              label: Text(
-                                strings.localized(
+                            if (syncProvider != SyncProvider.off &&
+                                syncAuthState.isAuthenticated)
+                              _SyncDetailsActionRow(
+                                icon: Icons.cloud_download_outlined,
+                                title: strings.text('home.download.bundle'),
+                                description: strings.localized(
+                                  en: 'Get the latest encrypted cloud backup. Review it before applying.',
+                                  ja: '最新の暗号化クラウドバックアップを取得します。適用前に内容を確認できます。',
+                                ),
+                                actions: [
+                                  OutlinedButton(
+                                    key: syncDownloadBundleKey,
+                                    onPressed: syncTransferState.isBusy
+                                        ? null
+                                        : () async => downloadLatestBundle(),
+                                    child: Text(
+                                      strings.localized(en: 'Get', ja: '取得'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            if (syncTransferState.localBundle != null)
+                              _SyncDetailsActionRow(
+                                icon: Icons.rule_folder_outlined,
+                                title: strings.text('home.local.bundle.cache'),
+                                description: strings.localBundleStoredAt(
+                                  syncTransferState.localBundle!.reference,
+                                ),
+                                actions: [
+                                  OutlinedButton(
+                                    onPressed: syncTransferState.isBusy
+                                        ? null
+                                        : () async => reviewDownloadedBundle(),
+                                    child: Text(
+                                      strings.text('home.review.bundle'),
+                                    ),
+                                  ),
+                                  OutlinedButton(
+                                    key: syncApplyBundleKey,
+                                    onPressed: syncTransferState.isBusy
+                                        ? null
+                                        : () async => applyDownloadedBundle(),
+                                    child: Text(
+                                      strings.text('home.apply.bundle'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            if (syncProvider != SyncProvider.off &&
+                                syncAuthState.isAuthenticated)
+                              _SyncDetailsActionRow(
+                                icon: Icons.manage_history_outlined,
+                                title: strings.text('home.bundle.history'),
+                                description: strings.localized(
+                                  en: 'View cloud backup versions before choosing one to restore.',
+                                  ja: '復元対象を選ぶ前に、クラウド側のバックアップ履歴を確認します。',
+                                ),
+                                actions: [
+                                  OutlinedButton(
+                                    onPressed: syncTransferState.isBusy
+                                        ? null
+                                        : () async => showRemoteBundleHistory(),
+                                    child: Text(
+                                      strings.localized(en: 'Show', ja: '表示'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            if (syncProvider != SyncProvider.off &&
+                                syncAuthState.isAuthenticated)
+                              _SyncDetailsActionRow(
+                                icon: Icons.sync_problem_outlined,
+                                warning: true,
+                                title: strings.localized(
                                   en: 'Re-upload all notes',
                                   ja: '全メモを再アップロード',
-                                  zh: '重新上传全部备忘',
-                                  ko: '모든 메모 다시 업로드',
-                                  es: 'Volver a subir todas las notas',
-                                  de: 'Alle Notizen erneut hochladen',
                                 ),
+                                description: strings.localized(
+                                  en: 'Advanced repair action. Queue every note and send a full snapshot.',
+                                  ja: '修復用の高度な操作です。全メモをキューに入れて完全なスナップショットを送信します。',
+                                ),
+                                actions: [
+                                  OutlinedButton.icon(
+                                    onPressed: syncTransferState.isBusy
+                                        ? null
+                                        : () async => reuploadAllNotes(),
+                                    icon: const Icon(
+                                      Icons.cloud_upload_outlined,
+                                    ),
+                                    label: Text(
+                                      strings.localized(
+                                        en: 'Re-upload',
+                                        ja: '再送信',
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                          if (syncProvider != SyncProvider.off &&
-                              syncAuthState.isAuthenticated &&
-                              syncConflictWarning != null)
-                            FilledButton.tonal(
-                              onPressed: syncTransferState.isBusy
-                                  ? null
-                                  : () async {
-                                      final messenger = ScaffoldMessenger.of(
-                                        context,
-                                      );
-                                      final shouldForce =
-                                          await showDialog<bool>(
-                                            context: context,
-                                            builder: (context) {
-                                              return AlertDialog(
-                                                title: Text(
-                                                  strings.text(
-                                                    'home.force.upload.2',
-                                                  ),
-                                                ),
-                                                content: Text(
-                                                  strings.text(
-                                                    'home.a.newer.remote.bundle.was.found.while.this.device.still',
-                                                  ),
-                                                ),
-                                                actions: [
-                                                  TextButton(
-                                                    onPressed: () =>
-                                                        Navigator.of(
-                                                          context,
-                                                        ).pop(false),
-                                                    child: Text(strings.cancel),
-                                                  ),
-                                                  FilledButton(
-                                                    onPressed: () =>
-                                                        Navigator.of(
-                                                          context,
-                                                        ).pop(true),
-                                                    child: Text(
-                                                      strings.text(
-                                                        'home.force.upload',
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              );
-                                            },
-                                          ) ??
-                                          false;
-                                      if (!shouldForce) {
-                                        return;
-                                      }
-                                      if (!context.mounted) {
-                                        return;
-                                      }
-                                      final confirmed =
-                                          await _confirmLargeMobileSyncIfNeeded(
-                                            context,
-                                            ref,
-                                            includeUpload: true,
-                                            includeDownload: false,
-                                          );
-                                      if (!confirmed || !context.mounted) {
-                                        return;
-                                      }
-                                      await ref
-                                          .read(
-                                            syncTransferControllerProvider
-                                                .notifier,
-                                          )
-                                          .uploadCurrentBundle(
-                                            force: true,
-                                            fullSnapshot: true,
-                                            allowLargeMobileTransfer: true,
-                                          );
-                                      if (!context.mounted) {
-                                        return;
-                                      }
-                                      final message = _cloudSyncSnackBarMessage(
-                                        strings,
-                                        ref.read(
-                                          syncTransferControllerProvider,
-                                        ),
-                                        _CloudSyncSnackBarAction.upload,
-                                        syncProvider,
-                                      );
-                                      messenger.showSnackBar(
-                                        SnackBar(
-                                          showCloseIcon: true,
-                                          content: Text(message),
-                                        ),
-                                      );
-                                    },
-                              child: Text(strings.text('home.force.upload')),
-                            ),
-                          if (syncProvider != SyncProvider.off &&
-                              syncAuthState.isAuthenticated)
-                            OutlinedButton(
-                              onPressed: syncTransferState.isBusy
-                                  ? null
-                                  : () async {
-                                      final messenger = ScaffoldMessenger.of(
-                                        context,
-                                      );
-                                      try {
-                                        final history = await ref
-                                            .read(
-                                              syncTransferControllerProvider
-                                                  .notifier,
-                                            )
-                                            .listRemoteBundleHistory();
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        if (history.isEmpty) {
-                                          messenger.showSnackBar(
-                                            SnackBar(
-                                              showCloseIcon: true,
-                                              content: Text(
-                                                strings.text(
-                                                  'home.no.remote.bundle.history.is.available',
-                                                ),
-                                              ),
-                                            ),
-                                          );
-                                          return;
-                                        }
-                                        await _showBundleHistoryDialog(
-                                          context,
-                                          history,
-                                        );
-                                      } catch (error) {
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        messenger.showSnackBar(
-                                          SnackBar(
-                                            showCloseIcon: true,
-                                            content: Text('$error'),
-                                          ),
-                                        );
-                                      }
-                                    },
-                              child: Text(strings.text('home.bundle.history')),
-                            ),
-                          if (syncProvider != SyncProvider.off &&
-                              syncAuthState.isAuthenticated)
-                            OutlinedButton(
-                              key: syncDownloadBundleKey,
-                              onPressed: syncTransferState.isBusy
-                                  ? null
-                                  : () async {
-                                      final messenger = ScaffoldMessenger.of(
-                                        context,
-                                      );
-                                      try {
-                                        await ref
-                                            .read(
-                                              syncTransferControllerProvider
-                                                  .notifier,
-                                            )
-                                            .downloadLatestBundle();
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        final message =
-                                            _cloudSyncSnackBarMessage(
-                                              strings,
-                                              ref.read(
-                                                syncTransferControllerProvider,
-                                              ),
-                                              _CloudSyncSnackBarAction.download,
-                                              syncProvider,
-                                            );
-                                        messenger.showSnackBar(
-                                          SnackBar(
-                                            showCloseIcon: true,
-                                            content: Text(message),
-                                          ),
-                                        );
-                                      } catch (error) {
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        messenger.showSnackBar(
-                                          SnackBar(
-                                            showCloseIcon: true,
-                                            content: Text('$error'),
-                                          ),
-                                        );
-                                      }
-                                    },
-                              child: Text(strings.text('home.download.bundle')),
-                            ),
-                          if (syncTransferState.localBundle != null)
-                            OutlinedButton(
-                              onPressed: syncTransferState.isBusy
-                                  ? null
-                                  : () async {
-                                      final messenger = ScaffoldMessenger.of(
-                                        context,
-                                      );
-                                      try {
-                                        final preview = await ref
-                                            .read(
-                                              syncTransferControllerProvider
-                                                  .notifier,
-                                            )
-                                            .previewDownloadedBundle();
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        await _showBundlePreviewDialog(
-                                          context,
-                                          preview,
-                                          confirmLabel: strings.close,
-                                          revealSensitiveDetails:
-                                              _canRevealSyncBundlePreviewDetails(
-                                                ref,
-                                                preview,
-                                              ),
-                                        );
-                                      } catch (error) {
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        messenger.showSnackBar(
-                                          SnackBar(
-                                            showCloseIcon: true,
-                                            content: Text('$error'),
-                                          ),
-                                        );
-                                      }
-                                    },
-                              child: Text(strings.text('home.review.bundle')),
-                            ),
-                          if (syncTransferState.localBundle != null)
-                            OutlinedButton(
-                              key: syncApplyBundleKey,
-                              onPressed: syncTransferState.isBusy
-                                  ? null
-                                  : () async {
-                                      final messenger = ScaffoldMessenger.of(
-                                        context,
-                                      );
-                                      try {
-                                        final preview = await ref
-                                            .read(
-                                              syncTransferControllerProvider
-                                                  .notifier,
-                                            )
-                                            .previewDownloadedBundle();
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        final shouldApply =
-                                            await _showBundlePreviewDialog(
-                                              context,
-                                              preview,
-                                              confirmLabel: strings.text(
-                                                'home.apply.bundle',
-                                              ),
-                                              revealSensitiveDetails:
-                                                  _canRevealSyncBundlePreviewDetails(
-                                                    ref,
-                                                    preview,
-                                                  ),
-                                            ) ??
-                                            false;
-                                        if (!shouldApply) {
-                                          return;
-                                        }
-                                        await ref
-                                            .read(
-                                              syncTransferControllerProvider
-                                                  .notifier,
-                                            )
-                                            .applyDownloadedBundle();
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        final message =
-                                            _cloudSyncSnackBarMessage(
-                                              strings,
-                                              ref.read(
-                                                syncTransferControllerProvider,
-                                              ),
-                                              _CloudSyncSnackBarAction.apply,
-                                              syncProvider,
-                                            );
-                                        messenger.showSnackBar(
-                                          SnackBar(
-                                            showCloseIcon: true,
-                                            content: Text(message),
-                                          ),
-                                        );
-                                      } catch (error) {
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        messenger.showSnackBar(
-                                          SnackBar(
-                                            showCloseIcon: true,
-                                            content: Text('$error'),
-                                          ),
-                                        );
-                                      }
-                                    },
-                              child: Text(strings.text('home.apply.bundle')),
-                            ),
-                          if (syncProvider != SyncProvider.off &&
-                              syncAuthState.isAuthenticated)
-                            OutlinedButton(
-                              onPressed: syncTransferState.isBusy
-                                  ? null
-                                  : () async {
-                                      final messenger = ScaffoldMessenger.of(
-                                        context,
-                                      );
-                                      try {
-                                        final count = await ref
-                                            .read(
-                                              syncTransferControllerProvider
-                                                  .notifier,
-                                            )
-                                            .downloadDeferredAttachments();
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        messenger.showSnackBar(
-                                          SnackBar(
-                                            showCloseIcon: true,
-                                            content: Text(
-                                              count == 0
-                                                  ? strings.text(
-                                                      'home.no.deferred.attachments',
-                                                    )
-                                                  : strings.text(
-                                                      'home.deferred.attachments.downloaded',
-                                                    ),
-                                            ),
-                                          ),
-                                        );
-                                      } catch (error) {
-                                        if (!context.mounted) {
-                                          return;
-                                        }
-                                        messenger.showSnackBar(
-                                          SnackBar(
-                                            showCloseIcon: true,
-                                            content: Text('$error'),
-                                          ),
-                                        );
-                                      }
-                                    },
-                              child: Text(
-                                strings.text(
+                            if (syncProvider != SyncProvider.off &&
+                                syncAuthState.isAuthenticated)
+                              _SyncDetailsActionRow(
+                                icon: Icons.attachment_outlined,
+                                title: strings.text(
                                   'home.download.deferred.attachments',
                                 ),
+                                description: strings.localized(
+                                  en: 'Fetch attachment files that were referenced by sync but not downloaded yet.',
+                                  ja: '同期で参照済みだが未取得の添付ファイルを取得します。',
+                                ),
+                                actions: [
+                                  OutlinedButton(
+                                    onPressed: syncTransferState.isBusy
+                                        ? null
+                                        : () async =>
+                                              downloadDeferredAttachments(),
+                                    child: Text(
+                                      strings.localized(en: 'Fetch', ja: '取得'),
+                                    ),
+                                  ),
+                                ],
                               ),
+                            _SyncDetailsActionRow(
+                              icon: Icons.help_outline_rounded,
+                              title: strings.syncHelp,
+                              description: strings.syncHelpDesc,
+                              actions: [
+                                OutlinedButton.icon(
+                                  onPressed: () => _openExternalLink(
+                                    context,
+                                    Uri.parse(_helpUrl),
+                                    strings,
+                                  ),
+                                  icon: const Icon(Icons.open_in_new_rounded),
+                                  label: Text(
+                                    strings.localized(en: 'Open', ja: '開く'),
+                                  ),
+                                ),
+                              ],
                             ),
-                          OutlinedButton(
-                            onPressed: () async {
-                              final syncEngine = ref.read(syncEngineProvider);
-                              final pendingChanges = await syncEngine
-                                  .loadPendingChanges();
-                              final pendingIds = pendingChanges
-                                  .map((change) => change.noteId)
-                                  .toSet();
-                              final notes = await ref
-                                  .read(notesControllerProvider.notifier)
-                                  .notesForSyncSnapshot(
-                                    pendingNoteIds: pendingIds,
-                                  );
-                              final snapshot = await syncEngine.prepareSnapshot(
-                                notes,
-                                pendingChanges: pendingChanges,
-                              );
-                              if (!context.mounted) {
-                                return;
-                              }
-                              await showDialog<void>(
-                                context: context,
-                                builder: (context) {
-                                  return AlertDialog(
-                                    title: Text(
-                                      strings.text(
-                                        'home.prepared.sync.snapshot',
-                                      ),
-                                    ),
-                                    content: Text(
-                                      strings.syncSnapshotSummary(
-                                        notes: snapshot.notes.length,
-                                        attachments:
-                                            snapshot.attachments.length,
-                                        pending: snapshot.summary.totalChanges,
-                                        deviceId: snapshot.deviceId,
-                                      ),
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.of(context).pop(),
-                                        child: Text(strings.close),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              );
-                            },
-                            child: Text(strings.text('home.inspect.snapshot')),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      ],
                     ),
                   ],
                 ),

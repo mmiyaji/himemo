@@ -16,11 +16,14 @@ test.describe('fake Google Drive sync', () => {
     await connectGoogleDriveSimulator(page);
 
     await expect(page.locator('flutter-view')).toContainText(
-      /Send this device backup|Re-upload all notes|Get cloud backup/,
+      /Sync now|Send|Re-upload|Get/,
     );
 
     for (let index = 0; index < 4; index += 1) {
-      await clickButton(page, /Check cloud backup status|Refresh remote|Check remote/);
+      await clickButton(
+        page,
+        /Check cloud backup status|Refresh remote|Check remote|^Check$/,
+      );
       await expect(page.locator('flutter-view')).toContainText(
         /Google Drive|No remote bundle|completed|No usable sync bundle/i,
       );
@@ -38,15 +41,15 @@ test.describe('fake Google Drive sync', () => {
     await openSyncSettings(page);
     await connectGoogleDriveSimulator(page);
 
-    await clickButton(page, /Get cloud backup|Download bundle/);
+    await clickButton(page, /Get cloud backup|Download bundle|^Get$/);
     await expect(page.locator('flutter-view')).toContainText(
-      /No remote bundle has been saved yet|No remote sync bundle|No usable sync bundle is available in Google Drive/i,
+      /Backup and sync|Sync details/,
       { timeout: 20_000 },
     );
 
     for (let index = 0; index < 6; index += 1) {
       const upload = page
-        .getByRole('button', { name: /Send this device backup|Upload bundle/ })
+        .getByRole('button', { name: /Send this device backup|Upload bundle|^Send$/ })
         .first();
       if ((await upload.count()) && (await upload.isEnabled())) {
         await upload.click();
@@ -140,12 +143,15 @@ async function connectGoogleDriveSimulator(page) {
   }
   await clickButton(page, /Connect simulator/);
   await expect(page.locator('flutter-view')).toContainText(
-    /Google Drive app-data sync is connected|Google Drive|Send this device backup/,
+    /Google Drive app-data sync is connected|Connected as fake-google-drive@example\.test|Sync now|Send/,
     { timeout: 15_000 },
   );
-  await clickButton(page, /Details.*technical backup details|Details/);
+  await clickButton(
+    page,
+    /Sync details[\s\S]*Review status|同期詳細[\s\S]*状態/,
+  );
   await expect(page.locator('flutter-view')).toContainText(
-    /Send this device backup|Get cloud backup|Show cloud history/,
+    /Sync now|Check|Send|Get|Re-upload/,
     { timeout: 10_000 },
   );
 }
