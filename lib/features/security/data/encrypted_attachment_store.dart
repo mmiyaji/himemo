@@ -137,6 +137,22 @@ class EncryptedAttachmentStore {
     return _attachmentPayloadBytesToString(encrypted);
   }
 
+  Future<List<int>> decryptAttachmentPayload({
+    required String encodedPayload,
+    required AttachmentType type,
+    String vaultId = 'everyday',
+  }) async {
+    final key = await _keyForVault(vaultId);
+    if (key == null) {
+      throw StateError('Attachment key is unavailable for $vaultId.');
+    }
+    return _decryptAttachmentBytesFromStorage(
+      encodedPayload: _attachmentPayloadStringToBytes(encodedPayload),
+      key: key,
+      additionalData: _aad(type),
+    );
+  }
+
   Future<List<int>?> readAttachment(
     String storedReference, {
     required AttachmentType type,

@@ -2968,6 +2968,23 @@ void main() {
           .read(privateProfileUnlockControllerProvider.notifier)
           .unlockWithPassword('attach-pass-123');
       expect(targetProfile?.vaultId, sourceProfile.vaultId);
+      final remoteAttachmentObject = await fakeTransport
+          .downloadAttachmentObject(syncedAttachmentHash!);
+      expect(remoteAttachmentObject, isNotNull);
+      final remoteAttachmentPayload = await target.container
+          .read(secureSyncBundleStoreProvider)
+          .readAttachmentObjectPayload(remoteAttachmentObject!);
+      final remoteEncryptedPayload =
+          remoteAttachmentPayload['encryptedPayload'] as String?;
+      expect(remoteEncryptedPayload, isNotNull);
+      final directlyDecodedRemoteBytes = await target.container
+          .read(encryptedAttachmentStoreProvider)
+          .decryptAttachmentPayload(
+            encodedPayload: remoteEncryptedPayload!,
+            type: AttachmentType.photo,
+            vaultId: targetProfile!.vaultId,
+          );
+      expect(directlyDecodedRemoteBytes, attachmentBytes);
 
       final targetNote = target.container
           .read(notesControllerProvider)

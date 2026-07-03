@@ -1849,6 +1849,58 @@ Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
     );
     return null;
   }
+  final encryptedPayload = decoded['encryptedPayload'] as String?;
+  if (encryptedPayload != null && encryptedPayload.isNotEmpty) {
+    final encryptedPayloadHash =
+        await _remoteEncryptedAttachmentPayloadContentHash(encryptedPayload);
+    if (encryptedPayloadHash != contentHash) {
+      _logAttachmentDisplayDiagnostic(
+        attachment,
+        'remote encrypted attachment object hash mismatch',
+        source: 'remote',
+        data: {
+          'expectedHash': contentHash,
+          'payloadHash': encryptedPayloadHash,
+        },
+      );
+      return null;
+    }
+    final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+    for (final vaultId in _remoteAttachmentCandidateVaultIds(ref)) {
+      try {
+        final bytes = await attachmentStore.decryptAttachmentPayload(
+          encodedPayload: encryptedPayload,
+          type: attachment.type,
+          vaultId: vaultId,
+        );
+        _logAttachmentDisplayDiagnostic(
+          attachment,
+          'remote encrypted attachment object display download completed',
+          source: 'remote',
+          data: {
+            'provider': provider.name,
+            'contentHash': contentHash,
+            'vaultId': vaultId,
+            'bytes': bytes.length,
+          },
+        );
+        return bytes;
+      } catch (error) {
+        _logAttachmentDisplayDiagnostic(
+          attachment,
+          'remote encrypted attachment object decrypt failed',
+          source: 'remote',
+          data: {
+            'provider': provider.name,
+            'contentHash': contentHash,
+            'vaultId': vaultId,
+            'error': error,
+          },
+        );
+      }
+    }
+    return null;
+  }
   final bytesBase64 = decoded['bytesBase64'] as String?;
   if (bytesBase64 == null || bytesBase64.isEmpty) {
     _logAttachmentDisplayDiagnostic(
@@ -1892,6 +1944,33 @@ Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
     },
   );
   return bytes;
+}
+
+List<String> _remoteAttachmentCandidateVaultIds(WidgetRef ref) {
+  final vaultIds = <String>{};
+  final unlockedVaultId = ref.read(unlockedPrivateProfileVaultIdProvider);
+  if (unlockedVaultId != null && unlockedVaultId.isNotEmpty) {
+    vaultIds.add(unlockedVaultId);
+  }
+  vaultIds.add('everyday');
+  return vaultIds.toList(growable: false);
+}
+
+Future<String> _remoteEncryptedAttachmentPayloadContentHash(
+  String encryptedPayload,
+) async {
+  if (kIsWeb || encryptedPayload.length < 256 * 1024) {
+    return _remoteEncryptedAttachmentPayloadContentHashSync(encryptedPayload);
+  }
+  return Isolate.run(
+    () => _remoteEncryptedAttachmentPayloadContentHashSync(encryptedPayload),
+  );
+}
+
+String _remoteEncryptedAttachmentPayloadContentHashSync(
+  String encryptedPayload,
+) {
+  return sha256.convert(utf8.encode(encryptedPayload)).toString();
 }
 
 class _DecodedRemoteAttachmentBytes {
