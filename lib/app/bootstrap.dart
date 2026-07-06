@@ -6,6 +6,7 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/semantics.dart';
 
+import 'ad_mob_initializer.dart';
 import 'app.dart';
 import 'app_flavor.dart';
 import 'firebase_initializer.dart';
@@ -27,6 +28,7 @@ Future<void> bootstrap(AppFlavor flavor) async {
       configureFlavor(flavor);
       await initializeFirebaseForFlavor(flavor);
       await configureFirebaseObservability(enableCollection: kReleaseMode);
+      await initializeAdMob();
       runApp(ProviderScope(child: HiMemoApp(flavor: flavor)));
     },
     (error, stackTrace) {

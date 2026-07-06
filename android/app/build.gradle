@@ -91,6 +91,17 @@ def googleSignInServerClientId = (
         ?: localEnv.getProperty('HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID')
         ?: ''
 ).trim()
+def adMobEnabled = (
+    System.getenv('HIMEMO_ENABLE_ADMOB')
+        ?: localEnv.getProperty('HIMEMO_ENABLE_ADMOB')
+        ?: 'false'
+).trim().equalsIgnoreCase('true')
+def configuredAdMobAndroidAppId = (
+    System.getenv('HIMEMO_ADMOB_ANDROID_APP_ID')
+        ?: localEnv.getProperty('HIMEMO_ADMOB_ANDROID_APP_ID')
+        ?: ''
+).trim()
+def adMobAndroidAppId = configuredAdMobAndroidAppId ?: 'ca-app-pub-3940256099942544~3347511713'
 
 android {
     namespace "org.ruhenheim.himemo"
@@ -134,6 +145,7 @@ android {
         versionName flutterVersionName
         buildConfigField "long", "PLAY_INTEGRITY_PROJECT_NUMBER", "${playIntegrityProjectNumber}L"
         resValue "string", "default_web_client_id", googleSignInServerClientId
+        manifestPlaceholders += [adMobApplicationId: adMobAndroidAppId]
     }
 
     productFlavors {
@@ -183,6 +195,11 @@ gradle.taskGraph.whenReady { taskGraph ->
     if (releaseBuildRequested && !hasAndroidUploadSigning) {
         throw new GradleException(
             'Android release signing is not configured. Set HIMEMO_ANDROID_KEYSTORE_PATH, HIMEMO_ANDROID_KEYSTORE_PASSWORD, HIMEMO_ANDROID_KEY_ALIAS, and HIMEMO_ANDROID_KEY_PASSWORD, or the matching himemo.android.* local.properties entries.'
+        )
+    }
+    if (releaseBuildRequested && adMobEnabled && !configuredAdMobAndroidAppId) {
+        throw new GradleException(
+            'AdMob is enabled for an Android release build, but HIMEMO_ADMOB_ANDROID_APP_ID is not configured.'
         )
     }
 }

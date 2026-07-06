@@ -16,6 +16,9 @@
         android:name="${applicationName}"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher">
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="${adMobApplicationId}" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

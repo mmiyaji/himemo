@@ -156,6 +156,24 @@ bool _isSameNoteDay(
       leftMoment.day == rightMoment.day;
 }
 
+const _inlineAdMinimumNoteCount = 6;
+const _inlineAdAfterNoteCount = 5;
+
+bool _canInsertInlineAdInNotesList({
+  required UnlockIdentity activeIdentity,
+  required bool showPrivateVaultNotice,
+  required bool showAdminModeNotice,
+  required List<NoteEntry> notes,
+  required NotesListDensity density,
+}) {
+  return AdMobConfig.canShowInlineBanner &&
+      activeIdentity.id == 'daily' &&
+      !showPrivateVaultNotice &&
+      !showAdminModeNotice &&
+      density != NotesListDensity.compact &&
+      notes.length >= _inlineAdMinimumNoteCount;
+}
+
 class _MobileNotesList extends StatefulWidget {
   const _MobileNotesList({
     required this.activeIdentity,
@@ -310,6 +328,10 @@ class _MobileNotesListState extends State<_MobileNotesList> {
             position: row.position,
             child: const _IntraDayNoteGap(),
           ),
+          _MobileInlineAdRow() => const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: HiMemoInlineAdCard(),
+          ),
         };
       },
     );
@@ -354,14 +376,80 @@ List<_MobileNoteRow> _buildMobileNoteRows({
       noteRows.add(const _MobileDividerRow());
     }
   }
+  final insertInlineAd = _canInsertInlineAdInNotesList(
+    activeIdentity: activeIdentity,
+    showPrivateVaultNotice: showPrivateVaultNotice,
+    showAdminModeNotice: showAdminModeNotice,
+    notes: notes,
+    density: density,
+  );
+  _appendPositionedMobileNoteRows(
+    rows: rows,
+    noteRows: noteRows,
+    insertInlineAd: insertInlineAd,
+  );
+  return rows;
+}
+
+void _appendPositionedMobileNoteRows({
+  required List<_MobileNoteRow> rows,
+  required List<_MobileNoteRow> noteRows,
+  required bool insertInlineAd,
+}) {
+  final inlineAdIndex = insertInlineAd
+      ? _mobileInlineAdInsertionIndex(noteRows)
+      : null;
+  final firstSegmentEnd = inlineAdIndex == null
+      ? noteRows.length
+      : inlineAdIndex + 1;
+  _appendMobileNoteRowSegment(rows, noteRows, 0, firstSegmentEnd);
+  if (inlineAdIndex != null) {
+    rows.add(const _MobileInlineAdRow());
+    _appendMobileNoteRowSegment(
+      rows,
+      noteRows,
+      firstSegmentEnd,
+      noteRows.length,
+    );
+  }
+}
+
+int? _mobileInlineAdInsertionIndex(List<_MobileNoteRow> noteRows) {
+  var noteCount = 0;
   for (var i = 0; i < noteRows.length; i++) {
+    if (noteRows[i] is! _MobileTileRow) {
+      continue;
+    }
+    noteCount += 1;
+    if (noteCount != _inlineAdAfterNoteCount) {
+      continue;
+    }
+    if (i + 1 < noteRows.length && noteRows[i + 1] is _MobileDividerRow) {
+      return i + 1;
+    }
+    return i;
+  }
+  return null;
+}
+
+void _appendMobileNoteRowSegment(
+  List<_MobileNoteRow> rows,
+  List<_MobileNoteRow> noteRows,
+  int start,
+  int end,
+) {
+  final segmentLength = end - start;
+  for (var i = start; i < end; i++) {
+    final segmentIndex = i - start;
     rows.add(
       noteRows[i].withPosition(
-        _MobileNoteRowPosition(first: i == 0, last: i == noteRows.length - 1),
+        _MobileNoteRowPosition(
+          first: segmentIndex == 0,
+          last: segmentIndex == segmentLength - 1,
+        ),
       ),
     );
   }
-  return rows;
 }
 
 class _MobileNoteRowPosition {
@@ -442,6 +530,13 @@ class _MobileDividerRow extends _MobileNoteRow {
   @override
   _MobileNoteRow withPosition(_MobileNoteRowPosition position) =>
       _MobileDividerRow(position: position);
+}
+
+class _MobileInlineAdRow extends _MobileNoteRow {
+  const _MobileInlineAdRow();
+
+  @override
+  _MobileNoteRow withPosition(_MobileNoteRowPosition position) => this;
 }
 
 class _DecoratedMobileNoteRow extends StatelessWidget {
@@ -1608,6 +1703,10 @@ class _SplitNotesListPaneState extends State<_SplitNotesListPane> {
             position: row.position,
             child: const _IntraDayNoteGap(),
           ),
+          _SplitNoteInlineAdRow() => const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: HiMemoInlineAdCard(maxHeight: 96),
+          ),
         };
       },
     );
@@ -1652,14 +1751,80 @@ List<_SplitNoteRow> _buildSplitNoteRows({
     }
   }
 
+  final insertInlineAd = _canInsertInlineAdInNotesList(
+    activeIdentity: activeIdentity,
+    showPrivateVaultNotice: showPrivateVaultNotice,
+    showAdminModeNotice: showAdminModeNotice,
+    notes: notes,
+    density: density,
+  );
+  _appendPositionedSplitNoteRows(
+    rows: rows,
+    noteRows: noteRows,
+    insertInlineAd: insertInlineAd,
+  );
+  return rows;
+}
+
+void _appendPositionedSplitNoteRows({
+  required List<_SplitNoteRow> rows,
+  required List<_SplitNoteRow> noteRows,
+  required bool insertInlineAd,
+}) {
+  final inlineAdIndex = insertInlineAd
+      ? _splitInlineAdInsertionIndex(noteRows)
+      : null;
+  final firstSegmentEnd = inlineAdIndex == null
+      ? noteRows.length
+      : inlineAdIndex + 1;
+  _appendSplitNoteRowSegment(rows, noteRows, 0, firstSegmentEnd);
+  if (inlineAdIndex != null) {
+    rows.add(const _SplitNoteInlineAdRow());
+    _appendSplitNoteRowSegment(
+      rows,
+      noteRows,
+      firstSegmentEnd,
+      noteRows.length,
+    );
+  }
+}
+
+int? _splitInlineAdInsertionIndex(List<_SplitNoteRow> noteRows) {
+  var noteCount = 0;
   for (var i = 0; i < noteRows.length; i++) {
+    if (noteRows[i] is! _SplitNoteTileRow) {
+      continue;
+    }
+    noteCount += 1;
+    if (noteCount != _inlineAdAfterNoteCount) {
+      continue;
+    }
+    if (i + 1 < noteRows.length && noteRows[i + 1] is _SplitNoteDividerRow) {
+      return i + 1;
+    }
+    return i;
+  }
+  return null;
+}
+
+void _appendSplitNoteRowSegment(
+  List<_SplitNoteRow> rows,
+  List<_SplitNoteRow> noteRows,
+  int start,
+  int end,
+) {
+  final segmentLength = end - start;
+  for (var i = start; i < end; i++) {
+    final segmentIndex = i - start;
     rows.add(
       noteRows[i].withPosition(
-        _SplitNoteRowPosition(first: i == 0, last: i == noteRows.length - 1),
+        _SplitNoteRowPosition(
+          first: segmentIndex == 0,
+          last: segmentIndex == segmentLength - 1,
+        ),
       ),
     );
   }
-  return rows;
 }
 
 class _SplitNoteRowPosition {
@@ -1738,6 +1903,13 @@ class _SplitNoteDividerRow extends _SplitNoteRow {
   @override
   _SplitNoteRow withPosition(_SplitNoteRowPosition position) =>
       _SplitNoteDividerRow(position: position);
+}
+
+class _SplitNoteInlineAdRow extends _SplitNoteRow {
+  const _SplitNoteInlineAdRow();
+
+  @override
+  _SplitNoteRow withPosition(_SplitNoteRowPosition position) => this;
 }
 
 class _DecoratedSplitNoteRow extends StatelessWidget {

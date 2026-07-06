@@ -53,7 +53,11 @@ if ($supportsDartDefines) {
     'HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID',
     'HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID',
     'HIMEMO_APP_STORE_ID',
-    'HIMEMO_BUILD_DATE'
+    'HIMEMO_BUILD_DATE',
+    'HIMEMO_ENABLE_ADMOB',
+    'HIMEMO_ADMOB_FORCE_TEST_ADS',
+    'HIMEMO_ADMOB_ANDROID_INLINE_BANNER_AD_UNIT_ID',
+    'HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID'
   )) {
     $value = [Environment]::GetEnvironmentVariable($name)
     if (-not [string]::IsNullOrWhiteSpace($value)) {

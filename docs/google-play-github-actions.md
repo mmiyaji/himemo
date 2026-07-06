@@ -24,6 +24,9 @@ Build-time configuration:
 
 - `HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID`
 - `HIMEMO_FIREBASE_PROJECT_NUMBER`
+- `HIMEMO_ENABLE_ADMOB` (optional; set to `true` only when AdMob is ready)
+- `HIMEMO_ADMOB_ANDROID_APP_ID` (required when `HIMEMO_ENABLE_ADMOB=true`)
+- `HIMEMO_ADMOB_ANDROID_INLINE_BANNER_AD_UNIT_ID` (required when `HIMEMO_ENABLE_ADMOB=true`)
 
 Google authentication, preferred:
 

@@ -161,6 +161,31 @@ jobs:
               || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes:0 string ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST"
           fi
 
+      - name: Configure AdMob
+        env:
+          HIMEMO_ENABLE_ADMOB: ${{ secrets.HIMEMO_ENABLE_ADMOB }}
+          HIMEMO_ADMOB_IOS_APP_ID: ${{ secrets.HIMEMO_ADMOB_IOS_APP_ID }}
+          HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID: ${{ secrets.HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID }}
+        run: |
+          set -euo pipefail
+          ENABLE_ADMOB="${HIMEMO_ENABLE_ADMOB:-false}"
+          if [ "$ENABLE_ADMOB" = "true" ]; then
+            : "${HIMEMO_ADMOB_IOS_APP_ID:?Missing HIMEMO_ADMOB_IOS_APP_ID secret when HIMEMO_ENABLE_ADMOB=true}"
+            : "${HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID:?Missing HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID secret when HIMEMO_ENABLE_ADMOB=true}"
+          fi
+          if [ -n "${HIMEMO_ADMOB_IOS_APP_ID:-}" ]; then
+            for XCCONFIG in \
+              "$GITHUB_WORKSPACE/ios/Flutter/Debug.xcconfig" \
+              "$GITHUB_WORKSPACE/ios/Flutter/Release.xcconfig"
+            do
+              if grep -q '^GAD_APPLICATION_IDENTIFIER=' "$XCCONFIG"; then
+                sed -i '' "s#^GAD_APPLICATION_IDENTIFIER=.*#GAD_APPLICATION_IDENTIFIER=${HIMEMO_ADMOB_IOS_APP_ID}#" "$XCCONFIG"
+              else
+                printf '\nGAD_APPLICATION_IDENTIFIER=%s\n' "$HIMEMO_ADMOB_IOS_APP_ID" >> "$XCCONFIG"
+              fi
+            done
+          fi
+
       - name: Configure extension bundle versions
         run: |
           set -euo pipefail
@@ -304,6 +329,8 @@ jobs:
           HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID: ${{ secrets.HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID }}
           HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID: ${{ secrets.HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID }}
           HIMEMO_APP_STORE_ID: ${{ secrets.HIMEMO_APP_STORE_ID }}
+          HIMEMO_ENABLE_ADMOB: ${{ secrets.HIMEMO_ENABLE_ADMOB }}
+          HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID: ${{ secrets.HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID }}
         run: |
           set -euo pipefail
           flutter build ipa --release \
@@ -311,6 +338,8 @@ jobs:
             --dart-define=HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID:-}" \
             --dart-define=HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID:-}" \
             --dart-define=HIMEMO_APP_STORE_ID="${HIMEMO_APP_STORE_ID:-}" \
+            --dart-define=HIMEMO_ENABLE_ADMOB="${HIMEMO_ENABLE_ADMOB:-false}" \
+            --dart-define=HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID="${HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID:-}" \
             --dart-define=HIMEMO_BUILD_DATE="$(date -u +%Y-%m-%d)" \
             --build-number="$BUILD_NUMBER" \
             --export-options-plist="$RUNNER_TEMP/ExportOptions.plist"

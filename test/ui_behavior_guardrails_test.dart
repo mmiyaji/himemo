@@ -663,6 +663,26 @@ void main() {
     );
   });
 
+  test('AdMob stays out of private and compact note lists', () {
+    final homePage = _homePresentationSource();
+    final adMobConfig = File(
+      'lib/features/ads/data/ad_mob_config.dart',
+    ).readAsStringSync();
+
+    expect(
+      adMobConfig,
+      contains("bool.fromEnvironment('HIMEMO_ENABLE_ADMOB')"),
+    );
+    expect(homePage, contains('const _inlineAdMinimumNoteCount = 6;'));
+    expect(homePage, contains('const _inlineAdAfterNoteCount = 5;'));
+    expect(homePage, contains('activeIdentity.id == \'daily\''));
+    expect(homePage, contains('!showPrivateVaultNotice'));
+    expect(homePage, contains('!showAdminModeNotice'));
+    expect(homePage, contains('density != NotesListDensity.compact'));
+    expect(homePage, contains('notes.length >= _inlineAdMinimumNoteCount'));
+    expect(homePage, contains('HiMemoInlineAdCard(maxHeight: 96)'));
+  });
+
   test('diagnostic mode exposes iCloud storage maintenance actions', () {
     final homePage = _homePresentationSource();
     final iCloudTransport = File(

@@ -142,13 +142,23 @@ jobs:
         env:
           HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID: ${{ secrets.HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID }}
           HIMEMO_FIREBASE_PROJECT_NUMBER: ${{ secrets.HIMEMO_FIREBASE_PROJECT_NUMBER }}
+          HIMEMO_ENABLE_ADMOB: ${{ secrets.HIMEMO_ENABLE_ADMOB }}
+          HIMEMO_ADMOB_ANDROID_APP_ID: ${{ secrets.HIMEMO_ADMOB_ANDROID_APP_ID }}
+          HIMEMO_ADMOB_ANDROID_INLINE_BANNER_AD_UNIT_ID: ${{ secrets.HIMEMO_ADMOB_ANDROID_INLINE_BANNER_AD_UNIT_ID }}
         run: |
+          set -euo pipefail
+          if [ "${HIMEMO_ENABLE_ADMOB:-false}" = "true" ]; then
+            : "${HIMEMO_ADMOB_ANDROID_APP_ID:?Missing HIMEMO_ADMOB_ANDROID_APP_ID secret when HIMEMO_ENABLE_ADMOB=true}"
+            : "${HIMEMO_ADMOB_ANDROID_INLINE_BANNER_AD_UNIT_ID:?Missing HIMEMO_ADMOB_ANDROID_INLINE_BANNER_AD_UNIT_ID secret when HIMEMO_ENABLE_ADMOB=true}"
+          fi
           flutter build appbundle --release \
             --flavor production \
             -t lib/main_production.dart \
             --build-name="$VERSION_NAME" \
             --build-number="$VERSION_CODE" \
             --dart-define=HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID:-}" \
+            --dart-define=HIMEMO_ENABLE_ADMOB="${HIMEMO_ENABLE_ADMOB:-false}" \
+            --dart-define=HIMEMO_ADMOB_ANDROID_INLINE_BANNER_AD_UNIT_ID="${HIMEMO_ADMOB_ANDROID_INLINE_BANNER_AD_UNIT_ID:-}" \
             --dart-define=HIMEMO_BUILD_DATE="$(date -u +%Y-%m-%d)"
 
       - name: Locate Android App Bundle

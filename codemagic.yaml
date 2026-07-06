@@ -106,6 +106,26 @@ workflows:
             /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST" 2>/dev/null \
               || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes:0 string ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST"
           fi
+      - name: Configure AdMob
+        script: |
+          set -euo pipefail
+          ENABLE_ADMOB="${HIMEMO_ENABLE_ADMOB:-false}"
+          if [ "$ENABLE_ADMOB" = "true" ]; then
+            : "${HIMEMO_ADMOB_IOS_APP_ID:?Missing HIMEMO_ADMOB_IOS_APP_ID when HIMEMO_ENABLE_ADMOB=true}"
+            : "${HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID:?Missing HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID when HIMEMO_ENABLE_ADMOB=true}"
+          fi
+          if [ -n "${HIMEMO_ADMOB_IOS_APP_ID:-}" ]; then
+            for XCCONFIG in \
+              "$CM_BUILD_DIR/ios/Flutter/Debug.xcconfig" \
+              "$CM_BUILD_DIR/ios/Flutter/Release.xcconfig"
+            do
+              if grep -q '^GAD_APPLICATION_IDENTIFIER=' "$XCCONFIG"; then
+                sed -i '' "s#^GAD_APPLICATION_IDENTIFIER=.*#GAD_APPLICATION_IDENTIFIER=${HIMEMO_ADMOB_IOS_APP_ID}#" "$XCCONFIG"
+              else
+                printf '\nGAD_APPLICATION_IDENTIFIER=%s\n' "$HIMEMO_ADMOB_IOS_APP_ID" >> "$XCCONFIG"
+              fi
+            done
+          fi
       - name: Build production IPA
         script: |
           flutter build ipa --release \
@@ -113,6 +133,8 @@ workflows:
             --dart-define=HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID:-}" \
             --dart-define=HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID:-}" \
             --dart-define=HIMEMO_APP_STORE_ID="${HIMEMO_APP_STORE_ID:-}" \
+            --dart-define=HIMEMO_ENABLE_ADMOB="${HIMEMO_ENABLE_ADMOB:-false}" \
+            --dart-define=HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID="${HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID:-}" \
             --dart-define=HIMEMO_BUILD_DATE="$(date -u +%Y-%m-%d)" \
             --build-number=$PROJECT_BUILD_NUMBER \
             --export-options-plist=/Users/builder/export_options.plist
@@ -208,6 +230,26 @@ workflows:
             /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST" 2>/dev/null \
               || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes:0 string ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST"
           fi
+      - name: Configure AdMob
+        script: |
+          set -euo pipefail
+          ENABLE_ADMOB="${HIMEMO_ENABLE_ADMOB:-false}"
+          if [ "$ENABLE_ADMOB" = "true" ]; then
+            : "${HIMEMO_ADMOB_IOS_APP_ID:?Missing HIMEMO_ADMOB_IOS_APP_ID when HIMEMO_ENABLE_ADMOB=true}"
+            : "${HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID:?Missing HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID when HIMEMO_ENABLE_ADMOB=true}"
+          fi
+          if [ -n "${HIMEMO_ADMOB_IOS_APP_ID:-}" ]; then
+            for XCCONFIG in \
+              "$CM_BUILD_DIR/ios/Flutter/Debug.xcconfig" \
+              "$CM_BUILD_DIR/ios/Flutter/Release.xcconfig"
+            do
+              if grep -q '^GAD_APPLICATION_IDENTIFIER=' "$XCCONFIG"; then
+                sed -i '' "s#^GAD_APPLICATION_IDENTIFIER=.*#GAD_APPLICATION_IDENTIFIER=${HIMEMO_ADMOB_IOS_APP_ID}#" "$XCCONFIG"
+              else
+                printf '\nGAD_APPLICATION_IDENTIFIER=%s\n' "$HIMEMO_ADMOB_IOS_APP_ID" >> "$XCCONFIG"
+              fi
+            done
+          fi
       - name: Build internal IPA
         script: |
           flutter build ipa --release \
@@ -215,6 +257,8 @@ workflows:
             --dart-define=HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID:-}" \
             --dart-define=HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID:-}" \
             --dart-define=HIMEMO_APP_STORE_ID="${HIMEMO_APP_STORE_ID:-}" \
+            --dart-define=HIMEMO_ENABLE_ADMOB="${HIMEMO_ENABLE_ADMOB:-false}" \
+            --dart-define=HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID="${HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID:-}" \
             --dart-define=HIMEMO_BUILD_DATE="$(date -u +%Y-%m-%d)" \
             --build-number=$PROJECT_BUILD_NUMBER \
             --export-options-plist=/Users/builder/export_options.plist

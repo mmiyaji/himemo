@@ -44,6 +44,11 @@ Google Sign-In / build defines:
 - `HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID`
 - `HIMEMO_APP_STORE_ID`
 
+AdMob:
+- `HIMEMO_ENABLE_ADMOB` (optional; set to `true` only when AdMob is ready)
+- `HIMEMO_ADMOB_IOS_APP_ID` (required when `HIMEMO_ENABLE_ADMOB=true`)
+- `HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID` (required when `HIMEMO_ENABLE_ADMOB=true`)
+
 Export compliance:
 - The iOS bundles currently set `ITSAppUsesNonExemptEncryption=false`. This assumes App Store Connect availability excludes France and the encryption questionnaire determines that no export compliance documentation is required.
 - If France distribution is enabled, or App Store Connect determines documentation is required, change the plist values back to `true` and add the approved `ITSEncryptionExportComplianceCode` value during the workflow before upload.
