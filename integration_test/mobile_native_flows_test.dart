@@ -988,5 +988,5 @@ class FakeGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   Future<String?> fetchSyncKeyBackupCode() async => null;
 
   @override
-  Future<void> uploadSyncKeyBackupCode(String backupCode) async {}
+  Future<void> deleteSyncKeyBackupCode() async {}
 }

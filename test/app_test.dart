@@ -582,6 +582,57 @@ void main() {
     expect(iCloud['stage'], SyncAuthStage.authenticated.name);
   });
 
+  test('app PIN verifier is stored in secure storage', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final secureStore = MemorySecureKeyValueStore();
+    const storageKey = 'test.settings.web_app_pin.v1';
+    final store = AppPinLockStore(
+      encryptionService: EncryptionService(random: Random(11)),
+      secureStore: secureStore,
+      sharedPreferencesProvider: () async => prefs,
+      storageKey: storageKey,
+    );
+
+    await store.configure('1234');
+
+    expect(await store.hasPin(), isTrue);
+    expect(await store.verify('1234'), isTrue);
+    expect(await store.verify('0000'), isFalse);
+    expect(prefs.getString(storageKey), isNull);
+    final payload = await secureStore.read(storageKey);
+    expect(payload, isNotNull);
+    expect(payload!.contains('1234'), isFalse);
+  });
+
+  test('app PIN verifier migrates out of shared preferences', () async {
+    const storageKey = 'test.settings.web_app_pin.legacy';
+    final sourceSecureStore = MemorySecureKeyValueStore();
+    final sourceStore = AppPinLockStore(
+      encryptionService: EncryptionService(random: Random(12)),
+      secureStore: sourceSecureStore,
+      storageKey: storageKey,
+    );
+    await sourceStore.configure('2468');
+    final legacyPayload = await sourceSecureStore.read(storageKey);
+    expect(legacyPayload, isNotNull);
+
+    SharedPreferences.setMockInitialValues({storageKey: legacyPayload!});
+    final prefs = await SharedPreferences.getInstance();
+    final secureStore = MemorySecureKeyValueStore();
+    final migratedStore = AppPinLockStore(
+      encryptionService: EncryptionService(random: Random(13)),
+      secureStore: secureStore,
+      sharedPreferencesProvider: () async => prefs,
+      storageKey: storageKey,
+    );
+
+    expect(await migratedStore.hasPin(), isTrue);
+    expect(prefs.getString(storageKey), isNull);
+    expect(await secureStore.read(storageKey), legacyPayload);
+    expect(await migratedStore.verify('2468'), isTrue);
+  });
+
   test('last note editor location capture setting is restored', () async {
     SharedPreferences.setMockInitialValues({
       'notes.last_editor_mode': NoteEditorMode.quick.name,
@@ -1436,6 +1487,12 @@ void main() {
         tempPrefix: 'himemo-fake-drive-trash-second-',
         randomSeed: 92,
       );
+      final firstBackupCode = await firstDevice.container
+          .read(syncBundleKeyServiceProvider)
+          .exportBackupCode();
+      await secondDevice.container
+          .read(syncBundleKeyServiceProvider)
+          .importBackupCode(firstBackupCode);
       final firstNotes = firstDevice.container.read(
         notesControllerProvider.notifier,
       );

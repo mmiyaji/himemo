@@ -1095,35 +1095,43 @@ class AppPinLockState {
 }
 
 class AppPinLockStore {
-  AppPinLockStore({required EncryptionService encryptionService})
-    : _encryptionService = encryptionService;
+  AppPinLockStore({
+    required EncryptionService encryptionService,
+    required SecureKeyValueStore secureStore,
+    Future<SharedPreferences> Function()? sharedPreferencesProvider,
+    String storageKey = 'settings.web_app_pin.v1',
+  }) : _encryptionService = encryptionService,
+       _secureStore = secureStore,
+       _sharedPreferencesProvider =
+           sharedPreferencesProvider ?? SharedPreferences.getInstance,
+       _storageKey = storageKey;
 
-  static const _storageKey = 'settings.web_app_pin.v1';
-
+  final String _storageKey;
   final EncryptionService _encryptionService;
+  final SecureKeyValueStore _secureStore;
+  final Future<SharedPreferences> Function() _sharedPreferencesProvider;
 
   Future<bool> hasPin() async {
-    final prefs = await SharedPreferences.getInstance();
-    final payload = prefs.getString(_storageKey);
+    final payload = await _readPayload();
     return payload != null && payload.isNotEmpty;
   }
 
   Future<void> configure(String pin) async {
-    final prefs = await SharedPreferences.getInstance();
     final salt = _encryptionService.generateSalt();
     final verifier = await _encryptionService.deriveSecretVerifier(
       secret: pin,
       salt: salt,
     );
-    await prefs.setString(
+    await _secureStore.write(
       _storageKey,
       jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
     );
+    final prefs = await _sharedPreferencesProvider();
+    await prefs.remove(_storageKey);
   }
 
   Future<bool> verify(String pin) async {
-    final prefs = await SharedPreferences.getInstance();
-    final payload = prefs.getString(_storageKey);
+    final payload = await _readPayload();
     if (payload == null || payload.isEmpty) {
       return false;
     }
@@ -1140,8 +1148,25 @@ class AppPinLockStore {
   }
 
   Future<void> clear() async {
-    final prefs = await SharedPreferences.getInstance();
+    await _secureStore.delete(_storageKey);
+    final prefs = await _sharedPreferencesProvider();
     await prefs.remove(_storageKey);
+  }
+
+  Future<String?> _readPayload() async {
+    final current = await _secureStore.read(_storageKey);
+    if (current != null && current.isNotEmpty) {
+      return current;
+    }
+
+    final prefs = await _sharedPreferencesProvider();
+    final legacy = prefs.getString(_storageKey);
+    if (legacy == null || legacy.isEmpty) {
+      return null;
+    }
+    await _secureStore.write(_storageKey, legacy);
+    await prefs.remove(_storageKey);
+    return legacy;
   }
 
   bool _constantTimeEquals(String left, String right) {
@@ -2580,6 +2605,7 @@ final encryptionServiceProvider = Provider<EncryptionService>((ref) {
 final appPinLockStoreProvider = Provider<AppPinLockStore>((ref) {
   return AppPinLockStore(
     encryptionService: ref.watch(encryptionServiceProvider),
+    secureStore: ref.watch(secureKeyValueStoreProvider),
   );
 });
 
@@ -3370,9 +3396,7 @@ final syncBundleKeyServiceProvider = Provider<SyncBundleKeyService>((ref) {
     fallbackStore: usesICloudSharedKey
         ? ref.watch(secureKeyValueStoreProvider)
         : null,
-    cloudStore: provider == SyncProvider.googleDrive
-        ? ref.watch(googleDriveCloudSyncBundleKeyStoreProvider)
-        : null,
+    cloudStore: null,
     keyFactory: encryption.generateKeyBytes,
   );
 });
@@ -8067,10 +8091,25 @@ class PrivateMemoProfileStore {
         secret: password,
         salt: base64Decode(decoded['salt'] as String),
       );
-      return verifier == decoded['verifier'];
+      return _constantTimeEquals(verifier, decoded['verifier'] as String);
     } catch (_) {
       return false;
     }
+  }
+
+  bool _constantTimeEquals(String left, String right) {
+    final leftBytes = utf8.encode(left);
+    final rightBytes = utf8.encode(right);
+    var diff = leftBytes.length ^ rightBytes.length;
+    final limit = leftBytes.length > rightBytes.length
+        ? leftBytes.length
+        : rightBytes.length;
+    for (var i = 0; i < limit; i++) {
+      final a = i < leftBytes.length ? leftBytes[i] : 0;
+      final b = i < rightBytes.length ? rightBytes[i] : 0;
+      diff |= a ^ b;
+    }
+    return diff == 0;
   }
 
   Future<void> _saveProfiles(List<PrivateMemoProfile> profiles) async {
@@ -9848,6 +9887,13 @@ class SyncProviderController extends Notifier<SyncProvider> {
         await ref
             .read(syncBundleKeyServiceProvider)
             .importBackupCode(remoteBackupCode);
+        final deletableCloudStore =
+            cloudStore is DeletableCloudSyncBundleKeyStore
+            ? cloudStore as DeletableCloudSyncBundleKeyStore
+            : null;
+        if (deletableCloudStore != null) {
+          await deletableCloudStore.deleteBackupCode();
+        }
         return;
       }
     } catch (_) {}

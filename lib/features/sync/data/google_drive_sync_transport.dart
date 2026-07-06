@@ -89,13 +89,14 @@ abstract class GoogleDriveSyncTransport {
 
   Future<String?> fetchSyncKeyBackupCode();
 
-  Future<void> uploadSyncKeyBackupCode(String backupCode);
+  Future<void> deleteSyncKeyBackupCode();
 }
 
 class InMemoryGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   InMemoryGoogleDriveSyncTransport({
     this.uploadDelay = const Duration(milliseconds: 120),
-  });
+    String? legacySyncKeyBackupCode,
+  }) : _syncKeyBackupCode = legacySyncKeyBackupCode;
 
   final Duration uploadDelay;
 
@@ -210,9 +211,13 @@ class InMemoryGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   Future<String?> fetchSyncKeyBackupCode() async => _syncKeyBackupCode;
 
   @override
-  Future<void> uploadSyncKeyBackupCode(String backupCode) async {
-    _syncKeyBackupCode = backupCode;
+  Future<void> deleteSyncKeyBackupCode() async {
+    _syncKeyBackupCode = null;
   }
+}
+
+abstract class DeletableCloudSyncBundleKeyStore {
+  Future<void> deleteBackupCode();
 }
 
 class _InMemoryGoogleDriveBundle {
@@ -225,7 +230,8 @@ class _InMemoryGoogleDriveBundle {
   final String encodedPayload;
 }
 
-class GoogleDriveCloudSyncBundleKeyStore implements CloudSyncBundleKeyStore {
+class GoogleDriveCloudSyncBundleKeyStore
+    implements CloudSyncBundleKeyStore, DeletableCloudSyncBundleKeyStore {
   GoogleDriveCloudSyncBundleKeyStore(this.transport);
 
   final GoogleDriveSyncTransport transport;
@@ -234,9 +240,10 @@ class GoogleDriveCloudSyncBundleKeyStore implements CloudSyncBundleKeyStore {
   Future<String?> readBackupCode() => transport.fetchSyncKeyBackupCode();
 
   @override
-  Future<void> writeBackupCode(String backupCode) {
-    return transport.uploadSyncKeyBackupCode(backupCode);
-  }
+  Future<void> writeBackupCode(String backupCode) async {}
+
+  @override
+  Future<void> deleteBackupCode() => transport.deleteSyncKeyBackupCode();
 }
 
 class GoogleDriveAuthConfig {
@@ -475,40 +482,13 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   }
 
   @override
-  Future<void> uploadSyncKeyBackupCode(String backupCode) async {
+  Future<void> deleteSyncKeyBackupCode() async {
     final api = await _openDriveApi(interactive: false);
     final existing = await _findSyncKeyFile(api);
-    final payload = jsonEncode({
-      'version': 1,
-      'backupCode': backupCode,
-      'updatedAt': DateTime.now().toUtc().toIso8601String(),
-    });
-    final bytes = utf8.encode(payload);
-    final media = drive.Media(Stream<List<int>>.value(bytes), bytes.length);
-    final createMetadata = drive.File()
-      ..name = _syncKeyFileName
-      ..parents = ['appDataFolder'];
-    final updateMetadata = drive.File()..name = _syncKeyFileName;
-
-    if (existing?.id != null && existing!.id!.isNotEmpty) {
-      await _withDriveRetry(
-        () => api.files.update(
-          updateMetadata,
-          existing.id!,
-          uploadMedia: media,
-          $fields: 'id,name,modifiedTime,size',
-        ),
-      );
+    if (existing?.id == null || existing!.id!.isEmpty) {
       return;
     }
-
-    await _withDriveRetry(
-      () => api.files.create(
-        createMetadata,
-        uploadMedia: media,
-        $fields: 'id,name,modifiedTime,size',
-      ),
-    );
+    await _withDriveRetry(() => api.files.delete(existing.id!));
   }
 
   Future<DownloadedRemoteSyncBundle> _downloadFile(

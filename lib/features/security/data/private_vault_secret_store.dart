@@ -40,10 +40,7 @@ class PrivateVaultSecretStore {
 
     await _secureStore.write(
       storageKey,
-      jsonEncode({
-        'salt': legacySalt,
-        'verifier': legacyDigest,
-      }),
+      jsonEncode({'salt': legacySalt, 'verifier': legacyDigest}),
     );
     await prefs.remove(legacySaltKey);
     await prefs.remove(legacyDigestKey);
@@ -58,10 +55,7 @@ class PrivateVaultSecretStore {
     );
     await _secureStore.write(
       storageKey,
-      jsonEncode({
-        'salt': base64Encode(salt),
-        'verifier': verifier,
-      }),
+      jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
     );
   }
 
@@ -82,7 +76,7 @@ class PrivateVaultSecretStore {
       secret: secret,
       salt: base64Decode(decoded['salt'] as String),
     );
-    return verifier == decoded['verifier'];
+    return _constantTimeEquals(verifier, decoded['verifier'] as String);
   }
 
   Future<void> clear() async {
@@ -90,5 +84,20 @@ class PrivateVaultSecretStore {
     final prefs = await _sharedPreferencesProvider();
     await prefs.remove(legacySaltKey);
     await prefs.remove(legacyDigestKey);
+  }
+
+  bool _constantTimeEquals(String left, String right) {
+    final leftBytes = utf8.encode(left);
+    final rightBytes = utf8.encode(right);
+    var diff = leftBytes.length ^ rightBytes.length;
+    final limit = leftBytes.length > rightBytes.length
+        ? leftBytes.length
+        : rightBytes.length;
+    for (var i = 0; i < limit; i++) {
+      final a = i < leftBytes.length ? leftBytes[i] : 0;
+      final b = i < rightBytes.length ? rightBytes[i] : 0;
+      diff |= a ^ b;
+    }
+    return diff == 0;
   }
 }
