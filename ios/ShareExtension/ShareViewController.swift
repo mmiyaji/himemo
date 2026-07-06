@@ -8,6 +8,7 @@ final class ShareViewController: UIViewController {
   private let maxImageBytes = 25 * 1024 * 1024
   private let maxAudioBytes = 50 * 1024 * 1024
   private let maxVideoBytes = 200 * 1024 * 1024
+  private let maxFileBytes = 50 * 1024 * 1024
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -34,6 +35,14 @@ final class ShareViewController: UIViewController {
     var files: [[String: String]] = []
     var rejectedFiles: [[String: String]] = []
 
+    func appendText(_ value: String) {
+      let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !normalized.isEmpty, !textItems.contains(normalized) else {
+        return
+      }
+      textItems.append(normalized)
+    }
+
     let inputItems = extensionContext?.inputItems as? [NSExtensionItem] ?? []
     for item in inputItems {
       if webTitle == nil,
@@ -47,11 +56,83 @@ final class ShareViewController: UIViewController {
         in: .whitespacesAndNewlines
       ),
          !selectedText.isEmpty {
-        textItems.append(selectedText)
+        appendText(selectedText)
       }
       for provider in item.attachments ?? [] {
+        if let type = supportedType(for: provider) {
+          guard let copied = await copyProvider(provider, as: type) else {
+            rejectedFiles.append([
+              "name": provider.suggestedName ?? "Shared file",
+              "mimeType": type.mimeType,
+              "reason": "unreadable"
+            ])
+            continue
+          }
+          if copied.rejectedReason == nil {
+            files.append(copied.payload)
+          } else {
+            rejectedFiles.append([
+              "name": copied.payload["name"] ?? "Shared file",
+              "mimeType": copied.payload["mimeType"] ?? type.mimeType,
+              "reason": copied.rejectedReason ?? "unreadable"
+            ])
+          }
+          continue
+        }
+
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
+           let fileURL = await loadURL(
+            from: provider,
+            typeIdentifier: UTType.fileURL.identifier
+           ) {
+          if let copied = copySharedFileURL(
+            fileURL,
+            suggestedName: provider.suggestedName
+          ) {
+            if copied.rejectedReason == nil {
+              files.append(copied.payload)
+            } else {
+              rejectedFiles.append([
+                "name": copied.payload["name"] ?? "Shared file",
+                "mimeType": copied.payload["mimeType"] ?? "application/octet-stream",
+                "reason": copied.rejectedReason ?? "unreadable"
+              ])
+            }
+          } else {
+            rejectedFiles.append([
+              "name": provider.suggestedName ?? fileURL.lastPathComponent,
+              "mimeType": "application/octet-stream",
+              "reason": "unreadable"
+            ])
+          }
+          continue
+        }
+
         if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier),
            let url = await loadURL(from: provider) {
+          if url.isFileURL {
+            if let copied = copySharedFileURL(
+              url,
+              suggestedName: provider.suggestedName
+            ) {
+              if copied.rejectedReason == nil {
+                files.append(copied.payload)
+              } else {
+                rejectedFiles.append([
+                  "name": copied.payload["name"] ?? "Shared file",
+                  "mimeType": copied.payload["mimeType"] ?? "application/octet-stream",
+                  "reason": copied.rejectedReason ?? "unreadable"
+                ])
+              }
+            } else {
+              rejectedFiles.append([
+                "name": provider.suggestedName ?? url.lastPathComponent,
+                "mimeType": "application/octet-stream",
+                "reason": "unreadable"
+              ])
+            }
+            continue
+          }
           webURL = webURL ?? url.absoluteString
           continue
         }
@@ -59,32 +140,11 @@ final class ShareViewController: UIViewController {
         if provider.hasItemConformingToTypeIdentifier(UTType.text.identifier),
            let text = await loadText(from: provider),
            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-          textItems.append(text)
+          appendText(text)
           if webURL == nil, let detectedURL = firstWebURL(in: text) {
             webURL = detectedURL
           }
           continue
-        }
-
-        guard let type = supportedType(for: provider) else {
-          continue
-        }
-        guard let copied = await copyProvider(provider, as: type) else {
-          rejectedFiles.append([
-            "name": provider.suggestedName ?? "Shared file",
-            "mimeType": type.mimeType,
-            "reason": "unreadable"
-          ])
-          continue
-        }
-        if copied.rejectedReason == nil {
-          files.append(copied.payload)
-        } else {
-          rejectedFiles.append([
-            "name": copied.payload["name"] ?? "Shared file",
-            "mimeType": copied.payload["mimeType"] ?? type.mimeType,
-            "reason": copied.rejectedReason ?? "unreadable"
-          ])
         }
       }
     }
@@ -106,9 +166,12 @@ final class ShareViewController: UIViewController {
     return payload
   }
 
-  private func loadURL(from provider: NSItemProvider) async -> URL? {
+  private func loadURL(
+    from provider: NSItemProvider,
+    typeIdentifier: String = UTType.url.identifier
+  ) async -> URL? {
     await withCheckedContinuation { continuation in
-      provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
+      provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, _ in
         if let url = item as? URL {
           continuation.resume(returning: url)
         } else if let text = item as? String {
@@ -120,6 +183,42 @@ final class ShareViewController: UIViewController {
           continuation.resume(returning: nil)
         }
       }
+    }
+  }
+
+  private func copySharedFileURL(
+    _ url: URL,
+    suggestedName: String?
+  ) -> (payload: [String: String], rejectedReason: String?)? {
+    let accessed = url.startAccessingSecurityScopedResource()
+    defer {
+      if accessed {
+        url.stopAccessingSecurityScopedResource()
+      }
+    }
+
+    let name = suggestedName ?? url.lastPathComponent
+    do {
+      let values = try url.resourceValues(forKeys: [.fileSizeKey])
+      if let fileSize = values.fileSize, fileSize > maxFileBytes {
+        return ([
+          "name": name,
+          "mimeType": mimeTypeForSharedURL(url, fallback: "application/octet-stream"),
+        ], "This file is too large.")
+      }
+
+      let destination = try destinationURL(for: name)
+      if FileManager.default.fileExists(atPath: destination.path) {
+        try FileManager.default.removeItem(at: destination)
+      }
+      try FileManager.default.copyItem(at: url, to: destination)
+      return ([
+        "path": destination.path,
+        "name": name,
+        "mimeType": mimeTypeForSharedURL(url, fallback: "application/octet-stream"),
+      ], nil)
+    } catch {
+      return nil
     }
   }
 
