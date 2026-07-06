@@ -551,6 +551,11 @@ void main() {
 
     test('narrows recent ranges and switches created-at sorting', () {
       final now = DateTime.now();
+      final previousMonthOutsideRecentRange = DateTime(
+        now.year,
+        now.month,
+        1,
+      ).subtract(const Duration(days: 8));
       final container = containerFor([
         note(
           id: 'updated-recent-created-old',
@@ -569,16 +574,8 @@ void main() {
         ),
         note(
           id: 'previous-month',
-          createdAt: DateTime(
-            now.year,
-            now.month,
-            1,
-          ).subtract(const Duration(days: 1)),
-          updatedAt: DateTime(
-            now.year,
-            now.month,
-            1,
-          ).subtract(const Duration(days: 1)),
+          createdAt: previousMonthOutsideRecentRange,
+          updatedAt: previousMonthOutsideRecentRange,
         ),
       ]);
 
@@ -596,17 +593,33 @@ void main() {
         'updated-recent-created-old',
       ]);
 
-      container.read(searchFiltersControllerProvider.notifier).reset();
-      container
+      final monthContainer = containerFor([
+        note(
+          id: 'month-recent',
+          createdAt: now,
+          updatedAt: now.subtract(const Duration(days: 60)),
+        ),
+        note(
+          id: 'month-start',
+          createdAt: DateTime(now.year, now.month, 1),
+          updatedAt: DateTime(now.year, now.month, 1),
+        ),
+        note(
+          id: 'previous-month',
+          createdAt: previousMonthOutsideRecentRange,
+          updatedAt: previousMonthOutsideRecentRange,
+        ),
+      ]);
+      monthContainer
           .read(searchFiltersControllerProvider.notifier)
           .setDateRange(SearchDateRange.thisMonth);
-      container
+      monthContainer
           .read(notesListSortControllerProvider.notifier)
           .setSortField(NotesListSortField.createdAt);
-      expect(container.read(visibleNotesProvider).map((entry) => entry.id), [
-        'created-recent',
-        'eight-days-old',
-      ]);
+      expect(
+        monthContainer.read(visibleNotesProvider).map((entry) => entry.id),
+        ['month-recent', 'month-start'],
+      );
     });
 
     test('visible tag summaries dedupe and ignore hidden notes', () {

@@ -606,9 +606,12 @@ void main() {
     expect(homeProviders, contains('QuickCaptureWebClip'));
   });
 
-  test('google drive bundle lookup excludes trash and tags new bundles', () {
+  test('google drive sync excludes trash and does not upload key backups', () {
     final googleDriveTransport = File(
       'lib/features/sync/data/google_drive_sync_transport.dart',
+    ).readAsStringSync();
+    final homeProviders = File(
+      'lib/features/home/presentation/home_providers.dart',
     ).readAsStringSync();
 
     expect(googleDriveTransport, contains("'kind': 'bundle'"));
@@ -617,12 +620,17 @@ void main() {
       googleDriveTransport,
       contains("appProperties has { key='kind' and value='bundle' }"),
     );
+    expect(homeProviders, contains('cloudStore: null,'));
+    expect(googleDriveTransport, contains('_syncKeyFileName'));
+    expect(googleDriveTransport, contains('fetchSyncKeyBackupCode'));
+    expect(googleDriveTransport, contains('deleteSyncKeyBackupCode'));
     expect(
       googleDriveTransport,
-      contains('final updateMetadata = drive.File()..name = _syncKeyFileName;'),
+      contains('Future<void> writeBackupCode(String backupCode) async {}'),
     );
-    expect(googleDriveTransport, contains('api.files.update('));
-    expect(googleDriveTransport, contains('updateMetadata,'));
+    expect(googleDriveTransport, contains('api.files.delete(existing.id!)'));
+    expect(googleDriveTransport, isNot(contains('uploadSyncKeyBackupCode')));
+    expect(googleDriveTransport, isNot(contains('updateMetadata,')));
   });
 
   test('iOS network kind lookup returns asynchronously', () {
