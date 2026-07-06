@@ -12,6 +12,11 @@ on:
         required: true
         default: true
         type: boolean
+      force_test_ads:
+        description: "Force Google Mobile Ads test ad units for a verification build."
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -333,12 +338,18 @@ jobs:
           HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID: ${{ secrets.HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID }}
         run: |
           set -euo pipefail
+          FORCE_TEST_ADS="${{ inputs.force_test_ads }}"
+          ENABLE_ADMOB="${HIMEMO_ENABLE_ADMOB:-false}"
+          if [ "$FORCE_TEST_ADS" = "true" ]; then
+            ENABLE_ADMOB="true"
+          fi
           flutter build ipa --release \
             -t lib/main_production.dart \
             --dart-define=HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID:-}" \
             --dart-define=HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID:-}" \
             --dart-define=HIMEMO_APP_STORE_ID="${HIMEMO_APP_STORE_ID:-}" \
-            --dart-define=HIMEMO_ENABLE_ADMOB="${HIMEMO_ENABLE_ADMOB:-false}" \
+            --dart-define=HIMEMO_ENABLE_ADMOB="$ENABLE_ADMOB" \
+            --dart-define=HIMEMO_ADMOB_FORCE_TEST_ADS="$FORCE_TEST_ADS" \
             --dart-define=HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID="${HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID:-}" \
             --dart-define=HIMEMO_BUILD_DATE="$(date -u +%Y-%m-%d)" \
             --build-number="$BUILD_NUMBER" \
