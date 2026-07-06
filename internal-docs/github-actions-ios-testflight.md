@@ -38,6 +38,9 @@ App Store Connect API:
 - `APP_STORE_CONNECT_API_ISSUER_ID`
 - `APP_STORE_CONNECT_API_PRIVATE_KEY`
 
+Export compliance:
+- `HIMEMO_EXPORT_COMPLIANCE_CODE`: the `ITSEncryptionExportComplianceCode` value shown by App Store Connect after the app's export compliance documentation is approved.
+
 Google Sign-In / build defines:
 - `HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID`
 - `HIMEMO_GOOGLE_REVERSED_CLIENT_ID`
