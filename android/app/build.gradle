@@ -151,9 +151,9 @@ android {
 
     buildTypes {
         release {
-            signingConfig hasAndroidUploadSigning
-                ? signingConfigs.upload
-                : signingConfigs.debug
+            if (hasAndroidUploadSigning) {
+                signingConfig = signingConfigs.upload
+            }
             firebaseAppDistribution {
                 artifactType = "AAB"
                 if (appDistributionReleaseNotesFile) {
@@ -172,6 +172,18 @@ android {
                 }
             }
         }
+    }
+}
+
+gradle.taskGraph.whenReady { taskGraph ->
+    def releaseBuildRequested = taskGraph.allTasks.any { task ->
+        task.project == project &&
+            task.name.toLowerCase(Locale.ROOT).contains('release')
+    }
+    if (releaseBuildRequested && !hasAndroidUploadSigning) {
+        throw new GradleException(
+            'Android release signing is not configured. Set HIMEMO_ANDROID_KEYSTORE_PATH, HIMEMO_ANDROID_KEYSTORE_PASSWORD, HIMEMO_ANDROID_KEY_ALIAS, and HIMEMO_ANDROID_KEY_PASSWORD, or the matching himemo.android.* local.properties entries.'
+        )
     }
 }
 

@@ -1,11 +1,11 @@
 {
-    "name": "himemo",
-    "short_name": "himemo",
+    "name": "HiMemo",
+    "short_name": "HiMemo",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#FEFDFB",
     "theme_color": "#15579A",
-    "description": "A new Flutter project.",
+    "description": "HiMemo is a private memo app with encrypted storage, profiles, backup, and sync.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
