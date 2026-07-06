@@ -176,22 +176,6 @@ jobs:
             /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST"
           done
 
-      - name: Configure export compliance code
-        env:
-          HIMEMO_EXPORT_COMPLIANCE_CODE: ${{ secrets.HIMEMO_EXPORT_COMPLIANCE_CODE }}
-        run: |
-          set -euo pipefail
-          : "${HIMEMO_EXPORT_COMPLIANCE_CODE:?Missing HIMEMO_EXPORT_COMPLIANCE_CODE secret. Add the ITSEncryptionExportComplianceCode value from App Store Connect export compliance documentation.}"
-          for PLIST in \
-            "$GITHUB_WORKSPACE/ios/Runner/Info.plist" \
-            "$GITHUB_WORKSPACE/ios/QuickCaptureWidgetExtension/Info.plist" \
-            "$GITHUB_WORKSPACE/ios/ShareExtension/Info.plist"
-          do
-            /usr/libexec/PlistBuddy -c "Set :ITSEncryptionExportComplianceCode ${HIMEMO_EXPORT_COMPLIANCE_CODE}" "$PLIST" 2>/dev/null \
-              || /usr/libexec/PlistBuddy -c "Add :ITSEncryptionExportComplianceCode string ${HIMEMO_EXPORT_COMPLIANCE_CODE}" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Print :ITSEncryptionExportComplianceCode" "$PLIST" >/dev/null
-          done
-
       - name: Create App Store export options
         run: |
           set -euo pipefail
