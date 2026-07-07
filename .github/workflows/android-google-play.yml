@@ -145,6 +145,9 @@ jobs:
           HIMEMO_ENABLE_ADMOB: ${{ secrets.HIMEMO_ENABLE_ADMOB }}
           HIMEMO_ADMOB_ANDROID_APP_ID: ${{ secrets.HIMEMO_ADMOB_ANDROID_APP_ID }}
           HIMEMO_ADMOB_ANDROID_INLINE_BANNER_AD_UNIT_ID: ${{ secrets.HIMEMO_ADMOB_ANDROID_INLINE_BANNER_AD_UNIT_ID }}
+          HIMEMO_ADMOB_TEST_DEVICE_IDS: ${{ secrets.HIMEMO_ADMOB_TEST_DEVICE_IDS }}
+          HIMEMO_UMP_DEBUG_EEA: ${{ vars.HIMEMO_UMP_DEBUG_EEA }}
+          HIMEMO_UMP_DEBUG_TEST_DEVICE_IDS: ${{ secrets.HIMEMO_UMP_DEBUG_TEST_DEVICE_IDS }}
         run: |
           set -euo pipefail
           if [ "${HIMEMO_ENABLE_ADMOB:-false}" = "true" ]; then
@@ -158,7 +161,11 @@ jobs:
             --build-number="$VERSION_CODE" \
             --dart-define=HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID:-}" \
             --dart-define=HIMEMO_ENABLE_ADMOB="${HIMEMO_ENABLE_ADMOB:-false}" \
+            --dart-define=HIMEMO_ADMOB_ANDROID_APP_ID="${HIMEMO_ADMOB_ANDROID_APP_ID:-}" \
             --dart-define=HIMEMO_ADMOB_ANDROID_INLINE_BANNER_AD_UNIT_ID="${HIMEMO_ADMOB_ANDROID_INLINE_BANNER_AD_UNIT_ID:-}" \
+            --dart-define=HIMEMO_ADMOB_TEST_DEVICE_IDS="${HIMEMO_ADMOB_TEST_DEVICE_IDS:-}" \
+            --dart-define=HIMEMO_UMP_DEBUG_EEA="${HIMEMO_UMP_DEBUG_EEA:-false}" \
+            --dart-define=HIMEMO_UMP_DEBUG_TEST_DEVICE_IDS="${HIMEMO_UMP_DEBUG_TEST_DEVICE_IDS:-}" \
             --dart-define=HIMEMO_BUILD_DATE="$(date -u +%Y-%m-%d)"
 
       - name: Locate Android App Bundle

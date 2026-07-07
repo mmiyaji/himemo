@@ -56,8 +56,13 @@ if ($supportsDartDefines) {
     'HIMEMO_BUILD_DATE',
     'HIMEMO_ENABLE_ADMOB',
     'HIMEMO_ADMOB_FORCE_TEST_ADS',
+    'HIMEMO_ADMOB_ANDROID_APP_ID',
+    'HIMEMO_ADMOB_IOS_APP_ID',
     'HIMEMO_ADMOB_ANDROID_INLINE_BANNER_AD_UNIT_ID',
-    'HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID'
+    'HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID',
+    'HIMEMO_ADMOB_TEST_DEVICE_IDS',
+    'HIMEMO_UMP_DEBUG_EEA',
+    'HIMEMO_UMP_DEBUG_TEST_DEVICE_IDS'
   )) {
     $value = [Environment]::GetEnvironmentVariable($name)
     if (-not [string]::IsNullOrWhiteSpace($value)) {

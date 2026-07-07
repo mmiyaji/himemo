@@ -37,6 +37,7 @@ import 'package:video_player/video_player.dart';
 import '../../../app/diagnostic_log.dart';
 import '../../../app/audit_log.dart';
 import '../../../l10n/app_strings.dart';
+import '../../ads/data/ad_mob_consent.dart';
 import '../../ads/data/ad_mob_config.dart';
 import '../../ads/presentation/inline_ad_card.dart';
 import '../../security/data/encrypted_attachment_store.dart';

@@ -28,7 +28,7 @@ Future<void> bootstrap(AppFlavor flavor) async {
       configureFlavor(flavor);
       await initializeFirebaseForFlavor(flavor);
       await configureFirebaseObservability(enableCollection: kReleaseMode);
-      await initializeAdMob();
+      unawaited(initializeAdMob());
       runApp(ProviderScope(child: HiMemoApp(flavor: flavor)));
     },
     (error, stackTrace) {

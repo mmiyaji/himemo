@@ -27,6 +27,9 @@ Build-time configuration:
 - `HIMEMO_ENABLE_ADMOB` (optional; set to `true` only when AdMob is ready)
 - `HIMEMO_ADMOB_ANDROID_APP_ID` (required when `HIMEMO_ENABLE_ADMOB=true`)
 - `HIMEMO_ADMOB_ANDROID_INLINE_BANNER_AD_UNIT_ID` (required when `HIMEMO_ENABLE_ADMOB=true`)
+- `HIMEMO_ADMOB_TEST_DEVICE_IDS` (optional comma-separated Google Mobile Ads test device IDs)
+- `HIMEMO_UMP_DEBUG_EEA` (optional repository variable; set to `true` only for debug consent-flow checks)
+- `HIMEMO_UMP_DEBUG_TEST_DEVICE_IDS` (optional comma-separated UMP debug test device IDs)
 
 Google authentication, preferred:
 

@@ -110,31 +110,39 @@ workflows:
         script: |
           set -euo pipefail
           ENABLE_ADMOB="${HIMEMO_ENABLE_ADMOB:-false}"
-          if [ "$ENABLE_ADMOB" = "true" ]; then
+          FORCE_TEST_ADS="${HIMEMO_ADMOB_FORCE_TEST_ADS:-false}"
+          CONFIGURED_ADMOB_IOS_APP_ID="${HIMEMO_ADMOB_IOS_APP_ID:-}"
+          if [ "$FORCE_TEST_ADS" = "true" ]; then
+            CONFIGURED_ADMOB_IOS_APP_ID="ca-app-pub-3940256099942544~1458002511"
+          fi
+          if [ "$ENABLE_ADMOB" = "true" ] && [ "$FORCE_TEST_ADS" != "true" ]; then
             : "${HIMEMO_ADMOB_IOS_APP_ID:?Missing HIMEMO_ADMOB_IOS_APP_ID when HIMEMO_ENABLE_ADMOB=true}"
             : "${HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID:?Missing HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID when HIMEMO_ENABLE_ADMOB=true}"
           fi
-          if [ -n "${HIMEMO_ADMOB_IOS_APP_ID:-}" ]; then
-            for XCCONFIG in \
-              "$CM_BUILD_DIR/ios/Flutter/Debug.xcconfig" \
-              "$CM_BUILD_DIR/ios/Flutter/Release.xcconfig"
-            do
-              if grep -q '^GAD_APPLICATION_IDENTIFIER=' "$XCCONFIG"; then
-                sed -i '' "s#^GAD_APPLICATION_IDENTIFIER=.*#GAD_APPLICATION_IDENTIFIER=${HIMEMO_ADMOB_IOS_APP_ID}#" "$XCCONFIG"
-              else
-                printf '\nGAD_APPLICATION_IDENTIFIER=%s\n' "$HIMEMO_ADMOB_IOS_APP_ID" >> "$XCCONFIG"
-              fi
-            done
+          XCCONFIG="$CM_BUILD_DIR/ios/Flutter/AdMob.xcconfig"
+          if [ -n "$CONFIGURED_ADMOB_IOS_APP_ID" ]; then
+            printf 'GAD_APPLICATION_IDENTIFIER=%s\n' "$CONFIGURED_ADMOB_IOS_APP_ID" > "$XCCONFIG"
           fi
       - name: Build production IPA
         script: |
+          set -euo pipefail
+          FORCE_TEST_ADS="${HIMEMO_ADMOB_FORCE_TEST_ADS:-false}"
+          if [ "$FORCE_TEST_ADS" = "true" ]; then
+            echo "HIMEMO_ADMOB_FORCE_TEST_ADS=true uses Google sample ad units and cannot be uploaded to App Store Connect. Use HIMEMO_ADMOB_TEST_DEVICE_IDS with production ad units for TestFlight verification."
+            exit 1
+          fi
           flutter build ipa --release \
             -t lib/main_production.dart \
             --dart-define=HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID:-}" \
             --dart-define=HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID:-}" \
             --dart-define=HIMEMO_APP_STORE_ID="${HIMEMO_APP_STORE_ID:-}" \
             --dart-define=HIMEMO_ENABLE_ADMOB="${HIMEMO_ENABLE_ADMOB:-false}" \
+            --dart-define=HIMEMO_ADMOB_FORCE_TEST_ADS="$FORCE_TEST_ADS" \
+            --dart-define=HIMEMO_ADMOB_IOS_APP_ID="${HIMEMO_ADMOB_IOS_APP_ID:-}" \
             --dart-define=HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID="${HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID:-}" \
+            --dart-define=HIMEMO_ADMOB_TEST_DEVICE_IDS="${HIMEMO_ADMOB_TEST_DEVICE_IDS:-}" \
+            --dart-define=HIMEMO_UMP_DEBUG_EEA="${HIMEMO_UMP_DEBUG_EEA:-false}" \
+            --dart-define=HIMEMO_UMP_DEBUG_TEST_DEVICE_IDS="${HIMEMO_UMP_DEBUG_TEST_DEVICE_IDS:-}" \
             --dart-define=HIMEMO_BUILD_DATE="$(date -u +%Y-%m-%d)" \
             --build-number=$PROJECT_BUILD_NUMBER \
             --export-options-plist=/Users/builder/export_options.plist
@@ -234,31 +242,41 @@ workflows:
         script: |
           set -euo pipefail
           ENABLE_ADMOB="${HIMEMO_ENABLE_ADMOB:-false}"
-          if [ "$ENABLE_ADMOB" = "true" ]; then
+          FORCE_TEST_ADS="${HIMEMO_ADMOB_FORCE_TEST_ADS:-false}"
+          CONFIGURED_ADMOB_IOS_APP_ID="${HIMEMO_ADMOB_IOS_APP_ID:-}"
+          if [ "$FORCE_TEST_ADS" = "true" ]; then
+            CONFIGURED_ADMOB_IOS_APP_ID="ca-app-pub-3940256099942544~1458002511"
+          fi
+          if [ "$ENABLE_ADMOB" = "true" ] && [ "$FORCE_TEST_ADS" != "true" ]; then
             : "${HIMEMO_ADMOB_IOS_APP_ID:?Missing HIMEMO_ADMOB_IOS_APP_ID when HIMEMO_ENABLE_ADMOB=true}"
             : "${HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID:?Missing HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID when HIMEMO_ENABLE_ADMOB=true}"
           fi
-          if [ -n "${HIMEMO_ADMOB_IOS_APP_ID:-}" ]; then
-            for XCCONFIG in \
-              "$CM_BUILD_DIR/ios/Flutter/Debug.xcconfig" \
-              "$CM_BUILD_DIR/ios/Flutter/Release.xcconfig"
-            do
-              if grep -q '^GAD_APPLICATION_IDENTIFIER=' "$XCCONFIG"; then
-                sed -i '' "s#^GAD_APPLICATION_IDENTIFIER=.*#GAD_APPLICATION_IDENTIFIER=${HIMEMO_ADMOB_IOS_APP_ID}#" "$XCCONFIG"
-              else
-                printf '\nGAD_APPLICATION_IDENTIFIER=%s\n' "$HIMEMO_ADMOB_IOS_APP_ID" >> "$XCCONFIG"
-              fi
-            done
+          XCCONFIG="$CM_BUILD_DIR/ios/Flutter/AdMob.xcconfig"
+          if [ -n "$CONFIGURED_ADMOB_IOS_APP_ID" ]; then
+            printf 'GAD_APPLICATION_IDENTIFIER=%s\n' "$CONFIGURED_ADMOB_IOS_APP_ID" > "$XCCONFIG"
           fi
       - name: Build internal IPA
         script: |
+          set -euo pipefail
+          FORCE_TEST_ADS="${HIMEMO_ADMOB_FORCE_TEST_ADS:-false}"
+          ENABLE_ADMOB="${HIMEMO_ENABLE_ADMOB:-false}"
+          AD_MOB_IOS_APP_ID="${HIMEMO_ADMOB_IOS_APP_ID:-}"
+          if [ "$FORCE_TEST_ADS" = "true" ]; then
+            ENABLE_ADMOB="true"
+            AD_MOB_IOS_APP_ID="ca-app-pub-3940256099942544~1458002511"
+          fi
           flutter build ipa --release \
             -t lib/main_production.dart \
             --dart-define=HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID:-}" \
             --dart-define=HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID="${HIMEMO_GOOGLE_SIGN_IN_SERVER_CLIENT_ID:-}" \
             --dart-define=HIMEMO_APP_STORE_ID="${HIMEMO_APP_STORE_ID:-}" \
-            --dart-define=HIMEMO_ENABLE_ADMOB="${HIMEMO_ENABLE_ADMOB:-false}" \
+            --dart-define=HIMEMO_ENABLE_ADMOB="$ENABLE_ADMOB" \
+            --dart-define=HIMEMO_ADMOB_FORCE_TEST_ADS="$FORCE_TEST_ADS" \
+            --dart-define=HIMEMO_ADMOB_IOS_APP_ID="$AD_MOB_IOS_APP_ID" \
             --dart-define=HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID="${HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID:-}" \
+            --dart-define=HIMEMO_ADMOB_TEST_DEVICE_IDS="${HIMEMO_ADMOB_TEST_DEVICE_IDS:-}" \
+            --dart-define=HIMEMO_UMP_DEBUG_EEA="${HIMEMO_UMP_DEBUG_EEA:-false}" \
+            --dart-define=HIMEMO_UMP_DEBUG_TEST_DEVICE_IDS="${HIMEMO_UMP_DEBUG_TEST_DEVICE_IDS:-}" \
             --dart-define=HIMEMO_BUILD_DATE="$(date -u +%Y-%m-%d)" \
             --build-number=$PROJECT_BUILD_NUMBER \
             --export-options-plist=/Users/builder/export_options.plist

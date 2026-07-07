@@ -48,6 +48,17 @@ AdMob:
 - `HIMEMO_ENABLE_ADMOB` (optional; set to `true` only when AdMob is ready)
 - `HIMEMO_ADMOB_IOS_APP_ID` (required when `HIMEMO_ENABLE_ADMOB=true`)
 - `HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID` (required when `HIMEMO_ENABLE_ADMOB=true`)
+- `HIMEMO_ADMOB_TEST_DEVICE_IDS` (optional comma-separated Google Mobile Ads test device IDs for TestFlight verification)
+- `HIMEMO_UMP_DEBUG_EEA` (optional repository variable; set to `true` only for local/debug consent-flow checks)
+- `HIMEMO_UMP_DEBUG_TEST_DEVICE_IDS` (optional comma-separated UMP debug test device IDs)
+
+`force_test_ads=true` builds with Google's sample iOS AdMob app ID and test ad
+unit. The workflow blocks App Store Connect/TestFlight upload in that mode; use
+production ad units plus `HIMEMO_ADMOB_TEST_DEVICE_IDS` for TestFlight builds.
+For local iOS builds with ads enabled, create the ignored file
+`ios/Flutter/AdMob.local.xcconfig` containing
+`GAD_APPLICATION_IDENTIFIER=ca-app-pub-...~...`; keep the matching app ID in
+`.env` so Dart's AdMob gate and the native plist stay aligned.
 
 Export compliance:
 - The iOS bundles currently set `ITSAppUsesNonExemptEncryption=false`. This assumes App Store Connect availability excludes France and the encryption questionnaire determines that no export compliance documentation is required.

@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import '../../../app/ad_mob_initializer.dart';
 import '../../../l10n/app_strings.dart';
+import '../data/ad_mob_consent.dart';
 import '../data/ad_mob_config.dart';
 
 const _adHorizontalPadding = 12.0;
@@ -11,6 +14,7 @@ const _adVerticalPadding = 8.0;
 const _adHeaderHeight = 20.0;
 const _adBodyGap = 6.0;
 const _adChromeHeight = (_adVerticalPadding * 2) + _adHeaderHeight + _adBodyGap;
+const _failedLoadRetryDelay = Duration(seconds: 45);
 
 class HiMemoInlineAdCard extends StatefulWidget {
   const HiMemoInlineAdCard({super.key, this.maxHeight = 96});
@@ -29,6 +33,7 @@ class _HiMemoInlineAdCardState extends State<HiMemoInlineAdCard> {
   int? _failedWidth;
   bool _loadScheduled = false;
   int _loadGeneration = 0;
+  Timer? _failedLoadRetryTimer;
 
   @override
   Widget build(BuildContext context) {
@@ -123,6 +128,7 @@ class _HiMemoInlineAdCardState extends State<HiMemoInlineAdCard> {
 
     final generation = ++_loadGeneration;
     final oldAd = _ad;
+    _failedLoadRetryTimer?.cancel();
     setState(() {
       _ad = null;
       _loadedSize = null;
@@ -134,6 +140,26 @@ class _HiMemoInlineAdCardState extends State<HiMemoInlineAdCard> {
       return;
     }
 
+    final consent = await AdMobConsent.requestIfNeeded();
+    if (!mounted || generation != _loadGeneration) {
+      return;
+    }
+    if (!consent.canRequestAds) {
+      setState(() {
+        _loadingWidth = null;
+        _failedWidth = width;
+      });
+      if (consent.errorMessage != null) {
+        _scheduleFailedLoadRetry(width);
+      }
+      return;
+    }
+
+    await initializeAdMob();
+    if (!mounted || generation != _loadGeneration) {
+      return;
+    }
+
     final adSize = AdSize.getInlineAdaptiveBannerAdSize(
       width,
       widget.maxHeight.round(),
@@ -141,7 +167,7 @@ class _HiMemoInlineAdCardState extends State<HiMemoInlineAdCard> {
     final bannerAd = BannerAd(
       adUnitId: adUnitId,
       size: adSize,
-      request: const AdRequest(),
+      request: const AdRequest(nonPersonalizedAds: true),
       listener: BannerAdListener(
         onAdLoaded: (ad) async {
           final loadedAd = ad as BannerAd;
@@ -156,6 +182,7 @@ class _HiMemoInlineAdCardState extends State<HiMemoInlineAdCard> {
               _loadingWidth = null;
               _failedWidth = width;
             });
+            _scheduleFailedLoadRetry(width);
             return;
           }
           setState(() {
@@ -173,6 +200,7 @@ class _HiMemoInlineAdCardState extends State<HiMemoInlineAdCard> {
             _loadingWidth = null;
             _failedWidth = width;
           });
+          _scheduleFailedLoadRetry(width);
         },
       ),
     );
@@ -187,7 +215,21 @@ class _HiMemoInlineAdCardState extends State<HiMemoInlineAdCard> {
         _loadingWidth = null;
         _failedWidth = width;
       });
+      _scheduleFailedLoadRetry(width);
     }
+  }
+
+  void _scheduleFailedLoadRetry(int width) {
+    _failedLoadRetryTimer?.cancel();
+    _failedLoadRetryTimer = Timer(_failedLoadRetryDelay, () {
+      if (!mounted || _failedWidth != width) {
+        return;
+      }
+      setState(() {
+        _failedWidth = null;
+      });
+      _scheduleLoad(width);
+    });
   }
 
   @override
@@ -202,6 +244,7 @@ class _HiMemoInlineAdCardState extends State<HiMemoInlineAdCard> {
   @override
   void dispose() {
     _loadGeneration++;
+    _failedLoadRetryTimer?.cancel();
     _ad?.dispose();
     super.dispose();
   }

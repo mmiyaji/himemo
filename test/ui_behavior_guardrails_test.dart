@@ -663,7 +663,7 @@ void main() {
     );
   });
 
-  test('AdMob stays out of private and compact note lists', () {
+  test('AdMob stays gated, consented, and policy-aligned', () {
     final homePage = _homePresentationSource();
     final adMobConfig = File(
       'lib/features/ads/data/ad_mob_config.dart',
@@ -671,11 +671,40 @@ void main() {
     final inlineAdCard = File(
       'lib/features/ads/presentation/inline_ad_card_mobile.dart',
     ).readAsStringSync();
+    final adMobConsentExport = File(
+      'lib/features/ads/data/ad_mob_consent.dart',
+    ).readAsStringSync();
+    final adMobConsent = File(
+      'lib/features/ads/data/ad_mob_consent_mobile.dart',
+    ).readAsStringSync();
+    final adMobInitializer = File(
+      'lib/app/ad_mob_initializer_mobile.dart',
+    ).readAsStringSync();
+    final settingsScreen = File(
+      'lib/features/home/presentation/home_settings_screen.dart',
+    ).readAsStringSync();
+    final iosInfoPlist = File('ios/Runner/Info.plist').readAsStringSync();
+    final iosPrivacyManifest = File(
+      'ios/Runner/PrivacyInfo.xcprivacy',
+    ).readAsStringSync();
+    final iosTestFlightWorkflow = File(
+      '.github/workflows/ios-testflight.yml',
+    ).readAsStringSync();
+    final androidPlayWorkflow = File(
+      '.github/workflows/android-google-play.yml',
+    ).readAsStringSync();
+    final codemagic = File('codemagic.yaml').readAsStringSync();
+    final privacyEn = File('docs/privacy-en.html').readAsStringSync();
 
     expect(
       adMobConfig,
       contains("bool.fromEnvironment('HIMEMO_ENABLE_ADMOB')"),
     );
+    expect(
+      adMobConfig,
+      contains("String.fromEnvironment('HIMEMO_ADMOB_IOS_APP_ID')"),
+    );
+    expect(adMobConfig, contains('HIMEMO_ADMOB_TEST_DEVICE_IDS'));
     expect(homePage, contains('const _inlineAdMinimumNoteCount = 6;'));
     expect(homePage, contains('const _inlineAdAfterNoteCount = 5;'));
     expect(homePage, contains('activeIdentity.id == \'daily\''));
@@ -709,6 +738,62 @@ void main() {
     expect(inlineAdCard, contains('広告を一時的に表示できません'));
     expect(inlineAdCard, contains('height: slotHeight'));
     expect(inlineAdCard, contains('Expanded(child: Center(child: adChild))'));
+    expect(inlineAdCard, contains('AdMobConsent.requestIfNeeded()'));
+    expect(inlineAdCard, contains('initializeAdMob()'));
+    expect(inlineAdCard, contains('AdRequest(nonPersonalizedAds: true)'));
+    expect(inlineAdCard, contains('_scheduleFailedLoadRetry(width)'));
+    expect(
+      adMobConsentExport,
+      contains("if (dart.library.io) 'ad_mob_consent_mobile.dart'"),
+    );
+    expect(
+      adMobConsent,
+      contains('ConsentInformation.instance.requestConsentInfoUpdate'),
+    );
+    expect(
+      adMobConsent,
+      contains('ConsentForm.loadAndShowConsentFormIfRequired'),
+    );
+    expect(adMobConsent, contains('ConsentForm.showPrivacyOptionsForm'));
+    expect(
+      adMobInitializer,
+      contains('MobileAds.instance.updateRequestConfiguration'),
+    );
+    expect(
+      adMobInitializer,
+      contains('testDeviceIds: AdMobConfig.testDeviceIds'),
+    );
+    expect(settingsScreen, contains('adPrivacyOptionsKey'));
+    expect(settingsScreen, contains('AdMobConsent.showPrivacyOptions()'));
+    expect(iosInfoPlist, contains('<key>SKAdNetworkItems</key>'));
+    expect(iosInfoPlist, contains('cstr6suwn9.skadnetwork'));
+    expect(
+      iosPrivacyManifest,
+      contains('NSPrivacyCollectedDataTypeAdvertisingData'),
+    );
+    expect(
+      iosPrivacyManifest,
+      contains('NSPrivacyCollectedDataTypePurposeThirdPartyAdvertising'),
+    );
+    expect(
+      iosTestFlightWorkflow,
+      contains('force_test_ads=true uses Google sample ad units'),
+    );
+    expect(iosTestFlightWorkflow, contains('HIMEMO_ADMOB_TEST_DEVICE_IDS'));
+    expect(
+      androidPlayWorkflow,
+      contains('--dart-define=HIMEMO_ADMOB_ANDROID_APP_ID='),
+    );
+    expect(codemagic, contains('HIMEMO_ADMOB_FORCE_TEST_ADS=true'));
+    expect(codemagic, contains('ios/Flutter/AdMob.xcconfig'));
+    expect(privacyEn, contains('Google AdMob: ad delivery'));
+    expect(privacyEn, contains('non-personalized ads'));
+    expect(
+      privacyEn,
+      isNot(
+        contains('does not use it for advertising tracking or ad delivery'),
+      ),
+    );
   });
 
   test('diagnostic mode exposes iCloud storage maintenance actions', () {

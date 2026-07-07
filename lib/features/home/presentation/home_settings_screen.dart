@@ -22,6 +22,7 @@ class SettingsScreen extends ConsumerWidget {
   static const createDemoNotesKey = Key('create-demo-notes-button');
   static const deleteDemoNotesKey = Key('delete-demo-notes-button');
   static const clearStorageCacheKey = Key('clear-storage-cache-button');
+  static const adPrivacyOptionsKey = Key('ad-privacy-options-button');
   static const localeJapaneseKey = Key('locale-japanese-option');
   static const localeEnglishKey = Key('locale-english-option');
   static const localeChineseKey = Key('locale-chinese-option');
@@ -151,6 +152,34 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ),
       ),
+    );
+  }
+
+  Future<void> _showAdPrivacyOptions(
+    BuildContext context,
+    AppStrings strings,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final result = await AdMobConsent.showPrivacyOptions();
+    if (!context.mounted) {
+      return;
+    }
+    final message = result.errorMessage != null
+        ? strings.localized(
+            en: 'Advertising privacy settings are unavailable right now.',
+            ja: '広告のプライバシー設定を現在表示できません。',
+          )
+        : result.privacyOptionsRequired
+        ? strings.localized(
+            en: 'Advertising privacy settings have been updated.',
+            ja: '広告のプライバシー設定を更新しました。',
+          )
+        : strings.localized(
+            en: 'Advertising privacy options are not required in this region.',
+            ja: 'この地域では広告のプライバシーオプションは不要です。',
+          );
+    messenger.showSnackBar(
+      SnackBar(showCloseIcon: true, content: Text(message)),
     );
   }
 
@@ -3902,6 +3931,25 @@ class SettingsScreen extends ConsumerWidget {
               onTap: () =>
                   _openExternalLink(context, Uri.parse(_privacyUrl), strings),
             ),
+            if (AdMobConfig.canShowAds)
+              ListTile(
+                key: adPrivacyOptionsKey,
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.ads_click_outlined),
+                title: Text(
+                  strings.localized(
+                    en: 'Ad privacy options',
+                    ja: '広告のプライバシー設定',
+                  ),
+                ),
+                subtitle: Text(
+                  strings.localized(
+                    en: 'Review or change advertising consent where required.',
+                    ja: '必要な地域で広告同意の確認や変更を行います。',
+                  ),
+                ),
+                onTap: () => _showAdPrivacyOptions(context, strings),
+              ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const _SettingsListIcon(icon: Icons.email_outlined),

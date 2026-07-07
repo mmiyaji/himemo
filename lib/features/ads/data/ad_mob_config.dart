@@ -10,11 +10,24 @@ abstract final class AdMobConfig {
     'HIMEMO_ADMOB_FORCE_TEST_ADS',
   );
 
+  static const _androidAppId = String.fromEnvironment(
+    'HIMEMO_ADMOB_ANDROID_APP_ID',
+  );
+  static const _iosAppId = String.fromEnvironment('HIMEMO_ADMOB_IOS_APP_ID');
   static const _androidInlineBannerAdUnitId = String.fromEnvironment(
     'HIMEMO_ADMOB_ANDROID_INLINE_BANNER_AD_UNIT_ID',
   );
   static const _iosInlineBannerAdUnitId = String.fromEnvironment(
     'HIMEMO_ADMOB_IOS_INLINE_BANNER_AD_UNIT_ID',
+  );
+  static const _testDeviceIds = String.fromEnvironment(
+    'HIMEMO_ADMOB_TEST_DEVICE_IDS',
+  );
+  static const umpDebugGeographyEea = bool.fromEnvironment(
+    'HIMEMO_UMP_DEBUG_EEA',
+  );
+  static const umpDebugTestDeviceIds = String.fromEnvironment(
+    'HIMEMO_UMP_DEBUG_TEST_DEVICE_IDS',
   );
 
   static bool get canShowAds {
@@ -22,12 +35,35 @@ abstract final class AdMobConfig {
       return false;
     }
     return switch (defaultTargetPlatform) {
-      TargetPlatform.android || TargetPlatform.iOS => true,
+      TargetPlatform.android => _androidNativeAppId.trim().isNotEmpty,
+      TargetPlatform.iOS => _iosNativeAppId.trim().isNotEmpty,
       _ => false,
     };
   }
 
   static bool get useTestAds => forceTestAds || kDebugMode;
+
+  static String get _androidNativeAppId => _androidAppId;
+
+  static String get _iosNativeAppId => _iosAppId;
+
+  static List<String>? get testDeviceIds {
+    final ids = _testDeviceIds
+        .split(',')
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toList(growable: false);
+    return ids.isEmpty ? null : ids;
+  }
+
+  static List<String>? get umpDebugTestDeviceIdList {
+    final ids = umpDebugTestDeviceIds
+        .split(',')
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toList(growable: false);
+    return ids.isEmpty ? null : ids;
+  }
 
   static String? get inlineBannerAdUnitId {
     if (!canShowAds) {
