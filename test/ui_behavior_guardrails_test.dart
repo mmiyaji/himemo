@@ -688,13 +688,27 @@ void main() {
       inlineAdCard,
       contains('const HiMemoInlineAdCard({super.key, this.maxHeight = 96});'),
     );
-    expect(inlineAdCard, contains('final slotHeight = widget.maxHeight + 16;'));
+    expect(
+      inlineAdCard,
+      contains('final slotHeight = widget.maxHeight + _adChromeHeight;'),
+    );
+    expect(
+      inlineAdCard,
+      contains(
+        'final contentWidth = availableWidth - (_adHorizontalPadding * 2);',
+      ),
+    );
+    expect(inlineAdCard, contains('if (contentWidth < 280)'));
     expect(
       inlineAdCard,
       contains('final adChild = ad == null || loadedSize == null'),
     );
+    expect(inlineAdCard, contains('_InlineAdPlaceholder'));
+    expect(inlineAdCard, contains('const _InlineAdHeader'));
+    expect(inlineAdCard, contains('Icons.campaign_outlined'));
+    expect(inlineAdCard, contains('広告を一時的に表示できません'));
     expect(inlineAdCard, contains('height: slotHeight'));
-    expect(inlineAdCard, contains('child: Center(child: adChild)'));
+    expect(inlineAdCard, contains('Expanded(child: Center(child: adChild))'));
   });
 
   test('diagnostic mode exposes iCloud storage maintenance actions', () {

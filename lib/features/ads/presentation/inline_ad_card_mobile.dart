@@ -3,7 +3,14 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import '../../../l10n/app_strings.dart';
 import '../data/ad_mob_config.dart';
+
+const _adHorizontalPadding = 12.0;
+const _adVerticalPadding = 8.0;
+const _adHeaderHeight = 20.0;
+const _adBodyGap = 6.0;
+const _adChromeHeight = (_adVerticalPadding * 2) + _adHeaderHeight + _adBodyGap;
 
 class HiMemoInlineAdCard extends StatefulWidget {
   const HiMemoInlineAdCard({super.key, this.maxHeight = 96});
@@ -31,20 +38,24 @@ class _HiMemoInlineAdCardState extends State<HiMemoInlineAdCard> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final availableWidth = constraints.maxWidth;
-        if (!availableWidth.isFinite || availableWidth < 280) {
+        if (!availableWidth.isFinite) {
           return const SizedBox.shrink();
         }
-        final width = availableWidth.floor();
+        final contentWidth = availableWidth - (_adHorizontalPadding * 2);
+        if (contentWidth < 280) {
+          return const SizedBox.shrink();
+        }
+        final width = contentWidth.floor();
         _scheduleLoad(width);
 
         final ad = _ad;
         final loadedSize = _loadedSize;
         final colorScheme = Theme.of(context).colorScheme;
-        final slotHeight = widget.maxHeight + 16;
+        final slotHeight = widget.maxHeight + _adChromeHeight;
         final adChild = ad == null || loadedSize == null
-            ? const SizedBox.shrink()
+            ? _InlineAdPlaceholder(failed: _failedWidth == width)
             : SizedBox(
-                width: math.min(loadedSize.width.toDouble(), availableWidth),
+                width: math.min(loadedSize.width.toDouble(), contentWidth),
                 height: math.min(
                   loadedSize.height.toDouble(),
                   widget.maxHeight,
@@ -57,14 +68,25 @@ class _HiMemoInlineAdCardState extends State<HiMemoInlineAdCard> {
           width: double.infinity,
           height: slotHeight,
           decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.28),
+            color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.22),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.65),
+              color: colorScheme.outlineVariant.withValues(alpha: 0.55),
             ),
           ),
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Center(child: adChild),
+          padding: const EdgeInsets.fromLTRB(
+            _adHorizontalPadding,
+            _adVerticalPadding,
+            _adHorizontalPadding,
+            _adVerticalPadding,
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: _adHeaderHeight, child: _InlineAdHeader()),
+              const SizedBox(height: _adBodyGap),
+              Expanded(child: Center(child: adChild)),
+            ],
+          ),
         );
       },
     );
@@ -182,5 +204,76 @@ class _HiMemoInlineAdCardState extends State<HiMemoInlineAdCard> {
     _loadGeneration++;
     _ad?.dispose();
     super.dispose();
+  }
+}
+
+class _InlineAdHeader extends StatelessWidget {
+  const _InlineAdHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final labelColor = colorScheme.onSurfaceVariant.withValues(alpha: 0.72);
+    return Row(
+      children: [
+        Icon(Icons.campaign_outlined, size: 14, color: labelColor),
+        const SizedBox(width: 5),
+        Text(
+          context.strings.localized(
+            en: 'Ad',
+            ja: '広告',
+            zh: '广告',
+            ko: '광고',
+            es: 'Anuncio',
+            de: 'Anzeige',
+          ),
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: labelColor,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InlineAdPlaceholder extends StatelessWidget {
+  const _InlineAdPlaceholder({required this.failed});
+
+  final bool failed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final strings = context.strings;
+    final message = failed
+        ? strings.localized(
+            en: 'Ad is temporarily unavailable',
+            ja: '広告を一時的に表示できません',
+            zh: '广告暂时无法显示',
+            ko: '광고를 일시적으로 표시할 수 없습니다',
+            es: 'El anuncio no esta disponible temporalmente',
+            de: 'Anzeige voruebergehend nicht verfuegbar',
+          )
+        : strings.localized(
+            en: 'Loading ad',
+            ja: '広告を読み込み中',
+            zh: '正在加载广告',
+            ko: '광고를 불러오는 중',
+            es: 'Cargando anuncio',
+            de: 'Anzeige wird geladen',
+          );
+    return Text(
+      message,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      textAlign: TextAlign.center,
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+        color: colorScheme.onSurfaceVariant.withValues(alpha: 0.78),
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0,
+      ),
+    );
   }
 }
