@@ -1,59 +1,290 @@
 <!doctype html>
-<html lang="en">
+<html lang="ja" data-lang="ja">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>HiMemo Legal Documents</title>
-    <link rel="stylesheet" href="./legal.css" />
-    <script src="./legal.js" defer></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HiMemo - private memo app</title>
+    <meta
+      name="description"
+      content="HiMemo is a private memo app for notes, attachments, calendar views, app lock, private profiles, and cloud sync."
+    >
+    <link rel="canonical" href="https://himemo.ruhenheim.org/">
+    <link rel="icon" type="image/png" href="/assets/himemo-icon.png">
+    <link rel="apple-touch-icon" href="/assets/himemo-icon.png">
+    <link rel="stylesheet" href="/assets/styles.css?v=20260708">
+    <script src="/assets/site.js?v=20260708" defer></script>
   </head>
   <body>
-    <main>
-      <nav>
-        <a class="brand" href="./index.html">HiMemo</a>
-        <a href="./privacy-ja.html">プライバシーポリシー</a>
-        <a href="./terms-ja.html">利用規約</a>
-        <a href="./privacy-en.html">Privacy Policy</a>
-        <a href="./terms-en.html">Terms of Use</a>
-        <a href="./contact.html">Contact</a>
-        <a href="./help.html">Help</a>
-        <button class="theme-toggle" type="button" data-theme-toggle>Dark</button>
-      </nav>
-      <section class="card">
-        <h1>HiMemo Legal Documents</h1>
-        <p class="meta">Last updated: May 5, 2026</p>
-        <p>
-          Please select a language and document. Japanese and English versions
-          are provided for app store review and user reference.
-        </p>
-        <div class="language-grid">
-          <a class="language-card" href="./privacy-ja.html">
-            <strong>プライバシーポリシー</strong>
-            <span>日本語</span>
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand" href="/">
+          <img src="/assets/himemo-icon.png" alt="">
+          <span>HiMemo</span>
+        </a>
+        <div class="header-actions">
+          <nav class="nav" aria-label="Site navigation">
+            <a href="#features" data-i18n-ja="機能" data-i18n-en="Features">機能</a>
+            <a href="#security" data-i18n-ja="保護と同期" data-i18n-en="Privacy and Sync">保護と同期</a>
+            <a href="#screens" data-i18n-ja="画面" data-i18n-en="Screens">画面</a>
+            <a href="/privacy/" data-i18n-ja="プライバシー" data-i18n-en="Privacy">プライバシー</a>
+            <a href="/terms/" data-i18n-ja="利用規約" data-i18n-en="Terms">利用規約</a>
+          </nav>
+          <div class="language-switch" role="group" aria-label="Language">
+            <button type="button" data-lang-choice="ja" aria-pressed="true">日本語</button>
+            <button type="button" data-lang-choice="en" aria-pressed="false">English</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="hero">
+        <div>
+          <img class="app-icon" src="/assets/himemo-icon.png" alt="HiMemo app icon">
+          <div class="eyebrow" data-i18n-ja="プライベートメモ" data-i18n-en="Private memo app">プライベートメモ</div>
+          <h1>HiMemo</h1>
+          <p class="lead" data-lang-panel="ja">
+            日々のメモ、写真、音声、ファイル、場所の記録を、あとから探しやすく残すためのメモアプリです。必要なメモは通常領域に、見せたくない内容はプライベートプロファイルに分けて保管できます。
+          </p>
+          <p class="lead" data-lang-panel="en">
+            HiMemo is a memo app for everyday notes, photos, audio, files, and locations.
+            It keeps notes easy to find later, while private profiles let you separate
+            sensitive notes from the regular workspace.
+          </p>
+          <div class="cta-row">
+            <span class="pill">iOS / iPadOS / Android / Web</span>
+            <span class="pill" data-i18n-ja="ストア公開準備中" data-i18n-en="Preparing for stores">ストア公開準備中</span>
+            <a class="button-link" href="/privacy/" data-i18n-ja="プライバシー方針" data-i18n-en="Privacy Policy">プライバシー方針</a>
+            <a class="button-link secondary" href="/terms/" data-i18n-ja="利用規約" data-i18n-en="Terms of Use">利用規約</a>
+          </div>
+        </div>
+
+        <div class="hero-media" aria-label="HiMemo screenshots">
+          <div class="device-frame phone-frame">
+            <a
+              href="/assets/screenshot-iphone-notes-ja.png"
+              data-media-ja="/assets/screenshot-iphone-notes-ja.png"
+              data-media-en="/assets/screenshot-iphone-notes-en.png"
+              data-i18n-aria-ja="ノート一覧のスクリーンショットを開く"
+              data-i18n-aria-en="Open the notes list screenshot"
+            >
+              <img
+                src="/assets/screenshot-iphone-notes-ja.png"
+                data-media-ja="/assets/screenshot-iphone-notes-ja.png"
+                data-media-en="/assets/screenshot-iphone-notes-en.png"
+                alt="HiMemo notes list screen"
+              >
+            </a>
+          </div>
+          <div class="device-frame phone-frame secondary">
+            <a
+              href="/assets/screenshot-iphone-private-ja.png"
+              data-media-ja="/assets/screenshot-iphone-private-ja.png"
+              data-media-en="/assets/screenshot-iphone-private-en.png"
+              data-i18n-aria-ja="プライベート設定のスクリーンショットを開く"
+              data-i18n-aria-en="Open the private settings screenshot"
+            >
+              <img
+                src="/assets/screenshot-iphone-private-ja.png"
+                data-media-ja="/assets/screenshot-iphone-private-ja.png"
+                data-media-en="/assets/screenshot-iphone-private-en.png"
+                alt="HiMemo private profile settings screen"
+              >
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section id="features" class="section">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow" data-i18n-ja="機能" data-i18n-en="Features">機能</div>
+            <h2 data-i18n-ja="書く、添付する、あとから見つける。" data-i18n-en="Write, attach, and find it later.">書く、添付する、あとから見つける。</h2>
+          </div>
+          <p data-lang-panel="ja">
+            HiMemo は、短いメモにも、写真や録音を含む記録にも使えるように作っています。タグ、カレンダー、検索、記録ビューを組み合わせて、メモを増やしても見失いにくい構成です。
+          </p>
+          <p data-lang-panel="en">
+            HiMemo is designed for short notes as well as richer records with photos,
+            recordings, files, and locations. Tags, calendar views, search, and record
+            summaries keep a growing memo library manageable.
+          </p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature-card">
+            <h3 data-i18n-ja="メモと添付" data-i18n-en="Notes and attachments">メモと添付</h3>
+            <p data-i18n-ja="本文、タグ、写真、動画、音声、ファイル、位置情報をひとつのメモにまとめられます。" data-i18n-en="Combine text, tags, photos, videos, audio, files, and locations in one note.">本文、タグ、写真、動画、音声、ファイル、位置情報をひとつのメモにまとめられます。</p>
+          </article>
+          <article class="feature-card">
+            <h3 data-i18n-ja="クイックメモ" data-i18n-en="Quick capture">クイックメモ</h3>
+            <p data-i18n-ja="思いついたことをすぐ追記できるよう、アプリ外からの入力導線も用意しています。" data-i18n-en="Capture ideas quickly, including entry points from outside the app.">思いついたことをすぐ追記できるよう、アプリ外からの入力導線も用意しています。</p>
+          </article>
+          <article class="feature-card">
+            <h3 data-i18n-ja="検索とタグ" data-i18n-en="Search and tags">検索とタグ</h3>
+            <p data-i18n-ja="タグや本文検索で、過去のメモを目的別に探しやすくできます。" data-i18n-en="Use tags and text search to find older notes by topic or purpose.">タグや本文検索で、過去のメモを目的別に探しやすくできます。</p>
+          </article>
+          <article class="feature-card">
+            <h3 data-i18n-ja="カレンダー" data-i18n-en="Calendar">カレンダー</h3>
+            <p data-i18n-ja="日付ごとの記録をカレンダーで見返し、日記や買い物、予定のメモをたどれます。" data-i18n-en="Review notes by date to follow journals, shopping notes, plans, and records.">日付ごとの記録をカレンダーで見返し、日記や買い物、予定のメモをたどれます。</p>
+          </article>
+          <article class="feature-card">
+            <h3 data-i18n-ja="記録ビュー" data-i18n-en="Record views">記録ビュー</h3>
+            <p data-i18n-ja="日々のメモ数や使い方を、簡単な統計として振り返れます。" data-i18n-en="Look back at memo activity and usage patterns through simple summaries.">日々のメモ数や使い方を、簡単な統計として振り返れます。</p>
+          </article>
+          <article class="feature-card">
+            <h3 data-i18n-ja="表示の調整" data-i18n-en="Display settings">表示の調整</h3>
+            <p data-i18n-ja="言語、テーマ、フォント、色を選び、普段使いしやすい見た目にできます。" data-i18n-en="Choose language, theme, font, and color settings for everyday use.">言語、テーマ、フォント、色を選び、普段使いしやすい見た目にできます。</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="security" class="section">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow" data-i18n-ja="保護と同期" data-i18n-en="Privacy and sync">保護と同期</div>
+            <h2 data-i18n-ja="見せるメモと、分けて守るメモ。" data-i18n-en="Keep regular notes and private notes separate.">見せるメモと、分けて守るメモ。</h2>
+          </div>
+          <p data-lang-panel="ja">
+            HiMemo は端末上の暗号化、アプリロック、プライベートプロファイル、クラウド同期を組み合わせています。同期データも暗号化された状態で扱う設計です。
+          </p>
+          <p data-lang-panel="en">
+            HiMemo combines on-device encryption, app lock, private profiles,
+            and cloud sync. Sync data is designed to remain encrypted while it is
+            stored in the selected cloud service.
+          </p>
+        </div>
+
+        <div class="security-grid">
+          <article class="security-card">
+            <h3 data-i18n-ja="プライベートプロファイル" data-i18n-en="Private profiles">プライベートプロファイル</h3>
+            <p data-i18n-ja="通常メモとは別に、必要なときだけ開くプロファイルを作れます。" data-i18n-en="Create a separate profile that you open only when needed.">通常メモとは別に、必要なときだけ開くプロファイルを作れます。</p>
+          </article>
+          <article class="security-card">
+            <h3 data-i18n-ja="アプリ保護" data-i18n-en="App protection">アプリ保護</h3>
+            <p data-i18n-ja="端末認証またはパスコードで、アプリを開く操作を保護できます。" data-i18n-en="Protect app access with device authentication or a passcode.">端末認証またはパスコードで、アプリを開く操作を保護できます。</p>
+          </article>
+          <article class="security-card">
+            <h3 data-i18n-ja="バックアップと同期" data-i18n-en="Backup and sync">バックアップと同期</h3>
+            <p data-i18n-ja="iCloud や Google Drive など、選択したクラウドサービスと同期できます。" data-i18n-en="Sync with selected cloud services such as iCloud or Google Drive.">iCloud や Google Drive など、選択したクラウドサービスと同期できます。</p>
+          </article>
+          <article class="security-card">
+            <h3 data-i18n-ja="復元キー" data-i18n-en="Recovery keys">復元キー</h3>
+            <p data-i18n-ja="復元に必要な情報は利用者自身で保管する設計です。運営者はメモ内容を復旧できません。" data-i18n-en="Recovery material is managed by the user. The operator cannot restore note contents.">復元に必要な情報は利用者自身で保管する設計です。運営者はメモ内容を復旧できません。</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="screens" class="section">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow" data-i18n-ja="画面" data-i18n-en="Screens">画面</div>
+            <h2 data-i18n-ja="実際の画面" data-i18n-en="Actual screens">実際の画面</h2>
+          </div>
+          <p data-i18n-ja="主要な画面をスクリーンショットで確認できます。画像を開くと原寸に近い表示で見られます。" data-i18n-en="Review the main screens through screenshots. Open an image to view it larger.">主要な画面をスクリーンショットで確認できます。画像を開くと原寸に近い表示で見られます。</p>
+        </div>
+
+        <div class="screen-grid">
+          <figure class="screen-card">
+            <div class="device-frame phone-frame">
+              <a href="/assets/screenshot-iphone-notes-ja.png" data-media-ja="/assets/screenshot-iphone-notes-ja.png" data-media-en="/assets/screenshot-iphone-notes-en.png">
+                <img src="/assets/screenshot-iphone-notes-ja.png" data-media-ja="/assets/screenshot-iphone-notes-ja.png" data-media-en="/assets/screenshot-iphone-notes-en.png" alt="Notes list">
+              </a>
+            </div>
+            <figcaption data-i18n-ja="ノート一覧" data-i18n-en="Notes">ノート一覧</figcaption>
+          </figure>
+          <figure class="screen-card">
+            <div class="device-frame phone-frame">
+              <a href="/assets/screenshot-iphone-quick-ja.png" data-media-ja="/assets/screenshot-iphone-quick-ja.png" data-media-en="/assets/screenshot-iphone-quick-en.png">
+                <img src="/assets/screenshot-iphone-quick-ja.png" data-media-ja="/assets/screenshot-iphone-quick-ja.png" data-media-en="/assets/screenshot-iphone-quick-en.png" alt="Quick memo">
+              </a>
+            </div>
+            <figcaption data-i18n-ja="クイックメモ" data-i18n-en="Quick memo">クイックメモ</figcaption>
+          </figure>
+          <figure class="screen-card">
+            <div class="device-frame phone-frame">
+              <a href="/assets/screenshot-iphone-private-ja.png" data-media-ja="/assets/screenshot-iphone-private-ja.png" data-media-en="/assets/screenshot-iphone-private-en.png">
+                <img src="/assets/screenshot-iphone-private-ja.png" data-media-ja="/assets/screenshot-iphone-private-ja.png" data-media-en="/assets/screenshot-iphone-private-en.png" alt="Private settings">
+              </a>
+            </div>
+            <figcaption data-i18n-ja="プライベート設定" data-i18n-en="Private settings">プライベート設定</figcaption>
+          </figure>
+          <figure class="screen-card">
+            <div class="device-frame phone-frame">
+              <a href="/assets/screenshot-iphone-insights-ja.png" data-media-ja="/assets/screenshot-iphone-insights-ja.png" data-media-en="/assets/screenshot-iphone-insights-en.png">
+                <img src="/assets/screenshot-iphone-insights-ja.png" data-media-ja="/assets/screenshot-iphone-insights-ja.png" data-media-en="/assets/screenshot-iphone-insights-en.png" alt="Record view">
+              </a>
+            </div>
+            <figcaption data-i18n-ja="記録" data-i18n-en="Records">記録</figcaption>
+          </figure>
+        </div>
+
+        <div class="wide-shot">
+          <div>
+            <h3 data-i18n-ja="大きな画面でも使いやすく" data-i18n-en="Designed for larger screens too">大きな画面でも使いやすく</h3>
+            <p data-lang-panel="ja">
+              iPad などの広い画面では、一覧と詳細を見比べながらメモを整理できます。画面サイズに合わせて、密度と読みやすさのバランスを取ります。
+            </p>
+            <p data-lang-panel="en">
+              On iPad and other larger screens, HiMemo lets you review lists and
+              details side by side while keeping the interface readable.
+            </p>
+          </div>
+          <div class="device-frame ipad-frame">
+            <a href="/assets/screenshot-ipad-notes-ja.png" data-media-ja="/assets/screenshot-ipad-notes-ja.png" data-media-en="/assets/screenshot-ipad-notes-en.png">
+              <img src="/assets/screenshot-ipad-notes-ja.png" data-media-ja="/assets/screenshot-ipad-notes-ja.png" data-media-en="/assets/screenshot-ipad-notes-en.png" alt="HiMemo iPad screen">
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow" data-i18n-ja="法務文書" data-i18n-en="Legal">法務文書</div>
+            <h2 data-i18n-ja="同じデザインで確認できます" data-i18n-en="Legal pages use the same design">同じデザインで確認できます</h2>
+          </div>
+          <p data-i18n-ja="プライバシーポリシーと利用規約は、日英の切り替えに対応しています。広告表示や外部サービスの扱いも記載しています。" data-i18n-en="The Privacy Policy and Terms of Use support Japanese and English. They include advertising and external service disclosures.">プライバシーポリシーと利用規約は、日英の切り替えに対応しています。広告表示や外部サービスの扱いも記載しています。</p>
+        </div>
+        <div class="legal-link-grid">
+          <a class="legal-card" href="/privacy/">
+            <h3 data-i18n-ja="プライバシーポリシー" data-i18n-en="Privacy Policy">プライバシーポリシー</h3>
+            <p data-i18n-ja="メモ、同期、広告、診断情報の取り扱い。" data-i18n-en="How notes, sync, ads, and diagnostics are handled.">メモ、同期、広告、診断情報の取り扱い。</p>
           </a>
-          <a class="language-card" href="./terms-ja.html">
-            <strong>利用規約</strong>
-            <span>日本語</span>
-          </a>
-          <a class="language-card" href="./privacy-en.html">
-            <strong>Privacy Policy</strong>
-            <span>English</span>
-          </a>
-          <a class="language-card" href="./terms-en.html">
-            <strong>Terms of Use</strong>
-            <span>English</span>
-          </a>
-          <a class="language-card" href="./contact.html">
-            <strong>Contact</strong>
-            <span>Support and feedback</span>
-          </a>
-          <a class="language-card" href="./help.html">
-            <strong>Help and FAQ</strong>
-            <span>Private profiles and sync guidance</span>
+          <a class="legal-card" href="/terms/">
+            <h3 data-i18n-ja="利用規約" data-i18n-en="Terms of Use">利用規約</h3>
+            <p data-i18n-ja="アプリ利用、同期、復元、外部サービスに関する条件。" data-i18n-en="Terms for app use, sync, recovery, and external services.">アプリ利用、同期、復元、外部サービスに関する条件。</p>
           </a>
         </div>
       </section>
-      <footer>&copy; HiMemo</footer>
+
+      <section class="section">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow">FAQ</div>
+            <h2 data-i18n-ja="よくある質問" data-i18n-en="Questions">よくある質問</h2>
+          </div>
+        </div>
+        <div class="faq-grid">
+          <article class="faq-card">
+            <h3 data-i18n-ja="メモは運営者に見えますか？" data-i18n-en="Can the operator read my notes?">メモは運営者に見えますか？</h3>
+            <p data-i18n-ja="運営者は、端末内や利用者のクラウド領域にあるメモ本文、添付ファイル、復元キーへアクセスできません。" data-i18n-en="The operator cannot access note text, attachments, or recovery keys stored on your device or in your selected cloud service.">運営者は、端末内や利用者のクラウド領域にあるメモ本文、添付ファイル、復元キーへアクセスできません。</p>
+          </article>
+          <article class="faq-card">
+            <h3 data-i18n-ja="広告は表示されますか？" data-i18n-en="Does HiMemo show ads?">広告は表示されますか？</h3>
+            <p data-i18n-ja="広告が有効なビルドでは Google AdMob の広告が表示される場合があります。必要な地域では同意フローを表示します。" data-i18n-en="Builds with advertising enabled may show Google AdMob ads. Consent prompts are shown in regions where they are required.">広告が有効なビルドでは Google AdMob の広告が表示される場合があります。必要な地域では同意フローを表示します。</p>
+          </article>
+        </div>
+      </section>
     </main>
+
+    <footer class="site-footer">
+      <p>&copy; 2026 HiMemo</p>
+      <nav aria-label="Footer">
+        <a href="/privacy/" data-i18n-ja="プライバシー" data-i18n-en="Privacy">プライバシー</a>
+        <a href="/terms/" data-i18n-ja="利用規約" data-i18n-en="Terms">利用規約</a>
+        <a href="/contact.html" data-i18n-ja="お問い合わせ" data-i18n-en="Contact">お問い合わせ</a>
+      </nav>
+    </footer>
   </body>
 </html>

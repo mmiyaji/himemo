@@ -1,0 +1,50 @@
+name: Cloudflare Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/**"
+      - ".github/workflows/cloudflare-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: cloudflare-pages-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CLOUDFLARE_PAGES_PROJECT_NAME: himemo
+  CLOUDFLARE_PAGES_DIRECTORY: docs
+
+jobs:
+  deploy:
+    name: Deploy HiMemo site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Verify static site files
+        shell: bash
+        run: |
+          test -f "$CLOUDFLARE_PAGES_DIRECTORY/index.html"
+          test -f "$CLOUDFLARE_PAGES_DIRECTORY/privacy/index.html"
+          test -f "$CLOUDFLARE_PAGES_DIRECTORY/terms/index.html"
+          test -f "$CLOUDFLARE_PAGES_DIRECTORY/app-ads.txt"
+          test -f "$CLOUDFLARE_PAGES_DIRECTORY/_redirects"
+          test -f "$CLOUDFLARE_PAGES_DIRECTORY/_headers"
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy ${{ env.CLOUDFLARE_PAGES_DIRECTORY }} --project-name=${{ env.CLOUDFLARE_PAGES_PROJECT_NAME }} --branch=${{ github.ref_name }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
