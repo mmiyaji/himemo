@@ -665,6 +665,7 @@ void main() {
 
   test('AdMob stays gated, consented, and policy-aligned', () {
     final homePage = _homePresentationSource();
+    final bootstrap = File('lib/app/bootstrap.dart').readAsStringSync();
     final adMobConfig = File(
       'lib/features/ads/data/ad_mob_config.dart',
     ).readAsStringSync();
@@ -695,6 +696,7 @@ void main() {
     ).readAsStringSync();
     final codemagic = File('codemagic.yaml').readAsStringSync();
     final privacyEn = File('docs/privacy-en.html').readAsStringSync();
+    final privacyJa = File('docs/privacy-ja.html').readAsStringSync();
     final termsEn = File('docs/terms-en.html').readAsStringSync();
     final termsJa = File('docs/terms-ja.html').readAsStringSync();
 
@@ -707,6 +709,8 @@ void main() {
       contains("String.fromEnvironment('HIMEMO_ADMOB_IOS_APP_ID')"),
     );
     expect(adMobConfig, contains('HIMEMO_ADMOB_TEST_DEVICE_IDS'));
+    expect(bootstrap, isNot(contains('ad_mob_initializer.dart')));
+    expect(bootstrap, isNot(contains('initializeAdMob()')));
     expect(homePage, contains('const _inlineAdMinimumNoteCount = 6;'));
     expect(homePage, contains('const _inlineAdAfterNoteCount = 5;'));
     expect(homePage, contains('activeIdentity.id == \'daily\''));
@@ -744,6 +748,14 @@ void main() {
     expect(inlineAdCard, contains('initializeAdMob()'));
     expect(inlineAdCard, contains('AdRequest(nonPersonalizedAds: true)'));
     expect(inlineAdCard, contains('_scheduleFailedLoadRetry(width)'));
+    final consentIndex = inlineAdCard.indexOf(
+      'final consent = await AdMobConsent.requestIfNeeded();',
+    );
+    final canRequestIndex = inlineAdCard.indexOf('if (!consent.canRequestAds)');
+    final initializeIndex = inlineAdCard.indexOf('await initializeAdMob();');
+    expect(consentIndex, isNonNegative);
+    expect(canRequestIndex, greaterThan(consentIndex));
+    expect(initializeIndex, greaterThan(canRequestIndex));
     expect(
       adMobConsentExport,
       contains("if (dart.library.io) 'ad_mob_consent_mobile.dart'"),
@@ -790,6 +802,15 @@ void main() {
     expect(codemagic, contains('ios/Flutter/AdMob.xcconfig'));
     expect(privacyEn, contains('Google AdMob: ad delivery'));
     expect(privacyEn, contains('non-personalized ads'));
+    expect(privacyEn, contains('https://policies.google.com/technologies/ads'));
+    expect(privacyEn, contains('https://policies.google.com/privacy'));
+    expect(privacyEn, contains('https://adssettings.google.com/'));
+    expect(
+      privacyJa,
+      contains('https://policies.google.com/technologies/ads?hl=ja'),
+    );
+    expect(privacyJa, contains('https://policies.google.com/privacy?hl=ja'));
+    expect(privacyJa, contains('https://adssettings.google.com/'));
     expect(termsEn, contains('Google AdMob'));
     expect(termsEn, contains('may display advertisements'));
     expect(termsJa, contains('Google AdMob'));
