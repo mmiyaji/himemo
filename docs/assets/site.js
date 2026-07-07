@@ -1,6 +1,7 @@
 (() => {
   const storageKey = 'himemo-site-language';
   const languages = ['ja', 'en'];
+  let lightbox = null;
 
   const readSavedLanguage = () => {
     try {
@@ -39,6 +40,35 @@
       return saved;
     }
     return window.navigator.language.toLowerCase().startsWith('ja') ? 'ja' : 'en';
+  };
+
+  const refreshLightbox = () => {
+    if (typeof window.GLightbox !== 'function') {
+      return;
+    }
+
+    if (!lightbox) {
+      lightbox = window.GLightbox({
+        selector: '.glightbox',
+        touchNavigation: true,
+        loop: true,
+        zoomable: true,
+      });
+      return;
+    }
+
+    if (typeof lightbox.reload === 'function') {
+      lightbox.reload();
+      return;
+    }
+
+    lightbox.destroy();
+    lightbox = window.GLightbox({
+      selector: '.glightbox',
+      touchNavigation: true,
+      loop: true,
+      zoomable: true,
+    });
   };
 
   const setLanguage = (language, options = {}) => {
@@ -83,10 +113,24 @@
       }
     });
 
+    document
+      .querySelectorAll('[data-lightbox-title-ja][data-lightbox-title-en]')
+      .forEach((element) => {
+        const title =
+          nextLanguage === 'ja'
+            ? element.dataset.lightboxTitleJa
+            : element.dataset.lightboxTitleEn;
+        if (title) {
+          element.setAttribute('data-title', title);
+        }
+      });
+
     document.querySelectorAll('[data-lang-choice]').forEach((button) => {
       const selected = button.dataset.langChoice === nextLanguage;
       button.setAttribute('aria-pressed', selected ? 'true' : 'false');
     });
+
+    refreshLightbox();
   };
 
   document.addEventListener('DOMContentLoaded', () => {

@@ -11,6 +11,9 @@ void main() {
       'docs/app-ads.txt',
       'docs/_headers',
       'docs/_redirects',
+      'docs/assets/vendor/glightbox/glightbox.min.css',
+      'docs/assets/vendor/glightbox/glightbox.min.js',
+      'docs/assets/vendor/glightbox/LICENSE.md',
       '.github/workflows/cloudflare-pages.yml',
     ];
 
@@ -45,9 +48,15 @@ void main() {
     expect(index, contains('screenshot-iphone-notes-en.png'));
     expect(index, contains('screenshot-iphone-private-ja.png'));
     expect(index, contains('screenshot-iphone-insights-en.png'));
+    expect(index, contains('assets/vendor/glightbox/glightbox.min.css'));
+    expect(index, contains('assets/vendor/glightbox/glightbox.min.js'));
+    expect(index, contains('class="glightbox"'));
+    expect(index, contains('data-gallery="himemo-screens"'));
     expect(index, contains('data-media-ja'));
     expect(index, contains('data-media-en'));
     expect(script, contains("const storageKey = 'himemo-site-language'"));
+    expect(script, contains('GLightbox'));
+    expect(script, contains('data-lightbox-title-ja'));
     expect(script, contains('data-lang-choice'));
   });
 

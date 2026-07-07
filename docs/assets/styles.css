@@ -252,15 +252,29 @@ li + li {
 }
 
 .device-frame {
-  background: #211b20;
-  border: 1px solid rgba(32, 28, 31, 0.12);
-  box-shadow: var(--shadow);
+  background: #fffdfd;
+  border: 1px solid rgba(32, 28, 31, 0.14);
+  box-shadow: 0 10px 26px rgba(83, 58, 68, 0.12);
   overflow: hidden;
 }
 
 .device-frame a,
 .device-frame img {
   display: block;
+}
+
+.device-frame a {
+  border-radius: inherit;
+  cursor: zoom-in;
+  outline-offset: 4px;
+}
+
+.device-frame a:focus-visible {
+  outline: 3px solid rgba(204, 111, 129, 0.36);
+}
+
+.device-frame:hover {
+  border-color: rgba(32, 28, 31, 0.22);
 }
 
 .device-frame img {
@@ -270,13 +284,13 @@ li + li {
 }
 
 .phone-frame {
-  border-radius: 30px;
+  border-radius: 24px;
   max-width: 276px;
-  padding: 9px;
+  padding: 4px;
 }
 
 .phone-frame img {
-  border-radius: 22px;
+  border-radius: 20px;
 }
 
 .phone-frame.secondary {
@@ -284,12 +298,12 @@ li + li {
 }
 
 .ipad-frame {
-  border-radius: 22px;
-  padding: 8px;
+  border-radius: 18px;
+  padding: 5px;
 }
 
 .ipad-frame img {
-  border-radius: 14px;
+  border-radius: 13px;
 }
 
 .section {
@@ -368,6 +382,11 @@ li + li {
   font-weight: 700;
   margin-top: 10px;
   text-align: center;
+}
+
+.gslide-title {
+  font: 800 0.95rem/1.4 Inter, ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 .wide-shot {

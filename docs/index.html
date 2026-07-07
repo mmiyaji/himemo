@@ -11,8 +11,10 @@
     <link rel="canonical" href="https://himemo.ruhenheim.org/">
     <link rel="icon" type="image/png" href="/assets/himemo-icon.png">
     <link rel="apple-touch-icon" href="/assets/himemo-icon.png">
-    <link rel="stylesheet" href="/assets/styles.css?v=20260708">
-    <script src="/assets/site.js?v=20260708" defer></script>
+    <link rel="stylesheet" href="/assets/vendor/glightbox/glightbox.min.css?v=3.3.1">
+    <link rel="stylesheet" href="/assets/styles.css?v=20260708-2">
+    <script src="/assets/vendor/glightbox/glightbox.min.js?v=3.3.1" defer></script>
+    <script src="/assets/site.js?v=20260708-2" defer></script>
   </head>
   <body>
     <header class="site-header">
@@ -62,9 +64,13 @@
         <div class="hero-media" aria-label="HiMemo screenshots">
           <div class="device-frame phone-frame">
             <a
+              class="glightbox"
               href="/assets/screenshot-iphone-notes-ja.png"
+              data-gallery="himemo-screens"
               data-media-ja="/assets/screenshot-iphone-notes-ja.png"
               data-media-en="/assets/screenshot-iphone-notes-en.png"
+              data-lightbox-title-ja="ノート一覧"
+              data-lightbox-title-en="Notes"
               data-i18n-aria-ja="ノート一覧のスクリーンショットを開く"
               data-i18n-aria-en="Open the notes list screenshot"
             >
@@ -78,9 +84,13 @@
           </div>
           <div class="device-frame phone-frame secondary">
             <a
+              class="glightbox"
               href="/assets/screenshot-iphone-private-ja.png"
+              data-gallery="himemo-screens"
               data-media-ja="/assets/screenshot-iphone-private-ja.png"
               data-media-en="/assets/screenshot-iphone-private-en.png"
+              data-lightbox-title-ja="プライベート設定"
+              data-lightbox-title-en="Private settings"
               data-i18n-aria-ja="プライベート設定のスクリーンショットを開く"
               data-i18n-aria-en="Open the private settings screenshot"
             >
@@ -187,7 +197,7 @@
         <div class="screen-grid">
           <figure class="screen-card">
             <div class="device-frame phone-frame">
-              <a href="/assets/screenshot-iphone-notes-ja.png" data-media-ja="/assets/screenshot-iphone-notes-ja.png" data-media-en="/assets/screenshot-iphone-notes-en.png">
+              <a class="glightbox" href="/assets/screenshot-iphone-notes-ja.png" data-gallery="himemo-screens" data-media-ja="/assets/screenshot-iphone-notes-ja.png" data-media-en="/assets/screenshot-iphone-notes-en.png" data-lightbox-title-ja="ノート一覧" data-lightbox-title-en="Notes">
                 <img src="/assets/screenshot-iphone-notes-ja.png" data-media-ja="/assets/screenshot-iphone-notes-ja.png" data-media-en="/assets/screenshot-iphone-notes-en.png" alt="Notes list">
               </a>
             </div>
@@ -195,7 +205,7 @@
           </figure>
           <figure class="screen-card">
             <div class="device-frame phone-frame">
-              <a href="/assets/screenshot-iphone-quick-ja.png" data-media-ja="/assets/screenshot-iphone-quick-ja.png" data-media-en="/assets/screenshot-iphone-quick-en.png">
+              <a class="glightbox" href="/assets/screenshot-iphone-quick-ja.png" data-gallery="himemo-screens" data-media-ja="/assets/screenshot-iphone-quick-ja.png" data-media-en="/assets/screenshot-iphone-quick-en.png" data-lightbox-title-ja="クイックメモ" data-lightbox-title-en="Quick memo">
                 <img src="/assets/screenshot-iphone-quick-ja.png" data-media-ja="/assets/screenshot-iphone-quick-ja.png" data-media-en="/assets/screenshot-iphone-quick-en.png" alt="Quick memo">
               </a>
             </div>
@@ -203,7 +213,7 @@
           </figure>
           <figure class="screen-card">
             <div class="device-frame phone-frame">
-              <a href="/assets/screenshot-iphone-private-ja.png" data-media-ja="/assets/screenshot-iphone-private-ja.png" data-media-en="/assets/screenshot-iphone-private-en.png">
+              <a class="glightbox" href="/assets/screenshot-iphone-private-ja.png" data-gallery="himemo-screens" data-media-ja="/assets/screenshot-iphone-private-ja.png" data-media-en="/assets/screenshot-iphone-private-en.png" data-lightbox-title-ja="プライベート設定" data-lightbox-title-en="Private settings">
                 <img src="/assets/screenshot-iphone-private-ja.png" data-media-ja="/assets/screenshot-iphone-private-ja.png" data-media-en="/assets/screenshot-iphone-private-en.png" alt="Private settings">
               </a>
             </div>
@@ -211,7 +221,7 @@
           </figure>
           <figure class="screen-card">
             <div class="device-frame phone-frame">
-              <a href="/assets/screenshot-iphone-insights-ja.png" data-media-ja="/assets/screenshot-iphone-insights-ja.png" data-media-en="/assets/screenshot-iphone-insights-en.png">
+              <a class="glightbox" href="/assets/screenshot-iphone-insights-ja.png" data-gallery="himemo-screens" data-media-ja="/assets/screenshot-iphone-insights-ja.png" data-media-en="/assets/screenshot-iphone-insights-en.png" data-lightbox-title-ja="記録" data-lightbox-title-en="Records">
                 <img src="/assets/screenshot-iphone-insights-ja.png" data-media-ja="/assets/screenshot-iphone-insights-ja.png" data-media-en="/assets/screenshot-iphone-insights-en.png" alt="Record view">
               </a>
             </div>
@@ -231,7 +241,7 @@
             </p>
           </div>
           <div class="device-frame ipad-frame">
-            <a href="/assets/screenshot-ipad-notes-ja.png" data-media-ja="/assets/screenshot-ipad-notes-ja.png" data-media-en="/assets/screenshot-ipad-notes-en.png">
+            <a class="glightbox" href="/assets/screenshot-ipad-notes-ja.png" data-gallery="himemo-screens" data-media-ja="/assets/screenshot-ipad-notes-ja.png" data-media-en="/assets/screenshot-ipad-notes-en.png" data-lightbox-title-ja="iPad 画面" data-lightbox-title-en="iPad screen">
               <img src="/assets/screenshot-ipad-notes-ja.png" data-media-ja="/assets/screenshot-ipad-notes-ja.png" data-media-en="/assets/screenshot-ipad-notes-en.png" alt="HiMemo iPad screen">
             </a>
           </div>
