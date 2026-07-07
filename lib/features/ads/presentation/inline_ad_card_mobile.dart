@@ -6,7 +6,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 import '../data/ad_mob_config.dart';
 
 class HiMemoInlineAdCard extends StatefulWidget {
-  const HiMemoInlineAdCard({super.key, this.maxHeight = 120});
+  const HiMemoInlineAdCard({super.key, this.maxHeight = 96});
 
   final double maxHeight;
 
@@ -39,14 +39,23 @@ class _HiMemoInlineAdCardState extends State<HiMemoInlineAdCard> {
 
         final ad = _ad;
         final loadedSize = _loadedSize;
-        if (ad == null || loadedSize == null) {
-          return const SizedBox.shrink();
-        }
-
         final colorScheme = Theme.of(context).colorScheme;
-        final adWidth = math.min(loadedSize.width.toDouble(), availableWidth);
+        final slotHeight = widget.maxHeight + 16;
+        final adChild = ad == null || loadedSize == null
+            ? const SizedBox.shrink()
+            : SizedBox(
+                width: math.min(loadedSize.width.toDouble(), availableWidth),
+                height: math.min(
+                  loadedSize.height.toDouble(),
+                  widget.maxHeight,
+                ),
+                child: AdWidget(ad: ad),
+              );
+
         return Container(
           key: const Key('himemo-inline-ad-card'),
+          width: double.infinity,
+          height: slotHeight,
           decoration: BoxDecoration(
             color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.28),
             borderRadius: BorderRadius.circular(8),
@@ -55,13 +64,7 @@ class _HiMemoInlineAdCardState extends State<HiMemoInlineAdCard> {
             ),
           ),
           padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Center(
-            child: SizedBox(
-              width: adWidth,
-              height: loadedSize.height.toDouble(),
-              child: AdWidget(ad: ad),
-            ),
-          ),
+          child: Center(child: adChild),
         );
       },
     );

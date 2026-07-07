@@ -668,6 +668,9 @@ void main() {
     final adMobConfig = File(
       'lib/features/ads/data/ad_mob_config.dart',
     ).readAsStringSync();
+    final inlineAdCard = File(
+      'lib/features/ads/presentation/inline_ad_card_mobile.dart',
+    ).readAsStringSync();
 
     expect(
       adMobConfig,
@@ -681,6 +684,17 @@ void main() {
     expect(homePage, contains('density != NotesListDensity.compact'));
     expect(homePage, contains('notes.length >= _inlineAdMinimumNoteCount'));
     expect(homePage, contains('HiMemoInlineAdCard(maxHeight: 96)'));
+    expect(
+      inlineAdCard,
+      contains('const HiMemoInlineAdCard({super.key, this.maxHeight = 96});'),
+    );
+    expect(inlineAdCard, contains('final slotHeight = widget.maxHeight + 16;'));
+    expect(
+      inlineAdCard,
+      contains('final adChild = ad == null || loadedSize == null'),
+    );
+    expect(inlineAdCard, contains('height: slotHeight'));
+    expect(inlineAdCard, contains('child: Center(child: adChild)'));
   });
 
   test('diagnostic mode exposes iCloud storage maintenance actions', () {
