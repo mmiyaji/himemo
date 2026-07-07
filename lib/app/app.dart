@@ -21,8 +21,8 @@ import 'diagnostic_log.dart';
 import 'app_flavor.dart';
 import 'app_router.dart';
 
-const _termsUrl = 'https://mmiyaji.github.io/himemo/terms.html';
-const _privacyUrl = 'https://mmiyaji.github.io/himemo/privacy.html';
+const _termsUrl = 'https://himemo.ruhenheim.org/terms/';
+const _privacyUrl = 'https://himemo.ruhenheim.org/privacy/';
 const _performanceSeedNoteCount = int.fromEnvironment('HIMEMO_PERF_NOTE_COUNT');
 const _performanceSeedAttachmentsPerNote = int.fromEnvironment(
   'HIMEMO_PERF_ATTACHMENTS_PER_NOTE',

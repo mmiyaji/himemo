@@ -326,6 +326,7 @@ li + li {
 .feature-grid,
 .security-grid,
 .screen-grid,
+.usage-steps,
 .legal-link-grid,
 .faq-grid {
   display: grid;
@@ -334,6 +335,10 @@ li + li {
 
 .feature-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.usage-steps {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .security-grid,
@@ -351,6 +356,7 @@ li + li {
 
 .feature-card,
 .security-card,
+.usage-card,
 .legal-card,
 .faq-card {
   background: var(--surface);
@@ -361,11 +367,36 @@ li + li {
 
 .feature-card p,
 .security-card p,
+.usage-card p,
 .legal-card p,
 .faq-card p {
   color: var(--muted);
   font-size: 0.96rem;
   margin: 0;
+}
+
+.usage-card {
+  display: grid;
+  gap: 8px;
+}
+
+.step-number {
+  align-items: center;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--accent-strong);
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 900;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+
+.legal-card {
+  color: var(--text);
+  text-decoration: none;
 }
 
 .screen-card {
@@ -478,6 +509,7 @@ li + li {
   }
 
   .feature-grid,
+  .usage-steps,
   .security-grid,
   .legal-link-grid,
   .faq-grid {

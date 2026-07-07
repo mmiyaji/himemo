@@ -31,9 +31,11 @@ void main() {
     expect(privacy, contains('Google AdMob'));
     expect(privacy, contains('https://policies.google.com/technologies/ads'));
     expect(privacy, contains('https://adssettings.google.com/'));
+    expect(privacy, contains('/#contact'));
     expect(terms, contains('data-lang-panel="ja"'));
     expect(terms, contains('data-lang-panel="en"'));
     expect(terms, contains('Google AdMob'));
+    expect(terms, contains('/#contact'));
     expect(
       terms,
       contains('advertisements in builds where advertising is enabled'),
@@ -44,6 +46,11 @@ void main() {
     final index = File('docs/index.html').readAsStringSync();
     final script = File('docs/assets/site.js').readAsStringSync();
 
+    expect(index, contains('id="usage"'));
+    expect(index, contains('id="faq"'));
+    expect(index, contains('id="contact"'));
+    expect(index, contains('お問い合わせフォーム'));
+    expect(index, contains('https://forms.gle/LoqaZrjwMgx2RhbX6'));
     expect(index, contains('screenshot-iphone-notes-ja.png'));
     expect(index, contains('screenshot-iphone-notes-en.png'));
     expect(index, contains('screenshot-iphone-private-ja.png'));
@@ -63,9 +70,46 @@ void main() {
   test('legacy legal URLs redirect to canonical routes', () {
     final redirects = File('docs/_redirects').readAsStringSync();
 
+    expect(redirects, contains('/help.html /#usage 301'));
+    expect(redirects, contains('/contact.html /#contact 301'));
     expect(redirects, contains('/privacy-ja.html /privacy/?lang=ja 301'));
     expect(redirects, contains('/privacy-en.html /privacy/?lang=en 301'));
     expect(redirects, contains('/terms-ja.html /terms/?lang=ja 301'));
     expect(redirects, contains('/terms-en.html /terms/?lang=en 301'));
+  });
+
+  test('legacy standalone GitHub Pages documents are not published', () {
+    final removedFiles = <String>[
+      'docs/contact.html',
+      'docs/help.html',
+      'docs/help-ja.html',
+      'docs/help-en.html',
+      'docs/privacy.html',
+      'docs/privacy-ja.html',
+      'docs/privacy-en.html',
+      'docs/terms.html',
+      'docs/terms-ja.html',
+      'docs/terms-en.html',
+      'docs/legal.css',
+      'docs/legal.js',
+    ];
+
+    for (final path in removedFiles) {
+      expect(File(path).existsSync(), isFalse, reason: '$path is redirected');
+    }
+  });
+
+  test('app links use the Cloudflare Pages domain', () {
+    final app = File('lib/app/app.dart').readAsStringSync();
+    final homePage = File(
+      'lib/features/home/presentation/home_page.dart',
+    ).readAsStringSync();
+    final appLinks = '$app\n$homePage';
+
+    expect(appLinks, isNot(contains('mmiyaji.github.io/himemo')));
+    expect(appLinks, contains('https://himemo.ruhenheim.org/terms/'));
+    expect(appLinks, contains('https://himemo.ruhenheim.org/privacy/'));
+    expect(appLinks, contains('https://himemo.ruhenheim.org/#contact'));
+    expect(appLinks, contains('https://himemo.ruhenheim.org/#usage'));
   });
 }
