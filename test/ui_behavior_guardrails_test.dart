@@ -695,6 +695,8 @@ void main() {
     ).readAsStringSync();
     final codemagic = File('codemagic.yaml').readAsStringSync();
     final privacyEn = File('docs/privacy-en.html').readAsStringSync();
+    final termsEn = File('docs/terms-en.html').readAsStringSync();
+    final termsJa = File('docs/terms-ja.html').readAsStringSync();
 
     expect(
       adMobConfig,
@@ -788,6 +790,10 @@ void main() {
     expect(codemagic, contains('ios/Flutter/AdMob.xcconfig'));
     expect(privacyEn, contains('Google AdMob: ad delivery'));
     expect(privacyEn, contains('non-personalized ads'));
+    expect(termsEn, contains('Google AdMob'));
+    expect(termsEn, contains('may display advertisements'));
+    expect(termsJa, contains('Google AdMob'));
+    expect(termsJa, contains('広告が有効なビルドでは'));
     expect(
       privacyEn,
       isNot(
