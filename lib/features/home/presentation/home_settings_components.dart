@@ -6,12 +6,14 @@ class _SettingsOverviewItem {
     required this.value,
     required this.icon,
     this.onTap,
+    this.showOnCompact = false,
   });
 
   final String label;
   final String value;
   final IconData icon;
   final VoidCallback? onTap;
+  final bool showOnCompact;
 }
 
 class _ColorThemeScopeOption {
@@ -22,7 +24,7 @@ class _ColorThemeScopeOption {
 }
 
 class _SettingsOverviewCard extends StatelessWidget {
-  const _SettingsOverviewCard({required this.items});
+  const _SettingsOverviewCard({super.key, required this.items});
 
   final List<_SettingsOverviewItem> items;
 
@@ -36,13 +38,17 @@ class _SettingsOverviewCard extends StatelessWidget {
         builder: (context, constraints) {
           const spacing = 12.0;
           final width = constraints.maxWidth;
-          final columns = width >= 720 ? 4 : (width >= 320 ? 2 : 1);
+          final compact = width < 600;
+          final visibleItems = compact
+              ? items.where((item) => item.showOnCompact)
+              : items;
+          final columns = width >= 720 ? 4 : (width >= 600 ? 2 : 1);
           final itemWidth = (width - spacing * (columns - 1)) / columns;
           return Wrap(
             spacing: spacing,
             runSpacing: spacing,
             children: [
-              for (final item in items)
+              for (final item in visibleItems)
                 SizedBox(
                   width: itemWidth,
                   child: TextButton(
@@ -99,6 +105,37 @@ class _SettingsOverviewCard extends StatelessWidget {
   }
 }
 
+Future<void> _revealExpandedSettingsGroup(BuildContext context) async {
+  await Future<void>.delayed(const Duration(milliseconds: 260));
+  if (!context.mounted) {
+    return;
+  }
+  try {
+    final scrollable = Scrollable.maybeOf(context);
+    final targetBox = context.findRenderObject() as RenderBox?;
+    if (scrollable == null || !scrollable.mounted || targetBox == null) {
+      return;
+    }
+    final viewportBox = scrollable.context.findRenderObject() as RenderBox?;
+    if (viewportBox == null) {
+      return;
+    }
+    final position = scrollable.position;
+    final targetTop = targetBox.localToGlobal(Offset.zero).dy;
+    final viewportTop = viewportBox.localToGlobal(Offset.zero).dy;
+    final targetOffset = (position.pixels + targetTop - viewportTop - 16)
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+    await position.animateTo(
+      targetOffset,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
+  } catch (_) {
+    // The settings route can be replaced while the expansion animates.
+  }
+}
+
 class _SettingsGroup extends StatelessWidget {
   const _SettingsGroup({
     required this.title,
@@ -140,6 +177,11 @@ class _SettingsGroup extends StatelessWidget {
               child: ExpansionTile(
                 controller: controller,
                 maintainState: true,
+                onExpansionChanged: (expanded) {
+                  if (expanded) {
+                    unawaited(_revealExpandedSettingsGroup(context));
+                  }
+                },
                 tilePadding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 10,

@@ -280,7 +280,6 @@ void main() {
     expect(homePage, contains('height: _tapSize + _verticalOffset'));
     expect(homePage, contains('alignment: Alignment.bottomCenter'));
     expect(homePage, contains('shape: BoxShape.circle'));
-    expect(homePage, contains('enabled: false'));
     expect(
       homePage,
       contains('static const _compactBottomNavLabelBreakpoint = 380.0'),
@@ -295,16 +294,12 @@ void main() {
     expect(homePage, contains('label: bottomNavLabel(strings.notes)'));
     expect(homePage, contains('NavigationDestinationLabelBehavior.alwaysHide'));
     expect(homePage, contains('NavigationDestinationLabelBehavior.alwaysShow'));
-    expect(homePage, contains("tooltip: ''"));
     expect(homePage, contains('tooltip: strings.notes'));
     expect(homePage, contains('tooltip: strings.calendar'));
-    expect(homePage, contains('if (index == 2)'));
     expect(homePage, contains('Positioned('));
     expect(homePage, contains('static const _createNoteNavTopOffset = -4.0'));
     expect(homePage, contains('top: _createNoteNavTopOffset'));
-    expect(homePage, contains('icon: SizedBox.shrink()'));
     expect(homePage, contains('child: _CreateNoteNavButton('));
-    expect(homePage, contains('showNoteEditorSheet(context, ref);'));
     expect(createNoteIcon, contains('<svg'));
     expect(createNoteIcon, contains('#FFF7F4'));
     expect(createNoteIcon, contains('#9F5261'));
@@ -653,10 +648,6 @@ void main() {
 
     expect(homePage, contains('_markSharedAttachmentForCleanup'));
     expect(homePage, contains('markMaterializedFileForCleanup'));
-    expect(
-      homePage,
-      contains('const _sharedAttachmentCleanupDelay = Duration(hours: 24);'),
-    );
     expect(homePage, contains('mimeType: _mimeTypeForAttachment(attachment)'));
     expect(
       homePage,

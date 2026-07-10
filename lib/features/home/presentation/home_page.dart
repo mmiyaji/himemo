@@ -310,11 +310,19 @@ class _AppShellState extends ConsumerState<AppShell> {
           if (useRail)
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 4),
-              child: IconButton(
+              child: Semantics(
                 key: AppShell.headerAddNoteKey,
-                tooltip: strings.addNote,
-                onPressed: () => showNoteEditorSheet(context, ref),
-                icon: const Icon(Icons.edit_note_rounded),
+                label: strings.addNote,
+                button: true,
+                enabled: true,
+                onTap: () => showNoteEditorSheet(context, ref),
+                child: ExcludeSemantics(
+                  child: IconButton(
+                    tooltip: strings.addNote,
+                    onPressed: () => showNoteEditorSheet(context, ref),
+                    icon: const Icon(Icons.edit_note_rounded),
+                  ),
+                ),
               ),
             ),
           if (privateProfileActive || adminMode)
@@ -494,10 +502,6 @@ class _AppShellState extends ConsumerState<AppShell> {
                           : NavigationDestinationLabelBehavior.alwaysShow,
                       selectedIndex: _bottomNavIndexForSection(section),
                       onDestinationSelected: (index) {
-                        if (index == 2) {
-                          showNoteEditorSheet(context, ref);
-                          return;
-                        }
                         _goToSection(
                           context,
                           ref,
@@ -520,13 +524,6 @@ class _AppShellState extends ConsumerState<AppShell> {
                           ),
                           label: bottomNavLabel(strings.calendar),
                           tooltip: strings.calendar,
-                        ),
-                        const NavigationDestination(
-                          enabled: false,
-                          icon: SizedBox.shrink(),
-                          selectedIcon: SizedBox.shrink(),
-                          label: '',
-                          tooltip: '',
                         ),
                         NavigationDestination(
                           key: AppShell.insightsNavKey,
@@ -587,10 +584,10 @@ class _AppShellState extends ConsumerState<AppShell> {
     return switch (section) {
       AppSection.notes => 0,
       AppSection.calendar => 1,
-      AppSection.insights => 3,
-      AppSection.trash => 4,
-      AppSection.tags => 4,
-      AppSection.settings => 4,
+      AppSection.insights => 2,
+      AppSection.trash => 3,
+      AppSection.tags => 3,
+      AppSection.settings => 3,
     };
   }
 
@@ -598,8 +595,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     return switch (index) {
       0 => AppSection.notes,
       1 => AppSection.calendar,
-      3 => AppSection.insights,
-      4 => AppSection.settings,
+      2 => AppSection.insights,
+      3 => AppSection.settings,
       _ => AppSection.notes,
     };
   }

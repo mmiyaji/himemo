@@ -3,6 +3,7 @@ part of 'home_page.dart';
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
+  static const overviewKey = Key('settings-overview');
   static const appLockToggleKey = Key('app-lock-toggle');
   static const appLockRelockImmediateKey = Key('app-lock-relock-immediate');
   static const appLockRelock30SecondsKey = Key('app-lock-relock-30-seconds');
@@ -346,7 +347,7 @@ class SettingsScreen extends ConsumerWidget {
     final profileId = unlockedVaultId.substring(
       customPrivateVaultPrefix.length,
     );
-    final password = await _showSecretSetupDialog(
+    final password = await _showPrivateProfilePasswordSetupDialog(
       context,
       title: strings.text('home.change.current.profile.password'),
       label: strings.text('home.new.password'),
@@ -358,7 +359,7 @@ class SettingsScreen extends ConsumerWidget {
     if (password == null) {
       return;
     }
-    await ref
+    final error = await ref
         .read(privateMemoProfilesControllerProvider.notifier)
         .updateProfilePassword(id: profileId, password: password);
     if (!context.mounted) {
@@ -367,7 +368,7 @@ class SettingsScreen extends ConsumerWidget {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         showCloseIcon: true,
-        content: Text(strings.text('home.profile.password.updated')),
+        content: Text(error ?? strings.text('home.profile.password.updated')),
       ),
     );
   }
@@ -878,6 +879,7 @@ class SettingsScreen extends ConsumerWidget {
       padding: const EdgeInsets.all(16),
       children: [
         _SettingsOverviewCard(
+          key: overviewKey,
           items: [
             _SettingsOverviewItem(
               label: strings.localized(
@@ -890,6 +892,7 @@ class SettingsScreen extends ConsumerWidget {
               ),
               value: currentProfileLabel,
               icon: currentProfileIcon,
+              showOnCompact: true,
               onTap: () => _openSettingsSection(
                 context,
                 _privateProfilesController,
@@ -909,6 +912,7 @@ class SettingsScreen extends ConsumerWidget {
                   ? (strings.text('home.enabled'))
                   : (strings.text('home.disabled')),
               icon: Icons.enhanced_encryption_outlined,
+              showOnCompact: true,
               onTap: () => _openSettingsSection(
                 context,
                 _appSecurityController,
@@ -921,6 +925,7 @@ class SettingsScreen extends ConsumerWidget {
                   ? (strings.text('home.off'))
                   : (strings.text('home.configured')),
               icon: Icons.sync_outlined,
+              showOnCompact: true,
               onTap: () => _openSettingsSection(
                 context,
                 _syncController,

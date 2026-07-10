@@ -3591,10 +3591,6 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
         location: _location,
       );
       final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
-      for (final filePath in _pendingAttachmentDeletes) {
-        await attachmentStore.deleteAttachment(filePath);
-      }
-      _pendingAttachmentDeletes.clear();
       await ref
           .read(lastNoteEditorSettingsControllerProvider.notifier)
           .remember(
@@ -3603,6 +3599,18 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
             captureLocation: _captureLocationEnabled,
           );
       await ref.read(notesControllerProvider.notifier).upsert(note);
+      for (final filePath in _pendingAttachmentDeletes) {
+        try {
+          await attachmentStore.deleteAttachment(filePath);
+        } catch (error) {
+          logDiagnostic(
+            'note_editor',
+            'deferred attachment cleanup failed',
+            data: {'filePath': filePath, 'error': error},
+          );
+        }
+      }
+      _pendingAttachmentDeletes.clear();
       if (widget.note == null) {
         await ref.read(noteEditorDraftStoreProvider).clear();
       }
@@ -5994,6 +6002,10 @@ Future<void> _markSharedAttachmentForCleanup(
   String tempFilePath,
 ) async {
   try {
+    await attachmentStore.deleteMaterializedFile(tempFilePath);
+    return;
+  } catch (_) {}
+  try {
     await attachmentStore.markMaterializedFileForCleanup(
       tempFilePath,
       deleteAfter: DateTime.now().add(_sharedAttachmentCleanupDelay),
@@ -6001,7 +6013,7 @@ Future<void> _markSharedAttachmentForCleanup(
   } catch (_) {}
 }
 
-const _sharedAttachmentCleanupDelay = Duration(hours: 24);
+const _sharedAttachmentCleanupDelay = Duration(minutes: 10);
 
 String _mimeTypeForAttachment(NoteAttachment attachment) {
   return switch (attachment.type) {

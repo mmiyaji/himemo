@@ -71,15 +71,10 @@ List<RemoteSyncBundleStatus> selectRemoteBundlesToApply({
       (status) => status.fileId == anchorFileId,
     );
     if (anchorIndex != -1) {
-      return history
-          .sublist(0, anchorIndex)
-          .reversed
-          .toList(growable: false);
+      return history.sublist(0, anchorIndex).reversed.toList(growable: false);
     }
   }
-  final newestFullIndex = history.indexWhere(
-    (status) => status.isFullBundle,
-  );
+  final newestFullIndex = history.indexWhere((status) => status.isFullBundle);
   if (newestFullIndex == -1) {
     return history.reversed.toList(growable: false);
   }

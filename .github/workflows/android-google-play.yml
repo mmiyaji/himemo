@@ -39,12 +39,6 @@ on:
         options:
           - workload_identity
           - service_account_json
-      run_tests:
-        description: "Run analyze and unit tests before building."
-        required: true
-        default: true
-        type: boolean
-
 permissions:
   contents: read
   id-token: write
@@ -79,21 +73,45 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
       - name: Show toolchain versions
         run: |
           flutter --version
           java -version
 
       - name: Resolve Android version
+        env:
+          GOOGLE_AUTH_METHOD: ${{ inputs.google_auth_method }}
+          PLAY_TRACK: ${{ inputs.track }}
+          RELEASE_STATUS: ${{ inputs.release_status }}
+          REQUESTED_VERSION_CODE: ${{ inputs.version_code }}
         run: |
           set -euo pipefail
+          case "$PLAY_TRACK" in
+            internal|alpha|beta|production) ;;
+            *) echo "Unsupported Google Play track."; exit 1 ;;
+          esac
+          case "$RELEASE_STATUS" in
+            completed|draft|inProgress) ;;
+            *) echo "Unsupported Google Play release status."; exit 1 ;;
+          esac
+          case "$GOOGLE_AUTH_METHOD" in
+            workload_identity|service_account_json) ;;
+            *) echo "Unsupported Google authentication method."; exit 1 ;;
+          esac
           VERSION_NAME="$(sed -nE 's/^version:[[:space:]]*([0-9A-Za-z.+-]+).*/\1/p' pubspec.yaml | head -n 1 | cut -d + -f 1)"
           if [ -z "$VERSION_NAME" ]; then
             echo "Could not resolve version name from pubspec.yaml."
             exit 1
           fi
-          if [ -n "${{ inputs.version_code }}" ]; then
-            VERSION_CODE="${{ inputs.version_code }}"
+          if [ -n "$REQUESTED_VERSION_CODE" ]; then
+            VERSION_CODE="$REQUESTED_VERSION_CODE"
           else
             VERSION_CODE="$(date -u +%y%m%d%H)"
           fi
@@ -113,11 +131,29 @@ jobs:
       - name: Install Flutter dependencies
         run: flutter pub get
 
-      - name: Run release checks
-        if: ${{ inputs.run_tests }}
+      - name: Check Dart formatting
+        run: >-
+          dart format --output=none --set-exit-if-changed
+          lib test integration_test patrol_test test_driver
+
+      - name: Analyze Flutter sources
+        run: flutter analyze --fatal-infos
+
+      - name: Run Flutter unit and widget tests
+        run: flutter test test
+
+      - name: Build development Web app
+        run: >-
+          flutter build web --no-wasm-dry-run
+          -t lib/main_development.dart
+
+      - name: Validate Functions
         run: |
-          flutter analyze
-          flutter test test
+          set -euo pipefail
+          npm --prefix functions ci
+          npm --prefix functions run lint
+          npm --prefix functions test
+          npm --prefix functions audit --omit=dev --audit-level=high
 
       - name: Install Android upload signing assets
         env:
@@ -194,10 +230,14 @@ jobs:
 
       - name: Upload to Google Play
         if: ${{ inputs.upload_to_google_play }}
+        env:
+          PLAY_TRACK: ${{ inputs.track }}
+          RELEASE_STATUS: ${{ inputs.release_status }}
         run: |
+          set -euo pipefail
           python tools/google_play/upload_bundle.py \
             --package-name "$PACKAGE_NAME" \
             --bundle "$AAB_PATH" \
-            --track "${{ inputs.track }}" \
-            --status "${{ inputs.release_status }}" \
+            --track "$PLAY_TRACK" \
+            --status "$RELEASE_STATUS" \
             --release-name "$VERSION_NAME ($VERSION_CODE)"

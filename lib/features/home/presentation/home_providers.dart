@@ -3275,9 +3275,6 @@ final syncBundleKeyServiceProvider = Provider<SyncBundleKeyService>((ref) {
     fallbackStore: usesICloudSharedKey
         ? ref.watch(secureKeyValueStoreProvider)
         : null,
-    cloudStore: provider == SyncProvider.googleDrive
-        ? ref.watch(googleDriveCloudSyncBundleKeyStoreProvider)
-        : null,
     keyFactory: encryption.generateKeyBytes,
   );
 });
@@ -3374,7 +3371,7 @@ final googleDriveSyncTransportProvider = Provider<GoogleDriveSyncTransport>((
 });
 
 final googleDriveCloudSyncBundleKeyStoreProvider =
-    Provider<CloudSyncBundleKeyStore>((ref) {
+    Provider<GoogleDriveCloudSyncBundleKeyStore>((ref) {
       return GoogleDriveCloudSyncBundleKeyStore(
         ref.watch(googleDriveSyncTransportProvider),
       );
@@ -7403,6 +7400,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     Future<T> Function() operation,
   ) async {
     try {
+      await _ensureGoogleDriveSyncKeyReady();
       return await operation();
     } catch (error, stackTrace) {
       if (!_isRecoverableGoogleDriveAuthorizationError(error)) {
@@ -7413,8 +7411,33 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       if (!authController.stateFor(SyncProvider.googleDrive).isAuthenticated) {
         Error.throwWithStackTrace(error, stackTrace);
       }
+      await ref
+          .read(syncProviderControllerProvider.notifier)
+          .prepareGoogleDriveSyncKeyAfterAuthentication(
+            accountId: authController.stateFor(SyncProvider.googleDrive).userId,
+            force: true,
+          );
       return await operation();
     }
+  }
+
+  Future<void> _ensureGoogleDriveSyncKeyReady() async {
+    final authController = ref.read(syncAuthControllerProvider.notifier);
+    var authState = authController.stateFor(SyncProvider.googleDrive);
+    if (!authState.isAuthenticated) {
+      await authController.connect(SyncProvider.googleDrive);
+      authState = authController.stateFor(SyncProvider.googleDrive);
+    }
+    if (!authState.isAuthenticated) {
+      throw StateError(
+        authState.message ?? 'Google Drive authentication is required.',
+      );
+    }
+    await ref
+        .read(syncProviderControllerProvider.notifier)
+        .prepareGoogleDriveSyncKeyAfterAuthentication(
+          accountId: authState.userId,
+        );
   }
 
   bool _isRecoverableGoogleDriveAuthorizationError(Object error) {
@@ -7641,6 +7664,15 @@ class PrivateMemoProfileStore {
   final String listStorageKey;
   final String verifierStoragePrefix;
 
+  static const minimumPasswordLength = 10;
+
+  String? _passwordValidationError(String password) {
+    if (password.runes.length < minimumPasswordLength) {
+      return 'Use at least $minimumPasswordLength characters for a private profile password.';
+    }
+    return null;
+  }
+
   Future<List<PrivateMemoProfile>> listProfiles() async {
     final prefs = await _sharedPreferencesProvider();
     final payload = prefs.getString(listStorageKey);
@@ -7760,10 +7792,19 @@ class PrivateMemoProfileStore {
     required String name,
     required String password,
   }) async {
+    final validationError = _passwordValidationError(password);
+    if (validationError != null) {
+      return validationError;
+    }
     final existing = await listProfiles();
-    final duplicate = await verifyAny(password);
-    if (duplicate != null) {
-      return 'That password already unlocks another profile.';
+    for (final profile in existing) {
+      final duplicate = await _profileDataKeyService.verifyProfilePassword(
+        vaultId: profile.vaultId,
+        password: password,
+      );
+      if (duplicate) {
+        return 'That password already unlocks another profile.';
+      }
     }
     final profile = PrivateMemoProfile(
       id: _createProfileId(),
@@ -7793,20 +7834,20 @@ class PrivateMemoProfileStore {
     final profiles = await listProfiles();
     final matches = <PrivateMemoProfile>[];
     for (final profile in profiles) {
-      final matched = await _verifyProfilePassword(profile.id, password);
-      if (matched) {
-        final unlocked = await _profileDataKeyService.unlockProfile(
-          vaultId: profile.vaultId,
-          password: password,
-        );
-        if (unlocked) {
-          matches.add(profile);
-        }
+      final unlocked = await _profileDataKeyService.unlockProfile(
+        vaultId: profile.vaultId,
+        password: password,
+      );
+      if (unlocked) {
+        matches.add(profile);
       }
     }
     if (matches.isNotEmpty) {
       matches.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       final profile = matches.first;
+      for (final extraMatch in matches.skip(1)) {
+        _profileDataKeyService.lockProfile(extraMatch.vaultId);
+      }
       return UnlockProfileResult(
         vaultId: profile.vaultId,
         label: profile.name,
@@ -7846,21 +7887,33 @@ class PrivateMemoProfileStore {
     await _saveProfiles(renamed);
   }
 
-  Future<void> updateProfilePassword({
+  Future<String?> updateProfilePassword({
     required String id,
     required String password,
   }) async {
+    final validationError = _passwordValidationError(password);
+    if (validationError != null) {
+      return validationError;
+    }
     final profiles = await listProfiles();
     if (!profiles.any((profile) => profile.id == id)) {
-      return;
+      return 'Private profile was not found.';
     }
     final vaultId = '$customPrivateVaultPrefix$id';
     if (!_profileDataKeyService.isProfileUnlocked(vaultId)) {
-      return;
+      return 'Unlock this private profile before changing its password.';
     }
-    final encryption = EncryptionService();
-    final salt = encryption.generateSalt();
-    final verifier = await encryption.deriveSecretVerifier(
+    for (final profile in profiles.where((profile) => profile.id != id)) {
+      final duplicate = await _profileDataKeyService.verifyProfilePassword(
+        vaultId: profile.vaultId,
+        password: password,
+      );
+      if (duplicate) {
+        return 'That password already unlocks another profile.';
+      }
+    }
+    final salt = _encryptionService.generateSalt();
+    final verifier = await _encryptionService.deriveSecretVerifier(
       secret: password,
       salt: salt,
     );
@@ -7869,31 +7922,19 @@ class PrivateMemoProfileStore {
       newPassword: password,
     );
     if (!changed) {
-      return;
-    }
-    await _secureStore.write(
-      '$verifierStoragePrefix$id',
-      jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
-    );
-  }
-
-  Future<bool> _verifyProfilePassword(String id, String password) async {
-    final stored = await _secureStore.read('$verifierStoragePrefix$id');
-    if (stored == null || stored.isEmpty) {
-      return false;
+      return 'The private profile password could not be changed.';
     }
     try {
-      final decoded = Map<String, dynamic>.from(
-        jsonDecode(stored) as Map<String, dynamic>,
+      await _secureStore.write(
+        '$verifierStoragePrefix$id',
+        jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
       );
-      final verifier = await _encryptionService.deriveSecretVerifier(
-        secret: password,
-        salt: base64Decode(decoded['salt'] as String),
-      );
-      return verifier == decoded['verifier'];
     } catch (_) {
-      return false;
+      // The wrapped data key is the authentication source of truth. Remove a
+      // stale verifier rather than leaving the two records contradictory.
+      await _secureStore.delete('$verifierStoragePrefix$id');
     }
+    return null;
   }
 
   Future<void> _saveProfiles(List<PrivateMemoProfile> profiles) async {
@@ -8202,7 +8243,8 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
       await _markIntegrityApproved(provider);
     }
 
-    final next = await ref.read(syncAuthGatewayProvider).connect(provider);
+    var next = await ref.read(syncAuthGatewayProvider).connect(provider);
+    next = await _prepareGoogleDriveKeyIfAuthenticated(next);
 
     _update(provider, next);
     await _persist();
@@ -8253,8 +8295,7 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
         await authorizationClient.authorizeScopes(_googleScopes);
       }
 
-      _update(
-        provider,
+      final next = await _prepareGoogleDriveKeyIfAuthenticated(
         SyncAuthState(
           provider: provider,
           stage: SyncAuthStage.authenticated,
@@ -8264,6 +8305,7 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
           message: 'Google Drive app-data access is authorized.',
         ),
       );
+      _update(provider, next);
       await _persist();
     } on GoogleSignInException catch (error) {
       _update(
@@ -8291,8 +8333,32 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
 
   Future<void> disconnect(SyncProvider provider) async {
     await ref.read(syncAuthGatewayProvider).disconnect(provider);
+    if (provider == SyncProvider.googleDrive) {
+      ref
+          .read(syncProviderControllerProvider.notifier)
+          .markGoogleDriveSyncKeyPending();
+    }
     _update(provider, SyncAuthState.idle(provider));
     await _persist();
+  }
+
+  Future<SyncAuthState> _prepareGoogleDriveKeyIfAuthenticated(
+    SyncAuthState next,
+  ) async {
+    if (next.provider != SyncProvider.googleDrive || !next.isAuthenticated) {
+      return next;
+    }
+    try {
+      await ref
+          .read(syncProviderControllerProvider.notifier)
+          .prepareGoogleDriveSyncKeyAfterAuthentication(
+            accountId: next.userId,
+            force: true,
+          );
+      return next;
+    } catch (error) {
+      return next.copyWith(stage: SyncAuthStage.error, message: '$error');
+    }
   }
 
   void _update(SyncProvider provider, SyncAuthState next) {
@@ -9084,6 +9150,18 @@ final appLockSettingsControllerProvider =
       AppLockSettingsController.new,
     );
 
+final appLockSettingsReadyProvider =
+    NotifierProvider<AppLockSettingsReadyController, bool>(
+      AppLockSettingsReadyController.new,
+    );
+
+class AppLockSettingsReadyController extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void markReady() => state = true;
+}
+
 class AppLockSettingsController extends Notifier<bool> {
   static const _storageKey = 'settings.app_lock_enabled';
   bool _restored = false;
@@ -9103,13 +9181,18 @@ class AppLockSettingsController extends Notifier<bool> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_storageKey, enabled);
     } catch (_) {}
+    ref.read(appLockSettingsReadyProvider.notifier).markReady();
   }
 
   Future<void> _restore() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       state = prefs.getBool(_storageKey) ?? false;
-    } catch (_) {}
+    } catch (_) {
+      // Fail closed in the gate until this restore attempt has completed.
+    } finally {
+      ref.read(appLockSettingsReadyProvider.notifier).markReady();
+    }
   }
 }
 
@@ -9542,7 +9625,11 @@ final syncProviderControllerProvider =
 
 class SyncProviderController extends Notifier<SyncProvider> {
   static const _storageKey = 'settings.sync_provider';
+  static const _googleDriveAccountBindingPrefix =
+      'security.sync_bundle.google_account.v1.';
   bool _restored = false;
+  String? _preparedGoogleDriveAccountId;
+  Future<void>? _googleDriveKeyPreparation;
 
   @override
   SyncProvider build() {
@@ -9561,19 +9648,36 @@ class SyncProviderController extends Notifier<SyncProvider> {
     String? carriedBackupCode;
     if (provider == SyncProvider.googleDrive &&
         previous != SyncProvider.googleDrive) {
-      try {
-        carriedBackupCode = await ref
-            .read(syncBundleKeyServiceProvider)
-            .exportBackupCode();
-      } catch (_) {}
+      carriedBackupCode = await _syncBundleKeyServiceFor(
+        previous,
+      ).exportExistingBackupCode();
     }
     state = provider;
+    if (provider != previous) {
+      _preparedGoogleDriveAccountId = null;
+    }
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_storageKey, provider.name);
     } catch (_) {}
-    if (provider == SyncProvider.googleDrive) {
-      await _prepareGoogleDriveSyncKey(carriedBackupCode);
+    if (provider == SyncProvider.googleDrive &&
+        carriedBackupCode != null &&
+        carriedBackupCode.isNotEmpty) {
+      try {
+        // Moving from iCloud to Google Drive changes the secure-store source.
+        // Carry the existing key locally now; Drive is contacted only after
+        // Google authentication succeeds.
+        await _syncBundleKeyServiceFor(
+          SyncProvider.googleDrive,
+        ).importBackupCode(carriedBackupCode);
+      } catch (_) {
+        state = previous;
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_storageKey, previous.name);
+        } catch (_) {}
+        rethrow;
+      }
     }
     if (provider != SyncProvider.off && provider != previous) {
       await ref
@@ -9583,30 +9687,172 @@ class SyncProviderController extends Notifier<SyncProvider> {
     }
   }
 
-  Future<void> _prepareGoogleDriveSyncKey(String? carriedBackupCode) async {
-    try {
-      final cloudStore = ref.read(googleDriveCloudSyncBundleKeyStoreProvider);
-      final remoteBackupCode = await cloudStore.readBackupCode();
-      if (remoteBackupCode != null && remoteBackupCode.isNotEmpty) {
-        await ref
-            .read(syncBundleKeyServiceProvider)
-            .importBackupCode(remoteBackupCode);
-        return;
-      }
-    } catch (_) {}
-
-    if (carriedBackupCode != null && carriedBackupCode.isNotEmpty) {
-      try {
-        await ref
-            .read(syncBundleKeyServiceProvider)
-            .importBackupCode(carriedBackupCode);
-        return;
-      } catch (_) {}
+  Future<void> prepareGoogleDriveSyncKeyAfterAuthentication({
+    String? accountId,
+    bool force = false,
+  }) async {
+    if (state != SyncProvider.googleDrive) {
+      throw StateError('Select Google Drive before connecting an account.');
+    }
+    final resolvedAccountId =
+        (accountId ??
+                ref
+                    .read(syncAuthControllerProvider.notifier)
+                    .stateFor(SyncProvider.googleDrive)
+                    .userId ??
+                '')
+            .trim();
+    if (resolvedAccountId.isEmpty) {
+      throw StateError('Google Drive authentication is required for sync.');
+    }
+    if (!force && _preparedGoogleDriveAccountId == resolvedAccountId) {
+      return;
     }
 
+    final pending = _googleDriveKeyPreparation;
+    if (pending != null) {
+      await pending;
+      if (!force && _preparedGoogleDriveAccountId == resolvedAccountId) {
+        return;
+      }
+    }
+
+    final preparation = _prepareGoogleDriveSyncKey(resolvedAccountId);
+    _googleDriveKeyPreparation = preparation;
     try {
-      await ref.read(syncBundleKeyServiceProvider).obtainOrCreate();
-    } catch (_) {}
+      await preparation;
+      _preparedGoogleDriveAccountId = resolvedAccountId;
+    } finally {
+      if (identical(_googleDriveKeyPreparation, preparation)) {
+        _googleDriveKeyPreparation = null;
+      }
+    }
+  }
+
+  void markGoogleDriveSyncKeyPending() {
+    _preparedGoogleDriveAccountId = null;
+  }
+
+  Future<void> _prepareGoogleDriveSyncKey(String accountId) async {
+    final cloudStore = ref.read(googleDriveCloudSyncBundleKeyStoreProvider);
+    final keyService = _syncBundleKeyServiceFor(SyncProvider.googleDrive);
+    final legacyBackupCodes = await cloudStore.readBackupCodes();
+    final localBackupCode = await keyService.exportExistingBackupCode();
+
+    if (legacyBackupCodes.isNotEmpty) {
+      final remoteBackupCode = legacyBackupCodes.first;
+      for (final duplicateCode in legacyBackupCodes.skip(1)) {
+        if (!keyService.backupCodesMatch(remoteBackupCode, duplicateCode)) {
+          throw StateError(
+            'Google Drive contains conflicting legacy recovery keys. No key was deleted; resolve the account data before syncing.',
+          );
+        }
+      }
+      if (localBackupCode != null &&
+          !keyService.backupCodesMatch(localBackupCode, remoteBackupCode)) {
+        throw StateError(
+          'Google Drive uses a different sync recovery key. Import the matching recovery key before enabling sync.',
+        );
+      }
+      // One-time compatibility migration: persist the legacy key locally
+      // before removing every raw copy from Drive.
+      await keyService.importBackupCode(remoteBackupCode);
+      await cloudStore.deleteBackupCode();
+      await _bindGoogleDriveAccount(accountId, keyService);
+      return;
+    }
+
+    final localFingerprint = await keyService.existingFullFingerprint();
+    final boundFingerprint = await _readGoogleDriveAccountBinding(accountId);
+    if (localFingerprint != null && boundFingerprint == localFingerprint) {
+      return;
+    }
+
+    final transport = ref.read(googleDriveSyncTransportProvider);
+    final remoteBundleStatus = await transport.fetchLatestBundleStatus();
+    final remoteAttachmentHashes = await transport
+        .listAttachmentObjectContentHashes();
+    final hasRemoteEncryptedData =
+        remoteBundleStatus != null || remoteAttachmentHashes.isNotEmpty;
+
+    if (localFingerprint == null && hasRemoteEncryptedData) {
+      throw StateError(
+        'Google Drive already contains encrypted data. Import its recovery key before enabling sync.',
+      );
+    }
+
+    if (localFingerprint == null) {
+      await keyService.obtainOrCreate();
+      await _bindGoogleDriveAccount(accountId, keyService);
+      return;
+    }
+
+    if (!hasRemoteEncryptedData) {
+      await _bindGoogleDriveAccount(accountId, keyService);
+      return;
+    }
+
+    // A local key imported on a new device is not trusted for this account
+    // until it successfully authenticates an existing remote payload.
+    String? validationPayload;
+    if (remoteBundleStatus != null) {
+      validationPayload =
+          (await transport.downloadLatestBundle())?.encodedPayload;
+    } else if (remoteAttachmentHashes.isNotEmpty) {
+      validationPayload = await transport.downloadAttachmentObject(
+        remoteAttachmentHashes.first,
+      );
+    }
+    if (validationPayload == null || validationPayload.isEmpty) {
+      throw StateError(
+        'Google Drive encrypted data could not be validated with the imported recovery key.',
+      );
+    }
+    await SecureSyncBundleStore(
+      encryptionService: ref.read(encryptionServiceProvider),
+      syncBundleKeyService: keyService,
+    ).validateRemotePayloadWithSyncKey(validationPayload);
+    await _bindGoogleDriveAccount(accountId, keyService);
+  }
+
+  SyncBundleKeyService _syncBundleKeyServiceFor(SyncProvider provider) {
+    final usesICloudSharedKey =
+        provider == SyncProvider.iCloud &&
+        !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS);
+    return SyncBundleKeyService(
+      secureStore: usesICloudSharedKey
+          ? ref.read(iCloudSynchronizableKeyValueStoreProvider)
+          : ref.read(secureKeyValueStoreProvider),
+      fallbackStore: usesICloudSharedKey
+          ? ref.read(secureKeyValueStoreProvider)
+          : null,
+      keyFactory: ref.read(encryptionServiceProvider).generateKeyBytes,
+    );
+  }
+
+  String _googleDriveAccountBindingKey(String accountId) {
+    final accountHash = sha256.convert(utf8.encode(accountId)).toString();
+    return '$_googleDriveAccountBindingPrefix$accountHash';
+  }
+
+  Future<String?> _readGoogleDriveAccountBinding(String accountId) {
+    return ref
+        .read(secureKeyValueStoreProvider)
+        .read(_googleDriveAccountBindingKey(accountId));
+  }
+
+  Future<void> _bindGoogleDriveAccount(
+    String accountId,
+    SyncBundleKeyService keyService,
+  ) async {
+    await ref
+        .read(secureKeyValueStoreProvider)
+        .write(
+          _googleDriveAccountBindingKey(accountId),
+          await keyService.fullFingerprint(),
+        );
   }
 
   Future<void> _restore() async {
@@ -9623,7 +9869,10 @@ class SyncProviderController extends Notifier<SyncProvider> {
       state = restored == SyncProvider.iCloud && !isICloudSyncSupported
           ? SyncProvider.off
           : restored;
-    } catch (_) {}
+      _preparedGoogleDriveAccountId = null;
+    } catch (_) {
+      state = SyncProvider.off;
+    }
   }
 }
 
@@ -9726,8 +9975,8 @@ class ActiveIdentity extends _$ActiveIdentity {
       logAudit(
         'profile_switch',
         data: {
-          'from': previousIdentityId,
-          'to': identityId,
+          'fromProfile': previousIdentityId,
+          'toProfile': identityId,
           'adminMode': ref.read(adminModeSessionControllerProvider),
         },
       );
@@ -9951,7 +10200,20 @@ final archivedNoteCountProvider = Provider<int>((ref) {
 });
 
 class NoteEditorDraftStore {
+  NoteEditorDraftStore({
+    required EncryptionService encryptionService,
+    required MasterKeyService masterKeyService,
+    required ProfileDataKeyService profileDataKeyService,
+  }) : _encryptionService = encryptionService,
+       _masterKeyService = masterKeyService,
+       _profileDataKeyService = profileDataKeyService;
+
   static const _storageKey = 'notes.editor_draft.v1';
+  static const _envelopeVersion = 2;
+
+  final EncryptionService _encryptionService;
+  final MasterKeyService _masterKeyService;
+  final ProfileDataKeyService _profileDataKeyService;
 
   Future<NoteEditorDraftSnapshot?> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -9960,17 +10222,80 @@ class NoteEditorDraftStore {
       return null;
     }
     try {
-      return NoteEditorDraftSnapshot.fromJson(
-        Map<String, dynamic>.from(jsonDecode(payload) as Map),
-      );
+      final decoded = Map<String, dynamic>.from(jsonDecode(payload) as Map);
+      if (decoded['version'] == _envelopeVersion &&
+          decoded['encryptedPayload'] is String) {
+        final vaultId = decoded['vaultId'] as String? ?? 'everyday';
+        final profileKey = await _profileDataKeyService.keyForVault(vaultId);
+        final usesMigrationKey = decoded['keyScope'] == 'deviceMigration';
+        if (profileKey == null) {
+          return null;
+        }
+        final key = usesMigrationKey
+            ? await _masterKeyService.obtainOrCreate()
+            : profileKey;
+        final clear = await _encryptionService.decryptJson(
+          encodedPayload: decoded['encryptedPayload'] as String,
+          secretKey: key,
+        );
+        final snapshot = NoteEditorDraftSnapshot.fromJson(clear);
+        if (snapshot.vaultId != vaultId) {
+          throw const FormatException('Draft vault does not match envelope.');
+        }
+        if (usesMigrationKey) {
+          await save(snapshot);
+        }
+        return snapshot;
+      }
+
+      // Version 1 stored the entire draft as plaintext. Never reveal a legacy
+      // private draft unless that profile key is currently unlocked. Once it
+      // is accessible, immediately rewrite it using the encrypted envelope.
+      final snapshot = NoteEditorDraftSnapshot.fromJson(decoded);
+      final key = await _profileDataKeyService.keyForVault(snapshot.vaultId);
+      if (key == null) {
+        final migrationKey = await _masterKeyService.obtainOrCreate();
+        await _writeEncryptedEnvelope(
+          snapshot,
+          secretKey: migrationKey,
+          keyScope: 'deviceMigration',
+        );
+        return null;
+      }
+      await save(snapshot);
+      return snapshot;
     } catch (_) {
       return null;
     }
   }
 
   Future<void> save(NoteEditorDraftSnapshot snapshot) async {
+    final key = await _profileDataKeyService.keyForVault(snapshot.vaultId);
+    if (key == null) {
+      return;
+    }
+    await _writeEncryptedEnvelope(snapshot, secretKey: key);
+  }
+
+  Future<void> _writeEncryptedEnvelope(
+    NoteEditorDraftSnapshot snapshot, {
+    required SecretKey secretKey,
+    String keyScope = 'profile',
+  }) async {
+    final encryptedPayload = await _encryptionService.encryptJson(
+      payload: snapshot.toJson(),
+      secretKey: secretKey,
+    );
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_storageKey, jsonEncode(snapshot.toJson()));
+    await prefs.setString(
+      _storageKey,
+      jsonEncode({
+        'version': _envelopeVersion,
+        'vaultId': snapshot.vaultId,
+        'keyScope': keyScope,
+        'encryptedPayload': encryptedPayload,
+      }),
+    );
   }
 
   Future<void> clear() async {
@@ -10587,6 +10912,7 @@ class NotesController extends _$NotesController {
   bool _restored = false;
   bool _restoreFailed = false;
   Future<void>? _restoreTask;
+  Future<void> _upsertQueue = Future<void>.value();
 
   @override
   List<NoteEntry> build() {
@@ -10598,7 +10924,13 @@ class NotesController extends _$NotesController {
     return const <NoteEntry>[];
   }
 
-  Future<void> upsert(NoteEntry note) async {
+  Future<void> upsert(NoteEntry note) {
+    final operation = _upsertQueue.then((_) => _performUpsert(note));
+    _upsertQueue = operation.catchError((Object _, StackTrace _) {});
+    return operation;
+  }
+
+  Future<void> _performUpsert(NoteEntry note) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     NoteEntry? savedNote;
@@ -10618,8 +10950,25 @@ class NotesController extends _$NotesController {
         }
         _sort(next);
         state = next;
+        try {
+          await _persistOne(prepared);
+        } catch (_) {
+          final rollback = [...state];
+          final rollbackIndex = rollback.indexWhere(
+            (entry) => entry.id == prepared.id,
+          );
+          if (rollbackIndex != -1 && rollback[rollbackIndex] == prepared) {
+            if (existing == null) {
+              rollback.removeAt(rollbackIndex);
+            } else {
+              rollback[rollbackIndex] = existing;
+            }
+            _sort(rollback);
+            state = rollback;
+          }
+          rethrow;
+        }
         await _cleanupRemovedAttachments(existing, prepared);
-        await _persistOne(prepared);
         savedNote = prepared;
       },
       attributes: {
@@ -10923,7 +11272,7 @@ class NotesController extends _$NotesController {
     await _persist();
     logAudit(
       'tag_rename',
-      data: {'from': from, 'to': normalizedTo, 'count': changed},
+      data: {'fromTag': from, 'toTag': normalizedTo, 'count': changed},
     );
     return changed;
   }
@@ -12192,6 +12541,7 @@ class NotesController extends _$NotesController {
         stackTrace,
         reason: 'notes_persist_failed',
       );
+      Error.throwWithStackTrace(error, stackTrace);
     }
   }
 
@@ -12697,14 +13047,15 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
     await refresh();
   }
 
-  Future<void> updateProfilePassword({
+  Future<String?> updateProfilePassword({
     required String id,
     required String password,
   }) async {
-    await ref
+    final error = await ref
         .read(privateMemoProfileStoreProvider)
         .updateProfilePassword(id: id, password: password);
     await refresh();
+    return error;
   }
 }
 
@@ -13442,7 +13793,11 @@ final visibleTagSummariesProvider = Provider<List<VisibleTagSummary>>((ref) {
 });
 
 final noteEditorDraftStoreProvider = Provider<NoteEditorDraftStore>(
-  (ref) => NoteEditorDraftStore(),
+  (ref) => NoteEditorDraftStore(
+    encryptionService: ref.watch(encryptionServiceProvider),
+    masterKeyService: ref.watch(masterKeyServiceProvider),
+    profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
+  ),
 );
 
 Map<DateTime, List<NoteEntry>> _notesByCreatedDay(List<NoteEntry> notes) {

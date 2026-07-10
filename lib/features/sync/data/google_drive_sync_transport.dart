@@ -86,22 +86,29 @@ abstract class GoogleDriveSyncTransport {
   Future<DownloadedRemoteSyncBundle?> downloadLatestBundle();
 
   Future<DownloadedRemoteSyncBundle?> downloadBundleByFileId(String fileId);
-
-  Future<String?> fetchSyncKeyBackupCode();
-
-  Future<void> uploadSyncKeyBackupCode(String backupCode);
 }
 
-class InMemoryGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
+/// Read-and-delete access for recovery keys written by older app versions.
+///
+/// The current app never uploads a raw sync key to Google Drive because that
+/// would place the decryption key beside the encrypted payload.
+abstract class LegacyGoogleDriveSyncKeyTransport {
+  Future<List<String>> fetchSyncKeyBackupCodes();
+
+  Future<void> deleteSyncKeyBackupCode();
+}
+
+class InMemoryGoogleDriveSyncTransport
+    implements GoogleDriveSyncTransport, LegacyGoogleDriveSyncKeyTransport {
   InMemoryGoogleDriveSyncTransport({
     this.uploadDelay = const Duration(milliseconds: 120),
   });
 
   final Duration uploadDelay;
 
-  static final Map<String, String> _attachmentObjects = {};
-  static final List<_InMemoryGoogleDriveBundle> _bundles = [];
-  static String? _syncKeyBackupCode;
+  final Map<String, String> _attachmentObjects = {};
+  final List<_InMemoryGoogleDriveBundle> _bundles = [];
+  final List<String> _syncKeyBackupCodes = [];
 
   @override
   Future<RemoteSyncBundleStatus?> fetchLatestBundleStatus() async {
@@ -207,11 +214,26 @@ class InMemoryGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   }
 
   @override
-  Future<String?> fetchSyncKeyBackupCode() async => _syncKeyBackupCode;
+  Future<List<String>> fetchSyncKeyBackupCodes() async =>
+      List<String>.unmodifiable(_syncKeyBackupCodes);
+
+  /// Seeds the legacy escrow record for migration tests only.
+  void seedLegacySyncKeyBackupCodeForTest(String? backupCode) {
+    _syncKeyBackupCodes
+      ..clear()
+      ..addAll(backupCode == null ? const <String>[] : [backupCode]);
+  }
+
+  /// Seeds duplicate legacy records for conflict migration tests only.
+  void seedLegacySyncKeyBackupCodesForTest(List<String> backupCodes) {
+    _syncKeyBackupCodes
+      ..clear()
+      ..addAll(backupCodes);
+  }
 
   @override
-  Future<void> uploadSyncKeyBackupCode(String backupCode) async {
-    _syncKeyBackupCode = backupCode;
+  Future<void> deleteSyncKeyBackupCode() async {
+    _syncKeyBackupCodes.clear();
   }
 }
 
@@ -225,17 +247,36 @@ class _InMemoryGoogleDriveBundle {
   final String encodedPayload;
 }
 
-class GoogleDriveCloudSyncBundleKeyStore implements CloudSyncBundleKeyStore {
+class GoogleDriveCloudSyncBundleKeyStore
+    implements CloudSyncBundleKeyStore, DeletableCloudSyncBundleKeyStore {
   GoogleDriveCloudSyncBundleKeyStore(this.transport);
 
   final GoogleDriveSyncTransport transport;
 
   @override
-  Future<String?> readBackupCode() => transport.fetchSyncKeyBackupCode();
+  Future<String?> readBackupCode() {
+    return readBackupCodes().then(
+      (codes) => codes.isEmpty ? null : codes.first,
+    );
+  }
+
+  Future<List<String>> readBackupCodes() {
+    final legacyTransport = transport;
+    if (legacyTransport is! LegacyGoogleDriveSyncKeyTransport) {
+      return Future<List<String>>.value(const <String>[]);
+    }
+    return (legacyTransport as LegacyGoogleDriveSyncKeyTransport)
+        .fetchSyncKeyBackupCodes();
+  }
 
   @override
-  Future<void> writeBackupCode(String backupCode) {
-    return transport.uploadSyncKeyBackupCode(backupCode);
+  Future<void> deleteBackupCode() {
+    final legacyTransport = transport;
+    if (legacyTransport is! LegacyGoogleDriveSyncKeyTransport) {
+      return Future<void>.value();
+    }
+    return (legacyTransport as LegacyGoogleDriveSyncKeyTransport)
+        .deleteSyncKeyBackupCode();
   }
 }
 
@@ -291,7 +332,8 @@ class GoogleDriveSyncException implements Exception {
   String toString() => message;
 }
 
-class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
+class GoogleApisGoogleDriveSyncTransport
+    implements GoogleDriveSyncTransport, LegacyGoogleDriveSyncKeyTransport {
   GoogleApisGoogleDriveSyncTransport({
     this.authConfig = const GoogleDriveAuthConfig(),
   });
@@ -452,59 +494,40 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   }
 
   @override
-  Future<String?> fetchSyncKeyBackupCode() async {
+  Future<List<String>> fetchSyncKeyBackupCodes() async {
     final api = await _openDriveApi(interactive: false);
-    final file = await _findSyncKeyFile(api);
-    if (file == null || file.id == null || file.id!.isEmpty) {
-      return null;
+    final files = await _findSyncKeyFiles(api);
+    final backupCodes = <String>[];
+    for (final file in files) {
+      if (file.id == null || file.id!.isEmpty) {
+        throw const FormatException('Legacy sync-key file has no ID.');
+      }
+      final downloaded = await _downloadFile(api, file);
+      final decoded = jsonDecode(downloaded.encodedPayload);
+      if (decoded is! Map) {
+        throw const FormatException('Legacy sync-key file is malformed.');
+      }
+      final version = decoded['version'];
+      final backupCode = decoded['backupCode'];
+      if (version != 1 || backupCode is! String || backupCode.isEmpty) {
+        throw const FormatException('Legacy sync-key file is malformed.');
+      }
+      backupCodes.add(backupCode);
     }
-    final downloaded = await _downloadFile(api, file);
-    final decoded = jsonDecode(downloaded.encodedPayload);
-    if (decoded is! Map) {
-      return null;
-    }
-    final version = decoded['version'];
-    final backupCode = decoded['backupCode'];
-    if (version != 1 || backupCode is! String || backupCode.isEmpty) {
-      return null;
-    }
-    return backupCode;
+    return backupCodes;
   }
 
   @override
-  Future<void> uploadSyncKeyBackupCode(String backupCode) async {
+  Future<void> deleteSyncKeyBackupCode() async {
     final api = await _openDriveApi(interactive: false);
-    final existing = await _findSyncKeyFile(api);
-    final payload = jsonEncode({
-      'version': 1,
-      'backupCode': backupCode,
-      'updatedAt': DateTime.now().toUtc().toIso8601String(),
-    });
-    final bytes = utf8.encode(payload);
-    final media = drive.Media(Stream<List<int>>.value(bytes), bytes.length);
-    final metadata = drive.File()
-      ..name = _syncKeyFileName
-      ..parents = ['appDataFolder'];
-
-    if (existing?.id != null && existing!.id!.isNotEmpty) {
-      await _withDriveRetry(
-        () => api.files.update(
-          metadata,
-          existing.id!,
-          uploadMedia: media,
-          $fields: 'id,name,modifiedTime,size',
-        ),
-      );
-      return;
+    final legacyFiles = await _findSyncKeyFiles(api);
+    for (final file in legacyFiles) {
+      final fileId = file.id;
+      if (fileId == null || fileId.isEmpty) {
+        continue;
+      }
+      await _withDriveRetry(() => api.files.delete(fileId));
     }
-
-    await _withDriveRetry(
-      () => api.files.create(
-        metadata,
-        uploadMedia: media,
-        $fields: 'id,name,modifiedTime,size',
-      ),
-    );
   }
 
   Future<DownloadedRemoteSyncBundle> _downloadFile(
@@ -647,21 +670,25 @@ class GoogleApisGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     return files.first;
   }
 
-  Future<drive.File?> _findSyncKeyFile(drive.DriveApi api) async {
-    final response = await _withDriveRetry(
-      () => api.files.list(
-        spaces: _spaces,
-        q: "name = '$_syncKeyFileName' and trashed = false",
-        orderBy: 'modifiedTime desc',
-        pageSize: 1,
-        $fields: 'files(id,name,modifiedTime,size,appProperties)',
-      ),
-    );
-    final files = response.files;
-    if (files == null || files.isEmpty) {
-      return null;
-    }
-    return files.first;
+  Future<List<drive.File>> _findSyncKeyFiles(drive.DriveApi api) async {
+    final files = <drive.File>[];
+    String? pageToken;
+    do {
+      final response = await _withDriveRetry(
+        () => api.files.list(
+          spaces: _spaces,
+          q: "name = '$_syncKeyFileName' and trashed = false",
+          orderBy: 'modifiedTime desc',
+          pageSize: 1000,
+          pageToken: pageToken,
+          $fields:
+              'nextPageToken,files(id,name,modifiedTime,size,appProperties)',
+        ),
+      );
+      files.addAll(response.files ?? const <drive.File>[]);
+      pageToken = response.nextPageToken;
+    } while (pageToken != null && pageToken.isNotEmpty);
+    return files;
   }
 
   Future<drive.File?> _findAttachmentObject(

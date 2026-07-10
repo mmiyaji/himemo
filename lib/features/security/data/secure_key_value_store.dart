@@ -14,7 +14,8 @@ class FlutterSecureKeyValueStore implements SecureKeyValueStore {
     IOSOptions iOptions = IOSOptions.defaultOptions,
     AppleOptions mOptions = MacOsOptions.defaultOptions,
   }) : _storage =
-           storage ?? FlutterSecureStorage(iOptions: iOptions, mOptions: mOptions);
+           storage ??
+           FlutterSecureStorage(iOptions: iOptions, mOptions: mOptions);
 
   final FlutterSecureStorage _storage;
 

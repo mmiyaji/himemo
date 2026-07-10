@@ -282,6 +282,406 @@ void main() {
     );
 
     test(
+      'retains encrypted migration source until a locked private note can retry',
+      () async {
+        const privateVaultId = 'private_profile:migration-retry';
+        final masterKeyService = MasterKeyService(
+          secureStore: secureStore,
+          keyFactory: encryptionService.generateKeyBytes,
+        );
+        final configuredProfileKeys = ProfileDataKeyService(
+          secureStore: secureStore,
+          encryptionService: encryptionService,
+          normalMasterKeyService: masterKeyService,
+        );
+        await configuredProfileKeys.configureProfile(
+          vaultId: privateVaultId,
+          password: 'migration-password',
+        );
+        final normalNote = NoteEntry(
+          id: 'legacy-normal',
+          vaultId: 'everyday',
+          title: 'Normal legacy note',
+          body: 'Normal body',
+          createdAt: DateTime(2026, 7, 10, 9),
+        );
+        final privateNote = NoteEntry(
+          id: 'legacy-private',
+          vaultId: privateVaultId,
+          title: 'Private legacy note',
+          body: 'Must not be dropped while locked',
+          createdAt: DateTime(2026, 7, 10, 9, 5),
+        );
+        final legacyPayload = await encryptionService.encryptJson(
+          payload: {
+            'notes': [normalNote.toJson(), privateNote.toJson()],
+          },
+          secretKey: await masterKeyService.obtainOrCreate(),
+        );
+        final encryptedFile = File(
+          path.join(tempDirectory.path, 'notes.entries.enc.v1'),
+        );
+        await encryptedFile.writeAsString(legacyPayload, flush: true);
+
+        final lockedProfileKeys = ProfileDataKeyService(
+          secureStore: secureStore,
+          encryptionService: encryptionService,
+          normalMasterKeyService: masterKeyService,
+        );
+        final migratingStore = EncryptedNoteStore(
+          encryptionService: encryptionService,
+          masterKeyService: masterKeyService,
+          profileDataKeyService: lockedProfileKeys,
+          database: database,
+          directoryProvider: () async => tempDirectory,
+          sharedPreferencesProvider: () async => prefs,
+        );
+
+        final lockedLoad = await migratingStore.load(fallbackNotes: const []);
+
+        expect(await encryptedFile.exists(), isTrue);
+        expect(
+          lockedLoad.singleWhere((note) => note.id == privateNote.id).title,
+          'Locked private note',
+        );
+        expect((await database.loadAll()).map((snapshot) => snapshot.note.id), [
+          'legacy-normal',
+        ]);
+
+        final updatedNormal = normalNote.copyWith(
+          title: 'Edited after partial migration',
+          updatedAt: DateTime(2026, 7, 10, 10),
+          revision: 2,
+        );
+        await migratingStore.saveOne(updatedNormal);
+        expect(
+          await lockedProfileKeys.unlockProfile(
+            vaultId: privateVaultId,
+            password: 'migration-password',
+          ),
+          isTrue,
+        );
+
+        final retried = await migratingStore.load(fallbackNotes: const []);
+
+        expect(await encryptedFile.exists(), isFalse);
+        expect(
+          retried.singleWhere((note) => note.id == normalNote.id).title,
+          updatedNormal.title,
+        );
+        expect(
+          retried.singleWhere((note) => note.id == privateNote.id).body,
+          privateNote.body,
+        );
+        expect(
+          (await database.loadAll())
+              .map((snapshot) => snapshot.note.id)
+              .toSet(),
+          {normalNote.id, privateNote.id},
+        );
+      },
+    );
+
+    test(
+      'retains plaintext migration source while its private vault is locked',
+      () async {
+        const privateVaultId = 'private_profile:plaintext-retry';
+        final masterKeyService = MasterKeyService(
+          secureStore: secureStore,
+          keyFactory: encryptionService.generateKeyBytes,
+        );
+        final configuredProfileKeys = ProfileDataKeyService(
+          secureStore: secureStore,
+          encryptionService: encryptionService,
+          normalMasterKeyService: masterKeyService,
+        );
+        await configuredProfileKeys.configureProfile(
+          vaultId: privateVaultId,
+          password: 'plaintext-password',
+        );
+        final privateNote = NoteEntry(
+          id: 'plaintext-private',
+          vaultId: privateVaultId,
+          title: 'Plaintext private note',
+          body: 'Retain until migration is durable',
+          createdAt: DateTime(2026, 7, 10, 11),
+        );
+        final source = jsonEncode([privateNote.toJson()]);
+        await prefs.setString('notes.entries.v1', source);
+        final lockedProfileKeys = ProfileDataKeyService(
+          secureStore: secureStore,
+          encryptionService: encryptionService,
+          normalMasterKeyService: masterKeyService,
+        );
+        final migratingStore = EncryptedNoteStore(
+          encryptionService: encryptionService,
+          masterKeyService: masterKeyService,
+          profileDataKeyService: lockedProfileKeys,
+          database: database,
+          directoryProvider: () async => tempDirectory,
+          sharedPreferencesProvider: () async => prefs,
+        );
+
+        final lockedLoad = await migratingStore.load(fallbackNotes: const []);
+
+        expect(lockedLoad.single.title, 'Locked private note');
+        expect(prefs.getString('notes.entries.v1'), source);
+        expect(await database.loadAll(), isEmpty);
+
+        expect(
+          await lockedProfileKeys.unlockProfile(
+            vaultId: privateVaultId,
+            password: 'plaintext-password',
+          ),
+          isTrue,
+        );
+        final retried = await migratingStore.load(fallbackNotes: const []);
+
+        expect(retried.single.body, privateNote.body);
+        expect(prefs.getString('notes.entries.v1'), isNull);
+        expect((await database.loadAll()).single.note.id, privateNote.id);
+      },
+    );
+
+    test('retains migration source when the database write fails', () async {
+      final source = jsonEncode([
+        NoteEntry(
+          id: 'write-failure-note',
+          vaultId: 'everyday',
+          title: 'Retry after write failure',
+          body: 'The source must remain intact.',
+          createdAt: DateTime(2026, 7, 10, 11, 30),
+        ).toJson(),
+      ]);
+      await prefs.setString('notes.entries.v1', source);
+      await database.customStatement('''
+        CREATE TRIGGER reject_migration_insert
+        BEFORE INSERT ON encrypted_notes
+        BEGIN
+          SELECT RAISE(ABORT, 'forced migration write failure');
+        END;
+      ''');
+
+      await expectLater(
+        noteStore.load(fallbackNotes: const []),
+        throwsA(anything),
+      );
+
+      expect(prefs.getString('notes.entries.v1'), source);
+      expect(await database.loadAll(), isEmpty);
+    });
+
+    test('separates Web note ciphertext by vault key', () async {
+      const privateVaultId = 'private_profile:web-separated';
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final profileKeys = ProfileDataKeyService(
+        secureStore: secureStore,
+        encryptionService: encryptionService,
+        normalMasterKeyService: masterKeyService,
+      );
+      await profileKeys.configureProfile(
+        vaultId: privateVaultId,
+        password: 'web-password',
+      );
+      final normalNote = NoteEntry(
+        id: 'web-normal',
+        vaultId: 'everyday',
+        title: 'Web normal',
+        body: 'Everyday content',
+        createdAt: DateTime(2026, 7, 10, 12),
+      );
+      final privateNote = NoteEntry(
+        id: 'web-private',
+        vaultId: privateVaultId,
+        title: 'Web private',
+        body: 'Private content',
+        createdAt: DateTime(2026, 7, 10, 12, 5),
+      );
+      final webStore = EncryptedNoteStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        profileDataKeyService: profileKeys,
+        database: database,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: () async => prefs,
+        isWeb: true,
+      );
+
+      await webStore.save([normalNote, privateNote]);
+
+      final stored = prefs.getString('notes.entries.encrypted.v1')!;
+      final envelope = Map<String, dynamic>.from(jsonDecode(stored) as Map);
+      expect(envelope['version'], 2);
+      expect(envelope['format'], 'vault-separated-records');
+      expect(envelope.containsKey('legacyEncryptedPayload'), isFalse);
+      expect(stored, isNot(contains(privateNote.title)));
+      expect(stored, isNot(contains(privateNote.body)));
+      final records = (envelope['records'] as List<dynamic>)
+          .map((record) => Map<String, dynamic>.from(record as Map))
+          .toList(growable: false);
+      final normalRecord = records.singleWhere(
+        (record) => record['id'] == normalNote.id,
+      );
+      final privateRecord = records.singleWhere(
+        (record) => record['id'] == privateNote.id,
+      );
+      final everydayKey = await masterKeyService.obtainOrCreate();
+      expect(
+        (await encryptionService.decryptJson(
+          encodedPayload: normalRecord['encryptedPayload'] as String,
+          secretKey: everydayKey,
+        ))['body'],
+        normalNote.body,
+      );
+      await expectLater(
+        encryptionService.decryptJson(
+          encodedPayload: privateRecord['encryptedPayload'] as String,
+          secretKey: everydayKey,
+        ),
+        throwsA(isA<HimemoDecryptionException>()),
+      );
+      final privateKey = await profileKeys.keyForVault(privateVaultId);
+      expect(
+        (await encryptionService.decryptJson(
+          encodedPayload: privateRecord['encryptedPayload'] as String,
+          secretKey: privateKey!,
+        ))['body'],
+        privateNote.body,
+      );
+
+      final lockedProfileKeys = ProfileDataKeyService(
+        secureStore: secureStore,
+        encryptionService: encryptionService,
+        normalMasterKeyService: masterKeyService,
+      );
+      final lockedWebStore = EncryptedNoteStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        profileDataKeyService: lockedProfileKeys,
+        database: database,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: () async => prefs,
+        isWeb: true,
+      );
+      final locked = await lockedWebStore.load(fallbackNotes: const []);
+      expect(
+        locked.singleWhere((note) => note.id == privateNote.id).title,
+        'Locked private note',
+      );
+      expect(
+        await lockedProfileKeys.unlockProfile(
+          vaultId: privateVaultId,
+          password: 'web-password',
+        ),
+        isTrue,
+      );
+      final unlocked = await lockedWebStore.load(fallbackNotes: const []);
+      expect(
+        unlocked.singleWhere((note) => note.id == privateNote.id).body,
+        privateNote.body,
+      );
+    });
+
+    test('migrates legacy Web payload after private vault unlock', () async {
+      const privateVaultId = 'private_profile:web-legacy';
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final configuredProfileKeys = ProfileDataKeyService(
+        secureStore: secureStore,
+        encryptionService: encryptionService,
+        normalMasterKeyService: masterKeyService,
+      );
+      await configuredProfileKeys.configureProfile(
+        vaultId: privateVaultId,
+        password: 'legacy-web-password',
+      );
+      final normalNote = NoteEntry(
+        id: 'legacy-web-normal',
+        vaultId: 'everyday',
+        title: 'Legacy Web normal',
+        body: 'Legacy normal body',
+        createdAt: DateTime(2026, 7, 10, 12, 55),
+      );
+      final privateNote = NoteEntry(
+        id: 'legacy-web-private',
+        vaultId: privateVaultId,
+        title: 'Legacy Web private',
+        body: 'Legacy private body',
+        createdAt: DateTime(2026, 7, 10, 13),
+      );
+      final oldPayload = await encryptionService.encryptJson(
+        payload: {
+          'notes': [normalNote.toJson(), privateNote.toJson()],
+        },
+        secretKey: await masterKeyService.obtainOrCreate(),
+      );
+      await prefs.setString('notes.entries.encrypted.v1', oldPayload);
+      final lockedProfileKeys = ProfileDataKeyService(
+        secureStore: secureStore,
+        encryptionService: encryptionService,
+        normalMasterKeyService: masterKeyService,
+      );
+      final legacyWebStore = EncryptedNoteStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        profileDataKeyService: lockedProfileKeys,
+        database: database,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: () async => prefs,
+        isWeb: true,
+      );
+
+      final locked = await legacyWebStore.load(fallbackNotes: const []);
+
+      final placeholder = locked.singleWhere(
+        (note) => note.id == privateNote.id,
+      );
+      expect(placeholder.title, 'Locked private note');
+      expect(prefs.getString('notes.entries.encrypted.v1'), oldPayload);
+      final editedNormal = normalNote.copyWith(
+        title: 'Edited while private is locked',
+        updatedAt: DateTime(2026, 7, 10, 13, 5),
+      );
+      await legacyWebStore.save([
+        editedNormal,
+        placeholder,
+      ], preserveOmittedPrivateNotes: true);
+      final hybrid = Map<String, dynamic>.from(
+        jsonDecode(prefs.getString('notes.entries.encrypted.v1')!) as Map,
+      );
+      expect(hybrid['legacyEncryptedPayload'], oldPayload);
+      expect(hybrid['legacyRetainedNoteIds'], [privateNote.id]);
+      expect(
+        await lockedProfileKeys.unlockProfile(
+          vaultId: privateVaultId,
+          password: 'legacy-web-password',
+        ),
+        isTrue,
+      );
+
+      final unlocked = await legacyWebStore.load(fallbackNotes: const []);
+
+      expect(
+        unlocked.singleWhere((note) => note.id == privateNote.id).body,
+        privateNote.body,
+      );
+      expect(
+        unlocked.singleWhere((note) => note.id == normalNote.id).title,
+        editedNormal.title,
+      );
+      final migrated = Map<String, dynamic>.from(
+        jsonDecode(prefs.getString('notes.entries.encrypted.v1')!) as Map,
+      );
+      expect(migrated['version'], 2);
+      expect(migrated.containsKey('legacyEncryptedPayload'), isFalse);
+    });
+
+    test(
       'throws instead of falling back when encrypted notes are corrupt',
       () async {
         await database.replaceAll(
@@ -757,6 +1157,7 @@ void main() {
 
   group('EncryptedAttachmentStore', () {
     late Directory tempDirectory;
+    late Directory materializedTempDirectory;
     late MemorySecureKeyValueStore secureStore;
     late EncryptionService encryptionService;
     late SharedPreferences prefs;
@@ -769,6 +1170,9 @@ void main() {
       tempDirectory = await Directory.systemTemp.createTemp(
         'himemo-secure-attachments-',
       );
+      materializedTempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-materialized-attachments-',
+      );
       secureStore = MemorySecureKeyValueStore();
       encryptionService = EncryptionService(random: Random(13));
       masterKeyService = MasterKeyService(
@@ -779,6 +1183,7 @@ void main() {
         encryptionService: encryptionService,
         masterKeyService: masterKeyService,
         directoryProvider: () async => tempDirectory,
+        temporaryDirectoryProvider: () async => materializedTempDirectory,
         sharedPreferencesProvider: () async => prefs,
       );
     });
@@ -786,6 +1191,9 @@ void main() {
     tearDown(() async {
       if (await tempDirectory.exists()) {
         await tempDirectory.delete(recursive: true);
+      }
+      if (await materializedTempDirectory.exists()) {
+        await materializedTempDirectory.delete(recursive: true);
       }
     });
 
@@ -802,6 +1210,17 @@ void main() {
 
       expect(storedReference, isNotNull);
       final encryptedFile = File(storedReference!);
+      expect(
+        path.isWithin(
+          path.join(tempDirectory.path, 'attachments'),
+          encryptedFile.path,
+        ),
+        isTrue,
+      );
+      expect(
+        path.isWithin(materializedTempDirectory.path, encryptedFile.path),
+        isFalse,
+      );
       final rawContents = await encryptedFile.readAsBytes();
       expect(rawContents, isNot(containsAllInOrder([1, 2, 3])));
       expect(String.fromCharCodes(rawContents.take(4)), 'HMA2');
@@ -1077,6 +1496,18 @@ void main() {
 
       expect(path.basename(unnamed!), endsWith('.bin'));
       expect(path.basename(named!), endsWith('.jpg'));
+      final materializedRoot = path.join(
+        materializedTempDirectory.path,
+        'himemo',
+        'attachments',
+        'tmp',
+      );
+      expect(path.isWithin(materializedRoot, unnamed), isTrue);
+      expect(path.isWithin(materializedRoot, named), isTrue);
+      expect(
+        path.isWithin(path.join(tempDirectory.path, 'attachments'), unnamed),
+        isFalse,
+      );
       expect(await File(unnamed).readAsBytes(), const [41, 42]);
       expect(await File(named).readAsBytes(), const [43, 44, 45]);
 
@@ -1197,6 +1628,180 @@ void main() {
       );
     });
   });
+
+  test(
+    'NotesController serializes concurrent upserts without losing notes',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-concurrent-upsert-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(20));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final noteStore = EncryptedNoteStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        database: noteDatabase,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteStoreProvider.overrideWithValue(noteStore),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          deviceIdentityStoreProvider.overrideWithValue(
+            _DelayedDeviceIdentityStore(),
+          ),
+          homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+      final controller = container.read(notesControllerProvider.notifier);
+      await controller.restoreCompleted;
+      final createdAt = DateTime(2026, 7, 10, 14);
+
+      await Future.wait([
+        controller.upsert(
+          NoteEntry(
+            id: 'concurrent-a',
+            vaultId: 'everyday',
+            title: 'Concurrent A',
+            body: 'First note',
+            createdAt: createdAt,
+          ),
+        ),
+        controller.upsert(
+          NoteEntry(
+            id: 'concurrent-b',
+            vaultId: 'everyday',
+            title: 'Concurrent B',
+            body: 'Second note',
+            createdAt: createdAt.add(const Duration(seconds: 1)),
+          ),
+        ),
+      ]);
+
+      expect(
+        container.read(notesControllerProvider).map((note) => note.id).toSet(),
+        {'concurrent-a', 'concurrent-b'},
+      );
+      expect(
+        (await noteStore.load(
+          fallbackNotes: const [],
+        )).map((note) => note.id).toSet(),
+        {'concurrent-a', 'concurrent-b'},
+      );
+    },
+  );
+
+  test(
+    'NotesController rolls back failed persistence before deleting attachments',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-upsert-rollback-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(22));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final fakeAttachmentStore = _TrackingEncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final noteStore = EncryptedNoteStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        database: noteDatabase,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteStoreProvider.overrideWithValue(noteStore),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedAttachmentStoreProvider.overrideWithValue(
+            fakeAttachmentStore,
+          ),
+          deviceIdentityStoreProvider.overrideWithValue(
+            DeviceIdentityStore(
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+              random: Random(22),
+            ),
+          ),
+          homeRepositoryProvider.overrideWithValue(_SingleNoteRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+      final controller = container.read(notesControllerProvider.notifier);
+      await controller.seedIfEmpty();
+      final original = container.read(notesControllerProvider).single;
+      await noteDatabase.customStatement('''
+        CREATE TRIGGER reject_note_update
+        BEFORE UPDATE ON encrypted_notes
+        BEGIN
+          SELECT RAISE(ABORT, 'forced note update failure');
+        END;
+      ''');
+      await noteDatabase.customStatement('''
+        CREATE TRIGGER reject_note_insert
+        BEFORE INSERT ON encrypted_notes
+        BEGIN
+          SELECT RAISE(ABORT, 'forced note insert failure');
+        END;
+      ''');
+
+      await expectLater(
+        controller.upsert(
+          original.copyWith(
+            title: 'Must roll back',
+            attachments: const <NoteAttachment>[],
+          ),
+        ),
+        throwsA(anything),
+      );
+
+      final rolledBack = container.read(notesControllerProvider).single;
+      expect(rolledBack.title, original.title);
+      expect(rolledBack.attachments, original.attachments);
+      expect(fakeAttachmentStore.deletedReferences, isEmpty);
+      final persisted = await noteStore.load(fallbackNotes: const []);
+      expect(persisted.single.title, original.title);
+      expect(persisted.single.attachments, original.attachments);
+    },
+  );
 
   test('NotesController deletes attachments removed during edit', () async {
     SharedPreferences.setMockInitialValues({});
@@ -3111,35 +3716,34 @@ void main() {
     expect(await targetService.fingerprint(), expectedFingerprint);
   });
 
+  test('SyncBundleKeyService rejects a different legacy cloud key', () async {
+    final localStore = MemorySecureKeyValueStore();
+    final localService = SyncBundleKeyService(
+      secureStore: localStore,
+      keyFactory: () => List<int>.filled(32, 1),
+    );
+    await localService.obtainOrCreate();
+
+    final cloudSource = SyncBundleKeyService(
+      secureStore: MemorySecureKeyValueStore(),
+      keyFactory: () => List<int>.filled(32, 2),
+    );
+    final cloudBackupCode = await cloudSource.exportBackupCode();
+    final service = SyncBundleKeyService(
+      secureStore: localStore,
+      cloudStore: _MemoryCloudSyncBundleKeyStore(cloudBackupCode),
+      keyFactory: () => List<int>.filled(32, 3),
+    );
+
+    await expectLater(service.fingerprint(), throwsStateError);
+    expect(
+      await localStore.read('security.sync_bundle_key.v1'),
+      base64Encode(List<int>.filled(32, 1)),
+    );
+  });
+
   test(
-    'SyncBundleKeyService adopts cloud backup code before local key',
-    () async {
-      final localStore = MemorySecureKeyValueStore();
-      final localService = SyncBundleKeyService(
-        secureStore: localStore,
-        keyFactory: () => List<int>.filled(32, 1),
-      );
-      await localService.obtainOrCreate();
-
-      final cloudSource = SyncBundleKeyService(
-        secureStore: MemorySecureKeyValueStore(),
-        keyFactory: () => List<int>.filled(32, 2),
-      );
-      final cloudBackupCode = await cloudSource.exportBackupCode();
-      final cloudFingerprint = await cloudSource.fingerprint();
-
-      final service = SyncBundleKeyService(
-        secureStore: localStore,
-        cloudStore: _MemoryCloudSyncBundleKeyStore(cloudBackupCode),
-        keyFactory: () => List<int>.filled(32, 3),
-      );
-
-      expect(await service.fingerprint(), cloudFingerprint);
-    },
-  );
-
-  test(
-    'SyncBundleKeyService publishes local key when cloud is empty',
+    'SyncBundleKeyService never escrows a generated key in cloud storage',
     () async {
       final cloudStore = _MemoryCloudSyncBundleKeyStore();
       final service = SyncBundleKeyService(
@@ -3150,7 +3754,8 @@ void main() {
 
       final backupCode = await service.exportBackupCode();
 
-      expect(cloudStore.backupCode, backupCode);
+      expect(backupCode, startsWith(SyncBundleKeyService.backupCodePrefix));
+      expect(cloudStore.backupCode, isNull);
     },
   );
 
@@ -4500,6 +5105,20 @@ class _TrackingEncryptedAttachmentStore extends EncryptedAttachmentStore {
   }) async {}
 }
 
+class _DelayedDeviceIdentityStore extends DeviceIdentityStore {
+  _DelayedDeviceIdentityStore()
+    : super(
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+        random: Random(20),
+      );
+
+  @override
+  Future<String> obtain() async {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    return 'concurrent-test-device';
+  }
+}
+
 class _ReadTrackingEncryptedAttachmentStore extends EncryptedAttachmentStore {
   _ReadTrackingEncryptedAttachmentStore({
     required super.encryptionService,
@@ -4527,9 +5146,4 @@ class _MemoryCloudSyncBundleKeyStore implements CloudSyncBundleKeyStore {
 
   @override
   Future<String?> readBackupCode() async => backupCode;
-
-  @override
-  Future<void> writeBackupCode(String backupCode) async {
-    this.backupCode = backupCode;
-  }
 }

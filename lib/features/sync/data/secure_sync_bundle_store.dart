@@ -192,6 +192,16 @@ class SecureSyncBundleStore {
     return _decryptBundleJson(encodedPayload);
   }
 
+  /// Verifies that a remote payload belongs to the current sync key without
+  /// accepting the legacy device master-key fallback.
+  Future<void> validateRemotePayloadWithSyncKey(String encodedPayload) async {
+    final syncKey = await _syncBundleKeyService.requireExisting();
+    await _decryptSyncBundleJson(
+      encodedPayload: encodedPayload,
+      secretKey: syncKey,
+    );
+  }
+
   Future<Map<String, dynamic>?> readBundleJson(String reference) async {
     final payload = await readEncryptedBundlePayload(reference);
     if (payload == null || payload.isEmpty) {

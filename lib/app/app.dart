@@ -1033,6 +1033,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
   Widget build(BuildContext context) {
     final strings = context.strings;
     final enabled = ref.watch(appLockSettingsControllerProvider);
+    final settingsReady = ref.watch(appLockSettingsReadyProvider);
     final unlocked = ref.watch(appSessionUnlockControllerProvider);
     final privacyScreenActive = ref.watch(privacyScreenActiveProvider);
     final authState = ref.watch(deviceAuthControllerProvider);
@@ -1044,6 +1045,19 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     final bypassForQuickCapture =
         hasQuickCaptureRequest ||
         widget.currentLocation.startsWith('/widget-capture');
+
+    if (!settingsReady) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !ref.read(appLockSettingsReadyProvider)) {
+          unawaited(_setPrivacyScreenEnabled(true, showCover: true));
+        }
+      });
+      return const Stack(
+        key: Key('app-lock-settings-loading-cover'),
+        fit: StackFit.expand,
+        children: [_AppPrivacyCover()],
+      );
+    }
 
     ref.listen<bool>(privacyScreenActiveProvider, (previous, next) {
       unawaited(_refreshNativePrivacyScreen(privatePrivacyActive: next));
@@ -1594,193 +1608,173 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
         MaterialPage<void>(
           child: Scaffold(
             body: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+              child: LayoutBuilder(
+                builder: (context, viewportConstraints) {
+                  final useScrollableLayout =
+                      MediaQuery.textScalerOf(context).scale(1) > 1.3;
+                  final content = Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            widget.flavor.displayName,
-                            style: Theme.of(context).textTheme.labelLarge,
-                          ),
-                        ),
-                        const Spacer(),
-                        TextButton(
-                          onPressed: () => ref
-                              .read(appLaunchControllerProvider.notifier)
-                              .completeOnboarding(),
-                          child: Text(strings.skip),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 28),
-                    Text(
-                      strings.onboardingWelcome,
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      strings.onboardingIntro,
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-                    Expanded(
-                      child: PageView.builder(
-                        controller: _pageController,
-                        itemCount: pages.length,
-                        onPageChanged: (index) {
-                          setState(() {
-                            _pageIndex = index;
-                          });
-                        },
-                        itemBuilder: (context, index) {
-                          final page = pages[index];
-                          return LayoutBuilder(
-                            builder: (context, constraints) {
-                              final compactCard =
-                                  constraints.maxHeight.isFinite &&
-                                  constraints.maxHeight < 460;
-                              final iconSize = compactCard ? 48.0 : 56.0;
-                              final sectionGap = compactCard ? 16.0 : 24.0;
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 12),
-                                padding: const EdgeInsets.all(24),
-                                decoration: BoxDecoration(
-                                  color: colorScheme.surface,
-                                  borderRadius: BorderRadius.circular(24),
-                                  border: Border.all(
-                                    color: Theme.of(context).dividerColor,
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Align(
+                                alignment: AlignmentDirectional.centerStart,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
                                   ),
-                                ),
-                                child: SingleChildScrollView(
-                                  child: ConstrainedBox(
-                                    constraints: BoxConstraints(
-                                      minHeight:
-                                          constraints.maxHeight.isFinite &&
-                                              constraints.maxHeight > 48
-                                          ? constraints.maxHeight - 48
-                                          : 0,
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Container(
-                                          width: iconSize,
-                                          height: iconSize,
-                                          decoration: BoxDecoration(
-                                            color: colorScheme.primary
-                                                .withValues(alpha: 0.12),
-                                            borderRadius: BorderRadius.circular(
-                                              18,
-                                            ),
-                                          ),
-                                          child: Icon(
-                                            page.icon,
-                                            color: colorScheme.primary,
-                                          ),
-                                        ),
-                                        SizedBox(height: sectionGap),
-                                        if (!page.isSetupPage) ...[
-                                          _OnboardingImageCard(
-                                            imagePath: page.imagePath,
-                                            semanticLabel:
-                                                page.imageSemanticLabel,
-                                            fallbackIcon: page.icon,
-                                            maxHeight: compactCard ? 160 : null,
-                                          ),
-                                          SizedBox(height: sectionGap),
-                                        ],
-                                        Text(
-                                          page.title,
-                                          style: Theme.of(
-                                            context,
-                                          ).textTheme.titleLarge,
-                                        ),
-                                        const SizedBox(height: 12),
-                                        Text(
-                                          page.body,
-                                          style: Theme.of(
-                                            context,
-                                          ).textTheme.bodyLarge,
-                                        ),
-                                        if (page.isSetupPage) ...[
-                                          const SizedBox(height: 24),
-                                          _OnboardingSetupPanel(
-                                            pinConfigured: pinConfigured,
-                                            privateProfileCount:
-                                                privateProfiles.length,
-                                          ),
-                                        ],
-                                      ],
-                                    ),
+                                  decoration: BoxDecoration(
+                                    color: colorScheme.surfaceContainerHighest,
+                                    borderRadius: BorderRadius.circular(999),
                                   ),
-                                ),
-                              );
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        for (var i = 0; i < pages.length; i++)
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 180),
-                            margin: const EdgeInsets.only(right: 8),
-                            width: i == _pageIndex ? 28 : 10,
-                            height: 10,
-                            decoration: BoxDecoration(
-                              color: i == _pageIndex
-                                  ? colorScheme.primary
-                                  : colorScheme.outlineVariant,
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                          ),
-                        const Spacer(),
-                        if (isLastPage)
-                          Padding(
-                            padding: const EdgeInsetsDirectional.only(end: 8),
-                            child: OutlinedButton.icon(
-                              onPressed: () async {
-                                ref
-                                    .read(
-                                      appTutorialControllerProvider.notifier,
-                                    )
-                                    .start(AppTutorialCourse.basics);
-                                await ref
-                                    .read(appLaunchControllerProvider.notifier)
-                                    .completeOnboarding();
-                              },
-                              icon: const Icon(Icons.tips_and_updates_outlined),
-                              label: Text(
-                                strings.localized(
-                                  en: 'Try first steps',
-                                  ja: '初歩ガイドを見る',
-                                  zh: '查看入门指南',
-                                  ko: '첫 단계 보기',
-                                  es: 'Ver primeros pasos',
-                                  de: 'Erste Schritte ansehen',
+                                  child: Text(
+                                    widget.flavor.displayName,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.labelLarge,
+                                  ),
                                 ),
                               ),
                             ),
+                            const SizedBox(width: 8),
+                            TextButton(
+                              onPressed: () => ref
+                                  .read(appLaunchControllerProvider.notifier)
+                                  .completeOnboarding(),
+                              child: Text(strings.skip),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 28),
+                        Text(
+                          strings.onboardingWelcome,
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          strings.onboardingIntro,
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(color: colorScheme.onSurfaceVariant),
+                        ),
+                        const SizedBox(height: 28),
+                        _OnboardingPageViewport(
+                          useScrollableLayout: useScrollableLayout,
+                          availableHeight: viewportConstraints.maxHeight,
+                          child: PageView.builder(
+                            controller: _pageController,
+                            itemCount: pages.length,
+                            onPageChanged: (index) {
+                              setState(() {
+                                _pageIndex = index;
+                              });
+                            },
+                            itemBuilder: (context, index) {
+                              final page = pages[index];
+                              return LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final compactCard =
+                                      constraints.maxHeight.isFinite &&
+                                      constraints.maxHeight < 460;
+                                  final iconSize = compactCard ? 48.0 : 56.0;
+                                  final sectionGap = compactCard ? 16.0 : 24.0;
+                                  return Container(
+                                    margin: const EdgeInsets.only(bottom: 12),
+                                    padding: const EdgeInsets.all(24),
+                                    decoration: BoxDecoration(
+                                      color: colorScheme.surface,
+                                      borderRadius: BorderRadius.circular(24),
+                                      border: Border.all(
+                                        color: Theme.of(context).dividerColor,
+                                      ),
+                                    ),
+                                    child: SingleChildScrollView(
+                                      child: ConstrainedBox(
+                                        constraints: BoxConstraints(
+                                          minHeight:
+                                              constraints.maxHeight.isFinite &&
+                                                  constraints.maxHeight > 48
+                                              ? constraints.maxHeight - 48
+                                              : 0,
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Container(
+                                              width: iconSize,
+                                              height: iconSize,
+                                              decoration: BoxDecoration(
+                                                color: colorScheme.primary
+                                                    .withValues(alpha: 0.12),
+                                                borderRadius:
+                                                    BorderRadius.circular(18),
+                                              ),
+                                              child: Icon(
+                                                page.icon,
+                                                color: colorScheme.primary,
+                                              ),
+                                            ),
+                                            SizedBox(height: sectionGap),
+                                            if (!page.isSetupPage) ...[
+                                              _OnboardingImageCard(
+                                                imagePath: page.imagePath,
+                                                semanticLabel:
+                                                    page.imageSemanticLabel,
+                                                fallbackIcon: page.icon,
+                                                maxHeight: compactCard
+                                                    ? 160
+                                                    : null,
+                                              ),
+                                              SizedBox(height: sectionGap),
+                                            ],
+                                            Text(
+                                              page.title,
+                                              style: Theme.of(
+                                                context,
+                                              ).textTheme.titleLarge,
+                                            ),
+                                            const SizedBox(height: 12),
+                                            Text(
+                                              page.body,
+                                              style: Theme.of(
+                                                context,
+                                              ).textTheme.bodyLarge,
+                                            ),
+                                            if (page.isSetupPage) ...[
+                                              const SizedBox(height: 24),
+                                              _OnboardingSetupPanel(
+                                                pinConfigured: pinConfigured,
+                                                privateProfileCount:
+                                                    privateProfiles.length,
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              );
+                            },
                           ),
-                        FilledButton(
-                          key: const Key('onboarding-next-button'),
-                          onPressed: () async {
+                        ),
+                        _OnboardingFooter(
+                          pageIndex: _pageIndex,
+                          pageCount: pages.length,
+                          isLastPage: isLastPage,
+                          onStartTutorial: () async {
+                            ref
+                                .read(appTutorialControllerProvider.notifier)
+                                .start(AppTutorialCourse.basics);
+                            await ref
+                                .read(appLaunchControllerProvider.notifier)
+                                .completeOnboarding();
+                          },
+                          onNext: () async {
                             if (isLastPage) {
                               await ref
                                   .read(appLaunchControllerProvider.notifier)
@@ -1792,22 +1786,156 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                               curve: Curves.easeOut,
                             );
                           },
-                          child: Text(
-                            isLastPage ? strings.finishSetup : strings.next,
-                          ),
                         ),
+                        const SizedBox(height: 10),
+                        const _OnboardingLegalNotice(),
                       ],
                     ),
-                    const SizedBox(height: 10),
-                    const _OnboardingLegalNotice(),
-                  ],
-                ),
+                  );
+                  if (!useScrollableLayout) {
+                    return content;
+                  }
+                  return SingleChildScrollView(child: content);
+                },
               ),
             ),
           ),
         ),
       ],
       onDidRemovePage: (_) {},
+    );
+  }
+}
+
+class _OnboardingPageViewport extends StatelessWidget {
+  const _OnboardingPageViewport({
+    required this.useScrollableLayout,
+    required this.availableHeight,
+    required this.child,
+  });
+
+  final bool useScrollableLayout;
+  final double availableHeight;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!useScrollableLayout) {
+      return Expanded(child: child);
+    }
+    final proportionalHeight = availableHeight * 0.65;
+    return SizedBox(
+      height: proportionalHeight < 520 ? 520 : proportionalHeight,
+      child: child,
+    );
+  }
+}
+
+class _OnboardingFooter extends StatelessWidget {
+  const _OnboardingFooter({
+    required this.pageIndex,
+    required this.pageCount,
+    required this.isLastPage,
+    required this.onStartTutorial,
+    required this.onNext,
+  });
+
+  static const _stackedBreakpoint = 560.0;
+
+  final int pageIndex;
+  final int pageCount;
+  final bool isLastPage;
+  final VoidCallback onStartTutorial;
+  final VoidCallback onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final colorScheme = Theme.of(context).colorScheme;
+    final tutorialLabel = strings.localized(
+      en: 'Try first steps',
+      ja: '初歩ガイドを見る',
+      zh: '查看入门指南',
+      ko: '첫 단계 보기',
+      es: 'Ver primeros pasos',
+      de: 'Erste Schritte ansehen',
+    );
+    final progress = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < pageCount; i++)
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            margin: const EdgeInsetsDirectional.only(end: 8),
+            width: i == pageIndex ? 28 : 10,
+            height: 10,
+            decoration: BoxDecoration(
+              color: i == pageIndex
+                  ? colorScheme.primary
+                  : colorScheme.outlineVariant,
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+      ],
+    );
+    final nextButton = FilledButton(
+      key: const Key('onboarding-next-button'),
+      onPressed: onNext,
+      child: Text(isLastPage ? strings.finishSetup : strings.next),
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final textScale = MediaQuery.textScalerOf(context).scale(1);
+        final useStackedActions =
+            isLastPage &&
+            (constraints.maxWidth < _stackedBreakpoint || textScale > 1.3);
+        if (useStackedActions) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: progress,
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton(
+                key: const Key('onboarding-tutorial-button'),
+                onPressed: onStartTutorial,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.tips_and_updates_outlined),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(tutorialLabel, textAlign: TextAlign.center),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              nextButton,
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            progress,
+            const Spacer(),
+            if (isLastPage) ...[
+              OutlinedButton.icon(
+                key: const Key('onboarding-tutorial-button'),
+                onPressed: onStartTutorial,
+                icon: const Icon(Icons.tips_and_updates_outlined),
+                label: Text(tutorialLabel),
+              ),
+              const SizedBox(width: 8),
+            ],
+            nextButton,
+          ],
+        );
+      },
     );
   }
 }
@@ -2263,40 +2391,51 @@ class _OnboardingSetupTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
       ),
       padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 6),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final details = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 6),
+              Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              if (feedback != null) ...[
+                const SizedBox(height: 8),
                 Text(
-                  subtitle,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  feedback!,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                if (feedback != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    feedback!,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
               ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          FilledButton.tonal(
+            ],
+          );
+          final action = FilledButton.tonal(
             key: tileKey,
             onPressed: onPressed,
-            child: Text(actionLabel),
-          ),
-        ],
+            child: Text(actionLabel, textAlign: TextAlign.center),
+          );
+          final textScale = MediaQuery.textScalerOf(context).scale(1);
+          if (constraints.maxWidth < 420 || textScale > 1.3) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [details, const SizedBox(height: 12), action],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: details),
+              const SizedBox(width: 12),
+              action,
+            ],
+          );
+        },
       ),
     );
   }
@@ -2365,13 +2504,18 @@ ThemeData _buildTheme(
   AppFontFamily fontFamily,
 ) {
   final palette = _paletteFor(colorTheme, brightness);
+  final accessibleOnPrimary = _accessibleForegroundColor(
+    background: palette.primary,
+    preferred: palette.onPrimary,
+    alternative: palette.onSurface,
+  );
   final scheme =
       ColorScheme.fromSeed(
         seedColor: palette.primary,
         brightness: brightness,
       ).copyWith(
         primary: palette.primary,
-        onPrimary: palette.onPrimary,
+        onPrimary: accessibleOnPrimary,
         secondary: palette.secondary,
         onSecondary: palette.onSecondary,
         tertiary: palette.tertiary,
@@ -2468,6 +2612,39 @@ ThemeData _buildTheme(
     ),
     useMaterial3: true,
   );
+}
+
+const _minimumNormalTextContrastRatio = 4.5;
+
+Color _accessibleForegroundColor({
+  required Color background,
+  required Color preferred,
+  required Color alternative,
+}) {
+  if (_contrastRatio(background, preferred) >=
+      _minimumNormalTextContrastRatio) {
+    return preferred;
+  }
+  if (_contrastRatio(background, alternative) >=
+      _minimumNormalTextContrastRatio) {
+    return alternative;
+  }
+
+  final blackContrast = _contrastRatio(background, Colors.black);
+  final whiteContrast = _contrastRatio(background, Colors.white);
+  return blackContrast >= whiteContrast ? Colors.black : Colors.white;
+}
+
+double _contrastRatio(Color first, Color second) {
+  final firstLuminance = first.computeLuminance();
+  final secondLuminance = second.computeLuminance();
+  final lighter = firstLuminance >= secondLuminance
+      ? firstLuminance
+      : secondLuminance;
+  final darker = firstLuminance >= secondLuminance
+      ? secondLuminance
+      : firstLuminance;
+  return (lighter + 0.05) / (darker + 0.05);
 }
 
 const _cjkSansFontFallback = <String>[

@@ -1079,6 +1079,15 @@ void main() {
         tempPrefix: 'himemo-fake-drive-trash-second-',
         randomSeed: 92,
       );
+      final recoveryCode = await firstDevice.container
+          .read(syncBundleKeyServiceProvider)
+          .exportBackupCode();
+      await secondDevice.container
+          .read(syncBundleKeyServiceProvider)
+          .importBackupCode(recoveryCode);
+      await secondDevice.container
+          .read(syncAuthControllerProvider.notifier)
+          .connect(SyncProvider.googleDrive);
       final firstNotes = firstDevice.container.read(
         notesControllerProvider.notifier,
       );

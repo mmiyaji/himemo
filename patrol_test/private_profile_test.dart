@@ -8,7 +8,9 @@ import 'package:himemo/features/home/presentation/home_providers.dart';
 import 'package:patrol/patrol.dart';
 
 void main() {
-  patrolTest('private profile unlock reveals hidden save target on mobile', ($) async {
+  patrolTest('private profile unlock reveals hidden save target on mobile', (
+    $,
+  ) async {
     final fakeDeviceAuthGateway = _FakeDeviceAuthGateway(
       authenticateResults: [true],
     );
@@ -26,20 +28,22 @@ void main() {
         child: const HiMemoApp(flavor: AppFlavor.development),
       ),
     );
-    await container.read(appLaunchControllerProvider.notifier).completeOnboarding();
+    await container
+        .read(appLaunchControllerProvider.notifier)
+        .completeOnboarding();
     await $.pumpAndSettle();
 
     await $(find.byKey(AppShell.settingsNavKey)).tap();
     await $(find.byKey(SettingsScreen.privateProfileAddKey)).tap();
-    await $(find.byKey(SettingsScreen.privateProfileNameInputKey)).enterText(
-      'Patrol profile',
-    );
-    await $(find.byKey(SettingsScreen.privateProfilePasswordInputKey)).enterText(
-      'patrol-pass-123',
-    );
-    await $(find.byKey(SettingsScreen.privateProfileConfirmInputKey)).enterText(
-      'patrol-pass-123',
-    );
+    await $(
+      find.byKey(SettingsScreen.privateProfileNameInputKey),
+    ).enterText('Patrol profile');
+    await $(
+      find.byKey(SettingsScreen.privateProfilePasswordInputKey),
+    ).enterText('patrol-pass-123');
+    await $(
+      find.byKey(SettingsScreen.privateProfileConfirmInputKey),
+    ).enterText('patrol-pass-123');
     await $(find.byKey(SettingsScreen.privateProfileSubmitKey)).tap();
     await $('Patrol profile').waitUntilVisible();
 
@@ -49,19 +53,22 @@ void main() {
     await $('Cancel').tap();
 
     await $(find.byKey(AppShell.privateProfileAccessKey)).tap();
-    await $(find.byKey(const Key('private-profile-unlock-password-input')))
-        .enterText('patrol-pass-123');
+    await $(
+      find.byKey(const Key('private-profile-unlock-password-input')),
+    ).enterText('patrol-pass-123');
     await $(find.byKey(const Key('private-profile-unlock-submit'))).tap();
 
     await $(find.byKey(AppShell.addNoteKey)).tap();
     await $('Quick memo').tap();
-    await $(find.byKey(const Key('note-save-private-toggle'))).waitUntilVisible();
+    await $(
+      find.byKey(const Key('note-save-private-toggle')),
+    ).waitUntilVisible();
   });
 }
 
 class _FakeDeviceAuthGateway implements DeviceAuthGateway {
   _FakeDeviceAuthGateway({required List<bool> authenticateResults})
-      : _authenticateResults = List<bool>.from(authenticateResults);
+    : _authenticateResults = List<bool>.from(authenticateResults);
 
   final List<bool> _authenticateResults;
 

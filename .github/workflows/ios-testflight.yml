@@ -47,6 +47,13 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
       - name: Show toolchain versions
         run: |
           flutter --version
@@ -54,6 +61,8 @@ jobs:
           pod --version
 
       - name: Resolve build number
+        env:
+          REQUESTED_BUILD_NUMBER: ${{ inputs.build_number }}
         run: |
           set -euo pipefail
           VERSION_NAME="$(sed -nE 's/^version:[[:space:]]*([0-9A-Za-z.+-]+).*/\1/p' pubspec.yaml | head -n 1 | cut -d + -f 1)"
@@ -61,10 +70,14 @@ jobs:
             echo "Could not resolve version name from pubspec.yaml."
             exit 1
           fi
-          if [ -n "${{ inputs.build_number }}" ]; then
-            BUILD_NUMBER="${{ inputs.build_number }}"
+          if [ -n "$REQUESTED_BUILD_NUMBER" ]; then
+            BUILD_NUMBER="$REQUESTED_BUILD_NUMBER"
           else
             BUILD_NUMBER="$(date -u +%y%m%d%H%M)"
+          fi
+          if ! printf '%s' "$BUILD_NUMBER" | grep -Eq '^[1-9][0-9]{0,17}$'; then
+            echo "build_number must contain 1 to 18 digits and start with 1-9."
+            exit 1
           fi
           echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
@@ -133,6 +146,30 @@ jobs:
 
       - name: Install Flutter dependencies
         run: flutter pub get
+
+      - name: Check Dart formatting
+        run: >-
+          dart format --output=none --set-exit-if-changed
+          lib test integration_test patrol_test test_driver
+
+      - name: Analyze Flutter sources
+        run: flutter analyze --fatal-infos
+
+      - name: Run Flutter unit and widget tests
+        run: flutter test test
+
+      - name: Build development Web app
+        run: >-
+          flutter build web --no-wasm-dry-run
+          -t lib/main_development.dart
+
+      - name: Validate Functions
+        run: |
+          set -euo pipefail
+          npm --prefix functions ci
+          npm --prefix functions run lint
+          npm --prefix functions test
+          npm --prefix functions audit --omit=dev --audit-level=high
 
       - name: Install CocoaPods dependencies
         run: |
@@ -340,7 +377,6 @@ jobs:
           rm -rf "$VERIFY_DIR"
 
       - name: Upload IPA artifact
-        continue-on-error: true
         uses: actions/upload-artifact@v6
         with:
           name: himemo-ios-${{ github.run_number }}

@@ -384,33 +384,27 @@ void main() {
   });
 
   group('SyncBundleKeyService edge paths', () {
-    test(
-      'imports fallback secure store values and publishes to empty cloud',
-      () async {
-        final fallbackStore = MemorySecureKeyValueStore();
-        final bytes = List<int>.generate(32, (index) => index + 11);
-        await fallbackStore.write('sync-key', base64Encode(bytes));
-        final cloudStore = _MemoryCloudSyncBundleKeyStore();
-        final service = SyncBundleKeyService(
-          secureStore: MemorySecureKeyValueStore(),
-          fallbackStore: fallbackStore,
-          cloudStore: cloudStore,
-          keyFactory: () => List<int>.filled(32, 1),
-          storageKey: 'sync-key',
-        );
+    test('imports fallback secure store values without cloud escrow', () async {
+      final fallbackStore = MemorySecureKeyValueStore();
+      final bytes = List<int>.generate(32, (index) => index + 11);
+      await fallbackStore.write('sync-key', base64Encode(bytes));
+      final cloudStore = _MemoryCloudSyncBundleKeyStore();
+      final service = SyncBundleKeyService(
+        secureStore: MemorySecureKeyValueStore(),
+        fallbackStore: fallbackStore,
+        cloudStore: cloudStore,
+        keyFactory: () => List<int>.filled(32, 1),
+        storageKey: 'sync-key',
+      );
 
-        expect(
-          await service.fingerprint(),
-          sha256.convert(bytes).toString().substring(0, 12),
-        );
-        expect(
-          cloudStore.backupCode,
-          '${SyncBundleKeyService.backupCodePrefix}${base64Encode(bytes)}',
-        );
-      },
-    );
+      expect(
+        await service.fingerprint(),
+        sha256.convert(bytes).toString().substring(0, 12),
+      );
+      expect(cloudStore.backupCode, isNull);
+    });
 
-    test('continues when cloud read or publish fails', () async {
+    test('continues when legacy cloud read fails', () async {
       final secureStore = MemorySecureKeyValueStore();
       final bytes = List<int>.generate(32, (index) => index + 21);
       await secureStore.write('sync-key', base64Encode(bytes));
@@ -449,21 +443,11 @@ class _MemoryCloudSyncBundleKeyStore implements CloudSyncBundleKeyStore {
 
   @override
   Future<String?> readBackupCode() async => backupCode;
-
-  @override
-  Future<void> writeBackupCode(String backupCode) async {
-    this.backupCode = backupCode;
-  }
 }
 
 class _ThrowingCloudSyncBundleKeyStore implements CloudSyncBundleKeyStore {
   @override
   Future<String?> readBackupCode() async {
-    throw StateError('cloud unavailable');
-  }
-
-  @override
-  Future<void> writeBackupCode(String backupCode) async {
     throw StateError('cloud unavailable');
   }
 }

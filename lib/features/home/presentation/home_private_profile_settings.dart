@@ -7,6 +7,137 @@ class _PrivateProfileDraft {
   final String password;
 }
 
+String _privateProfilePasswordMinimumLengthError(AppStrings strings) {
+  const minimumLength = PrivateMemoProfileStore.minimumPasswordLength;
+  return strings.localized(
+    en: 'Use at least $minimumLength characters.',
+    ja: '$minimumLength文字以上で入力してください。',
+    zh: '请至少输入 $minimumLength 个字符。',
+    ko: '$minimumLength자 이상 입력하세요.',
+    es: 'Usa al menos $minimumLength caracteres.',
+    de: 'Verwende mindestens $minimumLength Zeichen.',
+  );
+}
+
+Future<String?> _showPrivateProfilePasswordSetupDialog(
+  BuildContext context, {
+  required String title,
+  required String label,
+  required String confirmLabel,
+  required String helperText,
+}) {
+  return showDialog<String>(
+    context: context,
+    builder: (context) => _PrivateProfilePasswordSetupDialog(
+      title: title,
+      label: label,
+      confirmLabel: confirmLabel,
+      helperText: helperText,
+    ),
+  );
+}
+
+class _PrivateProfilePasswordSetupDialog extends StatefulWidget {
+  const _PrivateProfilePasswordSetupDialog({
+    required this.title,
+    required this.label,
+    required this.confirmLabel,
+    required this.helperText,
+  });
+
+  final String title;
+  final String label;
+  final String confirmLabel;
+  final String helperText;
+
+  @override
+  State<_PrivateProfilePasswordSetupDialog> createState() =>
+      _PrivateProfilePasswordSetupDialogState();
+}
+
+class _PrivateProfilePasswordSetupDialogState
+    extends State<_PrivateProfilePasswordSetupDialog> {
+  final _passwordController = TextEditingController();
+  final _confirmController = TextEditingController();
+  String? _errorText;
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    _confirmController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.helperText,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: SettingsScreen.privateProfilePasswordInputKey,
+              controller: _passwordController,
+              obscureText: true,
+              decoration: InputDecoration(
+                labelText: widget.label,
+                border: const OutlineInputBorder(),
+                errorText: _errorText,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: SettingsScreen.privateProfileConfirmInputKey,
+              controller: _confirmController,
+              obscureText: true,
+              decoration: InputDecoration(
+                labelText: widget.confirmLabel,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(strings.cancel),
+        ),
+        FilledButton(
+          onPressed: () {
+            final password = _passwordController.text.trim();
+            final confirmation = _confirmController.text.trim();
+            if (password.runes.length <
+                PrivateMemoProfileStore.minimumPasswordLength) {
+              setState(() {
+                _errorText = _privateProfilePasswordMinimumLengthError(strings);
+              });
+              return;
+            }
+            if (password != confirmation) {
+              setState(() {
+                _errorText = strings.keysDoNotMatch;
+              });
+              return;
+            }
+            Navigator.of(context).pop(password);
+          },
+          child: Text(strings.save),
+        ),
+      ],
+    );
+  }
+}
+
 class _AddPrivateProfileDialog extends StatefulWidget {
   const _AddPrivateProfileDialog();
 
@@ -71,9 +202,16 @@ class _AddPrivateProfileDialogState extends State<_AddPrivateProfileDialog> {
                   labelText: strings.text('home.profile.password.2'),
                   border: const OutlineInputBorder(),
                 ),
-                validator: (value) => (value == null || value.isEmpty)
-                    ? (strings.text('home.enter.a.password.2'))
-                    : null,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return strings.text('home.enter.a.password.2');
+                  }
+                  if (value.trim().runes.length <
+                      PrivateMemoProfileStore.minimumPasswordLength) {
+                    return _privateProfilePasswordMinimumLengthError(strings);
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 12),
               TextFormField(

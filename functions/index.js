@@ -11,6 +11,17 @@ const { logger } = require('firebase-functions');
 const { onRequest } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
 const { GoogleAuth } = require('google-auth-library');
+const {
+  CHALLENGE_TTL_SECONDS,
+  buildRateLimitKey,
+  createRateLimiter,
+  getAllowedPackages,
+  isDevelopmentPackage,
+  issueChallenge,
+  normalizeStringList,
+  verifyChallenge,
+  verifyRequestTimestamp,
+} = require('./play_integrity_helpers');
 
 if (!getApps().length) {
   initializeApp();
@@ -18,20 +29,14 @@ if (!getApps().length) {
 
 const firestore = getFirestore();
 
-const DEFAULT_ALLOWED_PACKAGES = ['org.ruhenheim.himemo'];
-const DEFAULT_ALLOWED_DEV_PACKAGES = ['org.ruhenheim.himemo.dev'];
-
 const CHALLENGE_COLLECTION = 'playIntegrityChallenges';
-const CHALLENGE_TTL_SECONDS = 60;
-const MAX_TOKEN_AGE_MS = 90 * 1000;
-const REQUEST_CLOCK_SKEW_MS = 15 * 1000;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const CHALLENGE_RATE_LIMIT_MAX = 12;
 const VERIFY_RATE_LIMIT_MAX = 24;
 const APP_CHECK_HEADER = 'x-firebase-appcheck';
 
 const challengeSecret = defineSecret('PLAY_INTEGRITY_CHALLENGE_SECRET');
-const rateLimitState = new Map();
+const rateLimiter = createRateLimiter({ windowMs: RATE_LIMIT_WINDOW_MS });
 
 const PLAY_INTEGRITY_SCOPE =
   'https://www.googleapis.com/auth/playintegrity';
@@ -49,144 +54,8 @@ function jsonError(response, code, message, status = 400, details = undefined) {
   });
 }
 
-function base64UrlEncode(value) {
-  return Buffer.from(value)
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '');
-}
-
-function base64UrlDecode(value) {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
-  return Buffer.from(padded, 'base64').toString('utf8');
-}
-
-function normalizeStringList(value) {
-  return Array.isArray(value)
-    ? value.filter((entry) => typeof entry === 'string')
-    : [];
-}
-
-function getAllowedPackages({ allowDevelopment = false } = {}) {
-  const configured = process.env.HIMEMO_ALLOWED_ANDROID_PACKAGES;
-  const configuredDev = process.env.HIMEMO_ALLOWED_ANDROID_DEV_PACKAGES;
-  const basePackages = configured && configured.trim()
-    ? configured
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0)
-    : DEFAULT_ALLOWED_PACKAGES;
-
-  if (!allowDevelopment) {
-    return basePackages;
-  }
-
-  const devPackages = configuredDev && configuredDev.trim()
-    ? configuredDev
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0)
-    : DEFAULT_ALLOWED_DEV_PACKAGES;
-
-  return [...new Set([...basePackages, ...devPackages])];
-}
-
-function createHmacSignature(secret, payload) {
-  return crypto
-    .createHmac('sha256', secret)
-    .update(payload, 'utf8')
-    .digest('base64url');
-}
-
-function isDevelopmentPackage(packageName) {
-  return packageName.endsWith('.dev');
-}
-
-function buildRateLimitKey(request, scope) {
-  const ip = `${request.ip || request.headers['x-forwarded-for'] || 'unknown'}`;
-  return `${scope}:${ip}`;
-}
-
 function isRateLimited(key, maxCount) {
-  const now = Date.now();
-  const current = rateLimitState.get(key);
-  if (!current || now - current.windowStart > RATE_LIMIT_WINDOW_MS) {
-    rateLimitState.set(key, { windowStart: now, count: 1 });
-    return false;
-  }
-
-  current.count += 1;
-  rateLimitState.set(key, current);
-  return current.count > maxCount;
-}
-
-function issueChallenge({ secret, packageName, operation, challengeId }) {
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  const payload = JSON.stringify({
-    challengeId,
-    packageName,
-    operation,
-    issuedAt: nowSeconds,
-    expiresAt: nowSeconds + CHALLENGE_TTL_SECONDS,
-    nonce: crypto.randomBytes(18).toString('base64url'),
-  });
-  const payloadEncoded = base64UrlEncode(payload);
-  const signature = createHmacSignature(secret, payloadEncoded);
-  return `${payloadEncoded}.${signature}`;
-}
-
-function verifyChallenge({ secret, challenge, packageName, operation }) {
-  if (typeof challenge !== 'string' || !challenge.trim()) {
-    return { ok: false, code: 'invalid-challenge', message: 'Challenge is missing.' };
-  }
-
-  const parts = challenge.split('.');
-  if (parts.length !== 2) {
-    return { ok: false, code: 'invalid-challenge', message: 'Challenge format is invalid.' };
-  }
-
-  const [payloadEncoded, signature] = parts;
-  const expectedSignature = createHmacSignature(secret, payloadEncoded);
-  if (
-    expectedSignature.length !== signature.length ||
-    !crypto.timingSafeEqual(
-      Buffer.from(expectedSignature, 'utf8'),
-      Buffer.from(signature, 'utf8'),
-    )
-  ) {
-    return { ok: false, code: 'invalid-challenge', message: 'Challenge signature is invalid.' };
-  }
-
-  let payload;
-  try {
-    payload = JSON.parse(base64UrlDecode(payloadEncoded));
-  } catch (_error) {
-    return { ok: false, code: 'invalid-challenge', message: 'Challenge payload could not be decoded.' };
-  }
-
-  if (payload.packageName !== packageName) {
-    return { ok: false, code: 'package-mismatch', message: 'Challenge package did not match.' };
-  }
-  if (payload.operation !== operation) {
-    return { ok: false, code: 'operation-mismatch', message: 'Challenge operation did not match.' };
-  }
-  if (typeof payload.challengeId !== 'string' || !payload.challengeId.trim()) {
-    return { ok: false, code: 'invalid-challenge', message: 'Challenge id is missing.' };
-  }
-
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  if (
-    typeof payload.expiresAt !== 'number' ||
-    typeof payload.issuedAt !== 'number' ||
-    payload.expiresAt <= nowSeconds ||
-    payload.issuedAt > nowSeconds + 15
-  ) {
-    return { ok: false, code: 'expired-challenge', message: 'Challenge has expired.' };
-  }
-
-  return { ok: true, payload };
+  return rateLimiter.isRateLimited(key, maxCount);
 }
 
 async function verifyAppCheckToken(request) {
@@ -322,29 +191,6 @@ async function decodeIntegrityToken({ packageName, integrityToken }) {
     );
   }
   return payload;
-}
-
-function verifyRequestTimestamp({ requestTimestampMillis, issuedAtSeconds, expiresAtSeconds }) {
-  const requestTimestamp = Number.parseInt(`${requestTimestampMillis}`, 10);
-  if (!Number.isFinite(requestTimestamp)) {
-    return false;
-  }
-
-  const now = Date.now();
-  const issuedAtMs = issuedAtSeconds * 1000;
-  const expiresAtMs = expiresAtSeconds * 1000;
-
-  if (requestTimestamp < issuedAtMs - REQUEST_CLOCK_SKEW_MS) {
-    return false;
-  }
-  if (requestTimestamp > expiresAtMs + REQUEST_CLOCK_SKEW_MS) {
-    return false;
-  }
-  if (now - requestTimestamp > MAX_TOKEN_AGE_MS) {
-    return false;
-  }
-
-  return true;
 }
 
 exports.issuePlayIntegrityChallengeV2 = onRequest(

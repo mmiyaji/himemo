@@ -40,10 +40,7 @@ class PrivateVaultSecretStore {
 
     await _secureStore.write(
       storageKey,
-      jsonEncode({
-        'salt': legacySalt,
-        'verifier': legacyDigest,
-      }),
+      jsonEncode({'salt': legacySalt, 'verifier': legacyDigest}),
     );
     await prefs.remove(legacySaltKey);
     await prefs.remove(legacyDigestKey);
@@ -58,10 +55,7 @@ class PrivateVaultSecretStore {
     );
     await _secureStore.write(
       storageKey,
-      jsonEncode({
-        'salt': base64Encode(salt),
-        'verifier': verifier,
-      }),
+      jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
     );
   }
 

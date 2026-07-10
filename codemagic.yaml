@@ -51,6 +51,7 @@ workflows:
       app_store_connect: Codemagic HiMemo
     environment:
       flutter: 3.41.6
+      node: "20"
       xcode: latest
       cocoapods: default
       groups:
@@ -80,6 +81,18 @@ workflows:
           pod --version
       - name: Install Flutter dependencies
         script: flutter pub get
+      - name: Run mandatory release validation
+        script: |
+          set -euo pipefail
+          dart format --output=none --set-exit-if-changed \
+            lib test integration_test patrol_test test_driver
+          flutter analyze --fatal-infos
+          flutter test test
+          flutter build web --no-wasm-dry-run -t lib/main_development.dart
+          npm --prefix functions ci
+          npm --prefix functions run lint
+          npm --prefix functions test
+          npm --prefix functions audit --omit=dev --audit-level=high
       - name: Install CocoaPods dependencies
         script: |
           find ios -name "Podfile" -execdir pod install \;
@@ -158,6 +171,7 @@ workflows:
       app_store_connect: Codemagic HiMemo
     environment:
       flutter: 3.41.6
+      node: "20"
       xcode: latest
       cocoapods: default
       groups:
@@ -182,6 +196,18 @@ workflows:
     scripts:
       - name: Install Flutter dependencies
         script: flutter pub get
+      - name: Run mandatory release validation
+        script: |
+          set -euo pipefail
+          dart format --output=none --set-exit-if-changed \
+            lib test integration_test patrol_test test_driver
+          flutter analyze --fatal-infos
+          flutter test test
+          flutter build web --no-wasm-dry-run -t lib/main_development.dart
+          npm --prefix functions ci
+          npm --prefix functions run lint
+          npm --prefix functions test
+          npm --prefix functions audit --omit=dev --audit-level=high
       - name: Install CocoaPods dependencies
         script: |
           find ios -name "Podfile" -execdir pod install \;

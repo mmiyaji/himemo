@@ -151,9 +151,9 @@ android {
 
     buildTypes {
         release {
-            signingConfig hasAndroidUploadSigning
-                ? signingConfigs.upload
-                : signingConfigs.debug
+            if (hasAndroidUploadSigning) {
+                signingConfig signingConfigs.upload
+            }
             firebaseAppDistribution {
                 artifactType = "AAB"
                 if (appDistributionReleaseNotesFile) {
@@ -177,6 +177,27 @@ android {
 
 flutter {
     source '../..'
+}
+
+def validateProductionReleaseSigning = tasks.register("validateProductionReleaseSigning") {
+    group = "verification"
+    description = "Fails production release builds unless upload signing is fully configured."
+    doLast {
+        if (!hasAndroidUploadSigning) {
+            throw new GradleException(
+                "Production release signing is not configured. Set all HIMEMO_ANDROID_* signing values."
+            )
+        }
+        if (!file(androidUploadKeystorePath).isFile()) {
+            throw new GradleException("Production release keystore does not exist at the configured path.")
+        }
+    }
+}
+
+tasks.matching { task ->
+    task.name ==~ /(?i)(assemble|bundle|package|sign).*ProductionRelease.*/
+}.configureEach {
+    dependsOn(validateProductionReleaseSigning)
 }
 
 dependencies {

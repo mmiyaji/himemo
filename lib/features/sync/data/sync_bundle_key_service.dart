@@ -7,8 +7,10 @@ import '../../security/data/secure_key_value_store.dart';
 
 abstract class CloudSyncBundleKeyStore {
   Future<String?> readBackupCode();
+}
 
-  Future<void> writeBackupCode(String backupCode);
+abstract class DeletableCloudSyncBundleKeyStore {
+  Future<void> deleteBackupCode();
 }
 
 class SyncBundleKeyService {
@@ -46,8 +48,17 @@ class SyncBundleKeyService {
 
   Future<String> fingerprint() async {
     final bytes = await _readOrCreateBytes();
-    final digest = sha256.convert(bytes).toString();
-    return digest.substring(0, 12);
+    return _fullFingerprintForBytes(bytes).substring(0, 12);
+  }
+
+  Future<String> fullFingerprint() async {
+    final bytes = await _readOrCreateBytes();
+    return _fullFingerprintForBytes(bytes);
+  }
+
+  Future<String?> existingFullFingerprint() async {
+    final bytes = await _readExistingBytes();
+    return bytes == null ? null : _fullFingerprintForBytes(bytes);
   }
 
   Future<String> exportBackupCode() async {
@@ -55,17 +66,27 @@ class SyncBundleKeyService {
     return '$backupCodePrefix${base64Encode(bytes)}';
   }
 
+  Future<String?> exportExistingBackupCode() async {
+    final bytes = await _readExistingBytes();
+    return bytes == null ? null : _backupCodeForBytes(bytes);
+  }
+
   Future<String> importBackupCode(String rawCode) async {
     final bytes = _parseBackupCode(rawCode);
     await _secureStore.write(storageKey, base64Encode(bytes));
-    await _cloudStore?.writeBackupCode(_backupCodeForBytes(bytes));
     return fingerprint();
   }
 
   String previewBackupCodeFingerprint(String rawCode) {
     final bytes = _parseBackupCode(rawCode);
-    final digest = sha256.convert(bytes).toString();
-    return digest.substring(0, 12);
+    return _fullFingerprintForBytes(bytes).substring(0, 12);
+  }
+
+  bool backupCodesMatch(String leftCode, String rightCode) {
+    return _sameKeyBytes(
+      _parseBackupCode(leftCode),
+      _parseBackupCode(rightCode),
+    );
   }
 
   Future<List<int>> _readOrCreateBytes() async {
@@ -75,30 +96,18 @@ class SyncBundleKeyService {
     }
 
     final generated = _keyFactory();
+    if (generated.length != 32) {
+      throw StateError('Sync key factory must generate exactly 32 bytes.');
+    }
     await _secureStore.write(storageKey, base64Encode(generated));
-    await _cloudStore?.writeBackupCode(_backupCodeForBytes(generated));
     return generated;
   }
 
   Future<List<int>?> _readExistingBytes() async {
-    final cloud = _cloudStore;
-    if (cloud != null) {
-      try {
-        final cloudBackupCode = await cloud.readBackupCode();
-        if (cloudBackupCode != null && cloudBackupCode.isNotEmpty) {
-          final bytes = _parseBackupCode(cloudBackupCode);
-          await _secureStore.write(storageKey, base64Encode(bytes));
-          return bytes;
-        }
-      } catch (_) {
-        // Keep the app usable offline or while the cloud account is reconnecting.
-      }
-    }
-
     final existing = await _secureStore.read(storageKey);
     if (existing != null && existing.isNotEmpty) {
-      final bytes = base64Decode(existing);
-      await _publishCloudKeyIfMissing(bytes);
+      final bytes = _decodeStoredKey(existing);
+      await _verifyCloudKey(bytes);
       return bytes;
     }
 
@@ -106,33 +115,63 @@ class SyncBundleKeyService {
     if (fallback != null) {
       final fallbackValue = await fallback.read(storageKey);
       if (fallbackValue != null && fallbackValue.isNotEmpty) {
+        final bytes = _decodeStoredKey(fallbackValue);
         await _secureStore.write(storageKey, fallbackValue);
-        final bytes = base64Decode(fallbackValue);
-        await _publishCloudKeyIfMissing(bytes);
+        await _verifyCloudKey(bytes);
+        return bytes;
+      }
+    }
+
+    // Cloud storage is read only for migrating releases that escrowed the raw
+    // recovery key beside the encrypted bundle. New keys are never uploaded.
+    final cloud = _cloudStore;
+    if (cloud != null) {
+      String? cloudBackupCode;
+      try {
+        cloudBackupCode = await cloud.readBackupCode();
+      } catch (_) {
+        // A fallback or a newly generated key can still be used offline. An
+        // invalid reachable cloud record is deliberately not ignored below.
+      }
+      if (cloudBackupCode != null && cloudBackupCode.isNotEmpty) {
+        final bytes = _parseBackupCode(cloudBackupCode);
+        await _secureStore.write(storageKey, base64Encode(bytes));
         return bytes;
       }
     }
     return null;
   }
 
-  Future<void> _publishCloudKeyIfMissing(List<int> bytes) async {
+  Future<void> _verifyCloudKey(List<int> bytes) async {
     final cloud = _cloudStore;
     if (cloud == null) {
       return;
     }
+    String? existing;
     try {
-      final existing = await cloud.readBackupCode();
-      if (existing == null || existing.isEmpty) {
-        await cloud.writeBackupCode(_backupCodeForBytes(bytes));
-      }
+      existing = await cloud.readBackupCode();
     } catch (_) {
-      // Sync can continue with the local key; the next successful cloud
-      // operation will publish the key.
+      // Keep the app usable offline. A reachable cloud record is validated
+      // below instead of silently replacing the local source of truth.
+      return;
+    }
+    if (existing == null || existing.isEmpty) {
+      return;
+    }
+    final cloudBytes = _parseBackupCode(existing);
+    if (!_sameKeyBytes(bytes, cloudBytes)) {
+      throw StateError(
+        'The cloud sync key does not match this device. Import the correct recovery key before syncing.',
+      );
     }
   }
 
   String _backupCodeForBytes(List<int> bytes) {
     return '$backupCodePrefix${base64Encode(bytes)}';
+  }
+
+  String _fullFingerprintForBytes(List<int> bytes) {
+    return sha256.convert(bytes).toString();
   }
 
   List<int> _parseBackupCode(String rawCode) {
@@ -142,9 +181,28 @@ class SyncBundleKeyService {
     }
     final encoded = normalized.substring(backupCodePrefix.length).trim();
     final bytes = base64Decode(encoded);
-    if (bytes.length < 16) {
-      throw const FormatException('Sync key is too short.');
+    if (bytes.length != 32) {
+      throw const FormatException('Sync key must contain exactly 32 bytes.');
     }
     return bytes;
+  }
+
+  List<int> _decodeStoredKey(String encoded) {
+    final bytes = base64Decode(encoded);
+    if (bytes.length != 32) {
+      throw const FormatException('Stored sync key must contain 32 bytes.');
+    }
+    return bytes;
+  }
+
+  bool _sameKeyBytes(List<int> left, List<int> right) {
+    if (left.length != right.length) {
+      return false;
+    }
+    var difference = 0;
+    for (var index = 0; index < left.length; index++) {
+      difference |= left[index] ^ right[index];
+    }
+    return difference == 0;
   }
 }

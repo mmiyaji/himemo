@@ -371,7 +371,7 @@ void main() {
     await _openExternalLinkDialogAndCancel(
       tester,
       trigger: find.text('Sync help and FAQ'),
-      expectedUrl: 'https://mmiyaji.github.io/himemo/help.html',
+      expectedUrl: 'https://himemo.ruhenheim.org/#usage',
     );
 
     await _scrollIntoViewIfNeeded(tester, find.text('About'));
@@ -382,22 +382,22 @@ void main() {
     await _openExternalLinkDialogAndCancel(
       tester,
       trigger: find.text('Terms of Use').first,
-      expectedUrl: 'https://mmiyaji.github.io/himemo/terms.html',
+      expectedUrl: 'https://himemo.ruhenheim.org/terms/',
     );
     await _openExternalLinkDialogAndCancel(
       tester,
       trigger: find.text('Privacy Policy').first,
-      expectedUrl: 'https://mmiyaji.github.io/himemo/privacy.html',
+      expectedUrl: 'https://himemo.ruhenheim.org/privacy/',
     );
     await _openExternalLinkDialogAndCancel(
       tester,
       trigger: find.text('Contact').first,
-      expectedUrl: 'https://mmiyaji.github.io/himemo/contact.html',
+      expectedUrl: 'https://himemo.ruhenheim.org/#contact',
     );
     await _openExternalLinkDialogAndCancel(
       tester,
       trigger: find.text('Help and FAQ'),
-      expectedUrl: 'https://mmiyaji.github.io/himemo/help.html',
+      expectedUrl: 'https://himemo.ruhenheim.org/#usage',
     );
   });
 
@@ -983,10 +983,4 @@ class FakeGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
   ) async {
     return downloadLatestBundle();
   }
-
-  @override
-  Future<String?> fetchSyncKeyBackupCode() async => null;
-
-  @override
-  Future<void> uploadSyncKeyBackupCode(String backupCode) async {}
 }

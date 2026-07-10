@@ -7,7 +7,8 @@ class AuditLogService {
   AuditLogService._();
 
   static final AuditLogService instance = AuditLogService._();
-  static const _entriesKey = 'audit_logging.entries.v1';
+  static const _entriesKey = 'audit_logging.entries.v2';
+  static const _legacyEntriesKey = 'audit_logging.entries.v1';
   static const _maxEntries = 2000;
 
   final ValueNotifier<int> revision = ValueNotifier<int>(0);
@@ -21,7 +22,11 @@ class AuditLogService {
     await _ensureLoaded();
     final values = data.entries
         .where((entry) => entry.value != null)
-        .map((entry) => '${entry.key}=${_sanitize(entry.value)}')
+        .map(
+          (entry) => _isSensitiveField(entry.key)
+              ? '${entry.key}=[redacted]'
+              : '${entry.key}=${_sanitize(entry.value)}',
+        )
         .join(' ');
     final line = [
       DateTime.now().toUtc().toIso8601String(),
@@ -58,6 +63,7 @@ class AuditLogService {
       return;
     }
     final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_legacyEntriesKey);
     _entries = prefs.getStringList(_entriesKey) ?? <String>[];
     _loaded = true;
   }
@@ -67,6 +73,17 @@ class AuditLogService {
     return raw
         .replaceAll(RegExp(r'\s+'), '_')
         .replaceAll(RegExp(r'[\r\n]'), '_');
+  }
+
+  bool _isSensitiveField(String key) {
+    final normalized = key.toLowerCase();
+    return normalized.contains('tag') ||
+        normalized.contains('vault') ||
+        normalized.contains('profile') ||
+        normalized == 'noteid' ||
+        normalized.endsWith('noteid') ||
+        normalized == 'name' ||
+        normalized.endsWith('name');
   }
 
   void _notify() {

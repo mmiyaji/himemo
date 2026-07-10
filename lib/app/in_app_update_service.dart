@@ -15,11 +15,7 @@ class InAppUpdateStatus {
   });
 
   const InAppUpdateStatus.unsupported(String message)
-    : this(
-        isSupported: false,
-        updateAvailable: false,
-        message: message,
-      );
+    : this(isSupported: false, updateAvailable: false, message: message);
 
   final bool isSupported;
   final bool updateAvailable;

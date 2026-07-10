@@ -33,6 +33,7 @@ class EncryptedAttachmentStore {
     required MasterKeyService masterKeyService,
     ProfileDataKeyService? profileDataKeyService,
     Future<Directory> Function()? directoryProvider,
+    Future<Directory> Function()? temporaryDirectoryProvider,
     Future<SharedPreferences> Function()? sharedPreferencesProvider,
     this.webPrefix = 'secure-attachment://',
     this.webStoragePrefix = 'attachments.encrypted.',
@@ -42,6 +43,8 @@ class EncryptedAttachmentStore {
        _masterKeyService = masterKeyService,
        _profileDataKeyService = profileDataKeyService,
        _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
+       _temporaryDirectoryProvider =
+           temporaryDirectoryProvider ?? getTemporaryDirectory,
        _sharedPreferencesProvider =
            sharedPreferencesProvider ?? SharedPreferences.getInstance,
        _webPayloadStore = webPayloadStore ?? WebAttachmentPayloadStore();
@@ -50,6 +53,7 @@ class EncryptedAttachmentStore {
   final MasterKeyService _masterKeyService;
   final ProfileDataKeyService? _profileDataKeyService;
   final Future<Directory> Function() _directoryProvider;
+  final Future<Directory> Function() _temporaryDirectoryProvider;
   final Future<SharedPreferences> Function() _sharedPreferencesProvider;
   final WebAttachmentPayloadStore _webPayloadStore;
   final String webPrefix;
@@ -58,6 +62,7 @@ class EncryptedAttachmentStore {
   static const _webIndexedDbMarker = 'indexeddb:';
   static const _binaryPayloadStringPrefix = 'binary:';
   static const _materializedDeleteMarkerExtension = '.himemo-delete-after';
+  static const _orphanedMaterializedFileGrace = Duration(hours: 1);
   static const _backgroundEncryptionThresholdBytes = 8 * 1024 * 1024;
   static const _backgroundDecryptionThresholdChars = 512 * 1024;
 
@@ -182,15 +187,13 @@ class EncryptedAttachmentStore {
       return null;
     }
 
-    final directory = await _directoryProvider();
+    final directory = await _materializedTempDirectory();
     final extension = preferredFileName == null
         ? path.extension(storedReference.replaceAll('.enc', ''))
         : path.extension(preferredFileName);
     final tempName =
         '${DateTime.now().microsecondsSinceEpoch}_${type.name}${extension.isEmpty ? '' : extension}';
-    final file = File(
-      path.join(directory.path, 'attachments', 'tmp', tempName),
-    );
+    final file = File(path.join(directory.path, tempName));
     await file.create(recursive: true);
     await file.writeAsBytes(bytes, flush: true);
     return file.path;
@@ -204,15 +207,13 @@ class EncryptedAttachmentStore {
     if (kIsWeb || bytes.isEmpty) {
       return null;
     }
-    final directory = await _directoryProvider();
+    final directory = await _materializedTempDirectory();
     final extension = preferredFileName == null
         ? ''
         : path.extension(preferredFileName);
     final tempName =
         '${DateTime.now().microsecondsSinceEpoch}_${type.name}${extension.isEmpty ? '.bin' : extension}';
-    final file = File(
-      path.join(directory.path, 'attachments', 'tmp', tempName),
-    );
+    final file = File(path.join(directory.path, tempName));
     await file.create(recursive: true);
     await file.writeAsBytes(bytes, flush: true);
     return file.path;
@@ -309,8 +310,17 @@ class EncryptedAttachmentStore {
     final nowUtc = (now ?? DateTime.now()).toUtc();
     var deletedCount = 0;
     await for (final entity in tmpDirectory.list()) {
-      if (entity is! File ||
-          !entity.path.endsWith(_materializedDeleteMarkerExtension)) {
+      if (entity is! File) {
+        continue;
+      }
+      if (!entity.path.endsWith(_materializedDeleteMarkerExtension)) {
+        try {
+          final modifiedAt = (await entity.stat()).modified.toUtc();
+          if (!modifiedAt.add(_orphanedMaterializedFileGrace).isAfter(nowUtc)) {
+            await entity.delete();
+            deletedCount += 1;
+          }
+        } catch (_) {}
         continue;
       }
       final targetPath = entity.path.substring(
@@ -422,8 +432,8 @@ class EncryptedAttachmentStore {
   }
 
   Future<Directory> _materializedTempDirectory() async {
-    final directory = await _directoryProvider();
-    return Directory(path.join(directory.path, 'attachments', 'tmp'));
+    final directory = await _temporaryDirectoryProvider();
+    return Directory(path.join(directory.path, 'himemo', 'attachments', 'tmp'));
   }
 
   String _materializedDeleteMarkerPath(String filePath) {

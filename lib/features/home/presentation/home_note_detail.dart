@@ -1520,7 +1520,7 @@ class _FloatingNoteSearchNavigator extends StatelessWidget {
               key: const Key('note-detail-search-floating-previous-button'),
               visualDensity: VisualDensity.compact,
               onPressed: hasMatches ? onPrevious : null,
-              tooltip: strings.localized(en: 'Previous match', ja: '蜑阪・荳閾ｴ縺ｸ'),
+              tooltip: strings.localized(en: 'Previous match', ja: '前の一致へ'),
               icon: const Icon(Icons.keyboard_arrow_up_rounded),
             ),
             Text(
@@ -1533,7 +1533,7 @@ class _FloatingNoteSearchNavigator extends StatelessWidget {
               key: const Key('note-detail-search-floating-next-button'),
               visualDensity: VisualDensity.compact,
               onPressed: hasMatches ? onNext : null,
-              tooltip: strings.localized(en: 'Next match', ja: '谺｡縺ｮ荳閾ｴ縺ｸ'),
+              tooltip: strings.localized(en: 'Next match', ja: '次の一致へ'),
               icon: const Icon(Icons.keyboard_arrow_down_rounded),
             ),
           ],

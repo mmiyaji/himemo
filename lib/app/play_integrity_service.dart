@@ -43,21 +43,20 @@ class PlayIntegrityService {
         projectNumber: response['projectNumber'] as String?,
       );
     } catch (error) {
-      return PlayIntegrityStatus(
-        isAvailable: false,
-        message: '$error',
-      );
+      return PlayIntegrityStatus(isAvailable: false, message: '$error');
     }
   }
 
-  Future<String> requestClassicToken({
-    required String requestHash,
-  }) async {
+  Future<String> requestClassicToken({required String requestHash}) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
       throw StateError('Play Integrity is only available on Android.');
     }
     if (requestHash.trim().isEmpty) {
-      throw ArgumentError.value(requestHash, 'requestHash', 'Must not be empty');
+      throw ArgumentError.value(
+        requestHash,
+        'requestHash',
+        'Must not be empty',
+      );
     }
     final token = await _channel.invokeMethod<String>('requestToken', {
       'requestHash': requestHash.trim(),

@@ -66,9 +66,32 @@ class ProfileDataKeyService {
     required String vaultId,
     required String password,
   }) async {
+    final dataKeyBytes = await _unwrapProfileKey(
+      vaultId: vaultId,
+      password: password,
+    );
+    if (dataKeyBytes == null) {
+      return false;
+    }
+    _unlockedProfileKeys[vaultId] = SecretKey(dataKeyBytes);
+    return true;
+  }
+
+  Future<bool> verifyProfilePassword({
+    required String vaultId,
+    required String password,
+  }) async {
+    return await _unwrapProfileKey(vaultId: vaultId, password: password) !=
+        null;
+  }
+
+  Future<List<int>?> _unwrapProfileKey({
+    required String vaultId,
+    required String password,
+  }) async {
     final stored = await _secureStore.read('$storagePrefix$vaultId');
     if (stored == null || stored.isEmpty) {
-      return false;
+      return null;
     }
     try {
       final decoded = Map<String, dynamic>.from(
@@ -83,10 +106,9 @@ class ProfileDataKeyService {
         secretKey: passwordKey,
         additionalData: _profileKeyAad(vaultId),
       );
-      _unlockedProfileKeys[vaultId] = SecretKey(dataKeyBytes);
-      return true;
+      return dataKeyBytes;
     } catch (_) {
-      return false;
+      return null;
     }
   }
 

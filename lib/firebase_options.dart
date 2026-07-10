@@ -59,5 +59,4 @@ class DefaultFirebaseOptions {
     projectId: 'himemo-app-2026',
     storageBucket: 'himemo-app-2026.firebasestorage.app',
   );
-
 }

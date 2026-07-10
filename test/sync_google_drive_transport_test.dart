@@ -18,7 +18,7 @@ void main() {
   });
 
   group('InMemoryGoogleDriveSyncTransport', () {
-    test('stores bundle history, attachments, and backup codes', () async {
+    test('stores bundles and cleans up legacy backup codes', () async {
       final transport = InMemoryGoogleDriveSyncTransport(
         uploadDelay: Duration.zero,
       );
@@ -28,7 +28,7 @@ void main() {
       expect(await transport.listBundleHistory(), isEmpty);
       expect(await transport.downloadLatestBundle(), isNull);
       expect(await transport.downloadBundleByFileId('missing'), isNull);
-      expect(await transport.fetchSyncKeyBackupCode(), isNull);
+      expect(await transport.fetchSyncKeyBackupCodes(), isEmpty);
 
       final full = await transport.uploadBundle(
         encodedPayload: 'payload-full',
@@ -90,8 +90,10 @@ void main() {
       expect(await transport.downloadAttachmentObject(hash), 'overwritten');
 
       final keyStore = GoogleDriveCloudSyncBundleKeyStore(transport);
-      await keyStore.writeBackupCode('backup-code');
+      transport.seedLegacySyncKeyBackupCodeForTest('backup-code');
       expect(await keyStore.readBackupCode(), 'backup-code');
+      await keyStore.deleteBackupCode();
+      expect(await keyStore.readBackupCode(), isNull);
     });
 
     test(
