@@ -1688,6 +1688,205 @@ void main() {
     },
   );
 
+  test('sync aborts when delta history cannot be verified', () async {
+    SharedPreferences.setMockInitialValues({});
+    final transport = _FailingHistoryTransport();
+    final harness = await _createGoogleDriveSyncHarness(
+      transport,
+      tempPrefix: 'himemo-drive-history-failure-',
+    );
+    await transport.uploadBundle(
+      encodedPayload: 'unused-delta-payload',
+      deviceId: 'remote-device',
+      noteCount: 1,
+      attachmentCount: 0,
+      bundleKind: SyncBundleKind.delta,
+    );
+
+    await harness.container
+        .read(syncTransferControllerProvider.notifier)
+        .syncNow(allowCachedRemoteStatus: false);
+
+    final transfer = harness.container.read(syncTransferControllerProvider);
+    expect(transfer.stage, SyncTransferStage.error);
+    expect(transfer.message, 'sync.error.remote_history_incomplete');
+    expect(
+      (await harness.container.read(syncBundleStateStoreProvider).read())
+          .lastAppliedRemoteFileId,
+      isNull,
+    );
+  });
+
+  test('sync does not apply a bundle with an unavailable attachment', () async {
+    SharedPreferences.setMockInitialValues({});
+    final transport = InMemoryGoogleDriveSyncTransport(
+      uploadDelay: Duration.zero,
+    );
+    final harness = await _createGoogleDriveSyncHarness(
+      transport,
+      tempPrefix: 'himemo-drive-missing-remote-attachment-',
+    );
+    const missingHash = 'missing-attachment-hash';
+    final snapshot = PreparedSyncSnapshot(
+      deviceId: 'remote-device',
+      exportedAt: DateTime.utc(2026, 7, 11),
+      summary: const SyncQueueSummary(totalChanges: 1, upserts: 1, deletes: 0),
+      notes: [
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.upsert,
+          note: NoteEntry(
+            id: 'missing-attachment-note',
+            vaultId: 'everyday',
+            title: 'Missing attachment',
+            body: '',
+            createdAt: DateTime.utc(2026, 7, 11),
+            revision: 1,
+            syncState: NoteSyncState.synced,
+            contentHash: 'missing-attachment-note-hash',
+            attachments: [
+              NoteAttachment(
+                type: AttachmentType.file,
+                label: 'missing.bin',
+                filePath: syncAttachmentObjectRef(missingHash),
+                syncAttachmentContentHash: missingHash,
+              ),
+            ],
+          ),
+        ),
+      ],
+      attachments: const [
+        PreparedSyncAttachment(
+          id: missingHash,
+          type: AttachmentType.file,
+          label: 'missing.bin',
+          contentHash: missingHash,
+          sizeBytes: 64,
+        ),
+      ],
+    );
+    final stored = await harness.container
+        .read(secureSyncBundleStoreProvider)
+        .writeBundle(snapshot, bundleKind: SyncBundleKind.full);
+    final payload = await harness.container
+        .read(secureSyncBundleStoreProvider)
+        .readEncryptedBundlePayload(stored.reference);
+    final remote = await transport.uploadBundle(
+      encodedPayload: payload!,
+      deviceId: snapshot.deviceId,
+      noteCount: 1,
+      attachmentCount: 1,
+      bundleKind: SyncBundleKind.full,
+    );
+    final controller = harness.container.read(
+      syncTransferControllerProvider.notifier,
+    );
+    await controller.downloadBundle(remote);
+    await controller.applyDownloadedBundle();
+
+    final transfer = harness.container.read(syncTransferControllerProvider);
+    expect(transfer.stage, SyncTransferStage.error);
+    expect(transfer.message, 'sync.error.remote_attachment_unavailable');
+    expect(harness.container.read(notesControllerProvider), isEmpty);
+    expect(
+      (await harness.container.read(syncBundleStateStoreProvider).read())
+          .lastAppliedRemoteFileId,
+      isNull,
+    );
+  });
+
+  test('private sync conflict preserves the local pending change', () async {
+    SharedPreferences.setMockInitialValues({});
+    final transport = InMemoryGoogleDriveSyncTransport(
+      uploadDelay: Duration.zero,
+    );
+    final harness = await _createGoogleDriveSyncHarness(
+      transport,
+      tempPrefix: 'himemo-private-sync-conflict-',
+    );
+    final database = harness.container.read(encryptedNoteDatabaseProvider);
+    final queuedAt = DateTime.utc(2026, 7, 11, 1);
+    final localRecord = EncryptedNoteRecord(
+      id: 'private-conflict-note',
+      vaultId: 'private_profile:conflict',
+      encryptedPayload: 'local-encrypted-note',
+      createdAt: DateTime.utc(2026, 7, 10),
+      updatedAt: queuedAt,
+      revision: 2,
+      syncState: NoteSyncState.pendingUpload,
+      contentHash: 'local-hash',
+      isPinned: false,
+    );
+    await database.upsertOne(
+      note: localRecord,
+      attachments: const [],
+      pendingChange: PendingNoteChangeRecord(
+        noteId: localRecord.id,
+        vaultId: localRecord.vaultId,
+        revision: localRecord.revision,
+        action: PendingNoteChangeAction.upsert,
+        queuedAt: queuedAt,
+        contentHash: localRecord.contentHash,
+      ),
+    );
+    final snapshot = PreparedSyncSnapshot(
+      deviceId: 'remote-device',
+      exportedAt: DateTime.utc(2026, 7, 11, 2),
+      summary: const SyncQueueSummary(totalChanges: 1, upserts: 1, deletes: 0),
+      notes: const [],
+      attachments: const [],
+    );
+    final stored = await harness.container
+        .read(secureSyncBundleStoreProvider)
+        .writeBundle(
+          snapshot,
+          encryptedPrivateNotes: [
+            PreparedEncryptedPrivateSyncNote(
+              action: PendingNoteChangeAction.upsert,
+              note: localRecord.copyWith(
+                encryptedPayload: 'remote-encrypted-note',
+                updatedAt: DateTime.utc(2026, 7, 11, 2),
+                revision: 3,
+                syncState: NoteSyncState.synced,
+                contentHash: 'remote-hash',
+              ),
+              attachments: const [],
+            ),
+          ],
+          bundleKind: SyncBundleKind.full,
+        );
+    final payload = await harness.container
+        .read(secureSyncBundleStoreProvider)
+        .readEncryptedBundlePayload(stored.reference);
+    final remote = await transport.uploadBundle(
+      encodedPayload: payload!,
+      deviceId: snapshot.deviceId,
+      noteCount: 1,
+      attachmentCount: 0,
+      bundleKind: SyncBundleKind.full,
+    );
+    final controller = harness.container.read(
+      syncTransferControllerProvider.notifier,
+    );
+    await controller.downloadBundle(remote);
+    await controller.applyDownloadedBundle();
+
+    final transfer = harness.container.read(syncTransferControllerProvider);
+    expect(transfer.stage, SyncTransferStage.error);
+    expect(transfer.message, 'sync.error.private_note_conflict');
+    final pending = await database.loadPendingChanges();
+    expect(pending, hasLength(1));
+    expect(pending.single.contentHash, 'local-hash');
+    expect(
+      (await database.loadAll()).single.note.encryptedPayload,
+      'local-encrypted-note',
+    );
+    expect(
+      (await harness.container.read(syncBundleStateStoreProvider).read())
+          .lastAppliedRemoteFileId,
+      isNull,
+    );
+  });
+
   test('large Google Drive downloads warn on mobile data', () async {
     SharedPreferences.setMockInitialValues({});
     final tempDirectory = await Directory.systemTemp.createTemp(
@@ -4856,5 +5055,14 @@ class _FailingBundleUploadTransport extends InMemoryGoogleDriveSyncTransport {
   }) async {
     bundleUploadCalls += 1;
     throw StateError('simulated bundle upload failure');
+  }
+}
+
+class _FailingHistoryTransport extends InMemoryGoogleDriveSyncTransport {
+  _FailingHistoryTransport() : super(uploadDelay: Duration.zero);
+
+  @override
+  Future<List<RemoteSyncBundleStatus>> listBundleHistory({int limit = 10}) {
+    throw StateError('simulated history failure');
   }
 }

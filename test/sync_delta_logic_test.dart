@@ -208,6 +208,53 @@ void main() {
         ),
       );
     });
+
+    test('private pending changes only match identical remote changes', () {
+      final local = PendingNoteChangeRecord(
+        noteId: 'private-a',
+        vaultId: 'private_profile:a',
+        revision: 2,
+        action: PendingNoteChangeAction.upsert,
+        queuedAt: DateTime.utc(2026, 6, 12),
+        contentHash: 'same-hash',
+      );
+      PreparedEncryptedPrivateSyncNote remote({
+        String? hash = 'same-hash',
+        PendingNoteChangeAction action = PendingNoteChangeAction.upsert,
+      }) {
+        return PreparedEncryptedPrivateSyncNote(
+          action: action,
+          note: EncryptedNoteRecord(
+            id: 'private-a',
+            vaultId: 'private_profile:a',
+            encryptedPayload: 'encrypted',
+            createdAt: DateTime.utc(2026, 6),
+            revision: 2,
+            syncState: NoteSyncState.synced,
+            contentHash: hash,
+            isPinned: false,
+          ),
+          attachments: const [],
+        );
+      }
+
+      expect(pendingPrivateChangeMatchesRemote(local, remote()), isTrue);
+      expect(
+        pendingPrivateChangeMatchesRemote(local, remote(hash: 'other-hash')),
+        isFalse,
+      );
+      expect(
+        pendingPrivateChangeMatchesRemote(
+          local,
+          remote(action: PendingNoteChangeAction.delete),
+        ),
+        isFalse,
+      );
+      expect(
+        pendingPrivateChangeMatchesRemote(local, remote(hash: null)),
+        isFalse,
+      );
+    });
   });
 
   group('selectRemoteBundlesToApply', () {
@@ -314,6 +361,37 @@ void main() {
         'd2',
         'd3',
       ]);
+    });
+
+    test('requires an applied anchor or full snapshot for safe replay', () {
+      final deltas = [
+        _status('d2', bundleKind: SyncBundleKind.delta),
+        _status('d1', bundleKind: SyncBundleKind.delta),
+      ];
+      expect(
+        remoteHistoryHasSafeReplayBase(
+          history: deltas,
+          bundleState: const SyncBundleState(),
+        ),
+        isFalse,
+      );
+      expect(
+        remoteHistoryHasSafeReplayBase(
+          history: deltas,
+          bundleState: const SyncBundleState(lastAppliedRemoteFileId: 'd1'),
+        ),
+        isTrue,
+      );
+      expect(
+        remoteHistoryHasSafeReplayBase(
+          history: [
+            _status('d2', bundleKind: SyncBundleKind.delta),
+            _status('f1', bundleKind: SyncBundleKind.full),
+          ],
+          bundleState: const SyncBundleState(),
+        ),
+        isTrue,
+      );
     });
   });
 

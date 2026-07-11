@@ -150,6 +150,18 @@ class PreparedEncryptedPrivateSyncNote {
   }
 }
 
+bool pendingPrivateChangeMatchesRemote(
+  PendingNoteChangeRecord local,
+  PreparedEncryptedPrivateSyncNote remote,
+) {
+  final localHash = local.contentHash;
+  final remoteHash = remote.note.contentHash;
+  return local.action == remote.action &&
+      localHash != null &&
+      remoteHash != null &&
+      localHash == remoteHash;
+}
+
 class PreparedSyncSnapshot {
   const PreparedSyncSnapshot({
     required this.deviceId,

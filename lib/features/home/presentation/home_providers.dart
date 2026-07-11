@@ -277,6 +277,10 @@ bool remoteBundleNeedsApplyForSync(
   RemoteSyncBundleStatus remoteStatus,
   SyncBundleState bundleState,
 ) {
+  final remoteFileId = remoteStatus.fileId;
+  if (remoteFileId.isNotEmpty) {
+    return remoteFileId != bundleState.lastAppliedRemoteFileId;
+  }
   final lastAppliedAt = bundleState.lastAppliedAt;
   final lastUploadedAt = bundleState.lastUploadedAt;
   final knownActionAt = _latestDateTime(lastAppliedAt, lastUploadedAt);
@@ -285,14 +289,18 @@ bool remoteBundleNeedsApplyForSync(
   }
   final remoteModifiedAt = remoteStatus.modifiedAt?.toUtc();
   if (remoteModifiedAt == null) {
-    return bundleState.lastRemoteFileId != remoteStatus.fileId &&
-        lastAppliedAt == null;
-  }
-  if (remoteModifiedAt.isAfter(knownActionAt)) {
     return true;
   }
-  return remoteStatus.fileId.isNotEmpty &&
-      bundleState.lastRemoteFileId != remoteStatus.fileId;
+  return remoteModifiedAt.isAfter(knownActionAt);
+}
+
+class SyncSafetyException implements Exception {
+  const SyncSafetyException(this.code);
+
+  final String code;
+
+  @override
+  String toString() => code;
 }
 
 DateTime? _latestDateTime(DateTime? left, DateTime? right) {
@@ -5401,7 +5409,21 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             'remote bundle history unavailable falling back to latest',
             data: {'error': error},
           );
+          if (!remoteStatus.isFullBundle) {
+            throw const SyncSafetyException(
+              'sync.error.remote_history_incomplete',
+            );
+          }
           history = const <RemoteSyncBundleStatus>[];
+        }
+        if (history.isNotEmpty &&
+            !remoteHistoryHasSafeReplayBase(
+              history: history,
+              bundleState: bundleState,
+            )) {
+          throw const SyncSafetyException(
+            'sync.error.remote_history_incomplete',
+          );
         }
         final bundlesToApply = history.isEmpty
             ? <RemoteSyncBundleStatus>[remoteStatus]
@@ -5431,7 +5453,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               'remote bundle disappeared during walk',
               data: {'fileId': bundleStatus.fileId},
             );
-            continue;
+            throw const SyncSafetyException('sync.error.remote_bundle_missing');
           }
           _diagnostic(
             'remote bundle downloaded for apply',
@@ -5833,6 +5855,31 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       if (decoded == null) {
         throw StateError('sync.error.downloaded_bundle_decryption_failed');
       }
+      final encryptedDatabase = ref.read(encryptedNoteDatabaseProvider);
+      final localPrivatePendingById = {
+        for (final change in await encryptedDatabase.loadPendingChanges())
+          if (isPrivateVaultId(change.vaultId)) change.noteId: change,
+      };
+      final existingPrivateSnapshotsById = {
+        for (final snapshot in await encryptedDatabase.loadAll())
+          if (isPrivateVaultId(snapshot.note.vaultId))
+            snapshot.note.id: snapshot,
+      };
+      final encryptedPrivateEntries = <PreparedEncryptedPrivateSyncNote>[];
+      for (final rawEntry
+          in (decoded['encryptedPrivateNotes'] as List<dynamic>? ??
+              const <dynamic>[])) {
+        final entry = PreparedEncryptedPrivateSyncNote.fromJson(rawEntry);
+        if (entry == null) {
+          throw const SyncSafetyException('sync.error.malformed_private_note');
+        }
+        final localPending = localPrivatePendingById[entry.note.id];
+        if (localPending != null &&
+            !pendingPrivateChangeMatchesRemote(localPending, entry)) {
+          throw const SyncSafetyException('sync.error.private_note_conflict');
+        }
+        encryptedPrivateEntries.add(entry);
+      }
       for (final rawProfiles
           in (decoded['privateProfiles'] as List<dynamic>? ??
               const <dynamic>[])) {
@@ -5862,25 +5909,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
       final lockedPrivateVaultIds = <String>{};
       var importedEncryptedPrivateCount = 0;
-      final encryptedPrivateEntries =
-          decoded['encryptedPrivateNotes'] as List<dynamic>? ??
-          const <dynamic>[];
       if (encryptedPrivateEntries.isNotEmpty) {
-        final encryptedDatabase = ref.read(encryptedNoteDatabaseProvider);
         final profileKeys = ref.read(profileDataKeyServiceProvider);
-        final localPendingIds = {
-          for (final change in await encryptedDatabase.loadPendingChanges())
-            change.noteId,
-        };
-        final existingPrivateSnapshotsById = {
-          for (final snapshot in await encryptedDatabase.loadAll())
-            snapshot.note.id: snapshot,
-        };
-        for (final rawEntry in encryptedPrivateEntries) {
-          final entry = PreparedEncryptedPrivateSyncNote.fromJson(rawEntry);
-          if (entry == null || localPendingIds.contains(entry.note.id)) {
-            continue;
-          }
+        for (final entry in encryptedPrivateEntries) {
           final remoteNote = entry.note.copyWith(
             deletedAt: entry.action == PendingNoteChangeAction.delete
                 ? (entry.note.deletedAt ?? DateTime.now())
@@ -5921,6 +5952,33 @@ class SyncTransferController extends Notifier<SyncTransferState> {
                 'localRevision': existingPrivateNote.revision,
                 'remoteRevision': importedPrivateEntry.note.revision,
               },
+            );
+            final existingSnapshot =
+                existingPrivateSnapshotsById[importedPrivateEntry.note.id]!;
+            final pendingAction = existingPrivateNote.deletedAt == null
+                ? PendingNoteChangeAction.upsert
+                : PendingNoteChangeAction.delete;
+            final queuedNote = existingPrivateNote.copyWith(
+              syncState: existingPrivateNote.deletedAt == null
+                  ? NoteSyncState.pendingUpload
+                  : NoteSyncState.pendingDelete,
+            );
+            await encryptedDatabase.upsertOne(
+              note: queuedNote,
+              attachments: existingSnapshot.attachments,
+              pendingChange: PendingNoteChangeRecord(
+                noteId: queuedNote.id,
+                vaultId: queuedNote.vaultId,
+                revision: queuedNote.revision,
+                action: pendingAction,
+                queuedAt: _encryptedSyncMoment(queuedNote),
+                contentHash: queuedNote.contentHash,
+                deletedAt: queuedNote.deletedAt,
+              ),
+            );
+            existingPrivateSnapshotsById[queuedNote.id] = EncryptedNoteSnapshot(
+              note: queuedNote,
+              attachments: existingSnapshot.attachments,
             );
             continue;
           }
@@ -6372,9 +6430,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           contentHash,
         );
         if (encodedPayload == null || encodedPayload.isEmpty) {
-          storedBySyncAttachmentId[contentHash] = null;
-          previewBySyncAttachmentId[contentHash] =
-              attachment.previewBytesBase64;
+          throw const SyncSafetyException(
+            'sync.error.remote_attachment_unavailable',
+          );
         } else {
           final decoded = await ref
               .read(secureSyncBundleStoreProvider)

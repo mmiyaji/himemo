@@ -430,6 +430,43 @@ String _localizedSyncTransferMessage(
         es: 'No se pudo preparar el paquete de sincronizacion local.',
         de: 'Das lokale Synchronisierungspaket konnte nicht vorbereitet werden.',
       );
+    case 'sync.error.remote_history_incomplete':
+    case 'sync.error.remote_bundle_missing':
+      return strings.localized(
+        en: 'The remote sync history is incomplete. No changes were applied. Check the connection and sync again.',
+        ja: 'リモートの同期履歴を完全に確認できなかったため、変更は適用されませんでした。通信状態を確認して、もう一度同期してください。',
+        zh: '远程同步历史记录不完整，因此未应用任何更改。请检查网络连接后重试。',
+        ko: '원격 동기화 기록이 완전하지 않아 변경 사항을 적용하지 않았습니다. 연결을 확인한 후 다시 동기화하세요.',
+        es: 'El historial de sincronizacion remoto esta incompleto. No se aplicaron cambios. Comprueba la conexion y vuelve a sincronizar.',
+        de: 'Der Remote-Synchronisierungsverlauf ist unvollstandig. Es wurden keine Anderungen angewendet. Prufe die Verbindung und synchronisiere erneut.',
+      );
+    case 'sync.error.private_note_conflict':
+      return strings.localized(
+        en: 'A private note was changed on both devices. Neither version was overwritten. Review the devices before choosing which version to upload.',
+        ja: '同じプライベートメモが両方の端末で変更されています。どちらの内容も上書きしていません。端末ごとの内容を確認してから、アップロードする版を選んでください。',
+        zh: '同一条私密笔记已在两台设备上更改。两个版本均未被覆盖。请确认内容后再选择要上传的版本。',
+        ko: '같은 비공개 메모가 두 기기에서 변경되었습니다. 어느 버전도 덮어쓰지 않았습니다. 내용을 확인한 후 업로드할 버전을 선택하세요.',
+        es: 'La misma nota privada se modifico en ambos dispositivos. No se sobrescribio ninguna version. Revisa ambos dispositivos antes de elegir que version subir.',
+        de: 'Dieselbe private Notiz wurde auf beiden Geraten geandert. Keine Version wurde uberschrieben. Prufe beide Gerate, bevor du eine Version hochladst.',
+      );
+    case 'sync.error.malformed_private_note':
+      return strings.localized(
+        en: 'The remote bundle contains an invalid private-note entry. No changes were applied.',
+        ja: 'リモートバンドルに不正なプライベートメモのデータが含まれているため、変更は適用されませんでした。',
+        zh: '远程同步包中包含无效的私密笔记数据，因此未应用任何更改。',
+        ko: '원격 번들에 잘못된 비공개 메모 데이터가 있어 변경 사항을 적용하지 않았습니다.',
+        es: 'El paquete remoto contiene una entrada de nota privada no valida. No se aplicaron cambios.',
+        de: 'Das Remote-Paket enthalt einen ungultigen privaten Notizeintrag. Es wurden keine Anderungen angewendet.',
+      );
+    case 'sync.error.remote_attachment_unavailable':
+      return strings.localized(
+        en: 'A required remote attachment is not available yet. The bundle was not marked as applied; sync again after the cloud finishes updating.',
+        ja: '必要なリモート添付ファイルをまだ取得できません。バンドルは適用済みにしていないため、クラウドの更新完了後にもう一度同期してください。',
+        zh: '所需的远程附件尚不可用。同步包未标记为已应用，请等待云端更新完成后重试。',
+        ko: '필요한 원격 첨부 파일을 아직 사용할 수 없습니다. 번들을 적용 완료로 표시하지 않았으므로 클라우드 업데이트 후 다시 동기화하세요.',
+        es: 'Un adjunto remoto necesario aun no esta disponible. El paquete no se marco como aplicado; vuelve a sincronizar cuando termine la actualizacion en la nube.',
+        de: 'Ein erforderlicher Remote-Anhang ist noch nicht verfugbar. Das Paket wurde nicht als angewendet markiert; synchronisiere nach Abschluss der Cloud-Aktualisierung erneut.',
+      );
     case 'sync.error.large_mobile_transfer_requires_confirmation':
       return strings.localized(
         en: 'This sync is large and the current connection appears to be mobile data. Confirm from the sync button before continuing.',

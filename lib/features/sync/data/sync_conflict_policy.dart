@@ -83,3 +83,21 @@ List<RemoteSyncBundleStatus> selectRemoteBundlesToApply({
       .reversed
       .toList(growable: false);
 }
+
+/// Returns whether [history] contains a trustworthy starting point for a
+/// delta replay: either the device's applied anchor or a full snapshot.
+bool remoteHistoryHasSafeReplayBase({
+  required List<RemoteSyncBundleStatus> history,
+  required SyncBundleState bundleState,
+}) {
+  if (history.isEmpty) {
+    return false;
+  }
+  final anchorFileId = bundleState.lastAppliedRemoteFileId;
+  if (anchorFileId != null &&
+      anchorFileId.isNotEmpty &&
+      history.any((status) => status.fileId == anchorFileId)) {
+    return true;
+  }
+  return history.any((status) => status.isFullBundle);
+}

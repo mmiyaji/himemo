@@ -4756,6 +4756,29 @@ void main() {
   );
 
   test(
+    'remote bundle apply check uses applied id after an observed refresh',
+    () {
+      final observedButNotApplied = SyncBundleState(
+        lastRemoteFileId: 'remote-new',
+        lastAppliedRemoteFileId: 'remote-old',
+        lastAppliedAt: DateTime.utc(2026, 5, 9, 10, 30),
+      );
+
+      expect(
+        remoteBundleNeedsApplyForSync(
+          RemoteSyncBundleStatus(
+            fileId: 'remote-new',
+            fileName: 'latest_sync_bundle.enc',
+            modifiedAt: DateTime.utc(2026, 5, 9, 10),
+          ),
+          observedButNotApplied,
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test(
     'sync conflict assessment compares equivalent time zones as instants',
     () {
       final assessment = assessSyncConflict(
