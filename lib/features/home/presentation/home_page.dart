@@ -509,35 +509,51 @@ class _AppShellState extends ConsumerState<AppShell> {
                         );
                       },
                       destinations: [
-                        NavigationDestination(
-                          key: AppShell.notesNavKey,
-                          icon: const Icon(Icons.notes_outlined),
-                          selectedIcon: const Icon(Icons.notes_rounded),
-                          label: bottomNavLabel(strings.notes),
-                          tooltip: strings.notes,
-                        ),
-                        NavigationDestination(
-                          key: AppShell.calendarNavKey,
-                          icon: const Icon(Icons.calendar_month_outlined),
-                          selectedIcon: const Icon(
-                            Icons.calendar_month_rounded,
+                        FractionalTranslation(
+                          translation: const Offset(-0.1, 0),
+                          child: NavigationDestination(
+                            key: AppShell.notesNavKey,
+                            icon: const Icon(Icons.notes_outlined),
+                            selectedIcon: const Icon(Icons.notes_rounded),
+                            label: bottomNavLabel(strings.notes),
+                            tooltip: strings.notes,
                           ),
-                          label: bottomNavLabel(strings.calendar),
-                          tooltip: strings.calendar,
                         ),
-                        NavigationDestination(
-                          key: AppShell.insightsNavKey,
-                          icon: const Icon(Icons.insert_chart_outlined_rounded),
-                          selectedIcon: const Icon(Icons.insert_chart_rounded),
-                          label: bottomNavLabel(strings.insights),
-                          tooltip: strings.insights,
+                        FractionalTranslation(
+                          translation: const Offset(-0.3, 0),
+                          child: NavigationDestination(
+                            key: AppShell.calendarNavKey,
+                            icon: const Icon(Icons.calendar_month_outlined),
+                            selectedIcon: const Icon(
+                              Icons.calendar_month_rounded,
+                            ),
+                            label: bottomNavLabel(strings.calendar),
+                            tooltip: strings.calendar,
+                          ),
                         ),
-                        NavigationDestination(
-                          key: AppShell.settingsNavKey,
-                          icon: const Icon(Icons.settings_outlined),
-                          selectedIcon: const Icon(Icons.settings_rounded),
-                          label: bottomNavLabel(strings.settings),
-                          tooltip: strings.settings,
+                        FractionalTranslation(
+                          translation: const Offset(0.3, 0),
+                          child: NavigationDestination(
+                            key: AppShell.insightsNavKey,
+                            icon: const Icon(
+                              Icons.insert_chart_outlined_rounded,
+                            ),
+                            selectedIcon: const Icon(
+                              Icons.insert_chart_rounded,
+                            ),
+                            label: bottomNavLabel(strings.insights),
+                            tooltip: strings.insights,
+                          ),
+                        ),
+                        FractionalTranslation(
+                          translation: const Offset(0.1, 0),
+                          child: NavigationDestination(
+                            key: AppShell.settingsNavKey,
+                            icon: const Icon(Icons.settings_outlined),
+                            selectedIcon: const Icon(Icons.settings_rounded),
+                            label: bottomNavLabel(strings.settings),
+                            tooltip: strings.settings,
+                          ),
                         ),
                       ],
                     ),

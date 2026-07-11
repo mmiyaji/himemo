@@ -307,6 +307,11 @@ void main() {
     expect(homePage, contains('NavigationDestinationLabelBehavior.alwaysShow'));
     expect(homePage, contains('tooltip: strings.notes'));
     expect(homePage, contains('tooltip: strings.calendar'));
+    expect(homePage, contains('translation: const Offset(-0.1, 0)'));
+    expect(homePage, contains('translation: const Offset(-0.3, 0)'));
+    expect(homePage, contains('translation: const Offset(0.3, 0)'));
+    expect(homePage, contains('translation: const Offset(0.1, 0)'));
+    expect(homePage, isNot(contains('enabled: false')));
     expect(homePage, contains('Positioned('));
     expect(homePage, contains('static const _createNoteNavTopOffset = -4.0'));
     expect(homePage, contains('top: _createNoteNavTopOffset'));
