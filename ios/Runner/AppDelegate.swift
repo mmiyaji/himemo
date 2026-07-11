@@ -719,6 +719,21 @@ import FoundationModels
           blue: 1.0,
           alpha: 1.0
         )
+
+        let icon = UIImageView()
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.contentMode = .scaleAspectFit
+        icon.image = UIImage(
+          named: FlutterDartProject.lookupKey(forAsset: "assets/app-icon.png")
+        )
+        overlay.addSubview(icon)
+        NSLayoutConstraint.activate([
+          icon.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+          icon.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
+          icon.widthAnchor.constraint(equalToConstant: 152),
+          icon.heightAnchor.constraint(equalTo: icon.widthAnchor),
+        ])
+
         privacyOverlayView = overlay
       }
       guard let privacyOverlayView else {

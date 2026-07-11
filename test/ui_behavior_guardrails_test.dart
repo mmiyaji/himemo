@@ -228,7 +228,18 @@ void main() {
     expect(androidMainActivity, contains('setPrivacyOverlayVisible(true)'));
     expect(androidMainActivity, contains('PRIVACY_OVERLAY_COLOR'));
     expect(androidMainActivity, contains('buildPrivacyOverlay'));
+    expect(androidMainActivity, contains('R.mipmap.ic_launcher'));
+    expect(androidMainActivity, contains('resources.displayMetrics.density'));
+    expect(androidMainActivity, contains('Gravity.CENTER'));
     expect(appDelegate, contains('alpha: 1.0'));
+    expect(appDelegate, contains('FlutterDartProject.lookupKey(forAsset:'));
+    expect(appDelegate, contains('assets/app-icon.png'));
+    expect(appDelegate, contains('icon.centerXAnchor'));
+    expect(appDelegate, contains('icon.centerYAnchor'));
+    expect(
+      appDelegate,
+      contains('icon.widthAnchor.constraint(equalToConstant: 152)'),
+    );
     expect(appDelegate.contains('UIBlurEffect(style: .extraLight)'), isFalse);
     expect(appShell, contains('strings.unlockWithPinInstruction'));
     expect(appShell, contains('strings.noUnlockMethodConfigured'));

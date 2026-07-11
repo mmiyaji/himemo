@@ -489,6 +489,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun buildPrivacyOverlay(): FrameLayout {
+        val iconSize = (128 * resources.displayMetrics.density).toInt()
         return FrameLayout(this).apply {
             setBackgroundColor(PRIVACY_OVERLAY_COLOR)
             isClickable = false
@@ -499,7 +500,7 @@ class MainActivity : FlutterFragmentActivity() {
                     scaleType = ImageView.ScaleType.FIT_CENTER
                     alpha = 0.96f
                 },
-                FrameLayout.LayoutParams(128, 128, Gravity.CENTER),
+                FrameLayout.LayoutParams(iconSize, iconSize, Gravity.CENTER),
             )
         }
     }
