@@ -923,7 +923,7 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        _body(strings),
+                        _body(context, strings),
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                       const SizedBox(height: 14),
@@ -1244,7 +1244,7 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
     };
   }
 
-  String _body(AppStrings strings) {
+  String _body(BuildContext context, AppStrings strings) {
     return switch (step) {
       AppTutorialStep.privateProfile => strings.localized(
         en: 'Use the lock icon in the header to unlock or switch private profiles. App lock also uses this area when protection is enabled.',
@@ -1302,10 +1302,16 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
         en: 'Calendar helps you review memos by date, while insights show writing patterns and note activity.',
         ja: 'カレンダーでは日付からメモを見返せます。記録では作成傾向やメモの活動を確認できます。',
       ),
-      AppTutorialStep.navigation => strings.localized(
-        en: 'Use the navigation to move between notes, calendar, insights, trash, tags, and settings. Settings contains sync, app protection, profiles, and help.',
-        ja: 'ナビゲーションからノート、カレンダー、記録、ゴミ箱、タグ、設定へ移動できます。設定には同期、アプリ保護、プロファイル、ヘルプがあります。',
-      ),
+      AppTutorialStep.navigation =>
+        MediaQuery.sizeOf(context).width < 840
+            ? strings.localized(
+                en: 'Use the bottom navigation to move between notes, calendar, insights, and settings. Other management tools are grouped in Settings.',
+                ja: '下部のナビゲーションからノート、カレンダー、記録、設定へ移動できます。その他の管理機能は設定にまとまっています。',
+              )
+            : strings.localized(
+                en: 'Use the sidebar to move between notes, calendar, insights, trash, tags, and settings. Settings contains sync, app protection, profiles, and help.',
+                ja: 'サイドバーからノート、カレンダー、記録、ゴミ箱、タグ、設定へ移動できます。設定には同期、アプリ保護、プロファイル、ヘルプがあります。',
+              ),
     };
   }
 }

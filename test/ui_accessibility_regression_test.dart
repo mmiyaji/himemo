@@ -139,18 +139,38 @@ void main() {
         preferences: const {'settings.locale': 'english'},
       );
 
-      for (var page = 0; page < 3; page++) {
-        final next = find.byKey(const Key('onboarding-next-button'));
-        await tester.ensureVisible(next);
-        await tester.pump();
-        await tester.tap(next);
+      for (var page = 0; page < 4; page++) {
+        expect(find.text('${page + 1} / 5'), findsOneWidget);
+        final nextFinder = find.byKey(const Key('onboarding-next-button'));
+        await tester.ensureVisible(nextFinder);
         await tester.pumpAndSettle();
+        final next = nextFinder.hitTestable();
+        expect(next, findsOneWidget);
+        await tester.tap(next);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+        expect(find.text('${page + 2} / 5'), findsOneWidget);
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: 'Page ${page + 2} overflowed at ${scenario.label}',
+        );
       }
 
       final tutorial = find.byKey(const Key('onboarding-tutorial-button'));
       final finish = find.byKey(const Key('onboarding-next-button'));
       expect(tutorial, findsOneWidget);
       expect(finish, findsOneWidget);
+      expect(find.text('5 / 5'), findsOneWidget);
+      expect(
+        find.byKey(const Key('onboarding-private-profiles-info-button')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('onboarding-sync-info-button')),
+        findsNothing,
+      );
       await tester.ensureVisible(finish);
       await tester.pumpAndSettle();
 
@@ -162,6 +182,24 @@ void main() {
       expect(screen.contains(finishRect.topLeft), isTrue);
       expect(screen.contains(finishRect.bottomRight), isTrue);
       expect(tutorialRect.bottom, lessThan(finishRect.top));
+      final finishButton = tester.widget<FilledButton>(finish);
+      final finishBackground = finishButton.style!.backgroundColor!.resolve(
+        const <WidgetState>{},
+      )!;
+      final finishForeground = finishButton.style!.foregroundColor!.resolve(
+        const <WidgetState>{},
+      )!;
+      expect(
+        _contrastRatio(finishBackground, finishForeground),
+        greaterThanOrEqualTo(4.5),
+      );
+      if (scenario.textScale == 1) {
+        final pinAction = find.byKey(const Key('onboarding-set-pin-button'));
+        expect(pinAction, findsOneWidget);
+        final pinRect = tester.getRect(pinAction);
+        expect(screen.contains(pinRect.topLeft), isTrue);
+        expect(screen.contains(pinRect.bottomRight), isTrue);
+      }
       expect(tester.takeException(), isNull);
     });
   }

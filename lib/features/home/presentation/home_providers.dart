@@ -8501,10 +8501,9 @@ final appTutorialControllerProvider =
 class AppTutorialController extends Notifier<AppTutorialState?> {
   static const _courseSteps = <AppTutorialCourse, List<AppTutorialStep>>{
     AppTutorialCourse.basics: [
-      AppTutorialStep.privateProfile,
       AppTutorialStep.addNote,
-      AppTutorialStep.syncStatus,
       AppTutorialStep.navigation,
+      AppTutorialStep.privateProfile,
     ],
     AppTutorialCourse.mainScreen: [
       AppTutorialStep.search,

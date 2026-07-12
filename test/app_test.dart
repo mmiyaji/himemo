@@ -3297,19 +3297,19 @@ void main() {
     controller.start();
     expect(
       container.read(appTutorialControllerProvider)?.step,
-      AppTutorialStep.privateProfile,
+      AppTutorialStep.addNote,
     );
 
     controller.next();
     expect(
       container.read(appTutorialControllerProvider)?.step,
-      AppTutorialStep.addNote,
+      AppTutorialStep.navigation,
     );
 
     controller.previous();
     expect(
       container.read(appTutorialControllerProvider)?.step,
-      AppTutorialStep.privateProfile,
+      AppTutorialStep.addNote,
     );
 
     controller.close();
@@ -3708,16 +3708,6 @@ void main() {
 
     Rect cardRect() => tester.getRect(find.byKey(AppShell.tutorialCardKey));
     Rect padded(Rect rect) => rect.inflate(8);
-    expect(
-      cardRect().overlaps(
-        padded(tester.getRect(find.byKey(AppShell.privateProfileAccessKey))),
-      ),
-      isFalse,
-    );
-
-    container.read(appTutorialControllerProvider.notifier).next();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
     final addNoteRect = tester.getRect(find.byKey(AppShell.addNoteKey));
     expect(addNoteRect.left, lessThan(260));
     expect(cardRect().overlaps(padded(addNoteRect)), isFalse);
@@ -3725,9 +3715,17 @@ void main() {
     container.read(appTutorialControllerProvider.notifier).next();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    final syncRect = tester.getRect(find.byKey(AppShell.syncIndicatorKey));
-    expect(syncRect.right, greaterThan(900));
-    expect(cardRect().overlaps(padded(syncRect)), isFalse);
+    final notesNavRect = tester.getRect(find.byKey(AppShell.notesNavKey));
+    expect(cardRect().overlaps(padded(notesNavRect)), isFalse);
+
+    container.read(appTutorialControllerProvider.notifier).next();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    final profileRect = tester.getRect(
+      find.byKey(AppShell.privateProfileAccessKey),
+    );
+    expect(profileRect.right, greaterThan(900));
+    expect(cardRect().overlaps(padded(profileRect)), isFalse);
     expect(tester.takeException(), isNull);
   });
 
