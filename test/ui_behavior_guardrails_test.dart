@@ -549,7 +549,14 @@ void main() {
     expect(appDelegate, contains('attributeSet.textContent'));
     expect(appDelegate, contains('attributeSet.displayName'));
     expect(appDelegate, contains('body ?? ""'));
-    expect(appDelegate, contains('attributeSet.alternateNames'));
+    expect(
+      appDelegate,
+      contains('attributeSet.keywords = (["HiMemo"] + tags + searchTerms)'),
+    );
+    expect(
+      appDelegate,
+      isNot(contains('attributeSet.alternateNames = attributeSet.keywords')),
+    );
     expect(appDelegate, contains('searchTerms'));
     expect(homeProviders, contains("logDiagnostic('spotlight'"));
     expect(homeProviders, contains('replace all requested'));

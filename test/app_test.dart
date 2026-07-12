@@ -2875,6 +2875,58 @@ void main() {
     expect(item['searchTerms'], contains('gamma'));
   });
 
+  test('Spotlight search terms cover the end of a long Japanese body', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues({});
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    final calls = <MethodCall>[];
+    const channel = MethodChannel('org.ruhenheim.himemo/spotlight');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return <String, Object?>{'ok': true};
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+
+    final longBody =
+        '${String.fromCharCodes(List<int>.generate(700, (index) => 0x4e00 + index))}末尾固有検索語';
+    final bridge = SpotlightNoteIndexBridge((_) {});
+    await bridge.replaceAllStandardNotes([
+      NoteEntry(
+        id: 'spotlight-long-japanese-body',
+        vaultId: 'everyday',
+        title: '長文検索テスト',
+        body: longBody,
+        createdAt: DateTime(2026, 7, 12, 12),
+      ),
+    ]);
+
+    final replaceCall = calls.firstWhere(
+      (call) => call.method == 'replaceAllNotes',
+    );
+    final arguments = Map<String, Object?>.from(
+      replaceCall.arguments as Map<Object?, Object?>,
+    );
+    final items = arguments['items']! as List<Object?>;
+    final item = Map<String, Object?>.from(
+      items.single! as Map<Object?, Object?>,
+    );
+    final searchTerms = List<String>.from(
+      item['searchTerms']! as List<Object?>,
+    );
+
+    expect(item['body'], contains('末尾固有検索語'));
+    expect(searchTerms.length, lessThanOrEqualTo(512));
+    expect(searchTerms, contains('索語'));
+    expect(searchTerms, contains('有検索語'));
+    expect(searchTerms, isNot(contains(longBody.substring(0, 64))));
+  });
+
   test('seeded demo notes are dated within a week of first launch', () {
     final launchDate = DateTime(2026, 4, 29, 15, 30);
     final notes = SeededHomeRepository(seedBaseDate: launchDate).seededNotes;

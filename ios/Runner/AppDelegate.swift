@@ -622,10 +622,21 @@ import FoundationModels
         return trimmed?.isEmpty == false ? trimmed : nil
       }
       .joined(separator: "\n\n")
-    attributeSet.keywords = ([resolvedTitle, body ?? "", "HiMemo"] + tags + searchTerms)
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-    attributeSet.alternateNames = attributeSet.keywords
+    var seenKeywords = Set<String>()
+    attributeSet.keywords = (["HiMemo"] + tags + searchTerms).compactMap { value in
+      let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else {
+        return nil
+      }
+      let normalized = trimmed.folding(
+        options: [.caseInsensitive, .diacriticInsensitive],
+        locale: .current
+      )
+      guard seenKeywords.insert(normalized).inserted else {
+        return nil
+      }
+      return trimmed
+    }
     attributeSet.kind = "HiMemo Note"
     attributeSet.contentCreationDate = dateFromIsoString(payload["createdAt"] as? String)
     attributeSet.contentModificationDate = dateFromIsoString(payload["updatedAt"] as? String)

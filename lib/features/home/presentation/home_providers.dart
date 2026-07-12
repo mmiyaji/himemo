@@ -9427,42 +9427,129 @@ List<String> _spotlightSearchTerms({
   required String body,
   required List<String> tags,
 }) {
+  const maximumTerms = 512;
+  const maximumTermLength = 64;
   final terms = <String>{};
 
   void addTerm(String raw) {
-    final term = raw.trim().toLowerCase();
-    if (term.length < 2) {
+    if (terms.length >= maximumTerms) {
       return;
     }
-    terms.add(term.length > 64 ? term.substring(0, 64) : term);
+    final term = raw.trim().toLowerCase();
+    if (term.length < 2 || term.length > maximumTermLength) {
+      return;
+    }
+    terms.add(term);
   }
 
-  void addText(String text) {
-    final normalized = text.replaceAll(
-      RegExp(r'[\s,.;:!?，。、！？「」『』（）()\[\]［］【】#]+'),
-      ' ',
-    );
-    for (final raw in normalized.split(' ')) {
-      addTerm(raw);
+  List<String> segments(String text) {
+    return text
+        .replaceAll(RegExp(r'[\s,.;:!?，。、・：；！？「」『』（）()\[\]［］【】#]+'), ' ')
+        .split(' ')
+        .map((value) => value.trim().toLowerCase())
+        .where((value) => value.length >= 2)
+        .toList(growable: false);
+  }
+
+  List<String> uniqueCandidates(Iterable<String> values) {
+    return <String>{
+      for (final value in values)
+        if (value.length >= 2 && value.length <= maximumTermLength) value,
+    }.toList(growable: false);
+  }
+
+  void addBalanced(List<String> candidates, int allowance) {
+    if (allowance <= 0 || candidates.isEmpty || terms.length >= maximumTerms) {
+      return;
     }
-    final compact = normalized.replaceAll(' ', '');
-    if (compact.length >= 4) {
-      for (var i = 0; i < compact.length && terms.length < 160; i++) {
-        for (final length in const [2, 3, 4]) {
-          if (i + length <= compact.length) {
-            addTerm(compact.substring(i, i + length));
-          }
-        }
+    final available = math.min(allowance, maximumTerms - terms.length);
+    if (candidates.length <= available) {
+      for (final candidate in candidates) {
+        addTerm(candidate);
       }
+      return;
+    }
+    if (available == 1) {
+      addTerm(candidates.last);
+      return;
+    }
+    for (var i = 0; i < available; i++) {
+      final index = (i * (candidates.length - 1) / (available - 1)).round();
+      addTerm(candidates[index]);
     }
   }
 
-  addText(title);
-  addText(body);
-  for (final tag in tags) {
-    addText(tag);
+  List<String> nGrams(Iterable<String> values, int length) {
+    final codePointSegments = values
+        .map((value) => value.runes.toList(growable: false))
+        .where((value) => value.length >= length)
+        .toList(growable: false);
+    final candidateCounts = codePointSegments
+        .map((value) => value.length - length + 1)
+        .toList(growable: false);
+    final totalCandidates = candidateCounts.fold<int>(0, (a, b) => a + b);
+    if (totalCandidates == 0) {
+      return const <String>[];
+    }
+
+    // Bound temporary allocations for unusually large notes while sampling
+    // evenly across the complete text, including its final characters.
+    final sampleCount = math.min(totalCandidates, maximumTerms * 4);
+    final candidates = <String>[];
+    var segmentIndex = 0;
+    var segmentStart = 0;
+    for (var i = 0; i < sampleCount; i++) {
+      final globalIndex = sampleCount == 1
+          ? totalCandidates - 1
+          : (i * (totalCandidates - 1) / (sampleCount - 1)).round();
+      while (segmentIndex < candidateCounts.length - 1 &&
+          globalIndex >= segmentStart + candidateCounts[segmentIndex]) {
+        segmentStart += candidateCounts[segmentIndex];
+        segmentIndex++;
+      }
+      final localIndex = globalIndex - segmentStart;
+      final codePoints = codePointSegments[segmentIndex];
+      candidates.add(
+        String.fromCharCodes(
+          codePoints.sublist(localIndex, localIndex + length),
+        ),
+      );
+    }
+    return uniqueCandidates(candidates);
   }
-  return terms.take(160).toList(growable: false);
+
+  final titleSegments = segments(title);
+  final tagSegments = tags.expand(segments).toList(growable: false);
+  final bodySegments = segments(body);
+
+  // Titles and tags are concise, high-signal metadata and should never be
+  // displaced by a long body.
+  for (final value in [...titleSegments, ...tagSegments]) {
+    addTerm(value);
+  }
+
+  // Preserve ordinary word search throughout long Latin-script bodies. The
+  // balanced sampler includes the beginning and end instead of only a prefix.
+  addBalanced(uniqueCandidates(bodySegments), 128);
+
+  final allSegments = [...titleSegments, ...tagSegments, ...bodySegments];
+  final nGramCandidates = <int, List<String>>{
+    for (final length in const [2, 3, 4]) length: nGrams(allSegments, length),
+  };
+  final remaining = maximumTerms - terms.length;
+  addBalanced(nGramCandidates[2]!, (remaining * 0.5).round());
+  addBalanced(nGramCandidates[3]!, (remaining * 0.3).round());
+  addBalanced(nGramCandidates[4]!, maximumTerms - terms.length);
+
+  // Reuse capacity left by short or duplicate candidate sets.
+  for (final length in const [2, 3, 4]) {
+    addBalanced(nGramCandidates[length]!, maximumTerms - terms.length);
+  }
+
+  for (final tag in tags) {
+    addTerm(tag);
+  }
+  return terms.take(maximumTerms).toList(growable: false);
 }
 
 class SpotlightNoteOpenRequestController extends Notifier<String?> {
