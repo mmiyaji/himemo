@@ -2268,19 +2268,19 @@ class _OnboardingColorThemePicker extends StatelessWidget {
             builder: (context, constraints) {
               final compact = MediaQuery.sizeOf(context).width < 520;
               return Wrap(
-                spacing: compact ? 4 : 8,
-                runSpacing: compact ? 4 : 8,
+                spacing: 8,
+                runSpacing: compact ? 6 : 8,
                 children: [
                   for (final theme in _themes)
                     SizedBox(
-                      width: compact ? 44 : (constraints.maxWidth - 8) / 2,
-                      height: compact ? 44 : null,
+                      width: compact
+                          ? constraints.maxWidth
+                          : (constraints.maxWidth - 8) / 2,
                       child: _OnboardingColorThemeOption(
                         theme: theme,
                         title: _onboardingColorThemeLabel(strings, theme),
                         sampleColor: _onboardingColorThemeSample(theme),
                         selected: current == theme,
-                        compact: compact,
                         onTap: () => onSelect(theme),
                       ),
                     ),
@@ -2300,7 +2300,6 @@ class _OnboardingColorThemeOption extends StatelessWidget {
     required this.title,
     required this.sampleColor,
     required this.selected,
-    required this.compact,
     required this.onTap,
   });
 
@@ -2308,49 +2307,11 @@ class _OnboardingColorThemeOption extends StatelessWidget {
   final String title;
   final Color sampleColor;
   final bool selected;
-  final bool compact;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    if (compact) {
-      return Tooltip(
-        message: title,
-        child: Semantics(
-          button: true,
-          selected: selected,
-          label: title,
-          child: InkWell(
-            key: Key('onboarding-color-theme-${theme.name}-option'),
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              decoration: BoxDecoration(
-                color: sampleColor,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: selected
-                      ? colorScheme.primary
-                      : colorScheme.outlineVariant,
-                  width: selected ? 3 : 1,
-                ),
-              ),
-              child: selected
-                  ? Icon(
-                      Icons.check_rounded,
-                      color: _accessibleForegroundColor(
-                        background: sampleColor,
-                        preferred: Colors.white,
-                        alternative: Colors.black,
-                      ),
-                    )
-                  : null,
-            ),
-          ),
-        ),
-      );
-    }
     return InkWell(
       key: Key('onboarding-color-theme-${theme.name}-option'),
       onTap: onTap,

@@ -151,6 +151,17 @@ void main() {
         await tester.pump(const Duration(milliseconds: 300));
         await tester.pumpAndSettle();
         expect(find.text('${page + 2} / 5'), findsOneWidget);
+        if (page == 2) {
+          for (final colorName in const [
+            '紺青 (Konjyo)',
+            '萌黄 (Moegi)',
+            '山吹 (Yamabuki)',
+            '紅 (Kurenai)',
+            '桜 (Sakura)',
+          ]) {
+            expect(find.text(colorName), findsOneWidget);
+          }
+        }
         expect(
           tester.takeException(),
           isNull,
