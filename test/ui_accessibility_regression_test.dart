@@ -99,7 +99,7 @@ void main() {
     });
   }
 
-  testWidgets('compact settings overview keeps only full-width priorities', (
+  testWidgets('compact settings overview is a non-interactive status summary', (
     tester,
   ) async {
     final harness = await _createHarness(
@@ -113,11 +113,11 @@ void main() {
       of: overview,
       matching: find.byType(TextButton),
     );
-    expect(overviewButtons, findsNWidgets(3));
-    for (final element in overviewButtons.evaluate()) {
-      final rect = tester.getRect(find.byElementPredicate((e) => e == element));
-      expect(rect.width, greaterThan(320));
-    }
+    expect(overviewButtons, findsNothing);
+    expect(
+      find.descendant(of: overview, matching: find.text('Current status')),
+      findsOneWidget,
+    );
     expect(
       find.descendant(of: overview, matching: find.text('Profile')),
       findsOneWidget,
@@ -142,6 +142,103 @@ void main() {
       find.descendant(of: overview, matching: find.text('Theme')),
       findsNothing,
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('opening a settings section collapses the previous section', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
+    );
+    _configureView(tester, size: const Size(800, 900));
+    await _pumpSettingsScreen(tester, harness.container);
+
+    await tester.tap(find.text('Appearance and language'));
+    await tester.pumpAndSettle();
+    var expandedTiles = tester
+        .widgetList<ExpansionTile>(find.byType(ExpansionTile))
+        .where((tile) => tile.controller?.isExpanded ?? false);
+    expect(expandedTiles, hasLength(1));
+
+    final memoSettings = find.text('Memo settings');
+    await tester.scrollUntilVisible(memoSettings, 500);
+    await tester.tap(memoSettings);
+    await tester.pumpAndSettle();
+    expandedTiles = tester
+        .widgetList<ExpansionTile>(find.byType(ExpansionTile))
+        .where((tile) => tile.controller?.isExpanded ?? false);
+    expect(expandedTiles, hasLength(1));
+    expandedTiles.single.controller!.collapse();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('expanded private profile header remains an actionable control', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
+    );
+    _configureView(tester, size: const Size(800, 900));
+    await _pumpSettingsScreen(tester, harness.container);
+    final semantics = tester.ensureSemantics();
+
+    final header = find.text('Private profiles');
+    await tester.scrollUntilVisible(header, 500);
+    await tester.tap(header);
+    await tester.pumpAndSettle();
+
+    final root = RendererBinding
+        .instance
+        .renderViews
+        .single
+        .owner!
+        .semanticsOwner!
+        .rootSemanticsNode!;
+    final headerNodes = _semanticsNodes(root)
+        .where(
+          (node) =>
+              node.getSemanticsData().label.startsWith('Private profiles'),
+        )
+        .toList();
+    expect(
+      headerNodes.any((node) {
+        final data = node.getSemanticsData();
+        return data.flagsCollection.isButton &&
+            data.hasAction(SemanticsAction.tap);
+      }),
+      isTrue,
+    );
+    final expandedTile = tester
+        .widgetList<ExpansionTile>(find.byType(ExpansionTile))
+        .singleWhere((tile) => tile.controller?.isExpanded ?? false);
+    expandedTile.controller!.collapse();
+    await tester.pumpAndSettle();
+    semantics.dispose();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('production storage settings hide demo-note controls', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
+      flavor: AppFlavor.production,
+    );
+    _configureView(tester, size: const Size(800, 900));
+    await _pumpSettingsScreen(tester, harness.container);
+
+    final storage = find.text('Storage');
+    await tester.scrollUntilVisible(storage, 500);
+    await tester.tap(storage);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(SettingsScreen.createDemoNotesKey), findsNothing);
+    expect(find.byKey(SettingsScreen.deleteDemoNotesKey), findsNothing);
+    expect(find.text('Danger zone'), findsOneWidget);
+    await tester.tap(storage);
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 
@@ -313,9 +410,10 @@ class _PendingAppLockSettingsController extends AppLockSettingsReadyController {
 Future<_TestHarness> _createHarness({
   required Map<String, Object> preferences,
   bool keepAppLockSettingsPending = false,
+  AppFlavor flavor = AppFlavor.development,
 }) async {
   SharedPreferences.setMockInitialValues(preferences);
-  configureFlavor(AppFlavor.development);
+  configureFlavor(flavor);
   final secureStore = MemorySecureKeyValueStore();
   final encryptionService = EncryptionService(random: Random(71));
   final masterKeyService = MasterKeyService(

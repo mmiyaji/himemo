@@ -49,10 +49,7 @@ void main() {
     expect(strings.deleteDemoNotesBody(3), contains('3 demo notes'));
     expect(strings.noteDayLabel(DateTime(2026, 5, 3)), 'May 3, 2026 (Sun)');
     expect(strings.languageSystemOption, 'Follow system');
-    expect(
-      strings.appearanceWithControls,
-      'Appearance (language, font, and color)',
-    );
+    expect(strings.appearanceWithControls, 'Appearance and language');
     expect(
       strings.appearanceSummary(
         language: 'English',
@@ -60,7 +57,7 @@ void main() {
         font: 'System default',
         color: '桜 (Sakura)',
       ),
-      contains('Font: System default'),
+      contains('System default'),
     );
     expect(strings.colorKonjyo, '紺青 (Konjyo)');
     expect(strings.colorKurenai, '紅 (Kurenai)');
@@ -83,7 +80,7 @@ void main() {
     expect(strings.videoPreviewUnavailableWeb, 'Web では動画プレビューを利用できません。');
     expect(strings.languageSystemOption, 'システムに合わせる (System)');
     expect(strings.languageJapaneseOption, '日本語 (Japanese)');
-    expect(strings.appearanceWithControls, '表示（言語・フォント・色）');
+    expect(strings.appearanceWithControls, '外観と言語');
     expect(
       strings.appearanceSummary(
         language: '日本語 (Japanese)',

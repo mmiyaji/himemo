@@ -352,6 +352,30 @@ void main() {
     },
   );
 
+  test(
+    'settings keep one section open and separate dangerous storage work',
+    () {
+      final settings = File(
+        'lib/features/home/presentation/home_settings_screen.dart',
+      ).readAsStringSync();
+      final components = File(
+        'lib/features/home/presentation/home_settings_components.dart',
+      ).readAsStringSync();
+
+      expect(settings, contains('_primarySettingsControllers'));
+      expect(settings, contains('_handlePrimarySettingsExpansion'));
+      expect(components, contains('explicitChildNodes: true'));
+      expect(settings, contains("en: 'Lock screen and widgets'"));
+      expect(
+        settings,
+        isNot(contains("title: strings.text('home.external.quick.memo')")),
+      );
+      expect(settings, contains('if (showFlavorInfo)'));
+      expect(settings, contains('_SettingsDangerZone('));
+      expect(components, contains('class _SettingsDangerZone'));
+    },
+  );
+
   test('private profile access action uses Material icons', () {
     final homePage = _homePresentationSource();
 

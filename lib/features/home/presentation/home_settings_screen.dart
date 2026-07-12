@@ -97,8 +97,18 @@ class SettingsScreen extends ConsumerWidget {
   static final _appSecurityController = ExpansibleController();
   static final _syncController = ExpansibleController();
   static final _storageController = ExpansibleController();
+  static final _aboutController = ExpansibleController();
   static final List<DateTime> _diagnosticModeTapTimes = <DateTime>[];
-  static int _sectionScrollRequestId = 0;
+
+  static final List<ExpansibleController> _primarySettingsControllers = [
+    _appearanceController,
+    _memoSettingsController,
+    _privateProfilesController,
+    _appSecurityController,
+    _syncController,
+    _storageController,
+    _aboutController,
+  ];
 
   Future<void> _handleVersionTap(
     BuildContext context,
@@ -553,75 +563,17 @@ class SettingsScreen extends ConsumerWidget {
     return await _showLargeMobileSyncConfirmDialog(context, warning) ?? false;
   }
 
-  void _openSettingsSection(
-    BuildContext context,
-    ExpansibleController controller,
-    GlobalKey key,
+  void _handlePrimarySettingsExpansion(
+    bool expanded,
+    ExpansibleController activeController,
   ) {
-    final requestId = ++_sectionScrollRequestId;
-    controller.expand();
-    unawaited(_scrollToSettingsSectionWhenReady(context, key, requestId));
-  }
-
-  Future<void> _scrollToSettingsSectionWhenReady(
-    BuildContext context,
-    GlobalKey key,
-    int requestId,
-  ) async {
-    await _waitForSettingsFrame();
-    await Future<void>.delayed(const Duration(milliseconds: 260));
-    await _waitForSettingsFrame();
-    if (!context.mounted || requestId != _sectionScrollRequestId) {
+    if (!expanded) {
       return;
     }
-    await _scrollToSettingsSection(key);
-    await Future<void>.delayed(const Duration(milliseconds: 380));
-    await _waitForSettingsFrame();
-    if (!context.mounted || requestId != _sectionScrollRequestId) {
-      return;
-    }
-    await _scrollToSettingsSection(
-      key,
-      duration: const Duration(milliseconds: 140),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 180));
-    await _waitForSettingsFrame();
-    if (!context.mounted || requestId != _sectionScrollRequestId) {
-      return;
-    }
-    await _scrollToSettingsSection(
-      key,
-      duration: const Duration(milliseconds: 100),
-    );
-  }
-
-  Future<void> _waitForSettingsFrame() {
-    final completer = Completer<void>();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      completer.complete();
-    });
-    WidgetsBinding.instance.ensureVisualUpdate();
-    return completer.future;
-  }
-
-  Future<void> _scrollToSettingsSection(
-    GlobalKey key, {
-    Duration duration = const Duration(milliseconds: 320),
-  }) async {
-    final targetContext = key.currentContext;
-    if (targetContext == null) {
-      return;
-    }
-    try {
-      await Scrollable.ensureVisible(
-        targetContext,
-        alignment: 0.06,
-        alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
-        duration: duration,
-        curve: Curves.easeOutCubic,
-      );
-    } catch (_) {
-      // The scrollable can detach if the settings route is replaced mid-jump.
+    for (final controller in _primarySettingsControllers) {
+      if (!identical(controller, activeController)) {
+        controller.collapse();
+      }
     }
   }
 
@@ -874,12 +826,48 @@ class SettingsScreen extends ConsumerWidget {
             : appUpdatesDescription,
     };
 
+    Future<void> resetStorage() async {
+      final confirmed = await _confirmStorageReset(context, noteCount);
+      if (confirmed != true) {
+        return;
+      }
+      final deletedCount = await ref
+          .read(notesControllerProvider.notifier)
+          .resetLocalStorage();
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(
+            strings.localized(
+              en: 'Initialized local storage. Deleted $deletedCount notes.',
+              ja: 'ストレージを初期化しました。$deletedCount 件のノートを削除しました。',
+              zh: '已初始化本地存储。删除了 $deletedCount 条笔记。',
+              ko: '로컬 저장소를 초기화했습니다. 메모 $deletedCount개를 삭제했습니다.',
+              es: 'Se inicializo el almacenamiento local. Se eliminaron $deletedCount notas.',
+              de: 'Lokaler Speicher initialisiert. $deletedCount Notizen wurden geloescht.',
+            ),
+          ),
+        ),
+      );
+    }
+
     return ListView(
       cacheExtent: 6000,
       padding: const EdgeInsets.all(16),
       children: [
         _SettingsOverviewCard(
           key: overviewKey,
+          title: strings.localized(
+            en: 'Current status',
+            ja: '現在の状態',
+            zh: '当前状态',
+            ko: '현재 상태',
+            es: 'Estado actual',
+            de: 'Aktueller Status',
+          ),
           items: [
             _SettingsOverviewItem(
               label: strings.localized(
@@ -892,12 +880,6 @@ class SettingsScreen extends ConsumerWidget {
               ),
               value: currentProfileLabel,
               icon: currentProfileIcon,
-              showOnCompact: true,
-              onTap: () => _openSettingsSection(
-                context,
-                _privateProfilesController,
-                _privateProfilesSectionKey,
-              ),
             ),
             _SettingsOverviewItem(
               label: strings.localized(
@@ -912,55 +894,11 @@ class SettingsScreen extends ConsumerWidget {
                   ? (strings.text('home.enabled'))
                   : (strings.text('home.disabled')),
               icon: Icons.enhanced_encryption_outlined,
-              showOnCompact: true,
-              onTap: () => _openSettingsSection(
-                context,
-                _appSecurityController,
-                _appSecuritySectionKey,
-              ),
             ),
             _SettingsOverviewItem(
               label: strings.syncLabel,
-              value: syncProvider == SyncProvider.off
-                  ? (strings.text('home.off'))
-                  : (strings.text('home.configured')),
+              value: syncSummary,
               icon: Icons.sync_outlined,
-              showOnCompact: true,
-              onTap: () => _openSettingsSection(
-                context,
-                _syncController,
-                _syncSectionKey,
-              ),
-            ),
-            _SettingsOverviewItem(
-              label: strings.localized(en: 'Memo', ja: '\u30e1\u30e2'),
-              value: memoSettingsSummary,
-              icon: Icons.edit_note_outlined,
-              onTap: () => _openSettingsSection(
-                context,
-                _memoSettingsController,
-                _memoSettingsSectionKey,
-              ),
-            ),
-            _SettingsOverviewItem(
-              label: strings.text('home.storage'),
-              value: strings.noteCountSummary(noteCount),
-              icon: Icons.storage_outlined,
-              onTap: () => _openSettingsSection(
-                context,
-                _storageController,
-                _storageSectionKey,
-              ),
-            ),
-            _SettingsOverviewItem(
-              label: strings.text('home.theme'),
-              value: _themeModeLabel(context, activeThemeMode),
-              icon: Icons.palette_outlined,
-              onTap: () => _openSettingsSection(
-                context,
-                _appearanceController,
-                _appearanceSectionKey,
-              ),
             ),
           ],
         ),
@@ -979,6 +917,8 @@ class SettingsScreen extends ConsumerWidget {
           appearanceSummary: appearanceSummary,
           sectionKey: _appearanceSectionKey,
           controller: _appearanceController,
+          onExpansionChanged: (expanded) =>
+              _handlePrimarySettingsExpansion(expanded, _appearanceController),
         ),
         const SizedBox(height: 16),
         _SettingsGroup(
@@ -994,61 +934,12 @@ class SettingsScreen extends ConsumerWidget {
           icon: Icons.edit_note_outlined,
           sectionKey: _memoSettingsSectionKey,
           controller: _memoSettingsController,
+          onExpansionChanged: (expanded) => _handlePrimarySettingsExpansion(
+            expanded,
+            _memoSettingsController,
+          ),
           semanticLabel: 'settings-memo',
           children: [
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.delete_outline_rounded),
-              title: Text(
-                strings.localized(
-                  en: 'Trash',
-                  ja: 'ゴミ箱',
-                  zh: '废纸篓',
-                  ko: '휴지통',
-                  es: 'Papelera',
-                  de: 'Papierkorb',
-                ),
-              ),
-              subtitle: Text(
-                strings.localized(
-                  en: 'Deleted notes are kept for 7 days before permanent deletion.',
-                  ja: '削除したメモは7日間保持され、その後完全に削除されます。',
-                  zh: '已删除的备忘录会保留 7 天，然后永久删除。',
-                  ko: '삭제한 메모는 7일 동안 보관된 뒤 완전히 삭제됩니다.',
-                  es: 'Las notas eliminadas se conservan 7 dias antes de borrarse definitivamente.',
-                  de: 'Geloeschte Notizen bleiben 7 Tage erhalten und werden danach endgueltig geloescht.',
-                ),
-              ),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => context.go('/trash'),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.sell_outlined),
-              title: Text(
-                strings.localized(
-                  en: 'Tags',
-                  ja: '\u30bf\u30b0',
-                  zh: '\u6807\u7b7e',
-                  ko: '\ud0dc\uadf8',
-                  es: 'Etiquetas',
-                  de: 'Tags',
-                ),
-              ),
-              subtitle: Text(
-                strings.localized(
-                  en: 'Review, rename, and delete memo tags.',
-                  ja: '\u30e1\u30e2\u306e\u30bf\u30b0\u3092\u4e00\u89a7\u30fb\u30ea\u30cd\u30fc\u30e0\u30fb\u524a\u9664\u3057\u307e\u3059\u3002',
-                  zh: '\u67e5\u770b\u3001\u91cd\u547d\u540d\u548c\u5220\u9664\u7b14\u8bb0\u6807\u7b7e\u3002',
-                  ko: '\uba54\ubaa8 \ud0dc\uadf8\ub97c \ubcf4\uace0 \uc774\ub984\uc744 \ubc14\uafb8\uac70\ub098 \uc0ad\uc81c\ud569\ub2c8\ub2e4.',
-                  es: 'Revisa, renombra y elimina etiquetas de notas.',
-                  de: 'Notiz-Tags ansehen, umbenennen und loeschen.',
-                ),
-              ),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => context.go('/tags'),
-            ),
-            const SizedBox(height: 8),
             if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) ...[
               SwitchListTile.adaptive(
                 key: memoSpotlightIndexKey,
@@ -1364,6 +1255,10 @@ class SettingsScreen extends ConsumerWidget {
           icon: Icons.key_outlined,
           sectionKey: _privateProfilesSectionKey,
           controller: _privateProfilesController,
+          onExpansionChanged: (expanded) => _handlePrimarySettingsExpansion(
+            expanded,
+            _privateProfilesController,
+          ),
           children: [
             Text(
               strings.privateProfilesSettingsBody,
@@ -1400,17 +1295,18 @@ class SettingsScreen extends ConsumerWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                FilledButton.tonal(
+                FilledButton(
                   key: privateProfileAddKey,
                   onPressed: () => _showAddPrivateProfileDialog(context, ref),
                   child: Text(strings.addPrivateProfile),
                 ),
-                FilledButton.tonal(
+                OutlinedButton.icon(
                   key: privateProfileAdminModeKey,
                   onPressed: adminMode
                       ? null
                       : () => _enterAdminMode(context, ref),
-                  child: Text(
+                  icon: const Icon(Icons.admin_panel_settings_outlined),
+                  label: Text(
                     adminMode
                         ? strings.adminModeActiveLabel
                         : strings.enterAdminModeLabel,
@@ -1606,6 +1502,8 @@ class SettingsScreen extends ConsumerWidget {
           icon: Icons.enhanced_encryption_outlined,
           sectionKey: _appSecuritySectionKey,
           controller: _appSecurityController,
+          onExpansionChanged: (expanded) =>
+              _handlePrimarySettingsExpansion(expanded, _appSecurityController),
           children: [
             SwitchListTile.adaptive(
               key: appLockToggleKey,
@@ -1996,18 +1894,16 @@ class SettingsScreen extends ConsumerWidget {
                 ],
               ),
             ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        _SettingsGroup(
-          title: strings.text('home.external.quick.memo'),
-          summary: widgetQuickCaptureEnabled
-              ? (strings.text(
-                  'home.widget.quick.writes.are.allowed.while.the.app.is.locked',
-                ))
-              : (strings.text('home.widget.quick.writes.are.off')),
-          icon: Icons.quickreply_outlined,
-          children: [
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Lock screen and widgets',
+                ja: 'ロック画面とウィジェット',
+                zh: '锁定屏幕和小组件',
+                ko: '잠금 화면 및 위젯',
+                es: 'Pantalla bloqueada y widgets',
+                de: 'Sperrbildschirm und Widgets',
+              ),
+            ),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               title: Text(
@@ -2101,6 +1997,8 @@ class SettingsScreen extends ConsumerWidget {
           icon: Icons.sync_outlined,
           sectionKey: _syncSectionKey,
           controller: _syncController,
+          onExpansionChanged: (expanded) =>
+              _handlePrimarySettingsExpansion(expanded, _syncController),
           children: [
             if (syncConflictWarning != null)
               Container(
@@ -3414,6 +3312,8 @@ class SettingsScreen extends ConsumerWidget {
           icon: Icons.storage_outlined,
           sectionKey: _storageSectionKey,
           controller: _storageController,
+          onExpansionChanged: (expanded) =>
+              _handlePrimarySettingsExpansion(expanded, _storageController),
           children: [
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -3544,85 +3444,102 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ),
               ),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Maintenance',
+                ja: 'メンテナンス',
+                zh: '维护',
+                ko: '유지 관리',
+                es: 'Mantenimiento',
+                de: 'Wartung',
+              ),
+            ),
             Align(
               alignment: Alignment.centerLeft,
               child: Wrap(
                 spacing: 12,
                 runSpacing: 8,
                 children: [
-                  OutlinedButton.icon(
-                    key: createDemoNotesKey,
-                    onPressed: () async {
-                      final createdCount = await ref
-                          .read(notesControllerProvider.notifier)
-                          .createDemoNotes();
-                      if (!context.mounted) {
-                        return;
-                      }
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          showCloseIcon: true,
-                          content: Text(
-                            createdCount == 0
-                                ? strings.noDemoNotesToCreate
-                                : strings.demoNotesCreated(createdCount),
+                  if (showFlavorInfo)
+                    OutlinedButton.icon(
+                      key: createDemoNotesKey,
+                      onPressed: () async {
+                        final createdCount = await ref
+                            .read(notesControllerProvider.notifier)
+                            .createDemoNotes();
+                        if (!context.mounted) {
+                          return;
+                        }
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            showCloseIcon: true,
+                            content: Text(
+                              createdCount == 0
+                                  ? strings.noDemoNotesToCreate
+                                  : strings.demoNotesCreated(createdCount),
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.add_rounded),
-                    label: Text(strings.createDemoNotes),
-                  ),
-                  OutlinedButton.icon(
-                    key: deleteDemoNotesKey,
-                    onPressed: demoNoteCount == 0
-                        ? null
-                        : () async {
-                            final confirmed = await showDialog<bool>(
-                              context: context,
-                              builder: (dialogContext) {
-                                return AlertDialog(
-                                  title: Text(strings.deleteDemoNotesTitle),
+                        );
+                      },
+                      icon: const Icon(Icons.add_rounded),
+                      label: Text(strings.createDemoNotes),
+                    ),
+                  if (showFlavorInfo)
+                    OutlinedButton.icon(
+                      key: deleteDemoNotesKey,
+                      onPressed: demoNoteCount == 0
+                          ? null
+                          : () async {
+                              final confirmed = await showDialog<bool>(
+                                context: context,
+                                builder: (dialogContext) {
+                                  return AlertDialog(
+                                    title: Text(strings.deleteDemoNotesTitle),
+                                    content: Text(
+                                      strings.deleteDemoNotesBody(
+                                        demoNoteCount,
+                                      ),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.of(
+                                          dialogContext,
+                                        ).pop(false),
+                                        child: Text(
+                                          strings.text('home.cancel'),
+                                        ),
+                                      ),
+                                      FilledButton(
+                                        onPressed: () => Navigator.of(
+                                          dialogContext,
+                                        ).pop(true),
+                                        child: Text(strings.delete),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              );
+                              if (confirmed != true) {
+                                return;
+                              }
+                              final deletedCount = await ref
+                                  .read(notesControllerProvider.notifier)
+                                  .deleteDemoNotes();
+                              if (!context.mounted) {
+                                return;
+                              }
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  showCloseIcon: true,
                                   content: Text(
-                                    strings.deleteDemoNotesBody(demoNoteCount),
+                                    strings.demoNotesDeleted(deletedCount),
                                   ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.of(
-                                        dialogContext,
-                                      ).pop(false),
-                                      child: Text(strings.text('home.cancel')),
-                                    ),
-                                    FilledButton(
-                                      onPressed: () =>
-                                          Navigator.of(dialogContext).pop(true),
-                                      child: Text(strings.delete),
-                                    ),
-                                  ],
-                                );
-                              },
-                            );
-                            if (confirmed != true) {
-                              return;
-                            }
-                            final deletedCount = await ref
-                                .read(notesControllerProvider.notifier)
-                                .deleteDemoNotes();
-                            if (!context.mounted) {
-                              return;
-                            }
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                showCloseIcon: true,
-                                content: Text(
-                                  strings.demoNotesDeleted(deletedCount),
                                 ),
-                              ),
-                            );
-                          },
-                    icon: const Icon(Icons.delete_outline_rounded),
-                    label: Text(strings.deleteDemoNotes),
-                  ),
+                              );
+                            },
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      label: Text(strings.deleteDemoNotes),
+                    ),
                   OutlinedButton.icon(
                     key: clearStorageCacheKey,
                     onPressed: storageCacheBytes == 0 || storageCacheClearing
@@ -3684,52 +3601,44 @@ class SettingsScreen extends ConsumerWidget {
                             ),
                     ),
                   ),
-                  OutlinedButton.icon(
-                    onPressed: noteCount == 0
-                        ? null
-                        : () async {
-                            final confirmed = await _confirmStorageReset(
-                              context,
-                              noteCount,
-                            );
-                            if (confirmed != true) {
-                              return;
-                            }
-                            final deletedCount = await ref
-                                .read(notesControllerProvider.notifier)
-                                .resetLocalStorage();
-                            if (!context.mounted) {
-                              return;
-                            }
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                showCloseIcon: true,
-                                content: Text(
-                                  strings.localized(
-                                    en: 'Initialized local storage. Deleted $deletedCount notes.',
-                                    ja: '\u30b9\u30c8\u30ec\u30fc\u30b8\u3092\u521d\u671f\u5316\u3057\u307e\u3057\u305f\u3002$deletedCount \u4ef6\u306e\u30ce\u30fc\u30c8\u3092\u524a\u9664\u3057\u307e\u3057\u305f\u3002',
-                                    zh: '\u5df2\u521d\u59cb\u5316\u672c\u5730\u5b58\u50a8\u3002\u5220\u9664\u4e86 $deletedCount \u6761\u7b14\u8bb0\u3002',
-                                    ko: '\ub85c\uceec \uc800\uc7a5\uc18c\ub97c \ucd08\uae30\ud654\ud588\uc2b5\ub2c8\ub2e4. \uba54\ubaa8 $deletedCount\uac1c\ub97c \uc0ad\uc81c\ud588\uc2b5\ub2c8\ub2e4.',
-                                    es: 'Se inicializo el almacenamiento local. Se eliminaron $deletedCount notas.',
-                                    de: 'Lokaler Speicher initialisiert. $deletedCount Notizen wurden geloescht.',
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                    icon: const Icon(Icons.restart_alt_rounded),
-                    label: Text(
-                      strings.localized(
-                        en: 'Initialize storage',
-                        ja: '\u30b9\u30c8\u30ec\u30fc\u30b8\u3092\u521d\u671f\u5316',
-                        zh: '\u521d\u59cb\u5316\u5b58\u50a8',
-                        ko: '\uc800\uc7a5\uc18c \ucd08\uae30\ud654',
-                        es: 'Inicializar almacenamiento',
-                        de: 'Speicher initialisieren',
-                      ),
-                    ),
-                  ),
                 ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _SettingsDangerZone(
+              title: strings.localized(
+                en: 'Danger zone',
+                ja: '危険な操作',
+                zh: '危险操作',
+                ko: '위험한 작업',
+                es: 'Zona de peligro',
+                de: 'Gefahrenbereich',
+              ),
+              description: strings.localized(
+                en: 'Initialization permanently deletes every local note and attachment on this device.',
+                ja: '初期化すると、この端末のすべてのノートと添付ファイルが完全に削除されます。',
+                zh: '初始化会永久删除此设备上的所有本地笔记和附件。',
+                ko: '초기화하면 이 기기의 모든 로컬 메모와 첨부 파일이 영구적으로 삭제됩니다.',
+                es: 'La inicialización elimina permanentemente todas las notas y adjuntos locales de este dispositivo.',
+                de: 'Die Initialisierung löscht alle lokalen Notizen und Anhänge auf diesem Gerät dauerhaft.',
+              ),
+              action: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.error,
+                  side: BorderSide(color: Theme.of(context).colorScheme.error),
+                ),
+                onPressed: noteCount == 0 ? null : resetStorage,
+                icon: const Icon(Icons.restart_alt_rounded),
+                label: Text(
+                  strings.localized(
+                    en: 'Initialize storage',
+                    ja: 'ストレージを初期化',
+                    zh: '初始化存储',
+                    ko: '저장소 초기화',
+                    es: 'Inicializar almacenamiento',
+                    de: 'Speicher initialisieren',
+                  ),
+                ),
               ),
             ),
           ],
@@ -3740,7 +3649,20 @@ class SettingsScreen extends ConsumerWidget {
           summary: aboutSummary,
           icon: Icons.info_outlined,
           sectionKey: aboutSectionKey,
+          controller: _aboutController,
+          onExpansionChanged: (expanded) =>
+              _handlePrimarySettingsExpansion(expanded, _aboutController),
           children: [
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'App and updates',
+                ja: 'アプリとアップデート',
+                zh: '应用和更新',
+                ko: '앱 및 업데이트',
+                es: 'Aplicación y actualizaciones',
+                de: 'App und Updates',
+              ),
+            ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.info_outline_rounded),
@@ -3962,6 +3884,16 @@ class SettingsScreen extends ConsumerWidget {
                   ),
               ],
             ),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Legal',
+                ja: '規約とプライバシー',
+                zh: '条款与隐私',
+                ko: '약관 및 개인정보',
+                es: 'Legal',
+                de: 'Rechtliches',
+              ),
+            ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.description_outlined),
@@ -3979,6 +3911,16 @@ class SettingsScreen extends ConsumerWidget {
               trailing: const Icon(Icons.open_in_new_rounded, size: 18),
               onTap: () =>
                   _openExternalLink(context, Uri.parse(_privacyUrl), strings),
+            ),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Help and support',
+                ja: 'ヘルプとサポート',
+                zh: '帮助与支持',
+                ko: '도움말 및 지원',
+                es: 'Ayuda y soporte',
+                de: 'Hilfe und Support',
+              ),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -3999,6 +3941,16 @@ class SettingsScreen extends ConsumerWidget {
               trailing: const Icon(Icons.open_in_new_rounded, size: 18),
               onTap: () =>
                   _openExternalLink(context, Uri.parse(_helpUrl), strings),
+            ),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Licenses and credits',
+                ja: 'ライセンスとクレジット',
+                zh: '许可证与鸣谢',
+                ko: '라이선스 및 크레딧',
+                es: 'Licencias y créditos',
+                de: 'Lizenzen und Mitwirkende',
+              ),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -4651,6 +4603,7 @@ class SettingsScreen extends ConsumerWidget {
     required String appearanceSummary,
     required Key sectionKey,
     required ExpansibleController controller,
+    required ValueChanged<bool> onExpansionChanged,
   }) {
     final effectiveFontFamily = _availableFontFamilies.contains(fontFamily)
         ? fontFamily
@@ -4661,6 +4614,7 @@ class SettingsScreen extends ConsumerWidget {
       icon: Icons.palette_outlined,
       sectionKey: sectionKey,
       controller: controller,
+      onExpansionChanged: onExpansionChanged,
       semanticLabel: 'settings-appearance',
       children: [
         Padding(

@@ -2473,12 +2473,12 @@ class AppStrings {
     de: 'Darstellung',
   );
   String get appearanceWithControls => localized(
-    en: 'Appearance (language, font, and color)',
-    ja: '表示（言語・フォント・色）',
-    zh: '外观（语言、字体和颜色）',
-    ko: '표시(언어, 글꼴, 색상)',
-    es: 'Apariencia (idioma, fuente y color)',
-    de: 'Darstellung (Sprache, Schrift und Farbe)',
+    en: 'Appearance and language',
+    ja: '外観と言語',
+    zh: '外观与语言',
+    ko: '화면 및 언어',
+    es: 'Apariencia e idioma',
+    de: 'Darstellung und Sprache',
   );
   String appearanceSummary({
     required String language,
@@ -2486,12 +2486,12 @@ class AppStrings {
     required String font,
     required String color,
   }) => localized(
-    en: 'Language: $language / Theme: $theme / Font: $font / Color: $color',
-    ja: '言語: $language / テーマ: $theme / フォント: $font / カラー: $color',
-    zh: '语言：$language / 主题：$theme / 字体：$font / 颜色：$color',
-    ko: '언어: $language / 테마: $theme / 글꼴: $font / 색상: $color',
-    es: 'Idioma: $language / Tema: $theme / Fuente: $font / Color: $color',
-    de: 'Sprache: $language / Design: $theme / Schrift: $font / Farbe: $color',
+    en: '$language · $theme · $font · $color',
+    ja: '$language · $theme · $font · $color',
+    zh: '$language · $theme · $font · $color',
+    ko: '$language · $theme · $font · $color',
+    es: '$language · $theme · $font · $color',
+    de: '$language · $theme · $font · $color',
   );
   String get language => localized(
     en: 'Language',
