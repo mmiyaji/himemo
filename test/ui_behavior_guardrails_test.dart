@@ -288,12 +288,17 @@ void main() {
     expect(homePage, contains('static const _verticalOffset = 12.0'));
     expect(homePage, contains('static const _tapSize = 68.0'));
     expect(homePage, contains('static const _buttonSize = 56.0'));
-    expect(homePage, contains('static const _iconSize = 44.0'));
+    expect(homePage, contains('static const _iconSize = 38.0'));
     expect(
       homePage,
       isNot(contains('offset: const Offset(0, _verticalOffset)')),
     );
-    expect(homePage, contains('_CreateNoteIcon(size: _iconSize)'));
+    expect(homePage, contains('_mobileCreateActionColors(theme)'));
+    expect(homePage, contains('const foreground = Colors.white'));
+    expect(homePage, contains('_createActionContrastRatio'));
+    expect(homePage, contains('size: _iconSize'));
+    expect(homePage, contains('background: actionColors.background'));
+    expect(homePage, contains('foreground: actionColors.foreground'));
     expect(homePage, contains('width: _buttonSize'));
     expect(homePage, contains('height: _buttonSize'));
     expect(homePage, contains('height: _tapSize + _verticalOffset'));

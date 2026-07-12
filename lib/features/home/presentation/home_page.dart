@@ -1535,7 +1535,7 @@ class _CreateNoteNavButton extends StatelessWidget {
   static const _verticalOffset = 12.0;
   static const _tapSize = 68.0;
   static const _buttonSize = 56.0;
-  static const _iconSize = 44.0;
+  static const _iconSize = 38.0;
 
   final VoidCallback onPressed;
   final String tooltip;
@@ -1544,7 +1544,7 @@ class _CreateNoteNavButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final actionColors = _filledActionColors(theme);
+    final actionColors = _mobileCreateActionColors(theme);
     return Tooltip(
       message: tooltip,
       child: Semantics(
@@ -1576,8 +1576,12 @@ class _CreateNoteNavButton extends StatelessWidget {
                         ),
                       ],
                     ),
-                    child: const Center(
-                      child: _CreateNoteIcon(size: _iconSize),
+                    child: Center(
+                      child: _CreateNoteIcon(
+                        size: _iconSize,
+                        background: actionColors.background,
+                        foreground: actionColors.foreground,
+                      ),
                     ),
                   ),
                 ),
@@ -1626,9 +1630,11 @@ class _PrivateProfileAccessIcon extends StatelessWidget {
 }
 
 class _CreateNoteIcon extends StatelessWidget {
-  const _CreateNoteIcon({required this.size});
+  const _CreateNoteIcon({required this.size, this.background, this.foreground});
 
   final double size;
+  final Color? background;
+  final Color? foreground;
 
   @override
   Widget build(BuildContext context) {
@@ -1638,11 +1644,46 @@ class _CreateNoteIcon extends StatelessWidget {
       width: size,
       height: size,
       colorMapper: _CreateNoteIconColorMapper(
-        background: actionColors.background,
-        foreground: actionColors.foreground,
+        background: background ?? actionColors.background,
+        foreground: foreground ?? actionColors.foreground,
       ),
     );
   }
+}
+
+({Color background, Color foreground}) _mobileCreateActionColors(
+  ThemeData theme,
+) {
+  const foreground = Colors.white;
+  final base = theme.colorScheme.primary;
+  if (_createActionContrastRatio(base, foreground) >= 4.5) {
+    return (background: base, foreground: foreground);
+  }
+
+  var low = 0.0;
+  var high = 1.0;
+  var candidate = base;
+  for (var index = 0; index < 10; index++) {
+    final amount = (low + high) / 2;
+    candidate = Color.lerp(base, Colors.black, amount)!;
+    if (_createActionContrastRatio(candidate, foreground) >= 4.5) {
+      high = amount;
+    } else {
+      low = amount;
+    }
+  }
+  return (
+    background: Color.lerp(base, Colors.black, high)!,
+    foreground: foreground,
+  );
+}
+
+double _createActionContrastRatio(Color first, Color second) {
+  final firstLuminance = first.computeLuminance();
+  final secondLuminance = second.computeLuminance();
+  final lighter = math.max(firstLuminance, secondLuminance);
+  final darker = math.min(firstLuminance, secondLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
 }
 
 ({Color background, Color foreground}) _filledActionColors(ThemeData theme) {
