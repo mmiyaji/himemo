@@ -3129,7 +3129,7 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
               primary: Color(0xFFD98991),
               onPrimary: Colors.white,
               secondary: Color(0xFFF3B6BB),
-              onSecondary: Color(0xFF3A1518),
+              onSecondary: Color(0xFF7D3A44),
               tertiary: Color(0xFFFEDFE1),
               onTertiary: Color(0xFF3B1719),
               surface: Colors.white,

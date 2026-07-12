@@ -109,7 +109,7 @@ void main() {
         );
         expect(
           filledStyle.foregroundColor!.resolve(const <WidgetState>{}),
-          const Color(0xFF3A1518),
+          const Color(0xFF7D3A44),
         );
         expect(
           _contrastRatio(
