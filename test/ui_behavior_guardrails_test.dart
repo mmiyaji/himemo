@@ -149,6 +149,7 @@ void main() {
     expect(homePage, contains('_locationSearchText(item.location)'));
     expect(homePage, contains('String? _locationSearchText'));
     expect(homePage, contains('activeSearchMatchStart'));
+    expect(homePage, contains('activeSearch ? scheme.primary : borderColor'));
     expect(homePage, contains('class _HighlightedInlineText'));
     expect(homePage, contains('List<TextSpan> _highlightTextSpans'));
     expect(homePage, contains("Key('note-detail-delete-button')"));

@@ -1542,7 +1542,9 @@ class _CreateNoteNavButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final actionColors = _filledActionColors(theme);
     return Tooltip(
       message: tooltip,
       child: Semantics(
@@ -1564,7 +1566,7 @@ class _CreateNoteNavButton extends StatelessWidget {
                     width: _buttonSize,
                     height: _buttonSize,
                     decoration: BoxDecoration(
-                      color: colorScheme.primary,
+                      color: actionColors.background,
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
@@ -1630,20 +1632,39 @@ class _CreateNoteIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final actionColors = _filledActionColors(Theme.of(context));
     return SvgPicture.asset(
       'assets/actions/create-note.svg',
       width: size,
       height: size,
-      colorMapper: _CreateNoteIconColorMapper(Theme.of(context).colorScheme),
+      colorMapper: _CreateNoteIconColorMapper(
+        background: actionColors.background,
+        foreground: actionColors.foreground,
+      ),
     );
   }
 }
 
+({Color background, Color foreground}) _filledActionColors(ThemeData theme) {
+  final style = theme.filledButtonTheme.style;
+  const states = <WidgetState>{};
+  return (
+    background:
+        style?.backgroundColor?.resolve(states) ?? theme.colorScheme.primary,
+    foreground:
+        style?.foregroundColor?.resolve(states) ?? theme.colorScheme.onPrimary,
+  );
+}
+
 @immutable
 class _CreateNoteIconColorMapper extends ColorMapper {
-  const _CreateNoteIconColorMapper(this.colorScheme);
+  const _CreateNoteIconColorMapper({
+    required this.background,
+    required this.foreground,
+  });
 
-  final ColorScheme colorScheme;
+  final Color background;
+  final Color foreground;
 
   @override
   Color substitute(
@@ -1653,19 +1674,16 @@ class _CreateNoteIconColorMapper extends ColorMapper {
     Color color,
   ) {
     if (color == const Color(0xFFFFF7F4)) {
-      return colorScheme.onPrimary;
+      return foreground;
     }
     if (color == const Color(0xFFF7DADF)) {
-      return Color.alphaBlend(
-        colorScheme.primary.withValues(alpha: 0.14),
-        colorScheme.onPrimary,
-      );
+      return Color.alphaBlend(foreground.withValues(alpha: 0.82), background);
     }
     if (color == const Color(0xFF9F5261)) {
-      return colorScheme.primary;
+      return Color.alphaBlend(foreground.withValues(alpha: 0.56), background);
     }
     if (color == const Color(0xFFD77E8D)) {
-      return colorScheme.primary.withValues(alpha: 0.72);
+      return Color.alphaBlend(foreground.withValues(alpha: 0.72), background);
     }
     return color;
   }
@@ -1673,12 +1691,12 @@ class _CreateNoteIconColorMapper extends ColorMapper {
   @override
   bool operator ==(Object other) {
     return other is _CreateNoteIconColorMapper &&
-        other.colorScheme.primary == colorScheme.primary &&
-        other.colorScheme.onPrimary == colorScheme.onPrimary;
+        other.background == background &&
+        other.foreground == foreground;
   }
 
   @override
-  int get hashCode => Object.hash(colorScheme.primary, colorScheme.onPrimary);
+  int get hashCode => Object.hash(background, foreground);
 }
 
 class _AppBrandTitle extends StatelessWidget {

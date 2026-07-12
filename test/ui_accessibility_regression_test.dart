@@ -22,7 +22,7 @@ import 'package:himemo/l10n/app_strings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('all app themes keep primary controls at AA contrast', (
+  testWidgets('all app themes keep action color pairs at AA contrast', (
     tester,
   ) async {
     final harness = await _pumpHiMemoApp(
@@ -40,11 +40,58 @@ void main() {
       final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
       for (final theme in [app.theme!, app.darkTheme!]) {
         final scheme = theme.colorScheme;
+        for (final pair in [
+          (name: 'primary', background: scheme.primary, text: scheme.onPrimary),
+          (
+            name: 'secondary',
+            background: scheme.secondary,
+            text: scheme.onSecondary,
+          ),
+          (
+            name: 'tertiary',
+            background: scheme.tertiary,
+            text: scheme.onTertiary,
+          ),
+        ]) {
+          expect(
+            _contrastRatio(pair.background, pair.text),
+            greaterThanOrEqualTo(4.5),
+            reason: '${colorTheme.name} ${scheme.brightness.name} ${pair.name}',
+          );
+        }
+
+        final filledStyle = theme.filledButtonTheme.style!;
+        final actionBackground = filledStyle.backgroundColor!.resolve(
+          const <WidgetState>{},
+        )!;
+        final actionForeground = filledStyle.foregroundColor!.resolve(
+          const <WidgetState>{},
+        )!;
         expect(
-          _contrastRatio(scheme.primary, scheme.onPrimary),
+          _contrastRatio(actionBackground, actionForeground),
           greaterThanOrEqualTo(4.5),
+          reason: '${colorTheme.name} ${scheme.brightness.name} filled action',
+        );
+        final usesSoftAction =
+            scheme.brightness == Brightness.light &&
+            const <AppColorTheme>{
+              AppColorTheme.sakura,
+              AppColorTheme.shironeri,
+              AppColorTheme.gofun,
+              AppColorTheme.sora,
+              AppColorTheme.byakuroku,
+              AppColorTheme.nanohana,
+              AppColorTheme.haizakura,
+            }.contains(colorTheme);
+        expect(
+          actionBackground,
+          usesSoftAction ? scheme.secondary : scheme.primary,
           reason:
-              '${colorTheme.name} ${scheme.brightness.name} primary controls',
+              '${colorTheme.name} ${scheme.brightness.name} action emphasis',
+        );
+        expect(
+          actionForeground,
+          usesSoftAction ? scheme.onSecondary : scheme.onPrimary,
         );
       }
       expect(

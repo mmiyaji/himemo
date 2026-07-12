@@ -2515,6 +2515,16 @@ ThemeData _buildTheme(
     preferred: palette.onPrimary,
     alternative: palette.onSurface,
   );
+  final accessibleOnSecondary = _accessibleForegroundColor(
+    background: palette.secondary,
+    preferred: palette.onSecondary,
+    alternative: palette.onSurface,
+  );
+  final accessibleOnTertiary = _accessibleForegroundColor(
+    background: palette.tertiary,
+    preferred: palette.onTertiary,
+    alternative: palette.onSurface,
+  );
   final scheme =
       ColorScheme.fromSeed(
         seedColor: palette.primary,
@@ -2523,9 +2533,9 @@ ThemeData _buildTheme(
         primary: primary,
         onPrimary: accessibleOnPrimary,
         secondary: palette.secondary,
-        onSecondary: palette.onSecondary,
+        onSecondary: accessibleOnSecondary,
         tertiary: palette.tertiary,
-        onTertiary: palette.onTertiary,
+        onTertiary: accessibleOnTertiary,
         surface: palette.surface,
         onSurface: palette.onSurface,
         surfaceContainer: palette.surfaceContainer,
@@ -2534,13 +2544,14 @@ ThemeData _buildTheme(
         outlineVariant: palette.outlineVariant,
         onSurfaceVariant: palette.onSurfaceVariant,
       );
-  final useSoftSakuraActions =
-      brightness == Brightness.light && colorTheme == AppColorTheme.sakura;
-  final filledActionBackground = useSoftSakuraActions
+  final useSoftLightActions =
+      brightness == Brightness.light &&
+      _softLightActionThemes.contains(colorTheme);
+  final filledActionBackground = useSoftLightActions
       ? palette.secondary
       : scheme.primary;
-  final filledActionForeground = useSoftSakuraActions
-      ? palette.onSecondary
+  final filledActionForeground = useSoftLightActions
+      ? accessibleOnSecondary
       : scheme.onPrimary;
 
   final baseTypography = Typography.material2021(
@@ -2627,6 +2638,16 @@ ThemeData _buildTheme(
     useMaterial3: true,
   );
 }
+
+const _softLightActionThemes = <AppColorTheme>{
+  AppColorTheme.sakura,
+  AppColorTheme.shironeri,
+  AppColorTheme.gofun,
+  AppColorTheme.sora,
+  AppColorTheme.byakuroku,
+  AppColorTheme.nanohana,
+  AppColorTheme.haizakura,
+};
 
 const _minimumNormalTextContrastRatio = 4.5;
 

@@ -4825,7 +4825,7 @@ class _LocationMemoCard extends StatelessWidget {
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: activeSearch ? scheme.tertiary : borderColor,
+          color: activeSearch ? scheme.primary : borderColor,
           width: activeSearch ? 1.5 : 1,
         ),
       ),
