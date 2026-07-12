@@ -205,7 +205,6 @@ class _SidebarCreateNoteButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final colorScheme = Theme.of(context).colorScheme;
     final icon = _CreateNoteIcon(size: collapsed ? 30 : 26);
     if (collapsed) {
       return Center(
@@ -219,8 +218,6 @@ class _SidebarCreateNoteButton extends StatelessWidget {
               style: FilledButton.styleFrom(
                 padding: EdgeInsets.zero,
                 shape: const CircleBorder(),
-                backgroundColor: colorScheme.primary,
-                foregroundColor: colorScheme.onPrimary,
               ),
               child: icon,
             ),

@@ -53,6 +53,26 @@ void main() {
         reason:
             '${colorTheme.name} light primary controls keep white text and icons',
       );
+      if (colorTheme == AppColorTheme.sakura) {
+        final lightTheme = app.theme!;
+        final filledStyle = lightTheme.filledButtonTheme.style!;
+        expect(
+          filledStyle.backgroundColor!.resolve(const <WidgetState>{}),
+          const Color(0xFFF3B6BB),
+        );
+        expect(
+          filledStyle.foregroundColor!.resolve(const <WidgetState>{}),
+          const Color(0xFF3A1518),
+        );
+        expect(
+          _contrastRatio(
+            lightTheme.floatingActionButtonTheme.backgroundColor!,
+            lightTheme.floatingActionButtonTheme.foregroundColor!,
+          ),
+          greaterThanOrEqualTo(4.5),
+          reason: 'Sakura light actions stay soft and readable',
+        );
+      }
     }
   });
 

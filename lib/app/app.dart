@@ -2534,6 +2534,14 @@ ThemeData _buildTheme(
         outlineVariant: palette.outlineVariant,
         onSurfaceVariant: palette.onSurfaceVariant,
       );
+  final useSoftSakuraActions =
+      brightness == Brightness.light && colorTheme == AppColorTheme.sakura;
+  final filledActionBackground = useSoftSakuraActions
+      ? palette.secondary
+      : scheme.primary;
+  final filledActionForeground = useSoftSakuraActions
+      ? palette.onSecondary
+      : scheme.onPrimary;
 
   final baseTypography = Typography.material2021(
     colorScheme: scheme,
@@ -2581,8 +2589,8 @@ ThemeData _buildTheme(
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: scheme.primary,
-        foregroundColor: scheme.onPrimary,
+        backgroundColor: filledActionBackground,
+        foregroundColor: filledActionForeground,
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -2613,8 +2621,8 @@ ThemeData _buildTheme(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
     ),
     floatingActionButtonTheme: FloatingActionButtonThemeData(
-      backgroundColor: scheme.primary,
-      foregroundColor: scheme.onPrimary,
+      backgroundColor: filledActionBackground,
+      foregroundColor: filledActionForeground,
     ),
     useMaterial3: true,
   );
