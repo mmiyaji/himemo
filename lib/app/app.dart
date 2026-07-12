@@ -2504,8 +2504,14 @@ ThemeData _buildTheme(
   AppFontFamily fontFamily,
 ) {
   final palette = _paletteFor(colorTheme, brightness);
+  final primary = brightness == Brightness.light
+      ? _backgroundForAccessibleForeground(
+          background: palette.primary,
+          foreground: palette.onPrimary,
+        )
+      : palette.primary;
   final accessibleOnPrimary = _accessibleForegroundColor(
-    background: palette.primary,
+    background: primary,
     preferred: palette.onPrimary,
     alternative: palette.onSurface,
   );
@@ -2514,7 +2520,7 @@ ThemeData _buildTheme(
         seedColor: palette.primary,
         brightness: brightness,
       ).copyWith(
-        primary: palette.primary,
+        primary: primary,
         onPrimary: accessibleOnPrimary,
         secondary: palette.secondary,
         onSecondary: palette.onSecondary,
@@ -2615,6 +2621,35 @@ ThemeData _buildTheme(
 }
 
 const _minimumNormalTextContrastRatio = 4.5;
+
+Color _backgroundForAccessibleForeground({
+  required Color background,
+  required Color foreground,
+}) {
+  if (_contrastRatio(background, foreground) >=
+      _minimumNormalTextContrastRatio) {
+    return background;
+  }
+
+  final hsl = HSLColor.fromColor(background);
+  final foregroundIsLighter =
+      foreground.computeLuminance() >= background.computeLuminance();
+  var failingLightness = hsl.lightness;
+  var passingLightness = foregroundIsLighter ? 0.0 : 1.0;
+
+  for (var iteration = 0; iteration < 16; iteration++) {
+    final candidateLightness = (failingLightness + passingLightness) / 2;
+    final candidate = hsl.withLightness(candidateLightness).toColor();
+    if (_contrastRatio(candidate, foreground) >=
+        _minimumNormalTextContrastRatio) {
+      passingLightness = candidateLightness;
+    } else {
+      failingLightness = candidateLightness;
+    }
+  }
+
+  return hsl.withLightness(passingLightness).toColor();
+}
 
 Color _accessibleForegroundColor({
   required Color background,

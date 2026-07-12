@@ -47,6 +47,12 @@ void main() {
               '${colorTheme.name} ${scheme.brightness.name} primary controls',
         );
       }
+      expect(
+        app.theme!.colorScheme.onPrimary,
+        Colors.white,
+        reason:
+            '${colorTheme.name} light primary controls keep white text and icons',
+      );
     }
   });
 
