@@ -321,6 +321,37 @@ void main() {
     expect(createNoteIcon, contains('#9F5261'));
   });
 
+  test(
+    'sync settings keep recovery and repair tools out of the default flow',
+    () {
+      final homePage = _homePresentationSource();
+      final settings = File(
+        'lib/features/home/presentation/home_settings_screen.dart',
+      ).readAsStringSync();
+      final syncSupport = File(
+        'lib/features/home/presentation/home_sync_support.dart',
+      ).readAsStringSync();
+      final strings = File('lib/l10n/app_strings.dart').readAsStringSync();
+
+      expect(
+        settings,
+        contains(
+          'if (syncProvider != SyncProvider.off &&\n'
+          '                syncAuthState.isAuthenticated)',
+        ),
+      );
+      expect(strings, contains("en: 'Advanced sync settings'"));
+      expect(settings, contains("en: 'Sync status'"));
+      expect(settings, contains("en: 'Recovery key'"));
+      expect(settings, contains("en: 'History'"));
+      expect(homePage, contains("en: 'Repair and maintenance'"));
+      expect(settings, isNot(contains("en: 'Show QR'")));
+      expect(settings, isNot(contains("en: 'Scan QR'")));
+      expect(settings, isNot(contains("'home.last.sync.activity'")));
+      expect(syncSupport, contains("en: 'Scan QR'"));
+    },
+  );
+
   test('private profile access action uses Material icons', () {
     final homePage = _homePresentationSource();
 

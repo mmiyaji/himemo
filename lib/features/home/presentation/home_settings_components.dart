@@ -1,5 +1,45 @@
 part of 'home_page.dart';
 
+extension _SettingsWidgetExtensions on Widget {
+  Widget visibleWhen(bool visible) => visible ? this : const SizedBox.shrink();
+
+  Widget asSyncMaintenanceSection(
+    BuildContext context,
+    AppStrings strings, {
+    Widget? status,
+  }) {
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        leading: const Icon(Icons.build_outlined),
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: 8),
+        title: Text(
+          strings.localized(
+            en: 'Repair and maintenance',
+            ja: '修復とメンテナンス',
+            zh: '修复与维护',
+            ko: '복구 및 유지 관리',
+            es: 'Reparación y mantenimiento',
+            de: 'Reparatur und Wartung',
+          ),
+        ),
+        subtitle: Text(
+          strings.localized(
+            en: 'Use these tools only when sync is not working as expected.',
+            ja: '同期が正常に動かない場合にだけ使用するツールです。',
+            zh: '仅在同步未按预期工作时使用这些工具。',
+            ko: '동기화가 정상적으로 작동하지 않을 때만 사용하세요.',
+            es: 'Usa estas herramientas solo si la sincronización no funciona correctamente.',
+            de: 'Diese Werkzeuge nur verwenden, wenn die Synchronisierung nicht wie erwartet funktioniert.',
+          ),
+        ),
+        children: [?status, this],
+      ),
+    );
+  }
+}
+
 class _SettingsOverviewItem {
   const _SettingsOverviewItem({
     required this.label,

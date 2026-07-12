@@ -2135,28 +2135,35 @@ class SettingsScreen extends ConsumerWidget {
                 de: 'Remote-Backup',
               ),
             ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(strings.text('home.selected.target')),
-              subtitle: Text(
-                _syncSubtitle(context, syncProvider, syncAuthState),
+            if (syncProvider != SyncProvider.off &&
+                syncAuthState.isAuthenticated)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(strings.text('home.selected.target')),
+                subtitle: Text(
+                  _syncSubtitle(context, syncProvider, syncAuthState),
+                ),
               ),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(_syncStatusTitle(context, syncProvider)),
-              subtitle: Text(
-                _syncAuthSummary(context, syncProvider, syncAuthState),
+            if (syncProvider != SyncProvider.off &&
+                syncAuthState.isAuthenticated)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(_syncStatusTitle(context, syncProvider)),
+                subtitle: Text(
+                  _syncAuthSummary(context, syncProvider, syncAuthState),
+                ),
               ),
-            ),
-            _SyncExclusionTagsTile(
-              tags: syncExclusionTags,
-              onAdd: () => _addSyncExclusionTag(context, ref),
-              onRemove: (tag) => ref
-                  .read(syncExclusionTagsControllerProvider.notifier)
-                  .removeTag(tag),
-            ),
-            if (syncProvider != SyncProvider.off)
+            if (syncProvider != SyncProvider.off &&
+                syncAuthState.isAuthenticated)
+              _SyncExclusionTagsTile(
+                tags: syncExclusionTags,
+                onAdd: () => _addSyncExclusionTag(context, ref),
+                onRemove: (tag) => ref
+                    .read(syncExclusionTagsControllerProvider.notifier)
+                    .removeTag(tag),
+              ),
+            if (syncProvider != SyncProvider.off &&
+                syncAuthState.isAuthenticated)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -2281,6 +2288,16 @@ class SettingsScreen extends ConsumerWidget {
                   title: Text(strings.syncDetailsTitle),
                   subtitle: Text(strings.syncDetailsSummary),
                   children: [
+                    _SettingsSectionLabel(
+                      label: strings.localized(
+                        en: 'Sync status',
+                        ja: '同期状態',
+                        zh: '同步状态',
+                        ko: '동기화 상태',
+                        es: 'Estado de sincronización',
+                        de: 'Synchronisierungsstatus',
+                      ),
+                    ),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(
@@ -2389,6 +2406,16 @@ class SettingsScreen extends ConsumerWidget {
                         strings,
                       ),
                     ),
+                    _SettingsSectionLabel(
+                      label: strings.localized(
+                        en: 'Recovery key',
+                        ja: '復元キー',
+                        zh: '恢复密钥',
+                        ko: '복구 키',
+                        es: 'Clave de recuperación',
+                        de: 'Wiederherstellungsschlüssel',
+                      ),
+                    ),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(
@@ -2418,43 +2445,6 @@ class SettingsScreen extends ConsumerWidget {
                                 final backupCode = await ref
                                     .read(syncBundleKeyServiceProvider)
                                     .exportBackupCode();
-                                await Clipboard.setData(
-                                  ClipboardData(text: backupCode),
-                                );
-                                if (!context.mounted) {
-                                  return;
-                                }
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    showCloseIcon: true,
-                                    content: Text(
-                                      strings.text(
-                                        'home.cloud.recovery.key.copied.to.clipboard',
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              } catch (error) {
-                                if (!context.mounted) {
-                                  return;
-                                }
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    showCloseIcon: true,
-                                    content: Text('$error'),
-                                  ),
-                                );
-                              }
-                            },
-                            child: Text(strings.text('home.copy.recovery.key')),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: () async {
-                              final messenger = ScaffoldMessenger.of(context);
-                              try {
-                                final backupCode = await ref
-                                    .read(syncBundleKeyServiceProvider)
-                                    .exportBackupCode();
                                 if (!context.mounted) {
                                   return;
                                 }
@@ -2474,15 +2464,14 @@ class SettingsScreen extends ConsumerWidget {
                                 );
                               }
                             },
-                            icon: const Icon(Icons.qr_code_2_rounded),
-                            label: Text(
+                            child: Text(
                               strings.localized(
-                                en: 'Show QR',
-                                ja: 'QRを表示',
-                                zh: '显示 QR',
-                                ko: 'QR 표시',
-                                es: 'Mostrar QR',
-                                de: 'QR anzeigen',
+                                en: 'Back up recovery key',
+                                ja: '復元キーをバックアップ',
+                                zh: '备份恢复密钥',
+                                ko: '복구 키 백업',
+                                es: 'Guardar clave de recuperación',
+                                de: 'Wiederherstellungsschlüssel sichern',
                               ),
                             ),
                           ),
@@ -2504,84 +2493,17 @@ class SettingsScreen extends ConsumerWidget {
                               strings.text('home.import.recovery.key'),
                             ),
                           ),
-                          OutlinedButton.icon(
-                            onPressed: () async {
-                              final backupCode =
-                                  await _showSyncKeyQrScannerDialog(context);
-                              if (!context.mounted || backupCode == null) {
-                                return;
-                              }
-                              await _handleSyncKeyImport(
-                                context,
-                                ref,
-                                backupCode,
-                              );
-                            },
-                            icon: const Icon(Icons.qr_code_scanner_rounded),
-                            label: Text(
-                              strings.localized(
-                                en: 'Scan QR',
-                                ja: 'QRを読み取り',
-                                zh: '扫描 QR',
-                                ko: 'QR 스캔',
-                                es: 'Escanear QR',
-                                de: 'QR scannen',
-                              ),
-                            ),
-                          ),
                         ],
                       ),
                     ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(strings.text('home.last.sync.activity')),
-                      subtitle: Text(
-                        syncBundleState.when(
-                          data: (value) {
-                            final entries = <String>[];
-                            if (value.lastUploadedAt != null) {
-                              entries.add(
-                                strings.lastUploadAt(
-                                  _formatDateTime(
-                                    value.lastUploadedAt!,
-                                    strings,
-                                  ),
-                                ),
-                              );
-                            }
-                            if (value.lastAppliedAt != null) {
-                              entries.add(
-                                strings.lastApplyAt(
-                                  _formatDateTime(
-                                    value.lastAppliedAt!,
-                                    strings,
-                                  ),
-                                ),
-                              );
-                            }
-                            if (value.lastRemoteModifiedAt != null) {
-                              entries.add(
-                                strings.remoteBundleAt(
-                                  _formatDateTime(
-                                    value.lastRemoteModifiedAt!,
-                                    strings,
-                                  ),
-                                ),
-                              );
-                            }
-                            if (entries.isEmpty) {
-                              return strings.text(
-                                'home.no.sync.activity.has.been.recorded.on.this.device.yet',
-                              );
-                            }
-                            return entries.join('\n');
-                          },
-                          loading: () =>
-                              strings.text('home.reading.sync.activity'),
-                          error: (_, _) => strings.text(
-                            'home.unable.to.read.local.sync.activity',
-                          ),
-                        ),
+                    _SettingsSectionLabel(
+                      label: strings.localized(
+                        en: 'History',
+                        ja: '履歴',
+                        zh: '历史记录',
+                        ko: '기록',
+                        es: 'Historial',
+                        de: 'Verlauf',
                       ),
                     ),
                     ListTile(
@@ -2633,16 +2555,6 @@ class SettingsScreen extends ConsumerWidget {
                               syncHistory.asData!.value,
                             ),
                     ),
-                    if (syncTransferState.localBundle != null)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(strings.text('home.local.bundle.cache')),
-                        subtitle: Text(
-                          strings.localBundleStoredAt(
-                            syncTransferState.localBundle!.reference,
-                          ),
-                        ),
-                      ),
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Wrap(
@@ -3316,10 +3228,28 @@ class SettingsScreen extends ConsumerWidget {
                           ),
                         ],
                       ),
+                    ).asSyncMaintenanceSection(
+                      context,
+                      strings,
+                      status: syncTransferState.localBundle == null
+                          ? null
+                          : ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                strings.text('home.local.bundle.cache'),
+                              ),
+                              subtitle: Text(
+                                strings.localBundleStoredAt(
+                                  syncTransferState.localBundle!.reference,
+                                ),
+                              ),
+                            ),
                     ),
                   ],
                 ),
               ),
+            ).visibleWhen(
+              syncProvider != SyncProvider.off && syncAuthState.isAuthenticated,
             ),
             _ThemeOptionTile(
               tileKey: syncOffKey,

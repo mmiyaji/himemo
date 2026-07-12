@@ -2514,6 +2514,26 @@ Future<RemoteSyncBundleStatus?> _showBundleHistoryDialog(
           ),
         ),
         actions: [
+          if (_syncKeyQrScannerSupported)
+            TextButton.icon(
+              onPressed: () async {
+                final scanned = await _showSyncKeyQrScannerDialog(context);
+                if (scanned != null && context.mounted) {
+                  Navigator.of(context).pop(scanned);
+                }
+              },
+              icon: const Icon(Icons.qr_code_scanner_rounded),
+              label: Text(
+                strings.localized(
+                  en: 'Scan QR',
+                  ja: 'QRを読み取り',
+                  zh: '扫描 QR',
+                  ko: 'QR 스캔',
+                  es: 'Escanear QR',
+                  de: 'QR scannen',
+                ),
+              ),
+            ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: Text(strings.close),
@@ -2613,6 +2633,24 @@ Future<void> _showSyncKeyQrDialog(
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: Text(strings.close),
+          ),
+          FilledButton.icon(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: backupCode));
+              if (!context.mounted) {
+                return;
+              }
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  showCloseIcon: true,
+                  content: Text(
+                    strings.text('home.cloud.recovery.key.copied.to.clipboard'),
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.copy_rounded),
+            label: Text(strings.text('home.copy.recovery.key')),
           ),
         ],
       );
