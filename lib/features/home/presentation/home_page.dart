@@ -1674,16 +1674,16 @@ class _CreateNoteIconColorMapper extends ColorMapper {
     Color color,
   ) {
     if (color == const Color(0xFFFFF7F4)) {
-      return foreground;
+      return background;
     }
     if (color == const Color(0xFFF7DADF)) {
-      return Color.alphaBlend(foreground.withValues(alpha: 0.82), background);
+      return Color.alphaBlend(foreground.withValues(alpha: 0.18), background);
     }
     if (color == const Color(0xFF9F5261)) {
-      return Color.alphaBlend(foreground.withValues(alpha: 0.56), background);
+      return foreground;
     }
     if (color == const Color(0xFFD77E8D)) {
-      return Color.alphaBlend(foreground.withValues(alpha: 0.72), background);
+      return Color.alphaBlend(foreground.withValues(alpha: 0.78), background);
     }
     return color;
   }

@@ -278,6 +278,13 @@ void main() {
     expect(homePage, contains('key: AppShell.addNoteKey'));
     expect(homePage, contains('assets/actions/create-note.svg'));
     expect(homePage, contains('colorMapper: _CreateNoteIconColorMapper'));
+    expect(
+      homePage,
+      contains(
+        'if (color == const Color(0xFFFFF7F4)) {\n'
+        '      return background;',
+      ),
+    );
     expect(homePage, contains('static const _verticalOffset = 12.0'));
     expect(homePage, contains('static const _tapSize = 68.0'));
     expect(homePage, contains('static const _buttonSize = 56.0'));
