@@ -191,6 +191,7 @@ class _SettingsGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final compact = MediaQuery.sizeOf(context).width < 840;
     final borderRadius = BorderRadius.circular(6);
     return Semantics(
       key: sectionKey ?? (semanticLabel == null ? null : Key(semanticLabel!)),
@@ -218,17 +219,24 @@ class _SettingsGroup extends StatelessWidget {
                     unawaited(_revealExpandedSettingsGroup(context));
                   }
                 },
-                tilePadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
+                tilePadding: EdgeInsets.symmetric(
+                  horizontal: compact ? 12 : 16,
+                  vertical: compact ? 4 : 10,
                 ),
-                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                childrenPadding: EdgeInsets.fromLTRB(
+                  compact ? 12 : 16,
+                  0,
+                  compact ? 12 : 16,
+                  compact ? 10 : 14,
+                ),
                 leading: _SettingsSectionIcon(icon: icon),
                 title: Text(title, style: theme.textTheme.titleMedium),
                 subtitle: Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
                     summary,
+                    maxLines: compact ? 1 : null,
+                    overflow: compact ? TextOverflow.ellipsis : null,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: _mutedTextColor(context),
                     ),
@@ -364,15 +372,17 @@ class _SettingsSectionIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final compact = MediaQuery.sizeOf(context).width < 840;
+    final dimension = compact ? 36.0 : 40.0;
     return Container(
-      width: 40,
-      height: 40,
-      padding: const EdgeInsets.all(8),
+      width: dimension,
+      height: dimension,
+      padding: EdgeInsets.all(compact ? 7 : 8),
       decoration: BoxDecoration(
         color: colorScheme.primary.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Icon(icon, size: 22, color: colorScheme.primary),
+      child: Icon(icon, size: compact ? 20 : 22, color: colorScheme.primary),
     );
   }
 }

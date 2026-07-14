@@ -4,6 +4,7 @@ class TagsScreen extends ConsumerStatefulWidget {
   const TagsScreen({super.key});
 
   static final tagSearchKey = GlobalKey(debugLabel: 'tag-management-search');
+  static const backToSettingsKey = Key('tags-back-to-settings');
 
   @override
   ConsumerState<TagsScreen> createState() => _TagsScreenState();
@@ -15,6 +16,8 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final openedFromSettings =
+        GoRouterState.of(context).uri.queryParameters['from'] == 'settings';
     final summaries = ref.watch(visibleTagSummariesProvider);
     final autoTagRules = ref.watch(autoTagRulesControllerProvider);
     final queryKey = canonicalizeNoteTag(_query);
@@ -37,9 +40,32 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    _tagManagementTitle(strings),
-                    style: Theme.of(context).textTheme.headlineSmall,
+                  Row(
+                    children: [
+                      if (openedFromSettings) ...[
+                        IconButton(
+                          key: TagsScreen.backToSettingsKey,
+                          tooltip: MaterialLocalizations.of(
+                            context,
+                          ).backButtonTooltip,
+                          onPressed: () {
+                            if (context.canPop()) {
+                              context.pop();
+                            } else {
+                              context.go('/settings');
+                            }
+                          },
+                          icon: const Icon(Icons.arrow_back_rounded),
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                      Expanded(
+                        child: Text(
+                          _tagManagementTitle(strings),
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 6),
                   Text(

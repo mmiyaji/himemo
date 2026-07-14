@@ -4,6 +4,8 @@ class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   static const overviewKey = Key('settings-overview');
+  static const tagsAndAutoTaggingKey = Key('settings-tags-and-auto-tagging');
+  static const trashManagementKey = Key('settings-trash-management');
   static const appLockToggleKey = Key('app-lock-toggle');
   static const appLockRelockImmediateKey = Key('app-lock-relock-immediate');
   static const appLockRelock30SecondsKey = Key('app-lock-relock-30-seconds');
@@ -580,6 +582,10 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
+    final settingsWidth = MediaQuery.sizeOf(context).width;
+    final mobileSettingsLayout = settingsWidth < 840;
+    final compactSettingsLayout = mobileSettingsLayout;
+    final settingsGroupSpacing = compactSettingsLayout ? 8.0 : 16.0;
     final activeIdentity = ref.watch(activeIdentityProvider);
     final activeThemeMode = ref.watch(effectiveThemeModeProvider);
     final activeColorTheme = ref.watch(effectiveAppColorThemeProvider);
@@ -610,6 +616,7 @@ class SettingsScreen extends ConsumerWidget {
         spotlightNoteIndexEnabled &&
         appLockEnabled;
     final notesListDensity = ref.watch(notesListDensityControllerProvider);
+    final autoTagRules = ref.watch(autoTagRulesControllerProvider);
     final attachmentPreviewFit = ref.watch(
       attachmentPreviewFitControllerProvider,
     );
@@ -743,6 +750,35 @@ class SettingsScreen extends ConsumerWidget {
       es: '$memoEditorModeLabel / $memoListDensityLabel / Ubicación: $memoLocationLabel',
       de: '$memoEditorModeLabel / $memoListDensityLabel / Standort: $memoLocationLabel',
     );
+    final enabledAutoTagRuleCount = autoTagRules
+        .where((rule) => rule.enabled)
+        .length;
+    final autoTagRuleSummary = autoTagRules.isEmpty
+        ? strings.localized(
+            en: 'Manage tags and set keyword rules.',
+            ja: 'タグの整理と自動付与ルールを設定します。',
+            zh: '管理标签并设置关键字规则。',
+            ko: '태그를 정리하고 키워드 규칙을 설정합니다.',
+            es: 'Gestiona etiquetas y reglas por palabras clave.',
+            de: 'Tags und Stichwortregeln verwalten.',
+          )
+        : enabledAutoTagRuleCount > 0
+        ? strings.localized(
+            en: 'Active auto-tag rules: $enabledAutoTagRuleCount',
+            ja: '有効な自動付与ルール: $enabledAutoTagRuleCount件',
+            zh: '已启用的自动标记规则：$enabledAutoTagRuleCount',
+            ko: '활성 자동 태그 규칙: $enabledAutoTagRuleCount개',
+            es: 'Reglas de etiquetado automático activas: $enabledAutoTagRuleCount',
+            de: 'Aktive automatische Tag-Regeln: $enabledAutoTagRuleCount',
+          )
+        : strings.localized(
+            en: '${autoTagRules.length} rules, all paused.',
+            ja: '${autoTagRules.length}件のルールはすべて停止中です。',
+            zh: '${autoTagRules.length} 条规则全部已暂停。',
+            ko: '${autoTagRules.length}개의 규칙이 모두 중지됨.',
+            es: '${autoTagRules.length} reglas, todas en pausa.',
+            de: '${autoTagRules.length} Regeln, alle pausiert.',
+          );
     final effectiveFontFamily =
         _availableFontFamilies.contains(activeFontFamily)
         ? activeFontFamily
@@ -855,8 +891,10 @@ class SettingsScreen extends ConsumerWidget {
     }
 
     return ListView(
-      cacheExtent: 6000,
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.symmetric(
+        horizontal: compactSettingsLayout ? 12 : 16,
+        vertical: compactSettingsLayout ? 8 : 16,
+      ),
       children: [
         _SettingsOverviewCard(
           key: overviewKey,
@@ -901,8 +939,8 @@ class SettingsScreen extends ConsumerWidget {
               icon: Icons.sync_outlined,
             ),
           ],
-        ),
-        const SizedBox(height: 16),
+        ).visibleWhen(!compactSettingsLayout),
+        SizedBox(height: compactSettingsLayout ? 0 : settingsGroupSpacing),
         _buildAppearanceSettingsGroup(
           context: context,
           ref: ref,
@@ -920,15 +958,15 @@ class SettingsScreen extends ConsumerWidget {
           onExpansionChanged: (expanded) =>
               _handlePrimarySettingsExpansion(expanded, _appearanceController),
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
           title: strings.localized(
-            en: 'Memo settings',
-            ja: 'メモ設定',
-            zh: '备忘录设置',
-            ko: '메모 설정',
-            es: 'Ajustes de notas',
-            de: 'Notiz-Einstellungen',
+            en: 'Notes and organization',
+            ja: 'メモと整理',
+            zh: '笔记与整理',
+            ko: '메모 및 정리',
+            es: 'Notas y organización',
+            de: 'Notizen und Organisation',
           ),
           summary: memoSettingsSummary,
           icon: Icons.edit_note_outlined,
@@ -940,6 +978,56 @@ class SettingsScreen extends ConsumerWidget {
           ),
           semanticLabel: 'settings-memo',
           children: [
+            if (mobileSettingsLayout) ...[
+              ListTile(
+                key: tagsAndAutoTaggingKey,
+                contentPadding: EdgeInsets.zero,
+                leading: const _SettingsListIcon(icon: Icons.sell_outlined),
+                title: Text(
+                  strings.localized(
+                    en: 'Tags and auto-tagging',
+                    ja: 'タグと自動付与',
+                    zh: '标签与自动标记',
+                    ko: '태그 및 자동 태그',
+                    es: 'Etiquetas y etiquetado automático',
+                    de: 'Tags und automatische Zuordnung',
+                  ),
+                ),
+                subtitle: Text(autoTagRuleSummary),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => context.push('/tags?from=settings'),
+              ),
+              ListTile(
+                key: trashManagementKey,
+                contentPadding: EdgeInsets.zero,
+                leading: const _SettingsListIcon(
+                  icon: Icons.delete_outline_rounded,
+                ),
+                title: Text(
+                  strings.localized(
+                    en: 'Trash',
+                    ja: 'ゴミ箱',
+                    zh: '废纸篓',
+                    ko: '휴지통',
+                    es: 'Papelera',
+                    de: 'Papierkorb',
+                  ),
+                ),
+                subtitle: Text(
+                  strings.localized(
+                    en: 'Restore or permanently delete notes.',
+                    ja: 'メモの復元と完全削除を行います。',
+                    zh: '恢复或永久删除笔记。',
+                    ko: '메모를 복원하거나 영구 삭제합니다.',
+                    es: 'Restaura o elimina notas permanentemente.',
+                    de: 'Notizen wiederherstellen oder endgültig löschen.',
+                  ),
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => context.push('/trash?from=settings'),
+              ),
+              const Divider(height: 24),
+            ],
             if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) ...[
               SwitchListTile.adaptive(
                 key: memoSpotlightIndexKey,
@@ -1242,7 +1330,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
           title: strings.privateProfilesSettingsTitle,
           summary: adminMode
@@ -1427,7 +1515,7 @@ class SettingsScreen extends ConsumerWidget {
             ],
           ],
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: settingsGroupSpacing),
         if (kDebugMode && showLegacyAccessSettings)
           _SettingsGroup(
             title: strings.text('home.access.modes'),
@@ -1495,7 +1583,8 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ],
           ),
-        if (kDebugMode && showLegacyAccessSettings) const SizedBox(height: 16),
+        if (kDebugMode && showLegacyAccessSettings)
+          SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
           title: strings.text('home.app.security'),
           summary: lockSummary,
@@ -1926,7 +2015,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: settingsGroupSpacing),
         if (kDebugMode && showLegacyPrivateVaultSettings)
           _SettingsGroup(
             title: strings.text('home.private.vault'),
@@ -1990,7 +2079,7 @@ class SettingsScreen extends ConsumerWidget {
             ],
           ),
         if (kDebugMode && showLegacyPrivateVaultSettings)
-          const SizedBox(height: 16),
+          SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
           title: strings.text('home.backup.and.sync'),
           summary: syncSummary,
@@ -3305,7 +3394,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
           title: strings.text('home.storage'),
           summary: strings.noteCountSummary(noteCount),
@@ -3643,7 +3732,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
           title: strings.about,
           summary: aboutSummary,

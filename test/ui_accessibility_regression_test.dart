@@ -8,8 +8,10 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:himemo/app/app.dart';
 import 'package:himemo/app/app_flavor.dart';
+import 'package:himemo/app/app_router.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
 import 'package:himemo/features/security/data/encrypted_note_database.dart';
@@ -215,49 +217,221 @@ void main() {
     });
   }
 
-  testWidgets('compact settings overview is a non-interactive status summary', (
+  testWidgets('compact settings hides the duplicate status overview', (
     tester,
   ) async {
     final harness = await _createHarness(
       preferences: const {'settings.locale': 'english'},
     );
-    _configureView(tester, size: const Size(390, 844));
+    _configureView(tester, size: const Size(390, 708));
+    await _pumpSettingsScreen(tester, harness.container);
+
+    expect(find.byKey(SettingsScreen.overviewKey), findsNothing);
+    expect(find.text('Current status'), findsNothing);
+    for (final title in const [
+      'Appearance and language',
+      'Notes and organization',
+      'Private profiles',
+      'App security',
+      'Backup and sync',
+      'Storage',
+      'About',
+    ]) {
+      expect(find.text(title).hitTestable(), findsOneWidget);
+    }
+    expect(tester.getRect(find.text('About')).bottom, lessThanOrEqualTo(708));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('wide settings retains the status overview', (tester) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
+    );
+    _configureView(tester, size: const Size(1024, 900));
     await _pumpSettingsScreen(tester, harness.container);
 
     final overview = find.byKey(SettingsScreen.overviewKey);
-    final overviewButtons = find.descendant(
-      of: overview,
-      matching: find.byType(TextButton),
-    );
-    expect(overviewButtons, findsNothing);
+    expect(overview, findsOneWidget);
     expect(
       find.descendant(of: overview, matching: find.text('Current status')),
       findsOneWidget,
     );
-    expect(
-      find.descendant(of: overview, matching: find.text('Profile')),
-      findsOneWidget,
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('bottom-navigation widths keep the compact settings layout', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
     );
-    expect(
-      find.descendant(of: overview, matching: find.text('App lock')),
-      findsOneWidget,
+    _configureView(tester, size: const Size(800, 900));
+    await _pumpSettingsScreen(tester, harness.container);
+
+    expect(find.byKey(SettingsScreen.overviewKey), findsNothing);
+    final organizationTile = tester.widget<ExpansionTile>(
+      find
+          .ancestor(
+            of: find.text('Notes and organization'),
+            matching: find.byType(ExpansionTile),
+          )
+          .first,
     );
-    expect(
-      find.descendant(of: overview, matching: find.text('Sync')),
-      findsOneWidget,
+    final summary = (organizationTile.subtitle! as Padding).child as Text;
+    expect(summary.maxLines, 1);
+    expect(summary.overflow, TextOverflow.ellipsis);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('compact settings exposes tags and trash under organization', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
     );
-    expect(
-      find.descendant(of: overview, matching: find.text('Memo')),
-      findsNothing,
+    await harness.container
+        .read(autoTagRulesControllerProvider.notifier)
+        .addRule(tag: 'Finance', keywords: const ['invoice']);
+    _configureView(tester, size: const Size(390, 844));
+    await _pumpSettingsScreen(tester, harness.container);
+
+    final organizationTitle = find.text('Notes and organization');
+    final organizationTile = tester.widget<ExpansionTile>(
+      find
+          .ancestor(of: organizationTitle, matching: find.byType(ExpansionTile))
+          .first,
     );
-    expect(
-      find.descendant(of: overview, matching: find.text('Storage')),
-      findsNothing,
+    final summary = (organizationTile.subtitle! as Padding).child as Text;
+    expect(summary.maxLines, 1);
+    expect(summary.overflow, TextOverflow.ellipsis);
+
+    if (!(organizationTile.controller?.isExpanded ?? false)) {
+      await tester.tap(organizationTitle);
+      await tester.pumpAndSettle();
+    }
+    await tester.ensureVisible(
+      find.byKey(SettingsScreen.tagsAndAutoTaggingKey),
     );
-    expect(
-      find.descendant(of: overview, matching: find.text('Theme')),
-      findsNothing,
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(SettingsScreen.tagsAndAutoTaggingKey), findsOneWidget);
+    expect(find.byKey(SettingsScreen.trashManagementKey), findsOneWidget);
+    expect(find.text('Active auto-tag rules: 1'), findsOneWidget);
+    organizationTile.controller!.collapse();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('compact settings remains operable at 320px and 200% text', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
     );
+    _configureView(tester, size: const Size(320, 844), textScale: 2);
+    await _pumpSettingsScreen(
+      tester,
+      harness.container,
+      bottomNavigationBar: const SizedBox(height: 80),
+    );
+
+    final organizationTitle = find.text('Notes and organization');
+    await tester.ensureVisible(organizationTitle);
+    await tester.pumpAndSettle();
+    expect(organizationTitle.hitTestable(), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('About'), 300);
+    await tester.pumpAndSettle();
+
+    expect(find.text('About').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('settings tag shortcut opens rules and returns to settings', (
+    tester,
+  ) async {
+    final harness = await _pumpHiMemoApp(
+      tester,
+      size: const Size(320, 844),
+      textScale: 2,
+      preferences: const {
+        'app.onboarding_completed': true,
+        'app.onboarding_completed_version': 2,
+        'settings.locale': 'english',
+      },
+    );
+    final router = harness.container.read(appRouterProvider);
+    router.go('/settings');
+    await tester.pumpAndSettle();
+
+    final organizationTitle = find.text('Notes and organization');
+    await tester.ensureVisible(organizationTitle);
+    await tester.pumpAndSettle();
+    final organizationTile = tester.widget<ExpansionTile>(
+      find
+          .ancestor(of: organizationTitle, matching: find.byType(ExpansionTile))
+          .first,
+    );
+    if (!(organizationTile.controller?.isExpanded ?? false)) {
+      await tester.tap(organizationTitle.hitTestable());
+      await tester.pumpAndSettle();
+    }
+    final tagsAction = find.byKey(SettingsScreen.tagsAndAutoTaggingKey);
+    await tester.ensureVisible(tagsAction);
+    await tester.pumpAndSettle();
+    expect(tagsAction.hitTestable(), findsOneWidget);
+    await tester.tap(tagsAction.hitTestable());
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TagsScreen), findsOneWidget);
+    expect(router.canPop(), isTrue);
+    final tagsRouteState = GoRouterState.of(
+      tester.element(find.byType(TagsScreen)),
+    );
+    expect(tagsRouteState.uri.path, '/tags');
+    expect(tagsRouteState.uri.queryParameters['from'], 'settings');
+    expect(find.byKey(TagsScreen.backToSettingsKey), findsOneWidget);
+
+    router.pop();
+    await tester.pumpAndSettle();
+    expect(router.routeInformationProvider.value.uri.path, '/settings');
+    final returnedOrganizationTile = tester.widget<ExpansionTile>(
+      find
+          .ancestor(
+            of: find.text('Notes and organization'),
+            matching: find.byType(ExpansionTile),
+          )
+          .first,
+    );
+    expect(returnedOrganizationTile.controller?.isExpanded, isTrue);
+
+    final trashAction = find.byKey(SettingsScreen.trashManagementKey);
+    await tester.ensureVisible(trashAction);
+    await tester.pumpAndSettle();
+    expect(trashAction.hitTestable(), findsOneWidget);
+    await tester.tap(trashAction.hitTestable());
+    await tester.pumpAndSettle();
+    expect(find.byType(TrashScreen), findsOneWidget);
+    expect(router.canPop(), isTrue);
+    final trashRouteState = GoRouterState.of(
+      tester.element(find.byType(TrashScreen)),
+    );
+    expect(trashRouteState.uri.path, '/trash');
+    expect(trashRouteState.uri.queryParameters['from'], 'settings');
+    expect(find.byKey(TrashScreen.backToSettingsKey), findsOneWidget);
+
+    await tester.tap(find.byKey(TrashScreen.backToSettingsKey));
+    await tester.pumpAndSettle();
+    expect(router.routeInformationProvider.value.uri.path, '/settings');
+    final finalOrganizationTile = tester.widget<ExpansionTile>(
+      find
+          .ancestor(
+            of: find.text('Notes and organization'),
+            matching: find.byType(ExpansionTile),
+          )
+          .first,
+    );
+    finalOrganizationTile.controller!.collapse();
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 
@@ -277,7 +451,7 @@ void main() {
         .where((tile) => tile.controller?.isExpanded ?? false);
     expect(expandedTiles, hasLength(1));
 
-    final memoSettings = find.text('Memo settings');
+    final memoSettings = find.text('Notes and organization');
     await tester.scrollUntilVisible(memoSettings, 500);
     await tester.tap(memoSettings);
     await tester.pumpAndSettle();

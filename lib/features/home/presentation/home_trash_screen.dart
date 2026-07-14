@@ -4,6 +4,7 @@ class TrashScreen extends ConsumerStatefulWidget {
   const TrashScreen({super.key});
 
   static final trashContentKey = GlobalKey(debugLabel: 'trash-screen-content');
+  static const backToSettingsKey = Key('trash-back-to-settings');
 
   @override
   ConsumerState<TrashScreen> createState() => _TrashScreenState();
@@ -26,6 +27,8 @@ class _TrashScreenState extends ConsumerState<TrashScreen> {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final openedFromSettings =
+        GoRouterState.of(context).uri.queryParameters['from'] == 'settings';
     final notes = ref.watch(trashedNotesProvider);
     final visibleVaults = ref.watch(visibleVaultsProvider);
     final vaultNameById = {
@@ -36,18 +39,39 @@ class _TrashScreenState extends ConsumerState<TrashScreen> {
       key: TrashScreen.trashContentKey,
       padding: const EdgeInsets.all(16),
       children: [
-        Text(
-          strings.localized(
-            en: 'Trash',
-            ja: 'ゴミ箱',
-            zh: '废纸篓',
-            ko: '휴지통',
-            es: 'Papelera',
-            de: 'Papierkorb',
-          ),
-          style: Theme.of(
-            context,
-          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+        Row(
+          children: [
+            if (openedFromSettings) ...[
+              IconButton(
+                key: TrashScreen.backToSettingsKey,
+                tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+                onPressed: () {
+                  if (context.canPop()) {
+                    context.pop();
+                  } else {
+                    context.go('/settings');
+                  }
+                },
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+              const SizedBox(width: 4),
+            ],
+            Expanded(
+              child: Text(
+                strings.localized(
+                  en: 'Trash',
+                  ja: 'ゴミ箱',
+                  zh: '废纸篓',
+                  ko: '휴지통',
+                  es: 'Papelera',
+                  de: 'Papierkorb',
+                ),
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 8),
         Text(
