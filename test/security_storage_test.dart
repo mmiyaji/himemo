@@ -5016,6 +5016,166 @@ void main() {
     });
     expect(preview.addedTitles, ['Private title']);
   });
+
+  test(
+    'NotesController conflict resolution preserves delete intent and remote trash content',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-conflict-resolution-delete-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(73));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: noteDatabase,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+
+      final controller = container.read(notesControllerProvider.notifier);
+      final createdAt = DateTime(2026, 7, 18, 9);
+      await controller.upsert(
+        NoteEntry(
+          id: 'local-delete',
+          vaultId: 'everyday',
+          title: 'Delete locally',
+          body: 'The local deletion must remain a deletion.',
+          createdAt: createdAt,
+          updatedAt: createdAt,
+        ),
+      );
+      await controller.markCurrentStateSynced();
+      await controller.delete('local-delete');
+      await controller.mergeFromSync([
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.upsert,
+          note: NoteEntry(
+            id: 'local-delete',
+            vaultId: 'everyday',
+            title: 'Remote active version',
+            body: 'Changed remotely',
+            createdAt: createdAt,
+            updatedAt: DateTime(2099, 1, 1),
+            revision: 5,
+            contentHash: 'remote-active-v5',
+          ),
+        ),
+      ]);
+      expect(
+        container
+            .read(notesControllerProvider)
+            .singleWhere((note) => note.id == 'local-delete')
+            .syncState,
+        NoteSyncState.conflict,
+      );
+
+      await controller.resolveConflictKeepingLocal(
+        'local-delete',
+        remoteRevision: 5,
+      );
+
+      final keptDeletion = container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'local-delete');
+      expect(keptDeletion.deletedAt, isNotNull);
+      expect(keptDeletion.syncState, NoteSyncState.pendingDelete);
+      expect(keptDeletion.revision, 6);
+      var pending = await noteDatabase.loadPendingChanges();
+      expect(
+        pending.singleWhere((change) => change.noteId == 'local-delete').action,
+        PendingNoteChangeAction.delete,
+      );
+
+      await controller.upsert(
+        NoteEntry(
+          id: 'remote-delete',
+          vaultId: 'everyday',
+          title: 'Keep this readable title',
+          body: 'Keep this readable body in Trash.',
+          createdAt: createdAt,
+          updatedAt: createdAt.add(const Duration(minutes: 10)),
+        ),
+      );
+      await controller.markCurrentStateSynced();
+      await controller.upsert(
+        NoteEntry(
+          id: 'remote-delete',
+          vaultId: 'everyday',
+          title: 'Local unsynced title',
+          body: 'Local unsynced body remains recoverable.',
+          createdAt: createdAt,
+          updatedAt: createdAt.add(const Duration(minutes: 20)),
+        ),
+      );
+      final remoteDeletedAt = DateTime(2099, 1, 2);
+      final remoteTombstone = NoteEntry(
+        id: 'remote-delete',
+        vaultId: 'everyday',
+        title: '',
+        body: '',
+        createdAt: createdAt,
+        updatedAt: remoteDeletedAt,
+        deletedAt: remoteDeletedAt,
+        revision: 6,
+        contentHash: 'remote-delete-v6',
+      );
+      await controller.mergeFromSync([
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.delete,
+          note: remoteTombstone,
+        ),
+      ]);
+      expect(
+        container
+            .read(notesControllerProvider)
+            .singleWhere((note) => note.id == 'remote-delete')
+            .syncState,
+        NoteSyncState.conflict,
+      );
+
+      await controller.resolveConflictUsingRemoteDelete(remoteTombstone);
+
+      final adoptedDeletion = container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'remote-delete');
+      expect(adoptedDeletion.deletedAt, remoteDeletedAt);
+      expect(adoptedDeletion.title, 'Local unsynced title');
+      expect(adoptedDeletion.body, 'Local unsynced body remains recoverable.');
+      expect(adoptedDeletion.syncState, NoteSyncState.synced);
+      pending = await noteDatabase.loadPendingChanges();
+      expect(
+        pending.where((change) => change.noteId == 'remote-delete'),
+        isEmpty,
+      );
+    },
+  );
 }
 
 class _SingleNoteRepository implements HomeRepository {

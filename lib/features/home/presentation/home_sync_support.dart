@@ -421,6 +421,15 @@ String _localizedSyncTransferMessage(
         es: 'Este dispositivo tiene cambios sin sincronizar y hay un paquete mas reciente en el destino remoto.',
         de: 'Dieses Gerat hat nicht synchronisierte Anderungen, und auf dem Remote-Synchronisierungsziel liegt ein neueres Paket vor.',
       );
+    case 'sync.error.conflict_remote_changed_after_review':
+      return strings.localized(
+        en: 'The remote version changed after this comparison was opened. Your choice remains saved on this device, but it was not uploaded. Reload the comparison before syncing again.',
+        ja: '比較画面を開いた後にリモート版が更新されました。この端末への選択結果は保存されていますが、上書きを防ぐためアップロードしていません。もう一度比較を読み直してから同期してください。',
+        zh: '打开比较画面后，远程版本已更新。你的选择已保存在此设备上，但为避免覆盖，尚未上传。请重新加载比较结果后再同步。',
+        ko: '비교 화면을 연 뒤 원격 버전이 변경되었습니다. 선택 결과는 이 기기에 저장되었지만 덮어쓰기를 막기 위해 업로드하지 않았습니다. 비교를 다시 불러온 뒤 동기화하세요.',
+        es: 'La version remota cambio despues de abrir la comparacion. Tu eleccion se guardo en este dispositivo, pero no se subio para evitar una sobrescritura. Vuelve a cargar la comparacion antes de sincronizar.',
+        de: 'Die Remote-Version wurde nach dem Offnen des Vergleichs geandert. Deine Auswahl ist auf diesem Gerat gespeichert, wurde aber zum Schutz vor Uberschreiben nicht hochgeladen. Lade den Vergleich vor dem Synchronisieren neu.',
+      );
     case 'sync.error.local_bundle_prepare_failed':
       return strings.localized(
         en: 'The local sync bundle could not be prepared.',
@@ -1494,7 +1503,33 @@ Future<void> _showSyncConflictListDialog(
   await _showNoteConflictResolver(context, ref, selected);
 }
 
-enum _NoteConflictResolution { keepLocal, useRemote, merge }
+enum NoteConflictResolutionAction { keepLocal, useRemote, merge }
+
+enum NoteConflictResolutionOutcomeKind { resolved, pendingSync, cancelled }
+
+@immutable
+class NoteConflictResolutionOutcome {
+  const NoteConflictResolutionOutcome._(this.kind, this.message);
+
+  const NoteConflictResolutionOutcome.resolved()
+    : this._(NoteConflictResolutionOutcomeKind.resolved, null);
+
+  const NoteConflictResolutionOutcome.pendingSync(String message)
+    : this._(NoteConflictResolutionOutcomeKind.pendingSync, message);
+
+  const NoteConflictResolutionOutcome.cancelled()
+    : this._(NoteConflictResolutionOutcomeKind.cancelled, null);
+
+  final NoteConflictResolutionOutcomeKind kind;
+  final String? message;
+}
+
+typedef NoteConflictRemoteLoader = Future<PreparedSyncNote?> Function();
+typedef NoteConflictResolver =
+    Future<NoteConflictResolutionOutcome> Function(
+      NoteConflictResolutionAction action,
+      PreparedSyncNote remoteChange,
+    );
 
 Future<void> _showNoteConflictResolver(
   BuildContext context,
@@ -1503,163 +1538,13 @@ Future<void> _showNoteConflictResolver(
 ) async {
   final strings = context.strings;
   final messenger = ScaffoldMessenger.of(context);
-  messenger.showSnackBar(
-    SnackBar(
-      showCloseIcon: true,
-      content: Text(
-        strings.localized(
-          en: 'Loading the latest remote version...',
-          ja: 'リモートの最新版を読み込んでいます...',
-          zh: '正在读取最新远程版本...',
-          ko: '최신 원격 버전을 불러오는 중...',
-          es: 'Cargando la version remota mas reciente...',
-          de: 'Neueste Remote-Version wird geladen...',
-        ),
-      ),
-    ),
-  );
-  final remoteNote = await ref
-      .read(syncTransferControllerProvider.notifier)
-      .downloadLatestRemoteNoteForConflict(localNote.id);
-  messenger.hideCurrentSnackBar();
-  if (!context.mounted) {
-    return;
-  }
-  if (remoteNote == null) {
-    messenger.showSnackBar(
-      SnackBar(
-        showCloseIcon: true,
-        content: Text(
-          strings.localized(
-            en: 'No remote version for this note was found in the latest bundle.',
-            ja: '最新バンドルにこのメモのリモート版が見つかりませんでした。',
-            zh: '最新捆绑包中未找到此笔记的远程版本。',
-            ko: '최신 번들에서 이 메모의 원격 버전을 찾을 수 없습니다.',
-            es: 'No se encontro una version remota de esta nota en el paquete mas reciente.',
-            de: 'Im neuesten Paket wurde keine Remote-Version dieser Notiz gefunden.',
-          ),
-        ),
-      ),
-    );
-    return;
-  }
-
-  final resolution = await showDialog<_NoteConflictResolution>(
+  final outcome = await showDialog<NoteConflictResolutionOutcome>(
     context: context,
-    builder: (dialogContext) {
-      return AlertDialog(
-        title: Text(
-          strings.localized(
-            en: 'Resolve note conflict',
-            ja: 'メモの競合を解決',
-            zh: '解决笔记冲突',
-            ko: '메모 충돌 해결',
-            es: 'Resolver conflicto de nota',
-            de: 'Notizkonflikt losen',
-          ),
-        ),
-        content: SizedBox(
-          width: 560,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  strings.localized(
-                    en: 'Compare the local and remote versions, then choose how to resolve this note.',
-                    ja: 'ローカル版とリモート版の概要を確認し、このメモの扱いを選んでください。',
-                    zh: '比较本地和远程版本，然后选择如何处理此笔记。',
-                    ko: '로컬 버전과 원격 버전을 비교한 뒤 이 메모를 어떻게 처리할지 선택하세요.',
-                    es: 'Compara las versiones local y remota y elige como resolver esta nota.',
-                    de: 'Vergleiche lokale und Remote-Version und wahle, wie diese Notiz gelost wird.',
-                  ),
-                ),
-                const SizedBox(height: 16),
-                _ConflictVersionSummary(
-                  label: strings.localized(
-                    en: 'Local version',
-                    ja: 'ローカル版',
-                    zh: '本地版本',
-                    ko: '로컬 버전',
-                    es: 'Version local',
-                    de: 'Lokale Version',
-                  ),
-                  note: localNote,
-                ),
-                const SizedBox(height: 12),
-                _ConflictVersionSummary(
-                  label: strings.localized(
-                    en: 'Remote version',
-                    ja: 'リモート版',
-                    zh: '远程版本',
-                    ko: '원격 버전',
-                    es: 'Version remota',
-                    de: 'Remote-Version',
-                  ),
-                  note: remoteNote,
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(strings.cancel),
-          ),
-          TextButton.icon(
-            onPressed: () => Navigator.of(
-              dialogContext,
-            ).pop(_NoteConflictResolution.useRemote),
-            icon: const Icon(Icons.cloud_download_outlined),
-            label: Text(
-              strings.localized(
-                en: 'Use remote',
-                ja: 'リモートを採用',
-                zh: '使用远程',
-                ko: '원격 사용',
-                es: 'Usar remoto',
-                de: 'Remote verwenden',
-              ),
-            ),
-          ),
-          TextButton.icon(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(_NoteConflictResolution.merge),
-            icon: const Icon(Icons.call_merge_rounded),
-            label: Text(
-              strings.localized(
-                en: 'Merge',
-                ja: 'マージ',
-                zh: '合并',
-                ko: '병합',
-                es: 'Fusionar',
-                de: 'Zusammenfuhren',
-              ),
-            ),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.of(
-              dialogContext,
-            ).pop(_NoteConflictResolution.keepLocal),
-            icon: const Icon(Icons.cloud_upload_outlined),
-            label: Text(
-              strings.localized(
-                en: 'Keep local',
-                ja: 'ローカルを採用',
-                zh: '保留本地',
-                ko: '로컬 유지',
-                es: 'Mantener local',
-                de: 'Lokal behalten',
-              ),
-            ),
-          ),
-        ],
-      );
-    },
+    barrierDismissible: false,
+    builder: (dialogContext) =>
+        NoteConflictResolverDialog(localNote: localNote),
   );
-  if (resolution == null) {
+  if (outcome == null) {
     await ref
         .read(notesControllerProvider.notifier)
         .cleanupUnreferencedAttachments();
@@ -1669,75 +1554,774 @@ Future<void> _showNoteConflictResolver(
     return;
   }
 
-  try {
-    switch (resolution) {
-      case _NoteConflictResolution.keepLocal:
-        final confirmed = await _confirmLargeMobileConflictUploadIfNeeded(
-          context,
-          ref,
+  final message = outcome.kind == NoteConflictResolutionOutcomeKind.pendingSync
+      ? outcome.message ??
+            strings.localized(
+              en: 'The choice was saved on this device, but cloud sync is still pending.',
+              ja: 'この端末への反映は完了しましたが、クラウド同期は保留中です。',
+            )
+      : strings.localized(
+          en: 'Note conflict resolved.',
+          ja: 'メモの競合を解決しました。',
+          zh: '笔记冲突已解决。',
+          ko: '메모 충돌이 해결되었습니다.',
+          es: 'Conflicto de nota resuelto.',
+          de: 'Notizkonflikt gelost.',
         );
-        if (!confirmed) {
-          return;
+  messenger.showSnackBar(SnackBar(showCloseIcon: true, content: Text(message)));
+}
+
+enum _NoteConflictDisplayMode { overview, details }
+
+class NoteConflictResolverDialog extends ConsumerStatefulWidget {
+  const NoteConflictResolverDialog({
+    super.key,
+    required this.localNote,
+    this.loadRemote,
+    this.resolve,
+  });
+
+  static const displayModeKey = Key('note-conflict-display-mode');
+  static const keepLocalOptionKey = Key('note-conflict-keep-local');
+  static const useRemoteOptionKey = Key('note-conflict-use-remote');
+  static const mergeOptionKey = Key('note-conflict-merge');
+  static const resolveButtonKey = Key('note-conflict-resolve-button');
+  static const cancelButtonKey = Key('note-conflict-cancel-button');
+  static const retryButtonKey = Key('note-conflict-retry-button');
+  static const busyOverlayKey = Key('note-conflict-busy-overlay');
+
+  final NoteEntry localNote;
+  final NoteConflictRemoteLoader? loadRemote;
+  final NoteConflictResolver? resolve;
+
+  @override
+  ConsumerState<NoteConflictResolverDialog> createState() =>
+      _NoteConflictResolverDialogState();
+}
+
+class _NoteConflictResolverDialogState
+    extends ConsumerState<NoteConflictResolverDialog> {
+  PreparedSyncNote? _remoteChange;
+  NoteConflictResolutionAction? _selectedAction;
+  _NoteConflictDisplayMode _displayMode = _NoteConflictDisplayMode.overview;
+  bool _loadingRemote = true;
+  bool _resolving = false;
+  String? _errorText;
+  String? _reviewedRemoteFileId;
+
+  bool get _busy => _resolving;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(_loadRemote());
+      }
+    });
+  }
+
+  Future<void> _loadRemote() async {
+    setState(() {
+      _loadingRemote = true;
+      _remoteChange = null;
+      _selectedAction = null;
+      _errorText = null;
+      _reviewedRemoteFileId = null;
+    });
+    final notes = ref.read(notesControllerProvider.notifier);
+    final usesProductionLoader = widget.loadRemote == null;
+    try {
+      final remoteChange =
+          await (widget.loadRemote?.call() ??
+              ref
+                  .read(syncTransferControllerProvider.notifier)
+                  .downloadLatestRemoteNoteForConflict(widget.localNote.id));
+      final reviewedRemoteFileId = usesProductionLoader
+          ? ref.read(syncTransferControllerProvider).remoteStatus?.fileId
+          : null;
+      if (!mounted) {
+        if (usesProductionLoader) {
+          await _cleanupConflictAttachmentsBestEffort(notes);
         }
-        await ref
-            .read(notesControllerProvider.notifier)
-            .resolveConflictKeepingLocal(localNote.id);
-        await ref
-            .read(syncTransferControllerProvider.notifier)
-            .uploadCurrentBundle(force: true, allowLargeMobileTransfer: true);
-        await ref
-            .read(notesControllerProvider.notifier)
-            .cleanupUnreferencedAttachments();
-        break;
-      case _NoteConflictResolution.useRemote:
-        await ref
-            .read(notesControllerProvider.notifier)
-            .resolveConflictUsingRemote(remoteNote);
-        await ref
-            .read(syncTransferControllerProvider.notifier)
-            .recordDownloadedBundleApplied();
-        break;
-      case _NoteConflictResolution.merge:
-        final confirmed = await _confirmLargeMobileConflictUploadIfNeeded(
-          context,
-          ref,
-        );
-        if (!confirmed) {
-          return;
+        return;
+      }
+      if (remoteChange == null) {
+        setState(() {
+          _loadingRemote = false;
+          _errorText = _remoteLoadFailureMessage();
+        });
+        return;
+      }
+      setState(() {
+        _remoteChange = remoteChange;
+        _reviewedRemoteFileId = reviewedRemoteFileId;
+        _loadingRemote = false;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('Failed to load remote conflict version: $error\n$stackTrace');
+      if (!mounted) {
+        if (usesProductionLoader) {
+          await _cleanupConflictAttachmentsBestEffort(notes);
         }
-        await ref
-            .read(notesControllerProvider.notifier)
-            .resolveConflictByMerging(remoteNote);
-        await ref
-            .read(syncTransferControllerProvider.notifier)
-            .uploadCurrentBundle(force: true, allowLargeMobileTransfer: true);
-        break;
+        return;
+      }
+      setState(() {
+        _loadingRemote = false;
+        _errorText = _resolutionFailureMessage();
+      });
     }
-    if (!context.mounted) {
+  }
+
+  String _remoteLoadFailureMessage() {
+    final strings = context.strings;
+    if (widget.loadRemote == null) {
+      final transfer = ref.read(syncTransferControllerProvider);
+      final message = transfer.message;
+      if (transfer.stage == SyncTransferStage.error &&
+          message != null &&
+          message.isNotEmpty) {
+        return _localizedSyncTransferMessage(
+          strings,
+          message,
+          ref.read(syncProviderControllerProvider),
+        );
+      }
+    }
+    return strings.localized(
+      en: 'The latest remote bundle does not contain a version of this note. Refresh sync and try again.',
+      ja: '最新のリモートバンドルにこのメモの版がありません。同期を更新してから、もう一度お試しください。',
+    );
+  }
+
+  String _resolutionFailureMessage() {
+    final strings = context.strings;
+    if (widget.resolve == null) {
+      final transfer = ref.read(syncTransferControllerProvider);
+      final message = transfer.message;
+      if (transfer.stage == SyncTransferStage.error &&
+          message != null &&
+          message.isNotEmpty) {
+        return _localizedSyncTransferMessage(
+          strings,
+          message,
+          ref.read(syncProviderControllerProvider),
+        );
+      }
+    }
+    return strings.localized(
+      en: 'Conflict resolution did not finish. Check the sync status and try again.',
+      ja: '競合の解決を完了できませんでした。同期状態を確認して、もう一度お試しください。',
+    );
+  }
+
+  Future<void> _resolveSelected() async {
+    final action = _selectedAction;
+    final remoteChange = _remoteChange;
+    if (action == null || remoteChange == null || _resolving) {
       return;
     }
-    messenger.showSnackBar(
-      SnackBar(
-        showCloseIcon: true,
-        content: Text(
-          strings.localized(
-            en: 'Note conflict resolved.',
-            ja: 'メモの競合を解決しました。',
-            zh: '笔记冲突已解决。',
-            ko: '메모 충돌이 해결되었습니다.',
-            es: 'Conflicto de nota resuelto.',
-            de: 'Notizkonflikt gelost.',
+    setState(() {
+      _resolving = true;
+      _errorText = null;
+    });
+    try {
+      final outcome =
+          await (widget.resolve?.call(action, remoteChange) ??
+              _resolveWithControllers(action, remoteChange));
+      if (!mounted) {
+        return;
+      }
+      if (outcome.kind == NoteConflictResolutionOutcomeKind.cancelled) {
+        setState(() => _resolving = false);
+        return;
+      }
+      Navigator.of(context).pop(outcome);
+    } catch (error, stackTrace) {
+      debugPrint('Failed to resolve note conflict: $error\n$stackTrace');
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _resolving = false;
+        _errorText = _resolutionFailureMessage();
+      });
+    }
+  }
+
+  Future<NoteConflictResolutionOutcome> _resolveWithControllers(
+    NoteConflictResolutionAction action,
+    PreparedSyncNote remoteChange,
+  ) async {
+    final notes = ref.read(notesControllerProvider.notifier);
+    final transfer = ref.read(syncTransferControllerProvider.notifier);
+    switch (action) {
+      case NoteConflictResolutionAction.keepLocal:
+        final confirmed = await _confirmLargeMobileConflictUploadIfNeeded(
+          context,
+          ref,
+        );
+        if (!confirmed) {
+          return const NoteConflictResolutionOutcome.cancelled();
+        }
+        await notes.resolveConflictKeepingLocal(
+          widget.localNote.id,
+          remoteRevision: remoteChange.note.revision,
+        );
+        try {
+          await transfer.uploadCurrentBundle(
+            deltaOnly: true,
+            expectedRemoteFileId: _reviewedRemoteFileId,
+            onlyPendingNoteIds: {widget.localNote.id},
+            allowLargeMobileTransfer: true,
+          );
+          return _uploadOutcome();
+        } catch (error, stackTrace) {
+          debugPrint(
+            'Conflict choice was saved but upload failed: '
+            '$error\n$stackTrace',
+          );
+          return _postCommitFailureOutcome();
+        } finally {
+          await _cleanupConflictAttachmentsBestEffort(notes);
+        }
+      case NoteConflictResolutionAction.useRemote:
+        if (remoteChange.action == PendingNoteChangeAction.delete) {
+          await notes.resolveConflictUsingRemoteDelete(remoteChange.note);
+        } else {
+          await notes.resolveConflictUsingRemote(remoteChange.note);
+        }
+        await _cleanupConflictAttachmentsBestEffort(notes);
+        return const NoteConflictResolutionOutcome.resolved();
+      case NoteConflictResolutionAction.merge:
+        final confirmed = await _confirmLargeMobileConflictUploadIfNeeded(
+          context,
+          ref,
+        );
+        if (!confirmed) {
+          return const NoteConflictResolutionOutcome.cancelled();
+        }
+        await notes.resolveConflictByMerging(remoteChange.note);
+        try {
+          await transfer.uploadCurrentBundle(
+            deltaOnly: true,
+            expectedRemoteFileId: _reviewedRemoteFileId,
+            onlyPendingNoteIds: {widget.localNote.id},
+            allowLargeMobileTransfer: true,
+          );
+          return _uploadOutcome();
+        } catch (error, stackTrace) {
+          debugPrint(
+            'Merged conflict was saved but upload failed: '
+            '$error\n$stackTrace',
+          );
+          return _postCommitFailureOutcome();
+        } finally {
+          await _cleanupConflictAttachmentsBestEffort(notes);
+        }
+    }
+  }
+
+  Future<void> _cleanupConflictAttachmentsBestEffort(
+    NotesController notes,
+  ) async {
+    try {
+      await notes.cleanupUnreferencedAttachments();
+    } catch (error, stackTrace) {
+      debugPrint(
+        'Conflict attachment cleanup will be retried later: '
+        '$error\n$stackTrace',
+      );
+    }
+  }
+
+  NoteConflictResolutionOutcome _postCommitFailureOutcome() {
+    return NoteConflictResolutionOutcome.pendingSync(
+      context.strings.localized(
+        en: 'The choice was saved on this device, but cloud sync is still pending. Open Sync status to try again.',
+        ja: 'この端末への反映は完了しましたが、クラウド同期は保留中です。同期状態から再試行してください。',
+      ),
+    );
+  }
+
+  NoteConflictResolutionOutcome _uploadOutcome() {
+    final transfer = ref.read(syncTransferControllerProvider);
+    if (transfer.stage != SyncTransferStage.error) {
+      return const NoteConflictResolutionOutcome.resolved();
+    }
+    final detail = _localizedSyncTransferMessage(
+      context.strings,
+      transfer.message ?? 'sync.error.conflict_review_remote',
+      ref.read(syncProviderControllerProvider),
+    );
+    return NoteConflictResolutionOutcome.pendingSync(
+      context.strings.localized(
+        en: 'The choice was saved on this device, but it could not be uploaded yet. $detail',
+        ja: 'この端末への反映は完了しましたが、クラウドへのアップロードは完了していません。$detail',
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final size = MediaQuery.sizeOf(context);
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+    final ready = _remoteChange != null && !_loadingRemote;
+    final useFullScreen =
+        size.height < 700 || size.width < 360 || textScale > 1.3;
+    final contentHeight = ready
+        ? math.min(620.0, math.max(400.0, size.height * 0.64))
+        : 220.0;
+    final title = strings.localized(
+      en: 'Resolve note conflict',
+      ja: 'メモの競合を解決',
+      zh: '解决笔记冲突',
+      ko: '메모 충돌 해결',
+      es: 'Resolver conflicto de nota',
+      de: 'Notizkonflikt losen',
+    );
+    final content = _loadingRemote
+        ? _buildRemoteLoading(context)
+        : _remoteChange == null
+        ? _buildRemoteFailure(context)
+        : _buildReadyContent(context, _remoteChange!);
+    final dialog = useFullScreen
+        ? Dialog.fullscreen(
+            child: Scaffold(
+              appBar: AppBar(
+                title: Text(title),
+                automaticallyImplyLeading: false,
+              ),
+              body: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: content,
+                ),
+              ),
+              bottomNavigationBar: _buildFullScreenActionBar(context),
+            ),
+          )
+        : AlertDialog(
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 24,
+            ),
+            title: Text(title),
+            content: SizedBox(
+              width: 680,
+              height: contentHeight,
+              child: content,
+            ),
+            actions: _buildActions(context),
+          );
+    return PopScope(
+      canPop: !_busy,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          dialog,
+          if (_resolving)
+            Positioned.fill(
+              child: _ConflictBusyOverlay(
+                key: NoteConflictResolverDialog.busyOverlayKey,
+                label: _resolvingLabel(strings),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFullScreenActionBar(BuildContext context) {
+    return Material(
+      elevation: 3,
+      color: Theme.of(context).colorScheme.surface,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 8,
+            runSpacing: 8,
+            children: _buildActions(context),
           ),
         ),
       ),
     );
-  } catch (error) {
-    if (!context.mounted) {
-      return;
-    }
-    messenger.showSnackBar(
-      SnackBar(showCloseIcon: true, content: Text('$error')),
+  }
+
+  Widget _buildRemoteLoading(BuildContext context) {
+    final strings = context.strings;
+    return Semantics(
+      liveRegion: true,
+      label: strings.localized(
+        en: 'Loading the latest remote version',
+        ja: 'リモートの最新版を読み込み中',
+      ),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 20),
+            Text(
+              strings.localized(
+                en: 'Loading the latest remote version...',
+                ja: 'リモートの最新版を読み込んでいます…',
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              strings.localized(
+                en: 'Keep this screen open until the comparison is ready.',
+                ja: '比較の準備ができるまで、この画面を開いたままにしてください。',
+              ),
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+            ),
+          ],
+        ),
+      ),
     );
+  }
+
+  Widget _buildRemoteFailure(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: colorScheme.errorContainer,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.error_outline, color: colorScheme.onErrorContainer),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Semantics(
+                liveRegion: true,
+                child: Text(
+                  _errorText ?? _resolutionFailureMessage(),
+                  style: TextStyle(color: colorScheme.onErrorContainer),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReadyContent(
+    BuildContext context,
+    PreparedSyncNote remoteChange,
+  ) {
+    final strings = context.strings;
+    final mergeWouldBeRelevant =
+        remoteChange.action != PendingNoteChangeAction.delete &&
+        widget.localNote.deletedAt == null &&
+        remoteChange.note.deletedAt == null;
+    final canMerge =
+        mergeWouldBeRelevant &&
+        _canSafelyMergeConflict(widget.localNote, remoteChange.note);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          strings.localized(
+            en: 'Compare the two versions, select one resolution method, then confirm.',
+            ja: '2つの版を比較し、解決方法を1つ選んでから確定してください。',
+          ),
+        ),
+        const SizedBox(height: 12),
+        SegmentedButton<_NoteConflictDisplayMode>(
+          key: NoteConflictResolverDialog.displayModeKey,
+          showSelectedIcon: false,
+          segments: [
+            ButtonSegment(
+              value: _NoteConflictDisplayMode.overview,
+              icon: const Icon(Icons.view_agenda_outlined),
+              label: Text(strings.localized(en: 'Overview', ja: '概要')),
+            ),
+            ButtonSegment(
+              value: _NoteConflictDisplayMode.details,
+              icon: const Icon(Icons.difference_outlined),
+              label: Text(
+                strings.localized(en: 'Detailed differences', ja: '詳細差分'),
+              ),
+            ),
+          ],
+          selected: {_displayMode},
+          onSelectionChanged: _resolving
+              ? null
+              : (selection) {
+                  setState(() => _displayMode = selection.first);
+                },
+        ),
+        const SizedBox(height: 12),
+        if (_errorText != null) ...[
+          _ConflictInlineError(message: _errorText!),
+          const SizedBox(height: 12),
+        ],
+        Expanded(
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_displayMode == _NoteConflictDisplayMode.overview)
+                  _ConflictOverview(
+                    localNote: widget.localNote,
+                    remoteChange: remoteChange,
+                  )
+                else
+                  _ConflictDetailedComparison(
+                    localNote: widget.localNote,
+                    remoteChange: remoteChange,
+                  ),
+                const SizedBox(height: 20),
+                Text(
+                  strings.localized(en: 'Choose how to resolve', ja: '解決方法を選択'),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                _ConflictResolutionChoice(
+                  key: NoteConflictResolverDialog.keepLocalOptionKey,
+                  selected:
+                      _selectedAction == NoteConflictResolutionAction.keepLocal,
+                  icon: widget.localNote.deletedAt == null
+                      ? Icons.phone_android_outlined
+                      : Icons.delete_outline,
+                  title: _resolutionTitle(
+                    strings,
+                    NoteConflictResolutionAction.keepLocal,
+                    remoteChange,
+                  ),
+                  subtitle: _resolutionSubtitle(
+                    strings,
+                    NoteConflictResolutionAction.keepLocal,
+                    remoteChange,
+                  ),
+                  onTap: () => setState(
+                    () => _selectedAction =
+                        NoteConflictResolutionAction.keepLocal,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _ConflictResolutionChoice(
+                  key: NoteConflictResolverDialog.useRemoteOptionKey,
+                  selected:
+                      _selectedAction == NoteConflictResolutionAction.useRemote,
+                  icon: remoteChange.action == PendingNoteChangeAction.delete
+                      ? Icons.delete_sweep_outlined
+                      : Icons.cloud_download_outlined,
+                  title: _resolutionTitle(
+                    strings,
+                    NoteConflictResolutionAction.useRemote,
+                    remoteChange,
+                  ),
+                  subtitle: _resolutionSubtitle(
+                    strings,
+                    NoteConflictResolutionAction.useRemote,
+                    remoteChange,
+                  ),
+                  onTap: () => setState(
+                    () => _selectedAction =
+                        NoteConflictResolutionAction.useRemote,
+                  ),
+                ),
+                if (canMerge) ...[
+                  const SizedBox(height: 8),
+                  _ConflictResolutionChoice(
+                    key: NoteConflictResolverDialog.mergeOptionKey,
+                    selected:
+                        _selectedAction == NoteConflictResolutionAction.merge,
+                    icon: Icons.call_merge_rounded,
+                    title: _resolutionTitle(
+                      strings,
+                      NoteConflictResolutionAction.merge,
+                      remoteChange,
+                    ),
+                    subtitle: _resolutionSubtitle(
+                      strings,
+                      NoteConflictResolutionAction.merge,
+                      remoteChange,
+                    ),
+                    onTap: () => setState(
+                      () =>
+                          _selectedAction = NoteConflictResolutionAction.merge,
+                    ),
+                  ),
+                ] else if (mergeWouldBeRelevant) ...[
+                  const SizedBox(height: 8),
+                  _ConflictMergeUnavailableNotice(),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildActions(BuildContext context) {
+    final strings = context.strings;
+    if (_loadingRemote) {
+      return [
+        TextButton(
+          key: NoteConflictResolverDialog.cancelButtonKey,
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(strings.cancel),
+        ),
+      ];
+    }
+    if (_remoteChange == null) {
+      return [
+        TextButton(
+          key: NoteConflictResolverDialog.cancelButtonKey,
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(strings.cancel),
+        ),
+        FilledButton.icon(
+          key: NoteConflictResolverDialog.retryButtonKey,
+          onPressed: _loadRemote,
+          icon: const Icon(Icons.refresh_rounded),
+          label: Text(strings.localized(en: 'Try again', ja: '再試行')),
+        ),
+      ];
+    }
+    return [
+      TextButton(
+        key: NoteConflictResolverDialog.cancelButtonKey,
+        onPressed: _resolving ? null : () => Navigator.of(context).pop(),
+        child: Text(strings.cancel),
+      ),
+      FilledButton.icon(
+        key: NoteConflictResolverDialog.resolveButtonKey,
+        onPressed: _selectedAction == null || _resolving
+            ? null
+            : _resolveSelected,
+        icon: _resolving
+            ? const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.check_rounded),
+        label: Text(strings.localized(en: 'Resolve this way', ja: 'この方法で解決')),
+      ),
+    ];
+  }
+
+  String _resolutionTitle(
+    AppStrings strings,
+    NoteConflictResolutionAction action,
+    PreparedSyncNote remoteChange,
+  ) {
+    final localDeleted = widget.localNote.deletedAt != null;
+    final remoteDeleted = remoteChange.action == PendingNoteChangeAction.delete;
+    return switch (action) {
+      NoteConflictResolutionAction.keepLocal =>
+        localDeleted
+            ? strings.localized(
+                en: 'Keep this device deletion',
+                ja: 'この端末の削除を採用',
+              )
+            : remoteDeleted
+            ? strings.localized(
+                en: 'Restore this device note',
+                ja: 'この端末のメモを復元',
+              )
+            : strings.localized(en: 'Use this device version', ja: 'この端末の版を採用'),
+      NoteConflictResolutionAction.useRemote =>
+        remoteDeleted
+            ? strings.localized(en: 'Use the remote deletion', ja: 'リモートの削除を採用')
+            : localDeleted
+            ? strings.localized(
+                en: 'Restore the remote version',
+                ja: 'リモート版を復元',
+              )
+            : strings.localized(en: 'Use the remote version', ja: 'リモート版を採用'),
+      NoteConflictResolutionAction.merge => strings.localized(
+        en: 'Keep both bodies',
+        ja: '両方の本文を残す',
+      ),
+    };
+  }
+
+  String _resolutionSubtitle(
+    AppStrings strings,
+    NoteConflictResolutionAction action,
+    PreparedSyncNote remoteChange,
+  ) {
+    final localDeleted = widget.localNote.deletedAt != null;
+    final remoteDeleted = remoteChange.action == PendingNoteChangeAction.delete;
+    return switch (action) {
+      NoteConflictResolutionAction.keepLocal =>
+        localDeleted
+            ? strings.localized(
+                en: 'Upload this device deletion and keep the note in Trash.',
+                ja: 'この端末の削除を同期し、メモはゴミ箱に残します。',
+              )
+            : remoteDeleted
+            ? strings.localized(
+                en: 'Upload this device content again and restore the note remotely.',
+                ja: 'この端末の内容を再アップロードし、リモート側でもメモを復元します。',
+              )
+            : strings.localized(
+                en: 'Keep this device content and upload it to the remote target.',
+                ja: 'この端末の内容を残して、リモートへアップロードします。',
+              ),
+      NoteConflictResolutionAction.useRemote =>
+        remoteDeleted
+            ? strings.localized(
+                en: 'Move the note to Trash. Its current content remains available there.',
+                ja: 'メモをゴミ箱へ移動します。現在の内容はゴミ箱内に保持されます。',
+              )
+            : localDeleted
+            ? strings.localized(
+                en: 'Replace the local deletion with the active remote version.',
+                ja: 'この端末の削除を取り消し、リモート版で復元します。',
+              )
+            : strings.localized(
+                en: 'Replace this device content with the remote version.',
+                ja: 'この端末の内容をリモート版で置き換えます。',
+              ),
+      NoteConflictResolutionAction.merge => strings.localized(
+        en: 'Keep the local title and tags, then combine both bodies and attachments.',
+        ja: 'ローカルのタイトルとタグを残し、両方の本文と添付をまとめます。',
+      ),
+    };
+  }
+
+  String _resolvingLabel(AppStrings strings) {
+    return switch (_selectedAction) {
+      NoteConflictResolutionAction.keepLocal => strings.localized(
+        en: 'Saving this device version and syncing...',
+        ja: 'この端末の版を保存して同期しています…',
+      ),
+      NoteConflictResolutionAction.useRemote => strings.localized(
+        en: 'Applying the remote result to this device...',
+        ja: 'リモートの結果をこの端末へ反映しています…',
+      ),
+      NoteConflictResolutionAction.merge => strings.localized(
+        en: 'Combining both versions and syncing...',
+        ja: '両方の版をまとめて同期しています…',
+      ),
+      null => strings.localized(
+        en: 'Resolving the conflict...',
+        ja: '競合を解決しています…',
+      ),
+    };
   }
 }
 
@@ -1757,14 +2341,1544 @@ Future<bool> _confirmLargeMobileConflictUploadIfNeeded(
   return await _showLargeMobileSyncConfirmDialog(context, warning) ?? false;
 }
 
-class _ConflictVersionSummary extends StatelessWidget {
-  const _ConflictVersionSummary({required this.label, required this.note});
+class _ConflictBusyOverlay extends StatelessWidget {
+  const _ConflictBusyOverlay({super.key, required this.label});
 
   final String label;
-  final NoteEntry note;
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Stack(
+      children: [
+        ModalBarrier(
+          dismissible: false,
+          color: colorScheme.scrim.withValues(alpha: 0.36),
+        ),
+        Center(
+          child: Semantics(
+            liveRegion: true,
+            label: label,
+            child: Card(
+              elevation: 6,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 20,
+                ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 300),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 16),
+                      Text(
+                        label,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        context.strings.localized(
+                          en: 'Controls are temporarily locked to prevent duplicate changes.',
+                          ja: '重複操作を防ぐため、完了まで操作をロックしています。',
+                        ),
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: _mutedTextColor(context),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ConflictInlineError extends StatelessWidget {
+  const _ConflictInlineError({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: colorScheme.errorContainer,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.error_outline, color: colorScheme.onErrorContainer),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(color: colorScheme.onErrorContainer),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConflictMergeUnavailableNotice extends StatelessWidget {
+  const _ConflictMergeUnavailableNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, color: colorScheme.onSurfaceVariant),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              context.strings.localized(
+                en: 'Automatic merge is unavailable for rich or structured memos because it could lose formatting or block attachments. Choose either complete version instead.',
+                ja: 'リッチメモやブロック構成を含むメモは、書式やブロック内の添付を失わないよう自動マージしません。どちらかの完全な版を選んでください。',
+              ),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConflictResolutionChoice extends StatelessWidget {
+  const _ConflictResolutionChoice({
+    super.key,
+    required this.selected,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final bool selected;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Semantics(
+      checked: selected,
+      inMutuallyExclusiveGroup: true,
+      label: '$title. $subtitle',
+      onTap: onTap,
+      child: ExcludeSemantics(
+        child: Material(
+          color: selected
+              ? colorScheme.secondaryContainer
+              : colorScheme.surfaceContainerLow,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(
+              color: selected
+                  ? colorScheme.secondary
+                  : colorScheme.outlineVariant,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    selected
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                    color: selected
+                        ? colorScheme.onSecondaryContainer
+                        : colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 10),
+                  Icon(icon, size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          subtitle,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: _mutedTextColor(context)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ConflictOverview extends StatelessWidget {
+  const _ConflictOverview({
+    required this.localNote,
+    required this.remoteChange,
+  });
+
+  final NoteEntry localNote;
+  final PreparedSyncNote remoteChange;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final remoteDeleted = remoteChange.action == PendingNoteChangeAction.delete;
+    final fields = _conflictFieldComparisons(context, localNote, remoteChange);
+    final chips = fields.map((field) => field.label).take(6).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          fields.isEmpty
+              ? strings.localized(
+                  en: 'No visible content differences were found.',
+                  ja: '表示できる内容の差分はありません。',
+                )
+              : strings.localized(
+                  en: '${fields.length} fields are different.',
+                  ja: '${fields.length} 項目に差分があります。',
+                ),
+          style: Theme.of(context).textTheme.labelLarge,
+        ),
+        if (chips.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final label in chips)
+                Chip(
+                  avatar: const Icon(Icons.difference_outlined, size: 16),
+                  label: Text(label),
+                  visualDensity: VisualDensity.compact,
+                ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 12),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final local = _ConflictVersionSummary(
+              label: strings.localized(en: 'This device', ja: 'この端末'),
+              note: localNote,
+              isDeleted: localNote.deletedAt != null,
+            );
+            final remote = _ConflictVersionSummary(
+              label: strings.localized(en: 'Remote', ja: 'リモート'),
+              note: remoteChange.note,
+              isDeleted: remoteDeleted,
+            );
+            if (constraints.maxWidth >= 560) {
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: local),
+                  const SizedBox(width: 12),
+                  Expanded(child: remote),
+                ],
+              );
+            }
+            return Column(
+              children: [local, const SizedBox(height: 12), remote],
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _ConflictFieldComparison {
+  const _ConflictFieldComparison({
+    required this.label,
+    required this.localValue,
+    required this.remoteValue,
+    this.lineDiff,
+  });
+
+  final String label;
+  final String localValue;
+  final String remoteValue;
+  final List<_ConflictDiffLine>? lineDiff;
+}
+
+enum _ConflictDiffKind {
+  common,
+  localOnly,
+  remoteOnly,
+  omitted,
+  truncated,
+  largeExcerpt,
+}
+
+class _ConflictDiffLine {
+  const _ConflictDiffLine(this.kind, this.text, {this.omittedCount = 0});
+
+  final _ConflictDiffKind kind;
+  final String text;
+  final int omittedCount;
+}
+
+class _ConflictLineDiffPanel extends StatelessWidget {
+  const _ConflictLineDiffPanel({required this.lines});
+
+  final List<_ConflictDiffLine> lines;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final colorScheme = Theme.of(context).colorScheme;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: colorScheme.outlineVariant),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          children: [
+            for (final line in lines)
+              Container(
+                width: double.infinity,
+                color: switch (line.kind) {
+                  _ConflictDiffKind.localOnly =>
+                    colorScheme.errorContainer.withValues(alpha: 0.42),
+                  _ConflictDiffKind.remoteOnly =>
+                    colorScheme.tertiaryContainer.withValues(alpha: 0.5),
+                  _ConflictDiffKind.omitted => colorScheme.surfaceContainerHigh,
+                  _ConflictDiffKind.truncated =>
+                    colorScheme.surfaceContainerHigh,
+                  _ConflictDiffKind.largeExcerpt =>
+                    colorScheme.surfaceContainerHigh,
+                  _ConflictDiffKind.common => colorScheme.surfaceContainerLow,
+                },
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 92,
+                      child: Text(
+                        switch (line.kind) {
+                          _ConflictDiffKind.localOnly => strings.localized(
+                            en: 'Device only',
+                            ja: '端末のみ',
+                          ),
+                          _ConflictDiffKind.remoteOnly => strings.localized(
+                            en: 'Remote only',
+                            ja: 'リモートのみ',
+                          ),
+                          _ConflictDiffKind.omitted => strings.localized(
+                            en: 'Unchanged',
+                            ja: '共通部分',
+                          ),
+                          _ConflictDiffKind.truncated => strings.localized(
+                            en: 'Omitted',
+                            ja: '省略',
+                          ),
+                          _ConflictDiffKind.largeExcerpt => strings.localized(
+                            en: 'Large memo',
+                            ja: '大きなメモ',
+                          ),
+                          _ConflictDiffKind.common => '=',
+                        },
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: switch (line.kind) {
+                            _ConflictDiffKind.localOnly =>
+                              colorScheme.onErrorContainer,
+                            _ConflictDiffKind.remoteOnly =>
+                              colorScheme.onTertiaryContainer,
+                            _ => colorScheme.onSurfaceVariant,
+                          },
+                          fontWeight: line.kind == _ConflictDiffKind.common
+                              ? FontWeight.w400
+                              : FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: switch (line.kind) {
+                        _ConflictDiffKind.omitted => Text(
+                          strings.localized(
+                            en: '${line.omittedCount} unchanged lines hidden',
+                            ja: '共通する ${line.omittedCount} 行を省略',
+                          ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                                fontStyle: FontStyle.italic,
+                              ),
+                        ),
+                        _ConflictDiffKind.truncated => Text(
+                          strings.localized(
+                            en: '${line.omittedCount} lines hidden; the beginning and end are shown',
+                            ja: '${line.omittedCount} 行を省略（先頭と末尾を表示）',
+                          ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                                fontStyle: FontStyle.italic,
+                              ),
+                        ),
+                        _ConflictDiffKind.largeExcerpt => Text(
+                          strings.localized(
+                            en: 'This memo is very large. Only bounded excerpts around the first and last changed positions are shown.',
+                            ja: '本文が非常に大きいため、最初と最後の変更位置周辺のみを表示しています。',
+                          ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                                fontStyle: FontStyle.italic,
+                              ),
+                        ),
+                        _ => SelectableText(
+                          line.text.isEmpty
+                              ? strings.localized(
+                                  en: '(Empty line)',
+                                  ja: '（空行）',
+                                )
+                              : line.text,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      },
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+List<_ConflictDiffLine> _buildConflictLineDiff(String local, String remote) {
+  final normalizedLocal = _normalizeConflictText(local);
+  final normalizedRemote = _normalizeConflictText(remote);
+  const maximumSplitCharacters = 32 * 1024;
+  if (normalizedLocal.length > maximumSplitCharacters ||
+      normalizedRemote.length > maximumSplitCharacters) {
+    return _buildLargeConflictTextDiff(normalizedLocal, normalizedRemote);
+  }
+  final localLines = normalizedLocal.split('\n');
+  final remoteLines = normalizedRemote.split('\n');
+  const maximumDirectLineCharacters = 2001;
+  if (localLines.any((line) => line.length > maximumDirectLineCharacters) ||
+      remoteLines.any((line) => line.length > maximumDirectLineCharacters)) {
+    return _buildLargeConflictTextDiff(normalizedLocal, normalizedRemote);
+  }
+  const exactLineLimit = 300;
+  const exactCellLimit = 90000;
+  final exact =
+      localLines.length <= exactLineLimit &&
+      remoteLines.length <= exactLineLimit &&
+      localLines.length * remoteLines.length <= exactCellLimit;
+  final raw = exact
+      ? _buildExactConflictLineDiff(localLines, remoteLines)
+      : _buildCoarseConflictLineDiff(localLines, remoteLines);
+  return _collapseCommonConflictLines(_limitConflictDiffLines(raw));
+}
+
+List<_ConflictDiffLine> _buildLargeConflictTextDiff(
+  String local,
+  String remote,
+) {
+  final sharedLength = math.min(local.length, remote.length);
+  var prefix = 0;
+  while (prefix < sharedLength &&
+      local.codeUnitAt(prefix) == remote.codeUnitAt(prefix)) {
+    prefix++;
+  }
+
+  var localEnd = local.length;
+  var remoteEnd = remote.length;
+  while (localEnd > prefix &&
+      remoteEnd > prefix &&
+      local.codeUnitAt(localEnd - 1) == remote.codeUnitAt(remoteEnd - 1)) {
+    localEnd--;
+    remoteEnd--;
+  }
+
+  final localRange = _largeConflictDisplayRange(local, prefix, localEnd);
+  final remoteRange = _largeConflictDisplayRange(remote, prefix, remoteEnd);
+  return [
+    const _ConflictDiffLine(_ConflictDiffKind.largeExcerpt, ''),
+    ..._buildChangedConflictTextSegment(
+      local,
+      start: localRange.$1,
+      end: localRange.$2,
+      kind: _ConflictDiffKind.localOnly,
+    ),
+    ..._buildChangedConflictTextSegment(
+      remote,
+      start: remoteRange.$1,
+      end: remoteRange.$2,
+      kind: _ConflictDiffKind.remoteOnly,
+    ),
+  ];
+}
+
+(int, int) _largeConflictDisplayRange(
+  String value,
+  int differenceStart,
+  int differenceEnd,
+) {
+  const contextCharacters = 900;
+  final lineStart = _conflictLineStart(value, differenceStart);
+  final lastDifferenceIndex = differenceEnd > differenceStart
+      ? differenceEnd - 1
+      : differenceEnd;
+  final lineEnd = _conflictLineEnd(value, lastDifferenceIndex);
+  return (
+    math.max(lineStart, differenceStart - contextCharacters),
+    math.min(lineEnd, differenceEnd + contextCharacters),
+  );
+}
+
+int _conflictLineStart(String value, int index) {
+  if (index <= 0) {
+    return 0;
+  }
+  return value.lastIndexOf('\n', math.min(index, value.length) - 1) + 1;
+}
+
+int _conflictLineEnd(String value, int index) {
+  if (index >= value.length) {
+    return value.length;
+  }
+  final newline = value.indexOf('\n', math.max(0, index));
+  return newline < 0 ? value.length : newline;
+}
+
+List<_ConflictDiffLine> _buildChangedConflictTextSegment(
+  String value, {
+  required int start,
+  required int end,
+  required _ConflictDiffKind kind,
+}) {
+  const retainedAtEachEnd = 139;
+  const characterBudgetAtEachEnd = 16 * 1024;
+  final first = <(int, int, int)>[];
+  final tail = ListQueue<(int, int, int)>();
+  var firstCharacters = 0;
+  var tailCharacters = 0;
+  var lineCount = 0;
+  var retainingFirst = true;
+
+  void retainLine(int lineStart, int lineEnd) {
+    lineCount++;
+    final displayLength = _boundedConflictDiffLineDisplayLength(
+      lineEnd - lineStart,
+    );
+    if (retainingFirst &&
+        first.length < retainedAtEachEnd &&
+        firstCharacters + displayLength <= characterBudgetAtEachEnd) {
+      first.add((lineStart, lineEnd, displayLength));
+      firstCharacters += displayLength;
+      return;
+    }
+    retainingFirst = false;
+    tail.addLast((lineStart, lineEnd, displayLength));
+    tailCharacters += displayLength;
+    while (tail.length > retainedAtEachEnd ||
+        tailCharacters > characterBudgetAtEachEnd) {
+      tailCharacters -= tail.removeFirst().$3;
+    }
+  }
+
+  var lineStart = start;
+  for (var index = start; index < end; index++) {
+    if (value.codeUnitAt(index) != 10) {
+      continue;
+    }
+    retainLine(lineStart, index);
+    lineStart = index + 1;
+  }
+  retainLine(lineStart, end);
+
+  _ConflictDiffLine line((int, int, int) range) => _ConflictDiffLine(
+    kind,
+    _boundedConflictDiffLineText(value, range.$1, range.$2),
+  );
+
+  final omittedCount = lineCount - first.length - tail.length;
+  if (omittedCount <= 0) {
+    return [...first.map(line), ...tail.map(line)];
+  }
+  return [
+    ...first.map(line),
+    _ConflictDiffLine(
+      _ConflictDiffKind.truncated,
+      '',
+      omittedCount: omittedCount,
+    ),
+    ...tail.map(line),
+  ];
+}
+
+int _boundedConflictDiffLineDisplayLength(int rawLength) {
+  const retainedCharacters = 1000;
+  const maximumCharacters = retainedCharacters * 2 + 1;
+  return rawLength <= maximumCharacters
+      ? rawLength
+      : retainedCharacters * 2 + 3;
+}
+
+String _boundedConflictDiffLineText(String value, int start, int end) {
+  const retainedCharacters = 1000;
+  const maximumCharacters = retainedCharacters * 2 + 1;
+  if (end - start <= maximumCharacters) {
+    return value.substring(start, end);
+  }
+  var headEnd = start + retainedCharacters;
+  if (_splitsSurrogatePair(value, headEnd)) {
+    headEnd--;
+  }
+  var tailStart = end - retainedCharacters;
+  if (_splitsSurrogatePair(value, tailStart)) {
+    tailStart++;
+  }
+  return '${value.substring(start, headEnd)}\n…\n'
+      '${value.substring(tailStart, end)}';
+}
+
+bool _splitsSurrogatePair(String value, int index) {
+  if (index <= 0 || index >= value.length) {
+    return false;
+  }
+  final before = value.codeUnitAt(index - 1);
+  final after = value.codeUnitAt(index);
+  return before >= 0xD800 &&
+      before <= 0xDBFF &&
+      after >= 0xDC00 &&
+      after <= 0xDFFF;
+}
+
+List<_ConflictDiffLine> _limitConflictDiffLines(List<_ConflictDiffLine> lines) {
+  const maximumVisibleLines = 600;
+  const retainedAtEachEnd = 280;
+  if (lines.length <= maximumVisibleLines) {
+    return lines;
+  }
+  return [
+    ...lines.take(retainedAtEachEnd),
+    _ConflictDiffLine(
+      _ConflictDiffKind.truncated,
+      '',
+      omittedCount: lines.length - retainedAtEachEnd * 2,
+    ),
+    ...lines.skip(lines.length - retainedAtEachEnd),
+  ];
+}
+
+List<_ConflictDiffLine> _buildExactConflictLineDiff(
+  List<String> local,
+  List<String> remote,
+) {
+  final lengths = List.generate(
+    local.length + 1,
+    (_) => List<int>.filled(remote.length + 1, 0),
+  );
+  for (var localIndex = local.length - 1; localIndex >= 0; localIndex--) {
+    for (var remoteIndex = remote.length - 1; remoteIndex >= 0; remoteIndex--) {
+      lengths[localIndex][remoteIndex] =
+          local[localIndex] == remote[remoteIndex]
+          ? lengths[localIndex + 1][remoteIndex + 1] + 1
+          : math.max(
+              lengths[localIndex + 1][remoteIndex],
+              lengths[localIndex][remoteIndex + 1],
+            );
+    }
+  }
+
+  final result = <_ConflictDiffLine>[];
+  var localIndex = 0;
+  var remoteIndex = 0;
+  while (localIndex < local.length && remoteIndex < remote.length) {
+    if (local[localIndex] == remote[remoteIndex]) {
+      result.add(
+        _boundedConflictTextDiffLine(
+          _ConflictDiffKind.common,
+          local[localIndex],
+        ),
+      );
+      localIndex++;
+      remoteIndex++;
+    } else if (lengths[localIndex + 1][remoteIndex] >=
+        lengths[localIndex][remoteIndex + 1]) {
+      result.add(
+        _boundedConflictTextDiffLine(
+          _ConflictDiffKind.localOnly,
+          local[localIndex],
+        ),
+      );
+      localIndex++;
+    } else {
+      result.add(
+        _boundedConflictTextDiffLine(
+          _ConflictDiffKind.remoteOnly,
+          remote[remoteIndex],
+        ),
+      );
+      remoteIndex++;
+    }
+  }
+  for (; localIndex < local.length; localIndex++) {
+    result.add(
+      _boundedConflictTextDiffLine(
+        _ConflictDiffKind.localOnly,
+        local[localIndex],
+      ),
+    );
+  }
+  for (; remoteIndex < remote.length; remoteIndex++) {
+    result.add(
+      _boundedConflictTextDiffLine(
+        _ConflictDiffKind.remoteOnly,
+        remote[remoteIndex],
+      ),
+    );
+  }
+  return result;
+}
+
+List<_ConflictDiffLine> _buildCoarseConflictLineDiff(
+  List<String> local,
+  List<String> remote,
+) {
+  var prefix = 0;
+  while (prefix < local.length &&
+      prefix < remote.length &&
+      local[prefix] == remote[prefix]) {
+    prefix++;
+  }
+  var suffix = 0;
+  while (suffix < local.length - prefix &&
+      suffix < remote.length - prefix &&
+      local[local.length - 1 - suffix] == remote[remote.length - 1 - suffix]) {
+    suffix++;
+  }
+
+  final localChangedCount = local.length - prefix - suffix;
+  final remoteChangedCount = remote.length - prefix - suffix;
+  return [
+    ..._buildCommonConflictContext(local, start: 0, count: prefix),
+    ..._buildChangedConflictSegment(
+      local,
+      start: prefix,
+      count: localChangedCount,
+      kind: _ConflictDiffKind.localOnly,
+    ),
+    ..._buildChangedConflictSegment(
+      remote,
+      start: prefix,
+      count: remoteChangedCount,
+      kind: _ConflictDiffKind.remoteOnly,
+    ),
+    ..._buildCommonConflictContext(
+      local,
+      start: local.length - suffix,
+      count: suffix,
+    ),
+  ];
+}
+
+List<_ConflictDiffLine> _buildCommonConflictContext(
+  List<String> lines, {
+  required int start,
+  required int count,
+}) {
+  if (count <= 6) {
+    return [
+      for (var offset = 0; offset < count; offset++)
+        _boundedConflictTextDiffLine(
+          _ConflictDiffKind.common,
+          lines[start + offset],
+        ),
+    ];
+  }
+  return [
+    _boundedConflictTextDiffLine(_ConflictDiffKind.common, lines[start]),
+    _boundedConflictTextDiffLine(_ConflictDiffKind.common, lines[start + 1]),
+    _ConflictDiffLine(_ConflictDiffKind.omitted, '', omittedCount: count - 4),
+    _boundedConflictTextDiffLine(
+      _ConflictDiffKind.common,
+      lines[start + count - 2],
+    ),
+    _boundedConflictTextDiffLine(
+      _ConflictDiffKind.common,
+      lines[start + count - 1],
+    ),
+  ];
+}
+
+List<_ConflictDiffLine> _buildChangedConflictSegment(
+  List<String> lines, {
+  required int start,
+  required int count,
+  required _ConflictDiffKind kind,
+}) {
+  const maximumLinesPerSide = 280;
+  const retainedAtEachEnd = 139;
+  const maximumCharactersPerSide = 32 * 1024;
+  const characterBudgetAtEachEnd = maximumCharactersPerSide ~/ 2;
+
+  int displayLengthAt(int offset) =>
+      _boundedConflictDiffLineDisplayLength(lines[start + offset].length);
+
+  var totalCharacters = 0;
+  if (count <= maximumLinesPerSide) {
+    for (var offset = 0; offset < count; offset++) {
+      totalCharacters += displayLengthAt(offset);
+      if (totalCharacters > maximumCharactersPerSide) {
+        break;
+      }
+    }
+  }
+  if (count <= maximumLinesPerSide &&
+      totalCharacters <= maximumCharactersPerSide) {
+    return [
+      for (var offset = 0; offset < count; offset++)
+        _boundedConflictTextDiffLine(kind, lines[start + offset]),
+    ];
+  }
+
+  var firstCount = 0;
+  var firstCharacters = 0;
+  while (firstCount < count && firstCount < retainedAtEachEnd) {
+    final displayLength = displayLengthAt(firstCount);
+    if (firstCharacters + displayLength > characterBudgetAtEachEnd) {
+      break;
+    }
+    firstCharacters += displayLength;
+    firstCount++;
+  }
+  var tailStart = count;
+  var tailCharacters = 0;
+  while (tailStart > firstCount && count - tailStart < retainedAtEachEnd) {
+    final displayLength = displayLengthAt(tailStart - 1);
+    if (tailCharacters + displayLength > characterBudgetAtEachEnd) {
+      break;
+    }
+    tailStart--;
+    tailCharacters += displayLength;
+  }
+  final omittedCount = count - firstCount - (count - tailStart);
+  return [
+    for (var offset = 0; offset < firstCount; offset++)
+      _boundedConflictTextDiffLine(kind, lines[start + offset]),
+    _ConflictDiffLine(
+      _ConflictDiffKind.truncated,
+      '',
+      omittedCount: omittedCount,
+    ),
+    for (var offset = tailStart; offset < count; offset++)
+      _boundedConflictTextDiffLine(kind, lines[start + offset]),
+  ];
+}
+
+_ConflictDiffLine _boundedConflictTextDiffLine(
+  _ConflictDiffKind kind,
+  String text,
+) =>
+    _ConflictDiffLine(kind, _boundedConflictDiffLineText(text, 0, text.length));
+
+List<_ConflictDiffLine> _collapseCommonConflictLines(
+  List<_ConflictDiffLine> lines,
+) {
+  final result = <_ConflictDiffLine>[];
+  var index = 0;
+  while (index < lines.length) {
+    if (lines[index].kind != _ConflictDiffKind.common) {
+      result.add(lines[index]);
+      index++;
+      continue;
+    }
+    final start = index;
+    while (index < lines.length &&
+        lines[index].kind == _ConflictDiffKind.common) {
+      index++;
+    }
+    final count = index - start;
+    if (count <= 6) {
+      result.addAll(lines.getRange(start, index));
+      continue;
+    }
+    result.addAll(lines.getRange(start, start + 2));
+    result.add(
+      _ConflictDiffLine(_ConflictDiffKind.omitted, '', omittedCount: count - 4),
+    );
+    result.addAll(lines.getRange(index - 2, index));
+  }
+  return result;
+}
+
+class _ConflictDetailedComparison extends StatelessWidget {
+  const _ConflictDetailedComparison({
+    required this.localNote,
+    required this.remoteChange,
+  });
+
+  final NoteEntry localNote;
+  final PreparedSyncNote remoteChange;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final remoteDeleted = remoteChange.action == PendingNoteChangeAction.delete;
+    final fields = _conflictFieldComparisons(context, localNote, remoteChange);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (remoteDeleted) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.tertiaryContainer,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.info_outline),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    strings.localized(
+                      en: 'The remote side contains a deletion record, not a readable body. Adopting it moves the current content to Trash instead of erasing it immediately.',
+                      ja: 'リモート側には本文ではなく削除記録があります。削除を採用しても現在の内容はすぐ消去せず、ゴミ箱へ移動します。',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        Text(
+          strings.localized(
+            en: 'Only fields with differences are shown. Text is selectable.',
+            ja: '差分がある項目だけを表示しています。本文は選択して確認できます。',
+          ),
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+        ),
+        const SizedBox(height: 10),
+        if (fields.isEmpty)
+          Text(
+            strings.localized(
+              en: 'No visible content differences were found.',
+              ja: '表示できる内容の差分はありません。',
+            ),
+          )
+        else
+          for (var index = 0; index < fields.length; index++) ...[
+            _ConflictFieldCard(field: fields[index]),
+            if (index != fields.length - 1) const SizedBox(height: 10),
+          ],
+      ],
+    );
+  }
+}
+
+class _ConflictFieldCard extends StatelessWidget {
+  const _ConflictFieldCard({required this.field});
+
+  final _ConflictFieldComparison field;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.difference_outlined,
+                size: 18,
+                color: colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  field.label,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              Text(
+                strings.localized(en: 'Different', ja: '差分あり'),
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: colorScheme.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (field.lineDiff case final lineDiff?)
+            _ConflictLineDiffPanel(lines: lineDiff)
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final local = _ConflictValuePanel(
+                  label: strings.localized(en: 'This device', ja: 'この端末'),
+                  value: field.localValue,
+                  local: true,
+                );
+                final remote = _ConflictValuePanel(
+                  label: strings.localized(en: 'Remote', ja: 'リモート'),
+                  value: field.remoteValue,
+                  local: false,
+                );
+                if (constraints.maxWidth >= 520) {
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: local),
+                      const SizedBox(width: 10),
+                      Expanded(child: remote),
+                    ],
+                  );
+                }
+                return Column(
+                  children: [local, const SizedBox(height: 8), remote],
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConflictValuePanel extends StatelessWidget {
+  const _ConflictValuePanel({
+    required this.label,
+    required this.value,
+    required this.local,
+  });
+
+  final String label;
+  final String value;
+  final bool local;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final text = SelectableText(
+      value,
+      style: Theme.of(context).textTheme.bodySmall,
+    );
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color:
+            (local
+                    ? colorScheme.secondaryContainer
+                    : colorScheme.tertiaryContainer)
+                .withValues(alpha: 0.42),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Semantics(
+            header: true,
+            child: Text(
+              label,
+              style: Theme.of(
+                context,
+              ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ),
+          const SizedBox(height: 6),
+          text,
+        ],
+      ),
+    );
+  }
+}
+
+List<_ConflictFieldComparison> _conflictFieldComparisons(
+  BuildContext context,
+  NoteEntry local,
+  PreparedSyncNote remoteChange,
+) {
+  final strings = context.strings;
+  final remote = remoteChange.note;
+  final remoteDeleted = remoteChange.action == PendingNoteChangeAction.delete;
+  final fields = <_ConflictFieldComparison>[];
+
+  void add(
+    String label,
+    String localValue,
+    String remoteValue, {
+    List<_ConflictDiffLine>? lineDiff,
+  }) {
+    fields.add(
+      _ConflictFieldComparison(
+        label: label,
+        localValue: localValue,
+        remoteValue: remoteValue,
+        lineDiff: lineDiff,
+      ),
+    );
+  }
+
+  if ((local.deletedAt != null) != remoteDeleted) {
+    add(
+      strings.localized(en: 'State', ja: '状態'),
+      _conflictNoteStateLabel(strings, local.deletedAt != null),
+      _conflictNoteStateLabel(strings, remoteDeleted),
+    );
+  }
+  if (!remoteDeleted) {
+    if (local.title != remote.title) {
+      add(
+        strings.localized(en: 'Title', ja: 'タイトル'),
+        _conflictEmptyLabel(strings, local.title),
+        _conflictEmptyLabel(strings, remote.title),
+      );
+    }
+    final normalizedLocalBody = _normalizeConflictText(local.body);
+    final normalizedRemoteBody = _normalizeConflictText(remote.body);
+    if (normalizedLocalBody != normalizedRemoteBody) {
+      add(
+        strings.localized(en: 'Body', ja: '本文'),
+        _conflictEmptyLabel(strings, local.body),
+        _conflictEmptyLabel(strings, remote.body),
+        lineDiff: _buildConflictLineDiff(
+          normalizedLocalBody,
+          normalizedRemoteBody,
+        ),
+      );
+    }
+    final localBlocks = local.blocks
+        .map(_conflictBlockSignature)
+        .toList(growable: false);
+    final remoteBlocks = remote.blocks
+        .map(_conflictBlockSignature)
+        .toList(growable: false);
+    if (!listEquals(localBlocks, remoteBlocks)) {
+      final localBlockLabel = _conflictBlocksLabel(strings, local.blocks);
+      final remoteBlockLabel = _conflictBlocksLabel(strings, remote.blocks);
+      add(
+        strings.localized(en: 'Structure and formatting', ja: '構成・書式'),
+        localBlockLabel,
+        remoteBlockLabel,
+        lineDiff: _buildConflictLineDiff(localBlockLabel, remoteBlockLabel),
+      );
+    }
+    final localTags = _normalizedConflictTags(local.tags);
+    final remoteTags = _normalizedConflictTags(remote.tags);
+    if (!setEquals(localTags, remoteTags)) {
+      add(
+        strings.localized(en: 'Tags', ja: 'タグ'),
+        _conflictTagsLabel(strings, local.tags),
+        _conflictTagsLabel(strings, remote.tags),
+      );
+    }
+    final localAttachments = local.attachments
+        .map(_conflictAttachmentSignature)
+        .toList(growable: false);
+    final remoteAttachments = remote.attachments
+        .map(_conflictAttachmentSignature)
+        .toList(growable: false);
+    if (!listEquals(localAttachments, remoteAttachments)) {
+      add(
+        strings.localized(en: 'Attachments', ja: '添付'),
+        _conflictAttachmentsLabel(strings, local.attachments),
+        _conflictAttachmentsLabel(strings, remote.attachments),
+      );
+    }
+    if (local.isPinned != remote.isPinned) {
+      add(
+        strings.localized(en: 'Pinned', ja: 'ピン留め'),
+        _conflictBooleanLabel(strings, local.isPinned),
+        _conflictBooleanLabel(strings, remote.isPinned),
+      );
+    }
+    if (!_sameConflictLocation(local.location, remote.location)) {
+      add(
+        strings.localized(en: 'Location', ja: '位置情報'),
+        _conflictLocationLabel(strings, local.location),
+        _conflictLocationLabel(strings, remote.location),
+      );
+    }
+    if (!_sameConflictDate(local.archivedAt, remote.archivedAt)) {
+      add(
+        strings.localized(en: 'Archive', ja: 'アーカイブ'),
+        _conflictOptionalDateLabel(strings, local.archivedAt),
+        _conflictOptionalDateLabel(strings, remote.archivedAt),
+      );
+    }
+    if (local.editorMode != remote.editorMode) {
+      add(
+        strings.localized(en: 'Memo format', ja: 'メモ形式'),
+        _conflictEditorModeLabel(strings, local.editorMode),
+        _conflictEditorModeLabel(strings, remote.editorMode),
+      );
+    }
+    if (!_sameConflictDate(local.createdAt, remote.createdAt)) {
+      add(
+        strings.localized(en: 'Created', ja: '作成日時'),
+        _formatConflictDateTime(local.createdAt),
+        _formatConflictDateTime(remote.createdAt),
+      );
+    }
+  }
+  final localUpdated = local.updatedAt ?? local.createdAt;
+  final remoteUpdated = remote.updatedAt ?? remote.createdAt;
+  if (!_sameConflictDate(localUpdated, remoteUpdated)) {
+    add(
+      strings.localized(en: 'Last changed', ja: '最終変更'),
+      _formatConflictDateTime(localUpdated),
+      _formatConflictDateTime(remoteUpdated),
+    );
+  }
+  if (local.revision != remote.revision) {
+    add(
+      strings.localized(en: 'Revision', ja: 'リビジョン'),
+      '${local.revision}',
+      '${remote.revision}',
+    );
+  }
+  return fields;
+}
+
+String _normalizeConflictText(String value) {
+  if (!value.contains('\r')) {
+    return value;
+  }
+  return value.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+}
+
+Set<String> _normalizedConflictTags(List<String> tags) => {
+  for (final tag in tags) canonicalizeNoteTag(tag),
+};
+
+bool _canSafelyMergeConflict(NoteEntry local, NoteEntry remote) {
+  return local.editorMode == NoteEditorMode.quick &&
+      remote.editorMode == NoteEditorMode.quick &&
+      local.blocks.isEmpty &&
+      remote.blocks.isEmpty;
+}
+
+String _conflictEmptyLabel(AppStrings strings, String value) {
+  return value.trim().isEmpty
+      ? strings.localized(en: '(Empty)', ja: '（空）')
+      : value;
+}
+
+String _conflictTagsLabel(AppStrings strings, List<String> tags) {
+  if (tags.isEmpty) {
+    return strings.localized(en: '(None)', ja: '（なし）');
+  }
+  final sorted = [...tags]..sort();
+  return sorted.map((tag) => '#$tag').join('  ');
+}
+
+String _conflictAttachmentsLabel(
+  AppStrings strings,
+  List<NoteAttachment> attachments,
+) {
+  if (attachments.isEmpty) {
+    return strings.localized(en: '(None)', ja: '（なし）');
+  }
+  return attachments
+      .map((attachment) {
+        return _conflictAttachmentDetailLabel(strings, attachment);
+      })
+      .join('\n');
+}
+
+typedef _ConflictAttachmentSignature = (
+  AttachmentType,
+  String,
+  String?,
+  int?,
+  int?,
+  String?,
+);
+
+_ConflictAttachmentSignature _conflictAttachmentSignature(
+  NoteAttachment attachment,
+) => (
+  attachment.type,
+  attachment.label,
+  attachment.syncAttachmentContentHash,
+  attachment.localPayloadSizeBytes,
+  attachment.durationMs,
+  attachment.syncAttachmentContentHash == null
+      ? attachment.previewBytesBase64
+      : null,
+);
+
+(NoteBlockType, String?, _ConflictAttachmentSignature?) _conflictBlockSignature(
+  NoteBlock block,
+) => (
+  block.type,
+  block.text,
+  block.attachment == null
+      ? null
+      : _conflictAttachmentSignature(block.attachment!),
+);
+
+String _conflictBlocksLabel(AppStrings strings, List<NoteBlock> blocks) {
+  if (blocks.isEmpty) {
+    return strings.localized(en: '(No blocks)', ja: '（ブロックなし）');
+  }
+  return [
+    for (var index = 0; index < blocks.length; index++)
+      _conflictBlockLabel(strings, blocks[index], index + 1),
+  ].join('\n');
+}
+
+String _conflictBlockLabel(AppStrings strings, NoteBlock block, int position) {
+  if (block.type == NoteBlockType.paragraph) {
+    return strings.localized(
+      en: '$position. Paragraph: ${_conflictEmptyLabel(strings, block.text ?? '')}',
+      ja: '$position. 段落: ${_conflictEmptyLabel(strings, block.text ?? '')}',
+    );
+  }
+  final attachment = block.attachment;
+  final type = switch (block.type) {
+    NoteBlockType.photo => strings.localized(en: 'Photo block', ja: '写真ブロック'),
+    NoteBlockType.video => strings.localized(en: 'Video block', ja: '動画ブロック'),
+    NoteBlockType.audio => strings.localized(en: 'Audio block', ja: '音声ブロック'),
+    NoteBlockType.file => strings.localized(en: 'File block', ja: 'ファイルブロック'),
+    NoteBlockType.paragraph => strings.localized(en: 'Paragraph', ja: '段落'),
+  };
+  return attachment == null
+      ? '$position. $type'
+      : '$position. $type: '
+            '${_conflictAttachmentDetailLabel(strings, attachment)}';
+}
+
+String _conflictAttachmentDetailLabel(
+  AppStrings strings,
+  NoteAttachment attachment,
+) {
+  final name = attachment.label.trim().isEmpty
+      ? strings.localized(en: '(Unnamed)', ja: '（名称なし）')
+      : attachment.label;
+  final details = <String>[];
+  final size = attachment.localPayloadSizeBytes;
+  if (size != null) {
+    details.add(
+      strings.localized(
+        en: 'size ${_conflictByteSizeLabel(size)}',
+        ja: 'サイズ ${_conflictByteSizeLabel(size)}',
+      ),
+    );
+  }
+  final duration = attachment.durationMs;
+  if (duration != null) {
+    details.add(
+      strings.localized(
+        en: 'duration ${_conflictDurationLabel(duration)}',
+        ja: '長さ ${_conflictDurationLabel(duration)}',
+      ),
+    );
+  }
+  final contentId = _conflictAttachmentContentId(attachment);
+  if (contentId != null) {
+    details.add(
+      strings.localized(en: 'content ID $contentId', ja: '内容ID $contentId'),
+    );
+  }
+  final detailSuffix = details.isEmpty ? '' : ' (${details.join(' / ')})';
+  return '${_conflictAttachmentTypeLabel(strings, attachment.type)}: '
+      '$name$detailSuffix';
+}
+
+String _conflictByteSizeLabel(int bytes) {
+  if (bytes < 1024) {
+    return '$bytes B';
+  }
+  if (bytes < 1024 * 1024) {
+    return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  }
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+}
+
+String _conflictDurationLabel(int durationMs) {
+  final totalSeconds = math.max(0, durationMs ~/ 1000);
+  final minutes = totalSeconds ~/ 60;
+  final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+  return '$minutes:$seconds';
+}
+
+String? _conflictAttachmentContentId(NoteAttachment attachment) {
+  final hash = attachment.syncAttachmentContentHash;
+  if (hash != null && hash.isNotEmpty) {
+    return hash.substring(0, math.min(8, hash.length));
+  }
+  final preview = attachment.previewBytesBase64;
+  if (preview == null || preview.isEmpty) {
+    return null;
+  }
+  return sha256.convert(utf8.encode(preview)).toString().substring(0, 8);
+}
+
+String _conflictAttachmentTypeLabel(AppStrings strings, AttachmentType type) =>
+    switch (type) {
+      AttachmentType.photo => strings.localized(en: 'Photo', ja: '写真'),
+      AttachmentType.video => strings.localized(en: 'Video', ja: '動画'),
+      AttachmentType.audio => strings.localized(en: 'Audio', ja: '音声'),
+      AttachmentType.file => strings.localized(en: 'File', ja: 'ファイル'),
+    };
+
+String _conflictBooleanLabel(AppStrings strings, bool value) => value
+    ? strings.localized(en: 'Yes', ja: 'あり')
+    : strings.localized(en: 'No', ja: 'なし');
+
+String _conflictNoteStateLabel(AppStrings strings, bool deleted) => deleted
+    ? strings.localized(en: 'In Trash', ja: 'ゴミ箱')
+    : strings.localized(en: 'Active note', ja: '通常のメモ');
+
+String _conflictOptionalDateLabel(AppStrings strings, DateTime? value) =>
+    value == null
+    ? strings.localized(en: 'Not archived', ja: '未アーカイブ')
+    : _formatConflictDateTime(value);
+
+String _conflictEditorModeLabel(AppStrings strings, NoteEditorMode mode) =>
+    switch (mode) {
+      NoteEditorMode.quick => strings.localized(en: 'Quick memo', ja: 'クイックメモ'),
+      NoteEditorMode.rich => strings.localized(en: 'Rich memo', ja: 'リッチメモ'),
+    };
+
+bool _sameConflictDate(DateTime? left, DateTime? right) {
+  if (left == null || right == null) {
+    return left == right;
+  }
+  return left.isAtSameMomentAs(right);
+}
+
+bool _sameConflictLocation(NoteLocation? left, NoteLocation? right) {
+  if (left == null || right == null) {
+    return left == right;
+  }
+  return left.latitude == right.latitude &&
+      left.longitude == right.longitude &&
+      left.accuracyMeters == right.accuracyMeters &&
+      left.address == right.address &&
+      _sameConflictDate(left.capturedAt, right.capturedAt);
+}
+
+String _conflictLocationLabel(AppStrings strings, NoteLocation? location) {
+  if (location == null) {
+    return strings.localized(en: '(None)', ja: '（なし）');
+  }
+  final coordinates = '${location.latitude}, ${location.longitude}';
+  final address = location.address?.trim();
+  final details = <String>[
+    if (address != null && address.isNotEmpty) address,
+    coordinates,
+    if (location.accuracyMeters != null)
+      strings.localized(
+        en: 'Accuracy: ${location.accuracyMeters} m',
+        ja: '精度: ${location.accuracyMeters} m',
+      ),
+    if (location.capturedAt != null)
+      strings.localized(
+        en: 'Captured: ${_formatConflictDateTime(location.capturedAt!)}',
+        ja: '取得日時: ${_formatConflictDateTime(location.capturedAt!)}',
+      ),
+  ];
+  return details.join('\n');
+}
+
+String _formatConflictDateTime(DateTime value) {
+  final local = value.toLocal();
+  String two(int part) => part.toString().padLeft(2, '0');
+  final fractional =
+      '${local.millisecond.toString().padLeft(3, '0')}'
+      '${(local.microsecond % 1000).toString().padLeft(3, '0')}';
+  return '${local.year}/${two(local.month)}/${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}:${two(local.second)}.$fractional';
+}
+
+class _ConflictVersionSummary extends StatelessWidget {
+  const _ConflictVersionSummary({
+    required this.label,
+    required this.note,
+    required this.isDeleted,
+  });
+
+  final String label;
+  final NoteEntry note;
+  final bool isDeleted;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final colorScheme = Theme.of(context).colorScheme;
     final changedAt = (note.updatedAt ?? note.createdAt).toLocal();
     final timeLabel =
         '${changedAt.year}/${changedAt.month}/${changedAt.day} '
@@ -1787,17 +3901,41 @@ class _ConflictVersionSummary extends StatelessWidget {
               context,
             ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
           ),
+          if (isDeleted) ...[
+            const SizedBox(height: 6),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: colorScheme.errorContainer,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                child: Text(
+                  strings.localized(en: 'Deleted', ja: '削除済み'),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: colorScheme.onErrorContainer,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           Text(
             note.title.trim().isEmpty
-                ? context.strings.localized(
-                    en: '(Untitled)',
-                    ja: '（無題）',
-                    zh: '（无标题）',
-                    ko: '(제목 없음)',
-                    es: '(Sin titulo)',
-                    de: '(Ohne Titel)',
-                  )
+                ? isDeleted
+                      ? strings.localized(
+                          en: 'Remote deletion record',
+                          ja: 'リモートの削除記録',
+                        )
+                      : strings.localized(
+                          en: '(Untitled)',
+                          ja: '（無題）',
+                          zh: '（无标题）',
+                          ko: '(제목 없음)',
+                          es: '(Sin titulo)',
+                          de: '(Ohne Titel)',
+                        )
                 : note.title,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
@@ -1805,14 +3943,24 @@ class _ConflictVersionSummary extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            body.isEmpty ? '-' : body,
+            body.isEmpty
+                ? isDeleted
+                      ? strings.localized(
+                          en: 'No remote body is included in a deletion record.',
+                          ja: '削除記録にはリモート本文が含まれません。',
+                        )
+                      : '-'
+                : body,
             maxLines: 4,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 8),
           Text(
-            'rev ${note.revision} / $timeLabel / ${note.attachments.length} attachments',
+            strings.localized(
+              en: 'Revision ${note.revision} / $timeLabel / ${note.attachments.length} attachments',
+              ja: 'リビジョン ${note.revision} / $timeLabel / 添付 ${note.attachments.length} 件',
+            ),
             style: Theme.of(
               context,
             ).textTheme.labelSmall?.copyWith(color: _mutedTextColor(context)),

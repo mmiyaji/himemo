@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:isolate';
 import 'dart:math' as math;
@@ -38,6 +39,7 @@ import '../../../app/diagnostic_log.dart';
 import '../../../app/audit_log.dart';
 import '../../../l10n/app_strings.dart';
 import '../../security/data/encrypted_attachment_store.dart';
+import '../../security/data/encrypted_note_database.dart';
 import '../../security/data/encryption_service.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/google_sign_in_initializer.dart';

@@ -1685,6 +1685,278 @@ void main() {
     },
   );
 
+  test(
+    'reviewed conflict upload aborts when the remote anchor changes',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-reviewed-conflict-anchor-',
+      );
+      final reviewedRemote = await transport.uploadBundle(
+        encodedPayload: 'reviewed-remote-payload',
+        deviceId: 'remote-device-a',
+        noteCount: 1,
+        attachmentCount: 0,
+      );
+      final sync = harness.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      await sync.downloadLatestBundle();
+      expect(
+        harness.container
+            .read(syncTransferControllerProvider)
+            .remoteStatus
+            ?.fileId,
+        reviewedRemote.fileId,
+      );
+
+      await harness.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'reviewed-conflict-note',
+              vaultId: 'everyday',
+              title: 'Keep this device version',
+              body: 'This pending change must not overwrite a later remote.',
+              createdAt: DateTime.utc(2026, 7, 18, 10),
+              updatedAt: DateTime.utc(2026, 7, 18, 10, 1),
+            ),
+          );
+      final newerRemote = await transport.uploadBundle(
+        encodedPayload: 'newer-remote-payload',
+        deviceId: 'remote-device-b',
+        noteCount: 1,
+        attachmentCount: 0,
+        bundleKind: SyncBundleKind.delta,
+      );
+
+      await sync.uploadCurrentBundle(
+        expectedRemoteFileId: reviewedRemote.fileId,
+      );
+
+      final transfer = harness.container.read(syncTransferControllerProvider);
+      expect(transfer.stage, SyncTransferStage.error);
+      expect(
+        transfer.message,
+        'sync.error.conflict_remote_changed_after_review',
+      );
+      expect(
+        (await transport.fetchLatestBundleStatus())?.fileId,
+        newerRemote.fileId,
+      );
+      expect(
+        harness.container
+            .read(notesControllerProvider)
+            .singleWhere((note) => note.id == 'reviewed-conflict-note')
+            .syncState,
+        NoteSyncState.pendingUpload,
+      );
+    },
+  );
+
+  test(
+    'conflict review walks delta history and publishes a delta resolution',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-conflict-history-walk-',
+      );
+      final bundleStore = harness.container.read(secureSyncBundleStoreProvider);
+
+      Future<RemoteSyncBundleStatus> uploadSnapshot(
+        PreparedSyncSnapshot snapshot, {
+        required String bundleKind,
+      }) async {
+        final stored = await bundleStore.writeBundle(
+          snapshot,
+          bundleKind: bundleKind,
+        );
+        final payload = await bundleStore.readEncryptedBundlePayload(
+          stored.reference,
+        );
+        return transport.uploadBundle(
+          encodedPayload: payload!,
+          deviceId: snapshot.deviceId,
+          noteCount: snapshot.notes.length,
+          attachmentCount: snapshot.attachments.length,
+          bundleKind: bundleKind,
+        );
+      }
+
+      PreparedSyncSnapshot snapshotFor(NoteEntry note, DateTime exportedAt) {
+        return PreparedSyncSnapshot(
+          deviceId: 'remote-device',
+          exportedAt: exportedAt,
+          summary: const SyncQueueSummary(
+            totalChanges: 1,
+            upserts: 1,
+            deletes: 0,
+          ),
+          notes: [
+            PreparedSyncNote(
+              action: PendingNoteChangeAction.upsert,
+              note: note,
+            ),
+          ],
+          attachments: const [],
+        );
+      }
+
+      final createdAt = DateTime.utc(2026, 7, 18, 8);
+      await uploadSnapshot(
+        snapshotFor(
+          NoteEntry(
+            id: 'history-conflict-note',
+            vaultId: 'everyday',
+            title: 'Remote v1',
+            body: 'Older remote body',
+            createdAt: createdAt,
+            updatedAt: createdAt,
+            revision: 2,
+            contentHash: 'remote-v1',
+            syncState: NoteSyncState.synced,
+          ),
+          createdAt,
+        ),
+        bundleKind: SyncBundleKind.full,
+      );
+      await uploadSnapshot(
+        snapshotFor(
+          NoteEntry(
+            id: 'history-conflict-note',
+            vaultId: 'everyday',
+            title: 'Remote v2',
+            body: 'Newest effective remote body',
+            createdAt: createdAt,
+            updatedAt: createdAt.add(const Duration(minutes: 10)),
+            revision: 7,
+            contentHash: 'remote-v2',
+            syncState: NoteSyncState.synced,
+          ),
+          createdAt.add(const Duration(minutes: 10)),
+        ),
+        bundleKind: SyncBundleKind.delta,
+      );
+      final latestUnrelated = await uploadSnapshot(
+        snapshotFor(
+          NoteEntry(
+            id: 'unrelated-note',
+            vaultId: 'everyday',
+            title: 'Unrelated latest delta',
+            body: 'The latest bundle does not include the conflict note.',
+            createdAt: createdAt,
+            updatedAt: createdAt.add(const Duration(minutes: 20)),
+            revision: 3,
+            contentHash: 'unrelated-v3',
+            syncState: NoteSyncState.synced,
+          ),
+          createdAt.add(const Duration(minutes: 20)),
+        ),
+        bundleKind: SyncBundleKind.delta,
+      );
+
+      final sync = harness.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      final reviewed = await sync.downloadLatestRemoteNoteForConflict(
+        'history-conflict-note',
+      );
+      expect(reviewed?.note.title, 'Remote v2');
+      expect(reviewed?.note.body, 'Newest effective remote body');
+      expect(reviewed?.note.revision, 7);
+      expect(
+        harness.container
+            .read(syncTransferControllerProvider)
+            .remoteStatus
+            ?.fileId,
+        latestUnrelated.fileId,
+      );
+
+      final notes = harness.container.read(notesControllerProvider.notifier);
+      await notes.upsert(
+        NoteEntry(
+          id: 'history-conflict-note',
+          vaultId: 'everyday',
+          title: 'Keep local',
+          body: 'Chosen local body',
+          createdAt: createdAt,
+          updatedAt: createdAt.add(const Duration(minutes: 30)),
+          revision: 4,
+          syncState: NoteSyncState.conflict,
+        ),
+      );
+      await notes.upsert(
+        NoteEntry(
+          id: 'unrelated-note',
+          vaultId: 'everyday',
+          title: 'Unrelated pending local edit',
+          body: 'This edit must stay pending during the other resolution.',
+          createdAt: createdAt,
+          updatedAt: createdAt.add(const Duration(minutes: 31)),
+          revision: 2,
+          syncState: NoteSyncState.pendingUpload,
+        ),
+      );
+      await notes.resolveConflictKeepingLocal(
+        'history-conflict-note',
+        remoteRevision: reviewed!.note.revision,
+      );
+      await sync.uploadCurrentBundle(
+        deltaOnly: true,
+        expectedRemoteFileId: latestUnrelated.fileId,
+        onlyPendingNoteIds: const {'history-conflict-note'},
+      );
+
+      final transfer = harness.container.read(syncTransferControllerProvider);
+      expect(transfer.stage, SyncTransferStage.success);
+      final resolutionStatus = await transport.fetchLatestBundleStatus();
+      expect(resolutionStatus?.bundleKind, SyncBundleKind.delta);
+      expect(resolutionStatus?.noteCount, 1);
+      final resolutionBundle = await transport.downloadLatestBundle();
+      final decodedResolution = await bundleStore.readRemoteBundlePayloadJson(
+        resolutionBundle!.encodedPayload,
+      );
+      final uploadedNoteIds = [
+        for (final rawEntry
+            in (decodedResolution['notes'] as List<dynamic>? ?? const []))
+          (Map<String, dynamic>.from(
+            (Map<String, dynamic>.from(rawEntry as Map))['note'] as Map,
+          ))['id'],
+      ];
+      expect(uploadedNoteIds, ['history-conflict-note']);
+      expect(
+        (await harness.container.read(syncBundleStateStoreProvider).read())
+            .lastAppliedRemoteFileId,
+        isNull,
+        reason:
+            'The next sync must still walk the unrelated remote delta before '
+            'the conflict-resolution delta.',
+      );
+      expect(
+        harness.container
+            .read(notesControllerProvider)
+            .singleWhere((note) => note.id == 'history-conflict-note')
+            .revision,
+        8,
+      );
+      expect(
+        harness.container
+            .read(notesControllerProvider)
+            .singleWhere((note) => note.id == 'unrelated-note')
+            .syncState,
+        NoteSyncState.pendingUpload,
+      );
+    },
+  );
+
   test('sync aborts when delta history cannot be verified', () async {
     SharedPreferences.setMockInitialValues({});
     final transport = _FailingHistoryTransport();

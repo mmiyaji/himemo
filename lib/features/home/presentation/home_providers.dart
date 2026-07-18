@@ -4227,6 +4227,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   Future<void> uploadCurrentBundle({
     bool force = false,
     bool fullSnapshot = false,
+    bool deltaOnly = false,
+    String? expectedRemoteFileId,
+    Set<String>? onlyPendingNoteIds,
     bool allowLargeMobileTransfer = false,
     bool silentLargeMobileSkip = false,
     bool pruneAfterUpload = true,
@@ -4235,7 +4238,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     final provider = ref.read(syncProviderControllerProvider);
     _diagnostic(
       'upload requested',
-      data: {'provider': provider.name, 'force': force},
+      data: {
+        'provider': provider.name,
+        'force': force,
+        'deltaOnly': deltaOnly,
+        'expectedRemoteFileId': expectedRemoteFileId,
+        'pendingNoteFilterCount': onlyPendingNoteIds?.length,
+      },
     );
     if (!_supportsRemoteTransport(provider)) {
       _diagnostic(
@@ -4261,7 +4270,31 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       remoteStatus: state.remoteStatus,
       bundleState: await ref.read(syncBundleStateProvider.future),
     );
-    if (assessment.hasConflict && !force) {
+    final reviewedRemoteStillSelected =
+        expectedRemoteFileId != null &&
+        state.remoteStatus?.fileId == expectedRemoteFileId;
+    if (expectedRemoteFileId != null && !reviewedRemoteStillSelected) {
+      _diagnostic(
+        'upload blocked because reviewed remote anchor changed',
+        data: {
+          'expectedRemoteFileId': expectedRemoteFileId,
+          'currentRemoteFileId': state.remoteStatus?.fileId,
+        },
+      );
+      state = state.copyWith(
+        stage: SyncTransferStage.error,
+        message: 'sync.error.conflict_remote_changed_after_review',
+      );
+      await _recordSyncHistory(
+        startedAt: historyStartedAt,
+        operation: 'upload',
+        success: false,
+        message: state.message,
+        queueBefore: queueBeforeUpload,
+      );
+      return;
+    }
+    if (assessment.hasConflict && !force && !reviewedRemoteStillSelected) {
       _diagnostic(
         'upload conflict detected',
         data: {'message': assessment.message},
@@ -4298,10 +4331,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       // _fullSnapshotUploadInterval delta uploads, or when explicitly
       // requested (force upload / re-upload / storage compaction).
       final uploadFullSnapshot =
-          fullSnapshot ||
-          bundleStateBeforeUpload.lastFullUploadedAt == null ||
-          bundleStateBeforeUpload.deltaUploadsSinceFull >=
-              _fullSnapshotUploadInterval;
+          !deltaOnly &&
+          (fullSnapshot ||
+              bundleStateBeforeUpload.lastFullUploadedAt == null ||
+              bundleStateBeforeUpload.deltaUploadsSinceFull >=
+                  _fullSnapshotUploadInterval);
       _diagnostic(
         'upload mode selected',
         data: {
@@ -4318,23 +4352,30 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       var pendingChanges = await ref
           .read(syncEngineProvider)
           .loadPendingChanges();
+      if (onlyPendingNoteIds != null) {
+        pendingChanges = pendingChanges
+            .where((change) => onlyPendingNoteIds.contains(change.noteId))
+            .toList(growable: false);
+      }
       if (pendingChanges.isEmpty) {
         final queuedAt = DateTime.now();
         pendingChanges = [
           for (final note in ref.read(notesControllerProvider))
             if (note.syncState == NoteSyncState.pendingUpload ||
                 note.syncState == NoteSyncState.pendingDelete)
-              PendingNoteChangeRecord(
-                noteId: note.id,
-                vaultId: note.vaultId,
-                revision: note.revision,
-                action: note.syncState == NoteSyncState.pendingDelete
-                    ? PendingNoteChangeAction.delete
-                    : PendingNoteChangeAction.upsert,
-                queuedAt: note.updatedAt ?? queuedAt,
-                contentHash: note.contentHash,
-                deletedAt: note.deletedAt,
-              ),
+              if (onlyPendingNoteIds == null ||
+                  onlyPendingNoteIds.contains(note.id))
+                PendingNoteChangeRecord(
+                  noteId: note.id,
+                  vaultId: note.vaultId,
+                  revision: note.revision,
+                  action: note.syncState == NoteSyncState.pendingDelete
+                      ? PendingNoteChangeAction.delete
+                      : PendingNoteChangeAction.upsert,
+                  queuedAt: note.updatedAt ?? queuedAt,
+                  contentHash: note.contentHash,
+                  deletedAt: note.deletedAt,
+                ),
         ];
       }
       final privateSyncPayload = await _preparePrivateSyncNotes(
@@ -4586,12 +4627,41 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           'sync_preupload_remote_recheck',
           _fetchLatestRemoteStatus,
         );
+        if (expectedRemoteFileId != null &&
+            freshRemoteStatus?.fileId != expectedRemoteFileId) {
+          if (freshRemoteStatus != null) {
+            _cacheRemoteStatus(provider, freshRemoteStatus);
+          }
+          _diagnostic(
+            'upload aborted because reviewed remote anchor changed',
+            data: {
+              'expectedRemoteFileId': expectedRemoteFileId,
+              'freshRemoteFileId': freshRemoteStatus?.fileId,
+            },
+          );
+          state = state.copyWith(
+            stage: SyncTransferStage.error,
+            message: 'sync.error.conflict_remote_changed_after_review',
+            remoteStatus: freshRemoteStatus ?? state.remoteStatus,
+          );
+          await _recordSyncHistory(
+            startedAt: historyStartedAt,
+            operation: 'upload',
+            success: false,
+            message: state.message,
+            queueBefore: queueBeforeUpload,
+            remoteStatus: freshRemoteStatus ?? state.remoteStatus,
+            localBundle: bundle,
+          );
+          return;
+        }
         if (freshRemoteStatus != null) {
           _cacheRemoteStatus(provider, freshRemoteStatus);
           final latestBundleState = await ref
               .read(syncBundleStateStoreProvider)
               .read();
-          if (_remoteBundleNeedsApply(freshRemoteStatus, latestBundleState)) {
+          if (expectedRemoteFileId == null &&
+              _remoteBundleNeedsApply(freshRemoteStatus, latestBundleState)) {
             _diagnostic(
               'upload aborted remote bundle changed during preparation',
               data: {
@@ -4679,6 +4749,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           .recordUpload(
             remoteStatus,
             fullSnapshot: uploadAdvertisesFullSnapshot,
+            advanceAppliedAnchor: expectedRemoteFileId == null,
           );
       ref.invalidate(syncBundleStateProvider);
       await _recordSyncHistory(
@@ -4731,6 +4802,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         await uploadCurrentBundle(
           force: force,
           fullSnapshot: fullSnapshot,
+          deltaOnly: deltaOnly,
+          expectedRemoteFileId: expectedRemoteFileId,
+          onlyPendingNoteIds: onlyPendingNoteIds,
           allowLargeMobileTransfer: allowLargeMobileTransfer,
           silentLargeMobileSkip: silentLargeMobileSkip,
           pruneAfterUpload: pruneAfterUpload,
@@ -6273,7 +6347,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  Future<NoteEntry?> downloadLatestRemoteNoteForConflict(String noteId) async {
+  Future<PreparedSyncNote?> downloadLatestRemoteNoteForConflict(
+    String noteId,
+  ) async {
     final provider = ref.read(syncProviderControllerProvider);
     if (!_supportsRemoteTransport(provider)) {
       state = const SyncTransferState(
@@ -6292,18 +6368,72 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remoteBundle,
         emptyMessage: 'sync.info.no_usable_remote_bundle',
       );
+      if (remoteBundle == null) {
+        return null;
+      }
       final localBundle = state.localBundle;
       if (localBundle == null) {
         return null;
       }
       final changes = await _readPreparedChangesFromBundle(
         localBundle.reference,
+        noteId: noteId,
       );
       for (final change in changes) {
-        if (change.note.id == noteId &&
-            change.action != PendingNoteChangeAction.delete) {
-          return change.note.copyWith(syncState: NoteSyncState.synced);
+        return PreparedSyncNote(
+          action: change.action,
+          note: change.note.copyWith(syncState: NoteSyncState.synced),
+        );
+      }
+
+      // The newest bundle can be a delta that changes another note. Walk
+      // history newest-first and use the first occurrence of this note; that
+      // is its effective remote version at the reviewed latest anchor.
+      if (remoteBundle.status.isFullBundle) {
+        return null;
+      }
+      final history = await runFirebaseTrace(
+        'sync_list_history_for_conflict',
+        () => _listRemoteHistory(limit: _remoteBundleWalkHistoryLimit),
+      );
+      final latestIndex = history.indexWhere(
+        (status) => status.fileId == remoteBundle.status.fileId,
+      );
+      if (latestIndex == -1) {
+        throw const SyncSafetyException('sync.error.remote_history_incomplete');
+      }
+      if (latestIndex > 0) {
+        throw const SyncSafetyException(
+          'sync.error.conflict_remote_changed_after_review',
+        );
+      }
+      var reachedFullSnapshot = false;
+      for (final status in history.skip(latestIndex + 1)) {
+        final historicalBundle = await runFirebaseTrace(
+          'sync_download_historical_bundle_for_conflict',
+          () => _downloadRemoteBundleById(status.fileId),
+        );
+        if (historicalBundle == null) {
+          throw const SyncSafetyException('sync.error.remote_bundle_missing');
         }
+        final historicalChanges = await _readPreparedChangesFromRemotePayload(
+          historicalBundle.encodedPayload,
+          noteId: noteId,
+        );
+        if (historicalChanges.isNotEmpty) {
+          final change = historicalChanges.first;
+          return PreparedSyncNote(
+            action: change.action,
+            note: change.note.copyWith(syncState: NoteSyncState.synced),
+          );
+        }
+        if (status.isFullBundle) {
+          reachedFullSnapshot = true;
+          break;
+        }
+      }
+      if (!reachedFullSnapshot) {
+        throw const SyncSafetyException('sync.error.remote_history_incomplete');
       }
       return null;
     } on HimemoDecryptionException {
@@ -6716,16 +6846,43 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   Future<List<PreparedSyncNote>> _readPreparedChangesFromBundle(
-    String reference,
-  ) async {
+    String reference, {
+    String? noteId,
+  }) async {
     final decoded = await ref
         .read(secureSyncBundleStoreProvider)
         .readBundleJson(reference);
     if (decoded == null) {
       throw StateError('sync.error.downloaded_bundle_decryption_failed');
     }
-    final rawNoteEntries =
+    return _readPreparedChangesFromDecodedBundle(decoded, noteId: noteId);
+  }
+
+  Future<List<PreparedSyncNote>> _readPreparedChangesFromRemotePayload(
+    String encodedPayload, {
+    required String noteId,
+  }) async {
+    final decoded = await ref
+        .read(secureSyncBundleStoreProvider)
+        .readRemoteBundlePayloadJson(encodedPayload);
+    return _readPreparedChangesFromDecodedBundle(decoded, noteId: noteId);
+  }
+
+  Future<List<PreparedSyncNote>> _readPreparedChangesFromDecodedBundle(
+    Map<String, dynamic> decoded, {
+    String? noteId,
+  }) async {
+    final allRawNoteEntries =
         decoded['notes'] as List<dynamic>? ?? const <dynamic>[];
+    final rawNoteEntries = noteId == null
+        ? allRawNoteEntries
+        : allRawNoteEntries
+              .where((rawEntry) {
+                final entry = Map<String, dynamic>.from(rawEntry as Map);
+                final rawNote = Map<String, dynamic>.from(entry['note'] as Map);
+                return rawNote['id'] == noteId;
+              })
+              .toList(growable: false);
     final lockedPrivateVaultIds = <String>{};
     for (final rawEntry in rawNoteEntries) {
       final entry = Map<String, dynamic>.from(rawEntry as Map);
@@ -12018,7 +12175,10 @@ class NotesController extends _$NotesController {
     );
   }
 
-  Future<void> resolveConflictKeepingLocal(String noteId) async {
+  Future<void> resolveConflictKeepingLocal(
+    String noteId, {
+    required int remoteRevision,
+  }) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     final next = [...state];
@@ -12027,7 +12187,15 @@ class NotesController extends _$NotesController {
       return;
     }
     final current = next[index];
-    final queued = current.copyWith(syncState: NoteSyncState.pendingUpload);
+    final now = DateTime.now();
+    final queued = current.copyWith(
+      updatedAt: now,
+      deletedAt: current.deletedAt == null ? null : now,
+      revision: math.max(current.revision, remoteRevision) + 1,
+      syncState: current.deletedAt == null
+          ? NoteSyncState.pendingUpload
+          : NoteSyncState.pendingDelete,
+    );
     final withHash = queued.copyWith(contentHash: _computeContentHash(queued));
     next[index] = withHash;
     _sort(next);
@@ -12060,14 +12228,53 @@ class NotesController extends _$NotesController {
     final retained = <String>{
       for (final note in next) ..._attachmentFilePathsIn(note),
     };
-    await _deleteAttachments(
-      removedAttachments
-          .where((attachment) {
-            final filePath = attachment.filePath;
-            return filePath != null && !retained.contains(filePath);
-          })
-          .toList(growable: false),
+    try {
+      await _deleteAttachments(
+        removedAttachments
+            .where((attachment) {
+              final filePath = attachment.filePath;
+              return filePath != null && !retained.contains(filePath);
+            })
+            .toList(growable: false),
+      );
+    } catch (error, stackTrace) {
+      // The remote choice is already durable. Cleanup failure must not make
+      // the stale comparison dialog retry a decision against changed data.
+      debugPrint(
+        'Remote conflict was resolved but old attachment cleanup failed: '
+        '$error\n$stackTrace',
+      );
+      unawaited(
+        recordNonFatalError(
+          error,
+          stackTrace,
+          reason: 'conflict_remote_attachment_cleanup_failed',
+        ),
+      );
+    }
+  }
+
+  Future<void> resolveConflictUsingRemoteDelete(NoteEntry remoteNote) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final next = [...state];
+    final index = next.indexWhere((note) => note.id == remoteNote.id);
+    final changedAt = remoteNote.deletedAt ?? remoteNote.updatedAt;
+    final deletion = remoteNote.copyWith(
+      deletedAt: changedAt ?? DateTime.now(),
+      syncState: NoteSyncState.synced,
     );
+    final applied = index == -1
+        ? deletion
+        : _mergeRemoteDeleteIntoCurrent(next[index], deletion);
+    if (index == -1) {
+      next.add(applied);
+    } else {
+      next[index] = applied;
+    }
+    _sort(next);
+    state = next;
+    await _persistChanged([applied]);
   }
 
   Future<void> resolveConflictByMerging(NoteEntry remoteNote) async {

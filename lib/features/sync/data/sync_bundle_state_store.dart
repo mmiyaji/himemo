@@ -138,6 +138,7 @@ class SyncBundleStateStore {
   Future<void> recordUpload(
     RemoteSyncBundleStatus remoteStatus, {
     bool fullSnapshot = true,
+    bool advanceAppliedAnchor = true,
   }) async {
     final current = await read();
     final now = DateTime.now().toUtc();
@@ -147,10 +148,16 @@ class SyncBundleStateStore {
         lastRemoteModifiedAt: remoteStatus.modifiedAt?.toUtc(),
         lastRemoteDeviceId: remoteStatus.deviceId,
         lastUploadedAt: now,
-        // A bundle this device uploaded is by definition contained in the
-        // local notes, so it also advances the applied anchor.
-        lastAppliedRemoteFileId: remoteStatus.fileId,
-        lastAppliedRemoteModifiedAt: remoteStatus.modifiedAt?.toUtc(),
+        // Regular uploads are based on an already-applied remote anchor. A
+        // conflict-resolution delta can intentionally be appended without
+        // applying unrelated remote changes first, so it must preserve the
+        // previous apply anchor for the next history walk.
+        lastAppliedRemoteFileId: advanceAppliedAnchor
+            ? remoteStatus.fileId
+            : current.lastAppliedRemoteFileId,
+        lastAppliedRemoteModifiedAt: advanceAppliedAnchor
+            ? remoteStatus.modifiedAt?.toUtc()
+            : current.lastAppliedRemoteModifiedAt,
         lastFullUploadedAt: fullSnapshot ? now : current.lastFullUploadedAt,
         deltaUploadsSinceFull: fullSnapshot
             ? 0

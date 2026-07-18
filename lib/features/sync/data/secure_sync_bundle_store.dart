@@ -210,6 +210,15 @@ class SecureSyncBundleStore {
     return _decryptBundleJson(payload);
   }
 
+  /// Decrypts a downloaded bundle payload without first writing it to the
+  /// local "latest bundle" slot. Conflict review uses this to inspect older
+  /// delta records while keeping the actual latest bundle selected.
+  Future<Map<String, dynamic>> readRemoteBundlePayloadJson(
+    String encodedPayload,
+  ) {
+    return _decryptBundleJson(encodedPayload);
+  }
+
   Future<Map<String, dynamic>> _decryptBundleJson(String payload) async {
     final syncKey = await _syncBundleKeyService.requireExisting();
     try {
