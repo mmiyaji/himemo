@@ -638,7 +638,7 @@ void main() {
         SharedPreferences.setMockInitialValues({
           'notes.list_density': NotesListDensity.compact.name,
           'notes.attachment_preview_fit': AttachmentPreviewFit.icon.name,
-          'notes.list_sort_field': NotesListSortField.createdAt.name,
+          'notes.list_sort_field': NotesListSortField.updatedAt.name,
         });
         final container = ProviderContainer();
         addTearDown(container.dispose);
@@ -653,7 +653,7 @@ void main() {
         );
         expect(
           container.read(notesListSortControllerProvider),
-          NotesListSortField.updatedAt,
+          NotesListSortField.createdAt,
         );
         await pumpEventQueue();
         expect(
@@ -666,7 +666,7 @@ void main() {
         );
         expect(
           container.read(notesListSortControllerProvider),
-          NotesListSortField.createdAt,
+          NotesListSortField.updatedAt,
         );
 
         await container
@@ -677,7 +677,7 @@ void main() {
             .setFit(AttachmentPreviewFit.preview);
         await container
             .read(notesListSortControllerProvider.notifier)
-            .setSortField(NotesListSortField.updatedAt);
+            .setSortField(NotesListSortField.createdAt);
         final prefs = await SharedPreferences.getInstance();
         expect(
           prefs.getString('notes.list_density'),
@@ -689,7 +689,7 @@ void main() {
         );
         expect(
           prefs.getString('notes.list_sort_field'),
-          NotesListSortField.updatedAt.name,
+          NotesListSortField.createdAt.name,
         );
       },
     );
@@ -718,7 +718,7 @@ void main() {
       );
       expect(
         container.read(notesListSortControllerProvider),
-        NotesListSortField.updatedAt,
+        NotesListSortField.createdAt,
       );
     });
   });

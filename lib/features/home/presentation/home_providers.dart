@@ -10792,6 +10792,8 @@ class AutoTagRulesController extends Notifier<List<AutoTagRule>> {
     return const <AutoTagRule>[];
   }
 
+  Future<void> get restoreCompleted => _restoreTask ?? Future<void>.value();
+
   Future<void> addRule({
     required String tag,
     required Iterable<String> keywords,
@@ -11099,6 +11101,7 @@ class VideoPlaybackMutedByDefaultController extends Notifier<bool> {
 @Riverpod(keepAlive: true)
 class NotesListSortController extends _$NotesListSortController {
   static const _storageKey = 'notes.list_sort_field';
+  static const _defaultSortField = NotesListSortField.createdAt;
   bool _restored = false;
 
   @override
@@ -11107,7 +11110,7 @@ class NotesListSortController extends _$NotesListSortController {
       _restored = true;
       unawaited(_restore());
     }
-    return NotesListSortField.updatedAt;
+    return _defaultSortField;
   }
 
   Future<void> setSortField(NotesListSortField field) async {
@@ -11124,7 +11127,7 @@ class NotesListSortController extends _$NotesListSortController {
     }
     state = NotesListSortField.values.firstWhere(
       (field) => field.name == stored,
-      orElse: () => NotesListSortField.updatedAt,
+      orElse: () => _defaultSortField,
     );
   }
 }
@@ -11290,6 +11293,7 @@ class NotesController extends _$NotesController {
   Future<int> applyAutoTagRulesToExisting({Iterable<String>? vaultIds}) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
+    await ref.read(autoTagRulesControllerProvider.notifier).restoreCompleted;
     final rules = ref.read(autoTagRulesControllerProvider);
     if (rules.where((rule) => rule.enabled).isEmpty) {
       return 0;
@@ -13020,6 +13024,7 @@ class NotesController extends _$NotesController {
     NoteEntry note, {
     NoteEntry? previous,
   }) async {
+    await ref.read(autoTagRulesControllerProvider.notifier).restoreCompleted;
     final autoTagged = applyAutoTagRules(
       note,
       ref.read(autoTagRulesControllerProvider),

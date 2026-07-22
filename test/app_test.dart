@@ -4773,6 +4773,59 @@ void main() {
     expect(saved.syncState, NoteSyncState.pendingUpload);
   });
 
+  test('first note save waits for persisted auto tag rules', () async {
+    final persistedRule = AutoTagRule(
+      id: 'persisted-rule',
+      tag: 'Finance',
+      keywords: const ['receipt'],
+    );
+    SharedPreferences.setMockInitialValues({
+      'settings.auto_tag_rules.v1': [jsonEncode(persistedRule.toJson())],
+    });
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(77));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
+
+    final controller = container.read(notesControllerProvider.notifier);
+    await controller.restoreCompleted;
+    await controller.upsert(
+      NoteEntry(
+        id: 'first-auto-tag-save',
+        vaultId: 'everyday',
+        title: 'Receipt from startup',
+        body: 'Saved immediately after launch',
+        createdAt: DateTime.utc(2026, 5, 21),
+      ),
+    );
+
+    final saved = container
+        .read(notesControllerProvider)
+        .singleWhere((note) => note.id == 'first-auto-tag-save');
+    expect(saved.tags, ['Finance']);
+  });
+
   test('native tag suggestions strip markdown JSON wrappers', () {
     final suggestions = sanitizeSuggestedTags(
       const ['```json\n["買い物", "旅行", "json", "```"]\n```', 'tags: 家族, 買い物'],
@@ -5133,8 +5186,8 @@ void main() {
       container.read(searchFiltersControllerProvider.notifier).reset();
       container.read(searchQueryProvider.notifier).setQuery('');
       expect(container.read(visibleNotesProvider).map((note) => note.id), [
-        'archive-old',
         'archive-current',
+        'archive-old',
       ]);
     },
   );
