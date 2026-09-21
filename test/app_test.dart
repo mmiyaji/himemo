@@ -2384,7 +2384,7 @@ void main() {
       container.read(privateMemoProfilesProvider).single.name,
       'Client archive',
     );
-    container.read(adminModeSessionControllerProvider.notifier).unlock();
+    await container.read(adminModeSessionControllerProvider.notifier).unlock();
     container
         .read(searchFiltersControllerProvider.notifier)
         .setVault(container.read(privateMemoProfilesProvider).single.vaultId);
@@ -2458,7 +2458,9 @@ void main() {
       expect(container.read(privateMemoProfilesProvider), hasLength(1));
       expect(await database.loadAll(), hasLength(1));
 
-      container.read(adminModeSessionControllerProvider.notifier).unlock();
+      await container
+          .read(adminModeSessionControllerProvider.notifier)
+          .unlock();
       final deleted = await container
           .read(privateMemoProfilesControllerProvider.notifier)
           .deleteProfile(profile.id);
@@ -2986,8 +2988,9 @@ void main() {
       );
       expect(
         isSyncAttachmentObjectRef(syncedSourceAttachment.filePath),
-        isTrue,
+        isFalse,
       );
+      expect(syncedSourceAttachment.filePath, storedPath);
       final syncedAttachmentHash =
           syncedSourceAttachment.syncAttachmentContentHash ??
           syncAttachmentObjectContentHash(syncedSourceAttachment.filePath);
@@ -4320,6 +4323,9 @@ void main() {
     addTearDown(database.close);
 
     configureFlavor(AppFlavor.development);
+    await tester.runAsync(
+      () => container.read(notesControllerProvider.notifier).restoreCompleted,
+    );
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
@@ -4340,7 +4346,10 @@ void main() {
 
     expect(find.text('Audit logs'), findsNothing);
 
-    container.read(adminModeSessionControllerProvider.notifier).unlock();
+    await tester.runAsync(
+      () =>
+          container.read(adminModeSessionControllerProvider.notifier).unlock(),
+    );
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.text('Audit logs'), 300);
 

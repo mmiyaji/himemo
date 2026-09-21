@@ -3848,12 +3848,12 @@ class AppStrings {
     de: 'Private Profile',
   );
   String get privateProfilesSettingsAdminSummary => localized(
-    en: 'Admin mode can focus a profile or rename it without changing its password.',
-    ja: '管理者モードでも、プロファイル名や保存先IDは設定画面に表示しません。',
-    zh: '即使在管理员模式下，设置中也不会显示档案名称和保险库 ID。',
-    ko: '관리자 모드에서도 설정 화면에는 프로필 이름과 보관함 ID를 표시하지 않습니다.',
-    es: 'Los nombres de perfiles y los ID de bóveda permanecen ocultos en Ajustes, incluso en modo administrador.',
-    de: 'Profilnamen und Tresor-IDs bleiben in den Einstellungen verborgen, auch im Administratormodus.',
+    en: 'Admin mode lists every profile and opens its notes and attachments. Profiles used on this device for the first time may need their password once.',
+    ja: '管理者モードでは全プロファイルを一覧表示し、メモと添付を開けます。この端末で初めて開くプロファイルは、一度パスワードの入力が必要な場合があります。',
+    zh: '管理员模式可列出所有档案并打开笔记和附件。在此设备上首次打开的档案可能需要输入一次密码。',
+    ko: '관리자 모드에서는 모든 프로필과 메모 및 첨부 파일을 열 수 있습니다. 이 기기에서 처음 여는 프로필은 비밀번호를 한 번 입력해야 할 수 있습니다.',
+    es: 'El modo administrador muestra todos los perfiles y permite abrir sus notas y adjuntos. Un perfil nuevo en este dispositivo puede requerir su contraseña una vez.',
+    de: 'Im Administratormodus werden alle Profile mit Notizen und Anhängen zugänglich. Beim ersten Öffnen auf diesem Gerät kann einmalig das Profilpasswort erforderlich sein.',
   );
   String privateProfilesSettingsActiveSummary(String _) => localized(
     en: 'A verified private profile is currently open.',
@@ -3873,11 +3873,11 @@ class AppStrings {
   );
   String get privateProfilesSettingsBody => localized(
     en: 'Enter a password from the key icon in the top bar to open only the matching profile. Admin mode lists profiles so you can focus or rename one when maintenance is needed. When a profile is open, Appearance can set its accent color separately from normal mode.',
-    ja: '右上の鍵アイコンからパスワードを入力すると、一致するプロファイルだけを開けます。設定画面では登録済みプロファイルの名前や保存先IDを列挙しません。プロファイルを開いている間は、「表示」から通常モードとは別のアクセントカラーを設定できます。',
-    zh: '从顶部栏的钥匙图标输入密码后，只会打开匹配的档案。设置中不会列出已配置档案的名称或保险库 ID。打开档案时，可在“外观”中为该档案设置不同于普通模式的强调色。',
-    ko: '상단의 열쇠 아이콘에서 비밀번호를 입력하면 일치하는 프로필만 열립니다. 설정 화면에는 구성된 프로필 이름이나 보관함 ID를 나열하지 않습니다. 프로필이 열려 있을 때는 표시 설정에서 일반 모드와 다른 강조 색상을 따로 설정할 수 있습니다.',
-    es: 'Introduce una contraseña desde el icono de llave de la barra superior para abrir solo el perfil que coincida. Ajustes no enumera nombres de perfiles ni ID de bóveda configurados. Cuando un perfil está abierto, Apariencia puede definir su color de acento por separado del modo normal.',
-    de: 'Gib über das Schlüsselsymbol in der oberen Leiste ein Passwort ein, um nur das passende Profil zu öffnen. Die Einstellungen listen keine eingerichteten Profilnamen oder Tresor-IDs auf. Wenn ein Profil geöffnet ist, kann Darstellung seine Akzentfarbe getrennt vom normalen Modus festlegen.',
+    ja: '右上の鍵アイコンからパスワードを入力すると、一致するプロファイルだけを開けます。管理者モードでは全プロファイルを一覧表示し、切り替えや名前の変更ができます。プロファイルを開いている間は、「表示」から通常モードとは別のアクセントカラーを設定できます。',
+    zh: '从顶部栏的钥匙图标输入密码后，只会打开匹配的档案。管理员模式会列出所有档案，可切换或重命名。打开档案时，可在“外观”中设置单独的强调色。',
+    ko: '상단 열쇠 아이콘에서 비밀번호를 입력하면 일치하는 프로필만 열립니다. 관리자 모드에서는 모든 프로필을 표시하고 전환하거나 이름을 변경할 수 있습니다. 열린 프로필의 강조 색상은 표시 설정에서 따로 지정할 수 있습니다.',
+    es: 'Introduce una contraseña desde el icono de llave para abrir solo el perfil correspondiente. El modo administrador muestra todos los perfiles para abrirlos o cambiar su nombre. Apariencia permite configurar un color de acento para el perfil abierto.',
+    de: 'Über das Schlüsselsymbol öffnet ein Passwort nur das passende Profil. Im Administratormodus werden alle Profile zum Öffnen oder Umbenennen angezeigt. Unter Darstellung lässt sich eine eigene Akzentfarbe für das geöffnete Profil festlegen.',
   );
   String get addPrivateProfile => localized(
     en: 'Add profile',

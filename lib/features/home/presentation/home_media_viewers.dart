@@ -7,10 +7,34 @@ Future<void> _openAttachmentViewer(
   List<NoteAttachment> photoAttachments = const [],
   int? initialPhotoIndex,
 }) async {
+  final requestedAttachment = attachment;
+  final downloadedAttachment = await _downloadRemoteAttachmentWithPrompt(
+    context,
+    ref,
+    attachment,
+  );
+  if (downloadedAttachment == null || !context.mounted) {
+    return;
+  }
+  attachment = downloadedAttachment;
   if (attachment.type == AttachmentType.photo) {
     final attachments = photoAttachments.isEmpty
         ? [attachment]
-        : photoAttachments;
+        : photoAttachments
+              .map(
+                (item) =>
+                    item.filePath == requestedAttachment.filePath ||
+                        item.filePath == attachment.filePath ||
+                        (item.syncAttachmentContentHash != null &&
+                            (item.syncAttachmentContentHash ==
+                                    requestedAttachment
+                                        .syncAttachmentContentHash ||
+                                item.syncAttachmentContentHash ==
+                                    attachment.syncAttachmentContentHash))
+                    ? attachment
+                    : item,
+              )
+              .toList(growable: false);
     final fallbackIndex = attachments.indexOf(attachment);
     final resolvedIndex =
         initialPhotoIndex != null &&
@@ -835,12 +859,14 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
   bool _backgroundPanStartedOnImage = false;
   Offset? _lastLightboxTapDownPosition;
   late int _selectedIndex;
+  late List<NoteAttachment> _attachments;
 
-  NoteAttachment get _attachment => widget.attachments[_selectedIndex];
+  NoteAttachment get _attachment => _attachments[_selectedIndex];
 
   @override
   void initState() {
     super.initState();
+    _attachments = List<NoteAttachment>.of(widget.attachments);
     _selectedIndex = widget.initialIndex;
   }
 
@@ -889,8 +915,7 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                       attachment: _attachment,
                       edgeToEdge: _edgeToEdge,
                       canMovePrevious: _selectedIndex > 0,
-                      canMoveNext:
-                          _selectedIndex < widget.attachments.length - 1,
+                      canMoveNext: _selectedIndex < _attachments.length - 1,
                       onClose: () => Navigator.of(context).pop(),
                       onZoomOut: null,
                       onZoomIn: null,
@@ -936,8 +961,7 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                           attachment: _attachment,
                           edgeToEdge: _edgeToEdge,
                           canMovePrevious: _selectedIndex > 0,
-                          canMoveNext:
-                              _selectedIndex < widget.attachments.length - 1,
+                          canMoveNext: _selectedIndex < _attachments.length - 1,
                           onClose: () => Navigator.of(context).pop(),
                           onZoomOut: null,
                           onZoomIn: null,
@@ -1112,7 +1136,7 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                               ),
                             ),
                           ),
-                        if (_selectedIndex < widget.attachments.length - 1)
+                        if (_selectedIndex < _attachments.length - 1)
                           Positioned(
                             right: 16,
                             top: 0,
@@ -1138,7 +1162,7 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                             edgeToEdge: _edgeToEdge,
                             canMovePrevious: _selectedIndex > 0,
                             canMoveNext:
-                                _selectedIndex < widget.attachments.length - 1,
+                                _selectedIndex < _attachments.length - 1,
                             onClose: () => Navigator.of(context).pop(),
                             onZoomOut: () => _zoomOut(maxScale),
                             onZoomIn: () => _zoomIn(maxScale),
@@ -1227,21 +1251,25 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
   }
 
   void _showPreviousImage() {
-    if (_selectedIndex <= 0) {
-      return;
-    }
-    setState(() {
-      _selectedIndex -= 1;
-      _resetTransform();
-    });
+    if (_selectedIndex <= 0) return;
+    unawaited(_showImageAt(_selectedIndex - 1));
   }
 
   void _showNextImage() {
-    if (_selectedIndex >= widget.attachments.length - 1) {
-      return;
-    }
+    if (_selectedIndex >= _attachments.length - 1) return;
+    unawaited(_showImageAt(_selectedIndex + 1));
+  }
+
+  Future<void> _showImageAt(int index) async {
+    final resolved = await _downloadRemoteAttachmentWithPrompt(
+      context,
+      ref,
+      _attachments[index],
+    );
+    if (!mounted || resolved == null) return;
     setState(() {
-      _selectedIndex += 1;
+      _attachments[index] = resolved;
+      _selectedIndex = index;
       _resetTransform();
     });
   }
@@ -1764,168 +1792,18 @@ Future<List<int>?> _downloadRemoteSyncAttachmentBytes(
   WidgetRef ref,
   NoteAttachment attachment,
 ) async {
-  final filePath = attachment.filePath;
-  final contentHash = syncAttachmentObjectContentHash(filePath);
-  if (contentHash == null) {
+  final downloaded = await ref
+      .read(syncTransferControllerProvider.notifier)
+      .downloadAttachment(attachment);
+  final filePath = downloaded.filePath;
+  if (filePath == null ||
+      filePath.isEmpty ||
+      isSyncAttachmentObjectRef(filePath)) {
     return null;
   }
-  final provider = ref.read(syncProviderControllerProvider);
-  _logAttachmentDisplayDiagnostic(
-    attachment,
-    'remote attachment object display download start',
-    source: 'remote',
-    data: {'provider': provider.name, 'contentHash': contentHash},
-  );
-  Future<String?> download() => switch (provider) {
-    SyncProvider.iCloud =>
-      ref
-          .read(iCloudSyncTransportProvider)
-          .downloadAttachmentObject(contentHash),
-    SyncProvider.googleDrive =>
-      ref
-          .read(googleDriveSyncTransportProvider)
-          .downloadAttachmentObject(contentHash),
-    SyncProvider.off => Future<String?>.value(),
-  };
-  var encodedPayload = await download();
-  if ((encodedPayload == null || encodedPayload.isEmpty) &&
-      provider == SyncProvider.iCloud) {
-    for (final delay in const [
-      Duration(milliseconds: 700),
-      Duration(seconds: 2),
-      Duration(seconds: 4),
-    ]) {
-      await Future<void>.delayed(delay);
-      encodedPayload = await download();
-      if (encodedPayload != null && encodedPayload.isNotEmpty) {
-        break;
-      }
-    }
-  }
-  if (encodedPayload == null || encodedPayload.isEmpty) {
-    _logAttachmentDisplayDiagnostic(
-      attachment,
-      'remote attachment object unavailable for display',
-      source: 'remote',
-      data: {'provider': provider.name, 'contentHash': contentHash},
-    );
-    return null;
-  }
-  late final Map<String, dynamic> decoded;
-  try {
-    decoded = await ref
-        .read(secureSyncBundleStoreProvider)
-        .readAttachmentObjectPayload(encodedPayload);
-  } catch (error) {
-    _logAttachmentDisplayDiagnostic(
-      attachment,
-      'remote attachment object decrypt failed',
-      source: 'remote',
-      data: {
-        'provider': provider.name,
-        'contentHash': contentHash,
-        'error': error,
-      },
-    );
-    return null;
-  }
-  final payloadHash = decoded['contentHash'] as String? ?? contentHash;
-  if (payloadHash != contentHash) {
-    _logAttachmentDisplayDiagnostic(
-      attachment,
-      'remote attachment object hash mismatch',
-      source: 'remote',
-      data: {'expectedHash': contentHash, 'payloadHash': payloadHash},
-    );
-    return null;
-  }
-  final payloadType = decoded['type'] as String?;
-  if (payloadType != null && payloadType != attachment.type.name) {
-    _logAttachmentDisplayDiagnostic(
-      attachment,
-      'remote attachment object type mismatch',
-      source: 'remote',
-      data: {'expectedType': attachment.type.name, 'payloadType': payloadType},
-    );
-    return null;
-  }
-  final bytesBase64 = decoded['bytesBase64'] as String?;
-  if (bytesBase64 == null || bytesBase64.isEmpty) {
-    _logAttachmentDisplayDiagnostic(
-      attachment,
-      'remote attachment object bytes missing',
-      source: 'remote',
-      data: {'contentHash': contentHash},
-    );
-    return null;
-  }
-  late final _DecodedRemoteAttachmentBytes decodedBytes;
-  try {
-    decodedBytes = await _decodeRemoteAttachmentBytes(bytesBase64);
-  } on FormatException catch (error) {
-    _logAttachmentDisplayDiagnostic(
-      attachment,
-      'remote attachment object base64 decode failed',
-      source: 'remote',
-      data: {'contentHash': contentHash, 'error': error},
-    );
-    return null;
-  }
-  final bytes = decodedBytes.bytes;
-  if (decodedBytes.contentHash != contentHash) {
-    _logAttachmentDisplayDiagnostic(
-      attachment,
-      'remote attachment object clear hash mismatch',
-      source: 'remote',
-      data: {'contentHash': contentHash, 'bytes': bytes.length},
-    );
-    return null;
-  }
-  _logAttachmentDisplayDiagnostic(
-    attachment,
-    'remote attachment object display download completed',
-    source: 'remote',
-    data: {
-      'provider': provider.name,
-      'contentHash': contentHash,
-      'bytes': bytes.length,
-    },
-  );
-  return bytes;
-}
-
-class _DecodedRemoteAttachmentBytes {
-  const _DecodedRemoteAttachmentBytes({
-    required this.bytes,
-    required this.contentHash,
-  });
-
-  final Uint8List bytes;
-  final String contentHash;
-}
-
-Future<_DecodedRemoteAttachmentBytes> _decodeRemoteAttachmentBytes(
-  String bytesBase64,
-) async {
-  if (kIsWeb || bytesBase64.length < 512 * 1024) {
-    final bytes = Uint8List.fromList(base64Decode(bytesBase64));
-    return _DecodedRemoteAttachmentBytes(
-      bytes: bytes,
-      contentHash: sha256.convert(bytes).toString(),
-    );
-  }
-  final result = await Isolate.run(() {
-    final bytes = Uint8List.fromList(base64Decode(bytesBase64));
-    return <String, Object>{
-      'bytes': TransferableTypedData.fromList([bytes]),
-      'contentHash': sha256.convert(bytes).toString(),
-    };
-  });
-  final transferable = result['bytes']! as TransferableTypedData;
-  return _DecodedRemoteAttachmentBytes(
-    bytes: transferable.materialize().asUint8List(),
-    contentHash: result['contentHash']! as String,
-  );
+  return ref
+      .read(encryptedAttachmentStoreProvider)
+      .readAttachment(filePath, type: downloaded.type);
 }
 
 Future<List<int>?> _readPhotoAttachmentDetailBytes(
@@ -2417,6 +2295,12 @@ class _VideoAttachmentViewerState
 
   @override
   Widget build(BuildContext context) {
+    if (isSyncAttachmentObjectRef(widget.attachment.filePath ?? '') &&
+        !widget.autoLoad) {
+      return Center(
+        child: RemoteAttachmentNotice(attachment: widget.attachment),
+      );
+    }
     final controller = _controller;
     final errorMessage = _errorMessage;
     if (errorMessage != null) {
@@ -3423,6 +3307,9 @@ class _AudioAttachmentViewerState
   @override
   void initState() {
     super.initState();
+    if (isSyncAttachmentObjectRef(widget.attachment.filePath ?? '')) {
+      return;
+    }
     unawaited(_startLoad());
   }
 
@@ -3571,6 +3458,11 @@ class _AudioAttachmentViewerState
 
   @override
   Widget build(BuildContext context) {
+    if (isSyncAttachmentObjectRef(widget.attachment.filePath ?? '')) {
+      return Center(
+        child: RemoteAttachmentNotice(attachment: widget.attachment),
+      );
+    }
     final errorMessage = _errorMessage;
     if (errorMessage != null) {
       return Center(child: Text(errorMessage));

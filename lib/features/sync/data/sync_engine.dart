@@ -278,6 +278,13 @@ class SyncEngine {
   Future<PreparedSyncSnapshot> prepareSnapshot(
     List<NoteEntry> notes, {
     List<PendingNoteChangeRecord>? pendingChanges,
+
+    /// When supplied, metadata-only attachment references are reused only if
+    /// their object is known to exist in the current remote target.  This is
+    /// important after switching targets or when a remote object was pruned:
+    /// the local payload must be included again so the object can be restored.
+    Set<String>? remoteAttachmentContentHashes,
+    bool verifyRemoteAttachmentObjects = false,
     SyncSnapshotPreparationProgressCallback? onProgress,
   }) async {
     final changes = pendingChanges ?? await loadPendingChanges();
@@ -346,6 +353,29 @@ class SyncEngine {
           return attachment.copyWith(filePath: null, previewBytesBase64: null);
         }
         if (isSyncAttachmentObjectRef(filePath)) {
+          final contentHash = syncAttachmentObjectContentHash(filePath);
+          if (remoteAttachmentContentHashes != null &&
+              (contentHash == null ||
+                  !remoteAttachmentContentHashes.contains(contentHash))) {
+            // This is a cloud-only reference, so the local-repair path for a
+            // missing local file cannot recover it.  Use a distinct error
+            // shape to avoid recursively restoring the same stale reference.
+            throw StateError(
+              'sync.error.remote_attachment_unavailable '
+              'noteId=${note.id} contentHash=${contentHash ?? ''}',
+            );
+          }
+          if (verifyRemoteAttachmentObjects && contentHash != null) {
+            attachmentPayloads.add(
+              PreparedSyncAttachment(
+                id: contentHash,
+                type: attachment.type,
+                label: attachment.label,
+                contentHash: contentHash,
+                sizeBytes: attachment.localPayloadSizeBytes ?? 0,
+              ),
+            );
+          }
           preparedAttachmentCount += 1;
           await onProgress?.call(
             SyncSnapshotPreparationProgress(
@@ -366,7 +396,10 @@ class SyncEngine {
             attachment.localPayloadSizeBytes == storedMetadata.sizeBytes &&
             attachment.localPayloadModifiedAtMillis != null &&
             attachment.localPayloadModifiedAtMillis ==
-                storedMetadata.modifiedAtMillis) {
+                storedMetadata.modifiedAtMillis &&
+            !verifyRemoteAttachmentObjects &&
+            (remoteAttachmentContentHashes == null ||
+                remoteAttachmentContentHashes.contains(cachedContentHash))) {
           preparedAttachmentCount += 1;
           await onProgress?.call(
             SyncSnapshotPreparationProgress(

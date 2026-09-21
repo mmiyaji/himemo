@@ -5798,7 +5798,7 @@ class _AttachmentListTile extends ConsumerWidget {
                             attachment.filePath ?? '',
                           )) ...[
                             const SizedBox(height: 6),
-                            const _RemoteAttachmentNotice(),
+                            RemoteAttachmentNotice(attachment: attachment),
                           ],
                         ],
                       ),
@@ -5823,8 +5823,10 @@ class _AttachmentListTile extends ConsumerWidget {
   }
 }
 
-class _RemoteAttachmentNotice extends ConsumerWidget {
-  const _RemoteAttachmentNotice();
+class RemoteAttachmentNotice extends ConsumerWidget {
+  const RemoteAttachmentNotice({required this.attachment, super.key});
+
+  final NoteAttachment attachment;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -5842,8 +5844,8 @@ class _RemoteAttachmentNotice extends ConsumerWidget {
         ),
         Text(
           strings.localized(
-            en: 'Cloud only',
-            ja: '\u30af\u30e9\u30a6\u30c9\u306e\u307f',
+            en: 'This attachment is not saved on this device yet.',
+            ja: '\u3053\u306e\u6dfb\u4ed8\u306f\u307e\u3060\u3053\u306e\u7aef\u672b\u306b\u4fdd\u5b58\u3055\u308c\u3066\u3044\u307e\u305b\u3093\u3002',
           ),
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
             color: colorScheme.primary,
@@ -5858,38 +5860,7 @@ class _RemoteAttachmentNotice extends ConsumerWidget {
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
           onPressed: () async {
-            final messenger = ScaffoldMessenger.of(context);
-            try {
-              final count = await ref
-                  .read(syncTransferControllerProvider.notifier)
-                  .downloadDeferredAttachments();
-              if (!context.mounted) {
-                return;
-              }
-              messenger.showSnackBar(
-                SnackBar(
-                  showCloseIcon: true,
-                  content: Text(
-                    count == 0
-                        ? strings.localized(
-                            en: 'No cloud-only attachments needed download.',
-                            ja: '\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u304c\u5fc5\u8981\u306a\u6dfb\u4ed8\u306f\u3042\u308a\u307e\u305b\u3093\u3002',
-                          )
-                        : strings.localized(
-                            en: 'Downloaded $count cloud-only attachments.',
-                            ja: '$count \u4ef6\u306e\u6dfb\u4ed8\u3092\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3057\u307e\u3057\u305f\u3002',
-                          ),
-                  ),
-                ),
-              );
-            } catch (error) {
-              if (!context.mounted) {
-                return;
-              }
-              messenger.showSnackBar(
-                SnackBar(showCloseIcon: true, content: Text('$error')),
-              );
-            }
+            await _downloadRemoteAttachmentWithPrompt(context, ref, attachment);
           },
           child: Text(
             strings.localized(
@@ -5903,12 +5874,187 @@ class _RemoteAttachmentNotice extends ConsumerWidget {
   }
 }
 
+Future<NoteAttachment?> _downloadRemoteAttachmentWithPrompt(
+  BuildContext context,
+  WidgetRef ref,
+  NoteAttachment attachment,
+) async {
+  final filePath = attachment.filePath;
+  if (filePath == null || !isSyncAttachmentObjectRef(filePath)) {
+    return attachment;
+  }
+  return showDialog<NoteAttachment>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) =>
+        RemoteAttachmentDownloadDialog(attachment: attachment),
+  );
+}
+
+class RemoteAttachmentDownloadDialog extends ConsumerStatefulWidget {
+  const RemoteAttachmentDownloadDialog({required this.attachment, super.key});
+
+  final NoteAttachment attachment;
+
+  @override
+  ConsumerState<RemoteAttachmentDownloadDialog> createState() =>
+      _RemoteAttachmentDownloadDialogState();
+}
+
+class _RemoteAttachmentDownloadDialogState
+    extends ConsumerState<RemoteAttachmentDownloadDialog> {
+  bool _downloading = false;
+  String? _errorMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    return PopScope(
+      canPop: !_downloading,
+      child: AlertDialog(
+        title: Text(
+          strings.localized(
+            en: 'Download attachment',
+            ja: '\u6dfb\u4ed8\u3092\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9',
+          ),
+        ),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.attachment.label,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                strings.localized(
+                  en: 'This attachment is not saved on this device yet. Download it to open or share it.',
+                  ja: '\u3053\u306e\u6dfb\u4ed8\u306f\u307e\u3060\u3053\u306e\u7aef\u672b\u306b\u4fdd\u5b58\u3055\u308c\u3066\u3044\u307e\u305b\u3093\u3002\u958b\u304f\u306b\u306f\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+                ),
+              ),
+              if (_downloading) ...[
+                const SizedBox(height: 16),
+                const LinearProgressIndicator(),
+                const SizedBox(height: 8),
+                Text(
+                  strings.localized(
+                    en: 'Downloading…',
+                    ja: '\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u4e2d\u2026',
+                  ),
+                ),
+              ],
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _errorMessage!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: _downloading ? null : () => Navigator.of(context).pop(),
+            child: Text(strings.cancel),
+          ),
+          FilledButton.icon(
+            onPressed: _downloading ? null : _download,
+            icon: _downloading
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.download_outlined),
+            label: Text(
+              _errorMessage == null
+                  ? strings.localized(
+                      en: 'Download',
+                      ja: '\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9',
+                    )
+                  : strings.localized(en: 'Retry', ja: '\u518d\u8a66\u884c'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _download() async {
+    if (_downloading) return;
+    setState(() {
+      _downloading = true;
+      _errorMessage = null;
+    });
+    try {
+      final downloaded = await ref
+          .read(syncTransferControllerProvider.notifier)
+          .downloadAttachment(widget.attachment);
+      if (mounted) Navigator.of(context).pop(downloaded);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _downloading = false;
+        _errorMessage = _attachmentDownloadErrorMessage(context, error);
+      });
+    }
+  }
+}
+
+String _attachmentDownloadErrorMessage(BuildContext context, Object error) {
+  final strings = context.strings;
+  if (error is SyncSafetyException) {
+    return switch (error.code) {
+      'sync.error.select_target_for_download' => strings.localized(
+        en: 'Choose a sync destination in Settings before downloading.',
+        ja: '\u8a2d\u5b9a\u3067\u540c\u671f\u5148\u3092\u9078\u629e\u3057\u3066\u304b\u3089\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+      ),
+      'sync.error.remote_attachment_unavailable' => strings.localized(
+        en: 'The cloud copy is unavailable. Try syncing again.',
+        ja: '\u30af\u30e9\u30a6\u30c9\u4e0a\u306e\u6dfb\u4ed8\u3092\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093\u3002\u540c\u671f\u3092\u3084\u308a\u76f4\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+      ),
+      'sync.error.unlock_private_profiles_before_download' => strings.localized(
+        en: 'Unlock private profiles before downloading this attachment.',
+        ja: '\u3053\u306e\u6dfb\u4ed8\u3092\u53d6\u5f97\u3059\u308b\u306b\u306f\u975e\u516c\u958b\u30d7\u30ed\u30d5\u30a1\u30a4\u30eb\u3092\u89e3\u9664\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+      ),
+      'sync.error.attachment_context_changed' => strings.localized(
+        en: 'The note changed while downloading. Please retry.',
+        ja: '\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u4e2d\u306b\u30e1\u30e2\u304c\u5909\u66f4\u3055\u308c\u307e\u3057\u305f\u3002\u518d\u8a66\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+      ),
+      _ => strings.localized(
+        en: 'The attachment could not be downloaded. Try again.',
+        ja: '\u6dfb\u4ed8\u3092\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u518d\u8a66\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+      ),
+    };
+  }
+  if (error is HimemoDecryptionException) {
+    return strings.unableToDecryptAttachment;
+  }
+  return strings.localized(
+    en: 'The attachment could not be downloaded. Try again.',
+    ja: '\u6dfb\u4ed8\u3092\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u518d\u8a66\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+  );
+}
+
 Future<void> _shareAttachment(
   BuildContext context,
   WidgetRef ref,
   NoteAttachment attachment,
 ) async {
   final strings = context.strings;
+  final downloadedAttachment = await _downloadRemoteAttachmentWithPrompt(
+    context,
+    ref,
+    attachment,
+  );
+  if (downloadedAttachment == null || !context.mounted) {
+    return;
+  }
+  attachment = downloadedAttachment;
   final filePath = attachment.filePath;
   if (filePath == null || filePath.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -6159,6 +6305,16 @@ class _EmbeddedPhotoAttachmentState
 
   @override
   Widget build(BuildContext context) {
+    if (isSyncAttachmentObjectRef(widget.attachment.filePath ?? '') &&
+        (widget.attachment.previewBytesBase64 == null ||
+            widget.attachment.previewBytesBase64!.isEmpty)) {
+      return SizedBox(
+        height: 180,
+        child: Center(
+          child: RemoteAttachmentNotice(attachment: widget.attachment),
+        ),
+      );
+    }
     if (!widget.mediaActive) {
       return _InactivePhotoAttachmentPreview(label: widget.attachment.label);
     }
@@ -6297,6 +6453,18 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
         size: size,
         attachment: attachment,
         diagnosticSource: 'preview',
+      );
+    }
+
+    // A cloud reference is metadata only. Keep list rendering local and let
+    // the explicit open/share action perform the download.
+    if (isSyncAttachmentObjectRef(attachment.filePath ?? '')) {
+      return Tooltip(
+        message: context.strings.localized(
+          en: 'Download to view this attachment',
+          ja: '\u8868\u793a\u3059\u308b\u306b\u306f\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3057\u3066\u304f\u3060\u3055\u3044',
+        ),
+        child: _AttachmentIconBox(type: attachment.type, size: size),
       );
     }
 
