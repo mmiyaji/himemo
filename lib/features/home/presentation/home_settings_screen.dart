@@ -85,6 +85,8 @@ class SettingsScreen extends ConsumerWidget {
   );
   static Key privateProfileDeleteKey(String id) =>
       Key('private-profile-delete-$id');
+  static Key privateProfileOpenKey(String id) =>
+      Key('private-profile-open-$id');
   static const startTutorialKey = Key('start-highlight-tutorial');
   static final aboutSectionKey = GlobalKey();
   static final _appearanceSectionKey = GlobalKey();
@@ -353,31 +355,17 @@ class SettingsScreen extends ConsumerWidget {
     if (!context.mounted || !ref.read(adminModeSessionControllerProvider)) {
       return;
     }
-    final profiles = ref.read(privateMemoProfilesProvider);
-    for (final vaultId in missing) {
-      final matching = profiles.where((profile) => profile.vaultId == vaultId);
-      final name = matching.isEmpty ? 'Private profile' : matching.first.name;
-      final opened = await _prepareProfileForAdmin(context, ref, vaultId, name);
-      if (!opened) break;
-      if (!context.mounted || !ref.read(adminModeSessionControllerProvider)) {
-        return;
-      }
-    }
-    if (!context.mounted || !ref.read(adminModeSessionControllerProvider)) {
-      return;
-    }
-    final needsPassword = missing.any(
-      (vaultId) =>
-          !ref.read(profileDataKeyServiceProvider).isProfileUnlocked(vaultId),
-    );
+    // Let the user choose the profile from the admin list. Automatically
+    // opening password prompts in storage order hides that choice.
+    final needsPassword = missing.isNotEmpty;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         showCloseIcon: true,
         content: Text(
           needsPassword
               ? strings.localized(
-                  en: 'Admin mode is active. Some profiles need their password once on this device. Open a profile to continue setup.',
-                  ja: '管理者モードに入りました。一部のプロファイルは、この端末で初回のパスワード入力が必要です。プロファイルを開いて設定を続けてください。',
+                  en: 'Admin mode is active. ${missing.length} profiles need initial setup. Choose the profile to unlock from the list below.',
+                  ja: '管理者モードに入りました。${missing.length}件のプロファイルで初回設定が必要です。一覧から解除するプロファイルを選んでください。',
                 )
               : strings.localized(
                   en: 'Admin mode is active. You can open notes and attachments in every profile.',
@@ -394,61 +382,32 @@ class SettingsScreen extends ConsumerWidget {
     String vaultId,
     String name,
   ) async {
-    final strings = context.strings;
-    while (context.mounted && ref.read(adminModeSessionControllerProvider)) {
-      if (ref.read(profileDataKeyServiceProvider).isProfileUnlocked(vaultId)) {
-        return true;
-      }
-      final password = await _showSingleSecretPrompt(
-        context,
-        title: strings.localized(en: 'Open $name', ja: '$name を開く'),
-        label: strings.text('home.profile.password'),
-        helperText: strings.localized(
-          en: 'Enter this profile’s password once on this device. After setup, device authentication will open it in admin mode.',
-          ja: 'この端末では初回のみ、このプロファイルのパスワードが必要です。設定後は、端末認証で管理者モードから開けます。',
-        ),
-        actionLabel: strings.text('home.unlock'),
-      );
-      if (password == null ||
-          !context.mounted ||
-          !ref.read(adminModeSessionControllerProvider)) {
-        return false;
-      }
-      try {
-        if (await ref
-            .read(adminModeSessionControllerProvider.notifier)
-            .unlockProfile(vaultId, password)) {
-          return true;
-        }
-      } catch (_) {
-        if (!context.mounted) return false;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              strings.localized(
-                en: 'Could not open this profile. Please try again.',
-                ja: 'プロファイルを開けませんでした。もう一度お試しください。',
-              ),
-            ),
-          ),
-        );
-        return false;
-      }
-      if (!context.mounted || !ref.read(adminModeSessionControllerProvider)) {
-        return false;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            strings.localized(
-              en: 'The password does not match this profile. Please try again.',
-              ja: 'このプロファイルのパスワードと一致しません。もう一度入力してください。',
-            ),
-          ),
-        ),
-      );
+    if (!context.mounted || !ref.read(adminModeSessionControllerProvider)) {
+      return false;
     }
-    return false;
+    if (ref.read(profileDataKeyServiceProvider).isProfileUnlocked(vaultId)) {
+      return true;
+    }
+    final profiles = ref.read(privateMemoProfilesProvider);
+    final matching = profiles.where((profile) => profile.vaultId == vaultId);
+    return await showDialog<bool>(
+          context: context,
+          builder: (_) => AdminProfileUnlockDialog(
+            profileName: name,
+            createdAt: matching.isEmpty ? null : matching.first.createdAt,
+            isLegacy: vaultId == legacyPrivateVaultId,
+            onUnlock: (password) async {
+              if (!context.mounted ||
+                  !ref.read(adminModeSessionControllerProvider)) {
+                return false;
+              }
+              return ref
+                  .read(adminModeSessionControllerProvider.notifier)
+                  .unlockProfile(vaultId, password);
+            },
+          ),
+        ) ??
+        false;
   }
 
   Future<void> _showChangeCurrentProfilePasswordDialog(
@@ -1556,7 +1515,12 @@ class SettingsScreen extends ConsumerWidget {
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.lock_outline),
-                  title: const Text('Private profile'),
+                  title: Text(
+                    strings.localized(
+                      en: 'Original private profile',
+                      ja: '従来のプライベートプロファイル',
+                    ),
+                  ),
                   subtitle: Text(
                     ref
                             .read(profileDataKeyServiceProvider)
@@ -1566,8 +1530,8 @@ class SettingsScreen extends ConsumerWidget {
                             ja: 'メモと添付を開けます',
                           )
                         : strings.localized(
-                            en: 'Password required once on this device',
-                            ja: 'この端末で初回のパスワード入力が必要です',
+                            en: 'Tap to unlock this profile for the first time',
+                            ja: 'タップして、このプロファイルを初回解除',
                           ),
                   ),
                   trailing: const Icon(Icons.login_outlined),
@@ -1575,7 +1539,10 @@ class SettingsScreen extends ConsumerWidget {
                     context,
                     ref,
                     legacyPrivateVaultId,
-                    'Private profile',
+                    strings.localized(
+                      en: 'Original private profile',
+                      ja: '従来のプライベートプロファイル',
+                    ),
                   ),
                 ),
               if (privateProfiles.isEmpty && !privateVaultConfigured)
@@ -1590,29 +1557,47 @@ class SettingsScreen extends ConsumerWidget {
                   children: [
                     for (final profile in privateProfiles)
                       ListTile(
+                        key: privateProfileOpenKey(profile.id),
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.lock_outline),
                         title: Text(profile.name),
-                        subtitle: Text(
-                          ref
-                                  .read(profileDataKeyServiceProvider)
-                                  .isProfileUnlocked(profile.vaultId)
-                              ? strings.localized(
-                                  en: 'Notes and attachments are available',
-                                  ja: 'メモと添付を開けます',
-                                )
-                              : strings.localized(
-                                  en: 'Password required once on this device',
-                                  ja: 'この端末で初回のパスワード入力が必要です',
-                                ),
+                        onTap: () => _enterPrivateProfileFromAdmin(
+                          context,
+                          ref,
+                          profile.vaultId,
+                          profile.name,
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              strings.localized(
+                                en: 'Created: ${_formatDateTime(profile.createdAt, strings)}',
+                                ja: '作成日時：${_formatDateTime(profile.createdAt, strings)}',
+                              ),
+                            ),
+                            Text(
+                              ref
+                                      .read(profileDataKeyServiceProvider)
+                                      .isProfileUnlocked(profile.vaultId)
+                                  ? strings.localized(
+                                      en: 'Notes and attachments are available',
+                                      ja: 'メモと添付を開けます',
+                                    )
+                                  : strings.localized(
+                                      en: 'Tap to unlock this profile for the first time',
+                                      ja: 'タップして、このプロファイルを初回解除',
+                                    ),
+                            ),
+                          ],
                         ),
                         trailing: Wrap(
                           spacing: 4,
                           children: [
                             IconButton(
                               tooltip: strings.localized(
-                                en: 'Open profile',
-                                ja: 'プロファイルに入る',
+                                en: 'Open ${profile.name}',
+                                ja: '「${profile.name}」を開く',
                               ),
                               onPressed: () => _enterPrivateProfileFromAdmin(
                                 context,

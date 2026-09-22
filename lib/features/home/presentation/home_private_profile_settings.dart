@@ -327,3 +327,177 @@ class _RenamePrivateProfileDialogState
     );
   }
 }
+
+/// Dialog used after admin mode has been entered to unlock one named profile.
+///
+/// Keeping the profile identity in this dialog is important: admin mode can
+/// expose more than one profile, and the password belongs to the selected
+/// profile rather than to the admin session.
+class AdminProfileUnlockDialog extends StatefulWidget {
+  const AdminProfileUnlockDialog({
+    super.key,
+    required this.profileName,
+    required this.onUnlock,
+    this.createdAt,
+    this.isLegacy = false,
+  });
+
+  final String profileName;
+  final Future<bool> Function(String password) onUnlock;
+  final DateTime? createdAt;
+  final bool isLegacy;
+
+  @override
+  State<AdminProfileUnlockDialog> createState() =>
+      _AdminProfileUnlockDialogState();
+}
+
+class _AdminProfileUnlockDialogState extends State<AdminProfileUnlockDialog> {
+  final _passwordController = TextEditingController();
+  bool _busy = false;
+  String? _errorText;
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_busy) return;
+    final password = _passwordController.text;
+    if (password.isEmpty) {
+      setState(() {
+        _errorText = context.strings.localized(
+          en: 'Enter the password for ${widget.profileName}.',
+          ja: '${widget.profileName} のパスワードを入力してください。',
+        );
+      });
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+      _errorText = null;
+    });
+    bool unlocked = false;
+    var failedWithException = false;
+    try {
+      unlocked = await widget.onUnlock(password);
+    } catch (_) {
+      // Authentication failures must not expose implementation details.
+      unlocked = false;
+      failedWithException = true;
+    }
+    if (!mounted) return;
+    if (unlocked) {
+      Navigator.of(context).pop(true);
+      return;
+    }
+    setState(() {
+      _busy = false;
+      _errorText = failedWithException
+          ? context.strings.localized(
+              en: 'Unable to unlock. Please try again.',
+              ja: '解除できませんでした。もう一度お試しください。',
+            )
+          : context.strings.localized(
+              en: 'The password for ${widget.profileName} is incorrect.',
+              ja: '${widget.profileName} のパスワードが正しくありません。',
+            );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    final targetLabel = strings.localized(en: 'Target profile', ja: '対象プロファイル');
+    final adminGuidance = strings.localized(
+      en: 'You are already signed in to admin mode. Enter the password for “${widget.profileName}” once. In admin mode, you can use device authentication from then on.',
+      ja: '管理者モードにはログイン済みです。初回のみ「${widget.profileName}」のパスワードを入力してください。次回からは管理者モードなら端末認証で開けます。',
+    );
+    return PopScope(
+      canPop: !_busy,
+      child: AlertDialog(
+        title: Text(strings.localized(en: 'Unlock profile', ja: 'プロファイルを解除')),
+        scrollable: true,
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(targetLabel, style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 4),
+              SelectableText(
+                widget.profileName,
+                key: const Key('admin-profile-unlock-target'),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              if (widget.createdAt != null) ...[
+                const SizedBox(height: 4),
+                Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: strings.localized(en: 'Created: ', ja: '作成日時：'),
+                      ),
+                      TextSpan(
+                        text: _formatDateTime(widget.createdAt!, strings),
+                      ),
+                    ],
+                  ),
+                  key: const Key('admin-profile-unlock-created-at'),
+                ),
+              ],
+              if (widget.isLegacy) ...[
+                const SizedBox(height: 4),
+                Text(
+                  strings.localized(en: 'Legacy profile', ja: '旧形式のプロファイル'),
+                  key: const Key('admin-profile-unlock-legacy'),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Text(adminGuidance),
+              const SizedBox(height: 16),
+              TextField(
+                key: const Key('admin-profile-unlock-password-input'),
+                controller: _passwordController,
+                obscureText: true,
+                enabled: !_busy,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _submit(),
+                decoration: InputDecoration(
+                  labelText: strings.localized(
+                    en: '${widget.profileName} password',
+                    ja: '${widget.profileName} のパスワード',
+                  ),
+                  border: const OutlineInputBorder(),
+                  errorText: _errorText,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            key: const Key('admin-profile-unlock-cancel'),
+            onPressed: _busy ? null : () => Navigator.of(context).pop(false),
+            child: Text(strings.cancel),
+          ),
+          FilledButton(
+            key: const Key('admin-profile-unlock-submit'),
+            onPressed: _busy ? null : _submit,
+            child: _busy
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Text(strings.localized(en: 'Unlock', ja: '解除')),
+          ),
+        ],
+      ),
+    );
+  }
+}
