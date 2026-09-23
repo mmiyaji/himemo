@@ -4691,20 +4691,20 @@ class AppStrings {
     de: 'Web-Builds müssen die offizielle Google-Schaltfläche verwenden. Erlaube nach der Anmeldung den Zugriff auf Drive-App-Daten, um die Synchronisierung zu aktivieren.',
   );
   String get syncDetailsTitle => localized(
-    en: 'Advanced sync settings',
-    ja: '高度な同期設定',
-    zh: '高级同步设置',
-    ko: '고급 동기화 설정',
-    es: 'Ajustes avanzados de sincronización',
-    de: 'Erweiterte Synchronisierung',
+    en: 'Sync details',
+    ja: '同期の詳細',
+    zh: '同步详情',
+    ko: '동기화 세부 정보',
+    es: 'Detalles de sincronización',
+    de: 'Synchronisierungsdetails',
   );
   String get syncDetailsSummary => localized(
-    en: 'Review status, history, recovery key, and repair tools.',
-    ja: '同期状態、履歴、復元キー、修復ツールを確認します。',
-    zh: '查看同步状态、历史记录、恢复密钥和修复工具。',
-    ko: '동기화 상태, 기록, 복구 키 및 복구 도구를 확인합니다.',
-    es: 'Revisa el estado, el historial, la clave de recuperación y las herramientas de reparación.',
-    de: 'Status, Verlauf, Wiederherstellungsschlüssel und Reparaturwerkzeuge prüfen.',
+    en: 'History, recovery key, and troubleshooting.',
+    ja: '履歴・復元キー・問題の解決',
+    zh: '历史记录、恢复密钥和问题排查。',
+    ko: '기록, 복구 키 및 문제 해결.',
+    es: 'Historial, clave de recuperación y solución de problemas.',
+    de: 'Verlauf, Wiederherstellungsschlüssel und Problemlösung.',
   );
   String get close => localized(
     en: 'Close',

@@ -330,10 +330,7 @@ void main() {
     await tester.tap(find.byKey(SettingsScreen.syncRefreshRemoteKey));
     await tester.pumpAndSettle();
     expect(fakeGoogleDriveTransport.fetchLatestCalls, greaterThanOrEqualTo(1));
-    expect(
-      find.textContaining('bundle information was refreshed'),
-      findsWidgets,
-    );
+    expect(find.textContaining('backup status was refreshed'), findsWidgets);
 
     await _scrollIntoViewIfNeeded(
       tester,
@@ -342,7 +339,7 @@ void main() {
     await tester.tap(find.byKey(SettingsScreen.syncUploadBundleKey));
     await tester.pumpAndSettle();
     expect(fakeGoogleDriveTransport.uploadCalls, greaterThanOrEqualTo(1));
-    expect(find.textContaining('Encrypted bundle uploaded'), findsWidgets);
+    expect(find.textContaining('encrypted backup was sent'), findsWidgets);
     expect(find.textContaining('2026/05/10 00:30 UTC'), findsWidgets);
 
     final uploadsBeforeReupload = fakeGoogleDriveTransport.uploadCalls;

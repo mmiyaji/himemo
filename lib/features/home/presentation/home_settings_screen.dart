@@ -569,6 +569,41 @@ class SettingsScreen extends ConsumerWidget {
     logAudit('admin_mode_enter_private_profile', data: {'vaultId': vaultId});
   }
 
+  Future<void> _connectSelectedSync(
+    BuildContext context,
+    WidgetRef ref,
+    SyncProvider provider,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final strings = context.strings;
+    try {
+      await ref.read(syncAuthControllerProvider.notifier).connectSelected();
+      if (!context.mounted) return;
+      final authState = ref.read(syncAuthControllerProvider)[provider];
+      final localizedMessage = authState != null && !authState.isAuthenticated
+          ? _syncConnectionStep(strings, provider, authState)
+          : _cloudSyncAuthSnackBarMessage(strings, authState?.message);
+      if (localizedMessage != null && localizedMessage.isNotEmpty) {
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text(localizedMessage)),
+        );
+      }
+    } catch (_) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(
+            strings.localized(
+              en: 'Could not connect. Check your account and connection, then try again.',
+              ja: '接続できませんでした。アカウントと通信状態を確認して、もう一度お試しください。',
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
   Future<void> _syncNow(BuildContext context, WidgetRef ref) async {
     final messenger = ScaffoldMessenger.of(context);
     final strings = context.strings;
@@ -597,12 +632,20 @@ class SettingsScreen extends ConsumerWidget {
       messenger.showSnackBar(
         SnackBar(showCloseIcon: true, content: Text(message)),
       );
-    } catch (error) {
+    } catch (_) {
       if (!context.mounted) {
         return;
       }
       messenger.showSnackBar(
-        SnackBar(showCloseIcon: true, content: Text('$error')),
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(
+            strings.localized(
+              en: 'Could not sync. Check your connection and try again.',
+              ja: '同期できませんでした。通信状態を確認して、もう一度お試しください。',
+            ),
+          ),
+        ),
       );
     }
   }
@@ -796,7 +839,7 @@ class SettingsScreen extends ConsumerWidget {
               : (strings.text('home.on.this.session.is.locked')));
     final syncSummary = syncProvider == SyncProvider.off
         ? (strings.text('home.device.only.storage'))
-        : _syncAuthSummary(context, syncProvider, syncAuthState);
+        : _syncConnectionStep(strings, syncProvider, syncAuthState);
     final memoEditorModeLabel =
         lastNoteEditorSettings.mode == NoteEditorMode.quick
         ? strings.quickMemo
@@ -2226,53 +2269,113 @@ class SettingsScreen extends ConsumerWidget {
                     color: Theme.of(context).colorScheme.error,
                   ),
                 ),
-                child: Text(
-                  _localizedSyncTransferMessage(
-                    strings,
-                    syncConflictWarning,
-                    syncProvider,
-                  ),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onErrorContainer,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _localizedSyncTransferMessage(
+                        strings,
+                        syncConflictWarning,
+                        syncProvider,
+                      ),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
+                    ),
+                    if (conflictedNotes.isNotEmpty)
+                      TextButton.icon(
+                        onPressed: () => _showSyncConflictListDialog(
+                          context,
+                          ref,
+                          conflictedNotes,
+                        ),
+                        icon: const Icon(Icons.rule_rounded),
+                        label: Text(
+                          strings.localized(en: 'Review notes', ja: 'メモを確認'),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             _SettingsSectionLabel(
               label: strings.localized(
-                en: 'Remote backup',
-                ja: 'リモートバックアップ',
-                zh: '远程备份',
-                ko: '원격 백업',
-                es: 'Copia remota',
-                de: 'Remote-Backup',
+                en: 'Sync with',
+                ja: '同期先',
+                zh: '同步到',
+                ko: '동기화 대상',
+                es: 'Sincronizar con',
+                de: 'Synchronisieren mit',
               ),
             ),
-            if (syncProvider != SyncProvider.off &&
-                syncAuthState.isAuthenticated)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(strings.text('home.selected.target')),
-                subtitle: Text(
-                  _syncSubtitle(context, syncProvider, syncAuthState),
-                ),
+            _ThemeOptionTile(
+              tileKey: syncOffKey,
+              title: strings.localized(
+                en: 'This device only',
+                ja: 'この端末のみ',
+                zh: '仅此设备',
+                ko: '이 기기만',
+                es: 'Solo este dispositivo',
+                de: 'Nur dieses Gerät',
               ),
-            if (syncProvider != SyncProvider.off &&
-                syncAuthState.isAuthenticated)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(_syncStatusTitle(context, syncProvider)),
-                subtitle: Text(
-                  _syncAuthSummary(context, syncProvider, syncAuthState),
-                ),
+              subtitle: strings.localized(
+                en: 'Do not sync with another device.',
+                ja: 'ほかの端末とは同期しません。',
+                zh: '不与其他设备同步。',
+                ko: '다른 기기와 동기화하지 않습니다.',
+                es: 'No se sincroniza con otros dispositivos.',
+                de: 'Keine Synchronisierung mit anderen Geräten.',
               ),
+              selected: syncProvider == SyncProvider.off,
+              onTap: () => ref
+                  .read(syncProviderControllerProvider.notifier)
+                  .setProvider(SyncProvider.off),
+            ),
+            if (isICloudSyncSupported)
+              _ThemeOptionTile(
+                tileKey: syncICloudKey,
+                title: 'iCloud',
+                subtitle: strings.localized(
+                  en: 'Use iCloud on this iPhone or iPad.',
+                  ja: 'この iPhone・iPad の iCloud を使います。',
+                  zh: '使用此 iPhone 或 iPad 上的 iCloud。',
+                  ko: '이 iPhone 또는 iPad의 iCloud를 사용합니다.',
+                  es: 'Usa iCloud en este iPhone o iPad.',
+                  de: 'iCloud auf diesem iPhone oder iPad verwenden.',
+                ),
+                selected: syncProvider == SyncProvider.iCloud,
+                onTap: () => ref
+                    .read(syncProviderControllerProvider.notifier)
+                    .setProvider(SyncProvider.iCloud),
+              ),
+            _ThemeOptionTile(
+              tileKey: syncGoogleDriveKey,
+              title: 'Google Drive',
+              subtitle: strings.localized(
+                en: 'Use your Google account.',
+                ja: 'Google アカウントを使います。',
+                zh: '使用您的 Google 帐号。',
+                ko: 'Google 계정을 사용합니다.',
+                es: 'Usa tu cuenta de Google.',
+                de: 'Ihr Google-Konto verwenden.',
+              ),
+              selected: syncProvider == SyncProvider.googleDrive,
+              onTap: () => ref
+                  .read(syncProviderControllerProvider.notifier)
+                  .setProvider(SyncProvider.googleDrive),
+            ),
+            if (kIsWeb &&
+                syncProvider == SyncProvider.googleDrive &&
+                !syncAuthState.isAuthenticated)
+              const _GoogleDriveWebSignInPanel(),
             if (syncProvider != SyncProvider.off &&
-                syncAuthState.isAuthenticated)
-              _SyncExclusionTagsTile(
-                tags: syncExclusionTags,
-                onAdd: () => _addSyncExclusionTag(context, ref),
-                onRemove: (tag) => ref
-                    .read(syncExclusionTagsControllerProvider.notifier)
-                    .removeTag(tag),
+                !syncAuthState.isAuthenticated &&
+                !(kIsWeb && syncProvider == SyncProvider.googleDrive))
+              FilledButton(
+                key: syncConnectKey,
+                onPressed: syncAuthState.stage == SyncAuthStage.busy
+                    ? null
+                    : () => _connectSelectedSync(context, ref, syncProvider),
+                child: Text(_syncConnectLabel(context, syncProvider)),
               ),
             if (syncProvider != SyncProvider.off &&
                 syncAuthState.isAuthenticated)
@@ -2299,12 +2402,12 @@ class SettingsScreen extends ConsumerWidget {
                       syncTransferState.stage == SyncTransferStage.busy
                           ? _syncProgressLabel(strings, syncTransferState)
                           : strings.localized(
-                              en: 'Sync',
-                              ja: '同期',
-                              zh: '同步',
-                              ko: '동기화',
-                              es: 'Sincronizar',
-                              de: 'Synchronisieren',
+                              en: 'Sync now',
+                              ja: '今すぐ同期',
+                              zh: '立即同步',
+                              ko: '지금 동기화',
+                              es: 'Sincronizar ahora',
+                              de: 'Jetzt synchronisieren',
                             ),
                     ),
                   ),
@@ -2374,6 +2477,47 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                 ],
               ),
+            if (syncProvider != SyncProvider.off &&
+                syncTransferState.stage == SyncTransferStage.error &&
+                syncTransferState.message != syncConflictWarning)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _cloudSyncSnackBarMessage(
+                        strings,
+                        syncTransferState,
+                        _CloudSyncSnackBarAction.syncNow,
+                        syncProvider,
+                      ),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                    if (syncTransferState.message ==
+                            'sync.error.bundle_key_missing' ||
+                        syncTransferState.message ==
+                            'sync.error.icloud_keychain_waiting' ||
+                        syncTransferState.message ==
+                            'sync.error.bundle_decryption_failed' ||
+                        syncTransferState.message ==
+                            'sync.error.downloaded_bundle_decryption_failed')
+                      TextButton.icon(
+                        onPressed: () async {
+                          final backupCode = await _showSyncKeyImportDialog(
+                            context,
+                          );
+                          if (!context.mounted || backupCode == null) return;
+                          await _handleSyncKeyImport(context, ref, backupCode);
+                        },
+                        icon: const Icon(Icons.key_rounded),
+                        label: Text(strings.text('home.import.recovery.key')),
+                      ),
+                  ],
+                ),
+              ),
             Container(
               margin: const EdgeInsets.symmetric(vertical: 8),
               decoration: BoxDecoration(
@@ -2400,6 +2544,43 @@ class SettingsScreen extends ConsumerWidget {
                   title: Text(strings.syncDetailsTitle),
                   subtitle: Text(strings.syncDetailsSummary),
                   children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton(
+                          key: syncConnectKey,
+                          onPressed: syncAuthState.stage == SyncAuthStage.busy
+                              ? null
+                              : () => _connectSelectedSync(
+                                  context,
+                                  ref,
+                                  syncProvider,
+                                ),
+                          child: Text(
+                            _syncReconnectLabel(context, syncProvider),
+                          ),
+                        ),
+                        OutlinedButton(
+                          key: syncDisconnectKey,
+                          onPressed: () => ref
+                              .read(syncAuthControllerProvider.notifier)
+                              .disconnectSelected(),
+                          child: Text(
+                            _syncDisconnectLabel(context, syncProvider),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (syncProvider != SyncProvider.off &&
+                        syncAuthState.isAuthenticated)
+                      _SyncExclusionTagsTile(
+                        tags: syncExclusionTags,
+                        onAdd: () => _addSyncExclusionTag(context, ref),
+                        onRemove: (tag) => ref
+                            .read(syncExclusionTagsControllerProvider.notifier)
+                            .removeTag(tag),
+                      ),
                     _SettingsSectionLabel(
                       label: strings.localized(
                         en: 'Sync status',
@@ -2564,14 +2745,19 @@ class SettingsScreen extends ConsumerWidget {
                                   context,
                                   backupCode: backupCode,
                                 );
-                              } catch (error) {
+                              } catch (_) {
                                 if (!context.mounted) {
                                   return;
                                 }
                                 messenger.showSnackBar(
                                   SnackBar(
                                     showCloseIcon: true,
-                                    content: Text('$error'),
+                                    content: Text(
+                                      strings.localized(
+                                        en: 'Could not show the recovery key. Please try again.',
+                                        ja: '復元キーを表示できませんでした。もう一度お試しください。',
+                                      ),
+                                    ),
                                   ),
                                 );
                               }
@@ -2718,14 +2904,19 @@ class SettingsScreen extends ConsumerWidget {
                                             content: Text(message),
                                           ),
                                         );
-                                      } catch (error) {
+                                      } catch (_) {
                                         if (!context.mounted) {
                                           return;
                                         }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text('$error'),
+                                            content: Text(
+                                              strings.localized(
+                                                en: 'Could not check the cloud backup. Check your connection and try again.',
+                                                ja: 'クラウドのバックアップを確認できませんでした。通信状態を確認して再試行してください。',
+                                              ),
+                                            ),
                                           ),
                                         );
                                       }
@@ -2781,14 +2972,19 @@ class SettingsScreen extends ConsumerWidget {
                                             content: Text(message),
                                           ),
                                         );
-                                      } catch (error) {
+                                      } catch (_) {
                                         if (!context.mounted) {
                                           return;
                                         }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text('$error'),
+                                            content: Text(
+                                              strings.localized(
+                                                en: 'Could not send the backup. Check your connection and try again.',
+                                                ja: 'バックアップを送信できませんでした。通信状態を確認して再試行してください。',
+                                              ),
+                                            ),
                                           ),
                                         );
                                       }
@@ -2903,14 +3099,19 @@ class SettingsScreen extends ConsumerWidget {
                                             content: Text(message),
                                           ),
                                         );
-                                      } catch (error) {
+                                      } catch (_) {
                                         if (!context.mounted) {
                                           return;
                                         }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text('$error'),
+                                            content: Text(
+                                              strings.localized(
+                                                en: 'Could not send all notes. Check your connection, unlock private profiles, and try again.',
+                                                ja: '全メモを送信できませんでした。通信状態とプライベートプロファイルの解除を確認して再試行してください。',
+                                              ),
+                                            ),
                                           ),
                                         );
                                       }
@@ -3057,14 +3258,19 @@ class SettingsScreen extends ConsumerWidget {
                                           context,
                                           history,
                                         );
-                                      } catch (error) {
+                                      } catch (_) {
                                         if (!context.mounted) {
                                           return;
                                         }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text('$error'),
+                                            content: Text(
+                                              strings.localized(
+                                                en: 'Could not load cloud history. Check your connection and try again.',
+                                                ja: 'クラウドの履歴を読み込めませんでした。通信状態を確認して再試行してください。',
+                                              ),
+                                            ),
                                           ),
                                         );
                                       }
@@ -3106,14 +3312,19 @@ class SettingsScreen extends ConsumerWidget {
                                             content: Text(message),
                                           ),
                                         );
-                                      } catch (error) {
+                                      } catch (_) {
                                         if (!context.mounted) {
                                           return;
                                         }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text('$error'),
+                                            content: Text(
+                                              strings.localized(
+                                                en: 'Could not get the cloud backup. Check your connection and try again.',
+                                                ja: 'クラウドのバックアップを取得できませんでした。通信状態を確認して再試行してください。',
+                                              ),
+                                            ),
                                           ),
                                         );
                                       }
@@ -3148,14 +3359,19 @@ class SettingsScreen extends ConsumerWidget {
                                                 preview,
                                               ),
                                         );
-                                      } catch (error) {
+                                      } catch (_) {
                                         if (!context.mounted) {
                                           return;
                                         }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text('$error'),
+                                            content: Text(
+                                              strings.localized(
+                                                en: 'Could not review the backup. Check the recovery key and try again.',
+                                                ja: 'バックアップを確認できませんでした。復元キーを確認して再試行してください。',
+                                              ),
+                                            ),
                                           ),
                                         );
                                       }
@@ -3222,14 +3438,19 @@ class SettingsScreen extends ConsumerWidget {
                                             content: Text(message),
                                           ),
                                         );
-                                      } catch (error) {
+                                      } catch (_) {
                                         if (!context.mounted) {
                                           return;
                                         }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text('$error'),
+                                            content: Text(
+                                              strings.localized(
+                                                en: 'Could not restore the backup. Check the recovery key and private profile, then try again.',
+                                                ja: 'バックアップを復元できませんでした。復元キーとプライベートプロファイルを確認して再試行してください。',
+                                              ),
+                                            ),
                                           ),
                                         );
                                       }
@@ -3269,7 +3490,7 @@ class SettingsScreen extends ConsumerWidget {
                                             ),
                                           ),
                                         );
-                                      } catch (error) {
+                                      } catch (_) {
                                         if (!context.mounted) {
                                           return;
                                         }
@@ -3367,107 +3588,6 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ).visibleWhen(
               syncProvider != SyncProvider.off && syncAuthState.isAuthenticated,
-            ),
-            _ThemeOptionTile(
-              tileKey: syncOffKey,
-              title: strings.text('home.off'),
-              subtitle: strings.text('home.keep.data.on.this.device.only'),
-              selected: syncProvider == SyncProvider.off,
-              onTap: () => ref
-                  .read(syncProviderControllerProvider.notifier)
-                  .setProvider(SyncProvider.off),
-            ),
-            if (isICloudSyncSupported)
-              _ThemeOptionTile(
-                tileKey: syncICloudKey,
-                title: 'iCloud',
-                subtitle: strings.text(
-                  'home.use.this.device.s.icloud.as.the.sync.target.no.himemo.lo',
-                ),
-                selected: syncProvider == SyncProvider.iCloud,
-                onTap: () => ref
-                    .read(syncProviderControllerProvider.notifier)
-                    .setProvider(SyncProvider.iCloud),
-              ),
-            _ThemeOptionTile(
-              tileKey: syncGoogleDriveKey,
-              title: 'Google Drive',
-              subtitle: strings.text('home.google.drive.app.data.sync.target'),
-              selected: syncProvider == SyncProvider.googleDrive,
-              onTap: () => ref
-                  .read(syncProviderControllerProvider.notifier)
-                  .setProvider(SyncProvider.googleDrive),
-            ),
-            if (kIsWeb &&
-                syncProvider == SyncProvider.googleDrive &&
-                !syncAuthState.isAuthenticated)
-              const _GoogleDriveWebSignInPanel(),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (syncProvider != SyncProvider.off &&
-                    !(kIsWeb && syncProvider == SyncProvider.googleDrive))
-                  FilledButton(
-                    key: syncConnectKey,
-                    onPressed: syncAuthState.stage == SyncAuthStage.busy
-                        ? null
-                        : () async {
-                            final messenger = ScaffoldMessenger.of(context);
-                            try {
-                              await ref
-                                  .read(syncAuthControllerProvider.notifier)
-                                  .connectSelected();
-                              if (!context.mounted) {
-                                return;
-                              }
-                              final message = ref
-                                  .read(
-                                    syncAuthControllerProvider,
-                                  )[syncProvider]
-                                  ?.message;
-                              final localizedMessage =
-                                  _cloudSyncAuthSnackBarMessage(
-                                    strings,
-                                    message,
-                                  );
-                              if (localizedMessage != null &&
-                                  localizedMessage.isNotEmpty) {
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    showCloseIcon: true,
-                                    content: Text(localizedMessage),
-                                  ),
-                                );
-                              }
-                            } catch (error) {
-                              if (!context.mounted) {
-                                return;
-                              }
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  showCloseIcon: true,
-                                  content: Text('$error'),
-                                ),
-                              );
-                            }
-                          },
-                    child: Text(
-                      syncAuthState.isAuthenticated
-                          ? _syncReconnectLabel(context, syncProvider)
-                          : _syncConnectLabel(context, syncProvider),
-                    ),
-                  ),
-                if (syncProvider != SyncProvider.off &&
-                    syncAuthState.isAuthenticated)
-                  OutlinedButton(
-                    key: syncDisconnectKey,
-                    onPressed: () => ref
-                        .read(syncAuthControllerProvider.notifier)
-                        .disconnectSelected(),
-                    child: Text(_syncDisconnectLabel(context, syncProvider)),
-                  ),
-              ],
             ),
             _SettingsSectionLabel(
               label: strings.localized(
@@ -5059,14 +5179,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  String _syncStatusTitle(BuildContext context, SyncProvider provider) {
-    final strings = context.strings;
-    if (provider == SyncProvider.iCloud) {
-      return strings.text('home.icloud.availability');
-    }
-    return strings.text('home.authentication');
-  }
-
   String _syncConnectLabel(BuildContext context, SyncProvider provider) {
     final strings = context.strings;
     if (provider == SyncProvider.iCloud) {
@@ -5089,6 +5201,55 @@ class SettingsScreen extends ConsumerWidget {
       return strings.text('home.stop.using.icloud');
     }
     return strings.text('home.disconnect');
+  }
+
+  String _syncConnectionStep(
+    AppStrings strings,
+    SyncProvider provider,
+    SyncAuthState authState,
+  ) {
+    final target = _syncProviderName(provider);
+    if (authState.isAuthenticated) {
+      if (provider == SyncProvider.iCloud) {
+        return strings.localized(
+          en: 'iCloud is ready. You can sync now.',
+          ja: 'iCloud を利用できます。今すぐ同期できます。',
+        );
+      }
+      final account = authState.email ?? authState.displayName;
+      return account == null
+          ? strings.localized(
+              en: 'Connected to $target. You can sync now.',
+              ja: '$target に接続済みです。今すぐ同期できます。',
+            )
+          : strings.localized(
+              en: 'Connected to $target as $account. You can sync now.',
+              ja: '$target（$account）に接続済みです。今すぐ同期できます。',
+            );
+    }
+    if (authState.stage == SyncAuthStage.busy) {
+      return strings.localized(
+        en: 'Connecting to $target…',
+        ja: '$target に接続中…',
+      );
+    }
+    if (authState.stage == SyncAuthStage.error ||
+        authState.stage == SyncAuthStage.unsupported) {
+      if (provider == SyncProvider.iCloud) {
+        return strings.localized(
+          en: 'iCloud is unavailable. Check this device’s iCloud settings, then try again.',
+          ja: 'iCloud を利用できません。端末の iCloud 設定を確認して再試行してください。',
+        );
+      }
+      return strings.localized(
+        en: 'Could not connect to $target. Check your account and try again.',
+        ja: '$target に接続できません。アカウントを確認して再試行してください。',
+      );
+    }
+    return strings.localized(
+      en: 'Connect to $target to start syncing.',
+      ja: '同期を始めるには $target に接続してください。',
+    );
   }
 
   String _syncSubtitle(
@@ -5127,68 +5288,6 @@ class SettingsScreen extends ConsumerWidget {
       provider,
       SyncAuthState(provider: provider, stage: SyncAuthStage.idle),
     );
-  }
-
-  String _syncAuthSummary(
-    BuildContext context,
-    SyncProvider provider,
-    SyncAuthState authState,
-  ) {
-    final strings = context.strings;
-    if (provider == SyncProvider.iCloud) {
-      switch (authState.stage) {
-        case SyncAuthStage.idle:
-          return strings.text(
-            'home.this.device.s.icloud.availability.has.not.been.checked.y',
-          );
-        case SyncAuthStage.busy:
-          return strings.text(
-            'home.checking.this.device.s.icloud.availability',
-          );
-        case SyncAuthStage.authenticated:
-          return strings.text(
-            'home.this.device.can.use.icloud.as.the.himemo.sync.target',
-          );
-        case SyncAuthStage.unsupported:
-        case SyncAuthStage.error:
-          return authState.message ??
-              (strings.text(
-                'home.icloud.sync.is.not.available.on.this.device',
-              ));
-      }
-    }
-    if (provider == SyncProvider.off) {
-      return strings.text('home.no.cloud.account.is.connected');
-    }
-
-    switch (authState.stage) {
-      case SyncAuthStage.idle:
-        return strings.text('home.no.account.connected.yet');
-      case SyncAuthStage.busy:
-        return strings.text('home.waiting.for.authentication.to.complete');
-      case SyncAuthStage.authenticated:
-        final identity =
-            authState.email ?? authState.displayName ?? authState.userId;
-        final suffix = authState.message == null ? '' : ' ${authState.message}';
-        return identity == null
-            ? strings.syncConnected(suffix: suffix)
-            : strings.syncConnected(identity: identity, suffix: suffix);
-      case SyncAuthStage.unsupported:
-      case SyncAuthStage.error:
-        if (provider == SyncProvider.googleDrive &&
-            _isGoogleDriveWebSignInUnavailable(authState.message)) {
-          return strings.googleDriveWebSignInUnavailable;
-        }
-        return authState.message ??
-            (strings.text('home.authentication.is.not.available'));
-    }
-  }
-
-  bool _isGoogleDriveWebSignInUnavailable(String? message) {
-    return message != null &&
-        message.contains(
-          'Google Drive sync on web requires the Google Sign-In SDK button flow',
-        );
   }
 
   String syncAuthSummaryLegacy(

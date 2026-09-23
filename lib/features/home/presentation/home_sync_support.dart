@@ -89,40 +89,40 @@ String _syncProgressDescription(
     }
     return switch (transferState.progress) {
       SyncTransferProgress.checkingRemote => strings.localized(
-        en: 'Checking the latest cloud bundle and local queue.',
-        ja: 'クラウド上の最新バンドルとこの端末の未同期変更を確認しています。',
+        en: 'Checking the latest cloud backup and local changes.',
+        ja: 'クラウドの最新バックアップとこの端末の未同期変更を確認しています。',
         zh: '正在检查最新云端包和本机待同步更改。',
         ko: '최신 클라우드 번들과 이 기기의 미동기화 변경 사항을 확인하고 있습니다.',
         es: 'Comprobando el ultimo paquete en la nube y la cola local.',
         de: 'Aktuelles Cloud-Paket und lokale Warteschlange werden gepruft.',
       ),
       SyncTransferProgress.preparingBundle => strings.localized(
-        en: 'Preparing an encrypted bundle from local notes and attachments.',
-        ja: 'ローカルのメモと添付から暗号化バンドルを準備しています。',
+        en: 'Preparing an encrypted backup from this device’s notes and attachments.',
+        ja: 'この端末のメモと添付から暗号化バックアップを準備しています。',
         zh: '正在根据本机备忘和附件准备加密包。',
         ko: '로컬 메모와 첨부 파일로 암호화 번들을 준비하고 있습니다.',
         es: 'Preparando un paquete cifrado con notas y adjuntos locales.',
         de: 'Verschlusseltes Paket aus lokalen Notizen und Anhangen wird vorbereitet.',
       ),
       SyncTransferProgress.uploadingBundle => strings.localized(
-        en: 'Uploading the encrypted bundle to the selected cloud target.',
-        ja: '暗号化バンドルを選択中のクラウド同期先へアップロードしています。',
+        en: 'Sending the encrypted backup to the selected cloud location.',
+        ja: '暗号化バックアップを選択中のクラウドへ送信しています。',
         zh: '正在将加密包上传到选定的云同步目标。',
         ko: '암호화 번들을 선택한 클라우드 동기화 대상으로 업로드하고 있습니다.',
         es: 'Subiendo el paquete cifrado al destino de nube seleccionado.',
         de: 'Verschlusseltes Paket wird zum ausgewahlten Cloud-Ziel hochgeladen.',
       ),
       SyncTransferProgress.downloadingBundle => strings.localized(
-        en: 'Downloading the remote bundle before applying cloud changes.',
-        ja: 'クラウド側の変更を適用するため、リモートバンドルをダウンロードしています。',
+        en: 'Getting the cloud backup before applying its changes.',
+        ja: 'クラウドの変更を反映するため、バックアップを取得しています。',
         zh: '正在下载远程包以应用云端更改。',
         ko: '클라우드 변경 사항을 적용하기 위해 원격 번들을 다운로드하고 있습니다.',
         es: 'Descargando el paquete remoto antes de aplicar cambios de nube.',
         de: 'Remote-Paket wird heruntergeladen, bevor Cloud-Anderungen angewendet werden.',
       ),
       SyncTransferProgress.applyingBundle => strings.localized(
-        en: 'Decrypting and applying the downloaded bundle to local notes.',
-        ja: 'ダウンロードしたバンドルを復号し、ローカルのメモへ適用しています。',
+        en: 'Reading the downloaded backup and applying it to this device.',
+        ja: '取得したバックアップを読み込み、この端末のメモに反映しています。',
         zh: '正在解密下载的包并应用到本机备忘。',
         ko: '다운로드한 번들을 복호화하여 로컬 메모에 적용하고 있습니다.',
         es: 'Descifrando y aplicando el paquete descargado a las notas locales.',
@@ -298,8 +298,8 @@ String _localizedSyncTransferMessage(
   switch (message) {
     case 'sync.error.local_snapshot_incomplete':
       return strings.localized(
-        en: 'Some pending notes cannot be uploaded yet. If private profile notes are included, open the matching private profile on this device and sync again.',
-        ja: '未同期の一部のメモはまだアップロードできません。プライベートプロファイルのメモが含まれる場合は、この端末で該当プロファイルを開いてからもう一度同期してください。',
+        en: 'Some notes are waiting to sync. Open the matching private profile on this device, then sync again.',
+        ja: '一部のメモを同期できません。該当するプライベートプロファイルをこの端末で開いてから、もう一度「今すぐ同期」をタップしてください。',
         zh: '部分待同步笔记暂时无法上传。如果包含私密配置文件的笔记，请先在此设备上打开对应配置文件，然后再次同步。',
         ko: '일부 대기 중인 메모는 아직 업로드할 수 없습니다. 비공개 프로필 메모가 포함된 경우 이 기기에서 해당 프로필을 연 뒤 다시 동기화하세요.',
         es: 'Algunas notas pendientes todavia no se pueden subir. Si incluyen notas de perfiles privados, abre el perfil privado correspondiente en este dispositivo y vuelve a sincronizar.',
@@ -307,16 +307,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.error.bundle_decryption_failed':
       return strings.localized(
-        en:
-            'Sync data could not be decrypted.\n'
-            '- The cloud recovery key may be different. Copy the cloud recovery key from the original device and import it on this device.\n'
-            '- If notes or attachments were repaired on the original device, re-upload all notes from that device and sync again.\n'
-            '- If private profile notes are included, open the target private profile on this device, then apply the bundle again.',
-        ja:
-            '同期データを復号できませんでした。\n'
-            '・クラウド復元キーが違う可能性があります。元端末でクラウド復元キーをコピーし、この端末へ読み込んでください。\n'
-            '・元端末で添付やメモを修復した場合は、元端末で全メモを再アップロードしてから同期してください。\n'
-            '・プライベートプロファイルのメモが含まれる場合は、同期先端末で対象プロファイルを開いてから、もう一度適用してください。',
+        en: 'Could not read the cloud backup. Import the recovery key from the original device, then sync again. If private notes are included, open that profile here. If you repaired attachments on the original device, re-upload all notes there.',
+        ja: 'クラウドのバックアップを読み込めません。元端末の復元キーを読み込んで再度同期してください。プライベートメモがある場合は該当プロファイルを開き、元端末で添付を修復した場合は全メモを再送してください。',
         zh:
             '无法解密同步数据。\n'
             '- 云恢复密钥可能不同。请从原设备复制云恢复密钥，并在此设备导入。\n'
@@ -340,8 +332,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.error.unlock_private_profiles_before_compact':
       return strings.localized(
-        en: 'Open all private profiles on this device before compacting iCloud sync storage. This keeps private attachments from being pruned while their profile is locked.',
-        ja: 'iCloud同期ストレージを整理する前に、この端末ですべてのプライベートプロファイルを開いてください。プロファイルがロック中の添付が削除されるのを防ぎます。',
+        en: 'Open every private profile on this device before cleaning up iCloud storage. This keeps its attachments safe.',
+        ja: 'iCloudの保存領域を整理する前に、この端末ですべてのプライベートプロファイルを開いてください。添付ファイルの削除を防げます。',
         zh: '压缩 iCloud 同步存储前，请先在此设备上打开所有私密档案，以免锁定档案中的附件被清理。',
         ko: 'iCloud 동기화 저장 공간을 정리하기 전에 이 기기에서 모든 비공개 프로필을 여세요. 잠긴 프로필의 첨부 파일이 정리되지 않도록 합니다.',
         es: 'Abre todos los perfiles privados en este dispositivo antes de compactar el almacenamiento de sincronizacion de iCloud. Asi se evita eliminar adjuntos privados mientras el perfil esta bloqueado.',
@@ -349,8 +341,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.error.unlock_private_profiles_before_full_upload':
       return strings.localized(
-        en: 'Open all private profiles on this device before uploading a full sync snapshot. This keeps locked private notes and attachments in the snapshot.',
-        ja: '完全同期スナップショットをアップロードする前に、この端末ですべてのプライベートプロファイルを開いてください。ロック中のメモと添付ファイルをスナップショットに保持します。',
+        en: 'Open every private profile on this device before sending all notes. This keeps private notes and attachments included.',
+        ja: 'すべてのメモを送る前に、この端末ですべてのプライベートプロファイルを開いてください。プライベートメモと添付を含められます。',
         zh: '上传完整同步快照前，请先在此设备上打开所有私密档案，以保留锁定档案中的备忘和附件。',
         ko: '전체 동기화 스냅샷을 업로드하기 전에 이 기기에서 모든 비공개 프로필을 여세요. 잠긴 비공개 메모와 첨부 파일을 스냅샷에 보존합니다.',
         es: 'Abre todos los perfiles privados en este dispositivo antes de subir una instantánea de sincronización completa. Así se conservan las notas y los adjuntos privados bloqueados.',
@@ -358,8 +350,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.error.bundle_key_missing':
       return strings.localized(
-        en: 'The cloud recovery key for this sync bundle is not available on this device. Copy the cloud recovery key from the original device, import it here, then sync again.',
-        ja: '同期バンドルを読むためのクラウド復元キーがこの端末にありません。元端末でクラウド復元キーをコピーし、この端末へ読み込んでから、もう一度同期してください。',
+        en: 'This device is missing the cloud recovery key. Copy it from the original device, import it here, then sync again.',
+        ja: 'この端末にクラウド復元キーがありません。元端末でキーをコピーしてこの端末に読み込み、「今すぐ同期」をタップしてください。',
         zh: '此设备没有读取同步包所需的云恢复密钥。请从原设备复制云恢复密钥并在此设备导入，然后再次同步。',
         ko: '이 기기에 동기화 번들을 읽는 데 필요한 클라우드 복구 키가 없습니다. 원래 기기에서 키를 복사해 이 기기로 가져온 뒤 다시 동기화하세요.',
         es: 'La clave de recuperacion en la nube para este paquete no esta disponible en este dispositivo. Copiala desde el dispositivo original, importala aqui y sincroniza de nuevo.',
@@ -367,8 +359,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.error.icloud_keychain_waiting':
       return strings.localized(
-        en: 'The cloud recovery key for this sync bundle is not on this device yet. iCloud Keychain may still be syncing. Wait a little and try again, or copy the cloud recovery key from the original device and import it here.',
-        ja: '同期バンドルを読むためのクラウド復元キーがまだこの端末にありません。iCloud Keychain の同期待ちの可能性があります。しばらく待ってから再試行するか、元端末でクラウド復元キーをコピーしてこの端末へ読み込んでください。',
+        en: 'The cloud recovery key has not reached this device yet. Wait a moment and try again, or import the key from the original device.',
+        ja: 'クラウド復元キーがまだこの端末に届いていません。少し待って再試行するか、元端末からキーを読み込んでください。',
         zh: '此设备还没有读取同步包所需的云恢复密钥。可能正在等待 iCloud Keychain 同步。请稍后重试，或从原设备复制云恢复密钥并在此设备导入。',
         ko: '이 기기에 동기화 번들을 읽는 데 필요한 클라우드 복구 키가 아직 없습니다. iCloud Keychain 동기화 대기 중일 수 있습니다. 잠시 후 다시 시도하거나 원래 기기에서 키를 복사해 가져오세요.',
         es: 'La clave de recuperacion en la nube para este paquete aun no esta en este dispositivo. Es posible que iCloud Keychain siga sincronizando. Espera un poco e intentalo de nuevo, o copia la clave desde el dispositivo original e importala aqui.',
@@ -376,8 +368,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.info.select_target_for_remote_status':
       return strings.localized(
-        en: 'Select a cloud sync target before checking the remote status.',
-        ja: 'リモートの状態を確認するには、先にクラウド同期先を選択してください。',
+        en: 'Choose a cloud backup location before checking its status.',
+        ja: '状態を確認する前に、クラウドの保存先を選んでください。',
         zh: '请先选择云同步目标，再检查远程状态。',
         ko: '원격 상태를 확인하기 전에 클라우드 동기화 대상을 선택하세요.',
         es: 'Selecciona un destino de sincronizacion en la nube antes de comprobar el estado remoto.',
@@ -385,8 +377,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.info.no_remote_bundle':
       return strings.localized(
-        en: 'No remote bundle has been saved yet.',
-        ja: 'リモートにはまだバンドルが保存されていません。',
+        en: 'No cloud backup has been saved yet.',
+        ja: 'クラウドにバックアップがまだありません。',
         zh: '远程还没有保存同步包。',
         ko: '원격에 저장된 번들이 아직 없습니다.',
         es: 'Todavia no se ha guardado ningun paquete remoto.',
@@ -394,8 +386,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.info.remote_bundle_refreshed':
       return strings.localized(
-        en: '$providerName bundle information was refreshed.',
-        ja: '$providerName のバンドル情報を更新しました。',
+        en: '$providerName backup status was refreshed.',
+        ja: '$providerName のバックアップ状態を更新しました。',
         zh: '$providerName 的同步包信息已更新。',
         ko: '$providerName 번들 정보를 새로 고쳤습니다.',
         es: 'Se actualizo la informacion del paquete de $providerName.',
@@ -405,8 +397,8 @@ String _localizedSyncTransferMessage(
     case 'sync.error.select_target_for_reupload':
     case 'sync.error.select_target_for_download':
       return strings.localized(
-        en: 'Select a cloud sync target before continuing.',
-        ja: '先にクラウド同期先を選択してください。',
+        en: 'Choose a cloud backup location first.',
+        ja: '先にクラウドの保存先を選んでください。',
         zh: '请先选择云同步目标再继续。',
         ko: '계속하기 전에 클라우드 동기화 대상을 선택하세요.',
         es: 'Selecciona un destino de sincronizacion en la nube antes de continuar.',
@@ -414,8 +406,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.error.conflict_download_first_or_force_upload':
       return strings.localized(
-        en: 'This device has unsynced changes and the remote bundle may be newer. Download and apply the remote bundle first, or use force upload if you want this device to overwrite the remote bundle.',
-        ja: 'この端末に未同期の変更があり、リモートにはより新しいバンドルがある可能性があります。先にリモートのバンドルをダウンロードして適用するか、上書きする場合は強制アップロードを使用してください。',
+        en: 'This device has unsynced changes, and the cloud backup may be newer. Get the cloud backup first, or choose Force upload to replace it with this device’s notes.',
+        ja: 'この端末に未同期の変更があり、クラウドのバックアップの方が新しい可能性があります。先にクラウドのバックアップを取得するか、この端末の内容で上書きするなら「強制アップロード」を選んでください。',
         zh: '此设备有未同步的更改，远程包可能更新。请先下载并应用远程包；如果要用此设备覆盖远程包，请使用强制上传。',
         ko: '이 기기에 미동기화 변경 사항이 있고 원격 번들이 더 최신일 수 있습니다. 먼저 원격 번들을 다운로드해 적용하거나, 이 기기로 덮어쓰려면 강제 업로드를 사용하세요.',
         es: 'Este dispositivo tiene cambios sin sincronizar y el paquete remoto puede ser mas reciente. Descarga y aplica primero el paquete remoto, o usa la subida forzada si quieres sobrescribirlo desde este dispositivo.',
@@ -423,8 +415,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.error.conflict_pending_remote_newer':
       return strings.localized(
-        en: 'This device has unsynced changes, and a newer bundle exists on the remote sync target.',
-        ja: 'この端末に未同期の変更があり、リモートにはより新しいバンドルがあります。',
+        en: 'This device has unsynced changes, and a newer cloud backup exists. Get it first, or review the changes before syncing.',
+        ja: 'この端末に未同期の変更があり、クラウドに新しいバックアップがあります。先に取得するか、変更を確認してから同期してください。',
         zh: '此设备有未同步的更改，远程同步目标上有较新的捆绑包。',
         ko: '이 기기에 동기화되지 않은 변경 사항이 있으며, 원격 동기화 대상에 더 새로운 번들이 있습니다.',
         es: 'Este dispositivo tiene cambios sin sincronizar y hay un paquete mas reciente en el destino remoto.',
@@ -432,8 +424,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.error.conflict_remote_changed_after_review':
       return strings.localized(
-        en: 'The remote version changed after this comparison was opened. Your choice remains saved on this device, but it was not uploaded. Reload the comparison before syncing again.',
-        ja: '比較画面を開いた後にリモート版が更新されました。この端末への選択結果は保存されていますが、上書きを防ぐためアップロードしていません。もう一度比較を読み直してから同期してください。',
+        en: 'The cloud backup changed while you were reviewing it. Reload the comparison, then sync again.',
+        ja: '確認中にクラウドのバックアップが更新されました。比較を読み直してから、もう一度同期してください。',
         zh: '打开比较画面后，远程版本已更新。你的选择已保存在此设备上，但为避免覆盖，尚未上传。请重新加载比较结果后再同步。',
         ko: '비교 화면을 연 뒤 원격 버전이 변경되었습니다. 선택 결과는 이 기기에 저장되었지만 덮어쓰기를 막기 위해 업로드하지 않았습니다. 비교를 다시 불러온 뒤 동기화하세요.',
         es: 'La version remota cambio despues de abrir la comparacion. Tu eleccion se guardo en este dispositivo, pero no se subio para evitar una sobrescritura. Vuelve a cargar la comparacion antes de sincronizar.',
@@ -441,8 +433,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.error.local_bundle_prepare_failed':
       return strings.localized(
-        en: 'The local sync bundle could not be prepared.',
-        ja: 'ローカルの同期バンドルを準備できませんでした。',
+        en: 'This device could not prepare the backup. Try syncing again.',
+        ja: 'この端末でバックアップを準備できませんでした。「今すぐ同期」をもう一度試してください。',
         zh: '无法准备本地同步包。',
         ko: '로컬 동기화 번들을 준비할 수 없습니다.',
         es: 'No se pudo preparar el paquete de sincronizacion local.',
@@ -451,8 +443,8 @@ String _localizedSyncTransferMessage(
     case 'sync.error.remote_history_incomplete':
     case 'sync.error.remote_bundle_missing':
       return strings.localized(
-        en: 'The remote sync history is incomplete. No changes were applied. Check the connection and sync again.',
-        ja: 'リモートの同期履歴を完全に確認できなかったため、変更は適用されませんでした。通信状態を確認して、もう一度同期してください。',
+        en: 'The cloud backup is incomplete, so nothing changed. Check your connection and tap Sync again.',
+        ja: 'クラウドのバックアップを確認できなかったため、変更していません。通信状態を確認して「今すぐ同期」をもう一度タップしてください。',
         zh: '远程同步历史记录不完整，因此未应用任何更改。请检查网络连接后重试。',
         ko: '원격 동기화 기록이 완전하지 않아 변경 사항을 적용하지 않았습니다. 연결을 확인한 후 다시 동기화하세요.',
         es: 'El historial de sincronizacion remoto esta incompleto. No se aplicaron cambios. Comprueba la conexion y vuelve a sincronizar.',
@@ -460,8 +452,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.error.private_note_conflict':
       return strings.localized(
-        en: 'A private note was changed on both devices. Neither version was overwritten. Review the devices before choosing which version to upload.',
-        ja: '同じプライベートメモが両方の端末で変更されています。どちらの内容も上書きしていません。端末ごとの内容を確認してから、アップロードする版を選んでください。',
+        en: 'The same private note changed on both devices. Nothing was overwritten. Review both versions and choose which one to keep.',
+        ja: '同じプライベートメモが両方の端末で変更されています。上書きはしていません。2つの内容を確認して、残す方を選んでください。',
         zh: '同一条私密笔记已在两台设备上更改。两个版本均未被覆盖。请确认内容后再选择要上传的版本。',
         ko: '같은 비공개 메모가 두 기기에서 변경되었습니다. 어느 버전도 덮어쓰지 않았습니다. 내용을 확인한 후 업로드할 버전을 선택하세요.',
         es: 'La misma nota privada se modifico en ambos dispositivos. No se sobrescribio ninguna version. Revisa ambos dispositivos antes de elegir que version subir.',
@@ -469,8 +461,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.error.malformed_private_note':
       return strings.localized(
-        en: 'The remote bundle contains an invalid private-note entry. No changes were applied.',
-        ja: 'リモートバンドルに不正なプライベートメモのデータが含まれているため、変更は適用されませんでした。',
+        en: 'The cloud backup contains invalid private-note data. Nothing changed. Try syncing again.',
+        ja: 'クラウドのバックアップに不正なプライベートメモのデータがあるため、変更していません。「今すぐ同期」をもう一度試してください。',
         zh: '远程同步包中包含无效的私密笔记数据，因此未应用任何更改。',
         ko: '원격 번들에 잘못된 비공개 메모 데이터가 있어 변경 사항을 적용하지 않았습니다.',
         es: 'El paquete remoto contiene una entrada de nota privada no valida. No se aplicaron cambios.',
@@ -478,8 +470,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.error.remote_attachment_unavailable':
       return strings.localized(
-        en: 'A required remote attachment is not available yet. The bundle was not marked as applied; sync again after the cloud finishes updating.',
-        ja: '必要なリモート添付ファイルをまだ取得できません。バンドルは適用済みにしていないため、クラウドの更新完了後にもう一度同期してください。',
+        en: 'A required cloud attachment is not ready yet. Wait for the cloud to finish updating, then sync again.',
+        ja: '必要な添付ファイルをクラウドからまだ取得できません。クラウドの更新が終わってから、もう一度「今すぐ同期」をタップしてください。',
         zh: '所需的远程附件尚不可用。同步包未标记为已应用，请等待云端更新完成后重试。',
         ko: '필요한 원격 첨부 파일을 아직 사용할 수 없습니다. 번들을 적용 완료로 표시하지 않았으므로 클라우드 업데이트 후 다시 동기화하세요.',
         es: 'Un adjunto remoto necesario aun no esta disponible. El paquete no se marco como aplicado; vuelve a sincronizar cuando termine la actualizacion en la nube.',
@@ -496,8 +488,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.info.upload_success':
       return strings.localized(
-        en: 'Encrypted bundle uploaded to $providerName.',
-        ja: '暗号化したバンドルを $providerName にアップロードしました。',
+        en: 'Your encrypted backup was sent to $providerName.',
+        ja: '暗号化したバックアップを $providerName に保存しました。',
         zh: '已将加密同步包上传到 $providerName。',
         ko: '암호화된 번들을 $providerName에 업로드했습니다.',
         es: 'Paquete cifrado subido a $providerName.',
@@ -505,8 +497,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.error.conflict_review_remote':
       return strings.localized(
-        en: 'This device has unsynced changes and the remote bundle may be newer. Review the remote changes before syncing.',
-        ja: 'この端末に未同期の変更があり、リモートにはより新しいバンドルがある可能性があります。リモートの変更を確認してから同期してください。',
+        en: 'This device has unsynced changes, and the cloud backup may be newer. Review the cloud changes before syncing.',
+        ja: 'この端末に未同期の変更があり、クラウドのバックアップの方が新しい可能性があります。クラウドの変更を確認してから同期してください。',
         zh: '此设备有未同步的更改，远程包可能更新。请先确认远程更改再同步。',
         ko: '이 기기에 미동기화 변경 사항이 있고 원격 번들이 더 최신일 수 있습니다. 동기화하기 전에 원격 변경 사항을 확인하세요.',
         es: 'Este dispositivo tiene cambios sin sincronizar y el paquete remoto puede ser mas reciente. Revisa los cambios remotos antes de sincronizar.',
@@ -515,8 +507,8 @@ String _localizedSyncTransferMessage(
     case 'sync.info.no_bundle_to_sync':
     case 'sync.info.no_usable_remote_bundle':
       return strings.localized(
-        en: 'No usable sync bundle is available in $providerName.',
-        ja: '$providerName に利用できる同期バンドルはありません。',
+        en: 'There is no usable cloud backup in $providerName.',
+        ja: '$providerName に利用できるバックアップがありません。',
         zh: '$providerName 中没有可用的同步包。',
         ko: '$providerName에 사용할 수 있는 동기화 번들이 없습니다.',
         es: 'No hay ningun paquete de sincronizacion disponible en $providerName.',
@@ -534,8 +526,8 @@ String _localizedSyncTransferMessage(
     case 'sync.error.selected_bundle_download_failed':
     case 'sync.error.remote_bundle_download_failed':
       return strings.localized(
-        en: 'The selected remote bundle could not be downloaded.',
-        ja: '選択したリモートバンドルをダウンロードできませんでした。',
+        en: 'The selected cloud backup could not be downloaded.',
+        ja: '選択したクラウドのバックアップを取得できませんでした。',
         zh: '无法下载选定的远程同步包。',
         ko: '선택한 원격 번들을 다운로드할 수 없습니다.',
         es: 'No se pudo descargar el paquete remoto seleccionado.',
@@ -544,8 +536,8 @@ String _localizedSyncTransferMessage(
     case 'sync.error.download_before_apply':
     case 'sync.error.download_before_review':
       return strings.localized(
-        en: 'Download a remote bundle before continuing.',
-        ja: '続行する前にリモートバンドルをダウンロードしてください。',
+        en: 'Get the cloud backup before continuing.',
+        ja: '続行する前にクラウドのバックアップを取得してください。',
         zh: '请先下载远程包再继续。',
         ko: '계속하기 전에 원격 번들을 다운로드하세요.',
         es: 'Descarga un paquete remoto antes de continuar.',
@@ -553,8 +545,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.error.downloaded_bundle_decryption_failed':
       return strings.localized(
-        en: 'The downloaded bundle could not be decrypted.',
-        ja: 'ダウンロードしたバンドルを復号できませんでした。',
+        en: 'The downloaded backup could not be read. Check the recovery key and try again.',
+        ja: '取得したバックアップを読み込めませんでした。復元キーを確認して、もう一度試してください。',
         zh: '无法解密已下载的同步包。',
         ko: '다운로드한 번들을 복호화할 수 없습니다.',
         es: 'No se pudo descifrar el paquete descargado.',
@@ -562,8 +554,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.error.attachment_object_hash_mismatch':
       return strings.localized(
-        en: 'A downloaded attachment did not match its sync metadata. Re-upload all notes from the original device and sync again.',
-        ja: 'ダウンロードした添付が同期メタデータと一致しませんでした。元端末で全メモを再アップロードしてから、もう一度同期してください。',
+        en: 'A downloaded attachment is damaged or outdated. On the original device, re-upload all notes, then sync again.',
+        ja: '取得した添付ファイルが壊れているか古い可能性があります。元端末で全メモを再アップロードしてから、「今すぐ同期」をもう一度タップしてください。',
         zh: '下载的附件与同步元数据不匹配。请从原设备重新上传全部备忘后再同步。',
         ko: '다운로드한 첨부가 동기화 메타데이터와 일치하지 않습니다. 원래 기기에서 모든 메모를 다시 업로드한 뒤 동기화하세요.',
         es: 'Un adjunto descargado no coincide con sus metadatos de sincronizacion. Vuelve a subir todas las notas desde el dispositivo original y sincroniza de nuevo.',
@@ -571,8 +563,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.error.private_profile_locked':
       return strings.localized(
-        en: 'This bundle contains private profile notes. Enter the same private profile password on this device, open that profile, then apply the bundle again.',
-        ja: 'プライベートプロファイルのメモが含まれています。同期先端末で同じプロファイルパスワードを入力して開いてから、もう一度適用してください。',
+        en: 'This backup contains private notes. Open the matching profile on this device, then sync again.',
+        ja: 'このバックアップにはプライベートメモが含まれています。この端末で該当するプロファイルを開いてから、「今すぐ同期」をもう一度タップしてください。',
         zh: '此同步包包含私密配置文件的备忘。请在此设备输入相同的配置文件密码并打开该配置文件，然后再次应用同步包。',
         ko: '이 번들에는 개인 프로필 메모가 포함되어 있습니다. 이 기기에서 동일한 프로필 비밀번호를 입력해 프로필을 연 뒤 번들을 다시 적용하세요.',
         es: 'Este paquete contiene notas de perfiles privados. Introduce la misma contrasena de perfil en este dispositivo, abre ese perfil y vuelve a aplicar el paquete.',
@@ -580,8 +572,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.info.apply_success':
       return strings.localized(
-        en: 'Downloaded bundle applied to local notes.',
-        ja: 'ダウンロードしたバンドルをローカルのノートに反映しました。',
+        en: 'The cloud backup was restored to this device.',
+        ja: 'クラウドのバックアップをこの端末に復元しました。',
         zh: '已将下载的同步包应用到本地笔记。',
         ko: '다운로드한 번들을 로컬 노트에 적용했습니다.',
         es: 'Paquete descargado aplicado a las notas locales.',
@@ -589,8 +581,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.info.private_profile_notes_pending_unlock':
       return strings.localized(
-        en: 'Sync completed. Private profile notes will be applied after you open the matching private profile on this device.',
-        ja: '同期は完了しました。プライベートプロファイルのメモは、この端末で該当するプロファイルを開いたあとに反映されます。',
+        en: 'Sync completed. Open the matching private profile on this device to finish restoring its notes.',
+        ja: '同期は完了しました。該当するプライベートプロファイルをこの端末で開くと、メモの復元が完了します。',
         zh: '同步已完成。私人配置文件中的笔记会在你在此设备上打开对应配置文件后应用。',
         ko: '동기화가 완료되었습니다. 비공개 프로필 메모는 이 기기에서 해당 프로필을 연 뒤 적용됩니다.',
         es: 'La sincronizacion se completo. Las notas de perfiles privados se aplicaran cuando abras el perfil privado correspondiente en este dispositivo.',
@@ -598,8 +590,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.info.deferred_attachments_downloaded':
       return strings.localized(
-        en: 'Pending attachments were downloaded.',
-        ja: '保留中の添付をダウンロードしました。',
+        en: 'Missing attachments were downloaded.',
+        ja: '不足していた添付ファイルを取得しました。',
         zh: '已下载待处理附件。',
         ko: '보류 중인 첨부를 다운로드했습니다.',
         es: 'Se descargaron los adjuntos pendientes.',
@@ -607,8 +599,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.info.no_deferred_attachments':
       return strings.localized(
-        en: 'No pending attachments need to be downloaded.',
-        ja: 'ダウンロード待ちの添付はありません。',
+        en: 'There are no missing attachments to get.',
+        ja: '取得が必要な添付ファイルはありません。',
         zh: '没有需要下载的待处理附件。',
         ko: '다운로드할 보류 중인 첨부가 없습니다.',
         es: 'No hay adjuntos pendientes para descargar.',
@@ -616,8 +608,8 @@ String _localizedSyncTransferMessage(
       );
     case 'sync.info.remote_bundle_saved_locally':
       return strings.localized(
-        en: '$providerName remote bundle was saved to protected local storage.',
-        ja: '$providerName のリモートバンドルをローカルの保護ストレージに保存しました。',
+        en: 'The $providerName backup was saved securely on this device.',
+        ja: '$providerName のバックアップをこの端末に安全に保存しました。',
         zh: '已将 $providerName 远程包保存到本地受保护存储。',
         ko: '$providerName 원격 번들을 로컬 보호 저장소에 저장했습니다.',
         es: 'El paquete remoto de $providerName se guardo en el almacenamiento local protegido.',
@@ -661,7 +653,7 @@ String _localizedSyncTransferMessage(
   if (message ==
       '同期バンドルを読むためのクラウド復元キーがこの端末にありません。元端末でクラウド復元キーをコピーし、この端末へ読み込んでから、もう一度同期してください。') {
     return strings.localized(
-      en: 'The cloud recovery key for this sync bundle is not available on this device. Copy the cloud recovery key from the original device, import it here, then sync again.',
+      en: 'This device is missing the cloud recovery key. Copy it from the original device, import it here, then sync again.',
       ja: message,
       zh: '此设备没有读取同步包所需的云恢复密钥。请从原设备复制云恢复密钥并在此设备导入，然后再次同步。',
       ko: '이 기기에 동기화 번들을 읽는 데 필요한 클라우드 복구 키가 없습니다. 원래 기기에서 키를 복사해 이 기기로 가져온 뒤 다시 동기화하세요.',
@@ -672,7 +664,7 @@ String _localizedSyncTransferMessage(
   if (message ==
       '同期バンドルを読むためのクラウド復元キーがまだこの端末にありません。iCloud Keychain の同期待ちの可能性があります。しばらく待ってから再試行するか、元端末でクラウド復元キーをコピーしてこの端末へ読み込んでください。') {
     return strings.localized(
-      en: 'The cloud recovery key for this sync bundle is not on this device yet. iCloud Keychain may still be syncing. Wait a little and try again, or copy the cloud recovery key from the original device and import it here.',
+      en: 'The cloud recovery key has not reached this device yet. Wait a moment and try again, or import the key from the original device.',
       ja: message,
       zh: '此设备还没有读取同步包所需的云恢复密钥。可能正在等待 iCloud Keychain 同步。请稍后重试，或从原设备复制云恢复密钥并在此设备导入。',
       ko: '이 기기에 동기화 번들을 읽는 데 필요한 클라우드 복구 키가 아직 없습니다. iCloud Keychain 동기화 대기 중일 수 있습니다. 잠시 후 다시 시도하거나 원래 기기에서 키를 복사해 가져오세요.',
@@ -682,7 +674,7 @@ String _localizedSyncTransferMessage(
   }
   if (message == 'リモートの状態を確認するには、先にクラウド同期先を選択してください。') {
     return strings.localized(
-      en: 'Select a cloud sync target before checking the remote status.',
+      en: 'Choose a cloud backup location before checking its status.',
       ja: message,
       zh: '请先选择云同步目标，再检查远程状态。',
       ko: '원격 상태를 확인하기 전에 클라우드 동기화 대상을 선택하세요.',
@@ -692,7 +684,7 @@ String _localizedSyncTransferMessage(
   }
   if (message == 'リモートにはまだバンドルが保存されていません。') {
     return strings.localized(
-      en: 'No remote bundle has been saved yet.',
+      en: 'No cloud backup has been saved yet.',
       ja: message,
       zh: '远程还没有保存同步包。',
       ko: '원격에 저장된 번들이 아직 없습니다.',
@@ -714,7 +706,7 @@ String _localizedSyncTransferMessage(
   }
   if (message.contains('先にリモートのバンドルをダウンロードして適用するか')) {
     return strings.localized(
-      en: 'This device has unsynced changes and the remote bundle may be newer. Download and apply the remote bundle first, or use force upload if you want this device to overwrite the remote bundle.',
+      en: 'This device has unsynced changes, and the cloud backup may be newer. Get it first, or choose Force upload to replace it with this device’s notes.',
       ja: message,
       zh: '此设备有未同步的更改，远程包可能更新。请先下载并应用远程包；如果要用此设备覆盖远程包，请使用强制上传。',
       ko: '이 기기에 미동기화 변경 사항이 있고 원격 번들이 더 최신일 수 있습니다. 먼저 원격 번들을 다운로드해 적용하거나, 이 기기로 덮어쓰려면 강제 업로드를 사용하세요.',
@@ -724,7 +716,7 @@ String _localizedSyncTransferMessage(
   }
   if (message.contains('リモートの変更を確認してから同期してください。')) {
     return strings.localized(
-      en: 'This device has unsynced changes and the remote bundle may be newer. Review the remote changes before syncing.',
+      en: 'This device has unsynced changes, and the cloud backup may be newer. Review the cloud changes before syncing.',
       ja: message,
       zh: '此设备有未同步的更改，远程包可能更新。请先确认远程更改再同步。',
       ko: '이 기기에 미동기화 변경 사항이 있고 원격 번들이 더 최신일 수 있습니다. 동기화하기 전에 원격 변경 사항을 확인하세요.',
@@ -734,7 +726,7 @@ String _localizedSyncTransferMessage(
   }
   if (message == 'ローカルの同期バンドルを準備できませんでした。') {
     return strings.localized(
-      en: 'The local sync bundle could not be prepared.',
+      en: 'This device could not prepare the backup. Try syncing again.',
       ja: message,
       zh: '无法准备本地同步包。',
       ko: '로컬 동기화 번들을 준비할 수 없습니다.',
@@ -744,7 +736,7 @@ String _localizedSyncTransferMessage(
   }
   if (message == '暗号化したバンドルを $providerName にアップロードしました。') {
     return strings.localized(
-      en: 'Encrypted bundle uploaded to $providerName.',
+      en: 'Your encrypted backup was sent to $providerName.',
       ja: message,
       zh: '已将加密同步包上传到 $providerName。',
       ko: '암호화된 번들을 $providerName에 업로드했습니다.',
@@ -765,7 +757,7 @@ String _localizedSyncTransferMessage(
   if (message.contains('に同期できるバンドルはありません') ||
       message.contains('に利用できるリモートバンドルはありません')) {
     return strings.localized(
-      en: 'No usable sync bundle is available in $providerName.',
+      en: 'There is no usable cloud backup in $providerName.',
       ja: message,
       zh: '$providerName 中没有可用的同步包。',
       ko: '$providerName에 사용할 수 있는 동기화 번들이 없습니다.',
@@ -776,7 +768,7 @@ String _localizedSyncTransferMessage(
   if (message == '適用する前にリモートバンドルをダウンロードしてください。' ||
       message == '確認する前にリモートバンドルをダウンロードしてください。') {
     return strings.localized(
-      en: 'Download a remote bundle before continuing.',
+      en: 'Get the cloud backup before continuing.',
       ja: message,
       zh: '请先下载远程包再继续。',
       ko: '계속하기 전에 원격 번들을 다운로드하세요.',
@@ -786,7 +778,7 @@ String _localizedSyncTransferMessage(
   }
   if (message == 'ダウンロードしたバンドルを復号できませんでした。') {
     return strings.localized(
-      en: 'The downloaded bundle could not be decrypted.',
+      en: 'The downloaded backup could not be read. Check the recovery key and try again.',
       ja: message,
       zh: '无法解密已下载的同步包。',
       ko: '다운로드한 번들을 복호화할 수 없습니다.',
@@ -797,7 +789,7 @@ String _localizedSyncTransferMessage(
   if (message ==
       'プライベートプロファイルのメモが含まれています。同期先端末で同じプロファイルパスワードを入力して開いてから、もう一度適用してください。') {
     return strings.localized(
-      en: 'This bundle contains private profile notes. Enter the same private profile password on this device, open that profile, then apply the bundle again.',
+      en: 'This backup contains private notes. Open the matching profile on this device, then sync again.',
       ja: message,
       zh: '此同步包包含私密配置文件的备忘。请在此设备输入相同的配置文件密码并打开该配置文件，然后再次应用同步包。',
       ko: '이 번들에는 개인 프로필 메모가 포함되어 있습니다. 이 기기에서 동일한 프로필 비밀번호를 입력해 프로필을 연 뒤 번들을 다시 적용하세요.',
@@ -807,7 +799,7 @@ String _localizedSyncTransferMessage(
   }
   if (message == 'ダウンロードしたバンドルをローカルのノートに反映しました。') {
     return strings.localized(
-      en: 'Downloaded bundle applied to local notes.',
+      en: 'The cloud backup was restored to this device.',
       ja: message,
       zh: '已将下载的同步包应用到本地笔记。',
       ko: '다운로드한 번들을 로컬 노트에 적용했습니다.',
@@ -817,7 +809,7 @@ String _localizedSyncTransferMessage(
   }
   if (message.contains('のリモートバンドルをローカルの保護ストレージに保存しました。')) {
     return strings.localized(
-      en: '$providerName remote bundle was saved to protected local storage.',
+      en: 'The $providerName backup was saved securely on this device.',
       ja: message,
       zh: '已将 $providerName 远程包保存到本地受保护存储。',
       ko: '$providerName 원격 번들을 로컬 보호 저장소에 저장했습니다.',
@@ -892,8 +884,8 @@ String _remoteBundleSummary(
     if (lastRemoteAt != null) {
       final modifiedAt = _formatDateTime(lastRemoteAt, strings);
       return strings.localized(
-        en: 'Last known remote bundle: $modifiedAt. Refresh to check for newer changes.',
-        ja: '最後に確認したリモートバンドル: $modifiedAt。新しい変更を確認するには更新してください。',
+        en: 'Last cloud backup checked: $modifiedAt. Refresh to check for changes.',
+        ja: '最後に確認したクラウドバックアップ: $modifiedAt。変更を確認するには更新してください。',
         zh: '上次确认的远程包：$modifiedAt。请刷新以检查更新。',
         ko: '마지막으로 확인한 원격 번들: $modifiedAt. 새 변경 사항은 새로고침으로 확인하세요.',
         es: 'Ultimo paquete remoto conocido: $modifiedAt. Actualiza para comprobar cambios nuevos.',
@@ -913,8 +905,8 @@ String _remoteBundleSummary(
       ? '?'
       : '${remote.attachmentCount}';
   return strings.localized(
-    en: 'Latest change bundle: $modifiedAt, $sizeLabel, $noteCount changed notes, $attachmentCount attachments.',
-    ja: '最新の変更バンドル: $modifiedAt、$sizeLabel、変更ノート $noteCount 件、添付 $attachmentCount 件。',
+    en: 'Latest cloud changes: $modifiedAt, $sizeLabel, $noteCount notes, $attachmentCount attachments.',
+    ja: '最新のクラウド変更: $modifiedAt、$sizeLabel、メモ $noteCount 件、添付 $attachmentCount 件。',
     zh: '最新变更包：$modifiedAt，$sizeLabel，变更笔记 $noteCount 条，附件 $attachmentCount 个。',
     ko: '최신 변경 번들: $modifiedAt, $sizeLabel, 변경된 노트 $noteCount개, 첨부 $attachmentCount개.',
     es: 'Último paquete de cambios: $modifiedAt, $sizeLabel, $noteCount notas cambiadas, $attachmentCount adjuntos.',
@@ -938,42 +930,51 @@ String _cloudSyncSnackBarMessage(
 ) {
   final providerName = _syncProviderName(provider);
   if (state.stage == SyncTransferStage.error) {
+    final detail = state.message;
+    if (detail != null && detail.isNotEmpty) {
+      final explanation = _localizedSyncTransferMessage(
+        strings,
+        detail,
+        provider,
+      );
+      if (explanation != detail) return explanation;
+    }
     return switch (action) {
       _CloudSyncSnackBarAction.refreshRemote => strings.localized(
-        en: 'Could not refresh remote sync status.',
-        ja: 'リモート同期状態を更新できませんでした。',
+        en: 'Could not check the cloud backup. Check your connection and try again.',
+        ja: 'クラウドのバックアップを確認できませんでした。通信状態を確認して再試行してください。',
         zh: '无法刷新远程同步状态。',
         ko: '원격 동기화 상태를 새로 고칠 수 없습니다.',
         es: 'No se pudo actualizar el estado de sincronizacion remota.',
         de: 'Der Remote-Synchronisierungsstatus konnte nicht aktualisiert werden.',
       ),
       _CloudSyncSnackBarAction.upload => strings.localized(
-        en: 'Could not upload the sync bundle.',
-        ja: '同期バンドルをアップロードできませんでした。',
+        en: 'Could not send the backup. Check your connection and try again.',
+        ja: 'バックアップを送信できませんでした。通信状態を確認して再試行してください。',
         zh: '无法上传同步包。',
         ko: '동기화 번들을 업로드할 수 없습니다.',
         es: 'No se pudo subir el paquete de sincronizacion.',
         de: 'Das Synchronisierungspaket konnte nicht hochgeladen werden.',
       ),
       _CloudSyncSnackBarAction.download => strings.localized(
-        en: 'Could not download the remote sync bundle.',
-        ja: 'リモート同期バンドルをダウンロードできませんでした。',
+        en: 'Could not get the cloud backup. Check your connection and try again.',
+        ja: 'クラウドのバックアップを取得できませんでした。通信状態を確認して再試行してください。',
         zh: '无法下载远程同步包。',
         ko: '원격 동기화 번들을 다운로드할 수 없습니다.',
         es: 'No se pudo descargar el paquete de sincronizacion remoto.',
         de: 'Das Remote-Synchronisierungspaket konnte nicht heruntergeladen werden.',
       ),
       _CloudSyncSnackBarAction.apply => strings.localized(
-        en: 'Could not apply the downloaded sync bundle.',
-        ja: 'ダウンロードした同期バンドルを適用できませんでした。',
+        en: 'Could not restore the backup. Check the recovery key and private profile, then try again.',
+        ja: 'バックアップを復元できませんでした。復元キーとプライベートプロファイルを確認して再試行してください。',
         zh: '无法应用已下载的同步包。',
         ko: '다운로드한 동기화 번들을 적용할 수 없습니다.',
         es: 'No se pudo aplicar el paquete de sincronizacion descargado.',
         de: 'Das heruntergeladene Synchronisierungspaket konnte nicht angewendet werden.',
       ),
       _CloudSyncSnackBarAction.syncNow => strings.localized(
-        en: 'Cloud sync could not be completed.',
-        ja: 'クラウド同期を完了できませんでした。',
+        en: 'Could not sync. Check your connection and cloud account, then try again.',
+        ja: '同期できませんでした。通信状態とクラウドの接続を確認して再試行してください。',
         zh: '无法完成云同步。',
         ko: '클라우드 동기화를 완료할 수 없습니다.',
         es: 'No se pudo completar la sincronizacion en la nube.',
@@ -985,40 +986,40 @@ String _cloudSyncSnackBarMessage(
     _CloudSyncSnackBarAction.refreshRemote =>
       state.remoteStatus == null
           ? strings.localized(
-              en: 'No remote sync bundle has been saved yet.',
-              ja: 'リモートにはまだ同期バンドルが保存されていません。',
+              en: 'No cloud backup has been saved yet.',
+              ja: 'クラウドにバックアップがまだありません。',
               zh: '远程还没有保存同步包。',
               ko: '원격에 저장된 동기화 번들이 아직 없습니다.',
               es: 'Todavia no se ha guardado ningun paquete de sincronizacion remoto.',
               de: 'Es wurde noch kein Remote-Synchronisierungspaket gespeichert.',
             )
           : strings.localized(
-              en: '$providerName bundle information was refreshed.',
-              ja: '$providerName のバンドル情報を更新しました。',
+              en: '$providerName backup status was refreshed.',
+              ja: '$providerName のバックアップ状態を更新しました。',
               zh: '$providerName 的同步包信息已更新。',
               ko: '$providerName 번들 정보를 새로 고쳤습니다.',
               es: 'Se actualizo la informacion del paquete de $providerName.',
               de: 'Die Paketinformationen von $providerName wurden aktualisiert.',
             ),
     _CloudSyncSnackBarAction.upload => strings.localized(
-      en: 'Encrypted bundle uploaded to $providerName.',
-      ja: '暗号化したバンドルを $providerName にアップロードしました。',
+      en: 'Your encrypted backup was sent to $providerName.',
+      ja: '暗号化したバックアップを $providerName に保存しました。',
       zh: '已将加密同步包上传到 $providerName。',
       ko: '암호화된 번들을 $providerName에 업로드했습니다.',
       es: 'Paquete cifrado subido a $providerName.',
       de: 'Verschlusseltes Paket wurde zu $providerName hochgeladen.',
     ),
     _CloudSyncSnackBarAction.download => strings.localized(
-      en: 'Remote bundle download check completed for $providerName.',
-      ja: '$providerName のリモートバンドル確認が完了しました。',
+      en: 'Cloud backup check completed for $providerName.',
+      ja: '$providerName のクラウドバックアップを確認しました。',
       zh: '$providerName 的远程包检查已完成。',
       ko: '$providerName 원격 번들 확인이 완료되었습니다.',
       es: 'Comprobacion de descarga del paquete remoto completada para $providerName.',
       de: 'Prufung des Remote-Paketdownloads fur $providerName abgeschlossen.',
     ),
     _CloudSyncSnackBarAction.apply => strings.localized(
-      en: 'Downloaded bundle applied to local notes.',
-      ja: 'ダウンロードしたバンドルをローカルのノートに反映しました。',
+      en: 'The cloud backup was restored to this device.',
+      ja: 'クラウドのバックアップをこの端末に復元しました。',
       zh: '已将下载的同步包应用到本地笔记。',
       ko: '다운로드한 번들을 로컬 노트에 적용했습니다.',
       es: 'Paquete descargado aplicado a las notas locales.',

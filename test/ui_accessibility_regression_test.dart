@@ -259,6 +259,38 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('sync setup shows a clear next step before advanced tools', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
+    );
+    _configureView(tester, size: const Size(800, 900));
+    await _pumpSettingsScreen(tester, harness.container);
+
+    final section = find.text('Backup and sync');
+    await tester.scrollUntilVisible(section, 500);
+    await tester.tap(section);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sync with'), findsOneWidget);
+    expect(find.byKey(SettingsScreen.syncNowKey), findsNothing);
+    await tester.scrollUntilVisible(
+      find.byKey(SettingsScreen.syncGoogleDriveKey),
+      250,
+    );
+    await tester.tap(find.byKey(SettingsScreen.syncGoogleDriveKey));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Connect to Google Drive to start syncing.'),
+      findsOneWidget,
+    );
+    expect(find.byKey(SettingsScreen.syncConnectKey), findsOneWidget);
+    expect(find.byKey(SettingsScreen.syncNowKey), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('bottom-navigation widths keep the compact settings layout', (
     tester,
   ) async {

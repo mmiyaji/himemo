@@ -353,7 +353,7 @@ void main() {
           '                syncAuthState.isAuthenticated)',
         ),
       );
-      expect(strings, contains("en: 'Advanced sync settings'"));
+      expect(strings, contains("en: 'Sync details'"));
       expect(settings, contains("en: 'Sync status'"));
       expect(settings, contains("en: 'Recovery key'"));
       expect(settings, contains("en: 'History'"));
