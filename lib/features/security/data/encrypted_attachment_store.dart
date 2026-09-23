@@ -268,6 +268,46 @@ class EncryptedAttachmentStore {
     await prefs.setString('$vaultStoragePrefix$storedReference', vaultId);
   }
 
+  /// Returns true when legacy device-key ciphertext was rewritten with the
+  /// private profile key. Sync must publish the new payload hash in that case.
+  Future<bool> migrateLegacyPrivateAttachment(
+    String storedReference, {
+    required AttachmentType type,
+    required String vaultId,
+  }) async {
+    if (!isProfileDataKeyPrivateVaultId(vaultId)) return false;
+    final payload = await _readPayload(storedReference);
+    if (payload == null || payload.isEmpty) return false;
+    final profileKey = await _keyForVault(vaultId);
+    if (profileKey == null) {
+      throw StateError('Attachment key is unavailable for $vaultId.');
+    }
+    try {
+      await _decryptAttachmentBytesFromStorage(
+        encodedPayload: payload,
+        key: profileKey,
+        additionalData: _aad(type),
+      );
+      final prefs = await _sharedPreferencesProvider();
+      await prefs.setString('$vaultStoragePrefix$storedReference', vaultId);
+      return false;
+    } catch (_) {
+      // Older private attachments were saved with the device key. Read with
+      // the legacy fallback, then replace the ciphertext before it is synced.
+      final bytes = await readAttachment(storedReference, type: type);
+      if (bytes == null || bytes.isEmpty) return false;
+      final encrypted = await _encryptAttachmentBytesForStorage(
+        bytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+        key: profileKey,
+        type: type,
+      );
+      await _writePayload(storedReference, encrypted);
+      final prefs = await _sharedPreferencesProvider();
+      await prefs.setString('$vaultStoragePrefix$storedReference', vaultId);
+      return true;
+    }
+  }
+
   Future<void> deleteMaterializedFile(String filePath) async {
     if (kIsWeb) {
       return;

@@ -824,7 +824,7 @@ void main() {
   );
 
   test(
-    'iCloud auto prune preserves older larger bundles after smaller upload',
+    'iCloud auto prune retains attachment objects used by older bundles',
     () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
       addTearDown(() {
@@ -857,18 +857,6 @@ void main() {
         sharedPreferencesProvider: SharedPreferences.getInstance,
       );
       final fakeTransport = InMemoryICloudSyncTransport();
-      final olderLarger = await fakeTransport.uploadBundle(
-        encodedPayload: 'older-larger-bundle',
-        deviceId: 'other-device',
-        noteCount: 8,
-        attachmentCount: 0,
-      );
-      await fakeTransport.uploadBundle(
-        encodedPayload: 'newer-smaller-bundle',
-        deviceId: 'other-device',
-        noteCount: 6,
-        attachmentCount: 0,
-      );
       final container = ProviderContainer(
         overrides: [
           secureKeyValueStoreProvider.overrideWithValue(secureStore),
@@ -906,7 +894,50 @@ void main() {
       await container
           .read(syncAuthControllerProvider.notifier)
           .connect(SyncProvider.iCloud);
-      await container.read(notesControllerProvider.notifier).restoreCompleted;
+      final notesController = container.read(notesControllerProvider.notifier);
+      await notesController.restoreCompleted;
+      final attachmentFile = await _writePayloadFile(
+        tempDirectory,
+        'older-retained-attachment.bin',
+        sizeBytes: 4,
+        byte: 0x41,
+      );
+      final storedAttachmentPath = await attachmentStore.storeAttachment(
+        XFile(
+          attachmentFile.path,
+          name: 'older-retained-attachment.bin',
+          mimeType: 'application/octet-stream',
+        ),
+        type: AttachmentType.file,
+      );
+      expect(storedAttachmentPath, isNotNull);
+      await notesController.upsert(
+        NoteEntry(
+          id: 'older-note-with-attachment',
+          vaultId: 'everyday',
+          title: 'Older note with attachment',
+          body: 'Its attachment must survive pruning.',
+          createdAt: DateTime.utc(2026, 6, 2, 0, 25),
+          updatedAt: DateTime.utc(2026, 6, 2, 0, 25),
+          attachments: [
+            NoteAttachment(
+              type: AttachmentType.file,
+              label: 'older-retained-attachment.bin',
+              filePath: storedAttachmentPath,
+            ),
+          ],
+        ),
+      );
+      await container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true);
+      final olderBundle = await fakeTransport.fetchLatestBundleStatus();
+      expect(olderBundle, isNotNull);
+      final attachmentHashes = await fakeTransport
+          .listAttachmentObjectContentHashes();
+      expect(attachmentHashes, hasLength(1));
+      final retainedAttachmentHash = attachmentHashes.single;
+      await notesController.deletePermanently('older-note-with-attachment');
       await container
           .read(notesControllerProvider.notifier)
           .upsert(
@@ -914,11 +945,21 @@ void main() {
               id: 'post-loss-note',
               vaultId: 'everyday',
               title: 'Post loss note',
-              body: 'This smaller local state must not erase history.',
+              body: 'The newer bundle has no reference to the old attachment.',
               createdAt: DateTime.utc(2026, 6, 2, 0, 27),
               updatedAt: DateTime.utc(2026, 6, 2, 0, 27),
             ),
           );
+      await notesController.upsert(
+        NoteEntry(
+          id: 'second-post-loss-note',
+          vaultId: 'everyday',
+          title: 'Second post loss note',
+          body: 'Keep the newer bundle large enough to run automatic prune.',
+          createdAt: DateTime.utc(2026, 6, 2, 0, 28),
+          updatedAt: DateTime.utc(2026, 6, 2, 0, 28),
+        ),
+      );
 
       await container
           .read(syncTransferControllerProvider.notifier)
@@ -928,16 +969,16 @@ void main() {
       final history = await fakeTransport.listBundleHistory(limit: 10);
       expect(
         history.map((status) => status.fileId),
-        contains(olderLarger.fileId),
+        contains(olderBundle!.fileId),
       );
       expect(
-        await fakeTransport.downloadBundleByRecordName(olderLarger.fileId),
+        await fakeTransport.downloadAttachmentObject(retainedAttachmentHash),
         isNotNull,
         reason:
-            'A smaller post-loss upload must not prune the older larger '
-            'bundle that may be the only recovery point.',
+            'An attachment referenced only by a retained older bundle must '
+            'survive automatic iCloud pruning.',
       );
-      expect(history.length, 3);
+      expect(history.length, 2);
     },
   );
 
@@ -2818,6 +2859,92 @@ void main() {
   });
 
   test(
+    'full upload is blocked while a private attachment profile is locked',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-locked-private-full-attachment-',
+        randomSeed: 183,
+      );
+      await harness.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'full-upload-baseline',
+              vaultId: 'everyday',
+              title: 'Baseline',
+              body: 'Existing remote snapshot',
+              createdAt: DateTime.utc(2026, 9, 23),
+            ),
+          );
+      final sync = harness.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      await sync.uploadCurrentBundle(force: true);
+      final before = await transport.fetchLatestBundleStatus();
+      expect(before, isNotNull);
+      final profiles = harness.container.read(
+        privateMemoProfilesControllerProvider.notifier,
+      );
+      expect(
+        await profiles.addProfile(
+          name: 'Private attachment',
+          password: 'full-upload-pass',
+        ),
+        isNull,
+      );
+      final unlocked = await harness.container
+          .read(privateProfileUnlockControllerProvider.notifier)
+          .unlockWithPassword('full-upload-pass');
+      expect(unlocked, isNotNull);
+      final vaultId = unlocked!.vaultId;
+      final storedPath = syncAttachmentObjectRef('locked-full-attachment-hash');
+      await harness.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'locked-private-attachment-full',
+              vaultId: vaultId,
+              title: 'Locked attachment',
+              body: 'Must remain in the remote full snapshot.',
+              createdAt: DateTime.utc(2026, 9, 24),
+              attachments: [
+                NoteAttachment(
+                  type: AttachmentType.file,
+                  label: 'locked.txt',
+                  filePath: storedPath,
+                ),
+              ],
+            ),
+          );
+      expect(
+        harness.container
+            .read(profileDataKeyServiceProvider)
+            .isProfileUnlocked(vaultId),
+        isTrue,
+      );
+      harness.container
+          .read(unlockedPrivateProfileVaultIdProvider.notifier)
+          .lock();
+      await sync.uploadCurrentBundle(force: true, fullSnapshot: true);
+
+      final state = harness.container.read(syncTransferControllerProvider);
+      expect(state.stage, SyncTransferStage.error);
+      expect(
+        state.message,
+        contains('unlock_private_profiles_before_full_upload'),
+      );
+      final after = await transport.fetchLatestBundleStatus();
+      expect(after?.fileId, before?.fileId);
+      expect(after?.attachmentCount, before?.attachmentCount);
+    },
+  );
+
+  test(
     'private profile attachment sync materializes on another device',
     () async {
       SharedPreferences.setMockInitialValues({});
@@ -2837,7 +2964,7 @@ void main() {
         final tempDirectory = await Directory.systemTemp.createTemp(prefix);
         final encryptionService = EncryptionService(random: Random(randomSeed));
         final masterKeyService = MasterKeyService(
-          secureStore: secureStore,
+          secureStore: MemorySecureKeyValueStore(),
           keyFactory: encryptionService.generateKeyBytes,
         );
         final database = EncryptedNoteDatabase(
@@ -2964,6 +3091,17 @@ void main() {
             ),
           );
 
+      // Simulate an attachment left under the old device key by an earlier
+      // app version. The target device has a different master key, so sync
+      // must re-encrypt this payload with the profile key before uploading.
+      final legacyPath = await sourceAttachmentStore.storeAttachment(
+        XFile.fromData(attachmentBytes, name: 'legacy-private-photo.jpg'),
+        type: AttachmentType.photo,
+      );
+      await File(
+        storedPath!,
+      ).writeAsBytes(await File(legacyPath!).readAsBytes(), flush: true);
+
       await source.container
           .read(syncTransferControllerProvider.notifier)
           .uploadCurrentBundle(force: true);
@@ -3000,6 +3138,15 @@ void main() {
       );
       final remoteAttachmentHashesBeforeSecondUpload = await fakeTransport
           .listAttachmentObjectContentHashes();
+      await sourceAttachmentStore.deleteAttachment(storedPath);
+      await sourceSync.uploadCurrentBundle(force: true, fullSnapshot: true);
+      final repairedSourceNote = source.container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'private-attachment-note');
+      expect(
+        repairedSourceNote.attachments.single.filePath,
+        syncAttachmentObjectRef(syncedAttachmentHash!),
+      );
       await sourceSync.uploadCurrentBundle(force: true, fullSnapshot: true);
       final secondRemoteStatus = await fakeTransport.fetchLatestBundleStatus();
       expect(secondRemoteStatus?.attachmentCount, 1);

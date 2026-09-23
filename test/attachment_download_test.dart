@@ -91,6 +91,35 @@ void main() {
       expect(state.stage, SyncTransferStage.success, reason: state.message);
       expect(transport.uploadCalls, 2);
       expect(transport.missing, isFalse);
+
+      // An app update can leave a note pointing at an old local container
+      // path while its cloud hash is still valid. The explicit download must
+      // recover that note without first replacing the whole sync bundle.
+      final staleAttachment = h.container
+          .read(notesControllerProvider)
+          .single
+          .attachments
+          .single;
+      expect(staleAttachment.syncAttachmentContentHash, isNotNull);
+      await h.attachmentStore.deleteAttachment(stored);
+      final downloaded = await sync.downloadAttachment(staleAttachment);
+      expect(downloaded.filePath, isNot(stored));
+      expect(
+        await h.attachmentStore.readAttachment(
+          downloaded.filePath!,
+          type: AttachmentType.photo,
+        ),
+        [3, 1, 4, 1],
+      );
+      expect(
+        h.container
+            .read(notesControllerProvider)
+            .single
+            .attachments
+            .single
+            .filePath,
+        downloaded.filePath,
+      );
     },
   );
   setUp(() {

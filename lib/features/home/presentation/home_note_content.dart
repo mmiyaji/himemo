@@ -5880,7 +5880,22 @@ Future<NoteAttachment?> _downloadRemoteAttachmentWithPrompt(
   NoteAttachment attachment,
 ) async {
   final filePath = attachment.filePath;
-  if (filePath == null || !isSyncAttachmentObjectRef(filePath)) {
+  final hasSyncContentHash =
+      attachment.syncAttachmentContentHash?.isNotEmpty == true;
+  final localPayloadMissing =
+      hasSyncContentHash &&
+      filePath != null &&
+      filePath.isNotEmpty &&
+      !isSyncAttachmentObjectRef(filePath) &&
+      await ref
+              .read(encryptedAttachmentStoreProvider)
+              .storedPayloadMetadata(filePath) ==
+          null;
+  if (!isSyncAttachmentObjectRef(filePath) &&
+      !(hasSyncContentHash && localPayloadMissing)) {
+    return attachment;
+  }
+  if (!context.mounted) {
     return attachment;
   }
   return showDialog<NoteAttachment>(

@@ -115,6 +115,34 @@ void main() {
     downloadCompleter.complete(_remoteAttachment(filePath: '/local/photo.jpg'));
     await tester.pumpAndSettle();
   });
+
+  testWidgets(
+    'offers download when a hashed local attachment payload is missing',
+    (tester) async {
+      final downloadCompleter = Completer<NoteAttachment>();
+      final attachment = NoteAttachment(
+        type: AttachmentType.photo,
+        label: 'stale-photo.jpg',
+        filePath: '/definitely-missing-after-update/stale-photo.enc',
+        syncAttachmentContentHash: '0123456789abcdef',
+      );
+      final fake = _FakeSyncTransferController(
+        onDownload: (_) => downloadCompleter.future,
+      );
+      await _pumpDownloadDialog(tester, fake: fake, attachment: attachment);
+
+      await tester.tap(find.byType(FilledButton).last);
+      await tester.pump();
+      expect(fake.calls, 1);
+
+      downloadCompleter.complete(
+        attachment.copyWith(filePath: '/local/stale-photo.jpg'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(RemoteAttachmentDownloadDialog), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
 
 NoteAttachment _remoteAttachment({

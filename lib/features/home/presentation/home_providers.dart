@@ -4109,6 +4109,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (decoded == null) {
       return const <String>{};
     }
+    final hashes = _referencedAttachmentHashesFromDecodedBundle(decoded);
+    hashes.addAll(await _localSyncAttachmentContentHashes());
+    return hashes;
+  }
+
+  Set<String> _referencedAttachmentHashesFromDecodedBundle(
+    Map<String, dynamic> decoded,
+  ) {
     final hashes = <String>{};
     for (final rawAttachment
         in (decoded['attachments'] as List<dynamic>? ?? const <dynamic>[])) {
@@ -4131,7 +4139,6 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       }
       hashes.addAll(syncAttachmentObjectHashesInNoteJson(rawNote));
     }
-    hashes.addAll(await _localSyncAttachmentContentHashes());
     return hashes;
   }
 
@@ -4402,6 +4409,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           'locked private profile upserts skipped for upload',
           data: {'count': skippedLockedPrivateUpsertIds.length},
         );
+        if (fullSnapshot) {
+          // An explicitly requested full re-upload must not silently become
+          // an incomplete delta. Routine sync can safely keep its existing
+          // delta behavior until every private profile is unlocked.
+          throw const SyncSafetyException(
+            'sync.error.unlock_private_profiles_before_full_upload',
+          );
+        }
         pendingChanges = pendingChanges
             .where(
               (change) =>
@@ -4907,6 +4922,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     final preparedAttachmentHashes = <String>{};
     final skippedLockedUpsertIds = <String>{};
     final localAttachmentPathsByVault = <String, Map<String, String?>>{};
+    final migratedAttachmentPaths = <String>{};
 
     Future<Map<String, String?>> localAttachmentPathsForVault(
       String vaultId,
@@ -4964,6 +4980,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           localAttachmentPathsBySyncHash: await localAttachmentPathsForVault(
             snapshot.note.vaultId,
           ),
+          migratedAttachmentPaths: migratedAttachmentPaths,
         );
         noteRecord = prepared.note;
         attachmentRecords = prepared.attachments;
@@ -4993,6 +5010,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     required List<PreparedSyncNote> preparedNotes,
     Set<String>? remoteAttachmentContentHashes,
     required Map<String, String?> localAttachmentPathsBySyncHash,
+    required Set<String> migratedAttachmentPaths,
   }) async {
     final encryptionService = ref.read(encryptionServiceProvider);
     final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
@@ -5099,10 +5117,28 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           return attachment.copyWith(syncAttachmentContentHash: contentHash);
         }
       }
+      if (attachmentIdsByPath[filePath] case final existingId?) {
+        final metadata = await attachmentStore.storedPayloadMetadata(filePath);
+        return attachment.copyWith(
+          filePath: syncAttachmentObjectRef(existingId),
+          localPayloadSizeBytes: metadata?.sizeBytes,
+          localPayloadModifiedAtMillis: metadata?.modifiedAtMillis,
+          syncAttachmentContentHash: existingId,
+        );
+      }
+      if (await attachmentStore.migrateLegacyPrivateAttachment(
+        filePath,
+        type: attachment.type,
+        vaultId: note.vaultId,
+      )) {
+        migratedAttachmentPaths.add(filePath);
+      }
       final storedMetadata = await attachmentStore.storedPayloadMetadata(
         filePath,
       );
-      final cachedContentHash = attachment.syncAttachmentContentHash;
+      final cachedContentHash = migratedAttachmentPaths.contains(filePath)
+          ? null
+          : attachment.syncAttachmentContentHash;
       if (cachedContentHash != null &&
           cachedContentHash.isNotEmpty &&
           storedMetadata != null &&
@@ -5121,14 +5157,6 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           filePath: syncAttachmentObjectRef(cachedContentHash),
           localPayloadSizeBytes: storedMetadata.sizeBytes,
           localPayloadModifiedAtMillis: storedMetadata.modifiedAtMillis,
-        );
-      }
-      if (attachmentIdsByPath[filePath] case final existingId?) {
-        return attachment.copyWith(
-          filePath: syncAttachmentObjectRef(existingId),
-          localPayloadSizeBytes: storedMetadata?.sizeBytes,
-          localPayloadModifiedAtMillis: storedMetadata?.modifiedAtMillis,
-          syncAttachmentContentHash: existingId,
         );
       }
       final encryptedPayload = await attachmentStore.readStoredPayload(
@@ -5248,7 +5276,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       if (decoded == null) {
         return false;
       }
-      final remoteAttachment = _remoteAttachmentForMissingError(
+      final remoteAttachment = await _remoteAttachmentForMissingError(
         decodedBundle: decoded,
         error: error,
       );
@@ -5276,10 +5304,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  NoteAttachment? _remoteAttachmentForMissingError({
+  Future<NoteAttachment?> _remoteAttachmentForMissingError({
     required Map<String, dynamic> decodedBundle,
     required SyncAttachmentMissingException error,
-  }) {
+  }) async {
     final rawNoteEntries =
         decodedBundle['notes'] as List<dynamic>? ?? const <dynamic>[];
     for (final rawEntry in rawNoteEntries) {
@@ -5294,6 +5322,61 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       if (note.id != error.noteId) {
         continue;
       }
+      final remoteAttachment = _attachmentAtSyncIndex(note, error.index);
+      final remotePath = remoteAttachment?.filePath;
+      if (remoteAttachment == null ||
+          remoteAttachment.type != error.attachmentType ||
+          !isSyncAttachmentObjectRef(remotePath)) {
+        return null;
+      }
+      return remoteAttachment;
+    }
+
+    // Private notes are carried in encryptedPrivateNotes and therefore do
+    // not expose their attachment metadata in the normal notes array.  When
+    // the profile is unlocked, decrypt just the matching entry and recover
+    // the same sync object reference used by the remote attachment bundle.
+    final encryptedPrivateEntries =
+        decodedBundle['encryptedPrivateNotes'] as List<dynamic>? ??
+        const <dynamic>[];
+    for (final rawEntry in encryptedPrivateEntries) {
+      final entry = PreparedEncryptedPrivateSyncNote.fromJson(rawEntry);
+      if (entry == null || entry.note.id != error.noteId) {
+        continue;
+      }
+      final profileKey = await ref
+          .read(profileDataKeyServiceProvider)
+          .keyForVault(entry.note.vaultId);
+      if (profileKey == null) {
+        return null;
+      }
+      final encryptionService = ref.read(encryptionServiceProvider);
+      final payload = await encryptionService.decryptJson(
+        encodedPayload: entry.note.encryptedPayload,
+        secretKey: profileKey,
+      );
+      final decodedAttachments = <NoteAttachment>[];
+      for (final attachmentRecord in entry.attachments) {
+        final attachmentPayload = await encryptionService.decryptJson(
+          encodedPayload: attachmentRecord.encryptedPayload,
+          secretKey: profileKey,
+        );
+        decodedAttachments.add(NoteAttachment.fromJson(attachmentPayload));
+      }
+      final legacyAttachments =
+          (payload['attachments'] as List<dynamic>? ?? const <dynamic>[])
+              .map((raw) => Map<String, dynamic>.from(raw as Map))
+              .map(NoteAttachment.fromJson)
+              .toList(growable: false);
+      final note = NoteEntry.fromJson({
+        ...payload,
+        'attachments':
+            (decodedAttachments.isNotEmpty
+                    ? decodedAttachments
+                    : legacyAttachments)
+                .map((attachment) => attachment.toJson())
+                .toList(),
+      });
       final remoteAttachment = _attachmentAtSyncIndex(note, error.index);
       final remotePath = remoteAttachment?.filePath;
       if (remoteAttachment == null ||
@@ -5356,9 +5439,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   Future<void> _pruneICloudStorageAfterUpload(StoredSyncBundle bundle) async {
     try {
-      final history = await ref
-          .read(iCloudSyncTransportProvider)
-          .listBundleHistory(limit: _automaticICloudPruneKeepLatest + 5);
+      final transport = ref.read(iCloudSyncTransportProvider);
+      final history = await transport.listBundleHistory(
+        limit: _automaticICloudPruneKeepLatest + 5,
+      );
       final largerHistoricalNoteCounts = [
         for (final status in history)
           if (status.noteCount != null && status.noteCount! > bundle.noteCount)
@@ -5376,15 +5460,33 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         );
         return;
       }
-      final referencedHashes = await _referencedAttachmentHashesFromBundle(
-        bundle.reference,
-      );
-      final maintenance = await ref
-          .read(iCloudSyncTransportProvider)
-          .pruneObsoleteData(
-            keepLatest: _automaticICloudPruneKeepLatest,
-            referencedAttachmentHashes: referencedHashes,
+      final retainedHistory = history
+          .take(_automaticICloudPruneKeepLatest)
+          .toList(growable: false);
+      final referencedHashes = <String>{};
+      for (final status in retainedHistory) {
+        final downloaded = await transport.downloadBundleByRecordName(
+          status.fileId,
+        );
+        if (downloaded == null || downloaded.encodedPayload.isEmpty) {
+          throw StateError(
+            'iCloud retained bundle is unavailable: ${status.fileId}',
           );
+        }
+        final decoded = await ref
+            .read(secureSyncBundleStoreProvider)
+            .readRemoteBundlePayloadJson(downloaded.encodedPayload);
+        referencedHashes.addAll(
+          _referencedAttachmentHashesFromDecodedBundle(decoded),
+        );
+      }
+      // Keep objects referenced by the current local state as well. This
+      // covers an upload that has not yet appeared in the history response.
+      referencedHashes.addAll(await _localSyncAttachmentContentHashes());
+      final maintenance = await transport.pruneObsoleteData(
+        keepLatest: _automaticICloudPruneKeepLatest,
+        referencedAttachmentHashes: referencedHashes,
+      );
       _diagnostic(
         'icloud post upload storage prune completed',
         data: {

@@ -347,6 +347,15 @@ String _localizedSyncTransferMessage(
         es: 'Abre todos los perfiles privados en este dispositivo antes de compactar el almacenamiento de sincronizacion de iCloud. Asi se evita eliminar adjuntos privados mientras el perfil esta bloqueado.',
         de: 'Offne alle privaten Profile auf diesem Gerat, bevor du den iCloud-Sync-Speicher bereinigst. So werden private Anhange nicht entfernt, solange ihr Profil gesperrt ist.',
       );
+    case 'sync.error.unlock_private_profiles_before_full_upload':
+      return strings.localized(
+        en: 'Open all private profiles on this device before uploading a full sync snapshot. This keeps locked private notes and attachments in the snapshot.',
+        ja: '完全同期スナップショットをアップロードする前に、この端末ですべてのプライベートプロファイルを開いてください。ロック中のメモと添付ファイルをスナップショットに保持します。',
+        zh: '上传完整同步快照前，请先在此设备上打开所有私密档案，以保留锁定档案中的备忘和附件。',
+        ko: '전체 동기화 스냅샷을 업로드하기 전에 이 기기에서 모든 비공개 프로필을 여세요. 잠긴 비공개 메모와 첨부 파일을 스냅샷에 보존합니다.',
+        es: 'Abre todos los perfiles privados en este dispositivo antes de subir una instantánea de sincronización completa. Así se conservan las notas y los adjuntos privados bloqueados.',
+        de: 'Offne alle privaten Profile auf diesem Gerat, bevor du einen vollstandigen Synchronisations-Schnappschuss hochladst. So bleiben gesperrte private Notizen und Anhange erhalten.',
+      );
     case 'sync.error.bundle_key_missing':
       return strings.localized(
         en: 'The cloud recovery key for this sync bundle is not available on this device. Copy the cloud recovery key from the original device, import it here, then sync again.',
