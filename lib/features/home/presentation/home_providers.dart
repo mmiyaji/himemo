@@ -6414,7 +6414,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   /// Downloads one attachment and persists only its local reference. Explicit
   /// user downloads are allowed on mobile data, including encrypted profiles.
-  Future<NoteAttachment> downloadAttachment(NoteAttachment attachment) async {
+  Future<NoteAttachment> downloadAttachment(
+    NoteAttachment attachment, {
+    bool force = false,
+  }) async {
     await ref.read(notesControllerProvider.notifier).restoreCompleted;
     final reference = attachment.filePath;
     if (reference == null || reference.isEmpty) {
@@ -6425,12 +6428,21 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     final hash =
         syncAttachmentObjectContentHash(reference) ??
         attachment.syncAttachmentContentHash;
-    if (!isSyncAttachmentObjectRef(reference)) {
+    if (!force && !isSyncAttachmentObjectRef(reference)) {
       final metadata = await ref
           .read(encryptedAttachmentStoreProvider)
           .storedPayloadMetadata(reference);
       if (metadata != null) {
-        return attachment;
+        try {
+          final bytes = await ref
+              .read(encryptedAttachmentStoreProvider)
+              .readAttachment(reference, type: attachment.type);
+          if (bytes != null && bytes.isNotEmpty) {
+            return attachment;
+          }
+        } catch (_) {
+          // A stored container can exist while its contents are unreadable.
+        }
       }
     }
     if (hash == null || hash.isEmpty) {
@@ -6466,7 +6478,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       throw const SyncSafetyException('sync.error.attachment_context_changed');
     }
     final key =
-        '${provider.name}:${owner.vaultId}:${attachment.type.name}:$hash';
+        '${provider.name}:${owner.vaultId}:${attachment.type.name}:$hash:$force';
     final pending = _attachmentDownloads[key];
     if (pending != null) {
       final downloaded = await pending;
@@ -6482,6 +6494,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       owner,
       provider,
       hash,
+      force: force,
     );
     _attachmentDownloads[key] = operation;
     try {
@@ -6495,21 +6508,39 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     NoteAttachment attachment,
     NoteEntry note,
     SyncProvider provider,
-    String hash,
-  ) async {
+    String hash, {
+    bool force = false,
+  }) async {
     final profileKeys = ref.read(profileDataKeyServiceProvider);
     if (await profileKeys.keyForVault(note.vaultId) == null) {
       throw const SyncSafetyException(
         'sync.error.unlock_private_profiles_before_download',
       );
     }
+    final reusablePaths = force
+        ? <String, String?>{}
+        : await _localAttachmentPathsByContentHash(note.vaultId);
+    final reusablePath = reusablePaths[hash];
+    if (reusablePath != null) {
+      try {
+        final bytes = await ref
+            .read(encryptedAttachmentStoreProvider)
+            .readAttachment(reusablePath, type: attachment.type);
+        if (bytes == null || bytes.isEmpty) {
+          reusablePaths.remove(hash);
+        }
+      } catch (_) {
+        reusablePaths.remove(hash);
+      }
+    }
     final imported = await _importRemoteSyncAttachment(
-      attachment: attachment.copyWith(filePath: syncAttachmentObjectRef(hash)),
+      attachment: attachment.copyWith(
+        filePath: syncAttachmentObjectRef(hash),
+        previewBytesBase64: force ? null : attachment.previewBytesBase64,
+      ),
       note: note,
       inlinePayloads: const {},
-      storedBySyncAttachmentId: await _localAttachmentPathsByContentHash(
-        note.vaultId,
-      ),
+      storedBySyncAttachmentId: reusablePaths,
       previewBySyncAttachmentId: {},
       deferOnMobile: false,
     );
@@ -6543,6 +6574,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           vaultId: note.vaultId,
           sourceReference: attachment.filePath!,
           downloaded: imported,
+          clearPreview: force,
         );
     return imported;
   }
@@ -12494,6 +12526,7 @@ class NotesController extends _$NotesController {
     required String vaultId,
     required String sourceReference,
     required NoteAttachment downloaded,
+    bool clearPreview = false,
   }) {
     final operation = _upsertQueue.then((_) async {
       await _waitForInitialRestore();
@@ -12505,8 +12538,9 @@ class NotesController extends _$NotesController {
         }
         return current.copyWith(
           filePath: downloaded.filePath,
-          previewBytesBase64:
-              current.previewBytesBase64 ?? downloaded.previewBytesBase64,
+          previewBytesBase64: clearPreview
+              ? null
+              : current.previewBytesBase64 ?? downloaded.previewBytesBase64,
           syncAttachmentContentHash: downloaded.syncAttachmentContentHash,
           localPayloadSizeBytes: downloaded.localPayloadSizeBytes,
           localPayloadModifiedAtMillis: downloaded.localPayloadModifiedAtMillis,
@@ -13575,10 +13609,29 @@ class NotesController extends _$NotesController {
                 attachment,
       };
       Future<NoteAttachment> reuseDownloaded(NoteAttachment attachment) async {
-        final hash = syncAttachmentObjectContentHash(attachment.filePath);
+        final hash =
+            syncAttachmentObjectContentHash(attachment.filePath) ??
+            attachment.syncAttachmentContentHash;
         final local = localByHash['${attachment.type.name}:$hash'];
-        if (hash == null || local == null) {
+        if (hash == null ||
+            local == null ||
+            attachment.filePath == local.filePath) {
           return attachment;
+        }
+        // Keep an intentionally replaced local file. An editor's old local
+        // path should only be repaired when its payload has gone missing.
+        if (!isSyncAttachmentObjectRef(attachment.filePath) &&
+            attachment.filePath != null) {
+          try {
+            final draftBytes = await ref
+                .read(encryptedAttachmentStoreProvider)
+                .readAttachment(attachment.filePath!, type: attachment.type);
+            if (draftBytes != null && draftBytes.isNotEmpty) {
+              return attachment;
+            }
+          } catch (_) {
+            // The draft can still point at an unreadable old container.
+          }
         }
         final metadata = await ref
             .read(encryptedAttachmentStoreProvider)
@@ -13591,8 +13644,7 @@ class NotesController extends _$NotesController {
           syncAttachmentContentHash: hash,
           localPayloadSizeBytes: metadata.sizeBytes,
           localPayloadModifiedAtMillis: metadata.modifiedAtMillis,
-          previewBytesBase64:
-              attachment.previewBytesBase64 ?? local.previewBytesBase64,
+          previewBytesBase64: local.previewBytesBase64,
         );
       }
 

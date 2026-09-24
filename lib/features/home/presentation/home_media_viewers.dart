@@ -1828,7 +1828,7 @@ Future<List<int>?> _readPhotoAttachmentDetailBytes(
         source: 'detail',
         data: {'error': error},
       );
-      return Future<List<int>?>.value(null);
+      return _readPhotoAttachmentBytes(ref, attachment);
     }
   }
   return _readPhotoAttachmentBytes(ref, attachment);

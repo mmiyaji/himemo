@@ -5824,9 +5824,16 @@ class _AttachmentListTile extends ConsumerWidget {
 }
 
 class RemoteAttachmentNotice extends ConsumerWidget {
-  const RemoteAttachmentNotice({required this.attachment, super.key});
+  const RemoteAttachmentNotice({
+    required this.attachment,
+    this.onDownloaded,
+    this.retry = false,
+    super.key,
+  });
 
   final NoteAttachment attachment;
+  final ValueChanged<NoteAttachment>? onDownloaded;
+  final bool retry;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -5843,10 +5850,15 @@ class RemoteAttachmentNotice extends ConsumerWidget {
           color: colorScheme.primary,
         ),
         Text(
-          strings.localized(
-            en: 'This attachment is not saved on this device yet.',
-            ja: '\u3053\u306e\u6dfb\u4ed8\u306f\u307e\u3060\u3053\u306e\u7aef\u672b\u306b\u4fdd\u5b58\u3055\u308c\u3066\u3044\u307e\u305b\u3093\u3002',
-          ),
+          retry
+              ? strings.localized(
+                  en: 'This image cannot be displayed. Download it again.',
+                  ja: '画像を表示できません。再ダウンロードしてください。',
+                )
+              : strings.localized(
+                  en: 'This attachment is not saved on this device yet.',
+                  ja: '\u3053\u306e\u6dfb\u4ed8\u306f\u307e\u3060\u3053\u306e\u7aef\u672b\u306b\u4fdd\u5b58\u3055\u308c\u3066\u3044\u307e\u305b\u3093\u3002',
+                ),
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
             color: colorScheme.primary,
             fontWeight: FontWeight.w700,
@@ -5860,7 +5872,15 @@ class RemoteAttachmentNotice extends ConsumerWidget {
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
           onPressed: () async {
-            await _downloadRemoteAttachmentWithPrompt(context, ref, attachment);
+            final downloaded = await _downloadRemoteAttachmentWithPrompt(
+              context,
+              ref,
+              attachment,
+              forceDownload: retry,
+            );
+            if (downloaded != null) {
+              onDownloaded?.call(downloaded);
+            }
           },
           child: Text(
             strings.localized(
@@ -5877,12 +5897,14 @@ class RemoteAttachmentNotice extends ConsumerWidget {
 Future<NoteAttachment?> _downloadRemoteAttachmentWithPrompt(
   BuildContext context,
   WidgetRef ref,
-  NoteAttachment attachment,
-) async {
+  NoteAttachment attachment, {
+  bool forceDownload = false,
+}) async {
   final filePath = attachment.filePath;
   final hasSyncContentHash =
       attachment.syncAttachmentContentHash?.isNotEmpty == true;
   final localPayloadMissing =
+      !forceDownload &&
       hasSyncContentHash &&
       filePath != null &&
       filePath.isNotEmpty &&
@@ -5891,7 +5913,8 @@ Future<NoteAttachment?> _downloadRemoteAttachmentWithPrompt(
               .read(encryptedAttachmentStoreProvider)
               .storedPayloadMetadata(filePath) ==
           null;
-  if (!isSyncAttachmentObjectRef(filePath) &&
+  if (!forceDownload &&
+      !isSyncAttachmentObjectRef(filePath) &&
       !(hasSyncContentHash && localPayloadMissing)) {
     return attachment;
   }
@@ -5901,15 +5924,22 @@ Future<NoteAttachment?> _downloadRemoteAttachmentWithPrompt(
   return showDialog<NoteAttachment>(
     context: context,
     barrierDismissible: false,
-    builder: (context) =>
-        RemoteAttachmentDownloadDialog(attachment: attachment),
+    builder: (context) => RemoteAttachmentDownloadDialog(
+      attachment: attachment,
+      retry: forceDownload,
+    ),
   );
 }
 
 class RemoteAttachmentDownloadDialog extends ConsumerStatefulWidget {
-  const RemoteAttachmentDownloadDialog({required this.attachment, super.key});
+  const RemoteAttachmentDownloadDialog({
+    required this.attachment,
+    this.retry = false,
+    super.key,
+  });
 
   final NoteAttachment attachment;
+  final bool retry;
 
   @override
   ConsumerState<RemoteAttachmentDownloadDialog> createState() =>
@@ -5945,10 +5975,15 @@ class _RemoteAttachmentDownloadDialogState
               ),
               const SizedBox(height: 8),
               Text(
-                strings.localized(
-                  en: 'This attachment is not saved on this device yet. Download it to open or share it.',
-                  ja: '\u3053\u306e\u6dfb\u4ed8\u306f\u307e\u3060\u3053\u306e\u7aef\u672b\u306b\u4fdd\u5b58\u3055\u308c\u3066\u3044\u307e\u305b\u3093\u3002\u958b\u304f\u306b\u306f\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
-                ),
+                widget.retry
+                    ? strings.localized(
+                        en: 'Download this image again to restore it.',
+                        ja: '画像を復元するため、もう一度ダウンロードします。',
+                      )
+                    : strings.localized(
+                        en: 'This attachment is not saved on this device yet. Download it to open or share it.',
+                        ja: '\u3053\u306e\u6dfb\u4ed8\u306f\u307e\u3060\u3053\u306e\u7aef\u672b\u306b\u4fdd\u5b58\u3055\u308c\u3066\u3044\u307e\u305b\u3093\u3002\u958b\u304f\u306b\u306f\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+                      ),
               ),
               if (_downloading) ...[
                 const SizedBox(height: 16),
@@ -6008,7 +6043,7 @@ class _RemoteAttachmentDownloadDialogState
     try {
       final downloaded = await ref
           .read(syncTransferControllerProvider.notifier)
-          .downloadAttachment(widget.attachment);
+          .downloadAttachment(widget.attachment, force: widget.retry);
       if (mounted) Navigator.of(context).pop(downloaded);
     } catch (error) {
       if (!mounted) return;
@@ -6300,6 +6335,7 @@ class _EmbeddedPhotoAttachment extends ConsumerStatefulWidget {
 class _EmbeddedPhotoAttachmentState
     extends ConsumerState<_EmbeddedPhotoAttachment> {
   Future<List<int>?>? _imageBytesFuture;
+  NoteAttachment? _downloadedAttachment;
 
   @override
   void didUpdateWidget(covariant _EmbeddedPhotoAttachment oldWidget) {
@@ -6307,31 +6343,47 @@ class _EmbeddedPhotoAttachmentState
     if (_attachmentCacheKey(oldWidget.attachment) !=
         _attachmentCacheKey(widget.attachment)) {
       _imageBytesFuture = null;
+      _downloadedAttachment = null;
     }
   }
 
   Future<List<int>?> _ensureImageBytesFuture() {
     return _imageBytesFuture ??= _readPhotoAttachmentBytesWithPerf(
       ref,
-      widget.attachment,
+      _downloadedAttachment ?? widget.attachment,
       source: 'detail',
+    );
+  }
+
+  Widget _downloadNotice(NoteAttachment attachment, {bool retry = false}) {
+    return SizedBox(
+      height: 180,
+      child: Center(
+        child: RemoteAttachmentNotice(
+          attachment: attachment,
+          retry: retry,
+          onDownloaded: (downloaded) {
+            if (!mounted) return;
+            setState(() {
+              _downloadedAttachment = downloaded;
+              _imageBytesFuture = null;
+            });
+          },
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (isSyncAttachmentObjectRef(widget.attachment.filePath ?? '') &&
-        (widget.attachment.previewBytesBase64 == null ||
-            widget.attachment.previewBytesBase64!.isEmpty)) {
-      return SizedBox(
-        height: 180,
-        child: Center(
-          child: RemoteAttachmentNotice(attachment: widget.attachment),
-        ),
-      );
+    final attachment = _downloadedAttachment ?? widget.attachment;
+    if (isSyncAttachmentObjectRef(attachment.filePath ?? '') &&
+        (attachment.previewBytesBase64 == null ||
+            attachment.previewBytesBase64!.isEmpty)) {
+      return _downloadNotice(attachment);
     }
     if (!widget.mediaActive) {
-      return _InactivePhotoAttachmentPreview(label: widget.attachment.label);
+      return _InactivePhotoAttachmentPreview(label: attachment.label);
     }
     return FutureBuilder<List<int>?>(
       future: _ensureImageBytesFuture(),
@@ -6344,6 +6396,10 @@ class _EmbeddedPhotoAttachmentState
           );
         }
         if (bytes == null || bytes.isEmpty) {
+          if (attachment.syncAttachmentContentHash?.isNotEmpty == true ||
+              isSyncAttachmentObjectRef(attachment.filePath)) {
+            return _downloadNotice(attachment, retry: true);
+          }
           return SizedBox(
             height: 180,
             child: Center(child: Text(context.strings.unableToLoadImage)),
@@ -6353,7 +6409,7 @@ class _EmbeddedPhotoAttachmentState
           onTap: () => _openAttachmentViewer(
             context,
             ref,
-            widget.attachment,
+            attachment,
             photoAttachments: widget.photoAttachments,
             initialPhotoIndex: widget.photoIndex,
           ),
@@ -6370,11 +6426,16 @@ class _EmbeddedPhotoAttachmentState
                   gaplessPlayback: true,
                   errorBuilder: (context, error, stackTrace) {
                     _logAttachmentDisplayDiagnostic(
-                      widget.attachment,
+                      attachment,
                       'image decode failed',
                       source: 'detail',
                       data: {'error': error, 'bytes': bytes.length},
                     );
+                    if (attachment.syncAttachmentContentHash?.isNotEmpty ==
+                            true ||
+                        isSyncAttachmentObjectRef(attachment.filePath)) {
+                      return _downloadNotice(attachment, retry: true);
+                    }
                     return const _AttachmentImageErrorPanel(height: 180);
                   },
                 ),

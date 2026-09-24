@@ -143,6 +143,52 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('failed photo preview offers a working retry', (tester) async {
+    final attachment = NoteAttachment(
+      type: AttachmentType.photo,
+      label: 'stale-photo.jpg',
+      filePath: '/missing/stale-photo.enc',
+      syncAttachmentContentHash: '0123456789abcdef',
+    );
+    final downloaded = attachment.copyWith(filePath: '/local/photo.enc');
+    final fake = _FakeSyncTransferController(
+      onDownload: (_) async => downloaded,
+    );
+    NoteAttachment? selected;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [syncTransferControllerProvider.overrideWith(() => fake)],
+        child: MaterialApp(
+          locale: const Locale('ja'),
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            AppStrings.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: RemoteAttachmentNotice(
+              attachment: attachment,
+              retry: true,
+              onDownloaded: (value) => selected = value,
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.text('画像を表示できません。再ダウンロードしてください。'), findsOneWidget);
+    await tester.tap(find.text('ダウンロード'));
+    await tester.pumpAndSettle();
+    expect(find.byType(RemoteAttachmentDownloadDialog), findsOneWidget);
+    await tester.tap(find.byType(FilledButton).last);
+    await tester.pumpAndSettle();
+    expect(fake.calls, 1);
+    expect(fake.lastForce, isTrue);
+    expect(selected, downloaded);
+  });
 }
 
 NoteAttachment _remoteAttachment({
@@ -161,13 +207,18 @@ class _FakeSyncTransferController extends SyncTransferController {
 
   final Future<NoteAttachment> Function(NoteAttachment attachment) onDownload;
   int calls = 0;
+  bool lastForce = false;
 
   @override
   SyncTransferState build() => const SyncTransferState.idle();
 
   @override
-  Future<NoteAttachment> downloadAttachment(NoteAttachment attachment) {
+  Future<NoteAttachment> downloadAttachment(
+    NoteAttachment attachment, {
+    bool force = false,
+  }) {
     calls += 1;
+    lastForce = force;
     return onDownload(attachment);
   }
 }

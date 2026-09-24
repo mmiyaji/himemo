@@ -122,6 +122,129 @@ void main() {
       );
     },
   );
+  test(
+    'preserves a downloaded private photo when a stale editor snapshot is saved',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final h = await _createHarness(
+        transport,
+        prefix: 'himemo-private-stale-photo-',
+        seed: 167,
+      );
+      addTearDown(h.dispose);
+
+      await h.container
+          .read(privateMemoProfilesControllerProvider.notifier)
+          .addProfile(name: 'Private', password: 'private-stale-photo');
+      final profile = await h.container
+          .read(privateProfileUnlockControllerProvider.notifier)
+          .unlockWithPassword('private-stale-photo');
+      final bytes = <int>[9, 2, 6, 5, 3, 5];
+      final storedPath = await h.attachmentStore.storeAttachment(
+        XFile.fromData(Uint8List.fromList(bytes), name: 'private-photo.png'),
+        type: AttachmentType.photo,
+      );
+      final attachment = NoteAttachment(
+        type: AttachmentType.photo,
+        label: 'private-photo.png',
+        filePath: storedPath,
+      );
+      final notes = h.container.read(notesControllerProvider.notifier);
+      await notes.upsert(
+        NoteEntry(
+          id: 'private-stale-photo',
+          vaultId: profile!.vaultId,
+          title: 'Private photo',
+          body: '',
+          createdAt: DateTime.utc(2026, 9, 24),
+          attachments: [attachment],
+          blocks: [
+            NoteBlock(type: NoteBlockType.photo, attachment: attachment),
+          ],
+        ),
+      );
+      final sync = h.container.read(syncTransferControllerProvider.notifier);
+      await sync.uploadCurrentBundle(force: true);
+      await notes.reloadFromStorage();
+
+      // Keep the editor's pre-download snapshot. This is the state that was
+      // observed after an app update: it still points at the missing local
+      // path but retains the cloud content hash.
+      final staleNote = h.container.read(notesControllerProvider).single;
+      final staleAttachment = staleNote.attachments.single;
+      expect(staleAttachment.syncAttachmentContentHash, isNotNull);
+      await h.attachmentStore.deleteAttachment(storedPath!);
+
+      final downloaded = await sync.downloadAttachment(staleAttachment);
+      expect(downloaded.filePath, isNot(storedPath));
+      expect(
+        await h.attachmentStore.readAttachment(
+          downloaded.filePath!,
+          type: AttachmentType.photo,
+        ),
+        bytes,
+      );
+
+      // Saving without leaving edit mode must retain the freshly downloaded
+      // path in both the attachment list and the rich-text photo block.
+      await notes.upsert(
+        staleNote.copyWith(
+          title: 'Saved after download',
+          attachments: [staleAttachment],
+          blocks: [
+            NoteBlock(type: NoteBlockType.photo, attachment: staleAttachment),
+          ],
+        ),
+      );
+      await notes.reloadFromStorage();
+      final reread = h.container.read(notesControllerProvider).single;
+      expect(reread.title, 'Saved after download');
+      expect(reread.attachments.single.filePath, downloaded.filePath);
+      expect(reread.blocks.single.attachment!.filePath, downloaded.filePath);
+      expect(
+        await h.attachmentStore.readAttachment(
+          reread.attachments.single.filePath!,
+          type: AttachmentType.photo,
+        ),
+        bytes,
+      );
+      final badPreview = reread.attachments.single.copyWith(
+        previewBytesBase64: 'bm90IGFuIGltYWdl',
+      );
+      await notes.upsert(
+        reread.copyWith(
+          attachments: [badPreview],
+          blocks: [
+            NoteBlock(type: NoteBlockType.photo, attachment: badPreview),
+          ],
+        ),
+      );
+      final retried = await sync.downloadAttachment(badPreview, force: true);
+      expect(retried.filePath, isNot(downloaded.filePath));
+      expect(retried.previewBytesBase64, isNull);
+      expect(
+        h.container
+            .read(notesControllerProvider)
+            .single
+            .attachments
+            .single
+            .filePath,
+        retried.filePath,
+      );
+      expect(
+        h.container
+            .read(notesControllerProvider)
+            .single
+            .attachments
+            .single
+            .previewBytesBase64,
+        isNull,
+      );
+    },
+  );
   setUp(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
