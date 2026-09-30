@@ -5627,6 +5627,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       final hadPendingChangesBeforeRemoteApply = queue.hasPendingChanges;
       var appliedRemoteDuringSync = false;
+      var privateProfilesPendingUnlock = false;
       _diagnostic(
         'local queue inspected',
         data: {
@@ -5739,7 +5740,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             return;
           }
           if (state.message == _privateProfileNotesPendingUnlockMessage) {
-            return;
+            final appliedState = await ref
+                .read(syncBundleStateStoreProvider)
+                .read();
+            if (appliedState.lastAppliedRemoteFileId != bundleStatus.fileId) {
+              // A legacy private entry was skipped, so replaying subsequent
+              // deltas would move past data that has not been stored locally.
+              return;
+            }
+            privateProfilesPendingUnlock = true;
           }
           appliedRemoteDuringSync = true;
           final hasNoteConflicts = ref
@@ -5782,7 +5791,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await _yieldToUi();
       state = SyncTransferState(
         stage: SyncTransferStage.success,
-        message: 'sync.info.sync_success',
+        message: privateProfilesPendingUnlock
+            ? _privateProfileNotesPendingUnlockMessage
+            : 'sync.info.sync_success',
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
       );
@@ -6169,7 +6180,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         return seeded;
       }
 
+      // Encrypted private entries can be stored while their profile is locked.
+      // Only legacy plain private entries must wait for an unlock before the
+      // bundle can become the replay anchor.
       final lockedPrivateVaultIds = <String>{};
+      final lockedEncryptedPrivateVaultIds = <String>{};
       var importedEncryptedPrivateCount = 0;
       if (encryptedPrivateEntries.isNotEmpty) {
         final profileKeys = ref.read(profileDataKeyServiceProvider);
@@ -6183,7 +6198,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           );
           if (entry.action != PendingNoteChangeAction.delete &&
               await profileKeys.keyForVault(remoteNote.vaultId) == null) {
-            lockedPrivateVaultIds.add(remoteNote.vaultId);
+            lockedEncryptedPrivateVaultIds.add(remoteNote.vaultId);
           }
           final storedBySyncAttachmentId = await storedMapForVault(
             remoteNote.vaultId,
@@ -6365,10 +6380,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             .recordApply(state.remoteStatus);
         ref.invalidate(syncBundleStateProvider);
       }
-      await _setPendingPrivateBundleApply(lockedPrivateVaultIds.isNotEmpty);
+      await _setPendingPrivateBundleApply(
+        lockedPrivateVaultIds.isNotEmpty ||
+            lockedEncryptedPrivateVaultIds.isNotEmpty,
+      );
       state = state.copyWith(
         stage: SyncTransferStage.success,
-        message: lockedPrivateVaultIds.isEmpty
+        message:
+            lockedPrivateVaultIds.isEmpty &&
+                lockedEncryptedPrivateVaultIds.isEmpty
             ? 'sync.info.apply_success'
             : _privateProfileNotesPendingUnlockMessage,
       );
@@ -6579,7 +6599,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     return imported;
   }
 
-  Future<int> downloadDeferredAttachments() async {
+  Future<int> downloadDeferredAttachments({String? vaultId}) async {
     if (!_supportsRemoteTransport(ref.read(syncProviderControllerProvider))) {
       return 0;
     }
@@ -6588,7 +6608,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     try {
       var count = 0;
       var scannedNoteCount = 0;
-      final currentNotes = ref.read(notesControllerProvider);
+      final currentNotes = ref
+          .read(notesControllerProvider)
+          .where((note) => vaultId == null || note.vaultId == vaultId)
+          .toList(growable: false);
       final totalNotes = currentNotes.length;
       // Shared across notes (per vault) so an object referenced by several
       // notes is downloaded once and existing local files are reused.
@@ -6696,6 +6719,36 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     } catch (error) {
       state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
       rethrow;
+    }
+  }
+
+  Future<void> restoreUnlockedPrivateAttachments(String vaultId) async {
+    final hasRemoteAttachment = ref
+        .read(notesControllerProvider)
+        .any(
+          (note) =>
+              note.vaultId == vaultId &&
+              (note.attachments.any(
+                    (attachment) =>
+                        isSyncAttachmentObjectRef(attachment.filePath),
+                  ) ||
+                  note.blocks.any(
+                    (block) =>
+                        isSyncAttachmentObjectRef(block.attachment?.filePath),
+                  )),
+        );
+    if (!hasRemoteAttachment) {
+      return;
+    }
+    try {
+      await downloadDeferredAttachments(vaultId: vaultId);
+    } catch (error) {
+      // Unlocking the profile must still succeed when an attachment is
+      // temporarily unavailable. Its remote reference remains on the note.
+      _diagnostic(
+        'unlocked private attachment download deferred',
+        data: {'vaultId': vaultId, 'error': error},
+      );
     }
   }
 
@@ -9129,11 +9182,10 @@ class AppTutorialController extends Notifier<AppTutorialState?> {
     ],
     AppTutorialCourse.sync: [
       AppTutorialStep.syncStatus,
-      AppTutorialStep.settings,
+      AppTutorialStep.syncTroubleshooting,
     ],
     AppTutorialCourse.syncTroubleshooting: [
       AppTutorialStep.syncTroubleshooting,
-      AppTutorialStep.settings,
       AppTutorialStep.syncStatus,
     ],
     AppTutorialCourse.trashRecovery: [
@@ -9157,8 +9209,15 @@ class AppTutorialController extends Notifier<AppTutorialState?> {
   AppTutorialState? build() => null;
 
   void start([AppTutorialCourse course = AppTutorialCourse.basics]) {
-    final steps =
-        _courseSteps[course] ?? _courseSteps[AppTutorialCourse.basics]!;
+    final isSyncCourse =
+        course == AppTutorialCourse.sync ||
+        course == AppTutorialCourse.syncTroubleshooting;
+    final syncIsOff =
+        isSyncCourse &&
+        ref.read(syncProviderControllerProvider) == SyncProvider.off;
+    final steps = syncIsOff
+        ? const [AppTutorialStep.syncTroubleshooting]
+        : _courseSteps[course] ?? _courseSteps[AppTutorialCourse.basics]!;
     state = AppTutorialState(course: course, steps: steps, index: 0);
   }
 
@@ -10588,7 +10647,7 @@ class SyncProviderController extends Notifier<SyncProvider> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final stored = prefs.getString(_storageKey);
-      if (stored == null) {
+      if (stored == null || !ref.mounted) {
         return;
       }
       final restored = SyncProvider.values.firstWhere(
@@ -10600,7 +10659,9 @@ class SyncProviderController extends Notifier<SyncProvider> {
           : restored;
       _preparedGoogleDriveAccountId = null;
     } catch (_) {
-      state = SyncProvider.off;
+      if (ref.mounted) {
+        state = SyncProvider.off;
+      }
     }
   }
 }
@@ -13968,7 +14029,7 @@ class AdminModeSessionController extends Notifier<bool> {
     if (!ref.mounted || operation != _operation || !state) {
       return false;
     }
-    if (unlocked) await _reloadPrivateNotes();
+    if (unlocked) await _reloadPrivateNotes(vaultId);
     return unlocked &&
         ref.mounted &&
         state &&
@@ -13976,11 +14037,16 @@ class AdminModeSessionController extends Notifier<bool> {
         keys.isProfileUnlocked(vaultId);
   }
 
-  Future<void> _reloadPrivateNotes() async {
+  Future<void> _reloadPrivateNotes([String? vaultId]) async {
     await ref
         .read(syncTransferControllerProvider.notifier)
         .applyPendingPrivateDownloadedBundleIfNeeded();
     await ref.read(notesControllerProvider.notifier).reloadFromStorage();
+    if (vaultId != null) {
+      await ref
+          .read(syncTransferControllerProvider.notifier)
+          .restoreUnlockedPrivateAttachments(vaultId);
+    }
     if (!state) {
       ref
           .read(notesControllerProvider.notifier)
@@ -14033,6 +14099,9 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
             .unlock(custom.vaultId);
         await _applyPendingDownloadedBundle();
         await ref.read(notesControllerProvider.notifier).reloadFromStorage();
+        await ref
+            .read(syncTransferControllerProvider.notifier)
+            .restoreUnlockedPrivateAttachments(custom.vaultId);
         state = const AsyncData(null);
         return custom;
       }
@@ -14053,6 +14122,9 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
             .unlock(result.vaultId);
         await _applyPendingDownloadedBundle();
         await ref.read(notesControllerProvider.notifier).reloadFromStorage();
+        await ref
+            .read(syncTransferControllerProvider.notifier)
+            .restoreUnlockedPrivateAttachments(result.vaultId);
         state = const AsyncData(null);
         return result;
       }

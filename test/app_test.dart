@@ -2027,6 +2027,117 @@ void main() {
     );
   });
 
+  test(
+    'locked encrypted profile does not stop newer public delta replay',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final source = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-locked-replay-source-',
+        randomSeed: 221,
+      );
+      final backupCode = await source.container
+          .read(syncBundleKeyServiceProvider)
+          .exportBackupCode();
+
+      expect(
+        await source.container
+            .read(privateMemoProfilesControllerProvider.notifier)
+            .addProfile(name: 'Locked profile', password: 'locked-replay-pass'),
+        isNull,
+      );
+      final profile = await source.container
+          .read(privateProfileUnlockControllerProvider.notifier)
+          .unlockWithPassword('locked-replay-pass');
+      expect(profile, isNotNull);
+      final sourceNotes = source.container.read(
+        notesControllerProvider.notifier,
+      );
+      await sourceNotes.upsert(
+        NoteEntry(
+          id: 'locked-replay-private',
+          vaultId: profile!.vaultId,
+          title: 'Private baseline',
+          body: 'Keep encrypted until profile unlock',
+          createdAt: DateTime.utc(2026, 9, 1),
+        ),
+      );
+      final sourceSync = source.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      await sourceSync.uploadCurrentBundle(force: true);
+      expect(
+        source.container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+        reason: source.container.read(syncTransferControllerProvider).message,
+      );
+      expect(
+        (await transport.fetchLatestBundleStatus())?.bundleKind,
+        SyncBundleKind.full,
+      );
+
+      await sourceNotes.upsert(
+        NoteEntry(
+          id: 'locked-replay-public',
+          vaultId: 'everyday',
+          title: 'New public note',
+          body: 'Must reach the locked device',
+          createdAt: DateTime.utc(2026, 9, 30),
+        ),
+      );
+      await sourceSync.uploadCurrentBundle(force: true);
+      await sourceNotes.upsert(
+        NoteEntry(
+          id: 'locked-replay-public-second',
+          vaultId: 'everyday',
+          title: 'Another new public note',
+          body: 'The replay must not stop after one delta',
+          createdAt: DateTime.utc(2026, 10, 1),
+        ),
+      );
+      await sourceSync.uploadCurrentBundle(force: true);
+      final latest = await transport.fetchLatestBundleStatus();
+      expect(latest?.bundleKind, SyncBundleKind.delta);
+
+      final target = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-locked-replay-target-',
+        randomSeed: 222,
+      );
+      await target.container
+          .read(syncBundleKeyServiceProvider)
+          .importBackupCode(backupCode);
+
+      await target.container
+          .read(syncTransferControllerProvider.notifier)
+          .syncNow(allowCachedRemoteStatus: false);
+      final targetState = target.container.read(syncTransferControllerProvider);
+      expect(targetState.stage, SyncTransferStage.success);
+      expect(
+        targetState.message,
+        'sync.info.private_profile_notes_pending_unlock',
+      );
+      expect(targetState.remoteStatus?.fileId, latest?.fileId);
+      final targetNotes = target.container.read(notesControllerProvider);
+      expect(
+        targetNotes.any((note) => note.id == 'locked-replay-public'),
+        isTrue,
+      );
+      expect(
+        targetNotes.any((note) => note.id == 'locked-replay-public-second'),
+        isTrue,
+      );
+      expect(
+        (await target.container.read(syncBundleStateStoreProvider).read())
+            .lastAppliedRemoteFileId,
+        latest?.fileId,
+      );
+    },
+  );
+
   test('sync does not apply a bundle with an unavailable attachment', () async {
     SharedPreferences.setMockInitialValues({});
     final transport = InMemoryGoogleDriveSyncTransport(
@@ -3178,8 +3289,25 @@ void main() {
       final targetSync = target.container.read(
         syncTransferControllerProvider.notifier,
       );
-      await targetSync.downloadLatestBundle();
-      await targetSync.applyDownloadedBundle();
+      await source.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'new-public-after-private',
+              vaultId: 'everyday',
+              title: 'New public note',
+              body: 'Must sync while the private profile stays locked.',
+              createdAt: DateTime.utc(2026, 9, 30),
+            ),
+          );
+      await sourceSync.uploadCurrentBundle(force: true);
+      await targetSync.syncNow(allowCachedRemoteStatus: false);
+      expect(
+        target.container
+            .read(notesControllerProvider)
+            .any((note) => note.id == 'new-public-after-private'),
+        isTrue,
+      );
       targetSync.clearLocalBundleCache();
 
       final targetProfile = await target.container
@@ -3757,6 +3885,14 @@ void main() {
       AppTutorialStep.navigation,
     ]);
 
+    controller.start(AppTutorialCourse.sync);
+    state = container.read(appTutorialControllerProvider);
+    expect(state?.steps, [AppTutorialStep.syncTroubleshooting]);
+
+    controller.start(AppTutorialCourse.syncTroubleshooting);
+    state = container.read(appTutorialControllerProvider);
+    expect(state?.steps, [AppTutorialStep.syncTroubleshooting]);
+
     controller.start(AppTutorialCourse.organize);
     state = container.read(appTutorialControllerProvider);
     expect(state?.course, AppTutorialCourse.organize);
@@ -3786,6 +3922,30 @@ void main() {
       AppTutorialStep.trashRecovery,
       AppTutorialStep.trash,
       AppTutorialStep.navigation,
+    ]);
+  });
+
+  test('configured sync guide visits status and sync settings', () {
+    final container = ProviderContainer(
+      overrides: [
+        syncProviderControllerProvider.overrideWith(
+          _EnabledTutorialSyncProviderController.new,
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(appTutorialControllerProvider.notifier);
+
+    controller.start(AppTutorialCourse.sync);
+    expect(container.read(appTutorialControllerProvider)?.steps, [
+      AppTutorialStep.syncStatus,
+      AppTutorialStep.syncTroubleshooting,
+    ]);
+
+    controller.start(AppTutorialCourse.syncTroubleshooting);
+    expect(container.read(appTutorialControllerProvider)?.steps, [
+      AppTutorialStep.syncTroubleshooting,
+      AppTutorialStep.syncStatus,
     ]);
   });
 
@@ -4227,7 +4387,7 @@ void main() {
       AppTutorialStep.calendarInsights,
     );
 
-    final doneButton = find.text('Done').hitTestable();
+    final doneButton = find.text('Finish').hitTestable();
     expect(doneButton, findsOneWidget);
     await tester.tap(doneButton);
     await tester.pump();
@@ -4316,7 +4476,7 @@ void main() {
     expect(find.byKey(TrashScreen.trashContentKey), findsOneWidget);
     expect(find.byKey(AppShell.tutorialCardKey), findsOneWidget);
 
-    final doneButton = find.text('Done').hitTestable();
+    final doneButton = find.text('Finish').hitTestable();
     expect(doneButton, findsOneWidget);
     await tester.tap(doneButton);
     await tester.pump();
@@ -4345,10 +4505,10 @@ void main() {
       AppTutorialStep.notesList ||
       AppTutorialStep.attachments ||
       AppTutorialStep.privateMemo ||
-      AppTutorialStep.syncTroubleshooting ||
       AppTutorialStep.syncStatus ||
       AppTutorialStep.navigation => '/notes',
-      AppTutorialStep.settings => '/settings',
+      AppTutorialStep.settings ||
+      AppTutorialStep.syncTroubleshooting => '/settings',
       AppTutorialStep.tags => '/tags',
       AppTutorialStep.trash || AppTutorialStep.trashRecovery => '/trash',
       AppTutorialStep.calendarInsights => '/calendar',
@@ -5373,13 +5533,6 @@ Future<_GoogleDriveSyncHarness> _createGoogleDriveSyncHarness(
     keyFactory: encryptionService.generateKeyBytes,
   );
   final noteDatabase = EncryptedNoteDatabase(executor: NativeDatabase.memory());
-  final noteStore = EncryptedNoteStore(
-    encryptionService: encryptionService,
-    masterKeyService: masterKeyService,
-    database: noteDatabase,
-    directoryProvider: () async => tempDirectory,
-    sharedPreferencesProvider: SharedPreferences.getInstance,
-  );
   final attachmentStore = EncryptedAttachmentStore(
     encryptionService: encryptionService,
     masterKeyService: masterKeyService,
@@ -5391,7 +5544,16 @@ Future<_GoogleDriveSyncHarness> _createGoogleDriveSyncHarness(
       secureKeyValueStoreProvider.overrideWithValue(secureStore),
       encryptionServiceProvider.overrideWithValue(encryptionService),
       masterKeyServiceProvider.overrideWithValue(masterKeyService),
-      encryptedNoteStoreProvider.overrideWithValue(noteStore),
+      encryptedNoteStoreProvider.overrideWith(
+        (ref) => EncryptedNoteStore(
+          encryptionService: encryptionService,
+          masterKeyService: masterKeyService,
+          profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
+          database: noteDatabase,
+          directoryProvider: () async => tempDirectory,
+          sharedPreferencesProvider: SharedPreferences.getInstance,
+        ),
+      ),
       encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
       encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
       secureSyncBundleStoreProvider.overrideWith(
@@ -5593,4 +5755,9 @@ class _FailingHistoryTransport extends InMemoryGoogleDriveSyncTransport {
   Future<List<RemoteSyncBundleStatus>> listBundleHistory({int limit = 10}) {
     throw StateError('simulated history failure');
   }
+}
+
+class _EnabledTutorialSyncProviderController extends SyncProviderController {
+  @override
+  SyncProvider build() => SyncProvider.googleDrive;
 }

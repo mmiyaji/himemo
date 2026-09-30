@@ -790,9 +790,8 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
             'sync.info.private_profile_notes_pending_unlock') {
           logDiagnostic(
             'sync',
-            'automatic sync paused pending private profile unlock',
+            'automatic sync stored encrypted private notes pending unlock',
           );
-          return;
         }
         final remainingPendingChanges = await _hasPendingCloudSyncChanges();
         await _recordAutomaticCloudSyncSuccess(
@@ -1673,7 +1672,16 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                               onPressed: () => ref
                                   .read(appLaunchControllerProvider.notifier)
                                   .completeOnboarding(),
-                              child: Text(strings.skip),
+                              child: Text(
+                                strings.localized(
+                                  en: 'Notes',
+                                  ja: 'メモへ',
+                                  zh: '笔记',
+                                  ko: '메모로',
+                                  es: 'Notas',
+                                  de: 'Notizen',
+                                ),
+                              ),
                             ),
                           ],
                         ),

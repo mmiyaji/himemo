@@ -125,6 +125,30 @@ void main() {
     }
   });
 
+  testWidgets('onboarding can start notes before optional setup', (
+    tester,
+  ) async {
+    final harness = await _pumpHiMemoApp(
+      tester,
+      size: const Size(390, 844),
+      preferences: const {'settings.locale': 'english'},
+    );
+
+    expect(
+      harness.container.read(appLaunchControllerProvider),
+      AppLaunchSurface.onboarding,
+    );
+    final start = find.widgetWithText(TextButton, 'Notes');
+    expect(start, findsOneWidget);
+    await tester.tap(start);
+    await tester.pumpAndSettle();
+
+    expect(
+      harness.container.read(appLaunchControllerProvider),
+      AppLaunchSurface.ready,
+    );
+  });
+
   for (final scenario in const [
     (label: '320px', width: 320.0, textScale: 1.0),
     (label: '360px', width: 360.0, textScale: 1.0),

@@ -394,7 +394,7 @@ void main() {
   );
 
   test(
-    'private encrypted attachment requires an unlocked profile and preserves the ref while locked',
+    'private encrypted attachment is restored after profile unlock',
     () async {
       SharedPreferences.setMockInitialValues({});
       final transport = InMemoryGoogleDriveSyncTransport(
@@ -460,32 +460,8 @@ void main() {
           .read(privateProfileUnlockControllerProvider.notifier)
           .unlockWithPassword('download-pass');
       expect(unlocked, isNotNull);
-      final lockedApplyNote = h.container.read(notesControllerProvider).single;
-      final remoteReference = lockedApplyNote.attachments.single.filePath;
-      expect(isSyncAttachmentObjectRef(remoteReference), isTrue);
-
-      h.container.read(profileDataKeyServiceProvider).lockProfile(vaultId);
-      await expectLater(
-        sync.downloadAttachment(lockedApplyNote.attachments.single),
-        throwsA(anything),
-      );
-      expect(
-        h.container
-            .read(notesControllerProvider)
-            .single
-            .attachments
-            .single
-            .filePath,
-        remoteReference,
-      );
-
-      await h.container
-          .read(privateProfileUnlockControllerProvider.notifier)
-          .unlockWithPassword('download-pass');
-      final retriedNote = h.container.read(notesControllerProvider).single;
-      final downloaded = await sync.downloadAttachment(
-        retriedNote.attachments.single,
-      );
+      final restoredNote = h.container.read(notesControllerProvider).single;
+      final downloaded = restoredNote.attachments.single;
       expect(isSyncAttachmentObjectRef(downloaded.filePath), isFalse);
       expect(
         await h.attachmentStore.readAttachment(
@@ -496,7 +472,6 @@ void main() {
       );
       final contentHash = downloaded.syncAttachmentContentHash;
       expect(contentHash, isNotNull);
-      expect(contentHash, syncAttachmentObjectContentHash(remoteReference));
       await h.dispose();
     },
   );

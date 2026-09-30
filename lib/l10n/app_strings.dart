@@ -3685,10 +3685,10 @@ class AppStrings {
   String get onboardingSyncImageLabel =>
       isJapanese ? 'クラウド同期先のプレビュー' : 'Cloud sync target preview';
   String get onboardingFinishTitle =>
-      isJapanese ? '最初に基本だけ設定' : 'Finish the basics';
+      isJapanese ? '起動ロックは必要に応じて' : 'App lock is optional';
   String get onboardingFinishBody => isJapanese
-      ? 'まずはアプリ起動ロックだけ設定します。プライベートプロファイルやクラウド同期は、あとから設定で追加できます。'
-      : 'Set the app unlock first. Private profiles and cloud sync can be added later from Settings.';
+      ? '起動ロックは任意です。プライベートプロファイルやクラウド同期も、必要になったときに設定できます。'
+      : 'App lock is optional. You can also set up private profiles and cloud sync later when you need them.';
   String get onboardingFinishImageLabel =>
       isJapanese ? '初期アクセス設定のプレビュー' : 'Initial access setup preview';
   String get onboardingAddImageFallback =>
@@ -3969,12 +3969,12 @@ class AppStrings {
     de: 'Weiter',
   );
   String get finishSetup => localized(
-    en: 'Finish setup',
-    ja: 'セットアップ完了',
-    zh: '完成设置',
-    ko: '설정 완료',
-    es: 'Finalizar configuración',
-    de: 'Einrichtung abschließen',
+    en: 'Start taking notes',
+    ja: 'メモを始める',
+    zh: '开始记笔记',
+    ko: '메모 시작하기',
+    es: 'Empezar a tomar notas',
+    de: 'Notizen beginnen',
   );
   String get setAppUnlockPin => localized(
     en: 'Set app unlock PIN',
