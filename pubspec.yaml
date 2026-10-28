@@ -124,6 +124,10 @@ patrol:
 
 # The following section is specific to Flutter packages.
 flutter:
+  config:
+    # GoogleSignIn 9.x and Firebase 13.x have conflicting SwiftPM fetcher ranges.
+    # Keep the CocoaPods integration until the upstream manifests agree.
+    enable-swift-package-manager: false
   generate: true
 
   # The following line ensures that the Material Icons font is
