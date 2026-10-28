@@ -151,6 +151,11 @@ jobs:
       - name: Install Flutter dependencies
         run: flutter pub get
 
+      - name: Install CocoaPods dependencies
+        run: |
+          set -euo pipefail
+          find ios -name "Podfile" -execdir pod install \;
+
       - name: Check Dart formatting
         run: >-
           dart format --output=none --set-exit-if-changed
@@ -174,11 +179,6 @@ jobs:
           npm --prefix functions run lint
           npm --prefix functions test
           npm --prefix functions audit --omit=dev --audit-level=high
-
-      - name: Install CocoaPods dependencies
-        run: |
-          set -euo pipefail
-          find ios -name "Podfile" -execdir pod install \;
 
       - name: Configure Google Sign-In
         env:
