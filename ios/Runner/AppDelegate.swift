@@ -8,8 +8,8 @@ import MobileCoreServices
 import FoundationModels
 #endif
 
-@UIApplicationMain
-@objc class AppDelegate: FlutterAppDelegate {
+@main
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private let widgetChannelName = "org.ruhenheim.himemo/widget"
   private let cloudKitChannelName = "org.ruhenheim.himemo/cloudkit"
   private let privacyChannelName = "org.ruhenheim.himemo/privacy"
@@ -67,121 +67,115 @@ import FoundationModels
     ]
   }
 
-  override func application(
-    _ application: UIApplication,
-    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
-  ) -> Bool {
-    GeneratedPluginRegistrant.register(with: self)
-    let result = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
+    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    let messenger = engineBridge.applicationRegistrar.messenger()
+    widgetChannel = FlutterMethodChannel(
+      name: widgetChannelName,
+      binaryMessenger: messenger
+    )
+    cloudKitChannel = FlutterMethodChannel(
+      name: cloudKitChannelName,
+      binaryMessenger: messenger
+    )
+    privacyChannel = FlutterMethodChannel(
+      name: privacyChannelName,
+      binaryMessenger: messenger
+    )
+    networkChannel = FlutterMethodChannel(
+      name: networkChannelName,
+      binaryMessenger: messenger
+    )
+    spotlightChannel = FlutterMethodChannel(
+      name: spotlightChannelName,
+      binaryMessenger: messenger
+    )
+    intelligenceChannel = FlutterMethodChannel(
+      name: intelligenceChannelName,
+      binaryMessenger: messenger
+    )
 
-    if let controller = window?.rootViewController as? FlutterViewController {
-      widgetChannel = FlutterMethodChannel(
-        name: widgetChannelName,
-        binaryMessenger: controller.binaryMessenger
-      )
-      cloudKitChannel = FlutterMethodChannel(
-        name: cloudKitChannelName,
-        binaryMessenger: controller.binaryMessenger
-      )
-      privacyChannel = FlutterMethodChannel(
-        name: privacyChannelName,
-        binaryMessenger: controller.binaryMessenger
-      )
-      networkChannel = FlutterMethodChannel(
-        name: networkChannelName,
-        binaryMessenger: controller.binaryMessenger
-      )
-      spotlightChannel = FlutterMethodChannel(
-        name: spotlightChannelName,
-        binaryMessenger: controller.binaryMessenger
-      )
-      intelligenceChannel = FlutterMethodChannel(
-        name: intelligenceChannelName,
-        binaryMessenger: controller.binaryMessenger
-      )
-
-      widgetChannel?.setMethodCallHandler { [weak self] call, result in
-        guard let self else {
-          result(false)
-          return
-        }
-        switch call.method {
-        case "consumePendingQuickCapture":
-          let pending = self.pendingQuickCapturePayload ?? self.readPendingQuickCapturePayload()
-          self.pendingQuickCapturePayload = nil
-          result(pending ?? false)
-        case "deleteSharedImportFiles":
-          let args = call.arguments as? [String: Any]
-          let paths = args?["paths"] as? [String] ?? []
-          for path in paths {
-            let url = URL(fileURLWithPath: path)
-            if self.isSharedImportFile(url) {
-              try? FileManager.default.removeItem(at: url)
-            }
+    widgetChannel?.setMethodCallHandler { [weak self] call, result in
+      guard let self else {
+        result(false)
+        return
+      }
+      switch call.method {
+      case "consumePendingQuickCapture":
+        let pending = self.pendingQuickCapturePayload ?? self.readPendingQuickCapturePayload()
+        self.pendingQuickCapturePayload = nil
+        result(pending ?? false)
+      case "deleteSharedImportFiles":
+        let args = call.arguments as? [String: Any]
+        let paths = args?["paths"] as? [String] ?? []
+        for path in paths {
+          let url = URL(fileURLWithPath: path)
+          if self.isSharedImportFile(url) {
+            try? FileManager.default.removeItem(at: url)
           }
-          result(nil)
-        case "appGroupStorageDiagnostics":
-          result(self.appGroupStorageDiagnostics())
-        default:
-          result(FlutterMethodNotImplemented)
         }
-      }
-
-      cloudKitChannel?.setMethodCallHandler { [weak self] call, result in
-        guard let self else {
-          result(FlutterMethodNotImplemented)
-          return
-        }
-        self.handleCloudKitMethod(call: call, result: result)
-      }
-
-      privacyChannel?.setMethodCallHandler { [weak self] call, result in
-        guard let self else {
-          result(FlutterMethodNotImplemented)
-          return
-        }
-        self.handlePrivacyMethod(call: call, result: result)
-      }
-
-      networkChannel?.setMethodCallHandler { [weak self] call, result in
-        guard let self else {
-          result("unknown")
-          return
-        }
-        self.handleNetworkMethod(call: call, result: result)
-      }
-
-      spotlightChannel?.setMethodCallHandler { [weak self] call, result in
-        guard let self else {
-          result(FlutterMethodNotImplemented)
-          return
-        }
-        self.handleSpotlightMethod(call: call, result: result)
-      }
-
-      intelligenceChannel?.setMethodCallHandler { [weak self] call, result in
-        guard let self else {
-          result(FlutterMethodNotImplemented)
-          return
-        }
-        self.handleIntelligenceMethod(call: call, result: result)
+        result(nil)
+      case "appGroupStorageDiagnostics":
+        result(self.appGroupStorageDiagnostics())
+      default:
+        result(FlutterMethodNotImplemented)
       }
     }
 
-    if let url = launchOptions?[.url] as? URL {
-      if !handleQuickCaptureURL(url) {
-        _ = handleSpotlightURL(url)
+    cloudKitChannel?.setMethodCallHandler { [weak self] call, result in
+      guard let self else {
+        result(FlutterMethodNotImplemented)
+        return
       }
+      self.handleCloudKitMethod(call: call, result: result)
     }
-    if let activities = launchOptions?[.userActivityDictionary] as? [AnyHashable: Any] {
-      for value in activities.values {
-        if let activity = value as? NSUserActivity,
-           handleSpotlightUserActivity(activity) {
-          break
-        }
+
+    privacyChannel?.setMethodCallHandler { [weak self] call, result in
+      guard let self else {
+        result(FlutterMethodNotImplemented)
+        return
       }
+      self.handlePrivacyMethod(call: call, result: result)
     }
-    return result
+
+    networkChannel?.setMethodCallHandler { [weak self] call, result in
+      guard let self else {
+        result("unknown")
+        return
+      }
+      self.handleNetworkMethod(call: call, result: result)
+    }
+
+    spotlightChannel?.setMethodCallHandler { [weak self] call, result in
+      guard let self else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      self.handleSpotlightMethod(call: call, result: result)
+    }
+
+    intelligenceChannel?.setMethodCallHandler { [weak self] call, result in
+      guard let self else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      self.handleIntelligenceMethod(call: call, result: result)
+    }
+  }
+
+  // UI state and launch events belong to the scene on iOS 27.
+  fileprivate weak var sceneWindow: UIWindow?
+
+  fileprivate func handleSceneURL(_ url: URL) -> Bool {
+    handleQuickCaptureURL(url) || handleSpotlightURL(url)
+  }
+
+  fileprivate func handleSceneActivity(_ activity: NSUserActivity) -> Bool {
+    handleSpotlightUserActivity(activity)
+  }
+
+  fileprivate func sceneActiveChanged(_ active: Bool) {
+    setPrivacyOverlayVisible(!active && privacyProtectionEnabled)
   }
 
   override func application(
@@ -211,25 +205,6 @@ import FoundationModels
       continue: userActivity,
       restorationHandler: restorationHandler
     )
-  }
-
-  override func applicationWillResignActive(_ application: UIApplication) {
-    super.applicationWillResignActive(application)
-    if privacyProtectionEnabled {
-      setPrivacyOverlayVisible(true)
-    }
-  }
-
-  override func applicationDidEnterBackground(_ application: UIApplication) {
-    super.applicationDidEnterBackground(application)
-    if privacyProtectionEnabled {
-      setPrivacyOverlayVisible(true)
-    }
-  }
-
-  override func applicationDidBecomeActive(_ application: UIApplication) {
-    super.applicationDidBecomeActive(application)
-    setPrivacyOverlayVisible(false)
   }
 
   private func handlePrivacyMethod(call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -715,7 +690,7 @@ import FoundationModels
   }
 
   private func setPrivacyOverlayVisible(_ visible: Bool) {
-    guard let window else {
+    guard let window = sceneWindow else {
       return
     }
     if visible {
@@ -2137,5 +2112,56 @@ import FoundationModels
 private extension Date {
   var iso8601String: String {
     ISO8601DateFormatter().string(from: self)
+  }
+}
+
+// Included by the existing Runner Sources build phase with AppDelegate.swift.
+@objc class SceneDelegate: FlutterSceneDelegate {
+  private var appDelegate: AppDelegate? {
+    UIApplication.shared.delegate as? AppDelegate
+  }
+
+  override func scene(
+    _ scene: UIScene,
+    willConnectTo session: UISceneSession,
+    options connectionOptions: UIScene.ConnectionOptions
+  ) {
+    super.scene(scene, willConnectTo: session, options: connectionOptions)
+    appDelegate?.sceneWindow = window
+    for context in connectionOptions.urlContexts {
+      _ = appDelegate?.handleSceneURL(context.url)
+    }
+    for activity in connectionOptions.userActivities {
+      _ = appDelegate?.handleSceneActivity(activity)
+    }
+  }
+
+  override func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+    let remaining = URLContexts.filter { appDelegate?.handleSceneURL($0.url) != true }
+    if !remaining.isEmpty {
+      super.scene(scene, openURLContexts: Set(remaining))
+    }
+  }
+
+  override func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+    if appDelegate?.handleSceneActivity(userActivity) != true {
+      super.scene(scene, continue: userActivity)
+    }
+  }
+
+  override func sceneWillResignActive(_ scene: UIScene) {
+    appDelegate?.sceneActiveChanged(false)
+    super.sceneWillResignActive(scene)
+  }
+
+  override func sceneDidEnterBackground(_ scene: UIScene) {
+    appDelegate?.sceneActiveChanged(false)
+    super.sceneDidEnterBackground(scene)
+  }
+
+  override func sceneDidBecomeActive(_ scene: UIScene) {
+    super.sceneDidBecomeActive(scene)
+    appDelegate?.sceneWindow = window
+    appDelegate?.sceneActiveChanged(true)
   }
 }
