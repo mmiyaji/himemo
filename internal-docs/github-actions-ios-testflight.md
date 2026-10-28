@@ -45,6 +45,10 @@ Release build fixes: Functions and CI use Node.js 22, as required by Firebase Ad
 
 Local validation on 2026-10-28: Flutter analysis with `--fatal-infos` and formatting passed; all 373 Flutter tests passed, including the resize regression. Web build passed. The two selected Playwright onboarding / mobile note-and-archive scenarios passed after aligning the existing onboarding helper with the five-page UI and its current labels. Functions lint and all 11 tests passed. Both npm dependency trees reported zero known audit vulnerabilities after lockfile updates; the root package overrides serve's compression dependency to patched 1.8.2. The toolchain guard was checked with mocked 27.1 and older version output. macOS archive, signing, native simulator/device checks and TestFlight upload remain unverified.
 
+2026-10-28 release execution: [GitHub Actions run 40706424640](https://github.com/mmiyaji/himemo/actions/runs/40706424640) succeeded for app version `1.0.0`, build `2610281431`, app-source commit `e5abd77`. macOS validation, CocoaPods resolution, signed IPA archive/export and CloudKit entitlement verification passed; altool reported `UPLOAD SUCCEEDED with no errors`. App Store Connect received the build and began processing. Native simulator/device behavior still needs hands-on testing.
+
+iPhone Duo screenshots: six Japanese screenshots (three outer-display portrait, three inner-display landscape) were uploaded to the existing Japanese App Store version draft and persisted after reload. Sources are Flutter Web UI captures with demo notes, not native simulator captures. Canonical RGB PNGs and dimension/hash manifests are under `store-assets/app-store/iphone-duo-upload/{ja,en}/`; English images are prepared locally but no English store localization was added. Regenerate source captures with `node tools/store_assets/generate_app_store_screenshots.js --iphone-duo-only`. Apple sizes: 1398×2034 outer portrait and 2853×2007 inner landscape.
+
 Codemagic と同じく、iOS は `--flavor production` を付けずに entrypoint だけ `lib/main_production.dart` にする。
 
 ## Required Secrets
