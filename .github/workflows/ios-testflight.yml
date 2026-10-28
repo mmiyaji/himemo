@@ -156,6 +156,79 @@ jobs:
           set -euo pipefail
           find ios -name "Podfile" -execdir pod install \;
 
+      - name: Configure Google Sign-In
+        env:
+          HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID: ${{ secrets.HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID }}
+          HIMEMO_GOOGLE_REVERSED_CLIENT_ID: ${{ secrets.HIMEMO_GOOGLE_REVERSED_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          PLIST="$GITHUB_WORKSPACE/ios/Runner/Info.plist"
+          if [ -n "${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID:-}" ]; then
+            /usr/libexec/PlistBuddy -c "Set :GIDClientID ${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID}" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :GIDClientID string ${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID}" "$PLIST"
+          fi
+          if [ -n "${HIMEMO_GOOGLE_REVERSED_CLIENT_ID:-}" ]; then
+            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1 dict" "$PLIST" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleTypeRole Editor" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleTypeRole string Editor" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLName google-sign-in" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLName string google-sign-in" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes array" "$PLIST" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes:0 string ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST"
+          fi
+
+      - name: Configure extension bundle versions
+        run: |
+          set -euo pipefail
+          for PLIST in \
+            "$GITHUB_WORKSPACE/ios/QuickCaptureWidgetExtension/Info.plist" \
+            "$GITHUB_WORKSPACE/ios/ShareExtension/Info.plist"
+          do
+            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION_NAME}" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${VERSION_NAME}" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${BUILD_NUMBER}" "$PLIST" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${BUILD_NUMBER}" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST"
+            /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST"
+          done
+
+      - name: Verify production startup on iOS simulator
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available -j > "$RUNNER_TEMP/simulators.json"
+          SIMULATOR_ID="$(python3 - "$RUNNER_TEMP/simulators.json" <<'PY'
+          import json, sys
+          devices = json.load(open(sys.argv[1]))["devices"]
+          candidates = [(runtime, device) for runtime, group in devices.items()
+                        if "iOS-27" in runtime for device in group
+                        if device.get("isAvailable") and device["name"].startswith("iPhone")]
+          if not candidates:
+              raise SystemExit("An iOS 27 iPhone simulator is required for the launch gate")
+          print(sorted(candidates, key=lambda item: item[0], reverse=True)[0][1]["udid"])
+          PY
+          )"
+          xcrun simctl boot "$SIMULATOR_ID" || true
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+          flutter build ios --simulator --debug --no-codesign \
+            --target=test_driver/ios_launch_app.dart \
+            --build-number="$BUILD_NUMBER"
+          flutter drive --verbose --debug --no-pub -d "$SIMULATOR_ID" \
+            --use-application-binary=build/ios/iphonesimulator/Runner.app \
+            --target=test_driver/ios_launch_app.dart \
+            --driver=test_driver/ios_launch_test.dart \
+            --timeout=1080
+          xcrun simctl shutdown "$SIMULATOR_ID"
+
+      - name: Upload iOS launch evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ios-launch-smoke-${{ github.run_number }}
+          path: build/ios-launch-smoke/
+          if-no-files-found: ignore
+
       - name: Check Dart formatting
         run: >-
           dart format --output=none --set-exit-if-changed
@@ -179,75 +252,6 @@ jobs:
           npm --prefix functions run lint
           npm --prefix functions test
           npm --prefix functions audit --omit=dev --audit-level=high
-
-      - name: Configure Google Sign-In
-        env:
-          HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID: ${{ secrets.HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID }}
-          HIMEMO_GOOGLE_REVERSED_CLIENT_ID: ${{ secrets.HIMEMO_GOOGLE_REVERSED_CLIENT_ID }}
-        run: |
-          set -euo pipefail
-          PLIST="$GITHUB_WORKSPACE/ios/Runner/Info.plist"
-          if [ -n "${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID:-}" ]; then
-            /usr/libexec/PlistBuddy -c "Set :GIDClientID ${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID}" "$PLIST" 2>/dev/null \
-              || /usr/libexec/PlistBuddy -c "Add :GIDClientID string ${HIMEMO_GOOGLE_SIGN_IN_CLIENT_ID}" "$PLIST"
-          fi
-          if [ -n "${HIMEMO_GOOGLE_REVERSED_CLIENT_ID:-}" ]; then
-            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1 dict" "$PLIST" 2>/dev/null || true
-            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleTypeRole Editor" "$PLIST" 2>/dev/null \
-              || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleTypeRole string Editor" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLName google-sign-in" "$PLIST" 2>/dev/null \
-              || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLName string google-sign-in" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes array" "$PLIST" 2>/dev/null || true
-            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST" 2>/dev/null \
-              || /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:1:CFBundleURLSchemes:0 string ${HIMEMO_GOOGLE_REVERSED_CLIENT_ID}" "$PLIST"
-          fi
-
-      - name: Verify production startup on iOS simulator
-        timeout-minutes: 15
-        run: |
-          set -euo pipefail
-          xcrun simctl list devices available -j > "$RUNNER_TEMP/simulators.json"
-          SIMULATOR_ID="$(python3 - "$RUNNER_TEMP/simulators.json" <<'PY'
-          import json, sys
-          devices = json.load(open(sys.argv[1]))["devices"]
-          candidates = [(runtime, device) for runtime, group in devices.items()
-                        if "iOS-27" in runtime for device in group
-                        if device.get("isAvailable") and device["name"].startswith("iPhone")]
-          if not candidates:
-              raise SystemExit("An iOS 27 iPhone simulator is required for the launch gate")
-          print(sorted(candidates, key=lambda item: item[0], reverse=True)[0][1]["udid"])
-          PY
-          )"
-          xcrun simctl boot "$SIMULATOR_ID" || true
-          xcrun simctl bootstatus "$SIMULATOR_ID" -b
-          flutter drive --debug -d "$SIMULATOR_ID" \
-            --target=test_driver/ios_launch_app.dart \
-            --driver=test_driver/ios_launch_test.dart \
-            --timeout=720
-          xcrun simctl shutdown "$SIMULATOR_ID"
-
-      - name: Upload iOS launch evidence
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: ios-launch-smoke-${{ github.run_number }}
-          path: build/ios-launch-smoke/
-          if-no-files-found: ignore
-
-      - name: Configure extension bundle versions
-        run: |
-          set -euo pipefail
-          for PLIST in \
-            "$GITHUB_WORKSPACE/ios/QuickCaptureWidgetExtension/Info.plist" \
-            "$GITHUB_WORKSPACE/ios/ShareExtension/Info.plist"
-          do
-            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION_NAME}" "$PLIST" 2>/dev/null \
-              || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${VERSION_NAME}" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${BUILD_NUMBER}" "$PLIST" 2>/dev/null \
-              || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${BUILD_NUMBER}" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST"
-            /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST"
-          done
 
       - name: Create App Store export options
         run: |
