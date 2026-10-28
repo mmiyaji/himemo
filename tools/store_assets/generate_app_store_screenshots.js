@@ -10,6 +10,22 @@ const googlePlayOutputDir = path.join(rootDir, 'store-assets', 'google-play');
 const port = process.env.STORE_ASSET_PORT || '4174';
 const baseUrl = `http://127.0.0.1:${port}`;
 const googlePlayOnly = process.argv.includes('--google-play-only');
+const iphoneDuoOnly = process.argv.includes('--iphone-duo-only');
+const webBuildDir = iphoneDuoOnly ? 'build/store-duo-web' : 'build/web';
+
+// Apple App Store Connect dimensions: outer portrait and inner landscape.
+const iphoneDuoTargets = [
+  {
+    id: 'iphone-duo-outer',
+    viewport: { width: 466, height: 678 },
+    deviceScaleFactor: 3,
+  },
+  {
+    id: 'iphone-duo-inner',
+    viewport: { width: 951, height: 669 },
+    deviceScaleFactor: 3,
+  },
+];
 
 const deviceTargets = [
   {
@@ -130,20 +146,21 @@ const scenes = [
     key: 'quick',
     prepare: async (page, locale) => {
       await openAddNote(page);
-      const quickButton = page.getByRole('button', {
-        name: locale.id === 'ja' ? /クイックメモ/ : /Quick memo/,
+      const modeButton = page.getByRole('button', {
+        name: /Quick memo|Rich memo|クイックメモ|リッチメモ/,
       });
-      if (await quickButton.count()) {
-        await quickButton.first().click();
-        const memoInput = page.getByLabel(locale.id === 'ja' ? 'メモ' : 'Memo');
-        if (await memoInput.count()) {
-          await memoInput.fill(
-            locale.id === 'ja'
-              ? '旅の持ち物\n充電器\n折りたたみ傘\n小さなノート'
-              : 'Trip packing\nCharger\nCompact umbrella\nSmall notebook',
-          );
-        }
+      const quickMode = locale.id === 'ja' ? 'クイックメモ' : 'Quick memo';
+      if (!(await modeButton.innerText()).includes(quickMode)) {
+        await modeButton.click();
+        await page.getByRole('menuitem', { name: quickMode }).click();
       }
+      const memoInput = page.getByLabel(/Use the first line as the title|1行目をタイトルとして使います/);
+      await memoInput.fill(
+        locale.id === 'ja'
+          ? '旅の持ち物\n充電器\n折りたたみ傘\n小さなノート'
+          : 'Trip packing\nCharger\nCompact umbrella\nSmall notebook',
+      );
+      await memoInput.press('Tab');
       await page.waitForTimeout(500);
     },
   },
@@ -183,6 +200,28 @@ const scenes = [
 ];
 
 async function main() {
+  if (iphoneDuoOnly) {
+    const server = await ensureServer();
+    const browser = await chromium.launch({
+      args: ['--force-renderer-accessibility'],
+    });
+    try {
+      for (const target of iphoneDuoTargets) {
+        for (const locale of locales) {
+          const destination = path.join(outputDir, target.id, locale.id, 'raw');
+          fs.mkdirSync(destination, { recursive: true });
+          for (const scene of scenes.filter(({ key }) => ['notes', 'quick', 'insights'].includes(key))) {
+            await captureRaw(browser, target, locale, scene, path.join(destination, `${scene.id}.png`));
+            console.log(`${target.id}/${locale.id}/${scene.id}`);
+          }
+        }
+      }
+    } finally {
+      await browser.close();
+      if (server) server.kill();
+    }
+    return;
+  }
   if (googlePlayOnly) {
     fs.rmSync(googlePlayOutputDir, { recursive: true, force: true });
     fs.mkdirSync(googlePlayOutputDir, { recursive: true });
@@ -263,6 +302,7 @@ async function captureRaw(browser, target, locale, scene, outputPath) {
   await completeOnboarding(page, locale);
   await ensureDemoNotes(page, locale);
   await scene.prepare(page, locale);
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.mouse.move(0, 0);
   await page.waitForTimeout(700);
   await page.screenshot({ path: outputPath, fullPage: false });
@@ -751,13 +791,14 @@ async function ensureServer() {
     'tools/flutter_with_env.ps1',
     'build',
     'web',
+    `--output=${webBuildDir}`,
     '--no-wasm-dry-run',
     '--dart-define=HIMEMO_HIDE_FLAVOR_BANNER=true',
     '-t',
     'lib/main_development.dart',
   ]);
 
-  const server = spawn('npx', ['--yes', 'serve', '-s', 'build/web', '-l', port], {
+  const server = spawn('npx', ['--yes', 'serve', '-s', webBuildDir, '-l', port], {
     cwd: rootDir,
     shell: true,
     stdio: 'ignore',
@@ -833,7 +874,7 @@ async function completeOnboarding(page, locale) {
   const isJa = locale.id === 'ja';
   const skipNames = isJa ? ['スキップ', 'Skip'] : ['Skip', 'スキップ'];
   const nextNames = isJa ? ['次へ', 'Next'] : ['Next', '次へ'];
-  const finishNames = isJa ? ['セットアップ完了', 'Finish setup'] : ['Finish setup', 'セットアップ完了'];
+  const finishNames = isJa ? ['メモを始める', 'Start taking notes'] : ['Start taking notes', 'メモを始める'];
   const setPinNames = isJa ? ['PIN を設定', 'Set PIN'] : ['Set PIN', 'PIN を設定'];
   const saveNames = isJa ? ['保存', 'Save'] : ['Save', '保存'];
 
@@ -845,7 +886,7 @@ async function completeOnboarding(page, locale) {
     await page.waitForTimeout(900);
     return;
   }
-  for (let i = 0; i < 3; i += 1) {
+  for (let i = 0; i < 4; i += 1) {
     await clickByNames(page, nextNames);
     await page.waitForTimeout(250);
   }

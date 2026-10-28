@@ -1,0 +1,42 @@
+{
+  "source": "Flutter Web app capture with demo data; device-sized viewports",
+  "locale": "ja",
+  "screenshots": [
+    {
+      "file": "01-outer-notes.png",
+      "width": 1398,
+      "height": 2034,
+      "sha256": "3149125434bd744aa7ec9aaffbe267c97fe62280f6b6b517869f105a33014b02"
+    },
+    {
+      "file": "02-inner-notes.png",
+      "width": 2853,
+      "height": 2007,
+      "sha256": "736c010c19cde24c6bd93fd67c58e54148d70ff8a64ca8230282dba754df71aa"
+    },
+    {
+      "file": "03-outer-quick-memo.png",
+      "width": 1398,
+      "height": 2034,
+      "sha256": "1f04c7f4a504adda5b24455f4b3a4e34a748a835c8e2809c40ae4c6260ada61e"
+    },
+    {
+      "file": "04-inner-quick-memo.png",
+      "width": 2853,
+      "height": 2007,
+      "sha256": "f3a77e87206ca3cc2159b2c4be49624120876bc255df621e56489ab2dcf99c54"
+    },
+    {
+      "file": "05-outer-insights.png",
+      "width": 1398,
+      "height": 2034,
+      "sha256": "3fdd9c45b180b727951382da99447789af05d61cfcbcd533bca4fc4dfd0001e7"
+    },
+    {
+      "file": "06-inner-insights.png",
+      "width": 2853,
+      "height": 2007,
+      "sha256": "2b48c2b79e4d64582d3f03b85c9fafcc7744be547b449de7d812b86e3ebe07ee"
+    }
+  ]
+}
