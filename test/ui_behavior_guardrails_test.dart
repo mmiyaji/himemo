@@ -555,7 +555,7 @@ void main() {
     expect(appDelegate, contains('CSSearchableIndex.isIndexingAvailable()'));
     expect(appDelegate, contains('"indexedCount"'));
     expect(appDelegate, contains('CSSearchableItemActionType'));
-    expect(appDelegate, contains('.userActivityDictionary'));
+    expect(appDelegate, contains('connectionOptions.userActivities'));
     expect(appDelegate, contains('handleSpotlightUserActivity'));
     expect(appDelegate, contains('attributeSet.textContent'));
     expect(appDelegate, contains('attributeSet.displayName'));

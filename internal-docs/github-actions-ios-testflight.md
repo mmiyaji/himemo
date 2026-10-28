@@ -112,6 +112,14 @@ If the Apple Developer Portal profile names change, update the `APP_STORE_PROFIL
 
 The upload step only uploads to App Store Connect. Tester group assignment should be handled by App Store Connect TestFlight settings, or added later through App Store Connect API automation if needed.
 
+## iOS 27 startup lifecycle
+
+Build `2610281431` crashed at launch in UIKit's `UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption` (SIGTRAP). The customized AppDelegate had not been automatically migrated to UIScene. Xcode 27 builds require this lifecycle; see [Flutter's migration guide](https://docs.flutter.dev/release/breaking-changes/uiscenedelegate).
+
+Runner now declares a scene manifest, registers plugins and custom channels through `FlutterImplicitEngineDelegate`, and handles URL/activity delivery and the privacy overlay through a `FlutterSceneDelegate` subclass. The subclass lives in AppDelegate.swift and is included by its existing Sources build phase. Multi-window support remains disabled.
+
+The release workflow requires an iOS 27 iPhone simulator. Before archiving, `test_driver/ios_launch_app.dart` starts the production entrypoint with the driver extension, and its host test waits for the real onboarding screen and exercises native network/privacy channels. The `ios-launch-smoke-*` artifact contains the rendered onboarding screenshot. This gate covers native startup and channel registration; physical-device signing, authentication, sync, and folding still require device testing. Crash ZIPs and raw logs stay in the ignored local `.codex/` directory.
+
 ## Troubleshooting
 
 If Xcode reports `No Accounts` or searches for `iOS App Development provisioning profiles`, the archive step is still using automatic/development signing. The workflow includes `Configure manual iOS signing` to set the app, widget, and share extension targets to manual `Apple Distribution` signing before `flutter build ipa`.
