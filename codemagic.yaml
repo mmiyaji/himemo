@@ -50,9 +50,9 @@ workflows:
     integrations:
       app_store_connect: Codemagic HiMemo
     environment:
-      flutter: 3.41.6
+      flutter: 3.47.8
       node: "20"
-      xcode: latest
+      xcode: 27.1
       cocoapods: default
       groups:
         - google_drive_oauth
@@ -79,6 +79,7 @@ workflows:
           flutter --version
           xcodebuild -version
           pod --version
+          python3 tools/check_ios_toolchain.py
       - name: Install Flutter dependencies
         script: flutter pub get
       - name: Run mandatory release validation
@@ -170,9 +171,9 @@ workflows:
     integrations:
       app_store_connect: Codemagic HiMemo
     environment:
-      flutter: 3.41.6
+      flutter: 3.47.8
       node: "20"
-      xcode: latest
+      xcode: 27.1
       cocoapods: default
       groups:
         - google_drive_oauth
@@ -194,6 +195,8 @@ workflows:
         - ~/Library/Caches/CocoaPods
         - ~/.cocoapods/repos
     scripts:
+      - name: Validate iPhone Duo toolchain
+        script: python3 tools/check_ios_toolchain.py
       - name: Install Flutter dependencies
         script: flutter pub get
       - name: Run mandatory release validation

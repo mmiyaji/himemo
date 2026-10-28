@@ -25,9 +25,9 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
         ? summaries
         : summaries
               .where(
-                (summary) => canonicalizeNoteTag(
-                  _displayNoteTag(context, summary.name),
-                ).contains(queryKey),
+                (summary) =>
+                    canonicalizeNoteTag(_displayNoteTag(context, summary.name))
+                        .contains(queryKey),
               )
               .toList(growable: false);
     return CustomScrollView(
@@ -45,9 +45,8 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
                       if (openedFromSettings) ...[
                         IconButton(
                           key: TagsScreen.backToSettingsKey,
-                          tooltip: MaterialLocalizations.of(
-                            context,
-                          ).backButtonTooltip,
+                          tooltip: MaterialLocalizations.of(context)
+                              .backButtonTooltip,
                           onPressed: () {
                             if (context.canPop()) {
                               context.pop();
@@ -77,9 +76,8 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
                       es: 'Renombra o elimina etiquetas usadas por las notas visibles.',
                       de: 'Tags sichtbarer Notizen umbenennen oder loeschen.',
                     ),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: _mutedTextColor(context),
-                    ),
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(color: _mutedTextColor(context)),
                   ),
                   const SizedBox(height: 16),
                   _AutoTagRulesPanel(
@@ -688,9 +686,8 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
   }
 
   void _showTagSnackBar(BuildContext context, String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(showCloseIcon: true, content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(showCloseIcon: true, content: Text(message)));
   }
 }
 
@@ -1034,9 +1031,8 @@ class _TagsEmptyState extends StatelessWidget {
               Text(
                 description,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(color: _mutedTextColor(context)),
               ),
             ],
             if (actionLabel case final actionLabel?) ...[

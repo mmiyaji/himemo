@@ -1458,9 +1458,8 @@ class SettingsScreen extends ConsumerWidget {
           children: [
             Text(
               strings.privateProfilesSettingsBody,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: _mutedTextColor(context)),
             ),
             const SizedBox(height: 8),
             Text(
@@ -1472,9 +1471,8 @@ class SettingsScreen extends ConsumerWidget {
                 es: 'Soporte no puede restablecer, desbloquear ni recuperar contrasenas de perfiles privados. Guarda la contrasena en un lugar seguro.',
                 de: 'Private-Profile-Passworter konnen vom Support nicht zuruckgesetzt, entsperrt oder wiederhergestellt werden. Bewahre das Passwort sicher auf.',
               ),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.error,
-              ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: Theme.of(context).colorScheme.error),
             ),
             const SizedBox(height: 10),
             Align(
@@ -1591,9 +1589,8 @@ class SettingsScreen extends ConsumerWidget {
               if (privateProfiles.isEmpty && !privateVaultConfigured)
                 Text(
                   strings.noPrivateProfilesMessage,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: _mutedTextColor(context),
-                  ),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: _mutedTextColor(context)),
                 )
               else
                 Column(
@@ -1703,9 +1700,8 @@ class SettingsScreen extends ConsumerWidget {
                 strings.text(
                   'home.the.app.stays.in.normal.memo.mode.by.default.enter.a.spe',
                 ),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: _mutedTextColor(context)),
               ),
               const SizedBox(height: 12),
               if (syncProvider != SyncProvider.iCloud)
@@ -1991,9 +1987,8 @@ class SettingsScreen extends ConsumerWidget {
                         es: 'Este PIN se guarda en este dispositivo y se usa cuando la autenticación del sistema no está disponible.',
                         de: 'Diese PIN wird auf diesem Gerät gespeichert und genutzt, wenn die Geräteauthentifizierung des Systems nicht verfügbar ist.',
                       ),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: _mutedTextColor(context)),
               ),
               const SizedBox(height: 8),
             ],
@@ -2025,9 +2020,8 @@ class SettingsScreen extends ConsumerWidget {
                 strings.text(
                   'home.quick.widget.capture.only.writes.plain.text.into.notes.i',
                 ),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: _mutedTextColor(context)),
               ),
               const SizedBox(height: 8),
             ],
@@ -2521,9 +2515,8 @@ class SettingsScreen extends ConsumerWidget {
             Container(
               margin: const EdgeInsets.symmetric(vertical: 8),
               decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.36),
+                color: Theme.of(context).colorScheme.surfaceContainerHighest
+                    .withValues(alpha: 0.36),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
                   color: Theme.of(context).colorScheme.outlineVariant,
@@ -2531,9 +2524,8 @@ class SettingsScreen extends ConsumerWidget {
               ),
               clipBehavior: Clip.antiAlias,
               child: Theme(
-                data: Theme.of(
-                  context,
-                ).copyWith(dividerColor: Colors.transparent),
+                data: Theme.of(context)
+                    .copyWith(dividerColor: Colors.transparent),
                 child: ExpansionTile(
                   leading: const Icon(Icons.info_outline_rounded),
                   tilePadding: const EdgeInsets.symmetric(
@@ -3029,16 +3021,14 @@ class SettingsScreen extends ConsumerWidget {
                                                 actions: [
                                                   TextButton(
                                                     onPressed: () =>
-                                                        Navigator.of(
-                                                          context,
-                                                        ).pop(false),
+                                                        Navigator.of(context)
+                                                            .pop(false),
                                                     child: Text(strings.cancel),
                                                   ),
                                                   FilledButton(
                                                     onPressed: () =>
-                                                        Navigator.of(
-                                                          context,
-                                                        ).pop(true),
+                                                        Navigator.of(context)
+                                                            .pop(true),
                                                     child: Text(
                                                       strings.localized(
                                                         en: 'Re-upload',
@@ -3155,16 +3145,14 @@ class SettingsScreen extends ConsumerWidget {
                                                 actions: [
                                                   TextButton(
                                                     onPressed: () =>
-                                                        Navigator.of(
-                                                          context,
-                                                        ).pop(false),
+                                                        Navigator.of(context)
+                                                            .pop(false),
                                                     child: Text(strings.cancel),
                                                   ),
                                                   FilledButton(
                                                     onPressed: () =>
-                                                        Navigator.of(
-                                                          context,
-                                                        ).pop(true),
+                                                        Navigator.of(context)
+                                                            .pop(true),
                                                     child: Text(
                                                       strings.text(
                                                         'home.force.upload',
@@ -3841,17 +3829,17 @@ class SettingsScreen extends ConsumerWidget {
                                     ),
                                     actions: [
                                       TextButton(
-                                        onPressed: () => Navigator.of(
-                                          dialogContext,
-                                        ).pop(false),
+                                        onPressed: () =>
+                                            Navigator.of(dialogContext)
+                                                .pop(false),
                                         child: Text(
                                           strings.text('home.cancel'),
                                         ),
                                       ),
                                       FilledButton(
-                                        onPressed: () => Navigator.of(
-                                          dialogContext,
-                                        ).pop(true),
+                                        onPressed: () =>
+                                            Navigator.of(dialogContext)
+                                                .pop(true),
                                         child: Text(strings.delete),
                                       ),
                                     ],
@@ -4391,9 +4379,8 @@ class SettingsScreen extends ConsumerWidget {
             es: 'El modo de diagnostico oculto esta activo. Los registros pueden incluir IDs de dispositivo, IDs de paquetes remotos, horas, conteos, tamanos y errores, pero no texto de notas ni datos adjuntos.',
             de: 'Der versteckte Diagnosemodus ist aktiv. Protokolle koennen Geraete-IDs, Remote-Paket-IDs, Zeiten, Zaehler, Groessen und Fehlermeldungen enthalten, aber keine Notiztexte oder Anhangsdaten.',
           ),
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(color: _mutedTextColor(context)),
         ),
         const SizedBox(height: 12),
         DecoratedBox(
@@ -4408,10 +4395,8 @@ class SettingsScreen extends ConsumerWidget {
               padding: const EdgeInsets.all(12),
               child: SelectableText(
                 preview,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontFamily: 'monospace',
-                  height: 1.35,
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(fontFamily: 'monospace', height: 1.35),
               ),
             ),
           ),
@@ -4584,9 +4569,8 @@ class SettingsScreen extends ConsumerWidget {
             es: 'Stored locally, up to the latest 2,000 entries. Older entries are removed automatically. Logs include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
             de: 'Stored locally, up to the latest 2,000 entries. Older entries are removed automatically. Logs include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
           ),
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(color: _mutedTextColor(context)),
         ),
         const SizedBox(height: 12),
         DecoratedBox(
@@ -4693,9 +4677,8 @@ class SettingsScreen extends ConsumerWidget {
       if (!context.mounted) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(showCloseIcon: true, content: Text('$error')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(showCloseIcon: true, content: Text('$error')));
     }
   }
 
@@ -4768,9 +4751,8 @@ class SettingsScreen extends ConsumerWidget {
       if (!context.mounted) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(showCloseIcon: true, content: Text('$error')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(showCloseIcon: true, content: Text('$error')));
     }
   }
 
@@ -4798,8 +4780,6 @@ class SettingsScreen extends ConsumerWidget {
         de: 'Diagnoseprotokoll herunterladen',
       ),
       fileName: fileName,
-      type: FileType.custom,
-      allowedExtensions: const ['txt'],
       bytes: bytes,
     );
     if (!context.mounted) {
@@ -4823,7 +4803,7 @@ class SettingsScreen extends ConsumerWidget {
       );
       return;
     }
-    if (savedPath == null || savedPath.isEmpty) {
+    if (savedPath == null) {
       await SharePlus.instance.share(
         ShareParams(
           files: [
@@ -4875,8 +4855,6 @@ class SettingsScreen extends ConsumerWidget {
         de: 'Download audit log',
       ),
       fileName: fileName,
-      type: FileType.custom,
-      allowedExtensions: const ['txt'],
       bytes: bytes,
     );
     if (!context.mounted) {
@@ -4900,7 +4878,7 @@ class SettingsScreen extends ConsumerWidget {
       );
       return;
     }
-    if (savedPath == null || savedPath.isEmpty) {
+    if (savedPath == null) {
       await SharePlus.instance.share(
         ShareParams(
           files: [
@@ -5120,9 +5098,8 @@ class SettingsScreen extends ConsumerWidget {
               const SizedBox(height: 4),
               Text(
                 strings.accentColorJapanesePaletteDesc,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: _mutedTextColor(context)),
               ),
             ],
           ),
@@ -5533,9 +5510,8 @@ class SettingsScreen extends ConsumerWidget {
                       es: 'Notas a eliminar: $noteCount',
                       de: 'Zu loeschende Notizen: $noteCount',
                     ),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: _mutedTextColor(context),
-                    ),
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: _mutedTextColor(context)),
                   ),
                   const SizedBox(height: 12),
                   CheckboxListTile(

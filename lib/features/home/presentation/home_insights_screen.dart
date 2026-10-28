@@ -44,9 +44,8 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
               const SizedBox(height: 8),
               Text(
                 summary.message,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _strongMutedTextColor(context),
-                ),
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(color: _strongMutedTextColor(context)),
               ),
             ],
           ),
@@ -148,9 +147,8 @@ class _InsightsEmptyGuide extends StatelessWidget {
               es: 'Los graficos son utiles despues de algunas notas. Empieza con una y anade etiquetas, medios o ubicacion cuando ayude.',
               de: 'Diagramme werden nach einigen Notizen nuetzlich. Beginne mit einer Notiz und ergaenze Tags, Medien oder Orte bei Bedarf.',
             ),
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(color: _mutedTextColor(context)),
           ),
           const SizedBox(height: 16),
           Wrap(
@@ -266,9 +264,8 @@ class _InsightKpiTile extends StatelessWidget {
                     value,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: Theme.of(context).textTheme.headlineMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -276,9 +273,8 @@ class _InsightKpiTile extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text(
                     helper,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: _mutedTextColor(context),
-                    ),
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: _mutedTextColor(context)),
                   ),
                 ),
               ],
@@ -313,9 +309,8 @@ class _InsightChartSection extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             description,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: _mutedTextColor(context)),
           ),
           const SizedBox(height: 16),
           child,
@@ -383,9 +378,8 @@ class _InsightBarChartState extends State<_InsightBarChart> {
     if (buckets.isEmpty) {
       return Text(
         strings.text('home.no.data.yet'),
-        style: Theme.of(
-          context,
-        ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
+        style: Theme.of(context).textTheme.bodyMedium
+            ?.copyWith(color: _mutedTextColor(context)),
       );
     }
 
@@ -421,9 +415,9 @@ class _InsightBarChartState extends State<_InsightBarChart> {
                           height: 140,
                           alignment: Alignment.bottomCenter,
                           decoration: BoxDecoration(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.surfaceContainerLowest,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerLowest,
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
                               color: Theme.of(context).dividerColor,
@@ -436,9 +430,8 @@ class _InsightBarChartState extends State<_InsightBarChart> {
                             widthFactor: 1,
                             child: Container(
                               decoration: BoxDecoration(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.primary.withValues(alpha: 0.82),
+                                color: Theme.of(context).colorScheme.primary
+                                    .withValues(alpha: 0.82),
                                 borderRadius: const BorderRadius.vertical(
                                   top: Radius.circular(8),
                                   bottom: Radius.circular(7),
@@ -492,9 +485,8 @@ class _InsightLineChart extends StatelessWidget {
               buckets: buckets,
               maxValue: maxValue,
               lineColor: Theme.of(context).colorScheme.primary,
-              fillColor: Theme.of(
-                context,
-              ).colorScheme.primary.withValues(alpha: 0.12),
+              fillColor: Theme.of(context).colorScheme.primary
+                  .withValues(alpha: 0.12),
               gridColor: Theme.of(context).dividerColor,
             ),
           ),
@@ -505,24 +497,21 @@ class _InsightLineChart extends StatelessWidget {
             Expanded(
               child: Text(
                 buckets.first.label,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
+                style: Theme.of(context).textTheme.labelSmall
+                    ?.copyWith(color: _mutedTextColor(context)),
               ),
             ),
             Text(
               '${buckets.last.value}$valueSuffix',
-              style: Theme.of(
-                context,
-              ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.labelMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
             ),
             Expanded(
               child: Text(
                 buckets.last.label,
                 textAlign: TextAlign.end,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
+                style: Theme.of(context).textTheme.labelSmall
+                    ?.copyWith(color: _mutedTextColor(context)),
               ),
             ),
           ],
@@ -659,9 +648,8 @@ class _InsightHorizontalBarChart extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.end,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: _mutedTextColor(context),
-                  ),
+                  style: Theme.of(context).textTheme.labelSmall
+                      ?.copyWith(color: _mutedTextColor(context)),
                 ),
               ),
             ],
@@ -852,9 +840,8 @@ class _NoInsightData extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       context.strings.text('home.no.data.yet'),
-      style: Theme.of(
-        context,
-      ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
+      style: Theme.of(context).textTheme.bodyMedium
+          ?.copyWith(color: _mutedTextColor(context)),
     );
   }
 }

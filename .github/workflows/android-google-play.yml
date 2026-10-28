@@ -48,7 +48,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  FLUTTER_VERSION: "3.41.6"
+  FLUTTER_VERSION: "3.47.8"
   PACKAGE_NAME: "org.ruhenheim.himemo"
 
 jobs:

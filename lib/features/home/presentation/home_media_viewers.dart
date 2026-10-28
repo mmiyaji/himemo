@@ -135,9 +135,8 @@ class _PinSetupDialogState extends State<_PinSetupDialog> {
               const SizedBox(height: 12),
               Text(
                 _errorText!,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.error,
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: Theme.of(context).colorScheme.error),
               ),
             ],
           ],
@@ -237,9 +236,8 @@ class _AttachmentViewerSheet extends ConsumerWidget {
         const SizedBox(height: 8),
         Text(
           _attachmentDescription(context, attachment),
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(color: _mutedTextColor(context)),
         ),
         const SizedBox(height: 4),
         _AttachmentSizeText(attachment: attachment),
@@ -295,9 +293,8 @@ class _FileAttachmentViewer extends ConsumerWidget {
             Text(
               context.strings.filePreviewUnavailable,
               textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: _mutedTextColor(context)),
             ),
             const SizedBox(height: 16),
             FilledButton.icon(
@@ -354,9 +351,8 @@ class _VideoLightboxDialog extends ConsumerWidget {
                                   Icons.close,
                                   color: Colors.white,
                                 ),
-                                tooltip: MaterialLocalizations.of(
-                                  context,
-                                ).closeButtonTooltip,
+                                tooltip: MaterialLocalizations.of(context)
+                                    .closeButtonTooltip,
                               ),
                               const SizedBox(width: 8),
                               Expanded(
@@ -496,9 +492,8 @@ class _VideoControllerLightboxDialogState
                           IconButton(
                             onPressed: () => Navigator.of(context).pop(),
                             icon: const Icon(Icons.close, color: Colors.white),
-                            tooltip: MaterialLocalizations.of(
-                              context,
-                            ).closeButtonTooltip,
+                            tooltip: MaterialLocalizations.of(context)
+                                .closeButtonTooltip,
                           ),
                           const SizedBox(width: 8),
                           Expanded(
@@ -750,9 +745,8 @@ class _WebVideoLightboxDialogState extends State<_WebVideoLightboxDialog> {
                           IconButton(
                             onPressed: () => Navigator.of(context).pop(),
                             icon: const Icon(Icons.close, color: Colors.white),
-                            tooltip: MaterialLocalizations.of(
-                              context,
-                            ).closeButtonTooltip,
+                            tooltip: MaterialLocalizations.of(context)
+                                .closeButtonTooltip,
                           ),
                           const SizedBox(width: 8),
                           Expanded(
@@ -1024,9 +1018,8 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                               behavior: HitTestBehavior.opaque,
                               onPanStart: (details) {
                                 _backgroundPanStartedOnImage =
-                                    _transformedImageRect(
-                                      imageBaseRect,
-                                    ).contains(details.localPosition);
+                                    _transformedImageRect(imageBaseRect)
+                                        .contains(details.localPosition);
                               },
                               onPanUpdate: (details) {
                                 if (_backgroundPanStartedOnImage) {
@@ -1040,9 +1033,8 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                                 _backgroundPanStartedOnImage = false;
                               },
                               onTapUp: (details) {
-                                if (!_transformedImageRect(
-                                  imageBaseRect,
-                                ).contains(details.localPosition)) {
+                                if (!_transformedImageRect(imageBaseRect)
+                                    .contains(details.localPosition)) {
                                   Navigator.of(context).pop();
                                 }
                               },
@@ -1106,17 +1098,15 @@ class _PhotoLightboxDialogState extends ConsumerState<_PhotoLightboxDialog> {
                                 final position = _lastLightboxTapDownPosition;
                                 _lastLightboxTapDownPosition = null;
                                 if (position == null ||
-                                    !_transformedImageRect(
-                                      imageBaseRect,
-                                    ).contains(position)) {
+                                    !_transformedImageRect(imageBaseRect)
+                                        .contains(position)) {
                                   Navigator.of(context).pop();
                                 }
                               },
                               onDoubleTapDown: (details) {
                                 _lastLightboxTapDownPosition = null;
-                                if (_transformedImageRect(
-                                  imageBaseRect,
-                                ).contains(details.localPosition)) {
+                                if (_transformedImageRect(imageBaseRect)
+                                    .contains(details.localPosition)) {
                                   _togglePrimaryZoom(doubleTapScale, maxScale);
                                 }
                               },
@@ -2444,9 +2434,8 @@ class _VideoAttachmentViewerState
                 Text(
                   '${_formatAudioDuration(displayPosition)} / '
                   '${_formatAudioDuration(duration)}',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: secondaryControlColor,
-                  ),
+                  style: Theme.of(context).textTheme.labelSmall
+                      ?.copyWith(color: secondaryControlColor),
                 ),
                 const Spacer(),
                 if (widget.showFullScreenAction &&
@@ -2587,9 +2576,9 @@ class _VideoAttachmentViewerState
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Material(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest,
                     child: InkWell(
                       onTap: playAction,
                       child: Stack(
@@ -2683,9 +2672,8 @@ class _VideoAttachmentViewerState
                         : context.strings.tapToPlayVideo,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: secondaryControlColor,
-                    ),
+                    style: Theme.of(context).textTheme.labelSmall
+                        ?.copyWith(color: secondaryControlColor),
                   ),
                 ),
                 if (widget.showShareAction)
@@ -2728,9 +2716,8 @@ class _VideoAttachmentViewerState
       await showGeneralDialog<void>(
         context: context,
         barrierDismissible: true,
-        barrierLabel: MaterialLocalizations.of(
-          context,
-        ).modalBarrierDismissLabel,
+        barrierLabel: MaterialLocalizations.of(context)
+            .modalBarrierDismissLabel,
         barrierColor: Colors.black.withValues(alpha: 0.88),
         pageBuilder: (context, _, _) => _WebVideoLightboxDialog(
           attachment: widget.attachment,

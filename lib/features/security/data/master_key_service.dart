@@ -6,12 +6,10 @@ import 'secure_key_value_store.dart';
 
 class MasterKeyService {
   MasterKeyService({
-    required SecureKeyValueStore secureStore,
-    required List<int> Function() keyFactory,
-    String storageKey = 'security.master_key.v1',
-  }) : _secureStore = secureStore,
-       _keyFactory = keyFactory,
-       _storageKey = storageKey;
+    required this._secureStore,
+    required this._keyFactory,
+    this._storageKey = 'security.master_key.v1',
+  });
 
   final SecureKeyValueStore _secureStore;
   final List<int> Function() _keyFactory;

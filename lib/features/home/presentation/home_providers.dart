@@ -1008,8 +1008,7 @@ class AppPinLockState {
 }
 
 class AppPinLockStore {
-  AppPinLockStore({required EncryptionService encryptionService})
-    : _encryptionService = encryptionService;
+  AppPinLockStore({required this._encryptionService});
 
   static const _storageKey = 'settings.web_app_pin.v1';
 
@@ -1075,11 +1074,10 @@ class AppPinLockStore {
 
 class SecretVerifierStore {
   SecretVerifierStore({
-    required SecureKeyValueStore secureStore,
-    required EncryptionService encryptionService,
+    required this._secureStore,
+    required this._encryptionService,
     required this.storageKey,
-  }) : _secureStore = secureStore,
-       _encryptionService = encryptionService;
+  });
 
   final SecureKeyValueStore _secureStore;
   final EncryptionService _encryptionService;
@@ -1664,8 +1662,7 @@ const _useFakeGoogleDriveSync = bool.fromEnvironment(
 bool get useFakeGoogleDriveSync => _useFakeGoogleDriveSync;
 
 class FakeGoogleDriveSyncAuthGateway implements SyncAuthGateway {
-  FakeGoogleDriveSyncAuthGateway({required SyncAuthGateway fallback})
-    : _fallback = fallback;
+  FakeGoogleDriveSyncAuthGateway({required this._fallback});
 
   final SyncAuthGateway _fallback;
 
@@ -1743,8 +1740,7 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
           return const SyncAuthState(
             provider: SyncProvider.googleDrive,
             stage: SyncAuthStage.unsupported,
-            message:
-                'Google sign-in on this platform needs explicit client ID setup and a user-triggered SDK button.',
+            message: 'Google sign-in on this platform needs explicit client ID setup and a user-triggered SDK button.',
           );
         }
         account = await GoogleSignIn.instance.authenticate(
@@ -1834,12 +1830,10 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
   String _googleDriveSignInExceptionMessage(GoogleSignInException error) {
     return switch (error.code) {
       GoogleSignInExceptionCode.clientConfigurationError ||
-      GoogleSignInExceptionCode.providerConfigurationError =>
-        'Google Drive sign-in is not configured for this build. Add OAuth clients for this app package/bundle and pass the Google Sign-In client IDs to the build.',
+      GoogleSignInExceptionCode.providerConfigurationError => 'Google Drive sign-in is not configured for this build. Add OAuth clients for this app package/bundle and pass the Google Sign-In client IDs to the build.',
       GoogleSignInExceptionCode.canceled =>
         'Google Drive sign-in was canceled.',
-      GoogleSignInExceptionCode.uiUnavailable =>
-        'Google Drive sign-in UI is unavailable. Start authorization from the Settings screen while the app is in the foreground.',
+      GoogleSignInExceptionCode.uiUnavailable => 'Google Drive sign-in UI is unavailable. Start authorization from the Settings screen while the app is in the foreground.',
       _ =>
         'Google Drive sign-in failed: ${error.description ?? error.toString()}',
     };
@@ -1854,8 +1848,7 @@ abstract class MediaImportService {
 }
 
 class DefaultMediaImportService implements MediaImportService {
-  DefaultMediaImportService({required EncryptedAttachmentStore attachmentStore})
-    : _attachmentStore = attachmentStore;
+  DefaultMediaImportService({required this._attachmentStore});
 
   final EncryptedAttachmentStore _attachmentStore;
 
@@ -2068,13 +2061,9 @@ class DefaultMediaImportService implements MediaImportService {
         onProcessingStarted: onProcessingStarted,
       );
     }
-    FilePickerResult? result;
+    List<PlatformFile> result;
     try {
-      result = await FilePicker.pickFiles(
-        type: pickerType,
-        allowMultiple: true,
-        withData: kIsWeb,
-      );
+      result = await FilePicker.pickFiles(type: pickerType);
     } on MissingPluginException {
       return MediaImportResult.failure(importNotConfiguredMessage);
     } on PlatformException catch (error) {
@@ -2082,19 +2071,16 @@ class DefaultMediaImportService implements MediaImportService {
     } catch (error) {
       return MediaImportResult.failure('$importFailedPrefix ($error)');
     }
-    if (result == null || result.files.isEmpty) {
+    if (result.isEmpty) {
       return const MediaImportResult.cancelled();
     }
 
     onProcessingStarted?.call();
     final attachments = <NoteAttachment>[];
     final deferredPreviews = <String, Future<String?>>{};
-    for (final file in result.files) {
-      final sourceFile = _xFileFromPlatformFile(file);
-      if (sourceFile == null) {
-        return MediaImportResult.failure(openFailureMessage);
-      }
-      final bytes = file.bytes;
+    for (final file in result) {
+      final sourceFile = file.xFile;
+      final bytes = kIsWeb ? await file.readAsBytes() : null;
       if (bytes != null && bytes.length > maxBytes) {
         return MediaImportResult.failure(tooLargeMessage);
       }
@@ -2206,7 +2192,7 @@ class DefaultMediaImportService implements MediaImportService {
   Future<MediaImportResult> _pickAudio({
     VoidCallback? onProcessingStarted,
   }) async {
-    FilePickerResult? result;
+    PlatformFile? file;
     try {
       final audioExtensions = <String>[
         'm4a',
@@ -2219,14 +2205,13 @@ class DefaultMediaImportService implements MediaImportService {
         'flac',
         'ogg',
       ];
-      result = await FilePicker.pickFiles(
+      file = await FilePicker.pickFile(
         type: defaultTargetPlatform == TargetPlatform.iOS
             ? FileType.custom
             : FileType.audio,
         allowedExtensions: defaultTargetPlatform == TargetPlatform.iOS
             ? audioExtensions
             : null,
-        withData: kIsWeb,
       );
     } on MissingPluginException {
       return const MediaImportResult.failure(
@@ -2241,26 +2226,18 @@ class DefaultMediaImportService implements MediaImportService {
         'Audio import failed on this device. ($error)',
       );
     }
-    if (result == null || result.files.isEmpty) {
+    if (file == null) {
       return const MediaImportResult.cancelled();
     }
 
     onProcessingStarted?.call();
-    final file = result.files.single;
-    final bytes = file.bytes;
-    if (file.path == null && bytes == null) {
-      return const MediaImportResult.failure(
-        'The selected audio file could not be opened on this device.',
-      );
-    }
+    final bytes = kIsWeb ? await file.readAsBytes() : null;
     if (bytes != null && bytes.length > 50 * 1024 * 1024) {
       return const MediaImportResult.failure(
         'Audio files over 50 MB are not supported yet.',
       );
     }
-    final sourceFile = file.path == null
-        ? XFile.fromData(file.bytes!, name: file.name)
-        : XFile(file.path!, name: file.name);
+    final sourceFile = file.xFile;
     final tooLarge = await _validateFileSize(
       sourceFile,
       maxBytes: 50 * 1024 * 1024,
@@ -2279,9 +2256,10 @@ class DefaultMediaImportService implements MediaImportService {
   Future<MediaImportResult> _pickFile({
     VoidCallback? onProcessingStarted,
   }) async {
-    FilePickerResult? result;
+    List<PlatformFile> result;
     try {
-      result = await FilePicker.pickFiles(type: FileType.any, withData: kIsWeb);
+      result = await FilePicker.pickFile(type: FileType.any)
+          .then((file) => file == null ? <PlatformFile>[] : [file]);
     } on MissingPluginException {
       return const MediaImportResult.failure(
         'File import is not configured in this runtime.',
@@ -2295,26 +2273,19 @@ class DefaultMediaImportService implements MediaImportService {
         'File import failed on this device. ($error)',
       );
     }
-    if (result == null || result.files.isEmpty) {
+    if (result.isEmpty) {
       return const MediaImportResult.cancelled();
     }
 
     onProcessingStarted?.call();
-    final file = result.files.single;
-    final bytes = file.bytes;
-    if (file.path == null && bytes == null) {
-      return const MediaImportResult.failure(
-        'The selected file could not be opened on this device.',
-      );
-    }
+    final file = result.single;
+    final bytes = kIsWeb ? await file.readAsBytes() : null;
     if (bytes != null && bytes.length > 100 * 1024 * 1024) {
       return const MediaImportResult.failure(
         'Files over 100 MB are not supported yet.',
       );
     }
-    final sourceFile = file.path == null
-        ? XFile.fromData(file.bytes!, name: file.name)
-        : XFile(file.path!, name: file.name);
+    final sourceFile = file.xFile;
     final tooLarge = await _validateFileSize(
       sourceFile,
       maxBytes: 100 * 1024 * 1024,
@@ -2412,18 +2383,6 @@ class DefaultMediaImportService implements MediaImportService {
       ),
       deferredPreview: deferredPreview,
     );
-  }
-
-  XFile? _xFileFromPlatformFile(PlatformFile file) {
-    final bytes = file.bytes;
-    final path = file.path;
-    if (path == null && bytes == null) {
-      return null;
-    }
-    if (path == null) {
-      return XFile.fromData(bytes!, name: file.name);
-    }
-    return XFile(path, name: file.name);
   }
 
   Future<MediaImportResult?> _validateFileSize(
@@ -5284,7 +5243,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           !isSyncAttachmentObjectRef(remoteAttachment.filePath)) {
         return false;
       }
-      return ref
+      return await ref
           .read(notesControllerProvider.notifier)
           .restoreMissingAttachmentRemoteReference(
             noteId: error.noteId,
@@ -5699,9 +5658,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           data: {
             'historyCount': history.length,
             'applyCount': bundlesToApply.length,
-            'fileIds': [
-              for (final status in bundlesToApply) status.fileId,
-            ].join(','),
+            'fileIds': [for (final status in bundlesToApply) status.fileId]
+                .join(','),
           },
         );
         for (final bundleStatus in bundlesToApply) {
@@ -7227,9 +7185,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (incoming.revision != current.revision) {
       return incoming.revision < current.revision;
     }
-    return _encryptedSyncMoment(
-      incoming,
-    ).isBefore(_encryptedSyncMoment(current));
+    return _encryptedSyncMoment(incoming)
+        .isBefore(_encryptedSyncMoment(current));
   }
 
   DateTime _encryptedSyncMoment(EncryptedNoteRecord note) {
@@ -8341,16 +8298,13 @@ TransferableTypedData _encodeLocalZipArchivePayloadInBackground(
 
 class PrivateMemoProfileStore {
   PrivateMemoProfileStore({
-    required SecureKeyValueStore secureStore,
-    required EncryptionService encryptionService,
-    required ProfileDataKeyService profileDataKeyService,
+    required this._secureStore,
+    required this._encryptionService,
+    required this._profileDataKeyService,
     Future<SharedPreferences> Function()? sharedPreferencesProvider,
     this.listStorageKey = 'security.private_profiles.list.v1',
     this.verifierStoragePrefix = 'security.private_profile.verifier.',
-  }) : _secureStore = secureStore,
-       _encryptionService = encryptionService,
-       _profileDataKeyService = profileDataKeyService,
-       _sharedPreferencesProvider =
+  }) : _sharedPreferencesProvider =
            sharedPreferencesProvider ?? SharedPreferences.getInstance;
 
   final SecureKeyValueStore _secureStore;
@@ -8911,9 +8865,8 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
 
     _update(
       provider,
-      stateFor(
-        provider,
-      ).copyWith(stage: SyncAuthStage.busy, clearMessage: true),
+      stateFor(provider)
+          .copyWith(stage: SyncAuthStage.busy, clearMessage: true),
     );
 
     final requiresIntegrity = provider == SyncProvider.googleDrive;
@@ -9016,9 +8969,8 @@ class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
     } catch (error) {
       _update(
         provider,
-        stateFor(
-          provider,
-        ).copyWith(stage: SyncAuthStage.error, message: '$error'),
+        stateFor(provider)
+            .copyWith(stage: SyncAuthStage.error, message: '$error'),
       );
     }
   }
@@ -10436,9 +10388,8 @@ class SyncProviderController extends Notifier<SyncProvider> {
     String? carriedBackupCode;
     if (provider == SyncProvider.googleDrive &&
         previous != SyncProvider.googleDrive) {
-      carriedBackupCode = await _syncBundleKeyServiceFor(
-        previous,
-      ).exportExistingBackupCode();
+      carriedBackupCode = await _syncBundleKeyServiceFor(previous)
+          .exportExistingBackupCode();
     }
     state = provider;
     if (provider != previous) {
@@ -10455,9 +10406,8 @@ class SyncProviderController extends Notifier<SyncProvider> {
         // Moving from iCloud to Google Drive changes the secure-store source.
         // Carry the existing key locally now; Drive is contacted only after
         // Google authentication succeeds.
-        await _syncBundleKeyServiceFor(
-          SyncProvider.googleDrive,
-        ).importBackupCode(carriedBackupCode);
+        await _syncBundleKeyServiceFor(SyncProvider.googleDrive)
+            .importBackupCode(carriedBackupCode);
       } catch (_) {
         state = previous;
         try {
@@ -10991,12 +10941,10 @@ final archivedNoteCountProvider = Provider<int>((ref) {
 
 class NoteEditorDraftStore {
   NoteEditorDraftStore({
-    required EncryptionService encryptionService,
-    required MasterKeyService masterKeyService,
-    required ProfileDataKeyService profileDataKeyService,
-  }) : _encryptionService = encryptionService,
-       _masterKeyService = masterKeyService,
-       _profileDataKeyService = profileDataKeyService;
+    required this._encryptionService,
+    required this._masterKeyService,
+    required this._profileDataKeyService,
+  });
 
   static const _storageKey = 'notes.editor_draft.v1';
   static const _envelopeVersion = 2;
@@ -14668,10 +14616,8 @@ final tagSuggestionGatewayProvider = Provider<TagSuggestionGateway>((ref) {
 
 class MethodChannelTagSuggestionGateway implements TagSuggestionGateway {
   MethodChannelTagSuggestionGateway({
-    MethodChannel channel = const MethodChannel(
-      'org.ruhenheim.himemo/intelligence',
-    ),
-  }) : _channel = channel;
+    this._channel = const MethodChannel('org.ruhenheim.himemo/intelligence'),
+  });
 
   final MethodChannel _channel;
 
@@ -14686,16 +14632,18 @@ class MethodChannelTagSuggestionGateway implements TagSuggestionGateway {
       );
     }
     try {
-      final response = await _channel
-          .invokeMapMethod<String, Object?>('suggestTags', {
-            'title': request.title,
-            'body': request.body,
-            'existingTags': request.existingTags,
-            'knownTags': request.knownTags,
-            'knownTagCounts': request.knownTagCounts,
-            'attachmentLabels': request.attachmentLabels,
-            'preferredLanguageCode': request.preferredLanguageCode,
-          });
+      final response = await _channel.invokeMapMethod<String, Object?>(
+        'suggestTags',
+        {
+          'title': request.title,
+          'body': request.body,
+          'existingTags': request.existingTags,
+          'knownTags': request.knownTags,
+          'knownTagCounts': request.knownTagCounts,
+          'attachmentLabels': request.attachmentLabels,
+          'preferredLanguageCode': request.preferredLanguageCode,
+        },
+      );
       final nativeTags = sanitizeSuggestedTags([
         for (final tag in response?['tags'] as List? ?? const []) '$tag',
       ], existingTags: request.existingTags);

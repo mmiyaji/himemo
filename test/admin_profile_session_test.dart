@@ -224,63 +224,53 @@ void main() {
     );
   });
 
-  test(
-    'admin to normal keeps only the selected profile, and a mismatch preserves the session',
-    () async {
-      final h = await _Harness.create();
-      addTearDown(h.dispose);
-      final profiles = await h.seedProfiles();
-      final admin = h.container.read(
-        adminModeSessionControllerProvider.notifier,
-      );
-      expect(await admin.unlock(), isEmpty);
-      expect(h.keys.isProfileUnlocked(profiles.alpha.vaultId), isTrue);
-      expect(h.keys.isProfileUnlocked(profiles.beta.vaultId), isTrue);
+  test('admin to normal keeps only the selected profile, and a mismatch preserves the session', () async {
+    final h = await _Harness.create();
+    addTearDown(h.dispose);
+    final profiles = await h.seedProfiles();
+    final admin = h.container.read(adminModeSessionControllerProvider.notifier);
+    expect(await admin.unlock(), isEmpty);
+    expect(h.keys.isProfileUnlocked(profiles.alpha.vaultId), isTrue);
+    expect(h.keys.isProfileUnlocked(profiles.beta.vaultId), isTrue);
 
-      final unlock = h.container.read(
-        privateProfileUnlockControllerProvider.notifier,
-      );
-      expect(await unlock.unlockWithPassword('wrong-password'), isNull);
-      expect(h.container.read(adminModeSessionControllerProvider), isTrue);
-      expect(h.keys.isProfileUnlocked(profiles.alpha.vaultId), isTrue);
-      expect(h.keys.isProfileUnlocked(profiles.beta.vaultId), isTrue);
+    final unlock = h.container.read(
+      privateProfileUnlockControllerProvider.notifier,
+    );
+    expect(await unlock.unlockWithPassword('wrong-password'), isNull);
+    expect(h.container.read(adminModeSessionControllerProvider), isTrue);
+    expect(h.keys.isProfileUnlocked(profiles.alpha.vaultId), isTrue);
+    expect(h.keys.isProfileUnlocked(profiles.beta.vaultId), isTrue);
 
-      expect(
-        (await unlock.unlockWithPassword('alpha-password'))?.vaultId,
-        profiles.alpha.vaultId,
-      );
-      expect(h.container.read(adminModeSessionControllerProvider), isFalse);
-      expect(h.keys.isProfileUnlocked(profiles.alpha.vaultId), isTrue);
-      expect(h.keys.isProfileUnlocked(profiles.beta.vaultId), isFalse);
-    },
-  );
+    expect(
+      (await unlock.unlockWithPassword('alpha-password'))?.vaultId,
+      profiles.alpha.vaultId,
+    );
+    expect(h.container.read(adminModeSessionControllerProvider), isFalse);
+    expect(h.keys.isProfileUnlocked(profiles.alpha.vaultId), isTrue);
+    expect(h.keys.isProfileUnlocked(profiles.beta.vaultId), isFalse);
+  });
 
-  test(
-    'admin unlock reports a missing local wrap and password migration restores it',
-    () async {
-      final h = await _Harness.create();
-      addTearDown(h.dispose);
-      final profiles = await h.seedProfiles();
-      await h.secureStore.delete(
-        '${h.keys.storagePrefix}.admin.${profiles.alpha.vaultId}',
-      );
-      h.keys.lockAllPrivateProfiles();
+  test('admin unlock reports a missing local wrap and password migration restores it', () async {
+    final h = await _Harness.create();
+    addTearDown(h.dispose);
+    final profiles = await h.seedProfiles();
+    await h.secureStore.delete(
+      '${h.keys.storagePrefix}.admin.${profiles.alpha.vaultId}',
+    );
+    h.keys.lockAllPrivateProfiles();
 
-      final admin = h.container.read(
-        adminModeSessionControllerProvider.notifier,
-      );
-      expect(await admin.unlock(), contains(profiles.alpha.vaultId));
-      expect(h.keys.isProfileUnlocked(profiles.alpha.vaultId), isFalse);
-      expect(
-        await admin.unlockProfile(profiles.alpha.vaultId, 'alpha-password'),
-        isTrue,
-      );
-      expect(h.keys.isProfileUnlocked(profiles.alpha.vaultId), isTrue);
-      admin.lock();
-      expect(await admin.unlock(), isEmpty);
-      expect(h.keys.isProfileUnlocked(profiles.alpha.vaultId), isTrue);
-    },
-  );
+    final admin = h.container.read(adminModeSessionControllerProvider.notifier);
+    expect(await admin.unlock(), contains(profiles.alpha.vaultId));
+    expect(h.keys.isProfileUnlocked(profiles.alpha.vaultId), isFalse);
+    expect(
+      await admin.unlockProfile(profiles.alpha.vaultId, 'alpha-password'),
+      isTrue,
+    );
+    expect(h.keys.isProfileUnlocked(profiles.alpha.vaultId), isTrue);
+    admin.lock();
+    expect(await admin.unlock(), isEmpty);
+    expect(h.keys.isProfileUnlocked(profiles.alpha.vaultId), isTrue);
+  });
 }
 
 class _Harness {

@@ -79,9 +79,8 @@ void main() {
           'payload-2',
         );
         expect(
-          (await transport.downloadBundleByRecordName(
-            first.fileId,
-          ))?.encodedPayload,
+          (await transport.downloadBundleByRecordName(first.fileId))
+              ?.encodedPayload,
           'payload-1',
         );
       },

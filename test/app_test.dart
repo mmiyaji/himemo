@@ -146,13 +146,9 @@ void main() {
     expect(versionMatch, isNotNull);
     final currentVersion = versionMatch!.group(1)!.split('+').first;
 
-    final releaseNotes =
-        jsonDecode(
-              File(
-                'assets/release_notes/release_notes.json',
-              ).readAsStringSync(),
-            )
-            as Map<String, dynamic>;
+    final releaseNotes = jsonDecode(
+      File('assets/release_notes/release_notes.json').readAsStringSync(),
+    ) as Map<String, dynamic>;
     final releases = releaseNotes['releases'] as List<dynamic>;
     final currentRelease = releases
         .cast<Map<String, dynamic>>()
@@ -470,8 +466,7 @@ void main() {
         'iCloud': {
           'provider': 'iCloud',
           'stage': 'error',
-          'message':
-              'SignInWithAppleAuthorizationException(AuthorizationErrorCode.unknown, The operation couldn\'t be completed. (com.apple.AuthenticationServices.AuthorizationError error 1000.))',
+          'message': 'SignInWithAppleAuthorizationException(AuthorizationErrorCode.unknown, The operation couldn\'t be completed. (com.apple.AuthenticationServices.AuthorizationError error 1000.))',
         },
       }),
     });
@@ -598,9 +593,8 @@ void main() {
 
     expect((await transport.fetchLatestBundleStatus())?.fileId, second.fileId);
     expect(
-      (await transport.downloadBundleByRecordName(
-        first.fileId,
-      ))?.encodedPayload,
+      (await transport.downloadBundleByRecordName(first.fileId))
+          ?.encodedPayload,
       'first-encrypted-payload',
     );
 
@@ -1100,115 +1094,111 @@ void main() {
     },
   );
 
-  test(
-    'fake Google Drive sync keeps trashed notes hidden from stale remote upserts',
-    () async {
-      SharedPreferences.setMockInitialValues({});
-      final fakeTransport = InMemoryGoogleDriveSyncTransport(
-        uploadDelay: Duration.zero,
-      );
-      final firstDevice = await _createGoogleDriveSyncHarness(
-        fakeTransport,
-        tempPrefix: 'himemo-fake-drive-trash-first-',
-        randomSeed: 91,
-      );
-      final secondDevice = await _createGoogleDriveSyncHarness(
-        fakeTransport,
-        tempPrefix: 'himemo-fake-drive-trash-second-',
-        randomSeed: 92,
-      );
-      final recoveryCode = await firstDevice.container
-          .read(syncBundleKeyServiceProvider)
-          .exportBackupCode();
-      await secondDevice.container
-          .read(syncBundleKeyServiceProvider)
-          .importBackupCode(recoveryCode);
-      await secondDevice.container
-          .read(syncAuthControllerProvider.notifier)
-          .connect(SyncProvider.googleDrive);
-      final firstNotes = firstDevice.container.read(
-        notesControllerProvider.notifier,
-      );
-      final secondNotes = secondDevice.container.read(
-        notesControllerProvider.notifier,
-      );
-      final firstSync = firstDevice.container.read(
-        syncTransferControllerProvider.notifier,
-      );
-      final secondSync = secondDevice.container.read(
-        syncTransferControllerProvider.notifier,
-      );
-      final createdAt = DateTime.utc(2026, 5, 19, 7);
+  test('fake Google Drive sync keeps trashed notes hidden from stale remote upserts', () async {
+    SharedPreferences.setMockInitialValues({});
+    final fakeTransport = InMemoryGoogleDriveSyncTransport(
+      uploadDelay: Duration.zero,
+    );
+    final firstDevice = await _createGoogleDriveSyncHarness(
+      fakeTransport,
+      tempPrefix: 'himemo-fake-drive-trash-first-',
+      randomSeed: 91,
+    );
+    final secondDevice = await _createGoogleDriveSyncHarness(
+      fakeTransport,
+      tempPrefix: 'himemo-fake-drive-trash-second-',
+      randomSeed: 92,
+    );
+    final recoveryCode = await firstDevice.container
+        .read(syncBundleKeyServiceProvider)
+        .exportBackupCode();
+    await secondDevice.container
+        .read(syncBundleKeyServiceProvider)
+        .importBackupCode(recoveryCode);
+    await secondDevice.container
+        .read(syncAuthControllerProvider.notifier)
+        .connect(SyncProvider.googleDrive);
+    final firstNotes = firstDevice.container.read(
+      notesControllerProvider.notifier,
+    );
+    final secondNotes = secondDevice.container.read(
+      notesControllerProvider.notifier,
+    );
+    final firstSync = firstDevice.container.read(
+      syncTransferControllerProvider.notifier,
+    );
+    final secondSync = secondDevice.container.read(
+      syncTransferControllerProvider.notifier,
+    );
+    final createdAt = DateTime.utc(2026, 5, 19, 7);
 
-      await firstNotes.upsert(
-        NoteEntry(
-          id: 'sim-trash-race',
-          vaultId: 'everyday',
-          title: 'Shared note',
-          body: 'Initial shared body.',
-          createdAt: createdAt,
-          updatedAt: createdAt,
-        ),
-      );
-      await firstSync.uploadCurrentBundle(force: true);
-      expect(
-        firstDevice.container.read(syncTransferControllerProvider).stage,
-        SyncTransferStage.success,
-      );
+    await firstNotes.upsert(
+      NoteEntry(
+        id: 'sim-trash-race',
+        vaultId: 'everyday',
+        title: 'Shared note',
+        body: 'Initial shared body.',
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+    );
+    await firstSync.uploadCurrentBundle(force: true);
+    expect(
+      firstDevice.container.read(syncTransferControllerProvider).stage,
+      SyncTransferStage.success,
+    );
 
-      await secondSync.downloadLatestBundle();
-      await secondSync.applyDownloadedBundle();
-      expect(
-        secondDevice.container
-            .read(visibleNotesProvider)
-            .any((note) => note.id == 'sim-trash-race'),
-        isTrue,
-      );
+    await secondSync.downloadLatestBundle();
+    await secondSync.applyDownloadedBundle();
+    expect(
+      secondDevice.container
+          .read(visibleNotesProvider)
+          .any((note) => note.id == 'sim-trash-race'),
+      isTrue,
+    );
 
-      await firstNotes.delete('sim-trash-race');
-      expect(
-        firstDevice.container
-            .read(trashedNotesProvider)
-            .any((note) => note.id == 'sim-trash-race'),
-        isTrue,
-      );
+    await firstNotes.delete('sim-trash-race');
+    expect(
+      firstDevice.container
+          .read(trashedNotesProvider)
+          .any((note) => note.id == 'sim-trash-race'),
+      isTrue,
+    );
 
-      await secondNotes.upsert(
-        NoteEntry(
-          id: 'sim-trash-race',
-          vaultId: 'everyday',
-          title: 'Shared note edited remotely',
-          body:
-              'A stale device edited the note after another device deleted it.',
-          createdAt: createdAt,
-          updatedAt: DateTime.now().add(const Duration(hours: 1)),
-          revision: 5,
-        ),
-      );
-      await secondSync.uploadCurrentBundle(force: true);
+    await secondNotes.upsert(
+      NoteEntry(
+        id: 'sim-trash-race',
+        vaultId: 'everyday',
+        title: 'Shared note edited remotely',
+        body: 'A stale device edited the note after another device deleted it.',
+        createdAt: createdAt,
+        updatedAt: DateTime.now().add(const Duration(hours: 1)),
+        revision: 5,
+      ),
+    );
+    await secondSync.uploadCurrentBundle(force: true);
 
-      await firstSync.downloadLatestBundle();
-      await firstSync.applyDownloadedBundle();
-      final firstState = firstDevice.container.read(notesControllerProvider);
-      final note = firstState.singleWhere(
-        (entry) => entry.id == 'sim-trash-race',
-      );
-      expect(note.deletedAt, isNotNull);
-      expect(note.syncState, NoteSyncState.pendingDelete);
-      expect(
-        firstDevice.container
-            .read(visibleNotesProvider)
-            .any((entry) => entry.id == 'sim-trash-race'),
-        isFalse,
-      );
-      expect(
-        firstDevice.container
-            .read(trashedNotesProvider)
-            .any((entry) => entry.id == 'sim-trash-race'),
-        isTrue,
-      );
-    },
-  );
+    await firstSync.downloadLatestBundle();
+    await firstSync.applyDownloadedBundle();
+    final firstState = firstDevice.container.read(notesControllerProvider);
+    final note = firstState.singleWhere(
+      (entry) => entry.id == 'sim-trash-race',
+    );
+    expect(note.deletedAt, isNotNull);
+    expect(note.syncState, NoteSyncState.pendingDelete);
+    expect(
+      firstDevice.container
+          .read(visibleNotesProvider)
+          .any((entry) => entry.id == 'sim-trash-race'),
+      isFalse,
+    );
+    expect(
+      firstDevice.container
+          .read(trashedNotesProvider)
+          .any((entry) => entry.id == 'sim-trash-race'),
+      isTrue,
+    );
+  });
 
   test('missing local attachment can be restored to remote reference', () async {
     SharedPreferences.setMockInitialValues({});
@@ -1386,194 +1376,186 @@ void main() {
     expect(synced.attachments.single.syncAttachmentContentHash, contentHash);
   });
 
-  test(
-    'fake Google Drive sync keeps large video and multi-file attachments as objects',
-    () async {
-      SharedPreferences.setMockInitialValues({});
-      final tempDirectory = await Directory.systemTemp.createTemp(
-        'himemo-fake-drive-large-attachments-',
-      );
-      final secureStore = MemorySecureKeyValueStore();
-      final encryptionService = EncryptionService(random: Random(64));
-      final masterKeyService = MasterKeyService(
-        secureStore: secureStore,
-        keyFactory: encryptionService.generateKeyBytes,
-      );
-      final noteDatabase = EncryptedNoteDatabase(
-        executor: NativeDatabase.memory(),
-      );
-      final noteStore = EncryptedNoteStore(
-        encryptionService: encryptionService,
-        masterKeyService: masterKeyService,
-        database: noteDatabase,
-        directoryProvider: () async => tempDirectory,
-        sharedPreferencesProvider: SharedPreferences.getInstance,
-      );
-      final attachmentStore = EncryptedAttachmentStore(
-        encryptionService: encryptionService,
-        masterKeyService: masterKeyService,
-        directoryProvider: () async => tempDirectory,
-        sharedPreferencesProvider: SharedPreferences.getInstance,
-      );
-      final fakeTransport = InMemoryGoogleDriveSyncTransport(
-        uploadDelay: Duration.zero,
-      );
-      final container = ProviderContainer(
-        overrides: [
-          secureKeyValueStoreProvider.overrideWithValue(secureStore),
-          encryptionServiceProvider.overrideWithValue(encryptionService),
-          masterKeyServiceProvider.overrideWithValue(masterKeyService),
-          encryptedNoteStoreProvider.overrideWithValue(noteStore),
-          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
-          encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
-          secureSyncBundleStoreProvider.overrideWith(
-            (ref) => SecureSyncBundleStore(
-              encryptionService: encryptionService,
-              syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
-              legacyMasterKeyService: masterKeyService,
-              directoryProvider: () async => tempDirectory,
-              sharedPreferencesProvider: SharedPreferences.getInstance,
-            ),
+  test('fake Google Drive sync keeps large video and multi-file attachments as objects', () async {
+    SharedPreferences.setMockInitialValues({});
+    final tempDirectory = await Directory.systemTemp.createTemp(
+      'himemo-fake-drive-large-attachments-',
+    );
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(64));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final noteDatabase = EncryptedNoteDatabase(
+      executor: NativeDatabase.memory(),
+    );
+    final noteStore = EncryptedNoteStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      database: noteDatabase,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final attachmentStore = EncryptedAttachmentStore(
+      encryptionService: encryptionService,
+      masterKeyService: masterKeyService,
+      directoryProvider: () async => tempDirectory,
+      sharedPreferencesProvider: SharedPreferences.getInstance,
+    );
+    final fakeTransport = InMemoryGoogleDriveSyncTransport(
+      uploadDelay: Duration.zero,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteStoreProvider.overrideWithValue(noteStore),
+        encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+        encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+        secureSyncBundleStoreProvider.overrideWith(
+          (ref) => SecureSyncBundleStore(
+            encryptionService: encryptionService,
+            syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
+            legacyMasterKeyService: masterKeyService,
+            directoryProvider: () async => tempDirectory,
+            sharedPreferencesProvider: SharedPreferences.getInstance,
           ),
-          googleDriveSyncTransportProvider.overrideWithValue(fakeTransport),
-          syncAuthGatewayProvider.overrideWithValue(
-            FakeGoogleDriveSyncAuthGateway(fallback: DefaultSyncAuthGateway()),
-          ),
-        ],
-      );
-      final observedTransferStates = <SyncTransferState>[];
-      final transferSubscription = container.listen<SyncTransferState>(
-        syncTransferControllerProvider,
-        (_, next) => observedTransferStates.add(next),
-      );
-      addTearDown(transferSubscription.close);
-      addTearDown(container.dispose);
-      addTearDown(noteDatabase.close);
-      addTearDown(() async {
-        if (await tempDirectory.exists()) {
-          await tempDirectory.delete(recursive: true);
-        }
-      });
-
-      await container
-          .read(syncProviderControllerProvider.notifier)
-          .setProvider(SyncProvider.googleDrive);
-      await container
-          .read(syncAuthControllerProvider.notifier)
-          .connect(SyncProvider.googleDrive);
-      final attachmentHashesBeforeUpload = await fakeTransport
-          .listAttachmentObjectContentHashes();
-
-      final videoSource = await _writePayloadFile(
-        tempDirectory,
-        'simulator-large-video.mp4',
-        sizeBytes: 12 * 1024 * 1024,
-        byte: 0x41,
-      );
-      final attachmentSources = [
-        (
-          file: videoSource,
-          type: AttachmentType.video,
-          label: 'simulator-large-video.mp4',
-          mimeType: 'video/mp4',
         ),
-        for (var index = 0; index < 4; index++)
-          (
-            file: await _writePayloadFile(
-              tempDirectory,
-              'simulator-document-$index.bin',
-              sizeBytes: 512 * 1024,
-              byte: 0x50 + index,
-            ),
-            type: AttachmentType.file,
-            label: 'simulator-document-$index.bin',
-            mimeType: 'application/octet-stream',
-          ),
-      ];
-      final attachments = <NoteAttachment>[];
-      for (final source in attachmentSources) {
-        final storedPath = await attachmentStore.storeAttachment(
-          XFile(
-            source.file.path,
-            name: source.label,
-            mimeType: source.mimeType,
-          ),
-          type: source.type,
-        );
-        expect(storedPath, isNotNull);
-        attachments.add(
-          NoteAttachment(
-            type: source.type,
-            label: source.label,
-            filePath: storedPath,
-          ),
-        );
+        googleDriveSyncTransportProvider.overrideWithValue(fakeTransport),
+        syncAuthGatewayProvider.overrideWithValue(
+          FakeGoogleDriveSyncAuthGateway(fallback: DefaultSyncAuthGateway()),
+        ),
+      ],
+    );
+    final observedTransferStates = <SyncTransferState>[];
+    final transferSubscription = container.listen<SyncTransferState>(
+      syncTransferControllerProvider,
+      (_, next) => observedTransferStates.add(next),
+    );
+    addTearDown(transferSubscription.close);
+    addTearDown(container.dispose);
+    addTearDown(noteDatabase.close);
+    addTearDown(() async {
+      if (await tempDirectory.exists()) {
+        await tempDirectory.delete(recursive: true);
       }
+    });
 
-      await container.read(notesControllerProvider.notifier).restoreCompleted;
-      await container
-          .read(notesControllerProvider.notifier)
-          .upsert(
-            NoteEntry(
-              id: 'fake-drive-large-attachment-note',
-              vaultId: 'everyday',
-              title: 'Fake Drive large attachment note',
-              body: 'Exercises a large video plus multiple file attachments.',
-              createdAt: DateTime.utc(2026, 5, 16, 11),
-              updatedAt: DateTime.utc(2026, 5, 16, 11, 1),
-              attachments: attachments,
-            ),
-          );
+    await container
+        .read(syncProviderControllerProvider.notifier)
+        .setProvider(SyncProvider.googleDrive);
+    await container
+        .read(syncAuthControllerProvider.notifier)
+        .connect(SyncProvider.googleDrive);
+    final attachmentHashesBeforeUpload = await fakeTransport
+        .listAttachmentObjectContentHashes();
 
-      final estimatedUploadBytes = await container
-          .read(syncTransferControllerProvider.notifier)
-          .estimatePendingUploadBytes();
-      expect(estimatedUploadBytes, greaterThan(14 * 1024 * 1024));
-
-      final stopwatch = Stopwatch()..start();
-      await container
-          .read(syncTransferControllerProvider.notifier)
-          .uploadCurrentBundle(force: true);
-      stopwatch.stop();
-
-      final transferState = container.read(syncTransferControllerProvider);
-      expect(transferState.stage, SyncTransferStage.success);
-      final remoteStatus = await fakeTransport.fetchLatestBundleStatus();
-      expect(remoteStatus?.noteCount, 1);
-      expect(remoteStatus?.attachmentCount, attachments.length);
-      final attachmentHashesAfterUpload = await fakeTransport
-          .listAttachmentObjectContentHashes();
-      expect(
-        attachmentHashesAfterUpload.length -
-            attachmentHashesBeforeUpload.length,
-        attachments.length,
-      );
-      expect(
-        remoteStatus?.sizeBytes,
-        lessThan(1024 * 1024),
-        reason:
-            'Google Drive bundles should contain attachment object refs, '
-            'not inline video/file bytes.',
-      );
-      expect(
-        observedTransferStates.any(
-          (state) =>
-              state.progress == SyncTransferProgress.uploadingBundle &&
-              state.totalItems == attachments.length,
+    final videoSource = await _writePayloadFile(
+      tempDirectory,
+      'simulator-large-video.mp4',
+      sizeBytes: 12 * 1024 * 1024,
+      byte: 0x41,
+    );
+    final attachmentSources = [
+      (
+        file: videoSource,
+        type: AttachmentType.video,
+        label: 'simulator-large-video.mp4',
+        mimeType: 'video/mp4',
+      ),
+      for (var index = 0; index < 4; index++)
+        (
+          file: await _writePayloadFile(
+            tempDirectory,
+            'simulator-document-$index.bin',
+            sizeBytes: 512 * 1024,
+            byte: 0x50 + index,
+          ),
+          type: AttachmentType.file,
+          label: 'simulator-document-$index.bin',
+          mimeType: 'application/octet-stream',
         ),
-        isTrue,
-        reason:
-            'The UI needs item counts while multiple attachment objects '
-            'are uploaded.',
+    ];
+    final attachments = <NoteAttachment>[];
+    for (final source in attachmentSources) {
+      final storedPath = await attachmentStore.storeAttachment(
+        XFile(source.file.path, name: source.label, mimeType: source.mimeType),
+        type: source.type,
       );
-      debugPrint(
-        'Fake Google Drive large attachment upload completed in '
-        '${stopwatch.elapsedMilliseconds} ms; estimated payload '
-        '$estimatedUploadBytes bytes; remote bundle ${remoteStatus?.sizeBytes} '
-        'bytes; attachment objects ${attachments.length}.',
+      expect(storedPath, isNotNull);
+      attachments.add(
+        NoteAttachment(
+          type: source.type,
+          label: source.label,
+          filePath: storedPath,
+        ),
       );
-    },
-  );
+    }
+
+    await container.read(notesControllerProvider.notifier).restoreCompleted;
+    await container
+        .read(notesControllerProvider.notifier)
+        .upsert(
+          NoteEntry(
+            id: 'fake-drive-large-attachment-note',
+            vaultId: 'everyday',
+            title: 'Fake Drive large attachment note',
+            body: 'Exercises a large video plus multiple file attachments.',
+            createdAt: DateTime.utc(2026, 5, 16, 11),
+            updatedAt: DateTime.utc(2026, 5, 16, 11, 1),
+            attachments: attachments,
+          ),
+        );
+
+    final estimatedUploadBytes = await container
+        .read(syncTransferControllerProvider.notifier)
+        .estimatePendingUploadBytes();
+    expect(estimatedUploadBytes, greaterThan(14 * 1024 * 1024));
+
+    final stopwatch = Stopwatch()..start();
+    await container
+        .read(syncTransferControllerProvider.notifier)
+        .uploadCurrentBundle(force: true);
+    stopwatch.stop();
+
+    final transferState = container.read(syncTransferControllerProvider);
+    expect(transferState.stage, SyncTransferStage.success);
+    final remoteStatus = await fakeTransport.fetchLatestBundleStatus();
+    expect(remoteStatus?.noteCount, 1);
+    expect(remoteStatus?.attachmentCount, attachments.length);
+    final attachmentHashesAfterUpload = await fakeTransport
+        .listAttachmentObjectContentHashes();
+    expect(
+      attachmentHashesAfterUpload.length - attachmentHashesBeforeUpload.length,
+      attachments.length,
+    );
+    expect(
+      remoteStatus?.sizeBytes,
+      lessThan(1024 * 1024),
+      reason:
+          'Google Drive bundles should contain attachment object refs, '
+          'not inline video/file bytes.',
+    );
+    expect(
+      observedTransferStates.any(
+        (state) =>
+            state.progress == SyncTransferProgress.uploadingBundle &&
+            state.totalItems == attachments.length,
+      ),
+      isTrue,
+      reason:
+          'The UI needs item counts while multiple attachment objects '
+          'are uploaded.',
+    );
+    debugPrint(
+      'Fake Google Drive large attachment upload completed in '
+      '${stopwatch.elapsedMilliseconds} ms; estimated payload '
+      '$estimatedUploadBytes bytes; remote bundle ${remoteStatus?.sizeBytes} '
+      'bytes; attachment objects ${attachments.length}.',
+    );
+  });
 
   test(
     'Google Drive attachment upload failure keeps local attachment pending',
@@ -3209,9 +3191,8 @@ void main() {
         XFile.fromData(attachmentBytes, name: 'legacy-private-photo.jpg'),
         type: AttachmentType.photo,
       );
-      await File(
-        storedPath!,
-      ).writeAsBytes(await File(legacyPath!).readAsBytes(), flush: true);
+      await File(storedPath!)
+          .writeAsBytes(await File(legacyPath!).readAsBytes(), flush: true);
 
       await source.container
           .read(syncTransferControllerProvider.notifier)
@@ -3507,9 +3488,8 @@ void main() {
   });
 
   test('seeded demo photo attachments use seasonal JPEG previews', () {
-    final notes = SeededHomeRepository(
-      seedBaseDate: DateTime(2026, 4, 29),
-    ).seededNotes;
+    final notes = SeededHomeRepository(seedBaseDate: DateTime(2026, 4, 29))
+        .seededNotes;
     final photoAttachments = notes
         .expand((note) => note.attachments)
         .where((attachment) => attachment.type == AttachmentType.photo)
@@ -3568,88 +3548,85 @@ void main() {
     }
   });
 
-  test(
-    'demo notes are only created on request and are not restored automatically after deletion',
-    () async {
-      SharedPreferences.setMockInitialValues({});
-      final secureStore = MemorySecureKeyValueStore();
-      final encryptionService = EncryptionService(random: Random(14));
-      final masterKeyService = MasterKeyService(
-        secureStore: secureStore,
-        keyFactory: encryptionService.generateKeyBytes,
-      );
-      final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
-      final container = ProviderContainer(
-        overrides: [
-          secureKeyValueStoreProvider.overrideWithValue(secureStore),
-          encryptionServiceProvider.overrideWithValue(encryptionService),
-          masterKeyServiceProvider.overrideWithValue(masterKeyService),
-          encryptedNoteDatabaseProvider.overrideWithValue(database),
-          encryptedNoteStoreProvider.overrideWithValue(
-            EncryptedNoteStore(
-              encryptionService: encryptionService,
-              masterKeyService: masterKeyService,
-              database: database,
-              directoryProvider: () async => Directory.systemTemp,
-            ),
+  test('demo notes are only created on request and are not restored automatically after deletion', () async {
+    SharedPreferences.setMockInitialValues({});
+    final secureStore = MemorySecureKeyValueStore();
+    final encryptionService = EncryptionService(random: Random(14));
+    final masterKeyService = MasterKeyService(
+      secureStore: secureStore,
+      keyFactory: encryptionService.generateKeyBytes,
+    );
+    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+    final container = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
           ),
-        ],
-      );
-      addTearDown(container.dispose);
-      addTearDown(database.close);
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    addTearDown(database.close);
 
-      await container.read(notesControllerProvider.notifier).restoreCompleted;
-      expect(container.read(notesControllerProvider), isEmpty);
+    await container.read(notesControllerProvider.notifier).restoreCompleted;
+    expect(container.read(notesControllerProvider), isEmpty);
 
-      final createdCount = await container
-          .read(notesControllerProvider.notifier)
-          .createDemoNotes();
-      final initialSeedCount = container
+    final createdCount = await container
+        .read(notesControllerProvider.notifier)
+        .createDemoNotes();
+    final initialSeedCount = container
+        .read(notesControllerProvider)
+        .where((note) => note.id.startsWith('seed-'))
+        .length;
+    expect(initialSeedCount, greaterThan(0));
+    expect(createdCount, initialSeedCount);
+
+    final deletedCount = await container
+        .read(notesControllerProvider.notifier)
+        .deleteDemoNotes();
+    expect(deletedCount, initialSeedCount);
+    expect(
+      container
           .read(notesControllerProvider)
-          .where((note) => note.id.startsWith('seed-'))
-          .length;
-      expect(initialSeedCount, greaterThan(0));
-      expect(createdCount, initialSeedCount);
+          .where((note) => note.id.startsWith('seed-')),
+      isEmpty,
+    );
 
-      final deletedCount = await container
-          .read(notesControllerProvider.notifier)
-          .deleteDemoNotes();
-      expect(deletedCount, initialSeedCount);
-      expect(
-        container
-            .read(notesControllerProvider)
-            .where((note) => note.id.startsWith('seed-')),
-        isEmpty,
-      );
-
-      final secondContainer = ProviderContainer(
-        overrides: [
-          secureKeyValueStoreProvider.overrideWithValue(secureStore),
-          encryptionServiceProvider.overrideWithValue(encryptionService),
-          masterKeyServiceProvider.overrideWithValue(masterKeyService),
-          encryptedNoteDatabaseProvider.overrideWithValue(database),
-          encryptedNoteStoreProvider.overrideWithValue(
-            EncryptedNoteStore(
-              encryptionService: encryptionService,
-              masterKeyService: masterKeyService,
-              database: database,
-              directoryProvider: () async => Directory.systemTemp,
-            ),
+    final secondContainer = ProviderContainer(
+      overrides: [
+        secureKeyValueStoreProvider.overrideWithValue(secureStore),
+        encryptionServiceProvider.overrideWithValue(encryptionService),
+        masterKeyServiceProvider.overrideWithValue(masterKeyService),
+        encryptedNoteDatabaseProvider.overrideWithValue(database),
+        encryptedNoteStoreProvider.overrideWithValue(
+          EncryptedNoteStore(
+            encryptionService: encryptionService,
+            masterKeyService: masterKeyService,
+            database: database,
+            directoryProvider: () async => Directory.systemTemp,
           ),
-        ],
-      );
-      addTearDown(secondContainer.dispose);
-      await secondContainer
-          .read(notesControllerProvider.notifier)
-          .restoreCompleted;
-      expect(
-        secondContainer
-            .read(notesControllerProvider)
-            .where((note) => note.id.startsWith('seed-')),
-        isEmpty,
-      );
-    },
-  );
+        ),
+      ],
+    );
+    addTearDown(secondContainer.dispose);
+    await secondContainer
+        .read(notesControllerProvider.notifier)
+        .restoreCompleted;
+    expect(
+      secondContainer
+          .read(notesControllerProvider)
+          .where((note) => note.id.startsWith('seed-')),
+      isEmpty,
+    );
+  });
 
   test('notes are sorted by memo date after the date is edited', () async {
     SharedPreferences.setMockInitialValues({});
@@ -4959,28 +4936,25 @@ void main() {
     },
   );
 
-  test(
-    'local tag suggestions boost frequently used known tags above ad-hoc tokens',
-    () {
-      final suggestions = suggestLocalNoteTags(
-        const TagSuggestionRequest(
-          title: 'planning long_term_strategy and review',
-          body: 'planning planning long_term_strategy long_term_strategy',
-          existingTags: <String>[],
-          knownTags: ['planning'],
-          attachmentLabels: <String>[],
-          knownTagCounts: {'planning': 8},
-        ),
-      );
+  test('local tag suggestions boost frequently used known tags above ad-hoc tokens', () {
+    final suggestions = suggestLocalNoteTags(
+      const TagSuggestionRequest(
+        title: 'planning long_term_strategy and review',
+        body: 'planning planning long_term_strategy long_term_strategy',
+        existingTags: <String>[],
+        knownTags: ['planning'],
+        attachmentLabels: <String>[],
+        knownTagCounts: {'planning': 8},
+      ),
+    );
 
-      // Known/used tag must rank ahead of an ad-hoc compound token like
-      // long_term_strategy that appears more times in the text.
-      expect(suggestions.first, 'planning');
-      final planningIndex = suggestions.indexOf('planning');
-      final compoundIndex = suggestions.indexOf('long_term_strategy');
-      expect(planningIndex, lessThan(compoundIndex));
-    },
-  );
+    // Known/used tag must rank ahead of an ad-hoc compound token like
+    // long_term_strategy that appears more times in the text.
+    expect(suggestions.first, 'planning');
+    final planningIndex = suggestions.indexOf('planning');
+    final compoundIndex = suggestions.indexOf('long_term_strategy');
+    expect(planningIndex, lessThan(compoundIndex));
+  });
 
   test('auto tag rules add matching tags without duplicates', () {
     final rule = AutoTagRule(

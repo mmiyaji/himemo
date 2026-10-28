@@ -17,7 +17,31 @@ Workflow 名:
 - `upload_to_testflight=false` にすると、署名済み IPA artifact の生成までで止められる
 - `build_number` 未指定時は UTC の `yyMMddHHmm` を使う
 
-The workflow uses the `macos-26` GitHub-hosted runner so App Store Connect receives an IPA built with the iOS 26 SDK or later.
+The workflow uses the `xcode-27` Apple Silicon runner and explicitly selects Xcode 27.1. `tools/check_ios_toolchain.py` rejects Xcode or the iPhoneOS SDK older than 27.1 before signing. Flutter is pinned to 3.47.8 in local and CI configuration.
+
+## iPhone Duo release preparation (2026-10-28)
+
+Apple's [preparation guide](https://developer.apple.com/iphone-duo/prepare/) requires testing dynamic window resizing; Xcode 27.1 / iOS 27.1 SDK enables the full-display experience. The existing Runner supports iPhone and iPad, portrait and landscape, and does not require full-screen mode. Flutter layouts use available window dimensions. A widget regression in `test/ui_accessibility_regression_test.dart` exercises repeated compact, wide and landscape transitions without restarting Settings. This is a layout stress test, not native device certification.
+
+Before uploading this candidate:
+
+1. Run the workflow with `upload_to_testflight=false` against the branch containing these changes. Verify the SDK check, validation, signed IPA, entitlements and extension version checks.
+2. On Xcode 27.1, run the iPhone Duo simulator or Device Hub. Fold/unfold and rotate while editing an unsaved note, typing with the keyboard open, viewing attachments, opening Settings, unlocking a private profile and syncing. Confirm content stays inside safe areas and drafts, selection and scroll state survive resizing.
+3. Install the signed candidate on a registered device through the internal Codemagic workflow where available. Verify camera, microphone, Touch ID / biometric unlock, share extension, widget, iCloud and Google sign-in. Widget tests on Windows cannot verify these native behaviors.
+4. Run with `upload_to_testflight=true`, then confirm App Store Connect processing, export compliance and tester group availability. Record the actual marketing version and generated build number from that run. External testing may require Beta App Review.
+
+Required signing and App Store Connect secrets below must be present in the CI provider. Preparing these files on Windows does not produce an IPA or upload a build. Existing CI credentials have not been verified by this local change.
+
+TestFlight「テスト内容」用の確認項目:
+
+- 外側／内側画面の切り替え、縦横回転で表示が欠けず、編集中のメモが維持されること。
+- キーボード表示中の保存、写真・動画・音声添付、ZIPバックアップの書き出し／復元。
+- 生体認証とプライベートプロファイルのロック、共有拡張、ウィジェットからのメモ作成。
+- iCloud / Google Drive の認証と同期。更新前のメモと添付ファイルが開けること。
+
+Dependency exception: `record` remains on 6.x and `record_web` on 1.x to preserve the Android background recording service; record 7 removes that service and needs a separate foreground-service migration. Other Flutter dependencies use the newest jointly resolvable versions. Newer `build_runner`, `freezed` and `test` releases remain constrained by the selected SDK / generator dependency graph; do not override transitive analyzer or test packages to force them.
+
+Local validation on 2026-10-28: Flutter analysis with `--fatal-infos` and formatting passed; all 373 Flutter tests passed, including the resize regression. Web build passed. The two selected Playwright onboarding / mobile note-and-archive scenarios passed after aligning the existing onboarding helper with the five-page UI and its current labels. Functions lint and all 11 tests passed. Both npm dependency trees reported zero known audit vulnerabilities after lockfile updates; the root package overrides serve's compression dependency to patched 1.8.2. The toolchain guard was checked with mocked 27.1 and older version output. macOS archive, signing, native simulator/device checks and TestFlight upload remain unverified.
 
 Codemagic と同じく、iOS は `--flavor production` を付けずに entrypoint だけ `lib/main_production.dart` にする。
 

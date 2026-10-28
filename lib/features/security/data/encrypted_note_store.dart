@@ -15,21 +15,17 @@ import 'profile_data_key_service.dart';
 
 class EncryptedNoteStore {
   EncryptedNoteStore({
-    required EncryptionService encryptionService,
-    required MasterKeyService masterKeyService,
-    ProfileDataKeyService? profileDataKeyService,
-    EncryptedNoteDatabase? database,
+    required this._encryptionService,
+    required this._masterKeyService,
+    this._profileDataKeyService,
+    this._database,
     Future<Directory> Function()? directoryProvider,
     Future<SharedPreferences> Function()? sharedPreferencesProvider,
     bool? isWeb,
     this.storageFileName = 'notes.entries.enc.v1',
     this.legacyStorageKey = 'notes.entries.v1',
     this.webStorageKey = 'notes.entries.encrypted.v1',
-  }) : _encryptionService = encryptionService,
-       _masterKeyService = masterKeyService,
-       _profileDataKeyService = profileDataKeyService,
-       _database = database,
-       _isWeb = isWeb ?? kIsWeb,
+  }) : _isWeb = isWeb ?? kIsWeb,
        _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
        _sharedPreferencesProvider =
            sharedPreferencesProvider ?? SharedPreferences.getInstance;

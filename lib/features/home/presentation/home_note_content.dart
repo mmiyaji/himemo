@@ -254,9 +254,8 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
               strings.text(
                 'home.search.terms.are.cleared.when.private.mode.closes',
               ),
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: _mutedTextColor(context)),
             ),
           ],
           if (tagSummaries.isNotEmpty) ...[
@@ -1134,9 +1133,8 @@ class _AttachmentSearchFilterControls extends StatelessWidget {
                   label: Text(_attachmentSearchFilterLabel(strings, option)),
                   selected: selectedFilters.contains(option),
                   onSelected: (_) => onFilterToggled(option),
-                  labelStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                  labelStyle: Theme.of(context).textTheme.labelMedium
+                      ?.copyWith(fontWeight: FontWeight.w600),
                   visualDensity: VisualDensity.compact,
                 ),
             ],
@@ -1540,9 +1538,8 @@ class _CalendarNoteRow extends StatelessWidget {
                 bodyPreview,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _strongMutedTextColor(context),
-                ),
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(color: _strongMutedTextColor(context)),
               ),
             ],
             if (note.attachments.isNotEmpty) ...[
@@ -1567,9 +1564,9 @@ class _CalendarNoteRow extends StatelessWidget {
                       width: 56,
                       height: 56,
                       decoration: BoxDecoration(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.surfaceContainerHighest,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                           color: Theme.of(context).dividerColor,
@@ -1578,9 +1575,8 @@ class _CalendarNoteRow extends StatelessWidget {
                       alignment: Alignment.center,
                       child: Text(
                         '+${note.attachments.length - 3}',
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                        style: Theme.of(context).textTheme.labelLarge
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                     ),
                   ],
@@ -1590,9 +1586,8 @@ class _CalendarNoteRow extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               vaultName,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: _mutedTextColor(context)),
             ),
           ],
         ),
@@ -1677,9 +1672,8 @@ class _EmptyNotesState extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             strings.emptyNotesBody,
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(color: _mutedTextColor(context)),
           ),
         ],
       ),
@@ -1706,9 +1700,8 @@ class _EmptyNoteSelectionState extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             strings.text('home.pick.a.note.from.the.list.to.preview.it.here'),
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(color: _mutedTextColor(context)),
           ),
         ],
       ),
@@ -2639,9 +2632,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                           color:
                                               _captureLocationEnabled ||
                                                   _location != null
-                                              ? Theme.of(
-                                                  context,
-                                                ).colorScheme.primary
+                                              ? Theme.of(context)
+                                                    .colorScheme
+                                                    .primary
                                               : _mutedTextColor(context),
                                         ),
                                 ),
@@ -2866,9 +2859,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                       avatar: Icon(
                                         Icons.auto_awesome_rounded,
                                         size: 16,
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.primary,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary,
                                       ),
                                       label: Text(() {
                                         final count =
@@ -3051,9 +3044,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                               .withValues(alpha: 0.72),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.primary.withValues(alpha: 0.48),
+                            color: Theme.of(context).colorScheme.primary
+                                .withValues(alpha: 0.48),
                           ),
                         ),
                         child: Row(
@@ -3088,9 +3080,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                 overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.labelMedium
                                     ?.copyWith(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.onPrimaryContainer,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onPrimaryContainer,
                                       fontWeight: FontWeight.w700,
                                     ),
                               ),
@@ -4015,10 +4007,9 @@ Future<String?> _resolveLocationAddress(Position position) async {
     return null;
   }
   try {
-    final placemarks = await placemarkFromCoordinates(
-      position.latitude,
-      position.longitude,
-    ).timeout(const Duration(seconds: 5));
+    final placemarks = await Geocoding()
+        .placemarkFromCoordinates(position.latitude, position.longitude)
+        .timeout(const Duration(seconds: 5));
     if (placemarks.isEmpty) {
       return null;
     }
@@ -4589,9 +4580,8 @@ class _LocationEditDialogState extends State<_LocationEditDialog> {
                   es: 'Mueve el mapa para que el pin señale la ubicación de la nota.',
                   de: 'Verschiebe die Karte, damit die Markierung auf den Notizort zeigt.',
                 ),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: colorScheme.onSurfaceVariant),
               ),
               const SizedBox(height: 12),
               Row(
@@ -4684,8 +4674,7 @@ class _LocationEditDialogState extends State<_LocationEditDialog> {
                         ),
                         children: [
                           TileLayer(
-                            urlTemplate:
-                                'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+                            urlTemplate: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
                             subdomains: const ['a', 'b', 'c', 'd'],
                             userAgentPackageName: 'org.ruhenheim.himemo',
                           ),
@@ -4768,9 +4757,8 @@ class _LocationEditDialogState extends State<_LocationEditDialog> {
               Text(
                 '${strings.latitudeLabel}: ${_selectedPoint.latitude.toStringAsFixed(6)}\n'
                 '${strings.longitudeLabel}: ${_selectedPoint.longitude.toStringAsFixed(6)}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: colorScheme.onSurfaceVariant),
               ),
             ],
           ),
@@ -5271,9 +5259,8 @@ class _RichBlockEditorTile extends StatelessWidget {
                 decoration: InputDecoration(
                   semanticCounterText: '',
                   hintText: showPrompt ? strings.memoFirstLineHint : null,
-                  hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: _mutedTextColor(context),
-                  ),
+                  hintStyle: Theme.of(context).textTheme.bodyMedium
+                      ?.copyWith(color: _mutedTextColor(context)),
                   border: InputBorder.none,
                   isCollapsed: true,
                   contentPadding: EdgeInsets.zero,
@@ -5524,9 +5511,8 @@ class _QuickAttachmentSectionState extends State<_QuickAttachmentSection> {
               es: 'Usa los iconos de cámara o carpeta arriba a la derecha para añadir medios.',
               de: 'Über die Kamera- oder Ordner-Symbole oben rechts kannst du Medien hinzufügen.',
             ),
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: _mutedTextColor(context)),
           ),
           if (attachments.isNotEmpty || widget.pendingAttachmentCount > 0) ...[
             const SizedBox(height: 10),
@@ -6821,9 +6807,8 @@ class _AttachmentSizeTextState extends ConsumerState<_AttachmentSizeText> {
         }
         return Text(
           context.strings.byteCount(sizeBytes),
-          style: Theme.of(
-            context,
-          ).textTheme.labelSmall?.copyWith(color: _mutedTextColor(context)),
+          style: Theme.of(context).textTheme.labelSmall
+              ?.copyWith(color: _mutedTextColor(context)),
         );
       },
     );

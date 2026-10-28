@@ -43,9 +43,8 @@ void main() {
   test(
     'UI behavior guardrails cover repeated mobile and media regressions',
     () {
-      final guardrails = File(
-        'docs/ui-behavior-guardrails.md',
-      ).readAsStringSync();
+      final guardrails = File('docs/ui-behavior-guardrails.md')
+          .readAsStringSync();
 
       expect(
         guardrails,
@@ -268,9 +267,8 @@ void main() {
 
   test('mobile create note action is a centered pen navigation button', () {
     final homePage = _homePresentationSource();
-    final createNoteIcon = File(
-      'assets/actions/create-note.svg',
-    ).readAsStringSync();
+    final createNoteIcon = File('assets/actions/create-note.svg')
+        .readAsStringSync();
 
     expect(homePage, contains('class _CreateNoteNavButton'));
     expect(homePage, contains('class _CreateNoteIcon'));
@@ -720,9 +718,8 @@ void main() {
     final iCloudTransport = File(
       'lib/features/sync/data/icloud_sync_transport.dart',
     ).readAsStringSync();
-    final networkConnection = File(
-      'lib/app/network_connection.dart',
-    ).readAsStringSync();
+    final networkConnection = File('lib/app/network_connection.dart')
+        .readAsStringSync();
 
     expect(homePage, contains('diagnosticICloudStorageBreakdownKey'));
     expect(homePage, contains('diagnosticICloudPruneBundlesKey'));
@@ -807,9 +804,8 @@ void main() {
 
   test('attachment diagnostics include image byte signatures', () {
     final homePage = _homePresentationSource();
-    final syncEngine = File(
-      'lib/features/sync/data/sync_engine.dart',
-    ).readAsStringSync();
+    final syncEngine = File('lib/features/sync/data/sync_engine.dart')
+        .readAsStringSync();
     final homeProviders = File(
       'lib/features/home/presentation/home_providers.dart',
     ).readAsStringSync();
@@ -885,9 +881,8 @@ void main() {
   });
 
   test('cloud sync heavy work does not run on the UI isolate', () {
-    final syncEngine = File(
-      'lib/features/sync/data/sync_engine.dart',
-    ).readAsStringSync();
+    final syncEngine = File('lib/features/sync/data/sync_engine.dart')
+        .readAsStringSync();
     final secureBundleStore = File(
       'lib/features/sync/data/secure_sync_bundle_store.dart',
     ).readAsStringSync();

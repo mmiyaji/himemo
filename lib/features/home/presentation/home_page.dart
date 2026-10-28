@@ -915,9 +915,8 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.primary.withValues(alpha: 0.36),
+                      color: Theme.of(context).colorScheme.primary
+                          .withValues(alpha: 0.36),
                       blurRadius: 22,
                       spreadRadius: 4,
                     ),
@@ -1553,9 +1552,9 @@ class _HeaderSyncIndicatorState extends State<_HeaderSyncIndicator>
                           itemProgress,
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
                               ),
                         ),
                       ],
@@ -1863,9 +1862,8 @@ Future<void> _showReleaseNotesDialog(
               if (dateLabel != null) ...[
                 Text(
                   dateLabel,
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
+                  style: Theme.of(context).textTheme.labelMedium
+                      ?.copyWith(color: colorScheme.onSurfaceVariant),
                 ),
                 const SizedBox(height: 8),
               ],
@@ -2200,9 +2198,8 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
 
   void _submit() {
     if (_formKey.currentState?.validate() ?? false) {
-      Navigator.of(
-        context,
-      ).pop(_ProfileAccessDialogResult.unlock(_controller.text));
+      Navigator.of(context)
+          .pop(_ProfileAccessDialogResult.unlock(_controller.text));
     }
   }
 
@@ -2261,9 +2258,9 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
           ),
         TextButton(
           key: const Key('private-profile-unlock-create-profile'),
-          onPressed: () => Navigator.of(
-            context,
-          ).pop(const _ProfileAccessDialogResult.createProfile()),
+          onPressed: () =>
+              Navigator.of(context)
+                  .pop(const _ProfileAccessDialogResult.createProfile()),
           child: Text(strings.text('home.add.private.profile')),
         ),
         TextButton(

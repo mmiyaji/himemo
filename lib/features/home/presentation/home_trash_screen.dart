@@ -66,9 +66,8 @@ class _TrashScreenState extends ConsumerState<TrashScreen> {
                   es: 'Papelera',
                   de: 'Papierkorb',
                 ),
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+                style: Theme.of(context).textTheme.headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.w700),
               ),
             ),
           ],
@@ -76,9 +75,8 @@ class _TrashScreenState extends ConsumerState<TrashScreen> {
         const SizedBox(height: 8),
         Text(
           _trashDescription(strings),
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
+          style: Theme.of(context).textTheme.bodyMedium
+              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
         ),
         const SizedBox(height: 16),
         if (notes.isEmpty)

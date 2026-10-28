@@ -743,7 +743,12 @@ async function ensureServer() {
     // Start a fresh server below.
   }
 
-  await runCommand('.\\.fvm\\flutter_sdk\\bin\\flutter.bat', [
+  await runCommand('powershell', [
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    'tools/flutter_with_env.ps1',
     'build',
     'web',
     '--no-wasm-dry-run',

@@ -42,7 +42,7 @@ abstract class _$DiagnosticLogController
   FutureOr<DiagnosticLogSnapshot> build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref =
         this.ref
             as $Ref<AsyncValue<DiagnosticLogSnapshot>, DiagnosticLogSnapshot>;
@@ -57,7 +57,7 @@ abstract class _$DiagnosticLogController
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -141,7 +141,7 @@ abstract class _$ThemeModeController extends $Notifier<ThemeMode> {
   ThemeMode build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<ThemeMode, ThemeMode>;
     final element =
         ref.element
@@ -151,7 +151,7 @@ abstract class _$ThemeModeController extends $Notifier<ThemeMode> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -197,7 +197,7 @@ abstract class _$WidgetQuickCaptureSettingsController extends $Notifier<bool> {
   bool build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<bool, bool>;
     final element =
         ref.element
@@ -207,7 +207,7 @@ abstract class _$WidgetQuickCaptureSettingsController extends $Notifier<bool> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -258,7 +258,7 @@ abstract class _$WidgetQuickCaptureRequestController
   QuickCaptureRequest? build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<QuickCaptureRequest?, QuickCaptureRequest?>;
     final element =
         ref.element
@@ -268,7 +268,7 @@ abstract class _$WidgetQuickCaptureRequestController
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -352,13 +352,13 @@ final class ActiveIdentityProvider
   }
 }
 
-String _$activeIdentityHash() => r'baffdb94df3329e1fdf618907984716065df4521';
+String _$activeIdentityHash() => r'a7469d9a3e0a9328d1d49c5860a7e5e8815ace17';
 
 abstract class _$ActiveIdentity extends $Notifier<String> {
   String build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<String, String>;
     final element =
         ref.element
@@ -368,7 +368,7 @@ abstract class _$ActiveIdentity extends $Notifier<String> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -409,7 +409,7 @@ abstract class _$SearchQuery extends $Notifier<String> {
   String build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<String, String>;
     final element =
         ref.element
@@ -419,7 +419,7 @@ abstract class _$SearchQuery extends $Notifier<String> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -464,7 +464,7 @@ abstract class _$NotesListDensityController
   NotesListDensity build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<NotesListDensity, NotesListDensity>;
     final element =
         ref.element
@@ -474,7 +474,7 @@ abstract class _$NotesListDensityController
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -523,7 +523,7 @@ abstract class _$AttachmentPreviewFitController
   AttachmentPreviewFit build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<AttachmentPreviewFit, AttachmentPreviewFit>;
     final element =
         ref.element
@@ -533,7 +533,7 @@ abstract class _$AttachmentPreviewFitController
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -570,13 +570,13 @@ final class NotesListSortControllerProvider
 }
 
 String _$notesListSortControllerHash() =>
-    r'58a4857acfee0c928f1f59a523f3c059e8db6f04';
+    r'e6223ce0dce690fb53041cdbb025967bcf91060c';
 
 abstract class _$NotesListSortController extends $Notifier<NotesListSortField> {
   NotesListSortField build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<NotesListSortField, NotesListSortField>;
     final element =
         ref.element
@@ -586,7 +586,7 @@ abstract class _$NotesListSortController extends $Notifier<NotesListSortField> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -636,7 +636,7 @@ abstract class _$LastNoteEditorSettingsController
   LastNoteEditorSettings build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref =
         this.ref as $Ref<LastNoteEditorSettings, LastNoteEditorSettings>;
     final element =
@@ -647,7 +647,7 @@ abstract class _$LastNoteEditorSettingsController
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 
@@ -683,13 +683,13 @@ final class NotesControllerProvider
   }
 }
 
-String _$notesControllerHash() => r'f3971656acb7d22f6428090b91c0e2ea614f06bf';
+String _$notesControllerHash() => r'61618d9f998177871aede688299f3965e73da427';
 
 abstract class _$NotesController extends $Notifier<List<NoteEntry>> {
   List<NoteEntry> build();
   @$mustCallSuper
   @override
-  void runBuild() {
+  WhenComplete runBuild() {
     final ref = this.ref as $Ref<List<NoteEntry>, List<NoteEntry>>;
     final element =
         ref.element
@@ -699,7 +699,7 @@ abstract class _$NotesController extends $Notifier<List<NoteEntry>> {
               Object?,
               Object?
             >;
-    element.handleCreate(ref, build);
+    return element.handleCreate(ref, build);
   }
 }
 

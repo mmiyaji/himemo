@@ -1295,9 +1295,8 @@ void _showStoreFeedback(BuildContext context, String message) {
   if (!context.mounted) {
     return;
   }
-  ScaffoldMessenger.of(
-    context,
-  ).showSnackBar(SnackBar(showCloseIcon: true, content: Text(message)));
+  ScaffoldMessenger.of(context)
+      .showSnackBar(SnackBar(showCloseIcon: true, content: Text(message)));
 }
 
 String _syncHistoryEntrySummary(
@@ -1535,11 +1534,10 @@ class NoteConflictResolutionOutcome {
 }
 
 typedef NoteConflictRemoteLoader = Future<PreparedSyncNote?> Function();
-typedef NoteConflictResolver =
-    Future<NoteConflictResolutionOutcome> Function(
-      NoteConflictResolutionAction action,
-      PreparedSyncNote remoteChange,
-    );
+typedef NoteConflictResolver = Future<NoteConflictResolutionOutcome> Function(
+  NoteConflictResolutionAction action,
+  PreparedSyncNote remoteChange,
+);
 
 Future<void> _showNoteConflictResolver(
   BuildContext context,
@@ -1991,9 +1989,8 @@ class _NoteConflictResolverDialogState
                 ja: '比較の準備ができるまで、この画面を開いたままにしてください。',
               ),
               textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: _mutedTextColor(context)),
             ),
           ],
         ),
@@ -2100,9 +2097,8 @@ class _NoteConflictResolverDialogState
                 const SizedBox(height: 20),
                 Text(
                   strings.localized(en: 'Choose how to resolve', ja: '解決方法を選択'),
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(context).textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 8),
                 _ConflictResolutionChoice(
@@ -2395,9 +2391,8 @@ class _ConflictBusyOverlay extends StatelessWidget {
                           ja: '重複操作を防ぐため、完了まで操作をロックしています。',
                         ),
                         textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: _mutedTextColor(context),
-                        ),
+                        style: Theme.of(context).textTheme.bodySmall
+                            ?.copyWith(color: _mutedTextColor(context)),
                       ),
                     ],
                   ),
@@ -2471,9 +2466,8 @@ class _ConflictMergeUnavailableNotice extends StatelessWidget {
                 en: 'Automatic merge is unavailable for rich or structured memos because it could lose formatting or block attachments. Choose either complete version instead.',
                 ja: 'リッチメモやブロック構成を含むメモは、書式やブロック内の添付を失わないよう自動マージしません。どちらかの完全な版を選んでください。',
               ),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: colorScheme.onSurfaceVariant),
             ),
           ),
         ],
@@ -3322,9 +3316,8 @@ class _ConflictDetailedComparison extends StatelessWidget {
             en: 'Only fields with differences are shown. Text is selectable.',
             ja: '差分がある項目だけを表示しています。本文は選択して確認できます。',
           ),
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(color: _mutedTextColor(context)),
         ),
         const SizedBox(height: 10),
         if (fields.isEmpty)
@@ -3374,9 +3367,8 @@ class _ConflictFieldCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   field.label,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(context).textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
               Text(
@@ -3461,9 +3453,8 @@ class _ConflictValuePanel extends StatelessWidget {
             header: true,
             child: Text(
               label,
-              style: Theme.of(
-                context,
-              ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.labelMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
           const SizedBox(height: 6),
@@ -3907,9 +3898,8 @@ class _ConflictVersionSummary extends StatelessWidget {
         children: [
           Text(
             label,
-            style: Theme.of(
-              context,
-            ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+            style: Theme.of(context).textTheme.labelLarge
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
           if (isDeleted) ...[
             const SizedBox(height: 6),
@@ -3971,9 +3961,8 @@ class _ConflictVersionSummary extends StatelessWidget {
               en: 'Revision ${note.revision} / $timeLabel / ${note.attachments.length} attachments',
               ja: 'リビジョン ${note.revision} / $timeLabel / 添付 ${note.attachments.length} 件',
             ),
-            style: Theme.of(
-              context,
-            ).textTheme.labelSmall?.copyWith(color: _mutedTextColor(context)),
+            style: Theme.of(context).textTheme.labelSmall
+                ?.copyWith(color: _mutedTextColor(context)),
           ),
         ],
       ),
@@ -4018,14 +4007,12 @@ Future<void> _exportLocalArchive(
         de: 'Datei exportieren',
       ),
       fileName: archive.fileName,
-      type: FileType.custom,
-      allowedExtensions: const ['zip'],
       bytes: archive.bytes,
     );
     if (!context.mounted) {
       return;
     }
-    if (savedPath == null || savedPath.isEmpty) {
+    if (savedPath == null) {
       await SharePlus.instance.share(
         ShareParams(
           files: [
@@ -4072,17 +4059,16 @@ Future<void> _importLocalArchive(BuildContext context, WidgetRef ref) async {
     final picked = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: const ['zip'],
-      withData: true,
     );
-    if (picked == null || picked.files.isEmpty) {
+    if (picked.isEmpty) {
       return;
     }
     if (!context.mounted) {
       return;
     }
-    final file = picked.files.single;
-    final bytes = file.bytes;
-    if (bytes == null || bytes.isEmpty) {
+    final file = picked.single;
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) {
       messenger.showSnackBar(
         SnackBar(
           showCloseIcon: true,
@@ -4098,6 +4084,9 @@ Future<void> _importLocalArchive(BuildContext context, WidgetRef ref) async {
           ),
         ),
       );
+      return;
+    }
+    if (!context.mounted) {
       return;
     }
     final password = await _passwordForLocalArchivePreview(context, ref, bytes);

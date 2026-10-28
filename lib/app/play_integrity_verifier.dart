@@ -27,10 +27,9 @@ class PlayIntegrityVerificationResult {
 
 class PlayIntegrityVerifier {
   const PlayIntegrityVerifier({
-    required PlayIntegrityService playIntegrityService,
-    http.Client? httpClient,
-  }) : _playIntegrityService = playIntegrityService,
-       _httpClient = httpClient;
+    required this._playIntegrityService,
+    this._httpClient,
+  });
 
   static const _challengeEndpoint =
       'https://issueplayintegritychallengev2-4yz7jselhq-an.a.run.app';
@@ -57,8 +56,7 @@ class PlayIntegrityVerifier {
         _skipPlayIntegrityForLocalProduction) {
       return const PlayIntegrityVerificationResult(
         allowed: true,
-        message:
-            'Play Integrity verification was skipped for local production debugging.',
+        message: 'Play Integrity verification was skipped for local production debugging.',
       );
     }
 

@@ -16,14 +16,12 @@ bool isProfileDataKeyPrivateVaultId(String vaultId) {
 
 class ProfileDataKeyService {
   ProfileDataKeyService({
-    required SecureKeyValueStore secureStore,
-    required EncryptionService encryptionService,
-    required MasterKeyService normalMasterKeyService,
+    required this._secureStore,
+    required this._encryptionService,
+    required this._normalMasterKeyService,
     this.storagePrefix = 'security.profile_data_key.v1.',
     this.enableLocalAdminAccess = true,
-  }) : _secureStore = secureStore,
-       _encryptionService = encryptionService,
-       _normalMasterKeyService = normalMasterKeyService;
+  });
 
   final SecureKeyValueStore _secureStore;
   final EncryptionService _encryptionService;

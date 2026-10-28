@@ -958,9 +958,8 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
 
   Future<bool> _hasPendingCloudSyncChanges() async {
     try {
-      return (await ref.read(
-        syncQueueSummaryProvider.future,
-      )).hasPendingChanges;
+      return (await ref.read(syncQueueSummaryProvider.future))
+          .hasPendingChanges;
     } catch (_) {
       return false;
     }
@@ -1166,9 +1165,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                                       ),
                                       child: Text(
                                         'HiMemo',
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.labelLarge,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelLarge,
                                       ),
                                     ),
                                     const Spacer(),
@@ -1185,9 +1184,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                                     const SizedBox(height: 20),
                                     Text(
                                       strings.unlockHiMemo,
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.headlineMedium,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .headlineMedium,
                                     ),
                                     const SizedBox(height: 12),
                                     Text(
@@ -1506,9 +1505,8 @@ class _PinUnlockPanelState extends ConsumerState<_PinUnlockPanel> {
           const SizedBox(height: 12),
           Text(
             strings.localizedPinLockError(pinState.lastError!),
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: colorScheme.error),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: colorScheme.error),
           ),
         ],
       ],
@@ -1660,9 +1658,9 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                                   ),
                                   child: Text(
                                     widget.flavor.displayName,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.labelLarge,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelLarge,
                                   ),
                                 ),
                               ),
@@ -1767,16 +1765,16 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                                             ],
                                             Text(
                                               page.title,
-                                              style: Theme.of(
-                                                context,
-                                              ).textTheme.titleLarge,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleLarge,
                                             ),
                                             const SizedBox(height: 12),
                                             Text(
                                               page.body,
-                                              style: Theme.of(
-                                                context,
-                                              ).textTheme.bodyLarge,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodyLarge,
                                             ),
                                             if (page.showThemePicker) ...[
                                               const SizedBox(height: 16),
@@ -2102,9 +2100,8 @@ class _OnboardingLegalNotice extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final colorScheme = Theme.of(context).colorScheme;
-    final textStyle = Theme.of(
-      context,
-    ).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant);
+    final textStyle = Theme.of(context).textTheme.bodySmall
+        ?.copyWith(color: colorScheme.onSurfaceVariant);
 
     return Align(
       alignment: Alignment.centerLeft,
@@ -2267,9 +2264,8 @@ class _OnboardingColorThemePicker extends StatelessWidget {
                     de: 'Du kannst dies später in den Einstellungen ändern.',
                   )
                 : strings.onboardingColorThemeBody(AppColorTheme.values.length),
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-            ),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(color: colorScheme.onSurfaceVariant),
           ),
           const SizedBox(height: 12),
           LayoutBuilder(

@@ -115,9 +115,9 @@ class _SettingsOverviewCard extends StatelessWidget {
                                     item.value,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.titleSmall,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall,
                                   ),
                                 ],
                               ),
@@ -307,9 +307,8 @@ class _SettingsWarningBox extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: colorScheme.onErrorContainer,
-              ),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(color: colorScheme.onErrorContainer),
             ),
           ),
         ],
@@ -345,16 +344,14 @@ class _SettingsDangerZone extends StatelessWidget {
         children: [
           Text(
             title,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              color: colorScheme.onErrorContainer,
-            ),
+            style: Theme.of(context).textTheme.titleSmall
+                ?.copyWith(color: colorScheme.onErrorContainer),
           ),
           const SizedBox(height: 4),
           Text(
             description,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: colorScheme.onErrorContainer,
-            ),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: colorScheme.onErrorContainer),
           ),
           const SizedBox(height: 12),
           action,
@@ -426,10 +423,8 @@ class _AdminModeAuditNotice extends StatelessWidget {
             Expanded(
               child: Text(
                 text,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurface,
-                  height: 1.35,
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: colorScheme.onSurface, height: 1.35),
               ),
             ),
           ],
@@ -447,9 +442,8 @@ class _AuditLogPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final baseStyle = Theme.of(
-      context,
-    ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace', height: 1.35);
+    final baseStyle = Theme.of(context).textTheme.bodySmall
+        ?.copyWith(fontFamily: 'monospace', height: 1.35);
     if (entries.isEmpty) {
       return SelectableText(emptyMessage, style: baseStyle);
     }
@@ -869,9 +863,8 @@ class _ColorThemeCard extends StatelessWidget {
                       subtitle,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: colorScheme.onSurfaceVariant),
                     ),
                   ],
                 ),

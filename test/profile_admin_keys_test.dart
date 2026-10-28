@@ -85,9 +85,8 @@ void main() {
     final store = MemorySecureKeyValueStore();
     final first = service(store);
     await first.configureProfile(vaultId: 'private_profile:a', password: 'a');
-    final expectedA = await (await first.keyForVault(
-      'private_profile:a',
-    ))!.extractBytes();
+    final expectedA = await (await first.keyForVault('private_profile:a'))!
+        .extractBytes();
     await first.configureProfile(vaultId: 'private_profile:b', password: 'b');
     first.lockAllPrivateProfiles();
 
@@ -101,9 +100,8 @@ void main() {
     );
     expect(restored.isProfileUnlocked('private_profile:a'), isTrue);
     expect(restored.isProfileUnlocked('private_profile:b'), isTrue);
-    final actualA = await (await restored.keyForVault(
-      'private_profile:a',
-    ))!.extractBytes();
+    final actualA = await (await restored.keyForVault('private_profile:a'))!
+        .extractBytes();
     expect(actualA, expectedA);
   });
 

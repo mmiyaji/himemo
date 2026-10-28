@@ -479,14 +479,12 @@ class GoogleApisGoogleDriveSyncTransport
     if (fileId.isEmpty) {
       return null;
     }
-    final response =
-        await _withDriveRetry(
-              () => api.files.get(
-                fileId,
-                $fields: 'id,name,modifiedTime,size,appProperties',
-              ),
-            )
-            as drive.File;
+    final response = await _withDriveRetry(
+      () => api.files.get(
+        fileId,
+        $fields: 'id,name,modifiedTime,size,appProperties',
+      ),
+    ) as drive.File;
     if (response.id == null || response.id!.isEmpty) {
       return null;
     }
@@ -640,11 +638,11 @@ class GoogleApisGoogleDriveSyncTransport
   ) {
     return switch (error.code) {
       GoogleSignInExceptionCode.clientConfigurationError ||
-      GoogleSignInExceptionCode
-          .providerConfigurationError => GoogleDriveAuthConfigurationException(
-        'Google Drive sign-in is not configured for this build. Add OAuth clients for this app package/bundle and pass the Google Sign-In client IDs to the build.',
-        error,
-      ),
+      GoogleSignInExceptionCode.providerConfigurationError =>
+        GoogleDriveAuthConfigurationException(
+          'Google Drive sign-in is not configured for this build. Add OAuth clients for this app package/bundle and pass the Google Sign-In client IDs to the build.',
+          error,
+        ),
       GoogleSignInExceptionCode.canceled =>
         GoogleDriveAuthConfigurationException(
           'Google Drive sign-in was canceled.',

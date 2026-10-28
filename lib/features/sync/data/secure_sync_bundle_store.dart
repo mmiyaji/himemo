@@ -27,17 +27,14 @@ class StoredSyncBundle {
 
 class SecureSyncBundleStore {
   SecureSyncBundleStore({
-    required EncryptionService encryptionService,
-    required SyncBundleKeyService syncBundleKeyService,
-    MasterKeyService? legacyMasterKeyService,
+    required this._encryptionService,
+    required this._syncBundleKeyService,
+    this._legacyMasterKeyService,
     Future<Directory> Function()? directoryProvider,
     Future<SharedPreferences> Function()? sharedPreferencesProvider,
     this.webStorageKey = 'sync.bundle.latest',
     this.fileName = 'latest_sync_bundle.enc',
-  }) : _encryptionService = encryptionService,
-       _syncBundleKeyService = syncBundleKeyService,
-       _legacyMasterKeyService = legacyMasterKeyService,
-       _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
+  }) : _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
        _sharedPreferencesProvider =
            sharedPreferencesProvider ?? SharedPreferences.getInstance;
 

@@ -47,9 +47,9 @@ class _Sidebar extends StatelessWidget {
                         message: strings.identityActive(activeIdentity.name),
                         child: CircleAvatar(
                           radius: 18,
-                          backgroundColor: Theme.of(
-                            context,
-                          ).colorScheme.surfaceContainerHighest,
+                          backgroundColor: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
                           child: Text(
                             activeIdentity.name.characters.first,
                             style: Theme.of(context).textTheme.labelMedium,
@@ -66,9 +66,9 @@ class _Sidebar extends StatelessWidget {
                           vertical: 6,
                         ),
                         decoration: BoxDecoration(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.surfaceContainerHighest,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
@@ -235,9 +235,8 @@ class _SidebarCreateNoteButton extends StatelessWidget {
           minimumSize: const Size.fromHeight(48),
           padding: const EdgeInsets.symmetric(horizontal: 14),
           alignment: Alignment.centerLeft,
-          textStyle: Theme.of(
-            context,
-          ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+          textStyle: Theme.of(context).textTheme.labelLarge
+              ?.copyWith(fontWeight: FontWeight.w700),
         ),
       ),
     );
@@ -491,17 +490,14 @@ class _IdentityHeader extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             identity.name,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: accent,
-              fontWeight: FontWeight.w700,
-            ),
+            style: Theme.of(context).textTheme.labelLarge
+                ?.copyWith(color: accent, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 6),
           Text(
             identity.tagline,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: _strongMutedTextColor(context),
-            ),
+            style: Theme.of(context).textTheme.bodyLarge
+                ?.copyWith(color: _strongMutedTextColor(context)),
           ),
         ],
       ),

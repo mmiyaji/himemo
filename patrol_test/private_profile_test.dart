@@ -35,15 +35,12 @@ void main() {
 
     await $(find.byKey(AppShell.settingsNavKey)).tap();
     await $(find.byKey(SettingsScreen.privateProfileAddKey)).tap();
-    await $(
-      find.byKey(SettingsScreen.privateProfileNameInputKey),
-    ).enterText('Patrol profile');
-    await $(
-      find.byKey(SettingsScreen.privateProfilePasswordInputKey),
-    ).enterText('patrol-pass-123');
-    await $(
-      find.byKey(SettingsScreen.privateProfileConfirmInputKey),
-    ).enterText('patrol-pass-123');
+    await $(find.byKey(SettingsScreen.privateProfileNameInputKey))
+        .enterText('Patrol profile');
+    await $(find.byKey(SettingsScreen.privateProfilePasswordInputKey))
+        .enterText('patrol-pass-123');
+    await $(find.byKey(SettingsScreen.privateProfileConfirmInputKey))
+        .enterText('patrol-pass-123');
     await $(find.byKey(SettingsScreen.privateProfileSubmitKey)).tap();
     await $('Patrol profile').waitUntilVisible();
 
@@ -53,16 +50,14 @@ void main() {
     await $('Cancel').tap();
 
     await $(find.byKey(AppShell.privateProfileAccessKey)).tap();
-    await $(
-      find.byKey(const Key('private-profile-unlock-password-input')),
-    ).enterText('patrol-pass-123');
+    await $(find.byKey(const Key('private-profile-unlock-password-input')))
+        .enterText('patrol-pass-123');
     await $(find.byKey(const Key('private-profile-unlock-submit'))).tap();
 
     await $(find.byKey(AppShell.addNoteKey)).tap();
     await $('Quick memo').tap();
-    await $(
-      find.byKey(const Key('note-save-private-toggle')),
-    ).waitUntilVisible();
+    await $(find.byKey(const Key('note-save-private-toggle')))
+        .waitUntilVisible();
   });
 }
 

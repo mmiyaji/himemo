@@ -7,7 +7,7 @@
     "e2e:headed": "playwright test --headed",
     "chaos": "chaosbringer --url http://127.0.0.1:4173 --max-pages 12 --max-actions 4 --seed 42 --strict --ignore-analytics --output artifacts/chaosbringer/chaos-report.json --failure-artifacts artifacts/chaosbringer/failures --cluster-artifacts",
     "web:prepare:sqljs": "node tools/copy_sqljs_assets.js",
-    "web:build:flutter": ".\\.fvm\\flutter_sdk\\bin\\flutter.bat build web --no-wasm-dry-run -t lib/main_development.dart",
+    "web:build:flutter": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/flutter_with_env.ps1 build web --no-wasm-dry-run -t lib/main_development.dart",
     "web:build": "npm run web:prepare:sqljs && npm run web:build:flutter",
     "web:build:e2e": "npm run web:prepare:sqljs && npm run web:build:flutter -- --dart-define=HIMEMO_FAKE_GOOGLE_DRIVE_SYNC=true",
     "web:serve:test": "npm run web:build:e2e && serve -s -l tcp://127.0.0.1:4173 --no-port-switching build/web"
@@ -25,9 +25,14 @@
   },
   "homepage": "https://github.com/mmiyaji/himemo#readme",
   "devDependencies": {
-    "@playwright/test": "^1.59.1",
-    "chaosbringer": "^0.9.0",
+    "@playwright/test": "^1.64.1",
+    "chaosbringer": "^0.14.0",
     "serve": "^14.2.6",
-    "sql.js": "^1.14.1"
+    "sql.js": "^1.15.2"
+  },
+  "overrides": {
+    "serve": {
+      "compression": "1.8.2"
+    }
   }
 }

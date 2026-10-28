@@ -46,9 +46,8 @@ void main() {
 
       expect((await transport.fetchLatestBundleStatus())?.fileId, delta.fileId);
       expect(
-        (await transport.listBundleHistory(
-          limit: 1,
-        )).map((status) => status.fileId),
+        (await transport.listBundleHistory(limit: 1))
+            .map((status) => status.fileId),
         [delta.fileId],
       );
       expect(

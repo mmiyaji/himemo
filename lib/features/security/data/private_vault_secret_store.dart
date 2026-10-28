@@ -7,15 +7,13 @@ import 'secure_key_value_store.dart';
 
 class PrivateVaultSecretStore {
   PrivateVaultSecretStore({
-    required SecureKeyValueStore secureStore,
-    required EncryptionService encryptionService,
+    required this._secureStore,
+    required this._encryptionService,
     Future<SharedPreferences> Function()? sharedPreferencesProvider,
     this.storageKey = 'security.private_vault.verifier.v1',
     this.legacySaltKey = 'security.private_vault_salt',
     this.legacyDigestKey = 'security.private_vault_digest',
-  }) : _secureStore = secureStore,
-       _encryptionService = encryptionService,
-       _sharedPreferencesProvider =
+  }) : _sharedPreferencesProvider =
            sharedPreferencesProvider ?? SharedPreferences.getInstance;
 
   final SecureKeyValueStore _secureStore;

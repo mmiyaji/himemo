@@ -71,8 +71,7 @@ class AppStrings {
       'date.month.11': 'November',
       'date.month.12': 'December',
       'notes.empty.title': 'No matching notes',
-      'notes.empty.body':
-          'Create a new memo or clear the current search filter to see saved entries.',
+      'notes.empty.body': 'Create a new memo or clear the current search filter to see saved entries.',
       'home.admin.mode.active': 'Admin mode active',
       'home.switch.private.access': 'Switch private access',
       'home.lock': 'Lock',
@@ -101,10 +100,8 @@ class AppStrings {
       'home.peak.time': 'peak time',
       'home.monthly.trend': 'Monthly trend',
       'home.vs.last.month': 'vs last month',
-      'home.insights.summary.empty':
-          'Your writing activity will appear here. Write for a few days to make trends visible.',
-      'home.insights.summary.active':
-          'This month has {thisMonthCount} notes. Your best day was {bestDayLabel}. Keeping a streak makes progress easier to see.',
+      'home.insights.summary.empty': 'Your writing activity will appear here. Write for a few days to make trends visible.',
+      'home.insights.summary.active': 'This month has {thisMonthCount} notes. Your best day was {bestDayLabel}. Keeping a streak makes progress easier to see.',
       'home.no.data.yet': 'No data yet.',
       'home.less': 'Less',
       'home.more': 'More',
@@ -223,8 +220,7 @@ class AppStrings {
       'home.admin.mode.is.currently.active': 'Admin mode is currently active.',
       'home.profile.password': 'Profile password',
       'home.enter.a.password': 'Enter a password.',
-      'home.review.notes.grouped.by.day.and.keep.diary.entries.ancho':
-          'Review notes grouped by day and keep diary entries anchored to dates.',
+      'home.review.notes.grouped.by.day.and.keep.diary.entries.ancho': 'Review notes grouped by day and keep diary entries anchored to dates.',
       'home.previous.day.with.notes': 'Previous day with notes',
       'home.next.day.with.notes': 'Next day with notes',
       'home.no.notes.on.this.day.yet': 'No notes on this day yet.',
@@ -269,17 +265,14 @@ class AppStrings {
           'Manage access, sync, and display policy.',
       'home.change.current.profile.password.2':
           'Change current profile password',
-      'home.the.app.stays.in.normal.memo.mode.by.default.enter.a.spe':
-          'The app stays in normal memo mode by default. Enter a special access key only when you need another view.',
+      'home.the.app.stays.in.normal.memo.mode.by.default.enter.a.spe': 'The app stays in normal memo mode by default. Enter a special access key only when you need another view.',
       'home.enter.special.access.key': 'Enter special access key',
       'home.return.to.normal.mode': 'Return to normal mode',
       'home.require.pin.on.launch': 'Require PIN on launch',
       'home.require.device.auth.on.launch': 'Require device auth on launch',
       'home.set.unlock.pin': 'Set unlock PIN',
-      'home.device.authentication.was.not.completed.so.launch.protec':
-          'Device authentication was not completed, so launch protection stayed off.',
-      'home.when.icloud.sync.is.selected.this.key.is.shared.automati':
-          'When iCloud sync is selected, this key is shared automatically across Apple devices signed in with the same iCloud account. Manual transfer is not required.',
+      'home.device.authentication.was.not.completed.so.launch.protec': 'Device authentication was not completed, so launch protection stayed off.',
+      'home.when.icloud.sync.is.selected.this.key.is.shared.automati': 'When iCloud sync is selected, this key is shared automatically across Apple devices signed in with the same iCloud account. Manual transfer is not required.',
       'home.this.session.is.currently.unlocked':
           'This session is currently unlocked.',
       'home.this.browser.stays.locked.until.the.correct.pin.is.enter':
@@ -291,12 +284,9 @@ class AppStrings {
       'home.unlock.pin.updated': 'Unlock PIN updated.',
       'home.unlock.pin.configured': 'Unlock PIN configured.',
       'home.remove.unlock.pin': 'Remove unlock PIN',
-      'home.remove.the.web.unlock.pin.for.this.browser.and.turn.off':
-          'Remove the web unlock PIN for this browser and turn off launch PIN protection?',
-      'home.web.pin.is.a.browser.level.access.gate.it.does.not.repla':
-          'Web PIN is a browser-level access gate. It does not replace device-backed secure storage or biometrics.',
-      'home.quick.widget.capture.only.writes.plain.text.into.notes.i':
-          'Quick widget capture only writes plain text into Notes. It never opens existing notes or locked profiles.',
+      'home.remove.the.web.unlock.pin.for.this.browser.and.turn.off': 'Remove the web unlock PIN for this browser and turn off launch PIN protection?',
+      'home.web.pin.is.a.browser.level.access.gate.it.does.not.repla': 'Web PIN is a browser-level access gate. It does not replace device-backed secure storage or biometrics.',
+      'home.quick.widget.capture.only.writes.plain.text.into.notes.i': 'Quick widget capture only writes plain text into Notes. It never opens existing notes or locked profiles.',
       'home.re.lock.after.app.leaves.the.foreground':
           'Re-lock after app leaves the foreground',
       'home.lock.the.app.as.soon.as.it.moves.to.the.background':
@@ -319,8 +309,7 @@ class AppStrings {
       'home.widget.quick.writes.are.off': 'Widget quick writes are off.',
       'home.allow.widget.writes.while.locked':
           'Allow widget writes while locked',
-      'home.only.the.submitted.text.is.saved.existing.notes.and.lock':
-          'Only the submitted text is saved. Existing notes and locked profiles stay hidden.',
+      'home.only.the.submitted.text.is.saved.existing.notes.and.lock': 'Only the submitted text is saved. Existing notes and locked profiles stay hidden.',
       'home.configured.and.currently.unlocked':
           'Configured and currently unlocked.',
       'home.configured.and.locked': 'Configured and locked.',
@@ -351,13 +340,11 @@ class AppStrings {
       'home.unable.to.read.local.sync.activity':
           'Unable to read local sync activity.',
       'home.keep.data.on.this.device.only': 'Keep data on this device only.',
-      'home.use.this.device.s.icloud.as.the.sync.target.no.himemo.lo':
-          'Use this device’s iCloud as the sync target. No HiMemo login is required.',
+      'home.use.this.device.s.icloud.as.the.sync.target.no.himemo.lo': 'Use this device’s iCloud as the sync target. No HiMemo login is required.',
       'home.google.drive.app.data.sync.target':
           'Google Drive app-data sync target.',
       'home.force.upload.2': 'Force upload?',
-      'home.a.newer.remote.bundle.was.found.while.this.device.still':
-          'A newer remote bundle was found while this device still has pending changes. Force upload will overwrite the remote backup with this device state.',
+      'home.a.newer.remote.bundle.was.found.while.this.device.still': 'A newer remote bundle was found while this device still has pending changes. Force upload will overwrite the remote backup with this device state.',
       'home.no.remote.bundle.history.is.available':
           'No remote bundle history is available.',
       'home.keep.for.apply': 'Keep for apply',
@@ -367,10 +354,8 @@ class AppStrings {
       'home.saved.notes.on.this.device': 'Saved notes on this device',
       'home.use.japanese.across.the.app': 'Use Japanese across the app.',
       'home.use.english.across.the.app': 'Use English across the app.',
-      'home.icloud.selected.the.app.checks.this.device.s.icloud.avai':
-          'iCloud selected. The app checks this device’s iCloud availability before syncing. No HiMemo login is required.',
-      'home.google.drive.selected.authorize.access.to.drive.app.data':
-          'Google Drive selected. Authorize access to Drive app data before syncing.',
+      'home.icloud.selected.the.app.checks.this.device.s.icloud.avai': 'iCloud selected. The app checks this device’s iCloud availability before syncing. No HiMemo login is required.',
+      'home.google.drive.selected.authorize.access.to.drive.app.data': 'Google Drive selected. Authorize access to Drive app data before syncing.',
       'home.this.device.s.icloud.availability.has.not.been.checked.y':
           'This device’s iCloud availability has not been checked yet.',
       'home.checking.this.device.s.icloud.availability':
@@ -391,8 +376,7 @@ class AppStrings {
           'Waiting for authentication to complete...',
       'home.authentication.is.not.available.2':
           'Authentication is not available.',
-      'home.locked.profiles.are.hidden.unlock.the.target.profile.fro':
-          'Locked profiles are hidden. Unlock the target profile from Settings to show its notes.',
+      'home.locked.profiles.are.hidden.unlock.the.target.profile.fro': 'Locked profiles are hidden. Unlock the target profile from Settings to show its notes.',
       'home.swipe.left.or.right.to.move.between.notes':
           'Swipe left or right to move between notes.',
       'home.search.notes.diary.entries.and.attachment.labels':
@@ -435,8 +419,7 @@ class AppStrings {
       'settings.demo.create.done': 'Created {count} demo notes.',
       'settings.demo.delete': 'Delete demo notes',
       'settings.demo.delete.title': 'Delete demo notes?',
-      'settings.demo.delete.body':
-          'This deletes {count} demo notes from this device. Notes you created are not deleted.',
+      'settings.demo.delete.body': 'This deletes {count} demo notes from this device. Notes you created are not deleted.',
       'settings.demo.delete.done': 'Deleted {count} demo notes.',
     },
     'es': {
@@ -462,8 +445,7 @@ class AppStrings {
       'date.month.11': 'noviembre',
       'date.month.12': 'diciembre',
       'notes.empty.title': 'No hay notas coincidentes',
-      'notes.empty.body':
-          'Crea una nueva nota o borra el filtro de búsqueda actual para ver las entradas guardadas.',
+      'notes.empty.body': 'Crea una nueva nota o borra el filtro de búsqueda actual para ver las entradas guardadas.',
       'home.remote.bundle.storage.is.not.configured.yet':
           'El almacenamiento del paquete remoto aún no está configurado.',
       'home.remote.bundle.storage.is.not.configured.yet.2':
@@ -488,8 +470,7 @@ class AppStrings {
       'home.filters': 'Filtros',
       'home.standard.list': 'Lista estándar',
       'home.compact.list': 'Lista compacta',
-      'home.off.turning.this.on.asks.for.a.password.or.device.authen':
-          'Desactivado. Al activarlo se pedirá una contraseña o autenticación del dispositivo.',
+      'home.off.turning.this.on.asks.for.a.password.or.device.authen': 'Desactivado. Al activarlo se pedirá una contraseña o autenticación del dispositivo.',
       'home.widget.quick.writes.are.off':
           'Las escrituras rápidas del widget están desactivadas.',
       'home.selected.target': 'Destino seleccionado',
@@ -547,8 +528,7 @@ class AppStrings {
           'Preparando la clave de recuperación...',
       'home.unable.to.read.the.cloud.recovery.key.fingerprint':
           'No se pudo leer la huella de la clave de recuperación.',
-      'home.no.sync.activity.has.been.recorded.on.this.device.yet':
-          'Aún no se ha registrado actividad de sincronización en este dispositivo.',
+      'home.no.sync.activity.has.been.recorded.on.this.device.yet': 'Aún no se ha registrado actividad de sincronización en este dispositivo.',
       'home.reading.sync.activity': 'Leyendo actividad de sincronización...',
       'home.unable.to.read.local.sync.activity':
           'No se pudo leer la actividad de sincronización local.',
@@ -568,8 +548,7 @@ class AppStrings {
       'settings.demo.create.done': 'Se crearon {count} notas de demostración.',
       'settings.demo.delete': 'Eliminar notas de demostración',
       'settings.demo.delete.title': '¿Eliminar notas de demostración?',
-      'settings.demo.delete.body':
-          'Esto elimina {count} notas de demostración de este dispositivo. Las notas que creaste no se eliminan.',
+      'settings.demo.delete.body': 'Esto elimina {count} notas de demostración de este dispositivo. Las notas que creaste no se eliminan.',
       'settings.demo.delete.done':
           'Se eliminaron {count} notas de demostración.',
     },
@@ -596,8 +575,7 @@ class AppStrings {
       'date.month.11': 'November',
       'date.month.12': 'Dezember',
       'notes.empty.title': 'Keine passenden Notizen',
-      'notes.empty.body':
-          'Erstelle eine neue Notiz oder lösche den aktuellen Suchfilter, um gespeicherte Einträge zu sehen.',
+      'notes.empty.body': 'Erstelle eine neue Notiz oder lösche den aktuellen Suchfilter, um gespeicherte Einträge zu sehen.',
       'home.remote.bundle.storage.is.not.configured.yet':
           'Der Remote-Bundle-Speicher ist noch nicht eingerichtet.',
       'home.remote.bundle.storage.is.not.configured.yet.2':
@@ -622,8 +600,7 @@ class AppStrings {
       'home.filters': 'Filter',
       'home.standard.list': 'Standardliste',
       'home.compact.list': 'Kompakte Liste',
-      'home.off.turning.this.on.asks.for.a.password.or.device.authen':
-          'Aus. Beim Aktivieren wird ein Passwort oder Geräteauthentifizierung verlangt.',
+      'home.off.turning.this.on.asks.for.a.password.or.device.authen': 'Aus. Beim Aktivieren wird ein Passwort oder Geräteauthentifizierung verlangt.',
       'home.widget.quick.writes.are.off':
           'Schnellnotizen über das Widget sind deaktiviert.',
       'home.selected.target': 'Ausgewähltes Ziel',
@@ -672,16 +649,13 @@ class AppStrings {
           'Keine ausstehenden Änderungen auf diesem Gerät.',
       'home.checking.pending.changes':
           'Ausstehende Änderungen werden geprüft...',
-      'home.unable.to.inspect.the.local.sync.queue':
-          'Die lokale Synchronisierungswarteschlange konnte nicht geprüft werden.',
+      'home.unable.to.inspect.the.local.sync.queue': 'Die lokale Synchronisierungswarteschlange konnte nicht geprüft werden.',
       'home.cloud.recovery.key.fingerprint':
           'Fingerabdruck des Wiederherstellungsschlüssels',
       'home.preparing.cloud.recovery.key':
           'Wiederherstellungsschlüssel wird vorbereitet...',
-      'home.unable.to.read.the.cloud.recovery.key.fingerprint':
-          'Der Fingerabdruck des Wiederherstellungsschlüssels konnte nicht gelesen werden.',
-      'home.no.sync.activity.has.been.recorded.on.this.device.yet':
-          'Auf diesem Gerät wurde noch keine Synchronisierungsaktivität aufgezeichnet.',
+      'home.unable.to.read.the.cloud.recovery.key.fingerprint': 'Der Fingerabdruck des Wiederherstellungsschlüssels konnte nicht gelesen werden.',
+      'home.no.sync.activity.has.been.recorded.on.this.device.yet': 'Auf diesem Gerät wurde noch keine Synchronisierungsaktivität aufgezeichnet.',
       'home.reading.sync.activity':
           'Synchronisierungsaktivität wird gelesen...',
       'home.unable.to.read.local.sync.activity':
@@ -703,8 +677,7 @@ class AppStrings {
       'settings.demo.create.done': '{count} Demo-Notizen erstellt.',
       'settings.demo.delete': 'Demo-Notizen löschen',
       'settings.demo.delete.title': 'Demo-Notizen löschen?',
-      'settings.demo.delete.body':
-          'Dies löscht {count} Demo-Notizen von diesem Gerät. Von dir erstellte Notizen werden nicht gelöscht.',
+      'settings.demo.delete.body': 'Dies löscht {count} Demo-Notizen von diesem Gerät. Von dir erstellte Notizen werden nicht gelöscht.',
       'settings.demo.delete.done': '{count} Demo-Notizen gelöscht.',
     },
     'ja': {
@@ -751,8 +724,7 @@ class AppStrings {
       'home.monthly.trend': '前月比',
       'home.vs.last.month': '先月比',
       'home.insights.summary.empty': '書いた量がここにたまります。まずは数日続けてみると変化が見えます。',
-      'home.insights.summary.active':
-          '今月は {thisMonthCount} 件、最も書いた日は {bestDayLabel} です。連続記録を保つと積み上がりが見えやすくなります。',
+      'home.insights.summary.active': '今月は {thisMonthCount} 件、最も書いた日は {bestDayLabel} です。連続記録を保つと積み上がりが見えやすくなります。',
       'home.no.data.yet': 'まだデータがありません。',
       'home.less': '少',
       'home.more': '多',
@@ -918,8 +890,7 @@ class AppStrings {
       'home.set.unlock.pin': '解除用 PIN を設定',
       'home.device.authentication.was.not.completed.so.launch.protec':
           '端末認証が完了しなかったため、アプリ保護はオンになりませんでした。',
-      'home.when.icloud.sync.is.selected.this.key.is.shared.automati':
-          'iCloud を使う場合、この鍵は同じ iCloud アカウントの Apple デバイス間で自動共有されます。手動でコピーする必要はありません。',
+      'home.when.icloud.sync.is.selected.this.key.is.shared.automati': 'iCloud を使う場合、この鍵は同じ iCloud アカウントの Apple デバイス間で自動共有されます。手動でコピーする必要はありません。',
       'home.this.session.is.currently.unlocked': 'このセッションではメモを開ける状態です。',
       'home.this.browser.stays.locked.until.the.correct.pin.is.enter':
           '正しい PIN を入力するまで、このブラウザではメモを開けません。',
@@ -988,8 +959,7 @@ class AppStrings {
       'home.google.drive.app.data.sync.target':
           'Google Drive の app-data 同期先です。',
       'home.force.upload.2': '強制アップロードしますか？',
-      'home.a.newer.remote.bundle.was.found.while.this.device.still':
-          'この端末に保留中の変更がある状態で、より新しいリモートバンドルが見つかりました。強制アップロードすると、リモートのバックアップをこの端末の状態で上書きします。',
+      'home.a.newer.remote.bundle.was.found.while.this.device.still': 'この端末に保留中の変更がある状態で、より新しいリモートバンドルが見つかりました。強制アップロードすると、リモートのバックアップをこの端末の状態で上書きします。',
       'home.no.remote.bundle.history.is.available': '利用できるリモートバンドル履歴がありません。',
       'home.keep.for.apply': '適用候補として保持',
       'home.selected.bundle.is.ready.for.apply': '選択したバンドルを適用候補として保持しました。',
@@ -1636,8 +1606,7 @@ class AppStrings {
       'home.set.unlock.pin.2': '잠금 해제 PIN 설정',
       'home.device.authentication.was.not.completed.so.launch.protec':
           '기기 인증이 완료되지 않아 실행 보호가 꺼진 상태로 유지되었습니다.',
-      'home.when.icloud.sync.is.selected.this.key.is.shared.automati':
-          'iCloud 동기화를 선택하면 같은 iCloud 계정의 Apple 기기 간에 이 키가 자동 공유됩니다. 수동 전송은 필요 없습니다.',
+      'home.when.icloud.sync.is.selected.this.key.is.shared.automati': 'iCloud 동기화를 선택하면 같은 iCloud 계정의 Apple 기기 간에 이 키가 자동 공유됩니다. 수동 전송은 필요 없습니다.',
       'home.this.session.is.currently.unlocked': '이 세션은 현재 잠금 해제되어 있습니다.',
       'home.this.browser.stays.locked.until.the.correct.pin.is.enter':
           '올바른 PIN을 입력할 때까지 이 브라우저는 잠겨 있습니다.',

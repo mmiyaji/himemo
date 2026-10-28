@@ -29,9 +29,9 @@ class StoredAttachmentPayloadMetadata {
 
 class EncryptedAttachmentStore {
   EncryptedAttachmentStore({
-    required EncryptionService encryptionService,
-    required MasterKeyService masterKeyService,
-    ProfileDataKeyService? profileDataKeyService,
+    required this._encryptionService,
+    required this._masterKeyService,
+    this._profileDataKeyService,
     Future<Directory> Function()? directoryProvider,
     Future<Directory> Function()? temporaryDirectoryProvider,
     Future<SharedPreferences> Function()? sharedPreferencesProvider,
@@ -39,10 +39,7 @@ class EncryptedAttachmentStore {
     this.webStoragePrefix = 'attachments.encrypted.',
     this.vaultStoragePrefix = 'attachments.vault.',
     WebAttachmentPayloadStore? webPayloadStore,
-  }) : _encryptionService = encryptionService,
-       _masterKeyService = masterKeyService,
-       _profileDataKeyService = profileDataKeyService,
-       _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
+  }) : _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
        _temporaryDirectoryProvider =
            temporaryDirectoryProvider ?? getTemporaryDirectory,
        _sharedPreferencesProvider =

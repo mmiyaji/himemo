@@ -24,6 +24,34 @@ import 'package:himemo/l10n/app_strings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  testWidgets('settings adapts across repeated fold and unfold sizes', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
+    );
+    _configureView(tester, size: const Size(390, 708));
+    await _pumpSettingsScreen(tester, harness.container);
+
+    // Exercise compact, wide and landscape windows without remounting the app.
+    // These are viewport stress cases, not device specification constants.
+    for (final size in const [
+      Size(1024, 768),
+      Size(708, 390),
+      Size(320, 708),
+      Size(900, 1100),
+      Size(390, 708),
+    ]) {
+      tester.view.physicalSize = size;
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(SettingsScreen.overviewKey),
+        size.width >= 840 ? findsOneWidget : findsNothing,
+      );
+      expect(tester.takeException(), isNull, reason: 'resize to $size');
+    }
+  });
+
   testWidgets('all app themes keep action color pairs at AA contrast', (
     tester,
   ) async {

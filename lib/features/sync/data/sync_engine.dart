@@ -224,8 +224,9 @@ class SyncSnapshotPreparationProgress {
   final int totalItems;
 }
 
-typedef SyncSnapshotPreparationProgressCallback =
-    Future<void> Function(SyncSnapshotPreparationProgress progress);
+typedef SyncSnapshotPreparationProgressCallback = Future<void> Function(
+  SyncSnapshotPreparationProgress progress,
+);
 
 class SyncAttachmentMissingException implements Exception {
   const SyncAttachmentMissingException({
@@ -255,12 +256,10 @@ class SyncAttachmentMissingException implements Exception {
 
 class SyncEngine {
   SyncEngine({
-    required EncryptedNoteDatabase database,
-    required EncryptedAttachmentStore attachmentStore,
-    required DeviceIdentityStore deviceIdentityStore,
-  }) : _database = database,
-       _attachmentStore = attachmentStore,
-       _deviceIdentityStore = deviceIdentityStore;
+    required this._database,
+    required this._attachmentStore,
+    required this._deviceIdentityStore,
+  });
 
   final EncryptedNoteDatabase _database;
   final EncryptedAttachmentStore _attachmentStore;

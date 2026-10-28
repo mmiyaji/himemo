@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  FLUTTER_VERSION: "3.41.6"
+  FLUTTER_VERSION: "3.47.8"
   APPLE_TEAM_ID: "B8LGAS7YHH"
   BUNDLE_ID: "org.ruhenheim.himemo"
   WIDGET_BUNDLE_ID: "org.ruhenheim.himemo.QuickCaptureWidget"
@@ -34,7 +34,7 @@ env:
 jobs:
   build-and-upload:
     name: Build iOS IPA and upload to TestFlight
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 60
 
     steps:
@@ -54,11 +54,15 @@ jobs:
           cache: npm
           cache-dependency-path: functions/package-lock.json
 
+      - name: Select Xcode 27.1 for iPhone Duo
+        run: sudo xcode-select --switch /Applications/Xcode_27.1.app/Contents/Developer
+
       - name: Show toolchain versions
         run: |
           flutter --version
           xcodebuild -version
           pod --version
+          python3 tools/check_ios_toolchain.py
 
       - name: Resolve build number
         env:

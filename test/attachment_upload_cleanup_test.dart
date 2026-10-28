@@ -70,8 +70,7 @@ void main() {
     expect(
       transport.objectUploads,
       2,
-      reason:
-          'The local photo still exists, but the remote object is missing. Reupload must restore it.',
+      reason: 'The local photo still exists, but the remote object is missing. Reupload must restore it.',
     );
   });
 
@@ -136,8 +135,7 @@ void main() {
       expect(
         bytes,
         [1, 2, 3, 4],
-        reason:
-            'Removing the image from the first memo must not delete the second memo image.',
+        reason: 'Removing the image from the first memo must not delete the second memo image.',
       );
     },
   );

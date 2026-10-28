@@ -15,15 +15,12 @@ abstract class DeletableCloudSyncBundleKeyStore {
 
 class SyncBundleKeyService {
   SyncBundleKeyService({
-    required SecureKeyValueStore secureStore,
-    required List<int> Function() keyFactory,
-    SecureKeyValueStore? fallbackStore,
-    CloudSyncBundleKeyStore? cloudStore,
+    required this._secureStore,
+    required this._keyFactory,
+    this._fallbackStore,
+    this._cloudStore,
     this.storageKey = 'security.sync_bundle_key.v1',
-  }) : _secureStore = secureStore,
-       _fallbackStore = fallbackStore,
-       _cloudStore = cloudStore,
-       _keyFactory = keyFactory;
+  });
 
   static const backupCodePrefix = 'himemo-sync-key-v1:';
 

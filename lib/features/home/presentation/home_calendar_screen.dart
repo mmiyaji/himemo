@@ -130,9 +130,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               if (sameDayNotes.isEmpty)
                 Text(
                   strings.text('home.no.notes.on.this.day.yet'),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: _mutedTextColor(context),
-                  ),
+                  style: Theme.of(context).textTheme.bodyMedium
+                      ?.copyWith(color: _mutedTextColor(context)),
                 )
               else
                 _CalendarDayNotesList(
@@ -505,9 +504,9 @@ class _MarkedCalendar extends StatelessWidget {
                                             : FontWeight.w500,
                                         color: isSelected
                                             ? colorScheme.primary
-                                            : Theme.of(
-                                                context,
-                                              ).colorScheme.onSurface,
+                                            : Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurface,
                                       ),
                                 ),
                                 const SizedBox(height: 4),
