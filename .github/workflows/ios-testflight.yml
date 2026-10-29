@@ -7,6 +7,11 @@ on:
         description: "Optional CFBundleVersion. Defaults to UTC yyMMddHHmm."
         required: false
         type: string
+      finalize_only:
+        description: "Only verify and distribute the existing build_number (no rebuild or upload)."
+        required: false
+        default: false
+        type: boolean
       upload_to_testflight:
         description: "Upload the signed IPA to App Store Connect/TestFlight."
         required: true
@@ -33,6 +38,7 @@ env:
 
 jobs:
   build-and-upload:
+    if: ${{ !inputs.finalize_only }}
     name: Build iOS IPA and upload to TestFlight
     runs-on: xcode-27
     timeout-minutes: 90
@@ -472,3 +478,29 @@ jobs:
           KEYCHAIN_PATH="$RUNNER_TEMP/$KEYCHAIN_NAME"
           security delete-keychain "$KEYCHAIN_PATH" || true
           rm -rf "$HOME/.appstoreconnect/private_keys" || true
+
+  finalize-existing:
+    if: ${{ inputs.finalize_only }}
+    name: Verify uploaded TestFlight build and internal distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Validate release automation
+        run: python3 -m unittest discover -s tools -p 'test_finalize_testflight.py'
+      - name: Verify and distribute existing build
+        env:
+          EXISTING_BUILD_NUMBER: ${{ inputs.build_number }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          : "${EXISTING_BUILD_NUMBER:?An already uploaded build_number is required}"
+          python3 tools/finalize_testflight.py \
+            --bundle-id "$BUNDLE_ID" \
+            --build-number "$EXISTING_BUILD_NUMBER" \
+            --group ruhenheim \
+            --notes-file internal-docs/testflight-what-to-test.ja.txt \
+            --timeout-seconds 1200

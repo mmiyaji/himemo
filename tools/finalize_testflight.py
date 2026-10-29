@@ -21,10 +21,11 @@ BASE = "https://api.appstoreconnect.apple.com"
 
 
 class ApiError(RuntimeError):
-    def __init__(self, status, codes=""):
+    def __init__(self, status, codes="", operation="", detail=""):
         self.status = status
         hint = " Check App Store Connect API key permissions." if status in (401, 403) else ""
-        super().__init__(f"App Store Connect API HTTP {status} ({codes or 'request failed'}).{hint}")
+        super().__init__(f"App Store Connect API HTTP {status} ({codes or 'request failed'}) "
+                         f"at {operation or 'request'}. {detail}{hint}")
 
 
 def b64(data):
@@ -123,10 +124,16 @@ class Api:
                     continue
                 try:
                     details = json.loads(error.read())
-                    codes = ",".join(str(e.get("code", "")) for e in details.get("errors", []))
+                    errors = details.get("errors", [])
+                    codes = ",".join(str(e.get("code", "")) for e in errors)
+                    # Metadata validation messages explain 422 failures; auth
+                    # errors never echo server details or request credentials.
+                    explanation = " ".join(str(e.get("detail", e.get("title", "")))
+                                           for e in errors)[:1200] if error.code == 422 else ""
                 except (ValueError, AttributeError, TypeError):
-                    codes = ""
-                raise ApiError(error.code, codes) from None
+                    codes, explanation = "", ""
+                raise ApiError(error.code, codes, method + " " + urlsplit(url).path,
+                               explanation) from None
             except (URLError, TimeoutError):
                 if attempt == 5:
                     raise RuntimeError("App Store Connect API network request failed after retries.") from None
@@ -213,6 +220,11 @@ def attach_group(api, app_id, build_id, group_name):
     }) if item.get("attributes", {}).get("name") == group_name], "named tester group")
     if group.get("attributes", {}).get("isInternalGroup") is not True:
         raise RuntimeError("Refusing to distribute to a group that is not internal.")
+    if group.get("attributes", {}).get("hasAccessToAllBuilds") is True:
+        # Automatic internal groups already grant access. Their relationship
+        # list need not enumerate implicitly available builds; do not POST.
+        print(f"Internal group {group_name}: automatic access to all builds", flush=True)
+        return group["id"]
     path = "/v1/betaGroups/" + group["id"] + "/relationships/builds"
     if not any(item.get("id") == build_id for item in api.list(path, {"limit": "200"})):
         api.request("POST", path, data={"data": [{"type": "builds", "id": build_id}]})
@@ -246,7 +258,12 @@ def finalize(api, bundle_id, build_number, group, notes, timeout):
     app = one([item for item in api.list("/v1/apps", {"filter[bundleId]": bundle_id, "limit": "200"})
                if item.get("attributes", {}).get("bundleId") == bundle_id], "app")
     build = wait_build(api, app["id"], build_number, timeout)
+    print(f"Apple processing VALID: app={app['id']} build={build['id']} number={build_number}", flush=True)
+    initial_detail = api.request("GET", "/v1/builds/" + build["id"] + "/buildBetaDetail")
+    print("Observed internal state: " + str(initial_detail.get("data", {}).get("attributes", {})
+                                            .get("internalBuildState")), flush=True)
     set_notes(api, build["id"], notes)
+    print("Japanese test notes confirmed", flush=True)
     group_id = attach_group(api, app["id"], build["id"], group)
     internal_state = wait_internal_testing(api, build["id"], timeout)
     result = {"appId": app["id"], "buildId": build["id"], "buildNumber": build_number,

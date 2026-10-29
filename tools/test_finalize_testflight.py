@@ -49,6 +49,14 @@ class FinalizationTests(unittest.TestCase):
             target.wait_build(api, "app", "10", 5)
         api.request.assert_not_called()
 
+    def test_automatic_internal_group_requires_no_explicit_build_assignment(self):
+        api = Mock()
+        api.list.return_value = [{"id": "g", "attributes": {
+            "name": "team", "isInternalGroup": True, "hasAccessToAllBuilds": True}}]
+        self.assertEqual(target.attach_group(api, "app", "b", "team"), "g")
+        api.request.assert_not_called()
+        self.assertEqual(api.list.call_count, 1)
+
     def test_existing_internal_group_membership_is_idempotent(self):
         api = Mock()
         api.list.side_effect = [[{"id": "g", "attributes": {"name": "team", "isInternalGroup": True}}],
