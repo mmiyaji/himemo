@@ -110,7 +110,11 @@ If the Apple Developer Portal profile names change, update the `APP_STORE_PROFIL
 4. Run again with `upload_to_testflight=true`.
 5. Confirm App Store Connect receives the build and TestFlight processing completes.
 
-The upload step only uploads to App Store Connect. Tester group assignment should be handled by App Store Connect TestFlight settings, or added later through App Store Connect API automation if needed.
+After the upload step, `tools/finalize_testflight.py` uses the same API credentials to wait for the exact build number to become VALID, save and read back Japanese What to Test notes, add the build to the existing internal `ruhenheim` group, and verify `internalBuildState=IN_BETA_TESTING`. It does not create tester groups, invite testers, upload a second binary, or alter export-compliance declarations. A processing/compliance/permission failure leaves the uploaded build intact and must be resolved before claiming distribution succeeded.
+
+Japanese test notes are maintained in `internal-docs/testflight-what-to-test.ja.txt`. This sync update requires stopping sync/cleanup on old clients and updating every participating device before resuming. Old and new clients are not safe to mix.
+
+The finalizer can be run again against the same build number without re-uploading. Use `--private-key-file` (or `APP_STORE_CONNECT_API_PRIVATE_KEY_PATH`) with an existing API key, or the same CI private-key environment variable. Credentials and JWTs are never printed. The unit tests use mocked API responses and signer results; actual Apple processing, note persistence and internal availability are checked in CI.
 
 ## iOS 27 startup lifecycle
 

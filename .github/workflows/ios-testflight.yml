@@ -245,6 +245,9 @@ jobs:
           flutter build web --no-wasm-dry-run
           -t lib/main_development.dart
 
+      - name: Validate TestFlight release automation
+        run: python3 -m unittest discover -s tools -p 'test_finalize_testflight.py'
+
       - name: Validate Functions
         run: |
           set -euo pipefail
@@ -441,6 +444,22 @@ jobs:
             --file "$IPA_PATH" \
             --apiKey "$APP_STORE_CONNECT_API_KEY_ID" \
             --apiIssuer "$APP_STORE_CONNECT_API_ISSUER_ID"
+
+      - name: Finish TestFlight processing and internal distribution
+        if: ${{ inputs.upload_to_testflight }}
+        timeout-minutes: 25
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          python3 tools/finalize_testflight.py \
+            --bundle-id "$BUNDLE_ID" \
+            --build-number "$BUILD_NUMBER" \
+            --group ruhenheim \
+            --notes-file internal-docs/testflight-what-to-test.ja.txt \
+            --timeout-seconds 1200
 
       - name: Clean up signing assets
         if: always()
