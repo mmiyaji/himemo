@@ -137,3 +137,14 @@ The workflow reads the embedded `Name` and `UUID` from each `.mobileprovision` f
 The widget and share extension `Info.plist` files contain Flutter build variables in source, but App Store Connect requires concrete `CFBundleShortVersionString` and `CFBundleVersion` values inside the uploaded `.appex` bundles. The workflow writes those values from `pubspec.yaml` and `build_number` before building.
 
 2026-10-29 CI timeout correction: run 40855139139 successfully compiled the current simulator app (Xcode build 867.8 seconds), but the shared 20-minute build-and-launch step timed out before the launch test ran. The workflow now gives the simulator build its own 30-minute step, uses already resolved dependencies with `--no-pub`, then boots and tests the simulator in a separate 10-minute step. The job budget is 90 minutes to include Apple processing. Startup assertions and signing/entitlement gates remain required.
+
+## Verified security and sync TestFlight release (2026-10-29)
+
+Version **1.0.0 (2610291035)** is available to the existing internal **ruhenheim** group. App Store Connect API confirmed `processingState=VALID`, `internalBuildState=IN_BETA_TESTING` and `usesNonExemptEncryption=false` at 11:05 UTC. Build ID: `843d787e-7b36-488a-836d-87d49e5dab5d`; app ID: `6762381959`.
+
+- [Build/upload run 40858534175](https://github.com/mmiyaji/himemo/actions/runs/40858534175), source commit `e105ac7`: simulator build, iPhone Duo startup/native-channel test, Dart formatting/analysis, Flutter tests, Web build, Functions validation, signed IPA, CloudKit entitlements and Apple upload all passed. `ios-launch-smoke-113/onboarding.png` and `himemo-ios-113` are the evidence artifacts. The run's final metadata step reported HTTP422 after the upload; the binary did not need rebuilding.
+- [Metadata verification run 40862587026](https://github.com/mmiyaji/himemo/actions/runs/40862587026), automation commit `332bb7a`: verified the same uploaded build, saved/read back Japanese test notes, recognized the internal group's automatic access to all builds, and confirmed IN_BETA_TESTING. This run succeeded without compiling or uploading another binary.
+- `finalize_only=true` with `build_number=2610291035` runs just this existing-build verification job. Automatic internal groups must not receive redundant per-build additions. The helper now reports safe API method/path and validation detail when an operation fails.
+- Stop old-version sync and cleanup on every participating device; update all clients to a compatible version before resuming. Devices without a compatible release must keep sync/cleanup disabled. This requirement is included in the saved Japanese What to Test notes.
+
+Native startup was verified in a debug simulator app using the production entrypoint. The distributed IPA is release-signed; physical-device sync, authentication, data migration and folding behavior remain the internal testers' verification scope.
