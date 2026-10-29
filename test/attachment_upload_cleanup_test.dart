@@ -163,23 +163,30 @@ class _ReviewTransport extends InMemoryGoogleDriveSyncTransport {
   }
 
   @override
-  Future<void> uploadAttachmentObject({
+  Future<String> pinAttachmentObject({
     required String contentHash,
-    required String encodedPayload,
+    required String uploadId,
+    String? encodedPayload,
     required String type,
     required String label,
     required int sizeBytes,
-    bool skipExistingCheck = false,
   }) async {
-    objectUploads++;
+    if (remoteObjectMissing) {
+      for (final item in await super.listManagedAttachmentObjects()) {
+        if (item.contentHash == contentHash) {
+          await super.claimAndDeleteAttachmentObject(item);
+        }
+      }
+    }
+    if (encodedPayload != null) objectUploads++;
     remoteObjectMissing = false;
-    await super.uploadAttachmentObject(
+    return super.pinAttachmentObject(
       contentHash: contentHash,
+      uploadId: uploadId,
       encodedPayload: encodedPayload,
       type: type,
       label: label,
       sizeBytes: sizeBytes,
-      skipExistingCheck: skipExistingCheck,
     );
   }
 }
@@ -220,6 +227,7 @@ Future<_GoogleDriveSyncHarness> _createGoogleDriveSyncHarness(
       encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
       secureSyncBundleStoreProvider.overrideWith(
         (ref) => SecureSyncBundleStore(
+          attachmentStore: ref.watch(encryptedAttachmentStoreProvider),
           encryptionService: encryptionService,
           syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
           legacyMasterKeyService: masterKeyService,

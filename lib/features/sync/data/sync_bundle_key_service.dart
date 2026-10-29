@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart';
 import 'package:cryptography/cryptography.dart';
 
 import '../../security/data/secure_key_value_store.dart';
+import '../../security/data/storage_serial_executor.dart';
 
 abstract class CloudSyncBundleKeyStore {
   Future<String?> readBackupCode();
@@ -22,6 +23,8 @@ class SyncBundleKeyService {
     this.storageKey = 'security.sync_bundle_key.v1',
   });
 
+  // Optional cloud adapter is retained for compatibility tests. Production
+  // migrates Drive keys after authentication in SyncProviderController.
   static const backupCodePrefix = 'himemo-sync-key-v1:';
 
   final SecureKeyValueStore _secureStore;
@@ -68,11 +71,13 @@ class SyncBundleKeyService {
     return bytes == null ? null : _backupCodeForBytes(bytes);
   }
 
-  Future<String> importBackupCode(String rawCode) async {
-    final bytes = _parseBackupCode(rawCode);
-    await _secureStore.write(storageKey, base64Encode(bytes));
-    return fingerprint();
-  }
+  Future<String> importBackupCode(String rawCode) =>
+      StorageSerialExecutor.run(_secureStore, storageKey, () async {
+        final bytes = _parseBackupCode(rawCode);
+        await _verifyCloudKey(bytes);
+        await _persistBytes(bytes);
+        return _fullFingerprintForBytes(bytes).substring(0, 12);
+      });
 
   String previewBackupCodeFingerprint(String rawCode) {
     final bytes = _parseBackupCode(rawCode);
@@ -86,8 +91,14 @@ class SyncBundleKeyService {
     );
   }
 
-  Future<List<int>> _readOrCreateBytes() async {
-    final existing = await _readExistingBytes();
+  Future<List<int>> _readOrCreateBytes() => StorageSerialExecutor.run(
+    _secureStore,
+    storageKey,
+    _readOrCreateBytesUnlocked,
+  );
+
+  Future<List<int>> _readOrCreateBytesUnlocked() async {
+    final existing = await _readExistingBytesUnlocked();
     if (existing != null) {
       return existing;
     }
@@ -96,13 +107,27 @@ class SyncBundleKeyService {
     if (generated.length != 32) {
       throw StateError('Sync key factory must generate exactly 32 bytes.');
     }
-    await _secureStore.write(storageKey, base64Encode(generated));
+    await _persistBytes(generated);
     return generated;
   }
 
-  Future<List<int>?> _readExistingBytes() async {
+  Future<List<int>?> _readExistingBytes() => StorageSerialExecutor.run(
+    _secureStore,
+    storageKey,
+    _readExistingBytesUnlocked,
+  );
+
+  Future<void> _persistBytes(List<int> bytes) async {
+    final encoded = base64Encode(bytes);
+    await _secureStore.write(storageKey, encoded);
+    if (await _secureStore.read(storageKey) != encoded) {
+      throw StateError('Sync key persistence could not be confirmed.');
+    }
+  }
+
+  Future<List<int>?> _readExistingBytesUnlocked() async {
     final existing = await _secureStore.read(storageKey);
-    if (existing != null && existing.isNotEmpty) {
+    if (existing != null) {
       final bytes = _decodeStoredKey(existing);
       await _verifyCloudKey(bytes);
       return bytes;
@@ -111,10 +136,10 @@ class SyncBundleKeyService {
     final fallback = _fallbackStore;
     if (fallback != null) {
       final fallbackValue = await fallback.read(storageKey);
-      if (fallbackValue != null && fallbackValue.isNotEmpty) {
+      if (fallbackValue != null) {
         final bytes = _decodeStoredKey(fallbackValue);
-        await _secureStore.write(storageKey, fallbackValue);
         await _verifyCloudKey(bytes);
+        await _persistBytes(bytes);
         return bytes;
       }
     }
@@ -132,7 +157,7 @@ class SyncBundleKeyService {
       }
       if (cloudBackupCode != null && cloudBackupCode.isNotEmpty) {
         final bytes = _parseBackupCode(cloudBackupCode);
-        await _secureStore.write(storageKey, base64Encode(bytes));
+        await _persistBytes(bytes);
         return bytes;
       }
     }

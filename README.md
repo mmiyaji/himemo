@@ -117,6 +117,22 @@ npm run e2e:headed
 
 ## Repository Layout
 
+Security verifier stores live in `features/security/data/`. Key providers and
+profile-store composition are in `features/security/presentation/`; sync providers
+and controllers are in `features/sync/presentation/`. These presentation files
+remain parts of the home provider library so existing Riverpod consumers and
+generated providers keep their public API during the incremental extraction.
+
+Key creation/import is serialized per storage namespace and key within one Dart
+isolate, including separate service instances. This is not a distributed lock
+between devices. Invalid stored keys are reported rather than replaced. Display
+of recovery-key information must use the `existing*` methods, never create a key.
+
+App-managed PIN/password verification backs off after five failed attempts
+(30 seconds, doubling to at most one hour). Native counters use secure storage;
+OS device authentication retains its own policy. Keep scratch logs under
+`.codex/logs/` (ignored); do not reset personal `.vscode` settings during cleanup.
+
 ```text
 lib/
   app/                     App startup, routing, lock gate, sync scheduling
@@ -138,3 +154,22 @@ playwright/tests/          Web E2E tests
 ## Release Notes
 
 The public 1.0.0 release is documented in `assets/release_notes/release_notes.json`. Keep it aligned with store listing copy and help pages whenever user-facing features change.
+
+
+### 同期履歴とWebデモの制約
+
+Web版は操作確認用のデモです。ブラウザのlocalStorageに全メモと最新の暗号化同期バンドルを保存するため、保存容量はブラウザの上限に制約されます。大きな添付や永続的な保管にはネイティブ版を使用してください。
+
+新しい全件バンドルには、取り込み済みのバンドルIDを暗号化して記録します。履歴のメタデータを全ページ取得し、未適用のIDを更新時刻の位置にかかわらず取り込みます。整理では全件バンドルが明示的に包含するIDだけを削除し、同時公開などで未包含のバンドルは残します。
+
+iCloudとGoogle Driveの添付は、新形式の送信予約で公開前から保護します。整理時には、残存バンドルから参照されず、送信予約がなく、更新から7日以上経過した新形式の添付だけを回収します。削除直前にサーバー上の世代を条件付き更新し、途中で他端末が予約した場合は削除を中止します。公開済みの予約はバンドル内の公開証跡で回復できます。公開結果が確認できない予約と、予約に対応していない旧形式の添付は安全のため残します。利用する全端末を更新してから同期・整理してください。
+
+旧形式の添付は、同期中に新形式へコピーせず、既存のオブジェクトをそのまま参照します。更新後の全件アップロードを理由とする添付の移行ダウンロード・二重保存は行いません。新形式の添付は安全な公開のため参照ごとに予約するので、全件アップロードの処理量は添付数に比例します。通常の同期では変更対象を処理し、Driveの管理一覧はページ単位で取得します。公開証跡は空結果も含め端末にキャッシュし、未解決の予約が残っても同じ履歴を毎回ダウンロード・復号しません。削除時の世代照合は維持します。
+
+**この同期形式は旧版と混在できません。** 旧版iOSの整理処理は新形式の管理添付を削除する可能性があり、旧版Androidは新形式の添付を取得できません。配布前に利用端末を確認し、全端末で旧版の同期・整理を停止してから更新し、更新完了後に同期を再開してください。この運用で管理できない公開配布では、互換性を保つ移行方式が必要です。
+
+Windowsで添付同期のブラウザ回帰テストを実行する場合は `./tools/test_sync_browser.ps1` を使用します。固定済みSDKのCanvasKitをテスト中だけ静的配信し、終了時に一時ファイルを削除します。WindowsではSQLiteのDLLを共有するため、通常のFlutterテストと同時に実行しないでください。
+
+除外タグを含む全件バックアップでは、除外・未保持メモのIDと、そのクラウド上の版を保持するバンドルIDを暗号化されたバックアップ内に記録します。整理はそれらの保存先を残し、新しい端末は指定されたメモだけを保存先から追加取得します。除外中に端末で加えた変更はアップロードしません。
+
+PBKDF2を使う重いテスト群はライブラリ単位のタイムアウトを2分に設定しています。CIの単体・ウィジェットテストは `--concurrency=2` で実行します。

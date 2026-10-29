@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:isolate';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../home/domain/note_entry.dart';
 import '../../security/data/device_identity_store.dart';
@@ -33,6 +33,8 @@ class PreparedSyncAttachment {
     required this.label,
     this.bytesBase64 = '',
     this.encryptedPayload,
+    this.encryptedFilePath,
+    this.filePath,
     required this.contentHash,
     required this.sizeBytes,
   });
@@ -42,6 +44,10 @@ class PreparedSyncAttachment {
   final String label;
   final String bytesBase64;
   final String? encryptedPayload;
+  final String? encryptedFilePath;
+
+  /// Local encrypted attachment reference, retained for lazy object uploads.
+  final String? filePath;
   final String contentHash;
   final int sizeBytes;
 
@@ -205,7 +211,9 @@ class PreparedSyncSnapshot {
     for (final attachment in attachments) {
       total += utf8.encode(attachment.id).length;
       total += utf8.encode(attachment.label).length;
-      total += utf8.encode(attachment.bytesBase64).length;
+      total += attachment.bytesBase64.isNotEmpty
+          ? utf8.encode(attachment.bytesBase64).length
+          : _base64EncodedLength(attachment.sizeBytes);
       total += 64;
     }
     return total;
@@ -284,6 +292,7 @@ class SyncEngine {
     /// the local payload must be included again so the object can be restored.
     Set<String>? remoteAttachmentContentHashes,
     bool verifyRemoteAttachmentObjects = false,
+    bool managedAttachmentReferences = false,
     SyncSnapshotPreparationProgressCallback? onProgress,
   }) async {
     final changes = pendingChanges ?? await loadPendingChanges();
@@ -383,7 +392,15 @@ class SyncEngine {
               totalItems: totalAttachments,
             ),
           );
-          return attachment;
+          if (contentHash == null) {
+            throw StateError('sync.error.remote_attachment_unavailable');
+          }
+          return attachment.copyWith(
+            filePath: syncAttachmentObjectRef(
+              contentHash,
+              managed: managedAttachmentReferences,
+            ),
+          );
         }
         final storedMetadata = await _attachmentStore.storedPayloadMetadata(
           filePath,
@@ -408,7 +425,10 @@ class SyncEngine {
             ),
           );
           return attachment.copyWith(
-            filePath: syncAttachmentObjectRef(cachedContentHash),
+            filePath: syncAttachmentObjectRef(
+              cachedContentHash,
+              managed: managedAttachmentReferences,
+            ),
           );
         }
         if (attachmentIdsByPath[filePath] case final existingId?) {
@@ -421,7 +441,10 @@ class SyncEngine {
             ),
           );
           return attachment.copyWith(
-            filePath: syncAttachmentObjectRef(existingId),
+            filePath: syncAttachmentObjectRef(
+              existingId,
+              managed: managedAttachmentReferences,
+            ),
             localPayloadSizeBytes: storedMetadata?.sizeBytes,
             localPayloadModifiedAtMillis: storedMetadata?.modifiedAtMillis,
             syncAttachmentContentHash: existingId,
@@ -461,16 +484,15 @@ class SyncEngine {
             index: index,
           );
         }
-        final encoded = await _encodeSyncAttachmentBytes(bytes);
-        final attachmentId = encoded['contentHash']!;
+        final attachmentId = await _hashSyncAttachmentBytes(bytes);
         attachmentIdsByPath[filePath] = attachmentId;
         attachmentPayloads.add(
           PreparedSyncAttachment(
             id: attachmentId,
             type: attachment.type,
             label: attachment.label,
-            bytesBase64: encoded['bytesBase64']!,
-            contentHash: encoded['contentHash']!,
+            filePath: filePath,
+            contentHash: attachmentId,
             sizeBytes: bytes.length,
           ),
         );
@@ -483,7 +505,10 @@ class SyncEngine {
           ),
         );
         return attachment.copyWith(
-          filePath: syncAttachmentObjectRef(attachmentId),
+          filePath: syncAttachmentObjectRef(
+            attachmentId,
+            managed: managedAttachmentReferences,
+          ),
           localPayloadSizeBytes: storedMetadata?.sizeBytes,
           localPayloadModifiedAtMillis: storedMetadata?.modifiedAtMillis,
           syncAttachmentContentHash: attachmentId,
@@ -606,16 +631,17 @@ class SyncEngine {
   }
 }
 
-Future<Map<String, String>> _encodeSyncAttachmentBytes(List<int> bytes) {
+Future<String> _hashSyncAttachmentBytes(List<int> bytes) {
+  if (kIsWeb) {
+    final materialized = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+    return Future.value(sha256.convert(materialized).toString());
+  }
   final transferable = TransferableTypedData.fromList([
     bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
   ]);
   return Isolate.run(() {
     final materialized = transferable.materialize().asUint8List();
-    return {
-      'contentHash': sha256.convert(materialized).toString(),
-      'bytesBase64': base64Encode(materialized),
-    };
+    return sha256.convert(materialized).toString();
   });
 }
 

@@ -139,17 +139,32 @@ void main() {
         expect(before.attachmentBytes, 40);
         expect(before.totalBytes, 47);
 
-        final pruned = await transport.pruneObsoleteData(
+        final latest = await transport.fetchLatestBundleStatus();
+        final legacyPrune = await transport.pruneObsoleteData(
           keepLatest: -1,
           referencedAttachmentHashes: {'keep'},
         );
-        expect(pruned.deletedBundleCount, 2);
-        expect(pruned.deletedBundleBytes, 7);
-        expect(pruned.deletedAttachmentCount, 1);
-        expect(pruned.deletedAttachmentBytes, 30);
-        expect(pruned.deletedBytes, 37);
-        expect(await transport.fetchLatestBundleStatus(), isNull);
-        expect(await transport.listAttachmentObjectContentHashes(), {'keep'});
+        expect(legacyPrune.deletedBundleCount, 0);
+        expect(legacyPrune.deletedAttachmentCount, 0);
+        final historyBeforeExplicitPrune = await transport.listBundleHistory();
+        final pruned = await transport.pruneObsoleteData(
+          keepLatest: 1,
+          referencedAttachmentHashes: {'keep'},
+          bundleFileIdsToDelete: {historyBeforeExplicitPrune.last.fileId},
+          expectedLatestFileId: latest!.fileId,
+        );
+        expect(pruned.deletedBundleCount, 1);
+        expect(pruned.deletedBundleBytes, 3);
+        expect(pruned.deletedAttachmentCount, 0);
+        expect(pruned.deletedAttachmentBytes, 0);
+        expect(
+          (await transport.fetchLatestBundleStatus())?.fileId,
+          latest.fileId,
+        );
+        expect(await transport.listAttachmentObjectContentHashes(), {
+          'keep',
+          'drop',
+        });
       },
     );
   });
@@ -241,13 +256,15 @@ void main() {
                 case 'cloudKitPruneObsoleteData':
                   expect(call.arguments, {
                     'keepLatest': 3,
+                    'bundleFileIdsToDelete': ['old-id'],
+                    'expectedLatestFileId': 'new-id',
                     'referencedAttachmentHashes': ['a', 'z'],
                   });
                   return {
                     'deletedBundleCount': '1',
                     'deletedBundleBytes': 20.2,
-                    'deletedAttachmentCount': 3,
-                    'deletedAttachmentBytes': '40',
+                    'deletedAttachmentCount': 0,
+                    'deletedAttachmentBytes': '0',
                   };
               }
               fail('Unexpected method ${call.method}');
@@ -303,11 +320,13 @@ void main() {
         final pruned = await transport.pruneObsoleteData(
           keepLatest: 3,
           referencedAttachmentHashes: {'z', 'a'},
+          bundleFileIdsToDelete: {'old-id'},
+          expectedLatestFileId: 'new-id',
         );
         expect(pruned.deletedBundleCount, 1);
         expect(pruned.deletedBundleBytes, 20);
-        expect(pruned.deletedAttachmentCount, 3);
-        expect(pruned.deletedAttachmentBytes, 40);
+        expect(pruned.deletedAttachmentCount, 0);
+        expect(pruned.deletedAttachmentBytes, 0);
         expect(
           calls.map((call) => call.method),
           contains('cloudKitPruneObsoleteData'),

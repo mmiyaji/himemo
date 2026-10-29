@@ -921,6 +921,7 @@ class FakeGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     required int noteCount,
     required int attachmentCount,
     String bundleKind = SyncBundleKind.full,
+    String? replayBaseFileId,
   }) async {
     uploadCalls += 1;
     uploadedPayload = encodedPayload;
@@ -935,6 +936,8 @@ class FakeGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
       noteCount: noteCount,
       attachmentCount: attachmentCount,
       deviceId: deviceId,
+      bundleKind: bundleKind,
+      replayBaseFileId: replayBaseFileId,
     );
     return latestStatus!;
   }

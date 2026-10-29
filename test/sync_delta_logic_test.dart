@@ -418,7 +418,7 @@ void main() {
             queue: queue,
             remoteStatus: remoteStatus,
             bundleState: bundleState,
-            googleDriveSelected: false,
+            cloudSyncSelected: false,
           ).hasConflict,
           isFalse,
         );
@@ -427,7 +427,7 @@ void main() {
             queue: null,
             remoteStatus: remoteStatus,
             bundleState: bundleState,
-            googleDriveSelected: true,
+            cloudSyncSelected: true,
           ).hasConflict,
           isFalse,
         );
@@ -436,7 +436,7 @@ void main() {
             queue: queue,
             remoteStatus: null,
             bundleState: bundleState,
-            googleDriveSelected: true,
+            cloudSyncSelected: true,
           ).hasConflict,
           isFalse,
         );
@@ -445,7 +445,7 @@ void main() {
             queue: queue,
             remoteStatus: remoteStatus,
             bundleState: null,
-            googleDriveSelected: true,
+            cloudSyncSelected: true,
           ).hasConflict,
           isFalse,
         );
@@ -467,7 +467,7 @@ void main() {
             modifiedAt: DateTime.utc(2026, 6, 3),
           ),
           bundleState: bundleState,
-          googleDriveSelected: true,
+          cloudSyncSelected: true,
         ).hasConflict,
         isFalse,
       );
@@ -480,7 +480,7 @@ void main() {
           ),
           remoteStatus: _status('remote-no-time'),
           bundleState: bundleState,
-          googleDriveSelected: true,
+          cloudSyncSelected: true,
         ).hasConflict,
         isFalse,
       );
@@ -505,7 +505,7 @@ void main() {
             lastAppliedAt: DateTime.utc(2026, 6, 2),
             lastUploadedAt: DateTime.utc(2026, 6),
           ),
-          googleDriveSelected: true,
+          cloudSyncSelected: true,
         ).hasConflict,
         isFalse,
       );
@@ -519,7 +519,7 @@ void main() {
           bundleState: SyncBundleState(
             lastUploadedAt: DateTime.utc(2026, 6, 2),
           ),
-          googleDriveSelected: true,
+          cloudSyncSelected: true,
         ).hasConflict,
         isFalse,
       );
@@ -531,7 +531,7 @@ void main() {
             modifiedAt: DateTime.utc(2026, 6, 4),
           ),
           bundleState: const SyncBundleState(),
-          googleDriveSelected: true,
+          cloudSyncSelected: true,
         ).hasConflict,
         isFalse,
       );
@@ -552,7 +552,7 @@ void main() {
             modifiedAt: DateTime.utc(2026, 6, 3),
           ),
           bundleState: SyncBundleState(lastAppliedAt: DateTime.utc(2026, 6)),
-          googleDriveSelected: true,
+          cloudSyncSelected: true,
         );
 
         expect(assessment.hasConflict, isFalse);
@@ -573,7 +573,7 @@ void main() {
           modifiedAt: DateTime.utc(2026, 6, 3),
         ),
         bundleState: SyncBundleState(lastAppliedAt: DateTime.utc(2026, 6)),
-        googleDriveSelected: true,
+        cloudSyncSelected: true,
       );
 
       expect(assessment.hasConflict, isTrue);
@@ -827,7 +827,7 @@ void main() {
     });
 
     test(
-      'recordUpload advances the applied anchor and delta counter',
+      'recordUpload preserves the applied anchor and updates delta counter',
       () async {
         final store = SyncBundleStateStore();
         await store.recordUpload(
@@ -835,7 +835,7 @@ void main() {
           fullSnapshot: true,
         );
         var state = await store.read();
-        expect(state.lastAppliedRemoteFileId, 'f1');
+        expect(state.lastAppliedRemoteFileId, isNull);
         expect(state.lastFullUploadedAt, isNotNull);
         expect(state.deltaUploadsSinceFull, 0);
 
@@ -848,7 +848,7 @@ void main() {
           fullSnapshot: false,
         );
         state = await store.read();
-        expect(state.lastAppliedRemoteFileId, 'd3');
+        expect(state.lastAppliedRemoteFileId, isNull);
         expect(state.deltaUploadsSinceFull, 2);
 
         await store.recordUpload(

@@ -1,3 +1,6 @@
+@Timeout(Duration(minutes: 2))
+library;
+
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -2711,12 +2714,8 @@ void main() {
         snapshot.notes.single.note.attachments.single.filePath,
         isNot(storedAttachment),
       );
-      expect(base64Decode(snapshot.attachments.single.bytesBase64), const [
-        9,
-        8,
-        7,
-        6,
-      ]);
+      expect(snapshot.attachments.single.bytesBase64, isEmpty);
+      expect(snapshot.attachments.single.filePath, storedAttachment);
       expect(
         snapshot.attachments.single.contentHash,
         '63d987d1c6d69751c17297f410f5b3547a65d096a8993b35bcb4f9cad054f176',
@@ -2743,7 +2742,10 @@ void main() {
       );
       final targetEncryptedPayload = await targetAttachmentStore
           .encryptAttachmentBytes(
-            bytes: base64Decode(snapshot.attachments.single.bytesBase64),
+            bytes: (await attachmentStore.readAttachment(
+              storedAttachment!,
+              type: AttachmentType.photo,
+            ))!,
             type: AttachmentType.photo,
           );
       final targetStoredAttachment = await targetAttachmentStore
@@ -4755,7 +4757,7 @@ void main() {
     'sync conflict assessment compares equivalent time zones as instants',
     () {
       final assessment = assessSyncConflict(
-        googleDriveSelected: true,
+        cloudSyncSelected: true,
         queue: const SyncQueueSummary(totalChanges: 1, upserts: 1, deletes: 0),
         remoteStatus: RemoteSyncBundleStatus(
           fileId: 'remote-1',
@@ -4777,7 +4779,7 @@ void main() {
 
   test('assessSyncConflict reports newer remote bundle against pending local queue', () {
     final assessment = assessSyncConflict(
-      googleDriveSelected: true,
+      cloudSyncSelected: true,
       queue: const SyncQueueSummary(totalChanges: 2, upserts: 1, deletes: 1),
       remoteStatus: RemoteSyncBundleStatus(
         fileId: 'remote-1',
@@ -4799,7 +4801,7 @@ void main() {
 
   test('assessSyncConflict allows local queue newer than remote bundle', () {
     final assessment = assessSyncConflict(
-      googleDriveSelected: true,
+      cloudSyncSelected: true,
       queue: SyncQueueSummary(
         totalChanges: 1,
         upserts: 1,
@@ -4826,7 +4828,7 @@ void main() {
 
   test('assessSyncConflict ignores stale remote bundle', () {
     final assessment = assessSyncConflict(
-      googleDriveSelected: true,
+      cloudSyncSelected: true,
       queue: const SyncQueueSummary(totalChanges: 1, upserts: 1, deletes: 0),
       remoteStatus: RemoteSyncBundleStatus(
         fileId: 'remote-1',
@@ -4848,7 +4850,7 @@ void main() {
 
   test('assessSyncConflict does not trust refreshed device id alone', () {
     final assessment = assessSyncConflict(
-      googleDriveSelected: true,
+      cloudSyncSelected: true,
       queue: const SyncQueueSummary(totalChanges: 1, upserts: 1, deletes: 0),
       remoteStatus: RemoteSyncBundleStatus(
         fileId: 'remote-2',

@@ -417,7 +417,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_backgroundedAtStorageKey, now.millisecondsSinceEpoch);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('app_lock', 'background timestamp persistence failed');
+    }
   }
 
   Future<void> _restoreBackgroundedAt() async {
@@ -430,7 +432,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       if (stored != null) {
         _backgroundedAt = DateTime.fromMillisecondsSinceEpoch(stored);
       }
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('app_lock', 'background timestamp restore failed');
+    }
   }
 
   Future<void> _clearBackgroundedAt() async {
@@ -438,7 +442,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_backgroundedAtStorageKey);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('app_lock', 'background timestamp cleanup failed');
+    }
   }
 
   Future<void> _syncLockState({required bool triggerPrompt}) async {
@@ -513,7 +519,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
           orElse: () => delay,
         );
       }
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('app_lock', 'lock policy preference read failed');
+    }
     return _ResolvedAppLockPolicy(enabled: enabled, relockDelay: delay);
   }
 
@@ -596,7 +604,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       });
       _privacyScreenEnabled = enabled;
       _privacyScreenShowCover = showCover;
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('privacy', 'privacy screen platform update failed');
+    }
   }
 
   void _setLifecyclePrivacyProtection({
@@ -894,6 +904,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       _lastAutomaticCloudSyncSucceededAt = last;
       return now.difference(last) >= minInterval;
     } catch (_) {
+      logDiagnostic('sync', 'automatic sync schedule preference read failed');
       return true;
     }
   }
@@ -961,6 +972,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       return (await ref.read(syncQueueSummaryProvider.future))
           .hasPendingChanges;
     } catch (_) {
+      logDiagnostic('sync', 'sync queue status read failed');
       return false;
     }
   }
@@ -981,7 +993,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         _automaticCloudAttemptedAtStorageKey,
         now.millisecondsSinceEpoch,
       );
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('sync', 'automatic sync attempt persistence failed');
+    }
   }
 
   Future<void> _recordAutomaticCloudSyncAttemptFinished() async {
@@ -994,7 +1008,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         _automaticCloudAttemptedAtStorageKey,
         now.millisecondsSinceEpoch,
       );
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('sync', 'automatic sync completion persistence failed');
+    }
   }
 
   void _recordAutomaticCloudSyncFailure() {
@@ -1024,7 +1040,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         _automaticCloudSyncedAtStorageKey,
         now.millisecondsSinceEpoch,
       );
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('sync', 'automatic sync success persistence failed');
+    }
   }
 
   @override

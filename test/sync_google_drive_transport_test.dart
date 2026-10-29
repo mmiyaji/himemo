@@ -13,6 +13,7 @@ void main() {
       expect(status(null).isFullBundle, isTrue);
       expect(status('').isFullBundle, isTrue);
       expect(status(SyncBundleKind.full).isFullBundle, isTrue);
+      expect(status(SyncBundleKind.fullWithRetainedNotes).isFullBundle, isTrue);
       expect(status(SyncBundleKind.delta).isFullBundle, isFalse);
     });
   });
@@ -42,9 +43,11 @@ void main() {
         noteCount: 1,
         attachmentCount: 0,
         bundleKind: SyncBundleKind.delta,
+        replayBaseFileId: full.fileId,
       );
 
       expect((await transport.fetchLatestBundleStatus())?.fileId, delta.fileId);
+      expect(delta.replayBaseFileId, full.fileId);
       expect(
         (await transport.listBundleHistory(limit: 1))
             .map((status) => status.fileId),
@@ -93,6 +96,39 @@ void main() {
       expect(await keyStore.readBackupCode(), 'backup-code');
       await keyStore.deleteBackupCode();
       expect(await keyStore.readBackupCode(), isNull);
+    });
+
+    test('deletes only explicitly selected bundle IDs', () async {
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final keep = await transport.uploadBundle(
+        encodedPayload: 'keep',
+        deviceId: 'device',
+        noteCount: 0,
+        attachmentCount: 0,
+      );
+      final remove = await transport.uploadBundle(
+        encodedPayload: 'remove',
+        deviceId: 'device',
+        noteCount: 0,
+        attachmentCount: 0,
+      );
+
+      await transport.deleteBundleFilesByIds({remove.fileId, 'unknown-id'});
+
+      expect(
+        (await transport.listBundleHistory()).map((status) => status.fileId),
+        [keep.fileId],
+      );
+      expect(await transport.downloadBundleByFileId(remove.fileId), isNull);
+      final next = await transport.uploadBundle(
+        encodedPayload: 'next',
+        deviceId: 'device',
+        noteCount: 0,
+        attachmentCount: 0,
+      );
+      expect(next.fileId, isNot(keep.fileId));
     });
 
     test(

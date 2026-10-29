@@ -4,81 +4,62 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'encryption_service.dart';
 import 'secure_key_value_store.dart';
+import 'secret_verifier_store.dart';
+import 'storage_serial_executor.dart';
 
-class PrivateVaultSecretStore {
+class PrivateVaultSecretStore extends SecretVerifierStore {
+  // Keep explicit parameters: the migration also owns this store reference.
+  // ignore: use_super_parameters
   PrivateVaultSecretStore({
-    required this._secureStore,
-    required this._encryptionService,
+    required SecureKeyValueStore secureStore,
+    required EncryptionService encryptionService,
     Future<SharedPreferences> Function()? sharedPreferencesProvider,
-    this.storageKey = 'security.private_vault.verifier.v1',
+    String storageKey = 'security.private_vault.verifier.v1',
     this.legacySaltKey = 'security.private_vault_salt',
     this.legacyDigestKey = 'security.private_vault_digest',
-  }) : _sharedPreferencesProvider =
-           sharedPreferencesProvider ?? SharedPreferences.getInstance;
+  }) : _secureStore = secureStore,
+       _sharedPreferencesProvider =
+           sharedPreferencesProvider ?? SharedPreferences.getInstance,
+       super(
+         secureStore: secureStore,
+         encryptionService: encryptionService,
+         storageKey: storageKey,
+       );
 
   final SecureKeyValueStore _secureStore;
-  final EncryptionService _encryptionService;
   final Future<SharedPreferences> Function() _sharedPreferencesProvider;
-  final String storageKey;
   final String legacySaltKey;
   final String legacyDigestKey;
 
-  Future<bool> hasSecret() async {
-    final current = await _secureStore.read(storageKey);
-    if (current != null && current.isNotEmpty) {
-      return true;
-    }
+  @override
+  Future<bool> hasSecret() =>
+      StorageSerialExecutor.run(_secureStore, storageKey, () async {
+        final current = await _secureStore.read(storageKey);
+        if (current != null && current.isNotEmpty) return true;
+        final prefs = await _sharedPreferencesProvider();
+        final salt = prefs.getString(legacySaltKey);
+        final verifier = prefs.getString(legacyDigestKey);
+        if (salt == null || verifier == null) return false;
+        final payload = jsonEncode({'salt': salt, 'verifier': verifier});
+        await _secureStore.write(storageKey, payload);
+        if (await _secureStore.read(storageKey) != payload) {
+          // Keep the recoverable legacy verifier until durable storage is confirmed.
+          throw StateError('Private secret migration persistence failed.');
+        }
+        await prefs.remove(legacySaltKey);
+        await prefs.remove(legacyDigestKey);
+        return true;
+      });
 
-    final prefs = await _sharedPreferencesProvider();
-    final legacySalt = prefs.getString(legacySaltKey);
-    final legacyDigest = prefs.getString(legacyDigestKey);
-    if (legacySalt == null || legacyDigest == null) {
-      return false;
-    }
-
-    await _secureStore.write(
-      storageKey,
-      jsonEncode({'salt': legacySalt, 'verifier': legacyDigest}),
-    );
-    await prefs.remove(legacySaltKey);
-    await prefs.remove(legacyDigestKey);
-    return true;
+  @override
+  Future<bool> verifyWithoutThrottle(String secret) async {
+    if (!await hasSecret()) return false;
+    return super.verifyWithoutThrottle(secret);
   }
 
-  Future<void> configure(String secret) async {
-    final salt = _encryptionService.generateSalt();
-    final verifier = await _encryptionService.deriveSecretVerifier(
-      secret: secret,
-      salt: salt,
-    );
-    await _secureStore.write(
-      storageKey,
-      jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
-    );
-  }
-
-  Future<bool> verify(String secret) async {
-    final stored = await _secureStore.read(storageKey);
-    if (stored == null || stored.isEmpty) {
-      final migrated = await hasSecret();
-      if (!migrated) {
-        return false;
-      }
-      return verify(secret);
-    }
-
-    final decoded = Map<String, dynamic>.from(
-      jsonDecode(stored) as Map<String, dynamic>,
-    );
-    final verifier = await _encryptionService.deriveSecretVerifier(
-      secret: secret,
-      salt: base64Decode(decoded['salt'] as String),
-    );
-    return verifier == decoded['verifier'];
-  }
-
+  @override
   Future<void> clear() async {
-    await _secureStore.delete(storageKey);
+    await super.clear();
     final prefs = await _sharedPreferencesProvider();
     await prefs.remove(legacySaltKey);
     await prefs.remove(legacyDigestKey);

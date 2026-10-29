@@ -3426,7 +3426,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
           ];
         });
         _scheduleDraftPersist();
-      } catch (_) {}
+      } catch (_) {
+        // A failed preview should not block note editing or draft persistence.
+        logDiagnostic('attachments', 'deferred attachment preview failed');
+      }
     }
   }
 
@@ -6186,13 +6189,18 @@ Future<void> _markSharedAttachmentForCleanup(
   try {
     await attachmentStore.deleteMaterializedFile(tempFilePath);
     return;
-  } catch (_) {}
+  } catch (_) {
+    // Fall back to a delayed cleanup marker when immediate deletion fails.
+    logDiagnostic('attachments', 'immediate shared attachment cleanup failed');
+  }
   try {
     await attachmentStore.markMaterializedFileForCleanup(
       tempFilePath,
       deleteAfter: DateTime.now().add(_sharedAttachmentCleanupDelay),
     );
-  } catch (_) {}
+  } catch (_) {
+    logDiagnostic('attachments', 'deferred shared attachment cleanup failed');
+  }
 }
 
 const _sharedAttachmentCleanupDelay = Duration(minutes: 10);

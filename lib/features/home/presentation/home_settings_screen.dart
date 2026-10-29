@@ -2708,7 +2708,7 @@ class SettingsScreen extends ConsumerWidget {
                       ),
                       subtitle: Text(
                         syncBundleFingerprint.when(
-                          data: (value) => value,
+                          data: (value) => value ?? '—',
                           loading: () =>
                               strings.text('home.preparing.cloud.recovery.key'),
                           error: (_, _) => strings.text(
@@ -2729,7 +2729,12 @@ class SettingsScreen extends ConsumerWidget {
                               try {
                                 final backupCode = await ref
                                     .read(syncBundleKeyServiceProvider)
-                                    .exportBackupCode();
+                                    .exportExistingBackupCode();
+                                if (backupCode == null) {
+                                  throw StateError(
+                                    'Sync recovery key is not available.',
+                                  );
+                                }
                                 if (!context.mounted) {
                                   return;
                                 }
@@ -4702,12 +4707,12 @@ class SettingsScreen extends ConsumerWidget {
         ),
         content: Text(
           strings.localized(
-            en: 'This uploads the current state as a fresh full snapshot, keeps that latest iCloud bundle, and deletes older bundles plus attachment objects no longer referenced by the latest snapshot.',
-            ja: '現在の状態を新しいフルスナップショットとしてアップロードし、その最新 iCloud バンドルだけを残します。古いバンドルと、最新スナップショットから参照されない添付オブジェクトも削除します。',
-            zh: '这会保留最新的 iCloud 同步包并删除旧的包快照。此命令不会删除附件对象。',
-            ko: '최신 iCloud 동기화 번들 1개를 남기고 이전 번들 스냅샷을 삭제합니다. 이 명령은 첨부 파일 객체를 삭제하지 않습니다.',
-            es: 'Sube el estado actual como una instantanea completa, conserva el paquete mas reciente y elimina paquetes antiguos y adjuntos sin referencia.',
-            de: 'Laedt den aktuellen Stand als vollstaendigen Snapshot hoch, behaelt das neueste Paket und loescht alte Pakete sowie nicht referenzierte Anhaenge.',
+            en: 'This merges cloud changes and creates a full backup, then removes covered older backups. Managed attachments unreferenced for at least 7 days can also be removed. Pending uploads and older-format attachments are kept. Update every device before resuming sync; older app versions can delete new attachments.',
+            ja: 'クラウドの変更を取り込んで全件バックアップを作成し、取り込み済みの古いバックアップを整理します。新しい方式の添付は、7日以上経過し、どのバックアップからも参照されず送信中でもないものを削除します。旧形式の添付はコピーせず保持します。旧版アプリの整理で新形式の添付が消える場合があるため、全端末を更新してから同期を再開してください。',
+            zh: '先合并云端更改并创建完整备份，再清理已包含的旧备份。新格式附件满7天且未被任何备份引用时可删除；上传中和旧格式附件将保留。请更新所有设备后再恢复同步，旧版应用的清理操作可能删除新格式附件。',
+            ko: '클라우드 변경 사항을 합쳐 전체 백업을 만든 후 이전 백업을 정리합니다. 새 형식 첨부 파일은 7일 이상 지나고 어떤 백업에서도 참조하지 않을 때 삭제합니다. 업로드 중이거나 이전 형식인 첨부 파일은 유지합니다. 이전 앱의 정리 작업이 새 첨부 파일을 삭제할 수 있으므로 모든 기기를 업데이트한 후 동기화를 재개하세요.',
+            es: 'Combina cambios y crea una copia completa. Elimina copias antiguas ya incluidas y adjuntos gestionados sin referencias de al menos 7 dias. Conserva cargas pendientes y adjuntos del formato anterior. Actualiza todos los dispositivos antes de sincronizar: versiones antiguas pueden borrar adjuntos nuevos.',
+            de: 'Fuehrt Cloud-Aenderungen zusammen und erstellt eine Vollsicherung. Entfernt abgedeckte alte Sicherungen und mindestens 7 Tage alte verwaltete Anhaenge ohne Referenzen. Laufende Uploads und alte Anhangformate bleiben erhalten. Vor der Synchronisation alle Geraete aktualisieren: Alte App-Versionen koennen neue Anhaenge loeschen.',
           ),
         ),
         actions: [
@@ -4737,12 +4742,12 @@ class SettingsScreen extends ConsumerWidget {
           showCloseIcon: true,
           content: Text(
             strings.localized(
-              en: 'Deleted ${result.deletedBundleCount} old bundles and ${result.deletedAttachmentCount} unreferenced attachments (${strings.byteCount(result.deletedBytes)}).',
-              ja: '古いバンドル ${result.deletedBundleCount} 件と未参照の添付 ${result.deletedAttachmentCount} 件（${strings.byteCount(result.deletedBytes)}）を削除しました。',
-              zh: '已删除 ${result.deletedBundleCount} 个旧 iCloud 包（${strings.byteCount(result.deletedBundleBytes)}）。',
-              ko: '이전 iCloud 번들 ${result.deletedBundleCount}개(${strings.byteCount(result.deletedBundleBytes)})를 삭제했습니다.',
-              es: 'Se eliminaron ${result.deletedBundleCount} paquetes antiguos y ${result.deletedAttachmentCount} adjuntos sin referencia (${strings.byteCount(result.deletedBytes)}).',
-              de: '${result.deletedBundleCount} alte Pakete und ${result.deletedAttachmentCount} nicht referenzierte Anhaenge geloescht (${strings.byteCount(result.deletedBytes)}).',
+              en: 'Deleted ${result.deletedBundleCount} old backups and ${result.deletedAttachmentCount} unreferenced managed attachments (${strings.byteCount(result.deletedBytes)}).',
+              ja: '古いバックアップ ${result.deletedBundleCount} 件と未参照の添付 ${result.deletedAttachmentCount} 件（${strings.byteCount(result.deletedBytes)}）を削除しました。',
+              zh: '已删除 ${result.deletedBundleCount} 个旧备份和 ${result.deletedAttachmentCount} 个未引用附件（${strings.byteCount(result.deletedBytes)}）。',
+              ko: '이전 백업 ${result.deletedBundleCount}개와 참조되지 않는 첨부 ${result.deletedAttachmentCount}개(${strings.byteCount(result.deletedBytes)})를 삭제했습니다.',
+              es: 'Se eliminaron ${result.deletedBundleCount} copias antiguas y ${result.deletedAttachmentCount} adjuntos sin referencia (${strings.byteCount(result.deletedBytes)}).',
+              de: '${result.deletedBundleCount} alte Sicherungen und ${result.deletedAttachmentCount} nicht referenzierte Anhaenge geloescht (${strings.byteCount(result.deletedBytes)}).',
             ),
           ),
         ),

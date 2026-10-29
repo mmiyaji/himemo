@@ -13,6 +13,7 @@ const { defineSecret } = require('firebase-functions/params');
 const { GoogleAuth } = require('google-auth-library');
 const {
   CHALLENGE_TTL_SECONDS,
+  areDevelopmentPackagesEnabled,
   buildRateLimitKey,
   createRateLimiter,
   getAllowedPackages,
@@ -246,7 +247,10 @@ exports.issuePlayIntegrityChallengeV2 = onRequest(
       return jsonError(response, 'invalid-argument', 'operation must be provided.');
     }
 
-    const allowedPackages = getAllowedPackages({ allowDevelopment: true });
+    const allowDevelopmentPackages = areDevelopmentPackagesEnabled();
+    const allowedPackages = getAllowedPackages(
+      { allowDevelopment: allowDevelopmentPackages },
+    );
     if (!allowedPackages.includes(resolvedPackageName)) {
       return jsonError(
         response,
@@ -283,7 +287,8 @@ exports.issuePlayIntegrityChallengeV2 = onRequest(
     logger.info('Issued Play Integrity challenge', {
       packageName: resolvedPackageName,
       operation: resolvedOperation,
-      allowDevelopment: isDevelopmentPackage(resolvedPackageName),
+      allowDevelopment:
+        allowDevelopmentPackages && isDevelopmentPackage(resolvedPackageName),
       appId: appCheckClaims.appId,
     });
 
@@ -360,7 +365,9 @@ exports.verifyPlayIntegrityV2 = onRequest(
       return jsonError(response, 'invalid-argument', 'operation must be provided.');
     }
 
-    const allowDevelopment = isDevelopmentPackage(resolvedPackageName);
+    const allowDevelopment =
+      areDevelopmentPackagesEnabled() &&
+      isDevelopmentPackage(resolvedPackageName);
     const allowedPackages = getAllowedPackages({ allowDevelopment });
     if (!allowedPackages.includes(resolvedPackageName)) {
       return jsonError(
@@ -494,11 +501,13 @@ exports.verifyPlayIntegrityV2 = onRequest(
         },
       });
     } catch (error) {
-      logger.error('Play Integrity verification failed', error);
+      logger.error('Play Integrity verification failed', {
+        error: error instanceof Error ? error.stack || error.message : String(error),
+      });
       return jsonError(
         response,
         'play-integrity-failed',
-        error instanceof Error ? error.message : String(error),
+        'Play Integrity verification could not be completed.',
         500,
       );
     }

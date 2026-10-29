@@ -441,6 +441,14 @@ String _localizedSyncTransferMessage(
         de: 'Das lokale Synchronisierungspaket konnte nicht vorbereitet werden.',
       );
     case 'sync.error.remote_history_incomplete':
+      return strings.localized(
+        en: 'The cloud history has no complete backup to restore from. On another device that still has all your notes, choose Re-upload all notes, then sync this device again.',
+        ja: '復元に必要な全件バックアップがクラウドにありません。全メモが残っている別の端末で「全件再アップロード」を実行してから、この端末で再同期してください。',
+        zh: '云端缺少完整备份。请在仍保存全部笔记的另一台设备上重新上传全部笔记，然后在此设备同步。',
+        ko: '클라우드에 전체 백업이 없습니다. 모든 메모가 남아 있는 다른 기기에서 전체 메모를 다시 업로드한 후 이 기기를 동기화하세요.',
+        es: 'No hay una copia completa en la nube. Vuelve a subir todas las notas desde otro dispositivo que las conserve y sincroniza este dispositivo.',
+        de: 'In der Cloud fehlt eine vollständige Sicherung. Lade alle Notizen von einem anderen Gerät erneut hoch und synchronisiere dieses Gerät danach.',
+      );
     case 'sync.error.remote_bundle_missing':
       return strings.localized(
         en: 'The cloud backup is incomplete, so nothing changed. Check your connection and tap Sync again.',
@@ -5081,7 +5089,7 @@ Future<void> _handleSyncKeyImport(
     final normalized = backupCode.trim();
     final currentFingerprint = await ref
         .read(syncBundleKeyServiceProvider)
-        .fingerprint();
+        .existingFullFingerprint();
     if (!context.mounted) {
       return;
     }
@@ -5091,7 +5099,7 @@ Future<void> _handleSyncKeyImport(
     final shouldImport =
         await _showSyncKeyImportConfirmDialog(
           context,
-          currentFingerprint: currentFingerprint,
+          currentFingerprint: currentFingerprint?.substring(0, 12) ?? '—',
           incomingFingerprint: incomingFingerprint,
         ) ??
         false;

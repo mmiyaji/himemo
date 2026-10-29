@@ -1,3 +1,6 @@
+@Timeout(Duration(minutes: 2))
+library;
+
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
@@ -761,6 +764,7 @@ Future<_AttachmentDownloadHarness> _createHarness(
       encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
       secureSyncBundleStoreProvider.overrideWith(
         (ref) => SecureSyncBundleStore(
+          attachmentStore: ref.watch(encryptedAttachmentStoreProvider),
           encryptionService: encryptionService,
           syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
           legacyMasterKeyService: masterKeyService,
@@ -831,23 +835,30 @@ class _MissingObjectTransport extends InMemoryGoogleDriveSyncTransport {
       missing ? null : super.downloadAttachmentObject(contentHash);
 
   @override
-  Future<void> uploadAttachmentObject({
+  Future<String> pinAttachmentObject({
     required String contentHash,
-    required String encodedPayload,
+    required String uploadId,
+    String? encodedPayload,
     required String type,
     required String label,
     required int sizeBytes,
-    bool skipExistingCheck = false,
   }) async {
-    uploadCalls++;
+    if (missing) {
+      for (final item in await super.listManagedAttachmentObjects()) {
+        if (item.contentHash == contentHash) {
+          await super.claimAndDeleteAttachmentObject(item);
+        }
+      }
+    }
+    if (encodedPayload != null) uploadCalls++;
     missing = false;
-    await super.uploadAttachmentObject(
+    return super.pinAttachmentObject(
       contentHash: contentHash,
+      uploadId: uploadId,
       encodedPayload: encodedPayload,
       type: type,
       label: label,
       sizeBytes: sizeBytes,
-      skipExistingCheck: skipExistingCheck,
     );
   }
 }

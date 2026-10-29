@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 
+import '../../../app/diagnostic_log.dart';
 import 'encryption_service.dart';
 import 'master_key_service.dart';
 import 'secure_key_value_store.dart';
@@ -68,6 +69,7 @@ class ProfileDataKeyService {
     } catch (_) {
       // The password-wrapped profile key is usable even if the optional
       // device-local convenience wrap cannot be persisted.
+      logDiagnostic('security', 'optional admin key wrap persistence failed');
     }
     if (generation == _lockGeneration) {
       _unlockedProfileKeys[vaultId] = dataKey;
@@ -102,7 +104,10 @@ class ProfileDataKeyService {
         dataKeyBytes: dataKeyBytes,
         profilePayload: profilePayload,
       );
-    } catch (_) {}
+    } catch (_) {
+      // Unlock remains valid without updating the optional local admin wrap.
+      logDiagnostic('security', 'optional admin key wrap refresh failed');
+    }
     if (await _profilePayloadChanged(vaultId, profilePayload)) {
       return false;
     }
@@ -176,7 +181,10 @@ class ProfileDataKeyService {
         dataKeyBytes: dataKeyBytes,
         profilePayload: payload,
       );
-    } catch (_) {}
+    } catch (_) {
+      // The password-wrapped key was saved; admin access is an optional path.
+      logDiagnostic('security', 'optional admin key wrap update failed');
+    }
     return true;
   }
 

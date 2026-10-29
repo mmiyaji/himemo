@@ -1,3 +1,6 @@
+@Timeout(Duration(minutes: 2))
+library;
+
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
@@ -33,7 +36,10 @@ import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
 import 'package:himemo/features/sync/data/icloud_sync_transport.dart';
 import 'package:himemo/features/sync/data/sync_attachment_refs.dart';
 import 'package:himemo/features/sync/data/sync_engine.dart';
+import 'package:himemo/features/sync/data/sync_exclusion_retention.dart';
 import 'package:himemo/features/sync/data/sync_bundle_state_store.dart';
+import 'package:himemo/features/sync/data/sync_bundle_coverage.dart';
+import 'package:himemo/features/sync/data/sync_conflict_policy.dart';
 import 'package:himemo/l10n/app_localizations.dart';
 import 'package:himemo/l10n/app_strings.dart';
 import 'package:image_picker/image_picker.dart';
@@ -617,13 +623,23 @@ void main() {
     expect(beforePrune.bundleCount, 2);
     expect(beforePrune.attachmentCount, 2);
 
-    final pruned = await transport.pruneObsoleteData(
+    final legacyPrune = await transport.pruneObsoleteData(
       referencedAttachmentHashes: {'keep-hash'},
     );
+    expect(legacyPrune.deletedBundleCount, 0);
+    expect(legacyPrune.deletedAttachmentCount, 0);
+    final beforePruneHistory = await transport.listBundleHistory();
+    final pruned = await transport.pruneObsoleteData(
+      keepLatest: 1,
+      referencedAttachmentHashes: {'keep-hash'},
+      bundleFileIdsToDelete: {beforePruneHistory.last.fileId},
+      expectedLatestFileId: second.fileId,
+    );
     expect(pruned.deletedBundleCount, 1);
-    expect(pruned.deletedAttachmentCount, 1);
+    expect(pruned.deletedAttachmentCount, 0);
     expect(await transport.downloadAttachmentObject('keep-hash'), isNotNull);
-    expect(await transport.downloadAttachmentObject('delete-hash'), isNull);
+    expect(await transport.downloadAttachmentObject('delete-hash'), isNotNull);
+    expect((await transport.fetchLatestBundleStatus())?.fileId, second.fileId);
   });
 
   test(
@@ -676,6 +692,7 @@ void main() {
               encryptionService: encryptionService,
               syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
               legacyMasterKeyService: masterKeyService,
+              attachmentStore: ref.watch(encryptedAttachmentStoreProvider),
               directoryProvider: () async => tempDirectory,
               sharedPreferencesProvider: SharedPreferences.getInstance,
             ),
@@ -851,6 +868,13 @@ void main() {
         sharedPreferencesProvider: SharedPreferences.getInstance,
       );
       final fakeTransport = InMemoryICloudSyncTransport();
+      await fakeTransport.uploadAttachmentObject(
+        contentHash: 'unreferenced-inflight-object',
+        encodedPayload: 'uploaded-before-its-bundle',
+        type: 'file',
+        label: 'concurrent.bin',
+        sizeBytes: 32,
+      );
       final container = ProviderContainer(
         overrides: [
           secureKeyValueStoreProvider.overrideWithValue(secureStore),
@@ -867,6 +891,7 @@ void main() {
               encryptionService: encryptionService,
               syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
               legacyMasterKeyService: masterKeyService,
+              attachmentStore: ref.watch(encryptedAttachmentStoreProvider),
               directoryProvider: () async => tempDirectory,
               sharedPreferencesProvider: SharedPreferences.getInstance,
             ),
@@ -929,8 +954,10 @@ void main() {
       expect(olderBundle, isNotNull);
       final attachmentHashes = await fakeTransport
           .listAttachmentObjectContentHashes();
-      expect(attachmentHashes, hasLength(1));
-      final retainedAttachmentHash = attachmentHashes.single;
+      expect(attachmentHashes, hasLength(2));
+      final retainedAttachmentHash = attachmentHashes.singleWhere(
+        (hash) => hash != 'unreferenced-inflight-object',
+      );
       await notesController.deletePermanently('older-note-with-attachment');
       await container
           .read(notesControllerProvider.notifier)
@@ -961,10 +988,12 @@ void main() {
       await pumpEventQueue(times: 5);
 
       final history = await fakeTransport.listBundleHistory(limit: 10);
+      final newestBundle = await fakeTransport.fetchLatestBundleStatus();
       expect(
         history.map((status) => status.fileId),
         contains(olderBundle!.fileId),
       );
+      expect(history.first.fileId, newestBundle!.fileId);
       expect(
         await fakeTransport.downloadAttachmentObject(retainedAttachmentHash),
         isNotNull,
@@ -973,6 +1002,176 @@ void main() {
             'survive automatic iCloud pruning.',
       );
       expect(history.length, 2);
+      expect(
+        await fakeTransport.listAttachmentObjectContentHashes(),
+        containsAll({retainedAttachmentHash, 'unreferenced-inflight-object'}),
+      );
+    },
+  );
+
+  test(
+    'iCloud compaction aborts on an unresolved remote note conflict',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+      });
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-icloud-conflict-compaction-',
+      );
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(69));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final noteStore = EncryptedNoteStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        database: noteDatabase,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final attachmentStore = EncryptedAttachmentStore(
+        encryptionService: encryptionService,
+        masterKeyService: masterKeyService,
+        directoryProvider: () async => tempDirectory,
+        sharedPreferencesProvider: SharedPreferences.getInstance,
+      );
+      final transport = InMemoryICloudSyncTransport();
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          iCloudSynchronizableKeyValueStoreProvider.overrideWithValue(
+            secureStore,
+          ),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteStoreProvider.overrideWithValue(noteStore),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedAttachmentStoreProvider.overrideWithValue(attachmentStore),
+          secureSyncBundleStoreProvider.overrideWith(
+            (ref) => SecureSyncBundleStore(
+              encryptionService: encryptionService,
+              syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
+              legacyMasterKeyService: masterKeyService,
+              attachmentStore: ref.watch(encryptedAttachmentStoreProvider),
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          iCloudSyncTransportProvider.overrideWithValue(transport),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+      await container
+          .read(syncProviderControllerProvider.notifier)
+          .setProvider(SyncProvider.iCloud);
+      await container
+          .read(syncAuthControllerProvider.notifier)
+          .connect(SyncProvider.iCloud);
+      final notes = container.read(notesControllerProvider.notifier);
+      await notes.restoreCompleted;
+      await notes.upsert(
+        NoteEntry(
+          id: 'compaction-conflict-note',
+          vaultId: 'everyday',
+          title: 'Shared baseline',
+          body: 'Initial value',
+          createdAt: DateTime.utc(2026, 10, 10),
+          updatedAt: DateTime.utc(2026, 10, 10),
+        ),
+      );
+      final sync = container.read(syncTransferControllerProvider.notifier);
+      await sync.uploadCurrentBundle(force: true, fullSnapshot: true);
+      final baseline = await transport.fetchLatestBundleStatus();
+      expect(baseline, isNotNull);
+
+      final baseNote = container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'compaction-conflict-note');
+      await notes.upsert(
+        baseNote.copyWith(
+          title: 'Local pending edit',
+          body: 'Local content must remain pending conflict review.',
+        ),
+      );
+      final remoteNote = baseNote.copyWith(
+        title: 'Remote edit',
+        body: 'Different remote content.',
+        revision: baseNote.revision + 1,
+        updatedAt: DateTime.utc(2026, 10, 12),
+        contentHash: 'remote-conflicting-content-hash',
+        syncState: NoteSyncState.synced,
+      );
+      final remoteBundle = await container
+          .read(secureSyncBundleStoreProvider)
+          .writeBundle(
+            PreparedSyncSnapshot(
+              deviceId: 'other-device',
+              exportedAt: DateTime.utc(2026, 10, 12),
+              summary: const SyncQueueSummary(
+                totalChanges: 1,
+                upserts: 1,
+                deletes: 0,
+              ),
+              notes: [
+                PreparedSyncNote(
+                  note: remoteNote,
+                  action: PendingNoteChangeAction.upsert,
+                ),
+              ],
+              attachments: const [],
+            ),
+            bundleKind: SyncBundleKind.delta,
+          );
+      final remotePayload = await container
+          .read(secureSyncBundleStoreProvider)
+          .readEncryptedBundlePayload(remoteBundle.reference);
+      expect(remotePayload, isNotNull);
+      final remoteStatus = await transport.uploadBundle(
+        encodedPayload: remotePayload!,
+        deviceId: 'other-device',
+        noteCount: 1,
+        attachmentCount: 0,
+        bundleKind: SyncBundleKind.delta,
+        replayBaseFileId: baseline!.fileId,
+      );
+      final historyBefore = await transport.listBundleHistory(limit: 20);
+
+      await expectLater(
+        container
+            .read(syncTransferControllerProvider.notifier)
+            .compactICloudStorage(),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(
+        (await transport.listBundleHistory(limit: 20))
+            .map((item) => item.fileId),
+        historyBefore.map((item) => item.fileId),
+      );
+      expect(
+        (await transport.fetchLatestBundleStatus())?.fileId,
+        remoteStatus.fileId,
+      );
+      expect(
+        container
+            .read(notesControllerProvider)
+            .singleWhere((note) => note.id == 'compaction-conflict-note')
+            .syncState,
+        NoteSyncState.conflict,
+      );
     },
   );
 
@@ -1014,6 +1213,7 @@ void main() {
               encryptionService: encryptionService,
               syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
               legacyMasterKeyService: masterKeyService,
+              attachmentStore: ref.watch(encryptedAttachmentStoreProvider),
               directoryProvider: () async => tempDirectory,
               sharedPreferencesProvider: SharedPreferences.getInstance,
             ),
@@ -1197,6 +1397,605 @@ void main() {
           .read(trashedNotesProvider)
           .any((entry) => entry.id == 'sim-trash-race'),
       isTrue,
+    );
+  });
+
+  test(
+    'manual delta application cannot skip earlier history on full reupload',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-manual-delta-anchor-',
+        randomSeed: 233,
+      );
+      addTearDown(harness.container.dispose);
+      addTearDown(harness.container.read(encryptedNoteDatabaseProvider).close);
+      addTearDown(() => harness.tempDirectory.delete(recursive: true));
+      final bundles = harness.container.read(secureSyncBundleStoreProvider);
+      for (final id in ['earlier-note', 'latest-note']) {
+        final stored = await bundles.writeBundle(
+          PreparedSyncSnapshot(
+            deviceId: 'other-device',
+            exportedAt: DateTime.utc(2026, 10, 20),
+            summary: const SyncQueueSummary(
+              totalChanges: 1,
+              upserts: 1,
+              deletes: 0,
+            ),
+            notes: [
+              PreparedSyncNote(
+                action: PendingNoteChangeAction.upsert,
+                note: NoteEntry(
+                  id: id,
+                  vaultId: 'everyday',
+                  title: id,
+                  contentHash: 'content-$id',
+                  body: '',
+                  createdAt: DateTime.utc(2026),
+                ),
+              ),
+            ],
+            attachments: const [],
+          ),
+          bundleKind: id == 'earlier-note'
+              ? SyncBundleKind.full
+              : SyncBundleKind.delta,
+        );
+        final payload = await bundles.readEncryptedBundlePayload(
+          stored.reference,
+        );
+        await transport.uploadBundle(
+          encodedPayload: payload!,
+          deviceId: 'other-device',
+          noteCount: 1,
+          attachmentCount: 0,
+          bundleKind: id == 'earlier-note'
+              ? SyncBundleKind.full
+              : SyncBundleKind.delta,
+        );
+      }
+      final sync = harness.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      await sync.downloadLatestBundle();
+      await sync.applyDownloadedBundle();
+      expect(
+        harness.container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+        reason: harness.container.read(syncTransferControllerProvider).message,
+      );
+      expect(
+        (await harness.container.read(syncBundleStateStoreProvider).read())
+            .lastAppliedRemoteFileId,
+        isNull,
+      );
+      await sync.reuploadAllCurrentNotes();
+      expect(
+        harness.container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+        reason: harness.container.read(syncTransferControllerProvider).message,
+      );
+      expect(
+        harness.container.read(notesControllerProvider).map((note) => note.id),
+        containsAll(['earlier-note', 'latest-note']),
+      );
+    },
+  );
+
+  test(
+    'Drive cleanup prunes only IDs named by full snapshot coverage',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-safe-drive-retention-',
+        randomSeed: 234,
+      );
+      addTearDown(harness.container.dispose);
+      addTearDown(harness.container.read(encryptedNoteDatabaseProvider).close);
+      addTearDown(() => harness.tempDirectory.delete(recursive: true));
+      await harness.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'retention-note',
+              vaultId: 'everyday',
+              title: 'Kept',
+              body: '',
+              createdAt: DateTime.utc(2026),
+            ),
+          );
+      final sync = harness.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      final publishedIds = <String>{};
+      var priorToFinalPublish = <String>{};
+      for (var i = 0; i < 6; i++) {
+        if (i == 5) {
+          priorToFinalPublish = (await transport.listBundleHistory(limit: 100))
+              .map((item) => item.fileId)
+              .toSet();
+        }
+        await sync.uploadCurrentBundle(force: true, fullSnapshot: true);
+        final state = harness.container.read(syncTransferControllerProvider);
+        expect(state.stage, SyncTransferStage.success, reason: state.message);
+        publishedIds.add(state.remoteStatus!.fileId);
+      }
+      expect(publishedIds, hasLength(6));
+      final history = await transport.listBundleHistory(limit: 100);
+      expect(history, hasLength(3));
+      final latest = history.first;
+      final latestBundle = await transport.downloadBundleByFileId(
+        latest.fileId,
+      );
+      final latestJson = await harness.container
+          .read(secureSyncBundleStoreProvider)
+          .readRemoteBundlePayloadJson(latestBundle!.encodedPayload);
+      final coverage = SyncBundleCoverage.tryParse(latestJson['coverage']);
+      expect(coverage, isNotNull);
+      final removedByFinalPublish = priorToFinalPublish.difference(
+        history.map((item) => item.fileId).toSet(),
+      );
+      expect(removedByFinalPublish, isNotEmpty);
+      expect(coverage!.coveredBundleIds, containsAll(removedByFinalPublish));
+      expect(
+        selectRemoteBundlesToApply(
+          history: history,
+          bundleState: const SyncBundleState(),
+          coverage: coverage,
+          coverageBundleId: latest.fileId,
+        ).map((item) => item.fileId),
+        [latest.fileId],
+      );
+    },
+  );
+
+  test('full snapshot retention restores excluded notes from only their source bundle', () async {
+    SharedPreferences.setMockInitialValues({});
+    final transport = _CountingGoogleDriveSyncTransport();
+    final deviceA = await _createGoogleDriveSyncHarness(
+      transport,
+      tempPrefix: 'himemo-excluded-retention-a-',
+      randomSeed: 235,
+    );
+    final recoveryCode = await deviceA.container
+        .read(syncBundleKeyServiceProvider)
+        .exportBackupCode();
+    final notesA = deviceA.container.read(notesControllerProvider.notifier);
+    final syncA = deviceA.container.read(
+      syncTransferControllerProvider.notifier,
+    );
+    final excludedId = 'retained-excluded-note';
+    final regularId = 'retained-regular-note';
+    final createdAt = DateTime.utc(2026, 10, 20);
+    await notesA.upsert(
+      NoteEntry(
+        id: excludedId,
+        vaultId: 'everyday',
+        title: 'Excluded',
+        body: 'Original remote body.',
+        tags: const ['private-sync-excluded'],
+        createdAt: createdAt,
+      ),
+    );
+    await notesA.upsert(
+      NoteEntry(
+        id: regularId,
+        vaultId: 'everyday',
+        title: 'Regular',
+        body: 'Original regular body.',
+        createdAt: createdAt,
+      ),
+    );
+    await syncA.uploadCurrentBundle(force: true, fullSnapshot: true);
+    expect(
+      deviceA.container.read(syncTransferControllerProvider).stage,
+      SyncTransferStage.success,
+    );
+    final sourceId = deviceA.container
+        .read(syncTransferControllerProvider)
+        .remoteStatus!
+        .fileId;
+
+    await deviceA.container
+        .read(syncExclusionTagsControllerProvider.notifier)
+        .addTag('private-sync-excluded');
+    await notesA.upsert(
+      deviceA.container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == excludedId)
+          .copyWith(body: 'DO NOT UPLOAD'),
+    );
+    await notesA.upsert(
+      deviceA.container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == regularId)
+          .copyWith(body: 'Latest regular body.'),
+    );
+
+    final publishedIds = <String>{sourceId};
+    for (var i = 0; i < 6; i++) {
+      await syncA.uploadCurrentBundle(force: true, fullSnapshot: true);
+      final transfer = deviceA.container.read(syncTransferControllerProvider);
+      expect(
+        transfer.stage,
+        SyncTransferStage.success,
+        reason: transfer.message,
+      );
+      publishedIds.add(transfer.remoteStatus!.fileId);
+    }
+    final history = await transport.listBundleHistory(limit: 100);
+    expect(history.length, lessThanOrEqualTo(4));
+    expect(history.length, greaterThanOrEqualTo(3));
+    expect(history.map((item) => item.fileId), contains(sourceId));
+    final latestStatus = history.first;
+    expect(latestStatus.replayBaseFileId, isNot('__root__'));
+    final latestDownload = await transport.downloadBundleByFileId(
+      latestStatus.fileId,
+    );
+    final latestPayload = await deviceA.container
+        .read(secureSyncBundleStoreProvider)
+        .readRemoteBundlePayloadJson(latestDownload!.encodedPayload);
+    final manifest = SyncExclusionRetention.fromJson(
+      latestPayload['exclusionRetention'],
+    );
+    expect(manifest!.noteBundleIds[excludedId], sourceId);
+
+    final olderPublishedIds = publishedIds.difference({latestStatus.fileId});
+    transport.downloadedBundleIds.clear();
+    final deviceB = await _createGoogleDriveSyncHarness(
+      transport,
+      tempPrefix: 'himemo-excluded-retention-b-',
+      randomSeed: 236,
+    );
+    await deviceB.container
+        .read(syncBundleKeyServiceProvider)
+        .importBackupCode(recoveryCode);
+    await deviceB.container
+        .read(syncExclusionTagsControllerProvider.notifier)
+        .removeTag('private-sync-excluded');
+    await deviceB.container
+        .read(syncAuthControllerProvider.notifier)
+        .connect(SyncProvider.googleDrive);
+    await deviceB.container
+        .read(syncTransferControllerProvider.notifier)
+        .syncNow(allowCachedRemoteStatus: false);
+    final transferB = deviceB.container.read(syncTransferControllerProvider);
+    expect(
+      transferB.stage,
+      SyncTransferStage.success,
+      reason: transferB.message,
+    );
+    final imported = deviceB.container.read(notesControllerProvider);
+    expect(
+      imported.singleWhere((note) => note.id == excludedId).body,
+      'Original remote body.',
+    );
+    expect(
+      imported.singleWhere((note) => note.id == regularId).body,
+      'Latest regular body.',
+    );
+    expect(transport.downloadedBundleIds, contains(sourceId));
+    expect(
+      transport.downloadedBundleIds
+          .where(olderPublishedIds.contains)
+          .toSet()
+          .length,
+      lessThan(olderPublishedIds.length),
+    );
+  });
+
+  test(
+    'forced full upload applies unseen remote notes before publishing',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final remoteDevice = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-full-upload-remote-',
+        randomSeed: 231,
+      );
+      final localDevice = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-full-upload-local-',
+        randomSeed: 232,
+      );
+      addTearDown(remoteDevice.container.dispose);
+      addTearDown(localDevice.container.dispose);
+      addTearDown(
+        remoteDevice.container.read(encryptedNoteDatabaseProvider).close,
+      );
+      addTearDown(
+        localDevice.container.read(encryptedNoteDatabaseProvider).close,
+      );
+      addTearDown(() async {
+        if (await remoteDevice.tempDirectory.exists()) {
+          await remoteDevice.tempDirectory.delete(recursive: true);
+        }
+        if (await localDevice.tempDirectory.exists()) {
+          await localDevice.tempDirectory.delete(recursive: true);
+        }
+      });
+
+      final recoveryCode = await remoteDevice.container
+          .read(syncBundleKeyServiceProvider)
+          .exportBackupCode();
+      await localDevice.container
+          .read(syncBundleKeyServiceProvider)
+          .importBackupCode(recoveryCode);
+      await remoteDevice.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'unseen-remote-note',
+              vaultId: 'everyday',
+              title: 'Remote note',
+              body: 'Must be merged before the full upload.',
+              createdAt: DateTime.utc(2026, 10, 20),
+            ),
+          );
+      await remoteDevice.container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true, fullSnapshot: true);
+      expect(
+        remoteDevice.container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+
+      await localDevice.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'local-full-upload-note',
+              vaultId: 'everyday',
+              title: 'Local note',
+              body: 'Keep local changes in the merged snapshot.',
+              createdAt: DateTime.utc(2026, 10, 21),
+            ),
+          );
+      await localDevice.container
+          .read(syncTransferControllerProvider.notifier)
+          .uploadCurrentBundle(force: true, fullSnapshot: true);
+
+      expect(
+        localDevice.container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+        reason: localDevice.container
+            .read(syncTransferControllerProvider)
+            .message,
+      );
+      expect(
+        localDevice.container
+            .read(notesControllerProvider)
+            .map((note) => note.id),
+        containsAll({'unseen-remote-note', 'local-full-upload-note'}),
+      );
+      final latest = await transport.downloadLatestBundle();
+      expect(latest?.status.isFullBundle, isTrue);
+      expect(
+        localDevice.container
+            .read(notesControllerProvider)
+            .where((note) => note.syncState == NoteSyncState.synced)
+            .map((note) => note.id),
+        contains('unseen-remote-note'),
+      );
+    },
+  );
+
+  test(
+    'sync applies a newly inserted older ID when Drive head is unchanged',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = _ReorderedHistoryGoogleDriveTransport();
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-sync-id-coverage-reordered-',
+        randomSeed: 241,
+      );
+      final sync = harness.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      await harness.container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'reordered-history-baseline',
+              vaultId: 'everyday',
+              title: 'Baseline',
+              body: 'Creates the initial acknowledged full bundle.',
+              createdAt: DateTime.utc(2026, 10, 27),
+              contentHash: 'reordered-history-baseline-hash',
+            ),
+          );
+      await sync.uploadCurrentBundle(force: true, fullSnapshot: true);
+      expect(
+        harness.container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+      await sync.syncNow(allowCachedRemoteStatus: false);
+      final head = (await transport.listBundleHistory()).first;
+      transport.pinLatestStatus(head);
+      final knownBefore =
+          (await harness.container.read(syncBundleStateStoreProvider).read())
+              .appliedRemoteFileIds;
+      expect(knownBefore, contains(head.fileId));
+
+      final remoteBundleStore = harness.container.read(
+        secureSyncBundleStoreProvider,
+      );
+      final stored = await remoteBundleStore.writeBundle(
+        PreparedSyncSnapshot(
+          deviceId: 'late-device',
+          exportedAt: DateTime.utc(2026, 10, 28),
+          summary: const SyncQueueSummary(
+            totalChanges: 1,
+            upserts: 1,
+            deletes: 0,
+          ),
+          notes: [
+            PreparedSyncNote(
+              action: PendingNoteChangeAction.upsert,
+              note: NoteEntry(
+                id: 'late-older-history-note',
+                vaultId: 'everyday',
+                title: 'Late remote note',
+                body: 'This ID sorts before the known head.',
+                createdAt: DateTime.utc(2026, 10, 28),
+                contentHash: 'late-older-history-note-hash',
+              ),
+            ),
+          ],
+          attachments: const [],
+        ),
+        bundleKind: SyncBundleKind.delta,
+      );
+      final payload = await remoteBundleStore.readEncryptedBundlePayload(
+        stored.reference,
+      );
+      final late = await transport.appendLateDelta(payload!);
+
+      final visibleHistory = await transport.listBundleHistory(limit: 100);
+      expect(visibleHistory.first.fileId, head.fileId);
+      expect(
+        visibleHistory.indexOf(late),
+        greaterThan(visibleHistory.indexOf(head)),
+      );
+      expect(await transport.fetchLatestBundleStatus(), head);
+
+      await sync.syncNow(allowCachedRemoteStatus: false);
+      final state = harness.container.read(syncTransferControllerProvider);
+      expect(state.stage, SyncTransferStage.success, reason: state.message);
+      expect(
+        harness.container.read(notesControllerProvider).map((note) => note.id),
+        contains('late-older-history-note'),
+      );
+      expect(
+        (await harness.container.read(syncBundleStateStoreProvider).read())
+            .appliedRemoteFileIds,
+        contains(late.fileId),
+      );
+    },
+  );
+
+  test('full upload coverage excludes an injected older delta and preserves it for replay', () async {
+    SharedPreferences.setMockInitialValues({});
+    final transport = _ReorderedHistoryGoogleDriveTransport();
+    final harness = await _createGoogleDriveSyncHarness(
+      transport,
+      tempPrefix: 'himemo-sync-id-coverage-injected-',
+      randomSeed: 242,
+    );
+    final notes = harness.container.read(notesControllerProvider.notifier);
+    final sync = harness.container.read(
+      syncTransferControllerProvider.notifier,
+    );
+    await notes.upsert(
+      NoteEntry(
+        id: 'coverage-local-note',
+        vaultId: 'everyday',
+        title: 'Local note',
+        body: 'Forces a full publication after the injected delta.',
+        createdAt: DateTime.utc(2026, 10, 28),
+      ),
+    );
+    await sync.uploadCurrentBundle(force: true, fullSnapshot: true);
+    expect(
+      harness.container.read(syncTransferControllerProvider).stage,
+      SyncTransferStage.success,
+    );
+    await sync.syncNow(allowCachedRemoteStatus: false);
+    final oldHead = (await transport.listBundleHistory()).first;
+    final appliedBefore =
+        (await harness.container.read(syncBundleStateStoreProvider).read())
+            .appliedRemoteFileIds;
+    expect(appliedBefore, contains(oldHead.fileId));
+
+    final bundleStore = harness.container.read(secureSyncBundleStoreProvider);
+    final lateStored = await bundleStore.writeBundle(
+      PreparedSyncSnapshot(
+        deviceId: 'concurrent-device',
+        exportedAt: DateTime.utc(2026, 10, 29),
+        summary: const SyncQueueSummary(
+          totalChanges: 1,
+          upserts: 1,
+          deletes: 0,
+        ),
+        notes: [
+          PreparedSyncNote(
+            action: PendingNoteChangeAction.upsert,
+            note: NoteEntry(
+              id: 'injected-during-full-note',
+              vaultId: 'everyday',
+              title: 'Concurrent note',
+              body: 'Published after the full snapshot coverage was built.',
+              createdAt: DateTime.utc(2026, 10, 29),
+              contentHash: 'injected-during-full-note-hash',
+            ),
+          ),
+        ],
+        attachments: const [],
+      ),
+      bundleKind: SyncBundleKind.delta,
+    );
+    final latePayload = await bundleStore.readEncryptedBundlePayload(
+      lateStored.reference,
+    );
+    transport.injectBeforeNextPublication(
+      latePayload!,
+      additionalPayloads: List<String>.filled(3, latePayload),
+    );
+    await notes.upsert(
+      harness.container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'coverage-local-note')
+          .copyWith(body: 'Updated before full publication.'),
+    );
+
+    await sync.uploadCurrentBundle(force: true, fullSnapshot: true);
+    final transfer = harness.container.read(syncTransferControllerProvider);
+    expect(transfer.stage, SyncTransferStage.success, reason: transfer.message);
+    final injected = transport.injectedStatus;
+    expect(injected, isNotNull);
+    final published = transfer.remoteStatus!;
+    expect(published.isFullBundle, isTrue);
+    final publishedRemote = await transport.downloadBundleByFileId(
+      published.fileId,
+    );
+    final publishedJson = await bundleStore.readRemoteBundlePayloadJson(
+      publishedRemote!.encodedPayload,
+    );
+    final coverage = SyncBundleCoverage.tryParse(publishedJson['coverage']);
+    expect(coverage, isNotNull);
+    expect(coverage!.coveredBundleIds, contains(oldHead.fileId));
+    expect(coverage.coveredBundleIds, isNot(contains(injected!.fileId)));
+
+    final afterPublishHistory = await transport.listBundleHistory(limit: 100);
+    expect(
+      afterPublishHistory.map((item) => item.fileId),
+      contains(injected.fileId),
+    );
+    expect(afterPublishHistory.indexOf(injected), greaterThanOrEqualTo(3));
+
+    await sync.syncNow(allowCachedRemoteStatus: false);
+    final replayed = harness.container.read(syncTransferControllerProvider);
+    expect(replayed.stage, SyncTransferStage.success, reason: replayed.message);
+    expect(
+      harness.container.read(notesControllerProvider).map((note) => note.id),
+      contains('injected-during-full-note'),
+    );
+    expect(
+      (await harness.container.read(syncBundleStateStoreProvider).read())
+          .appliedRemoteFileIds,
+      contains(injected.fileId),
     );
   });
 
@@ -1419,6 +2218,7 @@ void main() {
             encryptionService: encryptionService,
             syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
             legacyMasterKeyService: masterKeyService,
+            attachmentStore: ref.watch(encryptedAttachmentStoreProvider),
             directoryProvider: () async => tempDirectory,
             sharedPreferencesProvider: SharedPreferences.getInstance,
           ),
@@ -2056,10 +2856,7 @@ void main() {
         SyncTransferStage.success,
         reason: source.container.read(syncTransferControllerProvider).message,
       );
-      expect(
-        (await transport.fetchLatestBundleStatus())?.bundleKind,
-        SyncBundleKind.full,
-      );
+      expect((await transport.fetchLatestBundleStatus())?.isFullBundle, isTrue);
 
       await sourceNotes.upsert(
         NoteEntry(
@@ -2799,6 +3596,7 @@ void main() {
             encryptionService: encryptionService,
             syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
             legacyMasterKeyService: masterKeyService,
+            attachmentStore: ref.watch(encryptedAttachmentStoreProvider),
             directoryProvider: () async => tempDirectory,
             sharedPreferencesProvider: SharedPreferences.getInstance,
           ),
@@ -3093,6 +3891,7 @@ void main() {
                 encryptionService: encryptionService,
                 syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
                 legacyMasterKeyService: masterKeyService,
+                attachmentStore: ref.watch(encryptedAttachmentStoreProvider),
                 directoryProvider: () async => tempDirectory,
                 sharedPreferencesProvider: SharedPreferences.getInstance,
               ),
@@ -3237,7 +4036,7 @@ void main() {
           .singleWhere((note) => note.id == 'private-attachment-note');
       expect(
         repairedSourceNote.attachments.single.filePath,
-        syncAttachmentObjectRef(syncedAttachmentHash!),
+        syncAttachmentObjectRef(syncedAttachmentHash!, managed: true),
       );
       await sourceSync.uploadCurrentBundle(force: true, fullSnapshot: true);
       final secondRemoteStatus = await fakeTransport.fetchLatestBundleStatus();
@@ -5535,6 +6334,7 @@ Future<_GoogleDriveSyncHarness> _createGoogleDriveSyncHarness(
           encryptionService: encryptionService,
           syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
           legacyMasterKeyService: masterKeyService,
+          attachmentStore: ref.watch(encryptedAttachmentStoreProvider),
           directoryProvider: () async => tempDirectory,
           sharedPreferencesProvider: SharedPreferences.getInstance,
         ),
@@ -5644,6 +6444,94 @@ class _FakeNetworkConnectionService extends NetworkConnectionService {
   Future<NetworkConnectionKind> currentKind() async => kind;
 }
 
+class _ReorderedHistoryGoogleDriveTransport
+    extends InMemoryGoogleDriveSyncTransport {
+  _ReorderedHistoryGoogleDriveTransport() : super(uploadDelay: Duration.zero);
+
+  RemoteSyncBundleStatus? _pinnedLatest;
+  RemoteSyncBundleStatus? _lateStatus;
+  List<String> _pendingInjectedPayloads = const [];
+  RemoteSyncBundleStatus? injectedStatus;
+
+  void pinLatestStatus(RemoteSyncBundleStatus status) {
+    _pinnedLatest = status;
+  }
+
+  Future<RemoteSyncBundleStatus> appendLateDelta(String encodedPayload) async {
+    final status = await super.uploadBundle(
+      encodedPayload: encodedPayload,
+      deviceId: 'late-device',
+      noteCount: 1,
+      attachmentCount: 0,
+      bundleKind: SyncBundleKind.delta,
+    );
+    _lateStatus = status;
+    return status;
+  }
+
+  void injectBeforeNextPublication(
+    String encodedPayload, {
+    List<String> additionalPayloads = const [],
+  }) {
+    _pendingInjectedPayloads = [encodedPayload, ...additionalPayloads];
+    injectedStatus = null;
+  }
+
+  @override
+  Future<RemoteSyncBundleStatus?> fetchLatestBundleStatus() async =>
+      _pinnedLatest ?? await super.fetchLatestBundleStatus();
+
+  @override
+  Future<List<RemoteSyncBundleStatus>> listBundleHistory({
+    int limit = 10,
+  }) async {
+    final history = List<RemoteSyncBundleStatus>.of(
+      await super.listBundleHistory(limit: 100000),
+    );
+    final late = _lateStatus;
+    final pinned = _pinnedLatest;
+    if (late != null && pinned != null && history.contains(late)) {
+      history.remove(late);
+      final headIndex = history.indexOf(pinned);
+      history.insert(headIndex < 0 ? history.length : headIndex + 1, late);
+    }
+    return history.take(limit).toList(growable: false);
+  }
+
+  @override
+  Future<RemoteSyncBundleStatus> uploadBundle({
+    required String encodedPayload,
+    required String deviceId,
+    required int noteCount,
+    required int attachmentCount,
+    String bundleKind = SyncBundleKind.full,
+    String? replayBaseFileId,
+  }) async {
+    final injectedPayloads = _pendingInjectedPayloads;
+    if (injectedPayloads.isNotEmpty) {
+      _pendingInjectedPayloads = const [];
+      for (final payload in injectedPayloads) {
+        final status = await super.uploadBundle(
+          encodedPayload: payload,
+          deviceId: 'concurrent-device',
+          noteCount: 1,
+          attachmentCount: 0,
+          bundleKind: SyncBundleKind.delta,
+        );
+        injectedStatus ??= status;
+      }
+    }
+    return super.uploadBundle(
+      encodedPayload: encodedPayload,
+      deviceId: deviceId,
+      noteCount: noteCount,
+      attachmentCount: attachmentCount,
+      bundleKind: bundleKind,
+      replayBaseFileId: replayBaseFileId,
+    );
+  }
+}
+
 class _FailingAttachmentUploadTransport
     extends InMemoryGoogleDriveSyncTransport {
   _FailingAttachmentUploadTransport() : super(uploadDelay: Duration.zero);
@@ -5652,13 +6540,13 @@ class _FailingAttachmentUploadTransport
   int bundleUploadCalls = 0;
 
   @override
-  Future<void> uploadAttachmentObject({
+  Future<String> pinAttachmentObject({
     required String contentHash,
-    required String encodedPayload,
+    required String uploadId,
+    String? encodedPayload,
     required String type,
     required String label,
     required int sizeBytes,
-    bool skipExistingCheck = false,
   }) async {
     attachmentUploadCalls += 1;
     throw StateError('simulated attachment upload failure');
@@ -5671,6 +6559,7 @@ class _FailingAttachmentUploadTransport
     required int noteCount,
     required int attachmentCount,
     String bundleKind = SyncBundleKind.full,
+    String? replayBaseFileId,
   }) {
     bundleUploadCalls += 1;
     return super.uploadBundle(
@@ -5679,7 +6568,21 @@ class _FailingAttachmentUploadTransport
       noteCount: noteCount,
       attachmentCount: attachmentCount,
       bundleKind: bundleKind,
+      replayBaseFileId: replayBaseFileId,
     );
+  }
+}
+
+class _CountingGoogleDriveSyncTransport
+    extends InMemoryGoogleDriveSyncTransport {
+  _CountingGoogleDriveSyncTransport() : super(uploadDelay: Duration.zero);
+
+  final List<String> downloadedBundleIds = [];
+
+  @override
+  Future<DownloadedRemoteSyncBundle?> downloadBundleByFileId(String fileId) {
+    downloadedBundleIds.add(fileId);
+    return super.downloadBundleByFileId(fileId);
   }
 }
 
@@ -5690,22 +6593,22 @@ class _FailingBundleUploadTransport extends InMemoryGoogleDriveSyncTransport {
   int bundleUploadCalls = 0;
 
   @override
-  Future<void> uploadAttachmentObject({
+  Future<String> pinAttachmentObject({
     required String contentHash,
-    required String encodedPayload,
+    required String uploadId,
+    String? encodedPayload,
     required String type,
     required String label,
     required int sizeBytes,
-    bool skipExistingCheck = false,
   }) async {
     attachmentUploadCalls += 1;
-    await super.uploadAttachmentObject(
+    return super.pinAttachmentObject(
       contentHash: contentHash,
+      uploadId: uploadId,
       encodedPayload: encodedPayload,
       type: type,
       label: label,
       sizeBytes: sizeBytes,
-      skipExistingCheck: skipExistingCheck,
     );
   }
 
@@ -5716,6 +6619,7 @@ class _FailingBundleUploadTransport extends InMemoryGoogleDriveSyncTransport {
     required int noteCount,
     required int attachmentCount,
     String bundleKind = SyncBundleKind.full,
+    String? replayBaseFileId,
   }) async {
     bundleUploadCalls += 1;
     throw StateError('simulated bundle upload failure');

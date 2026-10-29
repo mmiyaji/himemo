@@ -43,7 +43,7 @@ jobs:
         run: flutter analyze --fatal-infos
 
       - name: Run Flutter unit and widget tests
-        run: flutter test test
+        run: flutter test test --concurrency=2
 
       - name: Build development Web app
         run: >-

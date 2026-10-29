@@ -1058,6 +1058,17 @@ import FoundationModels
       )
     case "cloudKitListAttachmentHashes":
       listCloudKitAttachmentHashes(result: result)
+    case "managedPinAttachment":
+      guard let args = call.arguments as? [String: Any], let hash = args["contentHash"] as? String, let uploadId = args["uploadId"] as? String, let type = args["type"] as? String, let label = args["label"] as? String, let size = args["sizeBytes"] as? Int else { result(FlutterError(code: "invalidArguments", message: "Managed attachment arguments are invalid.", details: nil)); return }
+      managedPinAttachment(hash: hash, uploadId: uploadId, payload: args["encodedPayload"] as? String, type: type, label: label, size: size, attempt: 0, result: result)
+    case "managedReleaseAttachment":
+      guard let args = call.arguments as? [String: Any], let id = args["recordId"] as? String, let uploadId = args["uploadId"] as? String, let bundle = args["publishedBundleId"] as? String else { result(FlutterError(code: "invalidArguments", message: "Managed release arguments are invalid.", details: nil)); return }
+      managedReleaseAttachment(id: id, uploadId: uploadId, bundle: bundle, attempt: 0, result: result)
+    case "managedListAttachments":
+      managedListAttachments(result: result)
+    case "managedClaimDeleteAttachment":
+      guard let args = call.arguments as? [String: Any], let id = args["recordId"] as? String, let revision = args["revision"] as? String else { result(FlutterError(code: "invalidArguments", message: "Managed deletion arguments are invalid.", details: nil)); return }
+      managedClaimDeleteAttachment(id: id, revision: revision, result: result)
     case "cloudKitDownloadAttachmentObject":
       guard
         let args = call.arguments as? [String: Any],
@@ -1094,12 +1105,9 @@ import FoundationModels
       cloudKitStorageBreakdown(result: result)
     case "cloudKitPruneObsoleteData":
       let args = call.arguments as? [String: Any]
-      let keepLatest = args?["keepLatest"] as? Int ?? 1
-      let referencedAttachmentHashes =
-        Set(args?["referencedAttachmentHashes"] as? [String] ?? [])
       pruneObsoleteCloudKitData(
-        keepLatest: max(keepLatest, 1),
-        referencedAttachmentHashes: referencedAttachmentHashes,
+        bundleFileIdsToDelete: Set(args?["bundleFileIdsToDelete"] as? [String] ?? []),
+        expectedLatestFileId: args?["expectedLatestFileId"] as? String,
         result: result
       )
     default:
@@ -1294,7 +1302,8 @@ import FoundationModels
       ) { record, error in
         if let error {
           DispatchQueue.main.async {
-            result(self.flutterError(from: error))
+            if (error as? CKError)?.code == .unknownItem { result(nil) }
+            else { result(self.flutterError(from: error)) }
           }
           return
         }
@@ -1419,6 +1428,10 @@ import FoundationModels
           let hashes = records.compactMap { record -> String? in
             if let contentHash = record[self.cloudKitContentHashField] as? String,
                !contentHash.isEmpty {
+              if contentHash.hasPrefix("managed:") {
+                if !self.isValidManagedRecord(record) || self.managedMetadata(record)["deleting"] as? Bool == true { return nil }
+                return String(contentHash.dropFirst("managed:".count))
+              }
               return contentHash
             }
             let recordName = record.recordID.recordName
@@ -1427,7 +1440,13 @@ import FoundationModels
             }
             return String(recordName.dropFirst("attachment-".count))
           }
-          result(hashes)
+          self.managedRecords(database) { managed, managedError in
+            DispatchQueue.main.async {
+              if let managedError { result(self.flutterError(from: managedError)); return }
+              let managedHashes = (managed ?? []).filter { self.managedMetadata($0)["deleting"] as? Bool != true }.compactMap { ($0[self.cloudKitContentHashField] as? String).map { String($0.dropFirst("managed:".count)) } }
+              result(Array(Set(hashes + managedHashes)))
+            }
+          }
         }
       }
     }
@@ -1438,32 +1457,180 @@ import FoundationModels
     result: @escaping FlutterResult
   ) {
     withAvailableCloudKit(result: result) { database in
-      let recordID = CKRecord.ID(
-        recordName: "attachment-\(contentHash)",
-        zoneID: self.cloudKitSyncZoneID
-      )
-      database.fetch(withRecordID: recordID) { record, error in
-        if let error = error as? CKError, error.code == .unknownItem {
-          DispatchQueue.main.async {
-            result(nil)
+      self.managedRecords(database) { managed, managedError in
+        if let managedError { DispatchQueue.main.async { result(self.flutterError(from: managedError)) }; return }
+        let downloadLegacy = {
+          let recordID = CKRecord.ID(recordName: "attachment-\(contentHash)", zoneID: self.cloudKitSyncZoneID)
+          database.fetch(withRecordID: recordID) { record, error in
+            if let error = error as? CKError, error.code == .unknownItem { DispatchQueue.main.async { result(nil) }; return }
+            if let error { DispatchQueue.main.async { result(self.flutterError(from: error)) }; return }
+            guard let record else { DispatchQueue.main.async { result(nil) }; return }
+            self.readAttachmentObjectPayload(from: record, result: result)
           }
-          return
         }
-        if let error {
-          DispatchQueue.main.async {
-            result(self.flutterError(from: error))
-          }
-          return
+        guard let source = (managed ?? []).first(where: { ($0[self.cloudKitContentHashField] as? String) == "managed:\(contentHash)" && self.managedMetadata($0)["deleting"] as? Bool != true }) else { downloadLegacy(); return }
+        database.fetch(withRecordID: source.recordID) { record, _ in
+          guard let record, self.isValidManagedRecord(record), self.managedMetadata(record)["deleting"] as? Bool != true else { downloadLegacy(); return }
+          self.readAttachmentObjectPayload(from: record, result: result)
         }
-        guard let record else {
-          DispatchQueue.main.async {
-            result(nil)
-          }
-          return
-        }
-        self.readAttachmentObjectPayload(from: record, result: result)
       }
     }
+  }
+
+  // Managed copies use the deployed attachment record type and existing fields only.
+  // The content hash marker prevents legacy clients from treating them as canonical.
+  private func managedMetadata(_ record: CKRecord) -> [String: Any] {
+    guard let raw = record[cloudKitAttachmentLabelField] as? String,
+          let data = raw.data(using: .utf8),
+          let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+    return value
+  }
+  private func isValidManagedRecord(_ record: CKRecord) -> Bool {
+    guard record.recordID.recordName.hasPrefix("managed-attachment-"),
+          let hash = record[cloudKitContentHashField] as? String, hash.hasPrefix("managed:"), hash.count > "managed:".count,
+          let label = record[cloudKitAttachmentLabelField] as? String,
+          let data = label.data(using: .utf8),
+          let metadata = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+          let version = metadata["protocol"] as? NSNumber, version.intValue == 1,
+          metadata["label"] is String,
+          let ids = metadata["uploadIds"] as? [String], ids.count <= 3,
+          ids.allSatisfy({ !$0.isEmpty && $0.count <= 64 }), Set(ids).count == ids.count,
+          metadata["deleting"] is Bool else { return false }
+    return true
+  }
+  private func managedMetadataData(_ metadata: [String: Any]) throws -> Data {
+    guard let data = try? JSONSerialization.data(withJSONObject: metadata),
+          let check = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+          let version = check["protocol"] as? NSNumber, version.intValue == 1,
+          check["label"] is String,
+          let ids = check["uploadIds"] as? [String], ids.count <= 3,
+          ids.allSatisfy({ !$0.isEmpty && $0.count <= 64 }), Set(ids).count == ids.count,
+          check["deleting"] is Bool else {
+      throw NSError(domain: "ManagedAttachment", code: 1, userInfo: [NSLocalizedDescriptionKey: "Managed attachment metadata is invalid."])
+    }
+    return data
+  }
+  private func managedResult(_ record: CKRecord) -> [String: Any] {
+    let metadata = managedMetadata(record)
+    let marked = record[cloudKitContentHashField] as? String ?? "managed:"
+    var value: [String: Any] = ["recordId": record.recordID.recordName, "contentHash": String(marked.dropFirst("managed:".count)),
+      "revision": record.recordChangeTag ?? "", "modifiedAt": record.modificationDate?.iso8601String ?? "",
+      "uploadIds": metadata["uploadIds"] as? [String] ?? [], "deleting": metadata["deleting"] as? Bool ?? false,
+      "sizeBytes": (record[cloudKitAttachmentSizeField] as? NSNumber)?.intValue ?? assetFileSize(for: record, field: cloudKitAttachmentAssetField) ?? 0]
+    if let lastPublishedBundleId = metadata["lastPublishedBundleId"] as? String { value["lastPublishedBundleId"] = lastPublishedBundleId }
+    return value
+  }
+  private func managedRecords(_ database: CKDatabase, completion: @escaping ([CKRecord]?, Error?) -> Void) {
+    fetchAllCloudKitRecords(database: database, recordType: cloudKitAttachmentRecordType, sortedByModificationDate: false,
+      desiredKeys: [cloudKitContentHashField, cloudKitAttachmentLabelField, cloudKitAttachmentSizeField]) { records, error in
+        completion(records.filter { self.isValidManagedRecord($0) }, error)
+      }
+  }
+  private func saveManagedCAS(_ record: CKRecord, database: CKDatabase, completion: @escaping (Error?) -> Void) {
+    let op = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+    op.savePolicy = .ifServerRecordUnchanged; op.isAtomic = true
+    op.modifyRecordsCompletionBlock = { _, _, error in completion(error) }; database.add(op)
+  }
+  private func managedPinAttachment(hash: String, uploadId: String, payload: String?, type: String, label: String, size: Int, attempt: Int, result: @escaping FlutterResult) {
+    withAvailableCloudKit(result: result) { database in
+      let pinManaged: () -> Void = {
+      self.managedRecords(database) { records, error in
+        if let error { DispatchQueue.main.async { result(self.flutterError(from: error)) }; return }
+        let candidates = (records ?? []).filter { self.isValidManagedRecord($0) && ($0[self.cloudKitContentHashField] as? String) == "managed:\(hash)" && (self.managedMetadata($0)["deleting"] as? Bool != true) }
+        if let candidate = candidates.first(where: { let ids = self.managedMetadata($0)["uploadIds"] as? [String] ?? []; return ids.contains(uploadId) || ids.count < 3 }) {
+          var metadata = self.managedMetadata(candidate); var ids = metadata["uploadIds"] as? [String] ?? []
+          if !ids.contains(uploadId) { ids.append(uploadId) }; metadata["uploadIds"] = Array(ids.prefix(3)); metadata["protocol"] = 1
+          guard let metadataData = try? self.managedMetadataData(metadata), let metadataString = String(data: metadataData, encoding: .utf8) else { DispatchQueue.main.async { result(FlutterError(code: "invalidManagedMetadata", message: "Managed attachment metadata is invalid.", details: nil)) }; return }
+          candidate[self.cloudKitAttachmentLabelField] = metadataString as CKRecordValue
+          self.saveManagedCAS(candidate, database: database) { saveError in
+            if let ck = saveError as? CKError, ck.code == .serverRecordChanged, attempt < 3 { self.managedPinAttachment(hash: hash, uploadId: uploadId, payload: payload, type: type, label: label, size: size, attempt: attempt + 1, result: result); return }
+            DispatchQueue.main.async { if let saveError { result(self.flutterError(from: saveError)) } else { result(["recordId": candidate.recordID.recordName]) } }
+          }; return
+        }
+        let create: (String?) -> Void = { content in
+          guard let content, let data = content.data(using: .utf8) else { DispatchQueue.main.async { result(FlutterError(code: "missingAsset", message: "No attachment payload is available for a managed copy.", details: nil)) }; return }
+          let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+          do { try data.write(to: url); let id = CKRecord.ID(recordName: "managed-attachment-\(UUID().uuidString)", zoneID: self.cloudKitSyncZoneID); let record = CKRecord(recordType: self.cloudKitAttachmentRecordType, recordID: id)
+            record[self.cloudKitContentHashField] = "managed:\(hash)" as CKRecordValue; record[self.cloudKitAttachmentTypeField] = type as CKRecordValue; record[self.cloudKitAttachmentSizeField] = size as CKRecordValue
+            record[self.cloudKitAttachmentAssetField] = CKAsset(fileURL: url); let metadata: [String: Any] = ["label": label, "protocol": 1, "uploadIds": [uploadId], "deleting": false]
+            record[self.cloudKitAttachmentLabelField] = String(data: try self.managedMetadataData(metadata), encoding: .utf8) as CKRecordValue?
+            self.saveManagedCAS(record, database: database) { saveError in try? FileManager.default.removeItem(at: url); DispatchQueue.main.async { if let saveError { result(self.flutterError(from: saveError)) } else { result(["recordId": id.recordName]) } } }
+          } catch { DispatchQueue.main.async { result(self.flutterError(from: error)) } }
+        }
+        if let payload { create(payload) } else {
+          if let source = (records ?? []).first(where: { self.isValidManagedRecord($0) && ($0[self.cloudKitContentHashField] as? String) == "managed:\(hash)" && self.managedMetadata($0)["deleting"] as? Bool != true }) {
+            database.fetch(withRecordID: source.recordID) { sourceRecord, sourceError in
+              if let sourceRecord, self.isValidManagedRecord(sourceRecord), self.managedMetadata(sourceRecord)["deleting"] as? Bool != true,
+                 let asset = sourceRecord[self.cloudKitAttachmentAssetField] as? CKAsset, let url = asset.fileURL,
+                 let content = try? String(contentsOf: url, encoding: .utf8) { create(content) }
+              else if let sourceError { DispatchQueue.main.async { result(self.flutterError(from: sourceError)) } }
+              else { create(nil) }
+            }
+          } else { create(nil) }
+        }
+      }
+      }
+      // Legacy attachments remain outside managed GC. Reuse their immutable
+      // payload in place instead of transferring it solely to change formats.
+      let legacyID = CKRecord.ID(recordName: "attachment-\(hash)", zoneID: self.cloudKitSyncZoneID)
+      let lookup = CKFetchRecordsOperation(recordIDs: [legacyID])
+      lookup.desiredKeys = [self.cloudKitContentHashField]
+      lookup.fetchRecordsCompletionBlock = { records, lookupError in
+        if let legacy = records?[legacyID] {
+          guard legacy[self.cloudKitContentHashField] as? String == hash else {
+            DispatchQueue.main.async { result(FlutterError(code: "invalidLegacyMetadata", message: "Legacy attachment metadata is invalid.", details: nil)) }; return
+          }
+          DispatchQueue.main.async { result(["recordId": legacyID.recordName]) }; return
+        }
+        let ckError = lookupError as? CKError
+        let itemError = ckError?.partialErrorsByItemID?[legacyID] as? CKError
+        if ckError?.code == .unknownItem || itemError?.code == .unknownItem {
+          pinManaged(); return
+        }
+        DispatchQueue.main.async {
+          if let lookupError { result(self.flutterError(from: lookupError)) }
+          else { result(FlutterError(code: "missingLegacyMetadata", message: "Legacy attachment existence could not be verified.", details: nil)) }
+        }
+      }
+      database.add(lookup)
+    }
+  }
+  private func managedListAttachments(result: @escaping FlutterResult) {
+    withAvailableCloudKit(result: result) { database in self.managedRecords(database) { records, error in DispatchQueue.main.async { if let error { result(self.flutterError(from: error)); return }; result((records ?? []).map { self.managedResult($0) }) } } }
+  }
+  private func managedReleaseAttachment(id: String, uploadId: String, bundle: String, attempt: Int, result: @escaping FlutterResult) {
+    // A reused legacy record has no reservation to release and must stay intact.
+    if id.hasPrefix("attachment-") { result(true); return }
+    withAvailableCloudKit(result: result) { database in let rid = CKRecord.ID(recordName: id, zoneID: self.cloudKitSyncZoneID); database.fetch(withRecordID: rid) { record, error in
+      guard let record else { DispatchQueue.main.async { if (error as? CKError)?.code == .unknownItem { result(true) } else if let error { result(self.flutterError(from: error)) } else { result(true) } }; return }
+      guard self.isValidManagedRecord(record) else { DispatchQueue.main.async { result(FlutterError(code: "invalidManagedMetadata", message: "Managed attachment metadata is invalid.", details: nil)) }; return }
+      let existing = self.managedMetadata(record)
+      // Once claimed, a record is immutable. In particular, late release calls
+      // must not change the revision after the deletion claim.
+      if existing["deleting"] as? Bool == true { DispatchQueue.main.async { result(true) }; return }
+      var metadata = existing; var ids = metadata["uploadIds"] as? [String] ?? []; ids.removeAll { $0 == uploadId }; metadata["uploadIds"] = ids; metadata["lastPublishedBundleId"] = bundle
+      guard let metadataData = try? self.managedMetadataData(metadata), let metadataString = String(data: metadataData, encoding: .utf8) else { DispatchQueue.main.async { result(FlutterError(code: "invalidManagedMetadata", message: "Managed attachment metadata is invalid.", details: nil)) }; return }
+      record[self.cloudKitAttachmentLabelField] = metadataString as CKRecordValue
+      self.saveManagedCAS(record, database: database) { saveError in if (saveError as? CKError)?.code == .serverRecordChanged && attempt < 3 { self.managedReleaseAttachment(id: id, uploadId: uploadId, bundle: bundle, attempt: attempt + 1, result: result); return }; DispatchQueue.main.async { if let saveError { result(self.flutterError(from: saveError)) } else { result(true) } } }
+    } }
+  }
+  private func managedClaimDeleteAttachment(id: String, revision: String, result: @escaping FlutterResult) {
+    withAvailableCloudKit(result: result) { database in let rid = CKRecord.ID(recordName: id, zoneID: self.cloudKitSyncZoneID); database.fetch(withRecordID: rid) { record, error in
+      guard let record, self.isValidManagedRecord(record), record.recordChangeTag == revision, (self.managedMetadata(record)["uploadIds"] as? [String] ?? []).isEmpty else { DispatchQueue.main.async { result(["deleted": false]) }; return }
+      let deleteExactRecord = {
+        let op = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: [rid]); op.isAtomic = true
+        op.modifyRecordsCompletionBlock = { _, _, deleteError in DispatchQueue.main.async { if let deleteError { result(self.flutterError(from: deleteError)) } else { result(["deleted": true]) } } }
+        database.add(op)
+      }
+      if self.managedMetadata(record)["deleting"] as? Bool == true { deleteExactRecord(); return }
+      var metadata = self.managedMetadata(record); metadata["deleting"] = true
+      guard let metadataData = try? self.managedMetadataData(metadata), let metadataString = String(data: metadataData, encoding: .utf8) else { DispatchQueue.main.async { result(["deleted": false]) }; return }
+      record[self.cloudKitAttachmentLabelField] = metadataString as CKRecordValue
+      self.saveManagedCAS(record, database: database) { saveError in
+        if let saveError { DispatchQueue.main.async { result(["deleted": false]) }; return }
+        deleteExactRecord()
+      }
+    } }
   }
 
   private func cloudKitStorageBreakdown(result: @escaping FlutterResult) {
@@ -1520,94 +1687,44 @@ import FoundationModels
     }
   }
 
+  // Delete exact, previously enumerated bundle IDs only. Never sweep attachment
+  // objects: another device may have uploaded an object before its bundle.
   private func pruneObsoleteCloudKitData(
-    keepLatest: Int,
-    referencedAttachmentHashes: Set<String>,
+    bundleFileIdsToDelete: Set<String>,
+    expectedLatestFileId: String?,
     result: @escaping FlutterResult
   ) {
     withAvailableCloudKit(result: result) { database in
-      let group = DispatchGroup()
-      var bundleRecords: [CKRecord] = []
-      var attachmentRecords: [CKRecord] = []
-      var firstError: Error?
-
-      group.enter()
       self.fetchAllCloudKitRecords(
         database: database,
         recordType: self.cloudKitRecordType,
         sortedByModificationDate: true
       ) { records, error in
-        if let error, firstError == nil {
-          firstError = error
+        if let error {
+          DispatchQueue.main.async { result(self.flutterError(from: error)) }
+          return
         }
-        bundleRecords = records
-        group.leave()
-      }
-
-      group.enter()
-      self.fetchAllCloudKitRecords(
-        database: database,
-        recordType: self.cloudKitAttachmentRecordType,
-        sortedByModificationDate: false
-      ) { records, error in
-        if let error, firstError == nil {
-          firstError = error
-        }
-        attachmentRecords = records
-        group.leave()
-      }
-
-      group.notify(queue: .global(qos: .utility)) {
-        if let firstError {
+        guard let expectedLatestFileId,
+              records.first?.recordID.recordName == expectedLatestFileId else {
           DispatchQueue.main.async {
-            result(self.flutterError(from: firstError))
+            result(["deletedBundleCount": 0, "deletedBundleBytes": 0,
+                    "deletedAttachmentCount": 0, "deletedAttachmentBytes": 0])
           }
           return
         }
-
-        let bundleRecordsToDelete = Array(bundleRecords.dropFirst(keepLatest))
-        let attachmentRecordsToDelete = attachmentRecords.filter { record in
-          guard let contentHash = record[self.cloudKitContentHashField] as? String else {
-            return true
-          }
-          return !referencedAttachmentHashes.contains(contentHash)
+        let selected = records.filter {
+          bundleFileIdsToDelete.contains($0.recordID.recordName) &&
+            $0.recordID.recordName != expectedLatestFileId
         }
-        let deletedBundleBytes = bundleRecordsToDelete.reduce(0) { total, record in
+        let bytes = selected.reduce(0) { total, record in
           total + (self.assetFileSize(for: record, field: self.cloudKitAssetField) ?? 0)
         }
-        let deletedAttachmentBytes = attachmentRecordsToDelete.reduce(0) { total, record in
-          total + (self.assetFileSize(for: record, field: self.cloudKitAttachmentAssetField) ?? 0)
-        }
-        let recordIDsToDelete =
-          bundleRecordsToDelete.map { $0.recordID } +
-          attachmentRecordsToDelete.map { $0.recordID }
-        if recordIDsToDelete.isEmpty {
+        self.deleteCloudKitRecords(database: database,
+          recordIDs: selected.map { $0.recordID }) { error in
           DispatchQueue.main.async {
-            result([
-              "deletedBundleCount": 0,
-              "deletedBundleBytes": 0,
-              "deletedAttachmentCount": 0,
-              "deletedAttachmentBytes": 0,
-            ])
-          }
-          return
-        }
-
-        self.deleteCloudKitRecords(
-          database: database,
-          recordIDs: recordIDsToDelete
-        ) { error in
-          DispatchQueue.main.async {
-            if let error {
-              result(self.flutterError(from: error))
-              return
-            }
-            result([
-              "deletedBundleCount": bundleRecordsToDelete.count,
-              "deletedBundleBytes": deletedBundleBytes,
-              "deletedAttachmentCount": attachmentRecordsToDelete.count,
-              "deletedAttachmentBytes": deletedAttachmentBytes,
-            ])
+            if let error { result(self.flutterError(from: error)); return }
+            result(["deletedBundleCount": selected.count, "deletedBundleBytes": bytes,
+                    "deletedAttachmentCount": 0, "deletedAttachmentBytes": 0])
           }
         }
       }

@@ -1,18 +1,28 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
 import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
+import 'package:http/http.dart' as http;
+import 'package:http/http.dart' show ClientException;
 
 import 'google_sign_in_initializer.dart';
 import 'sync_bundle_key_service.dart';
+import 'remote_attachment_maintenance.dart';
 
 /// Identifies whether a remote bundle contains every syncable note (full
 /// snapshot) or only the changes queued since the previous upload (delta).
 abstract final class SyncBundleKind {
   static const full = 'full';
+
+  // Older readers must treat dependency-bearing checkpoints as deltas, rather
+  // than assuming the standalone note list is a complete restore baseline.
+  static const fullWithRetainedNotes = 'full-retained';
   static const delta = 'delta';
 }
 
@@ -26,6 +36,7 @@ class RemoteSyncBundleStatus {
     this.attachmentCount,
     this.deviceId,
     this.bundleKind,
+    this.replayBaseFileId,
   });
 
   final String fileId;
@@ -40,11 +51,14 @@ class RemoteSyncBundleStatus {
   /// uploaded before the kind was recorded (legacy bundles were always full
   /// snapshots).
   final String? bundleKind;
+  final String? replayBaseFileId;
 
   bool get isFullBundle =>
       bundleKind == null ||
       bundleKind!.isEmpty ||
-      bundleKind == SyncBundleKind.full;
+      bundleKind == SyncBundleKind.full ||
+      bundleKind == SyncBundleKind.fullWithRetainedNotes ||
+      bundleKind == 'full-ids-v1';
 }
 
 class DownloadedRemoteSyncBundle {
@@ -68,6 +82,7 @@ abstract class GoogleDriveSyncTransport {
     required int noteCount,
     required int attachmentCount,
     String bundleKind = SyncBundleKind.full,
+    String? replayBaseFileId,
   });
 
   Future<void> uploadAttachmentObject({
@@ -88,6 +103,10 @@ abstract class GoogleDriveSyncTransport {
   Future<DownloadedRemoteSyncBundle?> downloadBundleByFileId(String fileId);
 }
 
+abstract interface class RemoteBundleMaintenanceTransport {
+  Future<void> deleteBundleFilesByIds(Set<String> ids);
+}
+
 /// Read-and-delete access for recovery keys written by older app versions.
 ///
 /// The current app never uploads a raw sync key to Google Drive because that
@@ -99,7 +118,11 @@ abstract class LegacyGoogleDriveSyncKeyTransport {
 }
 
 class InMemoryGoogleDriveSyncTransport
-    implements GoogleDriveSyncTransport, LegacyGoogleDriveSyncKeyTransport {
+    implements
+        GoogleDriveSyncTransport,
+        LegacyGoogleDriveSyncKeyTransport,
+        RemoteBundleMaintenanceTransport,
+        RemoteAttachmentMaintenanceTransport {
   InMemoryGoogleDriveSyncTransport({
     this.uploadDelay = const Duration(milliseconds: 120),
   });
@@ -107,8 +130,11 @@ class InMemoryGoogleDriveSyncTransport
   final Duration uploadDelay;
 
   final Map<String, String> _attachmentObjects = {};
+  final Map<String, _MemoryManagedAttachment> _managedAttachments = {};
+  var _nextAttachmentId = 1;
   final List<_InMemoryGoogleDriveBundle> _bundles = [];
   final List<String> _syncKeyBackupCodes = [];
+  var _nextBundleId = 1;
 
   @override
   Future<RemoteSyncBundleStatus?> fetchLatestBundleStatus() async {
@@ -135,12 +161,13 @@ class InMemoryGoogleDriveSyncTransport
     required int noteCount,
     required int attachmentCount,
     String bundleKind = SyncBundleKind.full,
+    String? replayBaseFileId,
   }) async {
     if (uploadDelay > Duration.zero) {
       await Future<void>.delayed(uploadDelay);
     }
     final now = DateTime.now().toUtc();
-    final uploadNumber = _bundles.length + 1;
+    final uploadNumber = _nextBundleId++;
     final status = RemoteSyncBundleStatus(
       fileId: 'fake-google-drive-bundle-$uploadNumber',
       fileName:
@@ -151,6 +178,7 @@ class InMemoryGoogleDriveSyncTransport
       attachmentCount: attachmentCount,
       deviceId: deviceId,
       bundleKind: bundleKind,
+      replayBaseFileId: replayBaseFileId,
     );
     _bundles.add(
       _InMemoryGoogleDriveBundle(
@@ -178,24 +206,103 @@ class InMemoryGoogleDriveSyncTransport
 
   @override
   Future<Set<String>> listAttachmentObjectContentHashes() async {
-    return _attachmentObjects.keys.toSet();
+    return {
+      ..._attachmentObjects.keys,
+      ..._managedAttachments.values
+          .where((o) => !o.deleting)
+          .map((o) => o.contentHash),
+    };
   }
 
   @override
   Future<String?> downloadAttachmentObject(String contentHash) async {
+    final managed = _managedAttachments.values
+        .where((o) => o.contentHash == contentHash && !o.deleting)
+        .toList();
+    if (managed.isNotEmpty) return managed.first.payload;
     return _attachmentObjects[contentHash];
   }
 
   @override
   Future<DownloadedRemoteSyncBundle?> downloadLatestBundle() async {
-    if (_bundles.isEmpty) {
-      return null;
-    }
+    if (_bundles.isEmpty) return null;
     final bundle = _bundles.last;
     return DownloadedRemoteSyncBundle(
       status: bundle.status,
       encodedPayload: bundle.encodedPayload,
     );
+  }
+
+  @override
+  Future<String> pinAttachmentObject({
+    required String contentHash,
+    required String uploadId,
+    String? encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+  }) async {
+    // Legacy objects are permanently outside managed GC. Reuse them without
+    // copying bytes or creating a reservation that older clients cannot honor.
+    if (_attachmentObjects.containsKey(contentHash)) {
+      return 'legacy:$contentHash';
+    }
+    for (final o in _managedAttachments.values) {
+      if (o.contentHash == contentHash &&
+          !o.deleting &&
+          o.uploadIds.length < 3) {
+        o.uploadIds.add(uploadId);
+        o.revision++;
+        return o.id;
+      }
+    }
+    final payload =
+        encodedPayload ?? await downloadAttachmentObject(contentHash);
+    if (payload == null) throw StateError('Attachment payload is unavailable.');
+    final id = 'fake-managed-attachment-${_nextAttachmentId++}';
+    _managedAttachments[id] = _MemoryManagedAttachment(
+      id,
+      contentHash,
+      payload,
+      sizeBytes,
+      {uploadId},
+    );
+    return id;
+  }
+
+  @override
+  Future<void> releaseAttachmentObject({
+    required String recordId,
+    required String uploadId,
+    required String publishedBundleId,
+  }) async {
+    final o = _managedAttachments[recordId];
+    if (o == null || o.deleting) return;
+    o.uploadIds.remove(uploadId);
+    o.lastPublishedBundleId = publishedBundleId;
+    o.revision++;
+  }
+
+  @override
+  Future<List<ManagedAttachmentObject>> listManagedAttachmentObjects() async =>
+      _managedAttachments.values
+          .map((o) => o.snapshot())
+          .toList(growable: false);
+
+  @override
+  Future<bool> claimAndDeleteAttachmentObject(
+    ManagedAttachmentObject candidate,
+  ) async {
+    final o = _managedAttachments[candidate.id];
+    if (o == null ||
+        o.revision.toString() != candidate.revision ||
+        o.uploadIds.isNotEmpty) {
+      return false;
+    }
+    o.deleting = true;
+    o.revision++;
+    _managedAttachments.remove(candidate.id);
+    return true;
   }
 
   @override
@@ -211,6 +318,12 @@ class InMemoryGoogleDriveSyncTransport
       }
     }
     return null;
+  }
+
+  @override
+  Future<void> deleteBundleFilesByIds(Set<String> ids) async {
+    if (ids.isEmpty) return;
+    _bundles.removeWhere((bundle) => ids.contains(bundle.status.fileId));
   }
 
   @override
@@ -245,6 +358,32 @@ class _InMemoryGoogleDriveBundle {
 
   final RemoteSyncBundleStatus status;
   final String encodedPayload;
+}
+
+class _MemoryManagedAttachment {
+  _MemoryManagedAttachment(
+    this.id,
+    this.contentHash,
+    this.payload,
+    this.sizeBytes,
+    this.uploadIds,
+  );
+  final String id, contentHash, payload;
+  final int sizeBytes;
+  final Set<String> uploadIds;
+  int revision = 1;
+  bool deleting = false;
+  String? lastPublishedBundleId;
+  ManagedAttachmentObject snapshot() => ManagedAttachmentObject(
+    id: id,
+    contentHash: contentHash,
+    revision: revision.toString(),
+    modifiedAt: DateTime.now().toUtc(),
+    uploadIds: Set.unmodifiable(uploadIds),
+    lastPublishedBundleId: lastPublishedBundleId,
+    deleting: deleting,
+    sizeBytes: sizeBytes,
+  );
 }
 
 class GoogleDriveCloudSyncBundleKeyStore
@@ -332,11 +471,29 @@ class GoogleDriveSyncException implements Exception {
   String toString() => message;
 }
 
+class _DriveMediaStreamFailure implements Exception {
+  const _DriveMediaStreamFailure(this.error, this.stackTrace);
+
+  final Object error;
+  final StackTrace stackTrace;
+}
+
+class _InvalidManagedAttachmentMetadata implements Exception {
+  const _InvalidManagedAttachmentMetadata();
+}
+
 class GoogleApisGoogleDriveSyncTransport
-    implements GoogleDriveSyncTransport, LegacyGoogleDriveSyncKeyTransport {
+    implements
+        GoogleDriveSyncTransport,
+        LegacyGoogleDriveSyncKeyTransport,
+        RemoteBundleMaintenanceTransport,
+        RemoteAttachmentMaintenanceTransport {
   GoogleApisGoogleDriveSyncTransport({
     this.authConfig = const GoogleDriveAuthConfig(),
-  });
+    this._driveApiProvider,
+    http.Client? maintenanceClient,
+  }) : _maintenanceClientOverride = maintenanceClient,
+       _maintenanceClient = maintenanceClient;
 
   static const scope = 'https://www.googleapis.com/auth/drive.appdata';
   static const _bundleFileName = 'himemo_sync_bundle.enc';
@@ -344,6 +501,9 @@ class GoogleApisGoogleDriveSyncTransport
   static const _syncKeyFileName = 'himemo_sync_key_v1.json';
   static const _attachmentFilePrefix = 'himemo_sync_attachment_';
   static const _attachmentFileSuffix = '.encjson';
+  static const _managedAttachmentPrefix = 'himemo_managed_attachment_';
+  static const _managedKind = 'attachment-managed-v1';
+  static final _secureRandom = Random.secure();
   static const _spaces = 'appDataFolder';
   static const _retryDelays = <Duration>[
     Duration(seconds: 1),
@@ -352,6 +512,11 @@ class GoogleApisGoogleDriveSyncTransport
   ];
 
   final GoogleDriveAuthConfig authConfig;
+  final Future<drive.DriveApi> Function()? _driveApiProvider;
+  final http.Client? _maintenanceClientOverride;
+  http.Client? _maintenanceClient;
+  final Set<String> _legacyAttachmentIds = {};
+  Map<String, List<drive.File>>? _managedAttachmentInventory;
 
   @override
   Future<RemoteSyncBundleStatus?> fetchLatestBundleStatus() async {
@@ -379,10 +544,10 @@ class GoogleApisGoogleDriveSyncTransport
     required int noteCount,
     required int attachmentCount,
     String bundleKind = SyncBundleKind.full,
+    String? replayBaseFileId,
   }) async {
     final api = await _openDriveApi(interactive: false);
     final bytes = utf8.encode(encodedPayload);
-    final media = drive.Media(Stream<List<int>>.value(bytes), bytes.length);
     final stamp = DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');
     final metadata = drive.File()
       ..name = '$_bundleFilePrefix$stamp.enc'
@@ -393,12 +558,14 @@ class GoogleApisGoogleDriveSyncTransport
         'noteCount': '$noteCount',
         'attachmentCount': '$attachmentCount',
         'bundleKind': bundleKind,
+        'replayBaseFileId': ?replayBaseFileId,
       };
 
     final result = await _withDriveRetry(
       () => api.files.create(
         metadata,
-        uploadMedia: media,
+        // Each attempt needs a fresh, single-subscription body stream.
+        uploadMedia: drive.Media(Stream<List<int>>.value(bytes), bytes.length),
         $fields: 'id,name,modifiedTime,size,appProperties',
       ),
     );
@@ -423,7 +590,6 @@ class GoogleApisGoogleDriveSyncTransport
       }
     }
     final bytes = utf8.encode(encodedPayload);
-    final media = drive.Media(Stream<List<int>>.value(bytes), bytes.length);
     final metadata = drive.File()
       ..name = '$_attachmentFilePrefix$contentHash$_attachmentFileSuffix'
       ..parents = ['appDataFolder']
@@ -438,7 +604,7 @@ class GoogleApisGoogleDriveSyncTransport
     await _withDriveRetry(
       () => api.files.create(
         metadata,
-        uploadMedia: media,
+        uploadMedia: drive.Media(Stream<List<int>>.value(bytes), bytes.length),
         $fields: 'id,name,modifiedTime,size,appProperties',
       ),
     );
@@ -453,12 +619,278 @@ class GoogleApisGoogleDriveSyncTransport
   @override
   Future<String?> downloadAttachmentObject(String contentHash) async {
     final api = await _openDriveApi(interactive: false);
+    final managed = await _findManagedAttachments(api, contentHash);
+    for (final file in managed) {
+      if (file.id == null) continue;
+      try {
+        final snap = await _getManagedSnapshot(file.id!);
+        if (snap != null && !snap.deleting) {
+          return (await _downloadFile(api, file)).encodedPayload;
+        }
+      } on _InvalidManagedAttachmentMetadata {
+        continue;
+      }
+    }
     final existing = await _findAttachmentObject(api, contentHash);
     if (existing == null || existing.id == null || existing.id!.isEmpty) {
       return null;
     }
     final downloaded = await _downloadFile(api, existing);
     return downloaded.encodedPayload;
+  }
+
+  @override
+  Future<String> pinAttachmentObject({
+    required String contentHash,
+    required String uploadId,
+    String? encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+  }) async {
+    final api = await _openDriveApi(interactive: false);
+    // Never turn an ordinary sync into an implicit byte-for-byte migration.
+    // Legacy files remain unmanaged and are excluded from attachment GC.
+    final legacy = await _findAttachmentObject(api, contentHash);
+    if (legacy?.id case final id? when id.isNotEmpty) {
+      _legacyAttachmentIds.add(id);
+      return id;
+    }
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final inventory = _managedAttachmentInventory;
+      final candidates = inventory == null
+          ? await _findManagedAttachments(api, contentHash)
+          : inventory[contentHash] ?? const <drive.File>[];
+      var full = false;
+      var conflict = false;
+      var needsNewObject = candidates.isEmpty;
+      for (final f in candidates) {
+        final id = f.id;
+        if (id == null || id.isEmpty) continue;
+        ManagedAttachmentObject? snap;
+        try {
+          snap = await _getManagedSnapshot(id);
+        } on _InvalidManagedAttachmentMetadata {
+          needsNewObject = true;
+          continue;
+        }
+        if (snap == null) {
+          needsNewObject = true;
+          continue;
+        }
+        if (snap.deleting) {
+          needsNewObject = true;
+          continue;
+        }
+        if (snap.uploadIds.contains(uploadId)) return id;
+        if (snap.uploadIds.length >= 3) {
+          full = true;
+          continue;
+        }
+        final holds = {...snap.uploadIds, uploadId};
+        final response = await _patchManaged(id, snap.revision, {
+          'holds': jsonEncode(holds.toList()),
+        });
+        if (response == 412) {
+          conflict = true;
+          break;
+        }
+        if (response >= 200 && response < 300) return id;
+        throw GoogleDriveSyncException(
+          'Could not reserve the attachment.',
+          statusCode: response,
+        );
+      }
+      if (conflict) {
+        _managedAttachmentInventory = null;
+        continue;
+      }
+      final payload =
+          encodedPayload ??
+          await _downloadManagedCopy(api, candidates, contentHash) ??
+          await downloadAttachmentObject(contentHash);
+      if (payload == null) {
+        throw StateError('Attachment payload is unavailable.');
+      }
+      // A full holder set means a new immutable object is required. A conflict
+      // also restarts discovery before deciding whether another object fits.
+      if (attempt == 4) break;
+      if (full || needsNewObject) {
+        final bytes = utf8.encode(payload);
+        final nonce = List<int>.generate(16, (_) => _secureRandom.nextInt(256));
+        final name =
+            '$_managedAttachmentPrefix${base64Url.encode(nonce).replaceAll('=', '')}$_attachmentFileSuffix';
+        final metadata = drive.File()
+          ..name = name
+          ..parents = ['appDataFolder']
+          ..appProperties = {
+            'kind': _managedKind,
+            'contentHash': contentHash,
+            'type': type,
+            'label': label,
+            'sizeBytes': '$sizeBytes',
+            'holds': jsonEncode([uploadId]),
+            'deleting': 'false',
+            'protocol': '1',
+          };
+        final created = await _withDriveRetry(
+          () => api.files.create(
+            metadata,
+            // A retry must get a fresh single-subscription upload stream.
+            uploadMedia: drive.Media(
+              Stream<List<int>>.value(bytes),
+              bytes.length,
+            ),
+            $fields: 'id,name,modifiedTime,size,appProperties',
+          ),
+        );
+        if (created.id == null || created.id!.isEmpty) {
+          throw StateError('Drive returned no attachment ID.');
+        }
+        return created.id!;
+      }
+    }
+    throw const GoogleDriveSyncException(
+      'Attachment reservation changed repeatedly; retry sync.',
+    );
+  }
+
+  @override
+  Future<void> releaseAttachmentObject({
+    required String recordId,
+    required String uploadId,
+    required String publishedBundleId,
+  }) async {
+    if (_legacyAttachmentIds.contains(recordId)) return;
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final s = await _getManagedSnapshot(recordId);
+      if (s == null || s.deleting) return;
+      final holds = {...s.uploadIds}..remove(uploadId);
+      final code = await _patchManaged(recordId, s.revision, {
+        'holds': jsonEncode(holds.toList()),
+        'lastBundle': publishedBundleId,
+      });
+      if (code == 412) continue;
+      if (code >= 200 && code < 300) return;
+      throw GoogleDriveSyncException(
+        'Could not release the attachment reservation.',
+        statusCode: code,
+      );
+    }
+    throw const GoogleDriveSyncException(
+      'Attachment reservation changed repeatedly; retry sync.',
+    );
+  }
+
+  @override
+  Future<List<ManagedAttachmentObject>> listManagedAttachmentObjects() async {
+    await _openDriveApi(interactive: false);
+    final client = _maintenanceClient;
+    if (client == null) {
+      throw const GoogleDriveAuthConfigurationException(
+        'Google Drive attachment maintenance is not authorized.',
+      );
+    }
+    final out = <ManagedAttachmentObject>[];
+    String? token;
+    do {
+      // v2 exposes etags in list results; capture them before the controller
+      // scans bundle references, without issuing a GET per attachment.
+      final uri = Uri.https('www.googleapis.com', '/drive/v2/files', {
+        'spaces': _spaces,
+        'q':
+            "properties has { key='kind' and value='$_managedKind' and visibility='PRIVATE' } and trashed = false",
+        'maxResults': '1000',
+        'pageToken': ?token,
+        'fields':
+            'nextPageToken,items(id,etag,properties,modifiedDate,fileSize)',
+      });
+      final streamed = await client.send(http.Request('GET', uri));
+      final response = await http.Response.fromStream(streamed);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw GoogleDriveSyncException(
+          'Could not list managed attachments.',
+          statusCode: response.statusCode,
+        );
+      }
+      final body = _decodeResponseObject(response.body);
+      final items = body['items'] ?? const <dynamic>[];
+      if (items is! List) {
+        throw const GoogleDriveSyncException('Invalid attachment inventory.');
+      }
+      for (final raw in items) {
+        if (raw is! Map<String, dynamic>) continue;
+        try {
+          out.add(_managedSnapshotFromV2(raw));
+        } on _InvalidManagedAttachmentMetadata {
+          // Malformed objects are never eligible for deletion.
+          continue;
+        }
+      }
+      token = body['nextPageToken'] as String?;
+    } while (token != null && token.isNotEmpty);
+    // Discovery hints only: every mutation still obtains a fresh snapshot and
+    // performs a conditional write. A concurrent 412 invalidates these hints.
+    _managedAttachmentInventory = {};
+    for (final item in out) {
+      (_managedAttachmentInventory![item.contentHash] ??= []).add(
+        drive.File()
+          ..id = item.id
+          ..size = item.sizeBytes.toString(),
+      );
+    }
+    return out;
+  }
+
+  @override
+  Future<bool> claimAndDeleteAttachmentObject(
+    ManagedAttachmentObject candidate,
+  ) async {
+    ManagedAttachmentObject? s;
+    try {
+      s = await _getManagedSnapshot(candidate.id);
+    } on _InvalidManagedAttachmentMetadata {
+      return false;
+    }
+    if (s == null ||
+        s.revision != candidate.revision ||
+        s.uploadIds.isNotEmpty) {
+      return false;
+    }
+    if (!s.deleting) {
+      final code = await _patchManaged(candidate.id, s.revision, {
+        'deleting': 'true',
+      });
+      if (code == 412) return false;
+      if (code < 200 || code >= 300) {
+        throw GoogleDriveSyncException(
+          'Could not claim attachment for deletion.',
+          statusCode: code,
+        );
+      }
+    }
+    ManagedAttachmentObject? again;
+    try {
+      again = await _getManagedSnapshot(candidate.id);
+    } on _InvalidManagedAttachmentMetadata {
+      return false;
+    }
+    if (again == null) return true;
+    if (!again.deleting || again.uploadIds.isNotEmpty) return false;
+    final del = await _maintenanceRequest(
+      'DELETE',
+      candidate.id,
+      etag: again.revision,
+    );
+    if (del.statusCode == 404 ||
+        (del.statusCode >= 200 && del.statusCode < 300)) {
+      return true;
+    }
+    if (del.statusCode == 412) return false;
+    throw GoogleDriveSyncException(
+      'Could not delete managed attachment.',
+      statusCode: del.statusCode,
+    );
   }
 
   @override
@@ -528,19 +960,38 @@ class GoogleApisGoogleDriveSyncTransport
     }
   }
 
+  @override
+  Future<void> deleteBundleFilesByIds(Set<String> ids) async {
+    if (ids.isEmpty) return;
+    final api = await _openDriveApi(interactive: false);
+    for (final id in ids) {
+      if (id.isNotEmpty) await _withDriveRetry(() => api.files.delete(id));
+    }
+  }
+
   Future<DownloadedRemoteSyncBundle> _downloadFile(
     drive.DriveApi api,
     drive.File file,
   ) async {
-    final response = await _withDriveRetry(
-      () => api.files.get(
+    final bytes = await _withDriveRetry(() async {
+      final response = await api.files.get(
         file.id!,
         downloadOptions: drive.DownloadOptions.fullMedia,
-      ),
-    );
-    final media = response as drive.Media;
-    final chunks = await _withDriveRetry(media.stream.toList);
-    final bytes = chunks.expand((chunk) => chunk).toList(growable: false);
+      );
+      final media = response as drive.Media;
+      final builder = BytesBuilder(copy: false);
+      try {
+        await for (final chunk in media.stream) {
+          builder.add(chunk);
+        }
+      } on drive.ApiRequestError catch (error, stackTrace) {
+        // googleapis wraps transport errors encountered after the response
+        // headers arrive as ApiRequestError. While consuming a media stream,
+        // these represent an incomplete transfer and are safe to retry.
+        throw _DriveMediaStreamFailure(error, stackTrace);
+      }
+      return builder.takeBytes();
+    });
     return DownloadedRemoteSyncBundle(
       status: _toStatus(file),
       encodedPayload: utf8.decode(bytes),
@@ -548,6 +999,8 @@ class GoogleApisGoogleDriveSyncTransport
   }
 
   Future<drive.DriveApi> _openDriveApi({required bool interactive}) async {
+    final override = _driveApiProvider;
+    if (override != null) return override();
     try {
       await GoogleSignInInitializer.ensureInitialized(authConfig);
       final cachedAuthorization = await GoogleSignIn
@@ -555,9 +1008,9 @@ class GoogleApisGoogleDriveSyncTransport
           .authorizationClient
           .authorizationForScopes(const [scope]);
       if (cachedAuthorization != null) {
-        return drive.DriveApi(
-          cachedAuthorization.authClient(scopes: const [scope]),
-        );
+        final client = cachedAuthorization.authClient(scopes: const [scope]);
+        _maintenanceClient = _maintenanceClientOverride ?? client;
+        return drive.DriveApi(client);
       }
       if (!interactive) {
         return _authorizationUnavailable();
@@ -596,6 +1049,7 @@ class GoogleApisGoogleDriveSyncTransport
       }
 
       final client = authorization.authClient(scopes: const [scope]);
+      _maintenanceClient = _maintenanceClientOverride ?? client;
       return drive.DriveApi(client);
     } on PlatformException catch (error) {
       throw _mapPlatformException(error);
@@ -734,7 +1188,258 @@ class GoogleApisGoogleDriveSyncTransport
       }
       pageToken = response.nextPageToken;
     } while (pageToken != null && pageToken.isNotEmpty);
+    final managed = await _findManagedAttachments(api, null);
+    for (final file in managed) {
+      if (file.id == null) continue;
+      try {
+        final snapshot = await _getManagedSnapshot(file.id!);
+        if (snapshot != null && !snapshot.deleting) {
+          hashes.add(snapshot.contentHash);
+        }
+      } on _InvalidManagedAttachmentMetadata {
+        continue;
+      }
+    }
     return hashes;
+  }
+
+  Future<List<drive.File>> _findManagedAttachments(
+    drive.DriveApi api,
+    String? hash,
+  ) async {
+    final files = <drive.File>[];
+    String? token;
+    final hashFilter = hash == null
+        ? ''
+        : " and appProperties has { key='contentHash' and value='$hash' }";
+    do {
+      final r = await _withDriveRetry(
+        () => api.files.list(
+          spaces: _spaces,
+          q: "appProperties has { key='kind' and value='$_managedKind' }$hashFilter and trashed = false",
+          orderBy: 'modifiedTime desc',
+          pageSize: 1000,
+          pageToken: token,
+          $fields:
+              'nextPageToken,files(id,name,modifiedTime,size,appProperties)',
+        ),
+      );
+      files.addAll(r.files ?? const <drive.File>[]);
+      token = r.nextPageToken;
+    } while (token != null && token.isNotEmpty);
+    return files;
+  }
+
+  Future<ManagedAttachmentObject?> _getManagedSnapshot(String id) async {
+    final r = await _maintenanceRequest('GET', id);
+    if (r.statusCode == 404) return null;
+    if (r.statusCode < 200 || r.statusCode >= 300) {
+      throw GoogleDriveSyncException(
+        'Could not inspect managed attachment.',
+        statusCode: r.statusCode,
+      );
+    }
+    return _managedSnapshotFromV2(_decodeResponseObject(r.body));
+  }
+
+  ManagedAttachmentObject _managedSnapshotFromV2(Map<String, dynamic> body) {
+    final id = body['id'];
+    final etag = body['etag'];
+    if (id is! String || id.isEmpty || etag is! String || etag.isEmpty) {
+      throw const _InvalidManagedAttachmentMetadata();
+    }
+    final props = _validatedManagedProperties(
+      body['appProperties'] ?? _privatePropertiesFromV2(body['properties']),
+    );
+    final holds = jsonDecode(props['holds']!);
+    return ManagedAttachmentObject(
+      id: id,
+      contentHash: props['contentHash']!,
+      revision: etag,
+      modifiedAt: DateTime.tryParse(body['modifiedDate']?.toString() ?? '')
+          ?.toUtc(),
+      uploadIds: holds is List ? holds.whereType<String>().toSet() : <String>{},
+      lastPublishedBundleId: props['lastBundle'],
+      deleting: props['deleting'] == 'true',
+      sizeBytes: int.tryParse(body['fileSize']?.toString() ?? '') ?? 0,
+    );
+  }
+
+  Map<String, String> _privatePropertiesFromV2(Object? raw) {
+    final properties = <String, String>{};
+    if (raw is List) {
+      for (final property in raw) {
+        if (property is Map &&
+            property['visibility'] == 'PRIVATE' &&
+            property['key'] is String &&
+            property['value'] is String) {
+          properties[property['key'] as String] = property['value'] as String;
+        }
+      }
+    }
+    return properties;
+  }
+
+  Future<int> _patchManaged(
+    String id,
+    String etag,
+    Map<String, String> changes,
+  ) async {
+    final current = await _maintenanceRequest('GET', id);
+    if (current.statusCode == 404) return 404;
+    if (current.statusCode < 200 || current.statusCode >= 300) {
+      throw GoogleDriveSyncException(
+        'Could not inspect managed attachment.',
+        statusCode: current.statusCode,
+      );
+    }
+    final body = _decodeResponseObject(current.body);
+    if ((body['etag']?.toString() ?? '') != etag) return 412;
+    final existing = _validatedManagedProperties(body['appProperties']);
+    existing.addAll(changes);
+    final r = await _maintenanceRequest(
+      'PATCH',
+      id,
+      etag: etag,
+      body: {'appProperties': existing},
+    );
+    return r.statusCode;
+  }
+
+  Map<String, String> _validatedManagedProperties(Object? raw) {
+    if (raw is! Map) throw const _InvalidManagedAttachmentMetadata();
+    final props = <String, String>{};
+    for (final entry in raw.entries) {
+      if (entry.key is! String || entry.value is! String) {
+        throw const _InvalidManagedAttachmentMetadata();
+      }
+      props[entry.key as String] = entry.value as String;
+    }
+    if (props['kind'] != _managedKind ||
+        props['protocol'] != '1' ||
+        (props['contentHash']?.isNotEmpty ?? false) == false ||
+        (props['deleting'] != 'true' && props['deleting'] != 'false')) {
+      throw const _InvalidManagedAttachmentMetadata();
+    }
+    final encodedHolds = props['holds'];
+    if (encodedHolds == null) throw const _InvalidManagedAttachmentMetadata();
+    Object? decoded;
+    try {
+      decoded = jsonDecode(encodedHolds);
+    } on FormatException {
+      throw const _InvalidManagedAttachmentMetadata();
+    }
+    if (decoded is! List || decoded.any((e) => e is! String)) {
+      throw const _InvalidManagedAttachmentMetadata();
+    }
+    final holders = decoded.cast<String>();
+    if (holders.length > 3 || holders.toSet().length != holders.length) {
+      throw const _InvalidManagedAttachmentMetadata();
+    }
+    return props;
+  }
+
+  Future<String?> _downloadManagedCopy(
+    drive.DriveApi api,
+    List<drive.File> candidates,
+    String contentHash,
+  ) async {
+    for (final file in candidates) {
+      final id = file.id;
+      if (id == null || id.isEmpty) continue;
+      try {
+        final snap = await _getManagedSnapshot(id);
+        if (snap == null || snap.contentHash != contentHash) continue;
+        // Deleting is a reuse barrier, but its immutable content remains a
+        // valid source for cloning into a new reserved object.
+        return (await _downloadFile(api, file)).encodedPayload;
+      } on _InvalidManagedAttachmentMetadata {
+        continue;
+      } on GoogleDriveSyncException catch (error) {
+        if (error.statusCode == 404) continue;
+        rethrow;
+      }
+    }
+    return null;
+  }
+
+  Future<http.Response> _maintenanceRequest(
+    String method,
+    String id, {
+    String? etag,
+    Object? body,
+  }) async {
+    final client = _maintenanceClient;
+    if (client == null) {
+      throw const GoogleDriveAuthConfigurationException(
+        'Google Drive attachment maintenance is not authorized.',
+      );
+    }
+    final uri = Uri.https(
+      'www.googleapis.com',
+      '/drive/v2/files/$id',
+      method == 'GET'
+          ? {'fields': 'id,etag,properties,modifiedDate,fileSize'}
+          : null,
+    );
+    final req = http.Request(method, uri);
+    if (etag != null) req.headers['If-Match'] = etag;
+    if (body != null) {
+      req.headers['Content-Type'] = 'application/json';
+      final appProperties = (body as Map<String, Object?>)['appProperties'];
+      if (appProperties is Map<String, String>) {
+        req.body = jsonEncode({
+          'properties': appProperties.entries
+              .map(
+                (e) => {
+                  'key': e.key,
+                  'value': e.value,
+                  'visibility': 'PRIVATE',
+                },
+              )
+              .toList(growable: false),
+        });
+      } else {
+        req.body = jsonEncode(body);
+      }
+    }
+    final streamed = await client.send(req);
+    final response = await http.Response.fromStream(streamed);
+    if (method != 'GET' ||
+        response.statusCode < 200 ||
+        response.statusCode >= 300) {
+      return response;
+    }
+    final decoded = _decodeResponseObject(response.body);
+    final privateProperties = <String, String>{};
+    final properties = decoded['properties'];
+    if (properties is List) {
+      for (final property in properties) {
+        if (property is Map &&
+            property['visibility'] == 'PRIVATE' &&
+            property['key'] is String &&
+            property['value'] is String) {
+          privateProperties[property['key'] as String] =
+              property['value'] as String;
+        }
+      }
+    }
+    decoded['appProperties'] = privateProperties;
+    return http.Response(
+      jsonEncode(decoded),
+      response.statusCode,
+      headers: response.headers,
+    );
+  }
+
+  Map<String, dynamic> _decodeResponseObject(String source) {
+    try {
+      final decoded = jsonDecode(source);
+      if (decoded is Map<String, dynamic>) return decoded;
+    } on FormatException {
+      throw const _InvalidManagedAttachmentMetadata();
+    }
+    throw const _InvalidManagedAttachmentMetadata();
   }
 
   String? _contentHashFromAttachmentFileName(String? name) {
@@ -753,20 +1458,27 @@ class GoogleApisGoogleDriveSyncTransport
     drive.DriveApi api, {
     int limit = 10,
   }) async {
-    final response = await _withDriveRetry(
-      () => api.files.list(
-        spaces: _spaces,
-        q: "trashed = false and (appProperties has { key='kind' and value='bundle' } or name = '$_bundleFileName' or name contains '$_bundleFilePrefix')",
-        orderBy: 'modifiedTime desc',
-        pageSize: limit,
-        $fields: 'files(id,name,modifiedTime,size,appProperties)',
-      ),
-    );
-    final files = response.files;
-    if (files == null || files.isEmpty) {
-      return const <drive.File>[];
-    }
-    return files;
+    if (limit <= 0) return const <drive.File>[];
+    final files = <drive.File>[];
+    String? pageToken;
+    do {
+      final remaining = limit - files.length;
+      final response = await _withDriveRetry(
+        () => api.files.list(
+          spaces: _spaces,
+          q: "trashed = false and (appProperties has { key='kind' and value='bundle' } or name = '$_bundleFileName' or name contains '$_bundleFilePrefix')",
+          orderBy: 'modifiedTime desc',
+          pageSize: remaining.clamp(1, 1000).toInt(),
+          pageToken: pageToken,
+          $fields:
+              'nextPageToken,files(id,name,modifiedTime,size,appProperties)',
+        ),
+      );
+      files.addAll(response.files ?? const <drive.File>[]);
+      if (files.length >= limit) break;
+      pageToken = response.nextPageToken;
+    } while (pageToken != null && pageToken.isNotEmpty);
+    return files.take(limit).toList(growable: false);
   }
 
   RemoteSyncBundleStatus _toStatus(drive.File file) {
@@ -780,6 +1492,7 @@ class GoogleApisGoogleDriveSyncTransport
       attachmentCount: int.tryParse(appProperties['attachmentCount'] ?? ''),
       deviceId: appProperties['deviceId'],
       bundleKind: appProperties['bundleKind'],
+      replayBaseFileId: appProperties['replayBaseFileId'],
     );
   }
 
@@ -787,6 +1500,11 @@ class GoogleApisGoogleDriveSyncTransport
     for (var attempt = 0; attempt <= _retryDelays.length; attempt += 1) {
       try {
         return await operation();
+      } on _DriveMediaStreamFailure catch (failure) {
+        if (attempt >= _retryDelays.length) {
+          Error.throwWithStackTrace(failure.error, failure.stackTrace);
+        }
+        await Future<void>.delayed(_retryDelays[attempt]);
       } on drive.DetailedApiRequestError catch (error) {
         final mapped = _mapDriveApiError(error);
         if (attempt >= _retryDelays.length || !_isRetryable(mapped, error)) {
@@ -798,9 +1516,18 @@ class GoogleApisGoogleDriveSyncTransport
           'Google Drive request failed. Check your connection and try again.',
           details: error,
         );
-        if (attempt >= _retryDelays.length) {
-          throw mapped;
-        }
+        throw mapped;
+      } on SocketException {
+        if (attempt >= _retryDelays.length) rethrow;
+        await Future<void>.delayed(_retryDelays[attempt]);
+      } on HttpException {
+        if (attempt >= _retryDelays.length) rethrow;
+        await Future<void>.delayed(_retryDelays[attempt]);
+      } on TimeoutException {
+        if (attempt >= _retryDelays.length) rethrow;
+        await Future<void>.delayed(_retryDelays[attempt]);
+      } on ClientException {
+        if (attempt >= _retryDelays.length) rethrow;
         await Future<void>.delayed(_retryDelays[attempt]);
       }
     }

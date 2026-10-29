@@ -40,12 +40,14 @@ function getAllowedPackages(
   { allowDevelopment = false } = {},
   environment = process.env,
 ) {
+  const developmentEnabled = allowDevelopment &&
+    areDevelopmentPackagesEnabled(environment);
   const basePackages = parseConfiguredPackages(
     environment.HIMEMO_ALLOWED_ANDROID_PACKAGES,
     DEFAULT_ALLOWED_PACKAGES,
-  );
+  ).filter((name) => !isDevelopmentPackage(name) || developmentEnabled);
 
-  if (!allowDevelopment) {
+  if (!developmentEnabled) {
     return basePackages;
   }
 
@@ -54,6 +56,10 @@ function getAllowedPackages(
     DEFAULT_ALLOWED_DEV_PACKAGES,
   );
   return [...new Set([...basePackages, ...devPackages])];
+}
+
+function areDevelopmentPackagesEnabled(environment = process.env) {
+  return environment.HIMEMO_ALLOW_DEVELOPMENT_PACKAGES === 'true';
 }
 
 function createHmacSignature(secret, payload) {
@@ -234,6 +240,7 @@ function verifyRequestTimestamp({
 module.exports = {
   CHALLENGE_TTL_SECONDS,
   buildRateLimitKey,
+  areDevelopmentPackagesEnabled,
   createRateLimiter,
   getAllowedPackages,
   isDevelopmentPackage,

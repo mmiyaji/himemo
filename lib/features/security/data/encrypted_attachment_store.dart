@@ -10,6 +10,7 @@ import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../app/diagnostic_log.dart';
 import '../../home/domain/note_entry.dart';
 import 'encryption_service.dart';
 import 'master_key_service.dart';
@@ -357,7 +358,12 @@ class EncryptedAttachmentStore {
             await entity.delete();
             deletedCount += 1;
           }
-        } catch (_) {}
+        } catch (_) {
+          logDiagnostic(
+            'attachments',
+            'orphaned materialized file cleanup failed',
+          );
+        }
         continue;
       }
       final targetPath = entity.path.substring(
@@ -377,7 +383,12 @@ class EncryptedAttachmentStore {
         await target.delete();
         await entity.delete();
         deletedCount += 1;
-      } catch (_) {}
+      } catch (_) {
+        logDiagnostic(
+          'attachments',
+          'expired materialized file cleanup failed',
+        );
+      }
     }
     return deletedCount;
   }
@@ -416,11 +427,18 @@ class EncryptedAttachmentStore {
         final size = await entity.length();
         await entity.delete();
         deletedBytes += size;
-      } catch (_) {}
+      } catch (_) {
+        logDiagnostic('attachments', 'materialized cache file deletion failed');
+      }
     }
     try {
       await tmpDirectory.delete(recursive: true);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic(
+        'attachments',
+        'materialized cache directory deletion failed',
+      );
+    }
     return deletedBytes;
   }
 

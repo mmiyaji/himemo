@@ -65,6 +65,14 @@ decode 後の `requestDetails.timestampMillis` を確認し、次を満たさな
 
 development package を backend で許可する場合は、環境変数で明示します。
 
+既定では開発用パッケージを拒否します。開発用バックエンドで必要な場合だけ
+`HIMEMO_ALLOW_DEVELOPMENT_PACKAGES=true` と許可リスト
+`HIMEMO_ALLOWED_ANDROID_DEV_PACKAGES` を設定してください。本番では有効にしません。
+この制御はchallenge発行と検証の両方に適用され、通常の許可リストに `.dev` を
+混ぜても明示的な有効化なしでは許可されません。
+
+Google APIの内部例外はサーバーログに記録し、クライアントには固定の失敗文言を返します。
+
 ## Functions のコスト設定
 
 コストを抑えるため、関数設定は最小寄りです。
