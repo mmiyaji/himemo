@@ -255,7 +255,6 @@ img {
 
 .hero-petal {
   background: url("/assets/sakura-petal.svg") center / contain no-repeat;
-  filter: drop-shadow(0 4px 6px rgba(204, 111, 129, 0.18));
   height: 40px;
   opacity: 0.85;
   pointer-events: none;
