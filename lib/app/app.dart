@@ -417,7 +417,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_backgroundedAtStorageKey, now.millisecondsSinceEpoch);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('app_lock', 'background timestamp persistence failed');
+    }
   }
 
   Future<void> _restoreBackgroundedAt() async {
@@ -430,7 +432,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       if (stored != null) {
         _backgroundedAt = DateTime.fromMillisecondsSinceEpoch(stored);
       }
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('app_lock', 'background timestamp restore failed');
+    }
   }
 
   Future<void> _clearBackgroundedAt() async {
@@ -438,7 +442,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_backgroundedAtStorageKey);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('app_lock', 'background timestamp cleanup failed');
+    }
   }
 
   Future<void> _syncLockState({required bool triggerPrompt}) async {
@@ -513,7 +519,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
           orElse: () => delay,
         );
       }
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('app_lock', 'lock policy preference read failed');
+    }
     return _ResolvedAppLockPolicy(enabled: enabled, relockDelay: delay);
   }
 
@@ -596,7 +604,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       });
       _privacyScreenEnabled = enabled;
       _privacyScreenShowCover = showCover;
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('privacy', 'privacy screen platform update failed');
+    }
   }
 
   void _setLifecyclePrivacyProtection({
@@ -790,9 +800,8 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
             'sync.info.private_profile_notes_pending_unlock') {
           logDiagnostic(
             'sync',
-            'automatic sync paused pending private profile unlock',
+            'automatic sync stored encrypted private notes pending unlock',
           );
-          return;
         }
         final remainingPendingChanges = await _hasPendingCloudSyncChanges();
         await _recordAutomaticCloudSyncSuccess(
@@ -895,6 +904,7 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
       _lastAutomaticCloudSyncSucceededAt = last;
       return now.difference(last) >= minInterval;
     } catch (_) {
+      logDiagnostic('sync', 'automatic sync schedule preference read failed');
       return true;
     }
   }
@@ -959,10 +969,10 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
 
   Future<bool> _hasPendingCloudSyncChanges() async {
     try {
-      return (await ref.read(
-        syncQueueSummaryProvider.future,
-      )).hasPendingChanges;
+      return (await ref.read(syncQueueSummaryProvider.future))
+          .hasPendingChanges;
     } catch (_) {
+      logDiagnostic('sync', 'sync queue status read failed');
       return false;
     }
   }
@@ -983,7 +993,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         _automaticCloudAttemptedAtStorageKey,
         now.millisecondsSinceEpoch,
       );
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('sync', 'automatic sync attempt persistence failed');
+    }
   }
 
   Future<void> _recordAutomaticCloudSyncAttemptFinished() async {
@@ -996,7 +1008,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         _automaticCloudAttemptedAtStorageKey,
         now.millisecondsSinceEpoch,
       );
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('sync', 'automatic sync completion persistence failed');
+    }
   }
 
   void _recordAutomaticCloudSyncFailure() {
@@ -1026,7 +1040,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
         _automaticCloudSyncedAtStorageKey,
         now.millisecondsSinceEpoch,
       );
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('sync', 'automatic sync success persistence failed');
+    }
   }
 
   @override
@@ -1167,9 +1183,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                                       ),
                                       child: Text(
                                         'HiMemo',
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.labelLarge,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelLarge,
                                       ),
                                     ),
                                     const Spacer(),
@@ -1186,9 +1202,9 @@ class _AppLockGateState extends ConsumerState<_AppLockGate>
                                     const SizedBox(height: 20),
                                     Text(
                                       strings.unlockHiMemo,
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.headlineMedium,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .headlineMedium,
                                     ),
                                     const SizedBox(height: 12),
                                     Text(
@@ -1507,9 +1523,8 @@ class _PinUnlockPanelState extends ConsumerState<_PinUnlockPanel> {
           const SizedBox(height: 12),
           Text(
             strings.localizedPinLockError(pinState.lastError!),
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: colorScheme.error),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: colorScheme.error),
           ),
         ],
       ],
@@ -1550,7 +1565,8 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       IconData icon,
       String imagePath,
       String imageSemanticLabel,
-      bool isSetupPage,
+      bool showThemePicker,
+      bool showPinSetup,
     })
   >
   _pages(AppStrings strings) => [
@@ -1560,7 +1576,8 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       icon: Icons.bolt_rounded,
       imagePath: 'assets/onboarding/capture-illustration.png',
       imageSemanticLabel: strings.onboardingCaptureImageLabel,
-      isSetupPage: false,
+      showThemePicker: false,
+      showPinSetup: false,
     ),
     (
       title: strings.onboardingPrivateTitle,
@@ -1568,7 +1585,8 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       icon: Icons.lock_person_rounded,
       imagePath: 'assets/onboarding/private-illustration.png',
       imageSemanticLabel: strings.onboardingPrivateImageLabel,
-      isSetupPage: false,
+      showThemePicker: false,
+      showPinSetup: false,
     ),
     (
       title: strings.onboardingSyncTitle,
@@ -1576,7 +1594,31 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       icon: Icons.cloud_sync_rounded,
       imagePath: 'assets/onboarding/sync-illustration.png',
       imageSemanticLabel: strings.onboardingSyncImageLabel,
-      isSetupPage: false,
+      showThemePicker: false,
+      showPinSetup: false,
+    ),
+    (
+      title: strings.localized(
+        en: 'Choose your theme',
+        ja: 'テーマを選ぶ',
+        zh: '选择主题',
+        ko: '테마 선택',
+        es: 'Elige el tema',
+        de: 'Theme auswählen',
+      ),
+      body: strings.localized(
+        en: 'Pick a starting accent color. You can explore every theme later in Settings.',
+        ja: '最初のアクセントカラーを選びます。すべてのテーマは、あとから設定で確認できます。',
+        zh: '选择初始强调色。之后可在设置中查看所有主题。',
+        ko: '처음 사용할 강조 색상을 선택합니다. 모든 테마는 나중에 설정에서 확인할 수 있습니다.',
+        es: 'Elige un color de acento inicial. Podrás ver todos los temas más tarde en Ajustes.',
+        de: 'Wähle eine erste Akzentfarbe. Alle Themes findest du später in den Einstellungen.',
+      ),
+      icon: Icons.palette_outlined,
+      imagePath: 'assets/onboarding/capture-illustration.png',
+      imageSemanticLabel: strings.onboardingCaptureImageLabel,
+      showThemePicker: true,
+      showPinSetup: false,
     ),
     (
       title: strings.onboardingFinishTitle,
@@ -1584,7 +1626,8 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
       icon: Icons.key_rounded,
       imagePath: 'assets/onboarding/private-illustration.png',
       imageSemanticLabel: strings.onboardingFinishImageLabel,
-      isSetupPage: true,
+      showThemePicker: false,
+      showPinSetup: true,
     ),
   ];
 
@@ -1601,7 +1644,7 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
     final colorScheme = Theme.of(context).colorScheme;
     final isLastPage = _pageIndex == pages.length - 1;
     final pinConfigured = ref.watch(appPinLockControllerProvider).isConfigured;
-    final privateProfiles = ref.watch(privateMemoProfilesControllerProvider);
+    final colorTheme = ref.watch(appColorThemeControllerProvider);
 
     return Navigator(
       pages: [
@@ -1633,9 +1676,9 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                                   ),
                                   child: Text(
                                     widget.flavor.displayName,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.labelLarge,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelLarge,
                                   ),
                                 ),
                               ),
@@ -1645,22 +1688,25 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                               onPressed: () => ref
                                   .read(appLaunchControllerProvider.notifier)
                                   .completeOnboarding(),
-                              child: Text(strings.skip),
+                              child: Text(
+                                strings.localized(
+                                  en: 'Notes',
+                                  ja: 'メモへ',
+                                  zh: '笔记',
+                                  ko: '메모로',
+                                  es: 'Notas',
+                                  de: 'Notizen',
+                                ),
+                              ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 28),
+                        const SizedBox(height: 20),
                         Text(
                           strings.onboardingWelcome,
                           style: Theme.of(context).textTheme.headlineSmall,
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          strings.onboardingIntro,
-                          style: Theme.of(context).textTheme.bodyLarge
-                              ?.copyWith(color: colorScheme.onSurfaceVariant),
-                        ),
-                        const SizedBox(height: 28),
+                        const SizedBox(height: 16),
                         _OnboardingPageViewport(
                           useScrollableLayout: useScrollableLayout,
                           availableHeight: viewportConstraints.maxHeight,
@@ -1674,16 +1720,19 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                             },
                             itemBuilder: (context, index) {
                               final page = pages[index];
+                              final isSetupPage =
+                                  page.showThemePicker || page.showPinSetup;
                               return LayoutBuilder(
                                 builder: (context, constraints) {
                                   final compactCard =
                                       constraints.maxHeight.isFinite &&
                                       constraints.maxHeight < 460;
+                                  final cardPadding = isSetupPage ? 20.0 : 24.0;
                                   final iconSize = compactCard ? 48.0 : 56.0;
                                   final sectionGap = compactCard ? 16.0 : 24.0;
                                   return Container(
                                     margin: const EdgeInsets.only(bottom: 12),
-                                    padding: const EdgeInsets.all(24),
+                                    padding: EdgeInsets.all(cardPadding),
                                     decoration: BoxDecoration(
                                       color: colorScheme.surface,
                                       borderRadius: BorderRadius.circular(24),
@@ -1697,29 +1746,30 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                                           minHeight:
                                               constraints.maxHeight.isFinite &&
                                                   constraints.maxHeight > 48
-                                              ? constraints.maxHeight - 48
+                                              ? constraints.maxHeight -
+                                                    (cardPadding * 2)
                                               : 0,
                                         ),
                                         child: Column(
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            Container(
-                                              width: iconSize,
-                                              height: iconSize,
-                                              decoration: BoxDecoration(
-                                                color: colorScheme.primary
-                                                    .withValues(alpha: 0.12),
-                                                borderRadius:
-                                                    BorderRadius.circular(18),
+                                            if (!isSetupPage) ...[
+                                              Container(
+                                                width: iconSize,
+                                                height: iconSize,
+                                                decoration: BoxDecoration(
+                                                  color: colorScheme.primary
+                                                      .withValues(alpha: 0.12),
+                                                  borderRadius:
+                                                      BorderRadius.circular(18),
+                                                ),
+                                                child: Icon(
+                                                  page.icon,
+                                                  color: colorScheme.primary,
+                                                ),
                                               ),
-                                              child: Icon(
-                                                page.icon,
-                                                color: colorScheme.primary,
-                                              ),
-                                            ),
-                                            SizedBox(height: sectionGap),
-                                            if (!page.isSetupPage) ...[
+                                              SizedBox(height: sectionGap),
                                               _OnboardingImageCard(
                                                 imagePath: page.imagePath,
                                                 semanticLabel:
@@ -1733,23 +1783,33 @@ class _OnboardingScreenState extends ConsumerState<_OnboardingScreen> {
                                             ],
                                             Text(
                                               page.title,
-                                              style: Theme.of(
-                                                context,
-                                              ).textTheme.titleLarge,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleLarge,
                                             ),
                                             const SizedBox(height: 12),
                                             Text(
                                               page.body,
-                                              style: Theme.of(
-                                                context,
-                                              ).textTheme.bodyLarge,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodyLarge,
                                             ),
-                                            if (page.isSetupPage) ...[
-                                              const SizedBox(height: 24),
-                                              _OnboardingSetupPanel(
+                                            if (page.showThemePicker) ...[
+                                              const SizedBox(height: 16),
+                                              _OnboardingColorThemePicker(
+                                                current: colorTheme,
+                                                onSelect: (theme) => ref
+                                                    .read(
+                                                      appColorThemeControllerProvider
+                                                          .notifier,
+                                                    )
+                                                    .setTheme(theme),
+                                              ),
+                                            ],
+                                            if (page.showPinSetup) ...[
+                                              const SizedBox(height: 16),
+                                              _OnboardingPinSetupPanel(
                                                 pinConfigured: pinConfigured,
-                                                privateProfileCount:
-                                                    privateProfiles.length,
                                               ),
                                             ],
                                           ],
@@ -1863,6 +1923,14 @@ class _OnboardingFooter extends StatelessWidget {
     final progress = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        Text(
+          '${pageIndex + 1} / $pageCount',
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(width: 12),
         for (var i = 0; i < pageCount; i++)
           AnimatedContainer(
             duration: const Duration(milliseconds: 180),
@@ -1881,6 +1949,13 @@ class _OnboardingFooter extends StatelessWidget {
     final nextButton = FilledButton(
       key: const Key('onboarding-next-button'),
       onPressed: onNext,
+      style: FilledButton.styleFrom(
+        backgroundColor: _backgroundForAccessibleForeground(
+          background: colorScheme.primary,
+          foreground: Colors.white,
+        ),
+        foregroundColor: Colors.white,
+      ),
       child: Text(isLastPage ? strings.finishSetup : strings.next),
     );
 
@@ -1888,8 +1963,9 @@ class _OnboardingFooter extends StatelessWidget {
       builder: (context, constraints) {
         final textScale = MediaQuery.textScalerOf(context).scale(1);
         final useStackedActions =
-            isLastPage &&
-            (constraints.maxWidth < _stackedBreakpoint || textScale > 1.3);
+            constraints.maxWidth < 360 ||
+            (isLastPage && constraints.maxWidth < _stackedBreakpoint) ||
+            textScale > 1.3;
         if (useStackedActions) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1899,21 +1975,23 @@ class _OnboardingFooter extends StatelessWidget {
                 child: progress,
               ),
               const SizedBox(height: 12),
-              OutlinedButton(
-                key: const Key('onboarding-tutorial-button'),
-                onPressed: onStartTutorial,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.tips_and_updates_outlined),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: Text(tutorialLabel, textAlign: TextAlign.center),
-                    ),
-                  ],
+              if (isLastPage) ...[
+                OutlinedButton(
+                  key: const Key('onboarding-tutorial-button'),
+                  onPressed: onStartTutorial,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.tips_and_updates_outlined),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(tutorialLabel, textAlign: TextAlign.center),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
+                const SizedBox(height: 8),
+              ],
               nextButton,
             ],
           );
@@ -2040,9 +2118,8 @@ class _OnboardingLegalNotice extends StatelessWidget {
   Widget build(BuildContext context) {
     final strings = context.strings;
     final colorScheme = Theme.of(context).colorScheme;
-    final textStyle = Theme.of(
-      context,
-    ).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant);
+    final textStyle = Theme.of(context).textTheme.bodySmall
+        ?.copyWith(color: colorScheme.onSurfaceVariant);
 
     return Align(
       alignment: Alignment.centerLeft,
@@ -2085,56 +2162,37 @@ class _OnboardingLegalNotice extends StatelessWidget {
   }
 }
 
-class _OnboardingSetupPanel extends ConsumerWidget {
-  const _OnboardingSetupPanel({
-    required this.pinConfigured,
-    required this.privateProfileCount,
-  });
+class _OnboardingPinSetupPanel extends ConsumerWidget {
+  const _OnboardingPinSetupPanel({required this.pinConfigured});
 
   final bool pinConfigured;
-  final int privateProfileCount;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return _OnboardingSetupPanelBody(
-      pinConfigured: pinConfigured,
-      privateProfileCount: privateProfileCount,
-    );
+    return _OnboardingPinSetupPanelBody(pinConfigured: pinConfigured);
   }
 }
 
-class _OnboardingSetupPanelBody extends ConsumerStatefulWidget {
-  const _OnboardingSetupPanelBody({
-    required this.pinConfigured,
-    required this.privateProfileCount,
-  });
+class _OnboardingPinSetupPanelBody extends ConsumerStatefulWidget {
+  const _OnboardingPinSetupPanelBody({required this.pinConfigured});
 
   final bool pinConfigured;
-  final int privateProfileCount;
 
   @override
-  ConsumerState<_OnboardingSetupPanelBody> createState() =>
-      _OnboardingSetupPanelBodyState();
+  ConsumerState<_OnboardingPinSetupPanelBody> createState() =>
+      _OnboardingPinSetupPanelBodyState();
 }
 
-class _OnboardingSetupPanelBodyState
-    extends ConsumerState<_OnboardingSetupPanelBody> {
+class _OnboardingPinSetupPanelBodyState
+    extends ConsumerState<_OnboardingPinSetupPanelBody> {
   String? _pinFeedback;
 
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
-    final colorTheme = ref.watch(appColorThemeControllerProvider);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _OnboardingColorThemePicker(
-          current: colorTheme,
-          onSelect: (theme) => ref
-              .read(appColorThemeControllerProvider.notifier)
-              .setTheme(theme),
-        ),
-        const SizedBox(height: 12),
         _OnboardingSetupTile(
           tileKey: const Key('onboarding-set-pin-button'),
           title: kIsWeb
@@ -2172,26 +2230,6 @@ class _OnboardingSetupPanelBodyState
               : null,
           feedback: _pinFeedback,
         ),
-        const SizedBox(height: 12),
-        _OnboardingSetupTile(
-          tileKey: const Key('onboarding-private-profiles-info-button'),
-          title: strings.onboardingPrivateProfilesTitle,
-          subtitle: widget.privateProfileCount > 0
-              ? strings.onboardingPrivateProfilesConfigured(
-                  widget.privateProfileCount,
-                )
-              : strings.onboardingPrivateProfilesBody,
-          actionLabel: strings.onboardingAddInSettings,
-          onPressed: null,
-        ),
-        const SizedBox(height: 12),
-        _OnboardingSetupTile(
-          tileKey: const Key('onboarding-sync-info-button'),
-          title: strings.onboardingCloudSyncTitle,
-          subtitle: strings.onboardingCloudSyncBody,
-          actionLabel: strings.onboardingLaterInSettings,
-          onPressed: null,
-        ),
       ],
     );
   }
@@ -2224,7 +2262,7 @@ class _OnboardingColorThemePicker extends StatelessWidget {
         border: Border.all(color: Theme.of(context).dividerColor),
         borderRadius: BorderRadius.circular(12),
       ),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2234,18 +2272,26 @@ class _OnboardingColorThemePicker extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            strings.onboardingColorThemeBody(AppColorTheme.values.length),
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-            ),
+            MediaQuery.sizeOf(context).width < 520
+                ? strings.localized(
+                    en: 'You can change this later in Settings.',
+                    ja: 'テーマはあとから設定で変更できます。',
+                    zh: '之后可在设置中更改。',
+                    ko: '나중에 설정에서 변경할 수 있습니다.',
+                    es: 'Puedes cambiarlo más tarde en Ajustes.',
+                    de: 'Du kannst dies später in den Einstellungen ändern.',
+                  )
+                : strings.onboardingColorThemeBody(AppColorTheme.values.length),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(color: colorScheme.onSurfaceVariant),
           ),
           const SizedBox(height: 12),
           LayoutBuilder(
             builder: (context, constraints) {
-              final compact = constraints.maxWidth < 520;
+              final compact = MediaQuery.sizeOf(context).width < 520;
               return Wrap(
                 spacing: 8,
-                runSpacing: 8,
+                runSpacing: compact ? 6 : 8,
                 children: [
                   for (final theme in _themes)
                     SizedBox(
@@ -2390,7 +2436,7 @@ class _OnboardingSetupTile extends StatelessWidget {
         border: Border.all(color: Theme.of(context).dividerColor),
         borderRadius: BorderRadius.circular(12),
       ),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final details = Column(
@@ -2504,9 +2550,25 @@ ThemeData _buildTheme(
   AppFontFamily fontFamily,
 ) {
   final palette = _paletteFor(colorTheme, brightness);
+  final primary = brightness == Brightness.light
+      ? _backgroundForAccessibleForeground(
+          background: palette.primary,
+          foreground: palette.onPrimary,
+        )
+      : palette.primary;
   final accessibleOnPrimary = _accessibleForegroundColor(
-    background: palette.primary,
+    background: primary,
     preferred: palette.onPrimary,
+    alternative: palette.onSurface,
+  );
+  final accessibleOnSecondary = _accessibleForegroundColor(
+    background: palette.secondary,
+    preferred: palette.onSecondary,
+    alternative: palette.onSurface,
+  );
+  final accessibleOnTertiary = _accessibleForegroundColor(
+    background: palette.tertiary,
+    preferred: palette.onTertiary,
     alternative: palette.onSurface,
   );
   final scheme =
@@ -2514,12 +2576,12 @@ ThemeData _buildTheme(
         seedColor: palette.primary,
         brightness: brightness,
       ).copyWith(
-        primary: palette.primary,
+        primary: primary,
         onPrimary: accessibleOnPrimary,
         secondary: palette.secondary,
-        onSecondary: palette.onSecondary,
+        onSecondary: accessibleOnSecondary,
         tertiary: palette.tertiary,
-        onTertiary: palette.onTertiary,
+        onTertiary: accessibleOnTertiary,
         surface: palette.surface,
         onSurface: palette.onSurface,
         surfaceContainer: palette.surfaceContainer,
@@ -2528,6 +2590,15 @@ ThemeData _buildTheme(
         outlineVariant: palette.outlineVariant,
         onSurfaceVariant: palette.onSurfaceVariant,
       );
+  final useSoftLightActions =
+      brightness == Brightness.light &&
+      _softLightActionThemes.contains(colorTheme);
+  final filledActionBackground = useSoftLightActions
+      ? palette.secondary
+      : scheme.primary;
+  final filledActionForeground = useSoftLightActions
+      ? accessibleOnSecondary
+      : scheme.onPrimary;
 
   final baseTypography = Typography.material2021(
     colorScheme: scheme,
@@ -2575,8 +2646,8 @@ ThemeData _buildTheme(
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: scheme.primary,
-        foregroundColor: scheme.onPrimary,
+        backgroundColor: filledActionBackground,
+        foregroundColor: filledActionForeground,
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -2607,14 +2678,53 @@ ThemeData _buildTheme(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
     ),
     floatingActionButtonTheme: FloatingActionButtonThemeData(
-      backgroundColor: scheme.primary,
-      foregroundColor: scheme.onPrimary,
+      backgroundColor: filledActionBackground,
+      foregroundColor: filledActionForeground,
     ),
     useMaterial3: true,
   );
 }
 
+const _softLightActionThemes = <AppColorTheme>{
+  AppColorTheme.sakura,
+  AppColorTheme.shironeri,
+  AppColorTheme.gofun,
+  AppColorTheme.sora,
+  AppColorTheme.byakuroku,
+  AppColorTheme.nanohana,
+  AppColorTheme.haizakura,
+};
+
 const _minimumNormalTextContrastRatio = 4.5;
+
+Color _backgroundForAccessibleForeground({
+  required Color background,
+  required Color foreground,
+}) {
+  if (_contrastRatio(background, foreground) >=
+      _minimumNormalTextContrastRatio) {
+    return background;
+  }
+
+  final hsl = HSLColor.fromColor(background);
+  final foregroundIsLighter =
+      foreground.computeLuminance() >= background.computeLuminance();
+  var failingLightness = hsl.lightness;
+  var passingLightness = foregroundIsLighter ? 0.0 : 1.0;
+
+  for (var iteration = 0; iteration < 16; iteration++) {
+    final candidateLightness = (failingLightness + passingLightness) / 2;
+    final candidate = hsl.withLightness(candidateLightness).toColor();
+    if (_contrastRatio(candidate, foreground) >=
+        _minimumNormalTextContrastRatio) {
+      passingLightness = candidateLightness;
+    } else {
+      failingLightness = candidateLightness;
+    }
+  }
+
+  return hsl.withLightness(passingLightness).toColor();
+}
 
 Color _accessibleForegroundColor({
   required Color background,
@@ -3065,7 +3175,7 @@ _ThemePalette _paletteFor(AppColorTheme theme, Brightness brightness) {
               primary: Color(0xFFD98991),
               onPrimary: Colors.white,
               secondary: Color(0xFFF3B6BB),
-              onSecondary: Color(0xFF3A1518),
+              onSecondary: Color(0xFF7D3A44),
               tertiary: Color(0xFFFEDFE1),
               onTertiary: Color(0xFF3B1719),
               surface: Colors.white,

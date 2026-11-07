@@ -1,17 +1,22 @@
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:cryptography/cryptography.dart';
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../security/data/encryption_service.dart';
+import '../../security/data/encrypted_attachment_store.dart';
 import '../../security/data/master_key_service.dart';
 import 'google_drive_sync_transport.dart' show SyncBundleKind;
 import 'sync_engine.dart';
 import 'sync_bundle_key_service.dart';
+import 'sync_exclusion_retention.dart';
+import 'sync_bundle_coverage.dart';
 
 class StoredSyncBundle {
   const StoredSyncBundle({
@@ -27,22 +32,21 @@ class StoredSyncBundle {
 
 class SecureSyncBundleStore {
   SecureSyncBundleStore({
-    required EncryptionService encryptionService,
-    required SyncBundleKeyService syncBundleKeyService,
-    MasterKeyService? legacyMasterKeyService,
+    required this._encryptionService,
+    required this._syncBundleKeyService,
+    this.attachmentStore,
+    this._legacyMasterKeyService,
     Future<Directory> Function()? directoryProvider,
     Future<SharedPreferences> Function()? sharedPreferencesProvider,
     this.webStorageKey = 'sync.bundle.latest',
     this.fileName = 'latest_sync_bundle.enc',
-  }) : _encryptionService = encryptionService,
-       _syncBundleKeyService = syncBundleKeyService,
-       _legacyMasterKeyService = legacyMasterKeyService,
-       _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
+  }) : _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
        _sharedPreferencesProvider =
            sharedPreferencesProvider ?? SharedPreferences.getInstance;
 
   final EncryptionService _encryptionService;
   final SyncBundleKeyService _syncBundleKeyService;
+  final EncryptedAttachmentStore? attachmentStore;
   final MasterKeyService? _legacyMasterKeyService;
   final Future<Directory> Function() _directoryProvider;
   final Future<SharedPreferences> Function() _sharedPreferencesProvider;
@@ -56,15 +60,23 @@ class SecureSyncBundleStore {
         const <PreparedEncryptedPrivateSyncNote>[],
     bool inlineAttachments = false,
     String bundleKind = SyncBundleKind.full,
+    SyncExclusionRetention? exclusionRetention,
+    SyncBundleCoverage? coverage,
+    String? uploadId,
+    Map<String, String> uploadReceipts = const {},
   }) async {
     final key = await _syncBundleKeyService.obtainOrCreate();
     final payload = await _encryptSyncBundleJson(
-      payload: _syncBundlePayload(
+      payload: await _syncBundlePayload(
         snapshot,
         privateProfiles: privateProfiles,
         encryptedPrivateNotes: encryptedPrivateNotes,
         inlineAttachments: inlineAttachments,
         bundleKind: bundleKind,
+        exclusionRetention: exclusionRetention,
+        coverage: coverage,
+        uploadId: uploadId,
+        uploadReceipts: uploadReceipts,
       ),
       secretKey: key,
     );
@@ -168,6 +180,40 @@ class SecureSyncBundleStore {
     PreparedSyncAttachment attachment,
   ) async {
     final key = await _syncBundleKeyService.obtainOrCreate();
+    var bytesBase64 = attachment.bytesBase64;
+    var encryptedPayload = attachment.encryptedPayload;
+    if (encryptedPayload == null && attachment.encryptedFilePath != null) {
+      final store = attachmentStore;
+      if (store == null) {
+        throw StateError(
+          'Attachment store is required to read encrypted upload payload.',
+        );
+      }
+      encryptedPayload = await store.readStoredPayload(
+        attachment.encryptedFilePath!,
+      );
+      if (encryptedPayload == null || encryptedPayload.isEmpty) {
+        throw StateError('Local encrypted attachment payload is unavailable.');
+      }
+      _verifyAttachmentContentHash(attachment, utf8.encode(encryptedPayload));
+    }
+    if (bytesBase64.isEmpty && attachment.filePath != null) {
+      final store = attachmentStore;
+      if (store == null) {
+        throw StateError(
+          'Attachment store is required to read upload payload.',
+        );
+      }
+      final bytes = await store.readAttachment(
+        attachment.filePath!,
+        type: attachment.type,
+      );
+      if (bytes == null || bytes.isEmpty) {
+        throw StateError('Local attachment payload is no longer available.');
+      }
+      _verifyAttachmentContentHash(attachment, bytes);
+      bytesBase64 = base64Encode(bytes);
+    }
     return _encryptSyncBundleJson(
       payload: {
         'objectVersion': 1,
@@ -177,10 +223,9 @@ class SecureSyncBundleStore {
         'type': attachment.type.name,
         'label': attachment.label,
         'sizeBytes': attachment.sizeBytes,
-        if (attachment.bytesBase64.isNotEmpty)
-          'bytesBase64': attachment.bytesBase64,
-        if (attachment.encryptedPayload?.isNotEmpty == true)
-          'encryptedPayload': attachment.encryptedPayload,
+        if (bytesBase64.isNotEmpty) 'bytesBase64': bytesBase64,
+        if (encryptedPayload?.isNotEmpty == true)
+          'encryptedPayload': encryptedPayload,
       },
       secretKey: key,
     );
@@ -210,6 +255,15 @@ class SecureSyncBundleStore {
     return _decryptBundleJson(payload);
   }
 
+  /// Decrypts a downloaded bundle payload without first writing it to the
+  /// local "latest bundle" slot. Conflict review uses this to inspect older
+  /// delta records while keeping the actual latest bundle selected.
+  Future<Map<String, dynamic>> readRemoteBundlePayloadJson(
+    String encodedPayload,
+  ) {
+    return _decryptBundleJson(encodedPayload);
+  }
+
   Future<Map<String, dynamic>> _decryptBundleJson(String payload) async {
     final syncKey = await _syncBundleKeyService.requireExisting();
     try {
@@ -217,30 +271,100 @@ class SecureSyncBundleStore {
         encodedPayload: payload,
         secretKey: syncKey,
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
       final legacy = _legacyMasterKeyService;
       if (legacy == null) {
         rethrow;
       }
-      final legacyKey = await legacy.obtainOrCreate();
-      return _decryptSyncBundleJson(
-        encodedPayload: payload,
-        secretKey: legacyKey,
-      );
+      try {
+        final legacyKey = await legacy.readExisting();
+        if (legacyKey == null) {
+          Error.throwWithStackTrace(error, stackTrace);
+        }
+        return await _decryptSyncBundleJson(
+          encodedPayload: payload,
+          secretKey: legacyKey,
+        );
+      } catch (_) {
+        Error.throwWithStackTrace(error, stackTrace);
+      }
     }
   }
 
-  Map<String, dynamic> _syncBundlePayload(
+  Future<Map<String, dynamic>> _syncBundlePayload(
     PreparedSyncSnapshot snapshot, {
     required List<Map<String, dynamic>> privateProfiles,
     required List<PreparedEncryptedPrivateSyncNote> encryptedPrivateNotes,
     required bool inlineAttachments,
     required String bundleKind,
-  }) {
+    SyncExclusionRetention? exclusionRetention,
+    SyncBundleCoverage? coverage,
+    String? uploadId,
+    Map<String, String> uploadReceipts = const {},
+  }) async {
+    final attachments = <Map<String, dynamic>>[];
+    for (final attachment in snapshot.attachments) {
+      var payload = attachment;
+      if (inlineAttachments &&
+          payload.bytesBase64.isEmpty &&
+          payload.filePath != null) {
+        final store = attachmentStore;
+        if (store == null) {
+          throw StateError('Attachment store is required for inline export.');
+        }
+        final bytes = await store.readAttachment(
+          payload.filePath!,
+          type: payload.type,
+        );
+        if (bytes == null || bytes.isEmpty) {
+          throw StateError('Local attachment payload is no longer available.');
+        }
+        payload = PreparedSyncAttachment(
+          id: payload.id,
+          type: payload.type,
+          label: payload.label,
+          bytesBase64: base64Encode(bytes),
+          encryptedPayload: payload.encryptedPayload,
+          contentHash: payload.contentHash,
+          sizeBytes: payload.sizeBytes,
+        );
+      } else if (inlineAttachments &&
+          payload.encryptedPayload == null &&
+          payload.encryptedFilePath != null) {
+        final store = attachmentStore;
+        if (store == null) {
+          throw StateError('Attachment store is required for inline export.');
+        }
+        final encryptedPayload = await store.readStoredPayload(
+          payload.encryptedFilePath!,
+        );
+        if (encryptedPayload == null || encryptedPayload.isEmpty) {
+          throw StateError(
+            'Local encrypted attachment payload is unavailable.',
+          );
+        }
+        _verifyAttachmentContentHash(payload, utf8.encode(encryptedPayload));
+        payload = PreparedSyncAttachment(
+          id: payload.id,
+          type: payload.type,
+          label: payload.label,
+          encryptedPayload: encryptedPayload,
+          contentHash: payload.contentHash,
+          sizeBytes: payload.sizeBytes,
+        );
+      }
+      attachments.add(payload.toJson(inlineBytes: inlineAttachments));
+    }
     return {
       'bundleVersion': inlineAttachments ? 2 : 3,
+      'uploadId': ?uploadId,
+      if (uploadId != null) 'syncProtocol': 2,
+      if (uploadReceipts.isNotEmpty) 'uploadReceipts': uploadReceipts,
       'mode': 'changes',
       'bundleKind': bundleKind,
+      if (exclusionRetention != null)
+        'exclusionRetention': exclusionRetention.toJson(),
+      if (coverage != null) 'coverage': coverage.toJson(),
       'deviceId': snapshot.deviceId,
       'exportedAt': snapshot.exportedAt.toIso8601String(),
       if (!inlineAttachments) 'attachmentStorage': 'objects',
@@ -259,11 +383,18 @@ class SecureSyncBundleStore {
         'encryptedPrivateNotes': [
           for (final entry in encryptedPrivateNotes) entry.toJson(),
         ],
-      'attachments': [
-        for (final attachment in snapshot.attachments)
-          attachment.toJson(inlineBytes: inlineAttachments),
-      ],
+      'attachments': attachments,
     };
+  }
+
+  void _verifyAttachmentContentHash(
+    PreparedSyncAttachment attachment,
+    List<int> bytes,
+  ) {
+    final actualHash = sha256.convert(bytes).toString();
+    if (actualHash != attachment.contentHash) {
+      throw StateError('sync.error.attachment_object_hash_mismatch');
+    }
   }
 
   Future<String> _encryptSyncBundleJson({

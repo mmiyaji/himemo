@@ -25,34 +25,66 @@ class TutorialsScreen extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            for (final level in AppTutorialCourseLevel.values) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(4, 8, 4, 10),
-                child: Text(
-                  _tutorialLevelTitle(strings, level),
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.w800,
-                  ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 8, 4, 10),
+              child: Text(
+                strings.localized(en: 'Start here', ja: 'まずはこちら'),
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
-              for (final course in AppTutorialCourse.values.where(
-                (course) => _tutorialCourseLevel(course) == level,
-              )) ...[
-                _TutorialCourseCard(
-                  course: course,
-                  completed: completed.contains(course),
-                  onStart: () => _startTutorialCourse(context, ref, course),
-                ),
-                const SizedBox(height: 12),
-              ],
+            ),
+            for (final course in const [
+              AppTutorialCourse.writing,
+              AppTutorialCourse.attachments,
+              AppTutorialCourse.find,
+              AppTutorialCourse.sync,
+            ]) ...[
+              _TutorialCourseCard(
+                course: course,
+                completed: completed.contains(course),
+                onStart: () => _startTutorialCourse(context, ref, course),
+              ),
+              const SizedBox(height: 12),
             ],
+            ExpansionTile(
+              tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+              title: Text(
+                strings.localized(en: 'More tutorials', ja: 'その他のチュートリアル'),
+              ),
+              subtitle: Text(
+                strings.localized(
+                  en: 'Explore privacy, review, organization, and maintenance.',
+                  ja: 'プライバシー、見返し、整理、メンテナンスを確認できます。',
+                ),
+              ),
+              children: [
+                for (final course in AppTutorialCourse.values.where(
+                  (course) => !_tutorialStartHereCourses.contains(course),
+                )) ...[
+                  _TutorialCourseCard(
+                    course: course,
+                    completed: completed.contains(course),
+                    onStart: () => _startTutorialCourse(context, ref, course),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              ],
+            ),
           ],
         ),
       ),
     );
   }
 }
+
+const _tutorialStartHereCourses = <AppTutorialCourse>{
+  AppTutorialCourse.writing,
+  AppTutorialCourse.attachments,
+  AppTutorialCourse.find,
+  AppTutorialCourse.sync,
+};
 
 class _TutorialCourseCard extends StatelessWidget {
   const _TutorialCourseCard({
@@ -103,12 +135,12 @@ class _TutorialCourseCard extends StatelessWidget {
                       if (completed)
                         Text(
                           strings.localized(
-                            en: 'Done',
-                            ja: '完了',
-                            zh: 'Done',
-                            ko: 'Done',
-                            es: 'Listo',
-                            de: 'Fertig',
+                            en: 'Guide finished',
+                            ja: '案内を最後まで確認',
+                            zh: 'Guide finished',
+                            ko: 'Guide finished',
+                            es: 'Guía completada',
+                            de: 'Anleitung abgeschlossen',
                           ),
                           style: theme.textTheme.labelMedium?.copyWith(
                             color: theme.colorScheme.onSecondaryContainer,
@@ -127,31 +159,41 @@ class _TutorialCourseCard extends StatelessWidget {
                   const SizedBox(height: 12),
                   Align(
                     alignment: AlignmentDirectional.centerEnd,
-                    child: FilledButton.icon(
-                      onPressed: onStart,
-                      icon: Icon(
-                        completed
-                            ? Icons.replay_rounded
-                            : Icons.play_arrow_rounded,
+                    child: Semantics(
+                      button: true,
+                      onTap: onStart,
+                      label: strings.localized(
+                        en: '${completed ? 'Replay' : 'Start'} ${_tutorialCourseTitle(strings, course)} tutorial',
+                        ja: '${_tutorialCourseTitle(strings, course)}のチュートリアルを${completed ? 'もう一度見る' : '開始'}',
                       ),
-                      label: Text(
-                        completed
-                            ? strings.localized(
-                                en: 'Replay',
-                                ja: 'もう一度',
-                                zh: 'Replay',
-                                ko: 'Replay',
-                                es: 'Repetir',
-                                de: 'Erneut',
-                              )
-                            : strings.localized(
-                                en: 'Start',
-                                ja: '開始',
-                                zh: 'Start',
-                                ko: 'Start',
-                                es: 'Iniciar',
-                                de: 'Starten',
-                              ),
+                      child: ExcludeSemantics(
+                        child: FilledButton.icon(
+                          onPressed: onStart,
+                          icon: Icon(
+                            completed
+                                ? Icons.replay_rounded
+                                : Icons.play_arrow_rounded,
+                          ),
+                          label: Text(
+                            completed
+                                ? strings.localized(
+                                    en: 'Replay',
+                                    ja: 'もう一度',
+                                    zh: 'Replay',
+                                    ko: 'Replay',
+                                    es: 'Repetir',
+                                    de: 'Erneut',
+                                  )
+                                : strings.localized(
+                                    en: 'Start',
+                                    ja: '開始',
+                                    zh: 'Start',
+                                    ko: 'Start',
+                                    es: 'Iniciar',
+                                    de: 'Starten',
+                                  ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -163,53 +205,6 @@ class _TutorialCourseCard extends StatelessWidget {
       ),
     );
   }
-}
-
-String _tutorialLevelTitle(AppStrings strings, AppTutorialCourseLevel level) {
-  return switch (level) {
-    AppTutorialCourseLevel.beginner => strings.localized(
-      en: 'Beginner',
-      ja: '初級',
-      zh: 'Beginner',
-      ko: 'Beginner',
-      es: 'Inicial',
-      de: 'Grundlagen',
-    ),
-    AppTutorialCourseLevel.intermediate => strings.localized(
-      en: 'Intermediate',
-      ja: '中級',
-      zh: 'Intermediate',
-      ko: 'Intermediate',
-      es: 'Intermedio',
-      de: 'Mittelstufe',
-    ),
-    AppTutorialCourseLevel.advanced => strings.localized(
-      en: 'Advanced',
-      ja: '上級',
-      zh: 'Advanced',
-      ko: 'Advanced',
-      es: 'Avanzado',
-      de: 'Fortgeschritten',
-    ),
-  };
-}
-
-AppTutorialCourseLevel _tutorialCourseLevel(AppTutorialCourse course) {
-  return switch (course) {
-    AppTutorialCourse.basics ||
-    AppTutorialCourse.mainScreen ||
-    AppTutorialCourse.writing ||
-    AppTutorialCourse.find => AppTutorialCourseLevel.beginner,
-    AppTutorialCourse.review ||
-    AppTutorialCourse.attachments ||
-    AppTutorialCourse.privateMemo ||
-    AppTutorialCourse.privacy ||
-    AppTutorialCourse.sync => AppTutorialCourseLevel.intermediate,
-    AppTutorialCourse.syncTroubleshooting ||
-    AppTutorialCourse.trashRecovery ||
-    AppTutorialCourse.organize ||
-    AppTutorialCourse.maintenance => AppTutorialCourseLevel.advanced,
-  };
 }
 
 IconData _tutorialCourseIcon(AppTutorialCourse course) {
@@ -325,12 +320,12 @@ String _tutorialCourseDescription(
       ja: 'プライベートプロファイル、アプリ保護、設定画面を確認します。',
     ),
     AppTutorialCourse.sync => strings.localized(
-      en: 'Follow the sync indicator, then open the sync settings area.',
-      ja: '同期インジケーターから設定画面の同期項目まで確認します。',
+      en: 'Find where to choose a backup provider and check sync status.',
+      ja: '保存先の選択場所と、同期状態の確認方法を見ます。',
     ),
     AppTutorialCourse.syncTroubleshooting => strings.localized(
-      en: 'Check progress from the header, then move to settings for history and conflicts.',
-      ja: 'ヘッダーの進捗確認から、設定の履歴や競合確認へ進みます。',
+      en: 'When sync is not working, check its settings and current state.',
+      ja: '同期できないときに、設定と現在の状態を確認します。',
     ),
     AppTutorialCourse.trashRecovery => strings.localized(
       en: 'Open Trash from navigation and learn when to restore or permanently delete.',

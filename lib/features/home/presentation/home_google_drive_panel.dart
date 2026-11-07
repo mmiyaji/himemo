@@ -114,9 +114,8 @@ class _GoogleDriveWebSignInPanelState
                     de: 'Google-Drive-Simulator',
                   )
                 : strings.googleDriveWebSignInTitle,
-            style: Theme.of(
-              context,
-            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+            style: Theme.of(context).textTheme.titleSmall
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 4),
           Text(
@@ -130,9 +129,8 @@ class _GoogleDriveWebSignInPanelState
                     de: 'Der lokale Testmodus ist aktiv. Die Synchronisierung nutzt einen Google-Drive-Simulator im Speicher und kontaktiert Google nicht.',
                   )
                 : strings.googleDriveWebSignInBody,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-            ),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: colorScheme.onSurfaceVariant),
           ),
           const SizedBox(height: 12),
           if (fakeMode)
@@ -172,9 +170,8 @@ class _GoogleDriveWebSignInPanelState
             const SizedBox(height: 8),
             Text(
               '$error',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: colorScheme.error),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: colorScheme.error),
             ),
           ],
         ],

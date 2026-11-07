@@ -4,6 +4,7 @@ class TagsScreen extends ConsumerStatefulWidget {
   const TagsScreen({super.key});
 
   static final tagSearchKey = GlobalKey(debugLabel: 'tag-management-search');
+  static const backToSettingsKey = Key('tags-back-to-settings');
 
   @override
   ConsumerState<TagsScreen> createState() => _TagsScreenState();
@@ -15,6 +16,8 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
   @override
   Widget build(BuildContext context) {
     final strings = context.strings;
+    final openedFromSettings =
+        GoRouterState.of(context).uri.queryParameters['from'] == 'settings';
     final summaries = ref.watch(visibleTagSummariesProvider);
     final autoTagRules = ref.watch(autoTagRulesControllerProvider);
     final queryKey = canonicalizeNoteTag(_query);
@@ -22,9 +25,9 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
         ? summaries
         : summaries
               .where(
-                (summary) => canonicalizeNoteTag(
-                  _displayNoteTag(context, summary.name),
-                ).contains(queryKey),
+                (summary) =>
+                    canonicalizeNoteTag(_displayNoteTag(context, summary.name))
+                        .contains(queryKey),
               )
               .toList(growable: false);
     return CustomScrollView(
@@ -37,9 +40,31 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    _tagManagementTitle(strings),
-                    style: Theme.of(context).textTheme.headlineSmall,
+                  Row(
+                    children: [
+                      if (openedFromSettings) ...[
+                        IconButton(
+                          key: TagsScreen.backToSettingsKey,
+                          tooltip: MaterialLocalizations.of(context)
+                              .backButtonTooltip,
+                          onPressed: () {
+                            if (context.canPop()) {
+                              context.pop();
+                            } else {
+                              context.go('/settings');
+                            }
+                          },
+                          icon: const Icon(Icons.arrow_back_rounded),
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                      Expanded(
+                        child: Text(
+                          _tagManagementTitle(strings),
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 6),
                   Text(
@@ -51,9 +76,8 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
                       es: 'Renombra o elimina etiquetas usadas por las notas visibles.',
                       de: 'Tags sichtbarer Notizen umbenennen oder loeschen.',
                     ),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: _mutedTextColor(context),
-                    ),
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(color: _mutedTextColor(context)),
                   ),
                   const SizedBox(height: 16),
                   _AutoTagRulesPanel(
@@ -662,9 +686,8 @@ class _TagsScreenState extends ConsumerState<TagsScreen> {
   }
 
   void _showTagSnackBar(BuildContext context, String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(showCloseIcon: true, content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(showCloseIcon: true, content: Text(message)));
   }
 }
 
@@ -1008,9 +1031,8 @@ class _TagsEmptyState extends StatelessWidget {
               Text(
                 description,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(color: _mutedTextColor(context)),
               ),
             ],
             if (actionLabel case final actionLabel?) ...[

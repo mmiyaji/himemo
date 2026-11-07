@@ -1,10 +1,10 @@
 const syncAttachmentObjectRefPrefix = 'sync-attachment-object://';
 
-String syncAttachmentObjectRef(String contentHash) {
+String syncAttachmentObjectRef(String contentHash, {bool managed = false}) {
   if (contentHash.isEmpty) {
     throw ArgumentError.value(contentHash, 'contentHash', 'must not be empty');
   }
-  return '$syncAttachmentObjectRefPrefix$contentHash';
+  return '$syncAttachmentObjectRefPrefix${managed ? 'v2:' : ''}$contentHash';
 }
 
 bool isSyncAttachmentObjectRef(String? filePath) {
@@ -15,7 +15,8 @@ String? syncAttachmentObjectContentHash(String? filePath) {
   if (!isSyncAttachmentObjectRef(filePath)) {
     return null;
   }
-  final contentHash = filePath!.substring(syncAttachmentObjectRefPrefix.length);
+  var contentHash = filePath!.substring(syncAttachmentObjectRefPrefix.length);
+  if (contentHash.startsWith('v2:')) contentHash = contentHash.substring(3);
   return contentHash.isEmpty ? null : contentHash;
 }
 

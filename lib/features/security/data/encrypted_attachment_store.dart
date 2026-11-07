@@ -10,6 +10,7 @@ import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../app/diagnostic_log.dart';
 import '../../home/domain/note_entry.dart';
 import 'encryption_service.dart';
 import 'master_key_service.dart';
@@ -29,9 +30,9 @@ class StoredAttachmentPayloadMetadata {
 
 class EncryptedAttachmentStore {
   EncryptedAttachmentStore({
-    required EncryptionService encryptionService,
-    required MasterKeyService masterKeyService,
-    ProfileDataKeyService? profileDataKeyService,
+    required this._encryptionService,
+    required this._masterKeyService,
+    this._profileDataKeyService,
     Future<Directory> Function()? directoryProvider,
     Future<Directory> Function()? temporaryDirectoryProvider,
     Future<SharedPreferences> Function()? sharedPreferencesProvider,
@@ -39,10 +40,7 @@ class EncryptedAttachmentStore {
     this.webStoragePrefix = 'attachments.encrypted.',
     this.vaultStoragePrefix = 'attachments.vault.',
     WebAttachmentPayloadStore? webPayloadStore,
-  }) : _encryptionService = encryptionService,
-       _masterKeyService = masterKeyService,
-       _profileDataKeyService = profileDataKeyService,
-       _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
+  }) : _directoryProvider = directoryProvider ?? getApplicationSupportDirectory,
        _temporaryDirectoryProvider =
            temporaryDirectoryProvider ?? getTemporaryDirectory,
        _sharedPreferencesProvider =
@@ -268,6 +266,46 @@ class EncryptedAttachmentStore {
     await prefs.setString('$vaultStoragePrefix$storedReference', vaultId);
   }
 
+  /// Returns true when legacy device-key ciphertext was rewritten with the
+  /// private profile key. Sync must publish the new payload hash in that case.
+  Future<bool> migrateLegacyPrivateAttachment(
+    String storedReference, {
+    required AttachmentType type,
+    required String vaultId,
+  }) async {
+    if (!isProfileDataKeyPrivateVaultId(vaultId)) return false;
+    final payload = await _readPayload(storedReference);
+    if (payload == null || payload.isEmpty) return false;
+    final profileKey = await _keyForVault(vaultId);
+    if (profileKey == null) {
+      throw StateError('Attachment key is unavailable for $vaultId.');
+    }
+    try {
+      await _decryptAttachmentBytesFromStorage(
+        encodedPayload: payload,
+        key: profileKey,
+        additionalData: _aad(type),
+      );
+      final prefs = await _sharedPreferencesProvider();
+      await prefs.setString('$vaultStoragePrefix$storedReference', vaultId);
+      return false;
+    } catch (_) {
+      // Older private attachments were saved with the device key. Read with
+      // the legacy fallback, then replace the ciphertext before it is synced.
+      final bytes = await readAttachment(storedReference, type: type);
+      if (bytes == null || bytes.isEmpty) return false;
+      final encrypted = await _encryptAttachmentBytesForStorage(
+        bytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+        key: profileKey,
+        type: type,
+      );
+      await _writePayload(storedReference, encrypted);
+      final prefs = await _sharedPreferencesProvider();
+      await prefs.setString('$vaultStoragePrefix$storedReference', vaultId);
+      return true;
+    }
+  }
+
   Future<void> deleteMaterializedFile(String filePath) async {
     if (kIsWeb) {
       return;
@@ -320,7 +358,12 @@ class EncryptedAttachmentStore {
             await entity.delete();
             deletedCount += 1;
           }
-        } catch (_) {}
+        } catch (_) {
+          logDiagnostic(
+            'attachments',
+            'orphaned materialized file cleanup failed',
+          );
+        }
         continue;
       }
       final targetPath = entity.path.substring(
@@ -340,7 +383,12 @@ class EncryptedAttachmentStore {
         await target.delete();
         await entity.delete();
         deletedCount += 1;
-      } catch (_) {}
+      } catch (_) {
+        logDiagnostic(
+          'attachments',
+          'expired materialized file cleanup failed',
+        );
+      }
     }
     return deletedCount;
   }
@@ -379,11 +427,18 @@ class EncryptedAttachmentStore {
         final size = await entity.length();
         await entity.delete();
         deletedBytes += size;
-      } catch (_) {}
+      } catch (_) {
+        logDiagnostic('attachments', 'materialized cache file deletion failed');
+      }
     }
     try {
       await tmpDirectory.delete(recursive: true);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic(
+        'attachments',
+        'materialized cache directory deletion failed',
+      );
+    }
     return deletedBytes;
   }
 

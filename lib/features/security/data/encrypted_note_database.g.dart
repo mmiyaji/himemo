@@ -1785,7 +1785,16 @@ class $$EncryptedNotesTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$EncryptedNotesTable, EncryptedNote>(table),
+                  BaseReferences<
+                    _$EncryptedNoteDatabase,
+                    $EncryptedNotesTable,
+                    EncryptedNote
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -1968,7 +1977,19 @@ class $$EncryptedNoteAttachmentsTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<
+                    $EncryptedNoteAttachmentsTable,
+                    EncryptedNoteAttachment
+                  >(table),
+                  BaseReferences<
+                    _$EncryptedNoteDatabase,
+                    $EncryptedNoteAttachmentsTable,
+                    EncryptedNoteAttachment
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -2227,7 +2248,18 @@ class $$PendingNoteChangesTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$PendingNoteChangesTable, PendingNoteChange>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$EncryptedNoteDatabase,
+                    $PendingNoteChangesTable,
+                    PendingNoteChange
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),

@@ -309,9 +309,8 @@ class _NotesScreenState extends ConsumerState<NotesScreen> {
       _CloudSyncSnackBarAction.syncNow,
       syncProvider,
     );
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(showCloseIcon: true, content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(showCloseIcon: true, content: Text(message)));
   }
 
   Future<void> _deleteNote(BuildContext context, NoteEntry note) async {
@@ -416,9 +415,8 @@ class _EmptySplitDetailState extends StatelessWidget {
               es: 'Las notas guardadas apareceran en la lista izquierda. Crea una para verla y editarla aqui.',
               de: 'Gespeicherte Notizen erscheinen links. Erstelle eine, um sie hier anzusehen und zu bearbeiten.',
             ),
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(color: _mutedTextColor(context)),
           ),
           const SizedBox(height: 18),
           FilledButton.icon(

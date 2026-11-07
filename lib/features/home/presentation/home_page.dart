@@ -1,6 +1,6 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
-import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -38,6 +38,7 @@ import '../../../app/diagnostic_log.dart';
 import '../../../app/audit_log.dart';
 import '../../../l10n/app_strings.dart';
 import '../../security/data/encrypted_attachment_store.dart';
+import '../../security/data/encrypted_note_database.dart';
 import '../../security/data/encryption_service.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/google_sign_in_initializer.dart';
@@ -286,12 +287,12 @@ class _AppShellState extends ConsumerState<AppShell> {
         ? profileAccessBusyTooltip
         : profileAccessTooltip;
     final syncTransferState = ref.watch(syncTransferControllerProvider);
+    final syncProvider = ref.watch(syncProviderControllerProvider);
     final tutorialState = ref.watch(appTutorialControllerProvider);
     final tutorialStep = tutorialState?.step;
     final showSyncIndicator =
         syncTransferState.stage == SyncTransferStage.busy ||
-        tutorialStep == AppTutorialStep.syncStatus ||
-        tutorialStep == AppTutorialStep.syncTroubleshooting;
+        tutorialStep == AppTutorialStep.syncStatus;
 
     final shell = Scaffold(
       appBar: AppBar(
@@ -578,6 +579,7 @@ class _AppShellState extends ConsumerState<AppShell> {
           _AppTutorialOverlay(
             state: tutorialState!,
             useRail: useRail,
+            syncProvider: syncProvider,
             onPrevious: () {
               final latest = ref.read(appTutorialControllerProvider);
               if (latest != null) {
@@ -727,10 +729,10 @@ String _tutorialRouteForStep(AppTutorialStep step) {
     AppTutorialStep.notesList ||
     AppTutorialStep.attachments ||
     AppTutorialStep.privateMemo ||
-    AppTutorialStep.syncTroubleshooting ||
     AppTutorialStep.syncStatus ||
     AppTutorialStep.navigation => '/notes',
-    AppTutorialStep.settings => '/settings',
+    AppTutorialStep.settings ||
+    AppTutorialStep.syncTroubleshooting => '/settings',
     AppTutorialStep.tags => '/tags',
     AppTutorialStep.trash || AppTutorialStep.trashRecovery => '/trash',
     AppTutorialStep.calendarInsights => '/calendar',
@@ -793,6 +795,7 @@ class _AppTutorialOverlay extends StatefulWidget {
   const _AppTutorialOverlay({
     required this.state,
     required this.useRail,
+    required this.syncProvider,
     required this.onPrevious,
     required this.onNext,
     required this.onClose,
@@ -800,6 +803,7 @@ class _AppTutorialOverlay extends StatefulWidget {
 
   final AppTutorialState state;
   final bool useRail;
+  final SyncProvider syncProvider;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onClose;
@@ -837,6 +841,12 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
     if (highlightRect == null) {
       return const Positioned.fill(child: SizedBox.shrink());
     }
+    final spotlight = highlightRect.inflate(3).intersect(Offset.zero & size);
+    Widget barrierRegion() => GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {},
+      child: const SizedBox.expand(),
+    );
     const edgeMargin = 18.0;
     final cardWidth = math.min(360.0, size.width - edgeMargin * 2);
     final cardOffset = _cardOffset(
@@ -848,150 +858,174 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
     final isFirst = widget.state.index == 0;
     final isLast = widget.state.index == widget.state.steps.length - 1;
     return Positioned.fill(
-      child: Material(
-        color: Colors.transparent,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: GestureDetector(
-                onTap: widget.onNext,
-                child: CustomPaint(
-                  painter: _TutorialScrimPainter(
-                    highlightRect: highlightRect,
-                    color: Colors.black.withValues(alpha: 0.62),
-                    borderColor: Theme.of(context).colorScheme.primary,
-                  ),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: _TutorialScrimPainter(
+                  highlightRect: highlightRect,
+                  color: Colors.black.withValues(alpha: 0.62),
+                  borderColor: Theme.of(context).colorScheme.primary,
                 ),
               ),
             ),
-            Positioned.fromRect(
-              rect: highlightRect,
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(
-                      color: Theme.of(context).colorScheme.primary,
-                      width: 3,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.primary.withValues(alpha: 0.36),
-                        blurRadius: 22,
-                        spreadRadius: 4,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+          ),
+          if (spotlight.top > 0)
             Positioned(
-              left: cardOffset.dx,
-              top: cardOffset.dy,
-              width: cardWidth,
-              child: Card(
-                key: AppShell.tutorialCardKey,
-                margin: EdgeInsets.zero,
-                elevation: 10,
-                child: Padding(
-                  padding: const EdgeInsets.all(18),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.tips_and_updates_outlined,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _title(strings),
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: strings.close,
-                            onPressed: widget.onClose,
-                            icon: const Icon(Icons.close_rounded),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _body(strings),
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        strings.localized(
-                          en: 'Step ${widget.state.stepNumber} of ${widget.state.stepCount}',
-                          ja: '${widget.state.stepNumber} / ${widget.state.stepCount}',
-                          zh: '第 ${widget.state.stepNumber} 步，共 ${widget.state.stepCount} 步',
-                          ko: '${widget.state.stepNumber}/${widget.state.stepCount}단계',
-                          es: 'Paso ${widget.state.stepNumber} de ${widget.state.stepCount}',
-                          de: 'Schritt ${widget.state.stepNumber} von ${widget.state.stepCount}',
-                        ),
-                        style: Theme.of(context).textTheme.labelMedium
-                            ?.copyWith(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurfaceVariant,
-                            ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          TextButton(
-                            key: AppShell.tutorialBackKey,
-                            onPressed: isFirst ? null : widget.onPrevious,
-                            child: Text(
-                              strings.localized(
-                                en: 'Back',
-                                ja: '戻る',
-                                zh: '上一步',
-                                ko: '이전',
-                                es: 'Atras',
-                                de: 'Zurueck',
-                              ),
-                            ),
-                          ),
-                          const Spacer(),
-                          TextButton(
-                            key: AppShell.tutorialSkipKey,
-                            onPressed: widget.onClose,
-                            child: Text(strings.skip),
-                          ),
-                          const SizedBox(width: 8),
-                          FilledButton(
-                            key: AppShell.tutorialNextKey,
-                            onPressed: widget.onNext,
-                            child: Text(
-                              isLast
-                                  ? strings.localized(
-                                      en: 'Done',
-                                      ja: '完了',
-                                      zh: '完成',
-                                      ko: '완료',
-                                      es: 'Listo',
-                                      de: 'Fertig',
-                                    )
-                                  : strings.next,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+              left: 0,
+              right: 0,
+              top: 0,
+              height: spotlight.top,
+              child: barrierRegion(),
+            ),
+          if (spotlight.bottom < size.height)
+            Positioned(
+              left: 0,
+              right: 0,
+              top: spotlight.bottom,
+              bottom: 0,
+              child: barrierRegion(),
+            ),
+          if (spotlight.left > 0)
+            Positioned(
+              left: 0,
+              top: spotlight.top,
+              bottom: size.height - spotlight.bottom,
+              width: spotlight.left,
+              child: barrierRegion(),
+            ),
+          if (spotlight.right < size.width)
+            Positioned(
+              left: spotlight.right,
+              top: spotlight.top,
+              bottom: size.height - spotlight.bottom,
+              right: 0,
+              child: barrierRegion(),
+            ),
+          Positioned.fromRect(
+            rect: highlightRect,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.primary,
+                    width: 3,
                   ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Theme.of(context).colorScheme.primary
+                          .withValues(alpha: 0.36),
+                      blurRadius: 22,
+                      spreadRadius: 4,
+                    ),
+                  ],
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+          Positioned(
+            left: cardOffset.dx,
+            top: cardOffset.dy,
+            width: cardWidth,
+            child: Card(
+              key: AppShell.tutorialCardKey,
+              margin: EdgeInsets.zero,
+              elevation: 10,
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.tips_and_updates_outlined,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _title(strings),
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: strings.close,
+                          onPressed: widget.onClose,
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _body(context, strings),
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      strings.localized(
+                        en: 'Step ${widget.state.stepNumber} of ${widget.state.stepCount}',
+                        ja: '${widget.state.stepNumber} / ${widget.state.stepCount}',
+                        zh: '第 ${widget.state.stepNumber} 步，共 ${widget.state.stepCount} 步',
+                        ko: '${widget.state.stepNumber}/${widget.state.stepCount}단계',
+                        es: 'Paso ${widget.state.stepNumber} de ${widget.state.stepCount}',
+                        de: 'Schritt ${widget.state.stepNumber} von ${widget.state.stepCount}',
+                      ),
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        TextButton(
+                          key: AppShell.tutorialBackKey,
+                          onPressed: isFirst ? null : widget.onPrevious,
+                          child: Text(
+                            strings.localized(
+                              en: 'Back',
+                              ja: '戻る',
+                              zh: '上一步',
+                              ko: '이전',
+                              es: 'Atras',
+                              de: 'Zurueck',
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
+                        TextButton(
+                          key: AppShell.tutorialSkipKey,
+                          onPressed: widget.onClose,
+                          child: Text(strings.skip),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          key: AppShell.tutorialNextKey,
+                          onPressed: widget.onNext,
+                          child: Text(
+                            isLast
+                                ? strings.localized(
+                                    en: 'Finish',
+                                    ja: '終了',
+                                    zh: '结束',
+                                    ko: '종료',
+                                    es: 'Finalizar',
+                                    de: 'Ende',
+                                  )
+                                : strings.next,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1021,7 +1055,7 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
     final top = padding.top + edge;
     return switch (step) {
       AppTutorialStep.privateProfile => Offset(nearRight(), below()),
-      AppTutorialStep.addNote =>
+      AppTutorialStep.addNote || AppTutorialStep.attachments =>
         widget.useRail
             ? Offset(
                 highlightRect.top < top + 80
@@ -1037,11 +1071,16 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
                             estimatedCardHeight,
                       ),
               )
-            : Offset(centered(), math.max(top, highlightRect.top - 300)),
+            : Offset(
+                centered(),
+                math.max(
+                  top,
+                  highlightRect.top - estimatedCardHeight - gap - 80,
+                ),
+              ),
       AppTutorialStep.search ||
       AppTutorialStep.filters ||
       AppTutorialStep.notesList ||
-      AppTutorialStep.attachments ||
       AppTutorialStep.privateMemo ||
       AppTutorialStep.syncTroubleshooting => Offset(nearRight(), below()),
       AppTutorialStep.syncStatus => Offset(nearRight(), below()),
@@ -1106,7 +1145,6 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
         case AppTutorialStep.privateProfile:
         case AppTutorialStep.privateMemo:
         case AppTutorialStep.syncStatus:
-        case AppTutorialStep.syncTroubleshooting:
           return Rect.fromLTWH(
             math.max(16, size.width - padding.right - 84),
             top,
@@ -1129,6 +1167,7 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
         case AppTutorialStep.search:
         case AppTutorialStep.filters:
         case AppTutorialStep.notesList:
+        case AppTutorialStep.syncTroubleshooting:
         case AppTutorialStep.settings:
         case AppTutorialStep.tags:
         case AppTutorialStep.trash:
@@ -1154,7 +1193,9 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
             ? rectFor(AppShell.addNoteKey) ?? rectFor(AppShell.headerAddNoteKey)
             : rectFor(AppShell.addNoteKey),
       AppTutorialStep.privateMemo => rectFor(AppShell.privateProfileAccessKey),
-      AppTutorialStep.syncTroubleshooting => rectFor(AppShell.syncIndicatorKey),
+      AppTutorialStep.syncTroubleshooting => rectFor(
+        SettingsScreen._syncSectionKey,
+      ),
       AppTutorialStep.syncStatus => rectFor(AppShell.syncIndicatorKey),
       AppTutorialStep.settings => rectFor(AppShell.settingsNavKey),
       AppTutorialStep.tags =>
@@ -1244,7 +1285,7 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
     };
   }
 
-  String _body(AppStrings strings) {
+  String _body(BuildContext context, AppStrings strings) {
     return switch (step) {
       AppTutorialStep.privateProfile => strings.localized(
         en: 'Use the lock icon in the header to unlock or switch private profiles. App lock also uses this area when protection is enabled.',
@@ -1275,8 +1316,12 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
         ja: 'プライベートメモを書く前に、ヘッダーからプロファイルを解除します。編集画面では保存先がプライベートになっていることを確認して保存します。',
       ),
       AppTutorialStep.syncTroubleshooting => strings.localized(
-        en: 'When sync is active, tap the indicator to see progress, item counts, and the current step before opening settings for detailed history.',
-        ja: '同期中はインジケーターをタップして、進捗、件数、現在の処理を確認できます。詳しい履歴は設定から確認します。',
+        en: widget.syncProvider == SyncProvider.off
+            ? 'Sync is turned off. Choose a backup provider here to get started. Progress appears in the header while a sync is running.'
+            : 'Manage your backup provider and sync actions here. While a sync is running, its progress and item counts appear in the header.',
+        ja: widget.syncProvider == SyncProvider.off
+            ? '現在、同期はオフです。ここで保存先を選ぶと利用を始められます。同期中は画面上部に進捗が表示されます。'
+            : 'ここで保存先や同期の操作を管理できます。同期中は画面上部に進捗と件数が表示されます。',
       ),
       AppTutorialStep.syncStatus => strings.localized(
         en: 'When sync is running, this indicator rotates and shows progress. Tap it to see the current step and item counts.',
@@ -1302,10 +1347,16 @@ class _AppTutorialOverlayState extends State<_AppTutorialOverlay> {
         en: 'Calendar helps you review memos by date, while insights show writing patterns and note activity.',
         ja: 'カレンダーでは日付からメモを見返せます。記録では作成傾向やメモの活動を確認できます。',
       ),
-      AppTutorialStep.navigation => strings.localized(
-        en: 'Use the navigation to move between notes, calendar, insights, trash, tags, and settings. Settings contains sync, app protection, profiles, and help.',
-        ja: 'ナビゲーションからノート、カレンダー、記録、ゴミ箱、タグ、設定へ移動できます。設定には同期、アプリ保護、プロファイル、ヘルプがあります。',
-      ),
+      AppTutorialStep.navigation =>
+        MediaQuery.sizeOf(context).width < 840
+            ? strings.localized(
+                en: 'Use the bottom navigation to move between notes, calendar, insights, and settings. Other management tools are grouped in Settings.',
+                ja: '下部のナビゲーションからノート、カレンダー、記録、設定へ移動できます。その他の管理機能は設定にまとまっています。',
+              )
+            : strings.localized(
+                en: 'Use the sidebar to move between notes, calendar, insights, trash, tags, and settings. Settings contains sync, app protection, profiles, and help.',
+                ja: 'サイドバーからノート、カレンダー、記録、ゴミ箱、タグ、設定へ移動できます。設定には同期、アプリ保護、プロファイル、ヘルプがあります。',
+              ),
     };
   }
 }
@@ -1501,9 +1552,9 @@ class _HeaderSyncIndicatorState extends State<_HeaderSyncIndicator>
                           itemProgress,
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
                               ),
                         ),
                       ],
@@ -1535,14 +1586,16 @@ class _CreateNoteNavButton extends StatelessWidget {
   static const _verticalOffset = 12.0;
   static const _tapSize = 68.0;
   static const _buttonSize = 56.0;
-  static const _iconSize = 44.0;
+  static const _iconSize = 38.0;
 
   final VoidCallback onPressed;
   final String tooltip;
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final actionColors = _mobileCreateActionColors(theme);
     return Tooltip(
       message: tooltip,
       child: Semantics(
@@ -1564,7 +1617,7 @@ class _CreateNoteNavButton extends StatelessWidget {
                     width: _buttonSize,
                     height: _buttonSize,
                     decoration: BoxDecoration(
-                      color: colorScheme.primary,
+                      color: actionColors.background,
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
@@ -1574,8 +1627,12 @@ class _CreateNoteNavButton extends StatelessWidget {
                         ),
                       ],
                     ),
-                    child: const Center(
-                      child: _CreateNoteIcon(size: _iconSize),
+                    child: Center(
+                      child: _CreateNoteIcon(
+                        size: _iconSize,
+                        background: actionColors.background,
+                        foreground: actionColors.foreground,
+                      ),
                     ),
                   ),
                 ),
@@ -1624,26 +1681,82 @@ class _PrivateProfileAccessIcon extends StatelessWidget {
 }
 
 class _CreateNoteIcon extends StatelessWidget {
-  const _CreateNoteIcon({required this.size});
+  const _CreateNoteIcon({required this.size, this.background, this.foreground});
 
   final double size;
+  final Color? background;
+  final Color? foreground;
 
   @override
   Widget build(BuildContext context) {
+    final actionColors = _filledActionColors(Theme.of(context));
     return SvgPicture.asset(
       'assets/actions/create-note.svg',
       width: size,
       height: size,
-      colorMapper: _CreateNoteIconColorMapper(Theme.of(context).colorScheme),
+      colorMapper: _CreateNoteIconColorMapper(
+        background: background ?? actionColors.background,
+        foreground: foreground ?? actionColors.foreground,
+      ),
     );
   }
 }
 
+({Color background, Color foreground}) _mobileCreateActionColors(
+  ThemeData theme,
+) {
+  const foreground = Colors.white;
+  final base = theme.colorScheme.primary;
+  if (_createActionContrastRatio(base, foreground) >= 4.5) {
+    return (background: base, foreground: foreground);
+  }
+
+  var low = 0.0;
+  var high = 1.0;
+  var candidate = base;
+  for (var index = 0; index < 10; index++) {
+    final amount = (low + high) / 2;
+    candidate = Color.lerp(base, Colors.black, amount)!;
+    if (_createActionContrastRatio(candidate, foreground) >= 4.5) {
+      high = amount;
+    } else {
+      low = amount;
+    }
+  }
+  return (
+    background: Color.lerp(base, Colors.black, high)!,
+    foreground: foreground,
+  );
+}
+
+double _createActionContrastRatio(Color first, Color second) {
+  final firstLuminance = first.computeLuminance();
+  final secondLuminance = second.computeLuminance();
+  final lighter = math.max(firstLuminance, secondLuminance);
+  final darker = math.min(firstLuminance, secondLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+({Color background, Color foreground}) _filledActionColors(ThemeData theme) {
+  final style = theme.filledButtonTheme.style;
+  const states = <WidgetState>{};
+  return (
+    background:
+        style?.backgroundColor?.resolve(states) ?? theme.colorScheme.primary,
+    foreground:
+        style?.foregroundColor?.resolve(states) ?? theme.colorScheme.onPrimary,
+  );
+}
+
 @immutable
 class _CreateNoteIconColorMapper extends ColorMapper {
-  const _CreateNoteIconColorMapper(this.colorScheme);
+  const _CreateNoteIconColorMapper({
+    required this.background,
+    required this.foreground,
+  });
 
-  final ColorScheme colorScheme;
+  final Color background;
+  final Color foreground;
 
   @override
   Color substitute(
@@ -1653,19 +1766,16 @@ class _CreateNoteIconColorMapper extends ColorMapper {
     Color color,
   ) {
     if (color == const Color(0xFFFFF7F4)) {
-      return colorScheme.onPrimary;
+      return background;
     }
     if (color == const Color(0xFFF7DADF)) {
-      return Color.alphaBlend(
-        colorScheme.primary.withValues(alpha: 0.14),
-        colorScheme.onPrimary,
-      );
+      return Color.alphaBlend(foreground.withValues(alpha: 0.18), background);
     }
     if (color == const Color(0xFF9F5261)) {
-      return colorScheme.primary;
+      return foreground;
     }
     if (color == const Color(0xFFD77E8D)) {
-      return colorScheme.primary.withValues(alpha: 0.72);
+      return Color.alphaBlend(foreground.withValues(alpha: 0.78), background);
     }
     return color;
   }
@@ -1673,12 +1783,12 @@ class _CreateNoteIconColorMapper extends ColorMapper {
   @override
   bool operator ==(Object other) {
     return other is _CreateNoteIconColorMapper &&
-        other.colorScheme.primary == colorScheme.primary &&
-        other.colorScheme.onPrimary == colorScheme.onPrimary;
+        other.background == background &&
+        other.foreground == foreground;
   }
 
   @override
-  int get hashCode => Object.hash(colorScheme.primary, colorScheme.onPrimary);
+  int get hashCode => Object.hash(background, foreground);
 }
 
 class _AppBrandTitle extends StatelessWidget {
@@ -1752,9 +1862,8 @@ Future<void> _showReleaseNotesDialog(
               if (dateLabel != null) ...[
                 Text(
                   dateLabel,
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
+                  style: Theme.of(context).textTheme.labelMedium
+                      ?.copyWith(color: colorScheme.onSurfaceVariant),
                 ),
                 const SizedBox(height: 8),
               ],
@@ -2089,9 +2198,8 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
 
   void _submit() {
     if (_formKey.currentState?.validate() ?? false) {
-      Navigator.of(
-        context,
-      ).pop(_ProfileAccessDialogResult.unlock(_controller.text));
+      Navigator.of(context)
+          .pop(_ProfileAccessDialogResult.unlock(_controller.text));
     }
   }
 
@@ -2150,9 +2258,9 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
           ),
         TextButton(
           key: const Key('private-profile-unlock-create-profile'),
-          onPressed: () => Navigator.of(
-            context,
-          ).pop(const _ProfileAccessDialogResult.createProfile()),
+          onPressed: () =>
+              Navigator.of(context)
+                  .pop(const _ProfileAccessDialogResult.createProfile()),
           child: Text(strings.text('home.add.private.profile')),
         ),
         TextButton(

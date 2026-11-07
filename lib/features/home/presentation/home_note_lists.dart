@@ -655,9 +655,8 @@ class _NoteListTile extends StatelessWidget {
                   width: 78,
                   child: Text(
                     dateLabel,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: _mutedTextColor(context),
-                    ),
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: _mutedTextColor(context)),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -675,9 +674,8 @@ class _NoteListTile extends StatelessWidget {
                     query: query,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: _strongMutedTextColor(context),
-                    ),
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(color: _strongMutedTextColor(context)),
                   ),
                 ),
                 if (note.isPinned) ...[
@@ -735,9 +733,8 @@ class _NoteListTile extends StatelessWidget {
                     child: _HighlightedText(
                       text: note.title,
                       query: query,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                      style: Theme.of(context).textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
                     ),
                   ),
                   if (note.isPinned)
@@ -757,9 +754,8 @@ class _NoteListTile extends StatelessWidget {
                   query: query,
                   maxLines: bodyLines,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: _strongMutedTextColor(context),
-                  ),
+                  style: Theme.of(context).textTheme.bodyMedium
+                      ?.copyWith(color: _strongMutedTextColor(context)),
                 ),
               if (visiblePreviewFacts.isNotEmpty ||
                   showLocationPreviewIconOnly) ...[
@@ -817,9 +813,9 @@ class _NoteListTile extends StatelessWidget {
                           width: thumbnailSize,
                           height: thumbnailSize,
                           decoration: BoxDecoration(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.surfaceContainerHighest,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest,
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
                               color: Theme.of(context).dividerColor,
@@ -853,9 +849,8 @@ class _NoteListTile extends StatelessWidget {
                   const Spacer(),
                   Text(
                     isEdited ? strings.noteEditedAt(dateLabel) : dateLabel,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: _mutedTextColor(context),
-                    ),
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: _mutedTextColor(context)),
                   ),
                 ],
               ),
@@ -1079,9 +1074,8 @@ class _SyncConflictNotice extends StatelessWidget {
                 es: 'Esta nota tiene cambios locales y remotos en conflicto.',
                 de: 'Diese Notiz hat widersprechende lokale und Remote-Anderungen.',
               ),
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: colorScheme.onErrorContainer,
-              ),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(color: colorScheme.onErrorContainer),
             ),
           ),
           const SizedBox(width: 10),
@@ -1277,9 +1271,8 @@ class _HighlightedText extends StatelessWidget {
         TextSpan(
           text: text.substring(matchIndex, matchIndex + normalizedQuery.length),
           style: style?.copyWith(
-            backgroundColor: Theme.of(
-              context,
-            ).colorScheme.primary.withValues(alpha: 0.16),
+            backgroundColor: Theme.of(context).colorScheme.primary
+                .withValues(alpha: 0.16),
           ),
         ),
       );

@@ -7,10 +7,11 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $envPath = Join-Path $repoRoot '.env'
-$flutter = 'D:\Flutter\versions\3.41.6\bin\flutter.bat'
+$flutterVersion = (Get-Content -LiteralPath (Join-Path $repoRoot '.fvmrc') -Raw | ConvertFrom-Json).flutter
+$flutter = "D:\Flutter\versions\$flutterVersion\bin\flutter.bat"
 
 if (-not (Test-Path -LiteralPath $flutter)) {
-  $flutter = 'flutter'
+  throw "Flutter $flutterVersion is required at $flutter. Install the pinned SDK on D: before running this script."
 }
 
 if (Test-Path -LiteralPath $envPath) {

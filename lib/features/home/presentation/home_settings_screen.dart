@@ -4,6 +4,8 @@ class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   static const overviewKey = Key('settings-overview');
+  static const tagsAndAutoTaggingKey = Key('settings-tags-and-auto-tagging');
+  static const trashManagementKey = Key('settings-trash-management');
   static const appLockToggleKey = Key('app-lock-toggle');
   static const appLockRelockImmediateKey = Key('app-lock-relock-immediate');
   static const appLockRelock30SecondsKey = Key('app-lock-relock-30-seconds');
@@ -83,6 +85,8 @@ class SettingsScreen extends ConsumerWidget {
   );
   static Key privateProfileDeleteKey(String id) =>
       Key('private-profile-delete-$id');
+  static Key privateProfileOpenKey(String id) =>
+      Key('private-profile-open-$id');
   static const startTutorialKey = Key('start-highlight-tutorial');
   static final aboutSectionKey = GlobalKey();
   static final _appearanceSectionKey = GlobalKey();
@@ -97,8 +101,18 @@ class SettingsScreen extends ConsumerWidget {
   static final _appSecurityController = ExpansibleController();
   static final _syncController = ExpansibleController();
   static final _storageController = ExpansibleController();
+  static final _aboutController = ExpansibleController();
   static final List<DateTime> _diagnosticModeTapTimes = <DateTime>[];
-  static int _sectionScrollRequestId = 0;
+
+  static final List<ExpansibleController> _primarySettingsControllers = [
+    _appearanceController,
+    _memoSettingsController,
+    _privateProfilesController,
+    _appSecurityController,
+    _syncController,
+    _storageController,
+    _aboutController,
+  ];
 
   Future<void> _handleVersionTap(
     BuildContext context,
@@ -320,18 +334,80 @@ class SettingsScreen extends ConsumerWidget {
     if (!authenticated || !context.mounted) {
       return;
     }
-    ref.read(adminModeSessionControllerProvider.notifier).unlock();
-    ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+    final controller = ref.read(adminModeSessionControllerProvider.notifier);
+    List<String> missing;
+    try {
+      missing = await controller.unlock();
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            strings.localized(
+              en: 'Could not open admin mode. Please try again.',
+              ja: '管理者モードを開けませんでした。もう一度お試しください。',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    if (!context.mounted || !ref.read(adminModeSessionControllerProvider)) {
+      return;
+    }
+    // Let the user choose the profile from the admin list. Automatically
+    // opening password prompts in storage order hides that choice.
+    final needsPassword = missing.isNotEmpty;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         showCloseIcon: true,
         content: Text(
-          strings.text(
-            'home.admin.mode.unlocked.profile.names.and.vault.ids.remain.h',
-          ),
+          needsPassword
+              ? strings.localized(
+                  en: 'Admin mode is active. ${missing.length} profiles need initial setup. Choose the profile to unlock from the list below.',
+                  ja: '管理者モードに入りました。${missing.length}件のプロファイルで初回設定が必要です。一覧から解除するプロファイルを選んでください。',
+                )
+              : strings.localized(
+                  en: 'Admin mode is active. You can open notes and attachments in every profile.',
+                  ja: '管理者モードに入りました。全プロファイルのメモと添付を開けます。',
+                ),
         ),
       ),
     );
+  }
+
+  Future<bool> _prepareProfileForAdmin(
+    BuildContext context,
+    WidgetRef ref,
+    String vaultId,
+    String name,
+  ) async {
+    if (!context.mounted || !ref.read(adminModeSessionControllerProvider)) {
+      return false;
+    }
+    if (ref.read(profileDataKeyServiceProvider).isProfileUnlocked(vaultId)) {
+      return true;
+    }
+    final profiles = ref.read(privateMemoProfilesProvider);
+    final matching = profiles.where((profile) => profile.vaultId == vaultId);
+    return await showDialog<bool>(
+          context: context,
+          builder: (_) => AdminProfileUnlockDialog(
+            profileName: name,
+            createdAt: matching.isEmpty ? null : matching.first.createdAt,
+            isLegacy: vaultId == legacyPrivateVaultId,
+            onUnlock: (password) async {
+              if (!context.mounted ||
+                  !ref.read(adminModeSessionControllerProvider)) {
+                return false;
+              }
+              return ref
+                  .read(adminModeSessionControllerProvider.notifier)
+                  .unlockProfile(vaultId, password);
+            },
+          ),
+        ) ??
+        false;
   }
 
   Future<void> _showChangeCurrentProfilePasswordDialog(
@@ -466,30 +542,66 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  void _enterPrivateProfileFromAdmin(
+  Future<void> _enterPrivateProfileFromAdmin(
     BuildContext context,
     WidgetRef ref,
-    PrivateMemoProfile profile,
-  ) {
+    String vaultId,
+    String name,
+  ) async {
     final strings = context.strings;
-    ref
-        .read(searchFiltersControllerProvider.notifier)
-        .setVault(profile.vaultId);
+    if (!await _prepareProfileForAdmin(context, ref, vaultId, name) ||
+        !context.mounted ||
+        !ref.read(adminModeSessionControllerProvider)) {
+      return;
+    }
+    ref.read(searchFiltersControllerProvider.notifier).setVault(vaultId);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         showCloseIcon: true,
         content: Text(
           strings.localized(
-            en: 'Showing ${profile.name}. Admin mode remains active.',
-            ja: '${profile.name} を表示しています。管理者モードは継続中です。',
+            en: 'Showing $name. Admin mode remains active.',
+            ja: '$name を表示しています。管理者モードは継続中です。',
           ),
         ),
       ),
     );
-    logAudit(
-      'admin_mode_enter_private_profile',
-      data: {'vaultId': profile.vaultId},
-    );
+    logAudit('admin_mode_enter_private_profile', data: {'vaultId': vaultId});
+  }
+
+  Future<void> _connectSelectedSync(
+    BuildContext context,
+    WidgetRef ref,
+    SyncProvider provider,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final strings = context.strings;
+    try {
+      await ref.read(syncAuthControllerProvider.notifier).connectSelected();
+      if (!context.mounted) return;
+      final authState = ref.read(syncAuthControllerProvider)[provider];
+      final localizedMessage = authState != null && !authState.isAuthenticated
+          ? _syncConnectionStep(strings, provider, authState)
+          : _cloudSyncAuthSnackBarMessage(strings, authState?.message);
+      if (localizedMessage != null && localizedMessage.isNotEmpty) {
+        messenger.showSnackBar(
+          SnackBar(showCloseIcon: true, content: Text(localizedMessage)),
+        );
+      }
+    } catch (_) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(
+            strings.localized(
+              en: 'Could not connect. Check your account and connection, then try again.',
+              ja: '接続できませんでした。アカウントと通信状態を確認して、もう一度お試しください。',
+            ),
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _syncNow(BuildContext context, WidgetRef ref) async {
@@ -520,12 +632,20 @@ class SettingsScreen extends ConsumerWidget {
       messenger.showSnackBar(
         SnackBar(showCloseIcon: true, content: Text(message)),
       );
-    } catch (error) {
+    } catch (_) {
       if (!context.mounted) {
         return;
       }
       messenger.showSnackBar(
-        SnackBar(showCloseIcon: true, content: Text('$error')),
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(
+            strings.localized(
+              en: 'Could not sync. Check your connection and try again.',
+              ja: '同期できませんでした。通信状態を確認して、もう一度お試しください。',
+            ),
+          ),
+        ),
       );
     }
   }
@@ -553,81 +673,27 @@ class SettingsScreen extends ConsumerWidget {
     return await _showLargeMobileSyncConfirmDialog(context, warning) ?? false;
   }
 
-  void _openSettingsSection(
-    BuildContext context,
-    ExpansibleController controller,
-    GlobalKey key,
+  void _handlePrimarySettingsExpansion(
+    bool expanded,
+    ExpansibleController activeController,
   ) {
-    final requestId = ++_sectionScrollRequestId;
-    controller.expand();
-    unawaited(_scrollToSettingsSectionWhenReady(context, key, requestId));
-  }
-
-  Future<void> _scrollToSettingsSectionWhenReady(
-    BuildContext context,
-    GlobalKey key,
-    int requestId,
-  ) async {
-    await _waitForSettingsFrame();
-    await Future<void>.delayed(const Duration(milliseconds: 260));
-    await _waitForSettingsFrame();
-    if (!context.mounted || requestId != _sectionScrollRequestId) {
+    if (!expanded) {
       return;
     }
-    await _scrollToSettingsSection(key);
-    await Future<void>.delayed(const Duration(milliseconds: 380));
-    await _waitForSettingsFrame();
-    if (!context.mounted || requestId != _sectionScrollRequestId) {
-      return;
-    }
-    await _scrollToSettingsSection(
-      key,
-      duration: const Duration(milliseconds: 140),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 180));
-    await _waitForSettingsFrame();
-    if (!context.mounted || requestId != _sectionScrollRequestId) {
-      return;
-    }
-    await _scrollToSettingsSection(
-      key,
-      duration: const Duration(milliseconds: 100),
-    );
-  }
-
-  Future<void> _waitForSettingsFrame() {
-    final completer = Completer<void>();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      completer.complete();
-    });
-    WidgetsBinding.instance.ensureVisualUpdate();
-    return completer.future;
-  }
-
-  Future<void> _scrollToSettingsSection(
-    GlobalKey key, {
-    Duration duration = const Duration(milliseconds: 320),
-  }) async {
-    final targetContext = key.currentContext;
-    if (targetContext == null) {
-      return;
-    }
-    try {
-      await Scrollable.ensureVisible(
-        targetContext,
-        alignment: 0.06,
-        alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
-        duration: duration,
-        curve: Curves.easeOutCubic,
-      );
-    } catch (_) {
-      // The scrollable can detach if the settings route is replaced mid-jump.
+    for (final controller in _primarySettingsControllers) {
+      if (!identical(controller, activeController)) {
+        controller.collapse();
+      }
     }
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final strings = context.strings;
+    final settingsWidth = MediaQuery.sizeOf(context).width;
+    final mobileSettingsLayout = settingsWidth < 840;
+    final compactSettingsLayout = mobileSettingsLayout;
+    final settingsGroupSpacing = compactSettingsLayout ? 8.0 : 16.0;
     final activeIdentity = ref.watch(activeIdentityProvider);
     final activeThemeMode = ref.watch(effectiveThemeModeProvider);
     final activeColorTheme = ref.watch(effectiveAppColorThemeProvider);
@@ -658,6 +724,7 @@ class SettingsScreen extends ConsumerWidget {
         spotlightNoteIndexEnabled &&
         appLockEnabled;
     final notesListDensity = ref.watch(notesListDensityControllerProvider);
+    final autoTagRules = ref.watch(autoTagRulesControllerProvider);
     final attachmentPreviewFit = ref.watch(
       attachmentPreviewFitControllerProvider,
     );
@@ -772,7 +839,7 @@ class SettingsScreen extends ConsumerWidget {
               : (strings.text('home.on.this.session.is.locked')));
     final syncSummary = syncProvider == SyncProvider.off
         ? (strings.text('home.device.only.storage'))
-        : _syncAuthSummary(context, syncProvider, syncAuthState);
+        : _syncConnectionStep(strings, syncProvider, syncAuthState);
     final memoEditorModeLabel =
         lastNoteEditorSettings.mode == NoteEditorMode.quick
         ? strings.quickMemo
@@ -791,6 +858,35 @@ class SettingsScreen extends ConsumerWidget {
       es: '$memoEditorModeLabel / $memoListDensityLabel / Ubicación: $memoLocationLabel',
       de: '$memoEditorModeLabel / $memoListDensityLabel / Standort: $memoLocationLabel',
     );
+    final enabledAutoTagRuleCount = autoTagRules
+        .where((rule) => rule.enabled)
+        .length;
+    final autoTagRuleSummary = autoTagRules.isEmpty
+        ? strings.localized(
+            en: 'Manage tags and set keyword rules.',
+            ja: 'タグの整理と自動付与ルールを設定します。',
+            zh: '管理标签并设置关键字规则。',
+            ko: '태그를 정리하고 키워드 규칙을 설정합니다.',
+            es: 'Gestiona etiquetas y reglas por palabras clave.',
+            de: 'Tags und Stichwortregeln verwalten.',
+          )
+        : enabledAutoTagRuleCount > 0
+        ? strings.localized(
+            en: 'Active auto-tag rules: $enabledAutoTagRuleCount',
+            ja: '有効な自動付与ルール: $enabledAutoTagRuleCount件',
+            zh: '已启用的自动标记规则：$enabledAutoTagRuleCount',
+            ko: '활성 자동 태그 규칙: $enabledAutoTagRuleCount개',
+            es: 'Reglas de etiquetado automático activas: $enabledAutoTagRuleCount',
+            de: 'Aktive automatische Tag-Regeln: $enabledAutoTagRuleCount',
+          )
+        : strings.localized(
+            en: '${autoTagRules.length} rules, all paused.',
+            ja: '${autoTagRules.length}件のルールはすべて停止中です。',
+            zh: '${autoTagRules.length} 条规则全部已暂停。',
+            ko: '${autoTagRules.length}개의 규칙이 모두 중지됨.',
+            es: '${autoTagRules.length} reglas, todas en pausa.',
+            de: '${autoTagRules.length} Regeln, alle pausiert.',
+          );
     final effectiveFontFamily =
         _availableFontFamilies.contains(activeFontFamily)
         ? activeFontFamily
@@ -874,12 +970,50 @@ class SettingsScreen extends ConsumerWidget {
             : appUpdatesDescription,
     };
 
+    Future<void> resetStorage() async {
+      final confirmed = await _confirmStorageReset(context, noteCount);
+      if (confirmed != true) {
+        return;
+      }
+      final deletedCount = await ref
+          .read(notesControllerProvider.notifier)
+          .resetLocalStorage();
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          showCloseIcon: true,
+          content: Text(
+            strings.localized(
+              en: 'Initialized local storage. Deleted $deletedCount notes.',
+              ja: 'ストレージを初期化しました。$deletedCount 件のノートを削除しました。',
+              zh: '已初始化本地存储。删除了 $deletedCount 条笔记。',
+              ko: '로컬 저장소를 초기화했습니다. 메모 $deletedCount개를 삭제했습니다.',
+              es: 'Se inicializo el almacenamiento local. Se eliminaron $deletedCount notas.',
+              de: 'Lokaler Speicher initialisiert. $deletedCount Notizen wurden geloescht.',
+            ),
+          ),
+        ),
+      );
+    }
+
     return ListView(
-      cacheExtent: 6000,
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.symmetric(
+        horizontal: compactSettingsLayout ? 12 : 16,
+        vertical: compactSettingsLayout ? 8 : 16,
+      ),
       children: [
         _SettingsOverviewCard(
           key: overviewKey,
+          title: strings.localized(
+            en: 'Current status',
+            ja: '現在の状態',
+            zh: '当前状态',
+            ko: '현재 상태',
+            es: 'Estado actual',
+            de: 'Aktueller Status',
+          ),
           items: [
             _SettingsOverviewItem(
               label: strings.localized(
@@ -892,12 +1026,6 @@ class SettingsScreen extends ConsumerWidget {
               ),
               value: currentProfileLabel,
               icon: currentProfileIcon,
-              showOnCompact: true,
-              onTap: () => _openSettingsSection(
-                context,
-                _privateProfilesController,
-                _privateProfilesSectionKey,
-              ),
             ),
             _SettingsOverviewItem(
               label: strings.localized(
@@ -912,59 +1040,15 @@ class SettingsScreen extends ConsumerWidget {
                   ? (strings.text('home.enabled'))
                   : (strings.text('home.disabled')),
               icon: Icons.enhanced_encryption_outlined,
-              showOnCompact: true,
-              onTap: () => _openSettingsSection(
-                context,
-                _appSecurityController,
-                _appSecuritySectionKey,
-              ),
             ),
             _SettingsOverviewItem(
               label: strings.syncLabel,
-              value: syncProvider == SyncProvider.off
-                  ? (strings.text('home.off'))
-                  : (strings.text('home.configured')),
+              value: syncSummary,
               icon: Icons.sync_outlined,
-              showOnCompact: true,
-              onTap: () => _openSettingsSection(
-                context,
-                _syncController,
-                _syncSectionKey,
-              ),
-            ),
-            _SettingsOverviewItem(
-              label: strings.localized(en: 'Memo', ja: '\u30e1\u30e2'),
-              value: memoSettingsSummary,
-              icon: Icons.edit_note_outlined,
-              onTap: () => _openSettingsSection(
-                context,
-                _memoSettingsController,
-                _memoSettingsSectionKey,
-              ),
-            ),
-            _SettingsOverviewItem(
-              label: strings.text('home.storage'),
-              value: strings.noteCountSummary(noteCount),
-              icon: Icons.storage_outlined,
-              onTap: () => _openSettingsSection(
-                context,
-                _storageController,
-                _storageSectionKey,
-              ),
-            ),
-            _SettingsOverviewItem(
-              label: strings.text('home.theme'),
-              value: _themeModeLabel(context, activeThemeMode),
-              icon: Icons.palette_outlined,
-              onTap: () => _openSettingsSection(
-                context,
-                _appearanceController,
-                _appearanceSectionKey,
-              ),
             ),
           ],
-        ),
-        const SizedBox(height: 16),
+        ).visibleWhen(!compactSettingsLayout),
+        SizedBox(height: compactSettingsLayout ? 0 : settingsGroupSpacing),
         _buildAppearanceSettingsGroup(
           context: context,
           ref: ref,
@@ -979,76 +1063,79 @@ class SettingsScreen extends ConsumerWidget {
           appearanceSummary: appearanceSummary,
           sectionKey: _appearanceSectionKey,
           controller: _appearanceController,
+          onExpansionChanged: (expanded) =>
+              _handlePrimarySettingsExpansion(expanded, _appearanceController),
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
           title: strings.localized(
-            en: 'Memo settings',
-            ja: 'メモ設定',
-            zh: '备忘录设置',
-            ko: '메모 설정',
-            es: 'Ajustes de notas',
-            de: 'Notiz-Einstellungen',
+            en: 'Notes and organization',
+            ja: 'メモと整理',
+            zh: '笔记与整理',
+            ko: '메모 및 정리',
+            es: 'Notas y organización',
+            de: 'Notizen und Organisation',
           ),
           summary: memoSettingsSummary,
           icon: Icons.edit_note_outlined,
           sectionKey: _memoSettingsSectionKey,
           controller: _memoSettingsController,
+          onExpansionChanged: (expanded) => _handlePrimarySettingsExpansion(
+            expanded,
+            _memoSettingsController,
+          ),
           semanticLabel: 'settings-memo',
           children: [
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.delete_outline_rounded),
-              title: Text(
-                strings.localized(
-                  en: 'Trash',
-                  ja: 'ゴミ箱',
-                  zh: '废纸篓',
-                  ko: '휴지통',
-                  es: 'Papelera',
-                  de: 'Papierkorb',
+            if (mobileSettingsLayout) ...[
+              ListTile(
+                key: tagsAndAutoTaggingKey,
+                contentPadding: EdgeInsets.zero,
+                leading: const _SettingsListIcon(icon: Icons.sell_outlined),
+                title: Text(
+                  strings.localized(
+                    en: 'Tags and auto-tagging',
+                    ja: 'タグと自動付与',
+                    zh: '标签与自动标记',
+                    ko: '태그 및 자동 태그',
+                    es: 'Etiquetas y etiquetado automático',
+                    de: 'Tags und automatische Zuordnung',
+                  ),
                 ),
+                subtitle: Text(autoTagRuleSummary),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => context.push('/tags?from=settings'),
               ),
-              subtitle: Text(
-                strings.localized(
-                  en: 'Deleted notes are kept for 7 days before permanent deletion.',
-                  ja: '削除したメモは7日間保持され、その後完全に削除されます。',
-                  zh: '已删除的备忘录会保留 7 天，然后永久删除。',
-                  ko: '삭제한 메모는 7일 동안 보관된 뒤 완전히 삭제됩니다.',
-                  es: 'Las notas eliminadas se conservan 7 dias antes de borrarse definitivamente.',
-                  de: 'Geloeschte Notizen bleiben 7 Tage erhalten und werden danach endgueltig geloescht.',
+              ListTile(
+                key: trashManagementKey,
+                contentPadding: EdgeInsets.zero,
+                leading: const _SettingsListIcon(
+                  icon: Icons.delete_outline_rounded,
                 ),
-              ),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => context.go('/trash'),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.sell_outlined),
-              title: Text(
-                strings.localized(
-                  en: 'Tags',
-                  ja: '\u30bf\u30b0',
-                  zh: '\u6807\u7b7e',
-                  ko: '\ud0dc\uadf8',
-                  es: 'Etiquetas',
-                  de: 'Tags',
+                title: Text(
+                  strings.localized(
+                    en: 'Trash',
+                    ja: 'ゴミ箱',
+                    zh: '废纸篓',
+                    ko: '휴지통',
+                    es: 'Papelera',
+                    de: 'Papierkorb',
+                  ),
                 ),
-              ),
-              subtitle: Text(
-                strings.localized(
-                  en: 'Review, rename, and delete memo tags.',
-                  ja: '\u30e1\u30e2\u306e\u30bf\u30b0\u3092\u4e00\u89a7\u30fb\u30ea\u30cd\u30fc\u30e0\u30fb\u524a\u9664\u3057\u307e\u3059\u3002',
-                  zh: '\u67e5\u770b\u3001\u91cd\u547d\u540d\u548c\u5220\u9664\u7b14\u8bb0\u6807\u7b7e\u3002',
-                  ko: '\uba54\ubaa8 \ud0dc\uadf8\ub97c \ubcf4\uace0 \uc774\ub984\uc744 \ubc14\uafb8\uac70\ub098 \uc0ad\uc81c\ud569\ub2c8\ub2e4.',
-                  es: 'Revisa, renombra y elimina etiquetas de notas.',
-                  de: 'Notiz-Tags ansehen, umbenennen und loeschen.',
+                subtitle: Text(
+                  strings.localized(
+                    en: 'Restore or permanently delete notes.',
+                    ja: 'メモの復元と完全削除を行います。',
+                    zh: '恢复或永久删除笔记。',
+                    ko: '메모를 복원하거나 영구 삭제합니다.',
+                    es: 'Restaura o elimina notas permanentemente.',
+                    de: 'Notizen wiederherstellen oder endgültig löschen.',
+                  ),
                 ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => context.push('/trash?from=settings'),
               ),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => context.go('/tags'),
-            ),
-            const SizedBox(height: 8),
+              const Divider(height: 24),
+            ],
             if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) ...[
               SwitchListTile.adaptive(
                 key: memoSpotlightIndexKey,
@@ -1351,7 +1438,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
           title: strings.privateProfilesSettingsTitle,
           summary: adminMode
@@ -1364,12 +1451,15 @@ class SettingsScreen extends ConsumerWidget {
           icon: Icons.key_outlined,
           sectionKey: _privateProfilesSectionKey,
           controller: _privateProfilesController,
+          onExpansionChanged: (expanded) => _handlePrimarySettingsExpansion(
+            expanded,
+            _privateProfilesController,
+          ),
           children: [
             Text(
               strings.privateProfilesSettingsBody,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: _mutedTextColor(context)),
             ),
             const SizedBox(height: 8),
             Text(
@@ -1381,9 +1471,8 @@ class SettingsScreen extends ConsumerWidget {
                 es: 'Soporte no puede restablecer, desbloquear ni recuperar contrasenas de perfiles privados. Guarda la contrasena en un lugar seguro.',
                 de: 'Private-Profile-Passworter konnen vom Support nicht zuruckgesetzt, entsperrt oder wiederhergestellt werden. Bewahre das Passwort sicher auf.',
               ),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.error,
-              ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: Theme.of(context).colorScheme.error),
             ),
             const SizedBox(height: 10),
             Align(
@@ -1400,17 +1489,18 @@ class SettingsScreen extends ConsumerWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                FilledButton.tonal(
+                FilledButton(
                   key: privateProfileAddKey,
                   onPressed: () => _showAddPrivateProfileDialog(context, ref),
                   child: Text(strings.addPrivateProfile),
                 ),
-                FilledButton.tonal(
+                OutlinedButton.icon(
                   key: privateProfileAdminModeKey,
                   onPressed: adminMode
                       ? null
                       : () => _enterAdminMode(context, ref),
-                  child: Text(
+                  icon: const Icon(Icons.admin_panel_settings_outlined),
+                  label: Text(
                     adminMode
                         ? strings.adminModeActiveLabel
                         : strings.enterAdminModeLabel,
@@ -1462,39 +1552,98 @@ class SettingsScreen extends ConsumerWidget {
             ),
             if (adminMode) ...[
               const SizedBox(height: 12),
-              if (privateProfiles.isEmpty)
+              if (privateVaultConfigured)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.lock_outline),
+                  title: Text(
+                    strings.localized(
+                      en: 'Original private profile',
+                      ja: '従来のプライベートプロファイル',
+                    ),
+                  ),
+                  subtitle: Text(
+                    ref
+                            .read(profileDataKeyServiceProvider)
+                            .isProfileUnlocked(legacyPrivateVaultId)
+                        ? strings.localized(
+                            en: 'Notes and attachments are available',
+                            ja: 'メモと添付を開けます',
+                          )
+                        : strings.localized(
+                            en: 'Tap to unlock this profile for the first time',
+                            ja: 'タップして、このプロファイルを初回解除',
+                          ),
+                  ),
+                  trailing: const Icon(Icons.login_outlined),
+                  onTap: () => _enterPrivateProfileFromAdmin(
+                    context,
+                    ref,
+                    legacyPrivateVaultId,
+                    strings.localized(
+                      en: 'Original private profile',
+                      ja: '従来のプライベートプロファイル',
+                    ),
+                  ),
+                ),
+              if (privateProfiles.isEmpty && !privateVaultConfigured)
                 Text(
                   strings.noPrivateProfilesMessage,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: _mutedTextColor(context),
-                  ),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: _mutedTextColor(context)),
                 )
               else
                 Column(
                   children: [
                     for (final profile in privateProfiles)
                       ListTile(
+                        key: privateProfileOpenKey(profile.id),
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.lock_outline),
                         title: Text(profile.name),
-                        subtitle: Text(
-                          strings.localized(
-                            en: 'Private profile',
-                            ja: 'プライベートプロファイル',
-                          ),
+                        onTap: () => _enterPrivateProfileFromAdmin(
+                          context,
+                          ref,
+                          profile.vaultId,
+                          profile.name,
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              strings.localized(
+                                en: 'Created: ${_formatDateTime(profile.createdAt, strings)}',
+                                ja: '作成日時：${_formatDateTime(profile.createdAt, strings)}',
+                              ),
+                            ),
+                            Text(
+                              ref
+                                      .read(profileDataKeyServiceProvider)
+                                      .isProfileUnlocked(profile.vaultId)
+                                  ? strings.localized(
+                                      en: 'Notes and attachments are available',
+                                      ja: 'メモと添付を開けます',
+                                    )
+                                  : strings.localized(
+                                      en: 'Tap to unlock this profile for the first time',
+                                      ja: 'タップして、このプロファイルを初回解除',
+                                    ),
+                            ),
+                          ],
                         ),
                         trailing: Wrap(
                           spacing: 4,
                           children: [
                             IconButton(
                               tooltip: strings.localized(
-                                en: 'Open profile',
-                                ja: 'プロファイルに入る',
+                                en: 'Open ${profile.name}',
+                                ja: '「${profile.name}」を開く',
                               ),
                               onPressed: () => _enterPrivateProfileFromAdmin(
                                 context,
                                 ref,
-                                profile,
+                                profile.vaultId,
+                                profile.name,
                               ),
                               icon: const Icon(Icons.login_outlined),
                             ),
@@ -1531,7 +1680,7 @@ class SettingsScreen extends ConsumerWidget {
             ],
           ],
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: settingsGroupSpacing),
         if (kDebugMode && showLegacyAccessSettings)
           _SettingsGroup(
             title: strings.text('home.access.modes'),
@@ -1551,9 +1700,8 @@ class SettingsScreen extends ConsumerWidget {
                 strings.text(
                   'home.the.app.stays.in.normal.memo.mode.by.default.enter.a.spe',
                 ),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: _mutedTextColor(context)),
               ),
               const SizedBox(height: 12),
               if (syncProvider != SyncProvider.iCloud)
@@ -1599,13 +1747,16 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ],
           ),
-        if (kDebugMode && showLegacyAccessSettings) const SizedBox(height: 16),
+        if (kDebugMode && showLegacyAccessSettings)
+          SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
           title: strings.text('home.app.security'),
           summary: lockSummary,
           icon: Icons.enhanced_encryption_outlined,
           sectionKey: _appSecuritySectionKey,
           controller: _appSecurityController,
+          onExpansionChanged: (expanded) =>
+              _handlePrimarySettingsExpansion(expanded, _appSecurityController),
           children: [
             SwitchListTile.adaptive(
               key: appLockToggleKey,
@@ -1836,9 +1987,8 @@ class SettingsScreen extends ConsumerWidget {
                         es: 'Este PIN se guarda en este dispositivo y se usa cuando la autenticación del sistema no está disponible.',
                         de: 'Diese PIN wird auf diesem Gerät gespeichert und genutzt, wenn die Geräteauthentifizierung des Systems nicht verfügbar ist.',
                       ),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: _mutedTextColor(context)),
               ),
               const SizedBox(height: 8),
             ],
@@ -1870,9 +2020,8 @@ class SettingsScreen extends ConsumerWidget {
                 strings.text(
                   'home.quick.widget.capture.only.writes.plain.text.into.notes.i',
                 ),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: _mutedTextColor(context)),
               ),
               const SizedBox(height: 8),
             ],
@@ -1996,18 +2145,16 @@ class SettingsScreen extends ConsumerWidget {
                 ],
               ),
             ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        _SettingsGroup(
-          title: strings.text('home.external.quick.memo'),
-          summary: widgetQuickCaptureEnabled
-              ? (strings.text(
-                  'home.widget.quick.writes.are.allowed.while.the.app.is.locked',
-                ))
-              : (strings.text('home.widget.quick.writes.are.off')),
-          icon: Icons.quickreply_outlined,
-          children: [
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Lock screen and widgets',
+                ja: 'ロック画面とウィジェット',
+                zh: '锁定屏幕和小组件',
+                ko: '잠금 화면 및 위젯',
+                es: 'Pantalla bloqueada y widgets',
+                de: 'Sperrbildschirm und Widgets',
+              ),
+            ),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
               title: Text(
@@ -2030,7 +2177,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: settingsGroupSpacing),
         if (kDebugMode && showLegacyPrivateVaultSettings)
           _SettingsGroup(
             title: strings.text('home.private.vault'),
@@ -2094,13 +2241,15 @@ class SettingsScreen extends ConsumerWidget {
             ],
           ),
         if (kDebugMode && showLegacyPrivateVaultSettings)
-          const SizedBox(height: 16),
+          SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
           title: strings.text('home.backup.and.sync'),
           summary: syncSummary,
           icon: Icons.sync_outlined,
           sectionKey: _syncSectionKey,
           controller: _syncController,
+          onExpansionChanged: (expanded) =>
+              _handlePrimarySettingsExpansion(expanded, _syncController),
           children: [
             if (syncConflictWarning != null)
               Container(
@@ -2114,49 +2263,116 @@ class SettingsScreen extends ConsumerWidget {
                     color: Theme.of(context).colorScheme.error,
                   ),
                 ),
-                child: Text(
-                  _localizedSyncTransferMessage(
-                    strings,
-                    syncConflictWarning,
-                    syncProvider,
-                  ),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onErrorContainer,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _localizedSyncTransferMessage(
+                        strings,
+                        syncConflictWarning,
+                        syncProvider,
+                      ),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
+                    ),
+                    if (conflictedNotes.isNotEmpty)
+                      TextButton.icon(
+                        onPressed: () => _showSyncConflictListDialog(
+                          context,
+                          ref,
+                          conflictedNotes,
+                        ),
+                        icon: const Icon(Icons.rule_rounded),
+                        label: Text(
+                          strings.localized(en: 'Review notes', ja: 'メモを確認'),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             _SettingsSectionLabel(
               label: strings.localized(
-                en: 'Remote backup',
-                ja: 'リモートバックアップ',
-                zh: '远程备份',
-                ko: '원격 백업',
-                es: 'Copia remota',
-                de: 'Remote-Backup',
+                en: 'Sync with',
+                ja: '同期先',
+                zh: '同步到',
+                ko: '동기화 대상',
+                es: 'Sincronizar con',
+                de: 'Synchronisieren mit',
               ),
             ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(strings.text('home.selected.target')),
-              subtitle: Text(
-                _syncSubtitle(context, syncProvider, syncAuthState),
+            _ThemeOptionTile(
+              tileKey: syncOffKey,
+              title: strings.localized(
+                en: 'This device only',
+                ja: 'この端末のみ',
+                zh: '仅此设备',
+                ko: '이 기기만',
+                es: 'Solo este dispositivo',
+                de: 'Nur dieses Gerät',
               ),
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(_syncStatusTitle(context, syncProvider)),
-              subtitle: Text(
-                _syncAuthSummary(context, syncProvider, syncAuthState),
+              subtitle: strings.localized(
+                en: 'Do not sync with another device.',
+                ja: 'ほかの端末とは同期しません。',
+                zh: '不与其他设备同步。',
+                ko: '다른 기기와 동기화하지 않습니다.',
+                es: 'No se sincroniza con otros dispositivos.',
+                de: 'Keine Synchronisierung mit anderen Geräten.',
               ),
+              selected: syncProvider == SyncProvider.off,
+              onTap: () => ref
+                  .read(syncProviderControllerProvider.notifier)
+                  .setProvider(SyncProvider.off),
             ),
-            _SyncExclusionTagsTile(
-              tags: syncExclusionTags,
-              onAdd: () => _addSyncExclusionTag(context, ref),
-              onRemove: (tag) => ref
-                  .read(syncExclusionTagsControllerProvider.notifier)
-                  .removeTag(tag),
+            if (isICloudSyncSupported)
+              _ThemeOptionTile(
+                tileKey: syncICloudKey,
+                title: 'iCloud',
+                subtitle: strings.localized(
+                  en: 'Use iCloud on this iPhone or iPad.',
+                  ja: 'この iPhone・iPad の iCloud を使います。',
+                  zh: '使用此 iPhone 或 iPad 上的 iCloud。',
+                  ko: '이 iPhone 또는 iPad의 iCloud를 사용합니다.',
+                  es: 'Usa iCloud en este iPhone o iPad.',
+                  de: 'iCloud auf diesem iPhone oder iPad verwenden.',
+                ),
+                selected: syncProvider == SyncProvider.iCloud,
+                onTap: () => ref
+                    .read(syncProviderControllerProvider.notifier)
+                    .setProvider(SyncProvider.iCloud),
+              ),
+            _ThemeOptionTile(
+              tileKey: syncGoogleDriveKey,
+              title: 'Google Drive',
+              subtitle: strings.localized(
+                en: 'Use your Google account.',
+                ja: 'Google アカウントを使います。',
+                zh: '使用您的 Google 帐号。',
+                ko: 'Google 계정을 사용합니다.',
+                es: 'Usa tu cuenta de Google.',
+                de: 'Ihr Google-Konto verwenden.',
+              ),
+              selected: syncProvider == SyncProvider.googleDrive,
+              onTap: () => ref
+                  .read(syncProviderControllerProvider.notifier)
+                  .setProvider(SyncProvider.googleDrive),
             ),
-            if (syncProvider != SyncProvider.off)
+            if (kIsWeb &&
+                syncProvider == SyncProvider.googleDrive &&
+                !syncAuthState.isAuthenticated)
+              const _GoogleDriveWebSignInPanel(),
+            if (syncProvider != SyncProvider.off &&
+                !syncAuthState.isAuthenticated &&
+                !(kIsWeb && syncProvider == SyncProvider.googleDrive))
+              FilledButton(
+                key: syncConnectKey,
+                onPressed: syncAuthState.stage == SyncAuthStage.busy
+                    ? null
+                    : () => _connectSelectedSync(context, ref, syncProvider),
+                child: Text(_syncConnectLabel(context, syncProvider)),
+              ),
+            if (syncProvider != SyncProvider.off &&
+                syncAuthState.isAuthenticated)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -2180,12 +2396,12 @@ class SettingsScreen extends ConsumerWidget {
                       syncTransferState.stage == SyncTransferStage.busy
                           ? _syncProgressLabel(strings, syncTransferState)
                           : strings.localized(
-                              en: 'Sync',
-                              ja: '同期',
-                              zh: '同步',
-                              ko: '동기화',
-                              es: 'Sincronizar',
-                              de: 'Synchronisieren',
+                              en: 'Sync now',
+                              ja: '今すぐ同期',
+                              zh: '立即同步',
+                              ko: '지금 동기화',
+                              es: 'Sincronizar ahora',
+                              de: 'Jetzt synchronisieren',
                             ),
                     ),
                   ),
@@ -2255,12 +2471,52 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                 ],
               ),
+            if (syncProvider != SyncProvider.off &&
+                syncTransferState.stage == SyncTransferStage.error &&
+                syncTransferState.message != syncConflictWarning)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _cloudSyncSnackBarMessage(
+                        strings,
+                        syncTransferState,
+                        _CloudSyncSnackBarAction.syncNow,
+                        syncProvider,
+                      ),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                    if (syncTransferState.message ==
+                            'sync.error.bundle_key_missing' ||
+                        syncTransferState.message ==
+                            'sync.error.icloud_keychain_waiting' ||
+                        syncTransferState.message ==
+                            'sync.error.bundle_decryption_failed' ||
+                        syncTransferState.message ==
+                            'sync.error.downloaded_bundle_decryption_failed')
+                      TextButton.icon(
+                        onPressed: () async {
+                          final backupCode = await _showSyncKeyImportDialog(
+                            context,
+                          );
+                          if (!context.mounted || backupCode == null) return;
+                          await _handleSyncKeyImport(context, ref, backupCode);
+                        },
+                        icon: const Icon(Icons.key_rounded),
+                        label: Text(strings.text('home.import.recovery.key')),
+                      ),
+                  ],
+                ),
+              ),
             Container(
               margin: const EdgeInsets.symmetric(vertical: 8),
               decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.36),
+                color: Theme.of(context).colorScheme.surfaceContainerHighest
+                    .withValues(alpha: 0.36),
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
                   color: Theme.of(context).colorScheme.outlineVariant,
@@ -2268,9 +2524,8 @@ class SettingsScreen extends ConsumerWidget {
               ),
               clipBehavior: Clip.antiAlias,
               child: Theme(
-                data: Theme.of(
-                  context,
-                ).copyWith(dividerColor: Colors.transparent),
+                data: Theme.of(context)
+                    .copyWith(dividerColor: Colors.transparent),
                 child: ExpansionTile(
                   leading: const Icon(Icons.info_outline_rounded),
                   tilePadding: const EdgeInsets.symmetric(
@@ -2281,6 +2536,53 @@ class SettingsScreen extends ConsumerWidget {
                   title: Text(strings.syncDetailsTitle),
                   subtitle: Text(strings.syncDetailsSummary),
                   children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton(
+                          key: syncConnectKey,
+                          onPressed: syncAuthState.stage == SyncAuthStage.busy
+                              ? null
+                              : () => _connectSelectedSync(
+                                  context,
+                                  ref,
+                                  syncProvider,
+                                ),
+                          child: Text(
+                            _syncReconnectLabel(context, syncProvider),
+                          ),
+                        ),
+                        OutlinedButton(
+                          key: syncDisconnectKey,
+                          onPressed: () => ref
+                              .read(syncAuthControllerProvider.notifier)
+                              .disconnectSelected(),
+                          child: Text(
+                            _syncDisconnectLabel(context, syncProvider),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (syncProvider != SyncProvider.off &&
+                        syncAuthState.isAuthenticated)
+                      _SyncExclusionTagsTile(
+                        tags: syncExclusionTags,
+                        onAdd: () => _addSyncExclusionTag(context, ref),
+                        onRemove: (tag) => ref
+                            .read(syncExclusionTagsControllerProvider.notifier)
+                            .removeTag(tag),
+                      ),
+                    _SettingsSectionLabel(
+                      label: strings.localized(
+                        en: 'Sync status',
+                        ja: '同期状態',
+                        zh: '同步状态',
+                        ko: '동기화 상태',
+                        es: 'Estado de sincronización',
+                        de: 'Synchronisierungsstatus',
+                      ),
+                    ),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(
@@ -2389,6 +2691,16 @@ class SettingsScreen extends ConsumerWidget {
                         strings,
                       ),
                     ),
+                    _SettingsSectionLabel(
+                      label: strings.localized(
+                        en: 'Recovery key',
+                        ja: '復元キー',
+                        zh: '恢复密钥',
+                        ko: '복구 키',
+                        es: 'Clave de recuperación',
+                        de: 'Wiederherstellungsschlüssel',
+                      ),
+                    ),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(
@@ -2396,7 +2708,7 @@ class SettingsScreen extends ConsumerWidget {
                       ),
                       subtitle: Text(
                         syncBundleFingerprint.when(
-                          data: (value) => value,
+                          data: (value) => value ?? '—',
                           loading: () =>
                               strings.text('home.preparing.cloud.recovery.key'),
                           error: (_, _) => strings.text(
@@ -2417,44 +2729,12 @@ class SettingsScreen extends ConsumerWidget {
                               try {
                                 final backupCode = await ref
                                     .read(syncBundleKeyServiceProvider)
-                                    .exportBackupCode();
-                                await Clipboard.setData(
-                                  ClipboardData(text: backupCode),
-                                );
-                                if (!context.mounted) {
-                                  return;
+                                    .exportExistingBackupCode();
+                                if (backupCode == null) {
+                                  throw StateError(
+                                    'Sync recovery key is not available.',
+                                  );
                                 }
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    showCloseIcon: true,
-                                    content: Text(
-                                      strings.text(
-                                        'home.cloud.recovery.key.copied.to.clipboard',
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              } catch (error) {
-                                if (!context.mounted) {
-                                  return;
-                                }
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    showCloseIcon: true,
-                                    content: Text('$error'),
-                                  ),
-                                );
-                              }
-                            },
-                            child: Text(strings.text('home.copy.recovery.key')),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: () async {
-                              final messenger = ScaffoldMessenger.of(context);
-                              try {
-                                final backupCode = await ref
-                                    .read(syncBundleKeyServiceProvider)
-                                    .exportBackupCode();
                                 if (!context.mounted) {
                                   return;
                                 }
@@ -2462,27 +2742,31 @@ class SettingsScreen extends ConsumerWidget {
                                   context,
                                   backupCode: backupCode,
                                 );
-                              } catch (error) {
+                              } catch (_) {
                                 if (!context.mounted) {
                                   return;
                                 }
                                 messenger.showSnackBar(
                                   SnackBar(
                                     showCloseIcon: true,
-                                    content: Text('$error'),
+                                    content: Text(
+                                      strings.localized(
+                                        en: 'Could not show the recovery key. Please try again.',
+                                        ja: '復元キーを表示できませんでした。もう一度お試しください。',
+                                      ),
+                                    ),
                                   ),
                                 );
                               }
                             },
-                            icon: const Icon(Icons.qr_code_2_rounded),
-                            label: Text(
+                            child: Text(
                               strings.localized(
-                                en: 'Show QR',
-                                ja: 'QRを表示',
-                                zh: '显示 QR',
-                                ko: 'QR 표시',
-                                es: 'Mostrar QR',
-                                de: 'QR anzeigen',
+                                en: 'Back up recovery key',
+                                ja: '復元キーをバックアップ',
+                                zh: '备份恢复密钥',
+                                ko: '복구 키 백업',
+                                es: 'Guardar clave de recuperación',
+                                de: 'Wiederherstellungsschlüssel sichern',
                               ),
                             ),
                           ),
@@ -2504,84 +2788,17 @@ class SettingsScreen extends ConsumerWidget {
                               strings.text('home.import.recovery.key'),
                             ),
                           ),
-                          OutlinedButton.icon(
-                            onPressed: () async {
-                              final backupCode =
-                                  await _showSyncKeyQrScannerDialog(context);
-                              if (!context.mounted || backupCode == null) {
-                                return;
-                              }
-                              await _handleSyncKeyImport(
-                                context,
-                                ref,
-                                backupCode,
-                              );
-                            },
-                            icon: const Icon(Icons.qr_code_scanner_rounded),
-                            label: Text(
-                              strings.localized(
-                                en: 'Scan QR',
-                                ja: 'QRを読み取り',
-                                zh: '扫描 QR',
-                                ko: 'QR 스캔',
-                                es: 'Escanear QR',
-                                de: 'QR scannen',
-                              ),
-                            ),
-                          ),
                         ],
                       ),
                     ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(strings.text('home.last.sync.activity')),
-                      subtitle: Text(
-                        syncBundleState.when(
-                          data: (value) {
-                            final entries = <String>[];
-                            if (value.lastUploadedAt != null) {
-                              entries.add(
-                                strings.lastUploadAt(
-                                  _formatDateTime(
-                                    value.lastUploadedAt!,
-                                    strings,
-                                  ),
-                                ),
-                              );
-                            }
-                            if (value.lastAppliedAt != null) {
-                              entries.add(
-                                strings.lastApplyAt(
-                                  _formatDateTime(
-                                    value.lastAppliedAt!,
-                                    strings,
-                                  ),
-                                ),
-                              );
-                            }
-                            if (value.lastRemoteModifiedAt != null) {
-                              entries.add(
-                                strings.remoteBundleAt(
-                                  _formatDateTime(
-                                    value.lastRemoteModifiedAt!,
-                                    strings,
-                                  ),
-                                ),
-                              );
-                            }
-                            if (entries.isEmpty) {
-                              return strings.text(
-                                'home.no.sync.activity.has.been.recorded.on.this.device.yet',
-                              );
-                            }
-                            return entries.join('\n');
-                          },
-                          loading: () =>
-                              strings.text('home.reading.sync.activity'),
-                          error: (_, _) => strings.text(
-                            'home.unable.to.read.local.sync.activity',
-                          ),
-                        ),
+                    _SettingsSectionLabel(
+                      label: strings.localized(
+                        en: 'History',
+                        ja: '履歴',
+                        zh: '历史记录',
+                        ko: '기록',
+                        es: 'Historial',
+                        de: 'Verlauf',
                       ),
                     ),
                     ListTile(
@@ -2633,16 +2850,6 @@ class SettingsScreen extends ConsumerWidget {
                               syncHistory.asData!.value,
                             ),
                     ),
-                    if (syncTransferState.localBundle != null)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(strings.text('home.local.bundle.cache')),
-                        subtitle: Text(
-                          strings.localBundleStoredAt(
-                            syncTransferState.localBundle!.reference,
-                          ),
-                        ),
-                      ),
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Wrap(
@@ -2694,14 +2901,19 @@ class SettingsScreen extends ConsumerWidget {
                                             content: Text(message),
                                           ),
                                         );
-                                      } catch (error) {
+                                      } catch (_) {
                                         if (!context.mounted) {
                                           return;
                                         }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text('$error'),
+                                            content: Text(
+                                              strings.localized(
+                                                en: 'Could not check the cloud backup. Check your connection and try again.',
+                                                ja: 'クラウドのバックアップを確認できませんでした。通信状態を確認して再試行してください。',
+                                              ),
+                                            ),
                                           ),
                                         );
                                       }
@@ -2757,14 +2969,19 @@ class SettingsScreen extends ConsumerWidget {
                                             content: Text(message),
                                           ),
                                         );
-                                      } catch (error) {
+                                      } catch (_) {
                                         if (!context.mounted) {
                                           return;
                                         }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text('$error'),
+                                            content: Text(
+                                              strings.localized(
+                                                en: 'Could not send the backup. Check your connection and try again.',
+                                                ja: 'バックアップを送信できませんでした。通信状態を確認して再試行してください。',
+                                              ),
+                                            ),
                                           ),
                                         );
                                       }
@@ -2809,16 +3026,14 @@ class SettingsScreen extends ConsumerWidget {
                                                 actions: [
                                                   TextButton(
                                                     onPressed: () =>
-                                                        Navigator.of(
-                                                          context,
-                                                        ).pop(false),
+                                                        Navigator.of(context)
+                                                            .pop(false),
                                                     child: Text(strings.cancel),
                                                   ),
                                                   FilledButton(
                                                     onPressed: () =>
-                                                        Navigator.of(
-                                                          context,
-                                                        ).pop(true),
+                                                        Navigator.of(context)
+                                                            .pop(true),
                                                     child: Text(
                                                       strings.localized(
                                                         en: 'Re-upload',
@@ -2879,14 +3094,19 @@ class SettingsScreen extends ConsumerWidget {
                                             content: Text(message),
                                           ),
                                         );
-                                      } catch (error) {
+                                      } catch (_) {
                                         if (!context.mounted) {
                                           return;
                                         }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text('$error'),
+                                            content: Text(
+                                              strings.localized(
+                                                en: 'Could not send all notes. Check your connection, unlock private profiles, and try again.',
+                                                ja: '全メモを送信できませんでした。通信状態とプライベートプロファイルの解除を確認して再試行してください。',
+                                              ),
+                                            ),
                                           ),
                                         );
                                       }
@@ -2930,16 +3150,14 @@ class SettingsScreen extends ConsumerWidget {
                                                 actions: [
                                                   TextButton(
                                                     onPressed: () =>
-                                                        Navigator.of(
-                                                          context,
-                                                        ).pop(false),
+                                                        Navigator.of(context)
+                                                            .pop(false),
                                                     child: Text(strings.cancel),
                                                   ),
                                                   FilledButton(
                                                     onPressed: () =>
-                                                        Navigator.of(
-                                                          context,
-                                                        ).pop(true),
+                                                        Navigator.of(context)
+                                                            .pop(true),
                                                     child: Text(
                                                       strings.text(
                                                         'home.force.upload',
@@ -3033,14 +3251,19 @@ class SettingsScreen extends ConsumerWidget {
                                           context,
                                           history,
                                         );
-                                      } catch (error) {
+                                      } catch (_) {
                                         if (!context.mounted) {
                                           return;
                                         }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text('$error'),
+                                            content: Text(
+                                              strings.localized(
+                                                en: 'Could not load cloud history. Check your connection and try again.',
+                                                ja: 'クラウドの履歴を読み込めませんでした。通信状態を確認して再試行してください。',
+                                              ),
+                                            ),
                                           ),
                                         );
                                       }
@@ -3082,14 +3305,19 @@ class SettingsScreen extends ConsumerWidget {
                                             content: Text(message),
                                           ),
                                         );
-                                      } catch (error) {
+                                      } catch (_) {
                                         if (!context.mounted) {
                                           return;
                                         }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text('$error'),
+                                            content: Text(
+                                              strings.localized(
+                                                en: 'Could not get the cloud backup. Check your connection and try again.',
+                                                ja: 'クラウドのバックアップを取得できませんでした。通信状態を確認して再試行してください。',
+                                              ),
+                                            ),
                                           ),
                                         );
                                       }
@@ -3124,14 +3352,19 @@ class SettingsScreen extends ConsumerWidget {
                                                 preview,
                                               ),
                                         );
-                                      } catch (error) {
+                                      } catch (_) {
                                         if (!context.mounted) {
                                           return;
                                         }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text('$error'),
+                                            content: Text(
+                                              strings.localized(
+                                                en: 'Could not review the backup. Check the recovery key and try again.',
+                                                ja: 'バックアップを確認できませんでした。復元キーを確認して再試行してください。',
+                                              ),
+                                            ),
                                           ),
                                         );
                                       }
@@ -3198,14 +3431,19 @@ class SettingsScreen extends ConsumerWidget {
                                             content: Text(message),
                                           ),
                                         );
-                                      } catch (error) {
+                                      } catch (_) {
                                         if (!context.mounted) {
                                           return;
                                         }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text('$error'),
+                                            content: Text(
+                                              strings.localized(
+                                                en: 'Could not restore the backup. Check the recovery key and private profile, then try again.',
+                                                ja: 'バックアップを復元できませんでした。復元キーとプライベートプロファイルを確認して再試行してください。',
+                                              ),
+                                            ),
                                           ),
                                         );
                                       }
@@ -3245,14 +3483,19 @@ class SettingsScreen extends ConsumerWidget {
                                             ),
                                           ),
                                         );
-                                      } catch (error) {
+                                      } catch (_) {
                                         if (!context.mounted) {
                                           return;
                                         }
                                         messenger.showSnackBar(
                                           SnackBar(
                                             showCloseIcon: true,
-                                            content: Text('$error'),
+                                            content: Text(
+                                              strings.localized(
+                                                en: 'Could not download the attachments. Check your connection and cloud sign-in, then try again.',
+                                                ja: '添付をダウンロードできませんでした。通信状態と同期先への接続を確認し、もう一度お試しください。',
+                                              ),
+                                            ),
                                           ),
                                         );
                                       }
@@ -3316,111 +3559,28 @@ class SettingsScreen extends ConsumerWidget {
                           ),
                         ],
                       ),
+                    ).asSyncMaintenanceSection(
+                      context,
+                      strings,
+                      status: syncTransferState.localBundle == null
+                          ? null
+                          : ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                strings.text('home.local.bundle.cache'),
+                              ),
+                              subtitle: Text(
+                                strings.localBundleStoredAt(
+                                  syncTransferState.localBundle!.reference,
+                                ),
+                              ),
+                            ),
                     ),
                   ],
                 ),
               ),
-            ),
-            _ThemeOptionTile(
-              tileKey: syncOffKey,
-              title: strings.text('home.off'),
-              subtitle: strings.text('home.keep.data.on.this.device.only'),
-              selected: syncProvider == SyncProvider.off,
-              onTap: () => ref
-                  .read(syncProviderControllerProvider.notifier)
-                  .setProvider(SyncProvider.off),
-            ),
-            if (isICloudSyncSupported)
-              _ThemeOptionTile(
-                tileKey: syncICloudKey,
-                title: 'iCloud',
-                subtitle: strings.text(
-                  'home.use.this.device.s.icloud.as.the.sync.target.no.himemo.lo',
-                ),
-                selected: syncProvider == SyncProvider.iCloud,
-                onTap: () => ref
-                    .read(syncProviderControllerProvider.notifier)
-                    .setProvider(SyncProvider.iCloud),
-              ),
-            _ThemeOptionTile(
-              tileKey: syncGoogleDriveKey,
-              title: 'Google Drive',
-              subtitle: strings.text('home.google.drive.app.data.sync.target'),
-              selected: syncProvider == SyncProvider.googleDrive,
-              onTap: () => ref
-                  .read(syncProviderControllerProvider.notifier)
-                  .setProvider(SyncProvider.googleDrive),
-            ),
-            if (kIsWeb &&
-                syncProvider == SyncProvider.googleDrive &&
-                !syncAuthState.isAuthenticated)
-              const _GoogleDriveWebSignInPanel(),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (syncProvider != SyncProvider.off &&
-                    !(kIsWeb && syncProvider == SyncProvider.googleDrive))
-                  FilledButton(
-                    key: syncConnectKey,
-                    onPressed: syncAuthState.stage == SyncAuthStage.busy
-                        ? null
-                        : () async {
-                            final messenger = ScaffoldMessenger.of(context);
-                            try {
-                              await ref
-                                  .read(syncAuthControllerProvider.notifier)
-                                  .connectSelected();
-                              if (!context.mounted) {
-                                return;
-                              }
-                              final message = ref
-                                  .read(
-                                    syncAuthControllerProvider,
-                                  )[syncProvider]
-                                  ?.message;
-                              final localizedMessage =
-                                  _cloudSyncAuthSnackBarMessage(
-                                    strings,
-                                    message,
-                                  );
-                              if (localizedMessage != null &&
-                                  localizedMessage.isNotEmpty) {
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    showCloseIcon: true,
-                                    content: Text(localizedMessage),
-                                  ),
-                                );
-                              }
-                            } catch (error) {
-                              if (!context.mounted) {
-                                return;
-                              }
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  showCloseIcon: true,
-                                  content: Text('$error'),
-                                ),
-                              );
-                            }
-                          },
-                    child: Text(
-                      syncAuthState.isAuthenticated
-                          ? _syncReconnectLabel(context, syncProvider)
-                          : _syncConnectLabel(context, syncProvider),
-                    ),
-                  ),
-                if (syncProvider != SyncProvider.off &&
-                    syncAuthState.isAuthenticated)
-                  OutlinedButton(
-                    key: syncDisconnectKey,
-                    onPressed: () => ref
-                        .read(syncAuthControllerProvider.notifier)
-                        .disconnectSelected(),
-                    child: Text(_syncDisconnectLabel(context, syncProvider)),
-                  ),
-              ],
+            ).visibleWhen(
+              syncProvider != SyncProvider.off && syncAuthState.isAuthenticated,
             ),
             _SettingsSectionLabel(
               label: strings.localized(
@@ -3477,13 +3637,15 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
           title: strings.text('home.storage'),
           summary: strings.noteCountSummary(noteCount),
           icon: Icons.storage_outlined,
           sectionKey: _storageSectionKey,
           controller: _storageController,
+          onExpansionChanged: (expanded) =>
+              _handlePrimarySettingsExpansion(expanded, _storageController),
           children: [
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -3614,85 +3776,102 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ),
               ),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Maintenance',
+                ja: 'メンテナンス',
+                zh: '维护',
+                ko: '유지 관리',
+                es: 'Mantenimiento',
+                de: 'Wartung',
+              ),
+            ),
             Align(
               alignment: Alignment.centerLeft,
               child: Wrap(
                 spacing: 12,
                 runSpacing: 8,
                 children: [
-                  OutlinedButton.icon(
-                    key: createDemoNotesKey,
-                    onPressed: () async {
-                      final createdCount = await ref
-                          .read(notesControllerProvider.notifier)
-                          .createDemoNotes();
-                      if (!context.mounted) {
-                        return;
-                      }
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          showCloseIcon: true,
-                          content: Text(
-                            createdCount == 0
-                                ? strings.noDemoNotesToCreate
-                                : strings.demoNotesCreated(createdCount),
+                  if (showFlavorInfo)
+                    OutlinedButton.icon(
+                      key: createDemoNotesKey,
+                      onPressed: () async {
+                        final createdCount = await ref
+                            .read(notesControllerProvider.notifier)
+                            .createDemoNotes();
+                        if (!context.mounted) {
+                          return;
+                        }
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            showCloseIcon: true,
+                            content: Text(
+                              createdCount == 0
+                                  ? strings.noDemoNotesToCreate
+                                  : strings.demoNotesCreated(createdCount),
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.add_rounded),
-                    label: Text(strings.createDemoNotes),
-                  ),
-                  OutlinedButton.icon(
-                    key: deleteDemoNotesKey,
-                    onPressed: demoNoteCount == 0
-                        ? null
-                        : () async {
-                            final confirmed = await showDialog<bool>(
-                              context: context,
-                              builder: (dialogContext) {
-                                return AlertDialog(
-                                  title: Text(strings.deleteDemoNotesTitle),
+                        );
+                      },
+                      icon: const Icon(Icons.add_rounded),
+                      label: Text(strings.createDemoNotes),
+                    ),
+                  if (showFlavorInfo)
+                    OutlinedButton.icon(
+                      key: deleteDemoNotesKey,
+                      onPressed: demoNoteCount == 0
+                          ? null
+                          : () async {
+                              final confirmed = await showDialog<bool>(
+                                context: context,
+                                builder: (dialogContext) {
+                                  return AlertDialog(
+                                    title: Text(strings.deleteDemoNotesTitle),
+                                    content: Text(
+                                      strings.deleteDemoNotesBody(
+                                        demoNoteCount,
+                                      ),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.of(dialogContext)
+                                                .pop(false),
+                                        child: Text(
+                                          strings.text('home.cancel'),
+                                        ),
+                                      ),
+                                      FilledButton(
+                                        onPressed: () =>
+                                            Navigator.of(dialogContext)
+                                                .pop(true),
+                                        child: Text(strings.delete),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              );
+                              if (confirmed != true) {
+                                return;
+                              }
+                              final deletedCount = await ref
+                                  .read(notesControllerProvider.notifier)
+                                  .deleteDemoNotes();
+                              if (!context.mounted) {
+                                return;
+                              }
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  showCloseIcon: true,
                                   content: Text(
-                                    strings.deleteDemoNotesBody(demoNoteCount),
+                                    strings.demoNotesDeleted(deletedCount),
                                   ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.of(
-                                        dialogContext,
-                                      ).pop(false),
-                                      child: Text(strings.text('home.cancel')),
-                                    ),
-                                    FilledButton(
-                                      onPressed: () =>
-                                          Navigator.of(dialogContext).pop(true),
-                                      child: Text(strings.delete),
-                                    ),
-                                  ],
-                                );
-                              },
-                            );
-                            if (confirmed != true) {
-                              return;
-                            }
-                            final deletedCount = await ref
-                                .read(notesControllerProvider.notifier)
-                                .deleteDemoNotes();
-                            if (!context.mounted) {
-                              return;
-                            }
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                showCloseIcon: true,
-                                content: Text(
-                                  strings.demoNotesDeleted(deletedCount),
                                 ),
-                              ),
-                            );
-                          },
-                    icon: const Icon(Icons.delete_outline_rounded),
-                    label: Text(strings.deleteDemoNotes),
-                  ),
+                              );
+                            },
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      label: Text(strings.deleteDemoNotes),
+                    ),
                   OutlinedButton.icon(
                     key: clearStorageCacheKey,
                     onPressed: storageCacheBytes == 0 || storageCacheClearing
@@ -3754,63 +3933,68 @@ class SettingsScreen extends ConsumerWidget {
                             ),
                     ),
                   ),
-                  OutlinedButton.icon(
-                    onPressed: noteCount == 0
-                        ? null
-                        : () async {
-                            final confirmed = await _confirmStorageReset(
-                              context,
-                              noteCount,
-                            );
-                            if (confirmed != true) {
-                              return;
-                            }
-                            final deletedCount = await ref
-                                .read(notesControllerProvider.notifier)
-                                .resetLocalStorage();
-                            if (!context.mounted) {
-                              return;
-                            }
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                showCloseIcon: true,
-                                content: Text(
-                                  strings.localized(
-                                    en: 'Initialized local storage. Deleted $deletedCount notes.',
-                                    ja: '\u30b9\u30c8\u30ec\u30fc\u30b8\u3092\u521d\u671f\u5316\u3057\u307e\u3057\u305f\u3002$deletedCount \u4ef6\u306e\u30ce\u30fc\u30c8\u3092\u524a\u9664\u3057\u307e\u3057\u305f\u3002',
-                                    zh: '\u5df2\u521d\u59cb\u5316\u672c\u5730\u5b58\u50a8\u3002\u5220\u9664\u4e86 $deletedCount \u6761\u7b14\u8bb0\u3002',
-                                    ko: '\ub85c\uceec \uc800\uc7a5\uc18c\ub97c \ucd08\uae30\ud654\ud588\uc2b5\ub2c8\ub2e4. \uba54\ubaa8 $deletedCount\uac1c\ub97c \uc0ad\uc81c\ud588\uc2b5\ub2c8\ub2e4.',
-                                    es: 'Se inicializo el almacenamiento local. Se eliminaron $deletedCount notas.',
-                                    de: 'Lokaler Speicher initialisiert. $deletedCount Notizen wurden geloescht.',
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                    icon: const Icon(Icons.restart_alt_rounded),
-                    label: Text(
-                      strings.localized(
-                        en: 'Initialize storage',
-                        ja: '\u30b9\u30c8\u30ec\u30fc\u30b8\u3092\u521d\u671f\u5316',
-                        zh: '\u521d\u59cb\u5316\u5b58\u50a8',
-                        ko: '\uc800\uc7a5\uc18c \ucd08\uae30\ud654',
-                        es: 'Inicializar almacenamiento',
-                        de: 'Speicher initialisieren',
-                      ),
-                    ),
-                  ),
                 ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _SettingsDangerZone(
+              title: strings.localized(
+                en: 'Danger zone',
+                ja: '危険な操作',
+                zh: '危险操作',
+                ko: '위험한 작업',
+                es: 'Zona de peligro',
+                de: 'Gefahrenbereich',
+              ),
+              description: strings.localized(
+                en: 'Initialization permanently deletes every local note and attachment on this device.',
+                ja: '初期化すると、この端末のすべてのノートと添付ファイルが完全に削除されます。',
+                zh: '初始化会永久删除此设备上的所有本地笔记和附件。',
+                ko: '초기화하면 이 기기의 모든 로컬 메모와 첨부 파일이 영구적으로 삭제됩니다.',
+                es: 'La inicialización elimina permanentemente todas las notas y adjuntos locales de este dispositivo.',
+                de: 'Die Initialisierung löscht alle lokalen Notizen und Anhänge auf diesem Gerät dauerhaft.',
+              ),
+              action: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.error,
+                  side: BorderSide(color: Theme.of(context).colorScheme.error),
+                ),
+                onPressed: noteCount == 0 ? null : resetStorage,
+                icon: const Icon(Icons.restart_alt_rounded),
+                label: Text(
+                  strings.localized(
+                    en: 'Initialize storage',
+                    ja: 'ストレージを初期化',
+                    zh: '初始化存储',
+                    ko: '저장소 초기화',
+                    es: 'Inicializar almacenamiento',
+                    de: 'Speicher initialisieren',
+                  ),
+                ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
           title: strings.about,
           summary: aboutSummary,
           icon: Icons.info_outlined,
           sectionKey: aboutSectionKey,
+          controller: _aboutController,
+          onExpansionChanged: (expanded) =>
+              _handlePrimarySettingsExpansion(expanded, _aboutController),
           children: [
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'App and updates',
+                ja: 'アプリとアップデート',
+                zh: '应用和更新',
+                ko: '앱 및 업데이트',
+                es: 'Aplicación y actualizaciones',
+                de: 'App und Updates',
+              ),
+            ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.info_outline_rounded),
@@ -4032,6 +4216,16 @@ class SettingsScreen extends ConsumerWidget {
                   ),
               ],
             ),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Legal',
+                ja: '規約とプライバシー',
+                zh: '条款与隐私',
+                ko: '약관 및 개인정보',
+                es: 'Legal',
+                de: 'Rechtliches',
+              ),
+            ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.description_outlined),
@@ -4049,6 +4243,16 @@ class SettingsScreen extends ConsumerWidget {
               trailing: const Icon(Icons.open_in_new_rounded, size: 18),
               onTap: () =>
                   _openExternalLink(context, Uri.parse(_privacyUrl), strings),
+            ),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Help and support',
+                ja: 'ヘルプとサポート',
+                zh: '帮助与支持',
+                ko: '도움말 및 지원',
+                es: 'Ayuda y soporte',
+                de: 'Hilfe und Support',
+              ),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -4069,6 +4273,16 @@ class SettingsScreen extends ConsumerWidget {
               trailing: const Icon(Icons.open_in_new_rounded, size: 18),
               onTap: () =>
                   _openExternalLink(context, Uri.parse(_helpUrl), strings),
+            ),
+            _SettingsSectionLabel(
+              label: strings.localized(
+                en: 'Licenses and credits',
+                ja: 'ライセンスとクレジット',
+                zh: '许可证与鸣谢',
+                ko: '라이선스 및 크레딧',
+                es: 'Licencias y créditos',
+                de: 'Lizenzen und Mitwirkende',
+              ),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -4170,9 +4384,8 @@ class SettingsScreen extends ConsumerWidget {
             es: 'El modo de diagnostico oculto esta activo. Los registros pueden incluir IDs de dispositivo, IDs de paquetes remotos, horas, conteos, tamanos y errores, pero no texto de notas ni datos adjuntos.',
             de: 'Der versteckte Diagnosemodus ist aktiv. Protokolle koennen Geraete-IDs, Remote-Paket-IDs, Zeiten, Zaehler, Groessen und Fehlermeldungen enthalten, aber keine Notiztexte oder Anhangsdaten.',
           ),
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(color: _mutedTextColor(context)),
         ),
         const SizedBox(height: 12),
         DecoratedBox(
@@ -4187,10 +4400,8 @@ class SettingsScreen extends ConsumerWidget {
               padding: const EdgeInsets.all(12),
               child: SelectableText(
                 preview,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontFamily: 'monospace',
-                  height: 1.35,
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(fontFamily: 'monospace', height: 1.35),
               ),
             ),
           ),
@@ -4363,9 +4574,8 @@ class SettingsScreen extends ConsumerWidget {
             es: 'Stored locally, up to the latest 2,000 entries. Older entries are removed automatically. Logs include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
             de: 'Stored locally, up to the latest 2,000 entries. Older entries are removed automatically. Logs include event type, profile or vault ID, note ID, revision, attachment counts, and timestamps, but not note bodies or attachment bytes.',
           ),
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(color: _mutedTextColor(context)),
         ),
         const SizedBox(height: 12),
         DecoratedBox(
@@ -4472,9 +4682,8 @@ class SettingsScreen extends ConsumerWidget {
       if (!context.mounted) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(showCloseIcon: true, content: Text('$error')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(showCloseIcon: true, content: Text('$error')));
     }
   }
 
@@ -4498,12 +4707,12 @@ class SettingsScreen extends ConsumerWidget {
         ),
         content: Text(
           strings.localized(
-            en: 'This uploads the current state as a fresh full snapshot, keeps that latest iCloud bundle, and deletes older bundles plus attachment objects no longer referenced by the latest snapshot.',
-            ja: '現在の状態を新しいフルスナップショットとしてアップロードし、その最新 iCloud バンドルだけを残します。古いバンドルと、最新スナップショットから参照されない添付オブジェクトも削除します。',
-            zh: '这会保留最新的 iCloud 同步包并删除旧的包快照。此命令不会删除附件对象。',
-            ko: '최신 iCloud 동기화 번들 1개를 남기고 이전 번들 스냅샷을 삭제합니다. 이 명령은 첨부 파일 객체를 삭제하지 않습니다.',
-            es: 'Sube el estado actual como una instantanea completa, conserva el paquete mas reciente y elimina paquetes antiguos y adjuntos sin referencia.',
-            de: 'Laedt den aktuellen Stand als vollstaendigen Snapshot hoch, behaelt das neueste Paket und loescht alte Pakete sowie nicht referenzierte Anhaenge.',
+            en: 'This merges cloud changes and creates a full backup, then removes covered older backups. Managed attachments unreferenced for at least 7 days can also be removed. Pending uploads and older-format attachments are kept. Update every device before resuming sync; older app versions can delete new attachments.',
+            ja: 'クラウドの変更を取り込んで全件バックアップを作成し、取り込み済みの古いバックアップを整理します。新しい方式の添付は、7日以上経過し、どのバックアップからも参照されず送信中でもないものを削除します。旧形式の添付はコピーせず保持します。旧版アプリの整理で新形式の添付が消える場合があるため、全端末を更新してから同期を再開してください。',
+            zh: '先合并云端更改并创建完整备份，再清理已包含的旧备份。新格式附件满7天且未被任何备份引用时可删除；上传中和旧格式附件将保留。请更新所有设备后再恢复同步，旧版应用的清理操作可能删除新格式附件。',
+            ko: '클라우드 변경 사항을 합쳐 전체 백업을 만든 후 이전 백업을 정리합니다. 새 형식 첨부 파일은 7일 이상 지나고 어떤 백업에서도 참조하지 않을 때 삭제합니다. 업로드 중이거나 이전 형식인 첨부 파일은 유지합니다. 이전 앱의 정리 작업이 새 첨부 파일을 삭제할 수 있으므로 모든 기기를 업데이트한 후 동기화를 재개하세요.',
+            es: 'Combina cambios y crea una copia completa. Elimina copias antiguas ya incluidas y adjuntos gestionados sin referencias de al menos 7 dias. Conserva cargas pendientes y adjuntos del formato anterior. Actualiza todos los dispositivos antes de sincronizar: versiones antiguas pueden borrar adjuntos nuevos.',
+            de: 'Fuehrt Cloud-Aenderungen zusammen und erstellt eine Vollsicherung. Entfernt abgedeckte alte Sicherungen und mindestens 7 Tage alte verwaltete Anhaenge ohne Referenzen. Laufende Uploads und alte Anhangformate bleiben erhalten. Vor der Synchronisation alle Geraete aktualisieren: Alte App-Versionen koennen neue Anhaenge loeschen.',
           ),
         ),
         actions: [
@@ -4533,12 +4742,12 @@ class SettingsScreen extends ConsumerWidget {
           showCloseIcon: true,
           content: Text(
             strings.localized(
-              en: 'Deleted ${result.deletedBundleCount} old bundles and ${result.deletedAttachmentCount} unreferenced attachments (${strings.byteCount(result.deletedBytes)}).',
-              ja: '古いバンドル ${result.deletedBundleCount} 件と未参照の添付 ${result.deletedAttachmentCount} 件（${strings.byteCount(result.deletedBytes)}）を削除しました。',
-              zh: '已删除 ${result.deletedBundleCount} 个旧 iCloud 包（${strings.byteCount(result.deletedBundleBytes)}）。',
-              ko: '이전 iCloud 번들 ${result.deletedBundleCount}개(${strings.byteCount(result.deletedBundleBytes)})를 삭제했습니다.',
-              es: 'Se eliminaron ${result.deletedBundleCount} paquetes antiguos y ${result.deletedAttachmentCount} adjuntos sin referencia (${strings.byteCount(result.deletedBytes)}).',
-              de: '${result.deletedBundleCount} alte Pakete und ${result.deletedAttachmentCount} nicht referenzierte Anhaenge geloescht (${strings.byteCount(result.deletedBytes)}).',
+              en: 'Deleted ${result.deletedBundleCount} old backups and ${result.deletedAttachmentCount} unreferenced managed attachments (${strings.byteCount(result.deletedBytes)}).',
+              ja: '古いバックアップ ${result.deletedBundleCount} 件と未参照の添付 ${result.deletedAttachmentCount} 件（${strings.byteCount(result.deletedBytes)}）を削除しました。',
+              zh: '已删除 ${result.deletedBundleCount} 个旧备份和 ${result.deletedAttachmentCount} 个未引用附件（${strings.byteCount(result.deletedBytes)}）。',
+              ko: '이전 백업 ${result.deletedBundleCount}개와 참조되지 않는 첨부 ${result.deletedAttachmentCount}개(${strings.byteCount(result.deletedBytes)})를 삭제했습니다.',
+              es: 'Se eliminaron ${result.deletedBundleCount} copias antiguas y ${result.deletedAttachmentCount} adjuntos sin referencia (${strings.byteCount(result.deletedBytes)}).',
+              de: '${result.deletedBundleCount} alte Sicherungen und ${result.deletedAttachmentCount} nicht referenzierte Anhaenge geloescht (${strings.byteCount(result.deletedBytes)}).',
             ),
           ),
         ),
@@ -4547,9 +4756,8 @@ class SettingsScreen extends ConsumerWidget {
       if (!context.mounted) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(showCloseIcon: true, content: Text('$error')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(showCloseIcon: true, content: Text('$error')));
     }
   }
 
@@ -4577,8 +4785,6 @@ class SettingsScreen extends ConsumerWidget {
         de: 'Diagnoseprotokoll herunterladen',
       ),
       fileName: fileName,
-      type: FileType.custom,
-      allowedExtensions: const ['txt'],
       bytes: bytes,
     );
     if (!context.mounted) {
@@ -4602,7 +4808,7 @@ class SettingsScreen extends ConsumerWidget {
       );
       return;
     }
-    if (savedPath == null || savedPath.isEmpty) {
+    if (savedPath == null) {
       await SharePlus.instance.share(
         ShareParams(
           files: [
@@ -4654,8 +4860,6 @@ class SettingsScreen extends ConsumerWidget {
         de: 'Download audit log',
       ),
       fileName: fileName,
-      type: FileType.custom,
-      allowedExtensions: const ['txt'],
       bytes: bytes,
     );
     if (!context.mounted) {
@@ -4679,7 +4883,7 @@ class SettingsScreen extends ConsumerWidget {
       );
       return;
     }
-    if (savedPath == null || savedPath.isEmpty) {
+    if (savedPath == null) {
       await SharePlus.instance.share(
         ShareParams(
           files: [
@@ -4721,6 +4925,7 @@ class SettingsScreen extends ConsumerWidget {
     required String appearanceSummary,
     required Key sectionKey,
     required ExpansibleController controller,
+    required ValueChanged<bool> onExpansionChanged,
   }) {
     final effectiveFontFamily = _availableFontFamilies.contains(fontFamily)
         ? fontFamily
@@ -4731,6 +4936,7 @@ class SettingsScreen extends ConsumerWidget {
       icon: Icons.palette_outlined,
       sectionKey: sectionKey,
       controller: controller,
+      onExpansionChanged: onExpansionChanged,
       semanticLabel: 'settings-appearance',
       children: [
         Padding(
@@ -4897,9 +5103,8 @@ class SettingsScreen extends ConsumerWidget {
               const SizedBox(height: 4),
               Text(
                 strings.accentColorJapanesePaletteDesc,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: _mutedTextColor(context)),
               ),
             ],
           ),
@@ -4956,14 +5161,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  String _syncStatusTitle(BuildContext context, SyncProvider provider) {
-    final strings = context.strings;
-    if (provider == SyncProvider.iCloud) {
-      return strings.text('home.icloud.availability');
-    }
-    return strings.text('home.authentication');
-  }
-
   String _syncConnectLabel(BuildContext context, SyncProvider provider) {
     final strings = context.strings;
     if (provider == SyncProvider.iCloud) {
@@ -4986,6 +5183,55 @@ class SettingsScreen extends ConsumerWidget {
       return strings.text('home.stop.using.icloud');
     }
     return strings.text('home.disconnect');
+  }
+
+  String _syncConnectionStep(
+    AppStrings strings,
+    SyncProvider provider,
+    SyncAuthState authState,
+  ) {
+    final target = _syncProviderName(provider);
+    if (authState.isAuthenticated) {
+      if (provider == SyncProvider.iCloud) {
+        return strings.localized(
+          en: 'iCloud is ready. You can sync now.',
+          ja: 'iCloud を利用できます。今すぐ同期できます。',
+        );
+      }
+      final account = authState.email ?? authState.displayName;
+      return account == null
+          ? strings.localized(
+              en: 'Connected to $target. You can sync now.',
+              ja: '$target に接続済みです。今すぐ同期できます。',
+            )
+          : strings.localized(
+              en: 'Connected to $target as $account. You can sync now.',
+              ja: '$target（$account）に接続済みです。今すぐ同期できます。',
+            );
+    }
+    if (authState.stage == SyncAuthStage.busy) {
+      return strings.localized(
+        en: 'Connecting to $target…',
+        ja: '$target に接続中…',
+      );
+    }
+    if (authState.stage == SyncAuthStage.error ||
+        authState.stage == SyncAuthStage.unsupported) {
+      if (provider == SyncProvider.iCloud) {
+        return strings.localized(
+          en: 'iCloud is unavailable. Check this device’s iCloud settings, then try again.',
+          ja: 'iCloud を利用できません。端末の iCloud 設定を確認して再試行してください。',
+        );
+      }
+      return strings.localized(
+        en: 'Could not connect to $target. Check your account and try again.',
+        ja: '$target に接続できません。アカウントを確認して再試行してください。',
+      );
+    }
+    return strings.localized(
+      en: 'Connect to $target to start syncing.',
+      ja: '同期を始めるには $target に接続してください。',
+    );
   }
 
   String _syncSubtitle(
@@ -5024,68 +5270,6 @@ class SettingsScreen extends ConsumerWidget {
       provider,
       SyncAuthState(provider: provider, stage: SyncAuthStage.idle),
     );
-  }
-
-  String _syncAuthSummary(
-    BuildContext context,
-    SyncProvider provider,
-    SyncAuthState authState,
-  ) {
-    final strings = context.strings;
-    if (provider == SyncProvider.iCloud) {
-      switch (authState.stage) {
-        case SyncAuthStage.idle:
-          return strings.text(
-            'home.this.device.s.icloud.availability.has.not.been.checked.y',
-          );
-        case SyncAuthStage.busy:
-          return strings.text(
-            'home.checking.this.device.s.icloud.availability',
-          );
-        case SyncAuthStage.authenticated:
-          return strings.text(
-            'home.this.device.can.use.icloud.as.the.himemo.sync.target',
-          );
-        case SyncAuthStage.unsupported:
-        case SyncAuthStage.error:
-          return authState.message ??
-              (strings.text(
-                'home.icloud.sync.is.not.available.on.this.device',
-              ));
-      }
-    }
-    if (provider == SyncProvider.off) {
-      return strings.text('home.no.cloud.account.is.connected');
-    }
-
-    switch (authState.stage) {
-      case SyncAuthStage.idle:
-        return strings.text('home.no.account.connected.yet');
-      case SyncAuthStage.busy:
-        return strings.text('home.waiting.for.authentication.to.complete');
-      case SyncAuthStage.authenticated:
-        final identity =
-            authState.email ?? authState.displayName ?? authState.userId;
-        final suffix = authState.message == null ? '' : ' ${authState.message}';
-        return identity == null
-            ? strings.syncConnected(suffix: suffix)
-            : strings.syncConnected(identity: identity, suffix: suffix);
-      case SyncAuthStage.unsupported:
-      case SyncAuthStage.error:
-        if (provider == SyncProvider.googleDrive &&
-            _isGoogleDriveWebSignInUnavailable(authState.message)) {
-          return strings.googleDriveWebSignInUnavailable;
-        }
-        return authState.message ??
-            (strings.text('home.authentication.is.not.available'));
-    }
-  }
-
-  bool _isGoogleDriveWebSignInUnavailable(String? message) {
-    return message != null &&
-        message.contains(
-          'Google Drive sync on web requires the Google Sign-In SDK button flow',
-        );
   }
 
   String syncAuthSummaryLegacy(
@@ -5331,9 +5515,8 @@ class SettingsScreen extends ConsumerWidget {
                       es: 'Notas a eliminar: $noteCount',
                       de: 'Zu loeschende Notizen: $noteCount',
                     ),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: _mutedTextColor(context),
-                    ),
+                    style: Theme.of(context).textTheme.bodySmall
+                        ?.copyWith(color: _mutedTextColor(context)),
                   ),
                   const SizedBox(height: 12),
                   CheckboxListTile(

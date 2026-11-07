@@ -31,6 +31,7 @@ migrate_working_dir/
 .pub/
 /build/
 /.fvm/flutter_sdk
+/.fvm/flutter_sdk.previous
 .flutter-*.err
 .flutter-*.out
 .flutter-*.log

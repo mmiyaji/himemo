@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'note_entry.dart';
@@ -9,6 +9,7 @@ part of 'note_entry.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 
@@ -28,16 +29,21 @@ $NoteLocationCopyWith<NoteLocation> get copyWith => _$NoteLocationCopyWithImpl<N
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteLocation&&(identical(other.latitude, latitude) || other.latitude == latitude)&&(identical(other.longitude, longitude) || other.longitude == longitude)&&(identical(other.accuracyMeters, accuracyMeters) || other.accuracyMeters == accuracyMeters)&&(identical(other.address, address) || other.address == address)&&(identical(other.capturedAt, capturedAt) || other.capturedAt == capturedAt));
+  final _this = this as NoteLocation;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteLocation&&(identical(other.latitude, _this.latitude) || other.latitude == _this.latitude)&&(identical(other.longitude, _this.longitude) || other.longitude == _this.longitude)&&(identical(other.accuracyMeters, _this.accuracyMeters) || other.accuracyMeters == _this.accuracyMeters)&&(identical(other.address, _this.address) || other.address == _this.address)&&(identical(other.capturedAt, _this.capturedAt) || other.capturedAt == _this.capturedAt));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,latitude,longitude,accuracyMeters,address,capturedAt);
+int get hashCode {
+  final _this = this as NoteLocation;
+  return Object.hash(runtimeType,_this.latitude,_this.longitude,_this.accuracyMeters,_this.address,_this.capturedAt);
+}
 
 @override
 String toString() {
-  return 'NoteLocation(latitude: $latitude, longitude: $longitude, accuracyMeters: $accuracyMeters, address: $address, capturedAt: $capturedAt)';
+  final _this = this as NoteLocation;
+  return 'NoteLocation(latitude: ${_this.latitude}, longitude: ${_this.longitude}, accuracyMeters: ${_this.accuracyMeters}, address: ${_this.address}, capturedAt: ${_this.capturedAt})';
 }
 
 
@@ -66,7 +72,7 @@ class _$NoteLocationCopyWithImpl<$Res>
 /// Create a copy of NoteLocation
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? latitude = null,Object? longitude = null,Object? accuracyMeters = freezed,Object? address = freezed,Object? capturedAt = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(NoteLocation(
 latitude: null == latitude ? _self.latitude : latitude // ignore: cast_nullable_to_non_nullable
 as double,longitude: null == longitude ? _self.longitude : longitude // ignore: cast_nullable_to_non_nullable
 as double,accuracyMeters: freezed == accuracyMeters ? _self.accuracyMeters : accuracyMeters // ignore: cast_nullable_to_non_nullable
@@ -235,16 +241,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NoteLocation&&(identical(other.latitude, latitude) || other.latitude == latitude)&&(identical(other.longitude, longitude) || other.longitude == longitude)&&(identical(other.accuracyMeters, accuracyMeters) || other.accuracyMeters == accuracyMeters)&&(identical(other.address, address) || other.address == address)&&(identical(other.capturedAt, capturedAt) || other.capturedAt == capturedAt));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _NoteLocation&&(identical(other.latitude, latitude) || other.latitude == latitude)&&(identical(other.longitude, longitude) || other.longitude == longitude)&&(identical(other.accuracyMeters, accuracyMeters) || other.accuracyMeters == accuracyMeters)&&(identical(other.address, address) || other.address == address)&&(identical(other.capturedAt, capturedAt) || other.capturedAt == capturedAt));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,latitude,longitude,accuracyMeters,address,capturedAt);
+int get hashCode {
+    return Object.hash(runtimeType,latitude,longitude,accuracyMeters,address,capturedAt);
+}
 
 @override
 String toString() {
-  return 'NoteLocation(latitude: $latitude, longitude: $longitude, accuracyMeters: $accuracyMeters, address: $address, capturedAt: $capturedAt)';
+    return 'NoteLocation(latitude: $latitude, longitude: $longitude, accuracyMeters: $accuracyMeters, address: $address, capturedAt: $capturedAt)';
 }
 
 
@@ -303,16 +311,21 @@ $NoteAttachmentCopyWith<NoteAttachment> get copyWith => _$NoteAttachmentCopyWith
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteAttachment&&(identical(other.type, type) || other.type == type)&&(identical(other.label, label) || other.label == label)&&(identical(other.filePath, filePath) || other.filePath == filePath)&&(identical(other.previewBytesBase64, previewBytesBase64) || other.previewBytesBase64 == previewBytesBase64)&&(identical(other.durationMs, durationMs) || other.durationMs == durationMs)&&(identical(other.localPayloadSizeBytes, localPayloadSizeBytes) || other.localPayloadSizeBytes == localPayloadSizeBytes)&&(identical(other.localPayloadModifiedAtMillis, localPayloadModifiedAtMillis) || other.localPayloadModifiedAtMillis == localPayloadModifiedAtMillis)&&(identical(other.syncAttachmentContentHash, syncAttachmentContentHash) || other.syncAttachmentContentHash == syncAttachmentContentHash));
+  final _this = this as NoteAttachment;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteAttachment&&(identical(other.type, _this.type) || other.type == _this.type)&&(identical(other.label, _this.label) || other.label == _this.label)&&(identical(other.filePath, _this.filePath) || other.filePath == _this.filePath)&&(identical(other.previewBytesBase64, _this.previewBytesBase64) || other.previewBytesBase64 == _this.previewBytesBase64)&&(identical(other.durationMs, _this.durationMs) || other.durationMs == _this.durationMs)&&(identical(other.localPayloadSizeBytes, _this.localPayloadSizeBytes) || other.localPayloadSizeBytes == _this.localPayloadSizeBytes)&&(identical(other.localPayloadModifiedAtMillis, _this.localPayloadModifiedAtMillis) || other.localPayloadModifiedAtMillis == _this.localPayloadModifiedAtMillis)&&(identical(other.syncAttachmentContentHash, _this.syncAttachmentContentHash) || other.syncAttachmentContentHash == _this.syncAttachmentContentHash));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,type,label,filePath,previewBytesBase64,durationMs,localPayloadSizeBytes,localPayloadModifiedAtMillis,syncAttachmentContentHash);
+int get hashCode {
+  final _this = this as NoteAttachment;
+  return Object.hash(runtimeType,_this.type,_this.label,_this.filePath,_this.previewBytesBase64,_this.durationMs,_this.localPayloadSizeBytes,_this.localPayloadModifiedAtMillis,_this.syncAttachmentContentHash);
+}
 
 @override
 String toString() {
-  return 'NoteAttachment(type: $type, label: $label, filePath: $filePath, previewBytesBase64: $previewBytesBase64, durationMs: $durationMs, localPayloadSizeBytes: $localPayloadSizeBytes, localPayloadModifiedAtMillis: $localPayloadModifiedAtMillis, syncAttachmentContentHash: $syncAttachmentContentHash)';
+  final _this = this as NoteAttachment;
+  return 'NoteAttachment(type: ${_this.type}, label: ${_this.label}, filePath: ${_this.filePath}, previewBytesBase64: ${_this.previewBytesBase64}, durationMs: ${_this.durationMs}, localPayloadSizeBytes: ${_this.localPayloadSizeBytes}, localPayloadModifiedAtMillis: ${_this.localPayloadModifiedAtMillis}, syncAttachmentContentHash: ${_this.syncAttachmentContentHash})';
 }
 
 
@@ -341,7 +354,7 @@ class _$NoteAttachmentCopyWithImpl<$Res>
 /// Create a copy of NoteAttachment
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? type = null,Object? label = null,Object? filePath = freezed,Object? previewBytesBase64 = freezed,Object? durationMs = freezed,Object? localPayloadSizeBytes = freezed,Object? localPayloadModifiedAtMillis = freezed,Object? syncAttachmentContentHash = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(NoteAttachment(
 type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
 as AttachmentType,label: null == label ? _self.label : label // ignore: cast_nullable_to_non_nullable
 as String,filePath: freezed == filePath ? _self.filePath : filePath // ignore: cast_nullable_to_non_nullable
@@ -516,16 +529,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NoteAttachment&&(identical(other.type, type) || other.type == type)&&(identical(other.label, label) || other.label == label)&&(identical(other.filePath, filePath) || other.filePath == filePath)&&(identical(other.previewBytesBase64, previewBytesBase64) || other.previewBytesBase64 == previewBytesBase64)&&(identical(other.durationMs, durationMs) || other.durationMs == durationMs)&&(identical(other.localPayloadSizeBytes, localPayloadSizeBytes) || other.localPayloadSizeBytes == localPayloadSizeBytes)&&(identical(other.localPayloadModifiedAtMillis, localPayloadModifiedAtMillis) || other.localPayloadModifiedAtMillis == localPayloadModifiedAtMillis)&&(identical(other.syncAttachmentContentHash, syncAttachmentContentHash) || other.syncAttachmentContentHash == syncAttachmentContentHash));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _NoteAttachment&&(identical(other.type, type) || other.type == type)&&(identical(other.label, label) || other.label == label)&&(identical(other.filePath, filePath) || other.filePath == filePath)&&(identical(other.previewBytesBase64, previewBytesBase64) || other.previewBytesBase64 == previewBytesBase64)&&(identical(other.durationMs, durationMs) || other.durationMs == durationMs)&&(identical(other.localPayloadSizeBytes, localPayloadSizeBytes) || other.localPayloadSizeBytes == localPayloadSizeBytes)&&(identical(other.localPayloadModifiedAtMillis, localPayloadModifiedAtMillis) || other.localPayloadModifiedAtMillis == localPayloadModifiedAtMillis)&&(identical(other.syncAttachmentContentHash, syncAttachmentContentHash) || other.syncAttachmentContentHash == syncAttachmentContentHash));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,type,label,filePath,previewBytesBase64,durationMs,localPayloadSizeBytes,localPayloadModifiedAtMillis,syncAttachmentContentHash);
+int get hashCode {
+    return Object.hash(runtimeType,type,label,filePath,previewBytesBase64,durationMs,localPayloadSizeBytes,localPayloadModifiedAtMillis,syncAttachmentContentHash);
+}
 
 @override
 String toString() {
-  return 'NoteAttachment(type: $type, label: $label, filePath: $filePath, previewBytesBase64: $previewBytesBase64, durationMs: $durationMs, localPayloadSizeBytes: $localPayloadSizeBytes, localPayloadModifiedAtMillis: $localPayloadModifiedAtMillis, syncAttachmentContentHash: $syncAttachmentContentHash)';
+    return 'NoteAttachment(type: $type, label: $label, filePath: $filePath, previewBytesBase64: $previewBytesBase64, durationMs: $durationMs, localPayloadSizeBytes: $localPayloadSizeBytes, localPayloadModifiedAtMillis: $localPayloadModifiedAtMillis, syncAttachmentContentHash: $syncAttachmentContentHash)';
 }
 
 
@@ -587,16 +602,21 @@ $NoteBlockCopyWith<NoteBlock> get copyWith => _$NoteBlockCopyWithImpl<NoteBlock>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteBlock&&(identical(other.type, type) || other.type == type)&&(identical(other.text, text) || other.text == text)&&(identical(other.attachment, attachment) || other.attachment == attachment));
+  final _this = this as NoteBlock;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteBlock&&(identical(other.type, _this.type) || other.type == _this.type)&&(identical(other.text, _this.text) || other.text == _this.text)&&(identical(other.attachment, _this.attachment) || other.attachment == _this.attachment));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,type,text,attachment);
+int get hashCode {
+  final _this = this as NoteBlock;
+  return Object.hash(runtimeType,_this.type,_this.text,_this.attachment);
+}
 
 @override
 String toString() {
-  return 'NoteBlock(type: $type, text: $text, attachment: $attachment)';
+  final _this = this as NoteBlock;
+  return 'NoteBlock(type: ${_this.type}, text: ${_this.text}, attachment: ${_this.attachment})';
 }
 
 
@@ -625,7 +645,7 @@ class _$NoteBlockCopyWithImpl<$Res>
 /// Create a copy of NoteBlock
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? type = null,Object? text = freezed,Object? attachment = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(NoteBlock(
 type: null == type ? _self.type : type // ignore: cast_nullable_to_non_nullable
 as NoteBlockType,text: freezed == text ? _self.text : text // ignore: cast_nullable_to_non_nullable
 as String?,attachment: freezed == attachment ? _self.attachment : attachment // ignore: cast_nullable_to_non_nullable
@@ -802,16 +822,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NoteBlock&&(identical(other.type, type) || other.type == type)&&(identical(other.text, text) || other.text == text)&&(identical(other.attachment, attachment) || other.attachment == attachment));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _NoteBlock&&(identical(other.type, type) || other.type == type)&&(identical(other.text, text) || other.text == text)&&(identical(other.attachment, attachment) || other.attachment == attachment));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,type,text,attachment);
+int get hashCode {
+    return Object.hash(runtimeType,type,text,attachment);
+}
 
 @override
 String toString() {
-  return 'NoteBlock(type: $type, text: $text, attachment: $attachment)';
+    return 'NoteBlock(type: $type, text: $text, attachment: $attachment)';
 }
 
 
@@ -880,16 +902,21 @@ $NoteEntryCopyWith<NoteEntry> get copyWith => _$NoteEntryCopyWithImpl<NoteEntry>
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteEntry&&(identical(other.id, id) || other.id == id)&&(identical(other.vaultId, vaultId) || other.vaultId == vaultId)&&(identical(other.title, title) || other.title == title)&&(identical(other.body, body) || other.body == body)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.deletedAt, deletedAt) || other.deletedAt == deletedAt)&&(identical(other.archivedAt, archivedAt) || other.archivedAt == archivedAt)&&(identical(other.deviceId, deviceId) || other.deviceId == deviceId)&&(identical(other.contentHash, contentHash) || other.contentHash == contentHash)&&const DeepCollectionEquality().equals(other.attachments, attachments)&&const DeepCollectionEquality().equals(other.blocks, blocks)&&const DeepCollectionEquality().equals(other.tags, tags)&&(identical(other.isPinned, isPinned) || other.isPinned == isPinned)&&(identical(other.revision, revision) || other.revision == revision)&&(identical(other.syncState, syncState) || other.syncState == syncState)&&(identical(other.editorMode, editorMode) || other.editorMode == editorMode)&&(identical(other.location, location) || other.location == location));
+  final _this = this as NoteEntry;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is NoteEntry&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.vaultId, _this.vaultId) || other.vaultId == _this.vaultId)&&(identical(other.title, _this.title) || other.title == _this.title)&&(identical(other.body, _this.body) || other.body == _this.body)&&(identical(other.createdAt, _this.createdAt) || other.createdAt == _this.createdAt)&&(identical(other.updatedAt, _this.updatedAt) || other.updatedAt == _this.updatedAt)&&(identical(other.deletedAt, _this.deletedAt) || other.deletedAt == _this.deletedAt)&&(identical(other.archivedAt, _this.archivedAt) || other.archivedAt == _this.archivedAt)&&(identical(other.deviceId, _this.deviceId) || other.deviceId == _this.deviceId)&&(identical(other.contentHash, _this.contentHash) || other.contentHash == _this.contentHash)&&const DeepCollectionEquality().equals(other.attachments, _this.attachments)&&const DeepCollectionEquality().equals(other.blocks, _this.blocks)&&const DeepCollectionEquality().equals(other.tags, _this.tags)&&(identical(other.isPinned, _this.isPinned) || other.isPinned == _this.isPinned)&&(identical(other.revision, _this.revision) || other.revision == _this.revision)&&(identical(other.syncState, _this.syncState) || other.syncState == _this.syncState)&&(identical(other.editorMode, _this.editorMode) || other.editorMode == _this.editorMode)&&(identical(other.location, _this.location) || other.location == _this.location));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,vaultId,title,body,createdAt,updatedAt,deletedAt,archivedAt,deviceId,contentHash,const DeepCollectionEquality().hash(attachments),const DeepCollectionEquality().hash(blocks),const DeepCollectionEquality().hash(tags),isPinned,revision,syncState,editorMode,location);
+int get hashCode {
+  final _this = this as NoteEntry;
+  return Object.hash(runtimeType,_this.id,_this.vaultId,_this.title,_this.body,_this.createdAt,_this.updatedAt,_this.deletedAt,_this.archivedAt,_this.deviceId,_this.contentHash,const DeepCollectionEquality().hash(_this.attachments),const DeepCollectionEquality().hash(_this.blocks),const DeepCollectionEquality().hash(_this.tags),_this.isPinned,_this.revision,_this.syncState,_this.editorMode,_this.location);
+}
 
 @override
 String toString() {
-  return 'NoteEntry(id: $id, vaultId: $vaultId, title: $title, body: $body, createdAt: $createdAt, updatedAt: $updatedAt, deletedAt: $deletedAt, archivedAt: $archivedAt, deviceId: $deviceId, contentHash: $contentHash, attachments: $attachments, blocks: $blocks, tags: $tags, isPinned: $isPinned, revision: $revision, syncState: $syncState, editorMode: $editorMode, location: $location)';
+  final _this = this as NoteEntry;
+  return 'NoteEntry(id: ${_this.id}, vaultId: ${_this.vaultId}, title: ${_this.title}, body: ${_this.body}, createdAt: ${_this.createdAt}, updatedAt: ${_this.updatedAt}, deletedAt: ${_this.deletedAt}, archivedAt: ${_this.archivedAt}, deviceId: ${_this.deviceId}, contentHash: ${_this.contentHash}, attachments: ${_this.attachments}, blocks: ${_this.blocks}, tags: ${_this.tags}, isPinned: ${_this.isPinned}, revision: ${_this.revision}, syncState: ${_this.syncState}, editorMode: ${_this.editorMode}, location: ${_this.location})';
 }
 
 
@@ -918,7 +945,7 @@ class _$NoteEntryCopyWithImpl<$Res>
 /// Create a copy of NoteEntry
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? vaultId = null,Object? title = null,Object? body = null,Object? createdAt = null,Object? updatedAt = freezed,Object? deletedAt = freezed,Object? archivedAt = freezed,Object? deviceId = freezed,Object? contentHash = freezed,Object? attachments = null,Object? blocks = null,Object? tags = null,Object? isPinned = null,Object? revision = null,Object? syncState = null,Object? editorMode = null,Object? location = freezed,}) {
-  return _then(_self.copyWith(
+  return _then(NoteEntry(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,vaultId: null == vaultId ? _self.vaultId : vaultId // ignore: cast_nullable_to_non_nullable
 as String,title: null == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
@@ -1090,7 +1117,7 @@ return $default(_that.id,_that.vaultId,_that.title,_that.body,_that.createdAt,_t
 
 @JsonSerializable(explicitToJson: true)
 class _NoteEntry implements NoteEntry {
-  const _NoteEntry({required this.id, required this.vaultId, required this.title, required this.body, required this.createdAt, this.updatedAt, this.deletedAt, this.archivedAt, this.deviceId, this.contentHash, final  List<NoteAttachment> attachments = const <NoteAttachment>[], final  List<NoteBlock> blocks = const <NoteBlock>[], final  List<String> tags = const <String>[], this.isPinned = false, this.revision = 1, this.syncState = NoteSyncState.localOnly, this.editorMode = NoteEditorMode.rich, this.location}): _attachments = attachments,_blocks = blocks,_tags = tags;
+  const _NoteEntry({required this.id, required this.vaultId, required this.title, required this.body, required this.createdAt, this.updatedAt, this.deletedAt, this.archivedAt, this.deviceId, this.contentHash,  List<NoteAttachment> attachments = const <NoteAttachment>[],  List<NoteBlock> blocks = const <NoteBlock>[],  List<String> tags = const <String>[], this.isPinned = false, this.revision = 1, this.syncState = NoteSyncState.localOnly, this.editorMode = NoteEditorMode.rich, this.location}): _attachments = attachments,_blocks = blocks,_tags = tags;
   factory _NoteEntry.fromJson(Map<String, dynamic> json) => _$NoteEntryFromJson(json);
 
 @override final  String id;
@@ -1143,16 +1170,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _NoteEntry&&(identical(other.id, id) || other.id == id)&&(identical(other.vaultId, vaultId) || other.vaultId == vaultId)&&(identical(other.title, title) || other.title == title)&&(identical(other.body, body) || other.body == body)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.deletedAt, deletedAt) || other.deletedAt == deletedAt)&&(identical(other.archivedAt, archivedAt) || other.archivedAt == archivedAt)&&(identical(other.deviceId, deviceId) || other.deviceId == deviceId)&&(identical(other.contentHash, contentHash) || other.contentHash == contentHash)&&const DeepCollectionEquality().equals(other._attachments, _attachments)&&const DeepCollectionEquality().equals(other._blocks, _blocks)&&const DeepCollectionEquality().equals(other._tags, _tags)&&(identical(other.isPinned, isPinned) || other.isPinned == isPinned)&&(identical(other.revision, revision) || other.revision == revision)&&(identical(other.syncState, syncState) || other.syncState == syncState)&&(identical(other.editorMode, editorMode) || other.editorMode == editorMode)&&(identical(other.location, location) || other.location == location));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _NoteEntry&&(identical(other.id, id) || other.id == id)&&(identical(other.vaultId, vaultId) || other.vaultId == vaultId)&&(identical(other.title, title) || other.title == title)&&(identical(other.body, body) || other.body == body)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.updatedAt, updatedAt) || other.updatedAt == updatedAt)&&(identical(other.deletedAt, deletedAt) || other.deletedAt == deletedAt)&&(identical(other.archivedAt, archivedAt) || other.archivedAt == archivedAt)&&(identical(other.deviceId, deviceId) || other.deviceId == deviceId)&&(identical(other.contentHash, contentHash) || other.contentHash == contentHash)&&const DeepCollectionEquality().equals(other.attachments, _attachments)&&const DeepCollectionEquality().equals(other.blocks, _blocks)&&const DeepCollectionEquality().equals(other.tags, _tags)&&(identical(other.isPinned, isPinned) || other.isPinned == isPinned)&&(identical(other.revision, revision) || other.revision == revision)&&(identical(other.syncState, syncState) || other.syncState == syncState)&&(identical(other.editorMode, editorMode) || other.editorMode == editorMode)&&(identical(other.location, location) || other.location == location));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,vaultId,title,body,createdAt,updatedAt,deletedAt,archivedAt,deviceId,contentHash,const DeepCollectionEquality().hash(_attachments),const DeepCollectionEquality().hash(_blocks),const DeepCollectionEquality().hash(_tags),isPinned,revision,syncState,editorMode,location);
+int get hashCode {
+    return Object.hash(runtimeType,id,vaultId,title,body,createdAt,updatedAt,deletedAt,archivedAt,deviceId,contentHash,const DeepCollectionEquality().hash(_attachments),const DeepCollectionEquality().hash(_blocks),const DeepCollectionEquality().hash(_tags),isPinned,revision,syncState,editorMode,location);
+}
 
 @override
 String toString() {
-  return 'NoteEntry(id: $id, vaultId: $vaultId, title: $title, body: $body, createdAt: $createdAt, updatedAt: $updatedAt, deletedAt: $deletedAt, archivedAt: $archivedAt, deviceId: $deviceId, contentHash: $contentHash, attachments: $attachments, blocks: $blocks, tags: $tags, isPinned: $isPinned, revision: $revision, syncState: $syncState, editorMode: $editorMode, location: $location)';
+    return 'NoteEntry(id: $id, vaultId: $vaultId, title: $title, body: $body, createdAt: $createdAt, updatedAt: $updatedAt, deletedAt: $deletedAt, archivedAt: $archivedAt, deviceId: $deviceId, contentHash: $contentHash, attachments: $attachments, blocks: $blocks, tags: $tags, isPinned: $isPinned, revision: $revision, syncState: $syncState, editorMode: $editorMode, location: $location)';
 }
 
 

@@ -123,6 +123,12 @@ void logDiagnostic(
   Map<String, Object?> data = const <String, Object?>{},
 }) {
   unawaited(
-    DiagnosticLogService.instance.record(category, message, data: data),
+    DiagnosticLogService.instance.record(category, message, data: data).onError(
+      (Object error, StackTrace stackTrace) {
+        // Diagnostics are best effort. A failed preferences backend must not
+        // turn a handled application failure into an unhandled async error.
+        // Do not log the exception or recurse into the same failed backend.
+      },
+    ),
   );
 }

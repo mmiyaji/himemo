@@ -536,6 +536,7 @@ void main() {
 
     test('narrows recent ranges and switches created-at sorting', () {
       final now = DateTime.now();
+      final previousMonthStart = DateTime(now.year, now.month - 1, 1);
       final container = containerFor([
         note(
           id: 'updated-recent-created-old',
@@ -554,16 +555,8 @@ void main() {
         ),
         note(
           id: 'previous-month',
-          createdAt: DateTime(
-            now.year,
-            now.month,
-            1,
-          ).subtract(const Duration(days: 1)),
-          updatedAt: DateTime(
-            now.year,
-            now.month,
-            1,
-          ).subtract(const Duration(days: 1)),
+          createdAt: previousMonthStart,
+          updatedAt: previousMonthStart,
         ),
       ]);
 
@@ -589,8 +582,8 @@ void main() {
           .read(notesListSortControllerProvider.notifier)
           .setSortField(NotesListSortField.createdAt);
       expect(container.read(visibleNotesProvider).map((entry) => entry.id), [
-        'created-recent',
-        'eight-days-old',
+        if (now.day > 2) 'created-recent',
+        if (now.day > 8) 'eight-days-old',
       ]);
     });
 
@@ -638,7 +631,7 @@ void main() {
         SharedPreferences.setMockInitialValues({
           'notes.list_density': NotesListDensity.compact.name,
           'notes.attachment_preview_fit': AttachmentPreviewFit.icon.name,
-          'notes.list_sort_field': NotesListSortField.createdAt.name,
+          'notes.list_sort_field': NotesListSortField.updatedAt.name,
         });
         final container = ProviderContainer();
         addTearDown(container.dispose);
@@ -653,7 +646,7 @@ void main() {
         );
         expect(
           container.read(notesListSortControllerProvider),
-          NotesListSortField.updatedAt,
+          NotesListSortField.createdAt,
         );
         await pumpEventQueue();
         expect(
@@ -666,7 +659,7 @@ void main() {
         );
         expect(
           container.read(notesListSortControllerProvider),
-          NotesListSortField.createdAt,
+          NotesListSortField.updatedAt,
         );
 
         await container
@@ -677,7 +670,7 @@ void main() {
             .setFit(AttachmentPreviewFit.preview);
         await container
             .read(notesListSortControllerProvider.notifier)
-            .setSortField(NotesListSortField.updatedAt);
+            .setSortField(NotesListSortField.createdAt);
         final prefs = await SharedPreferences.getInstance();
         expect(
           prefs.getString('notes.list_density'),
@@ -689,7 +682,7 @@ void main() {
         );
         expect(
           prefs.getString('notes.list_sort_field'),
-          NotesListSortField.updatedAt.name,
+          NotesListSortField.createdAt.name,
         );
       },
     );
@@ -718,7 +711,7 @@ void main() {
       );
       expect(
         container.read(notesListSortControllerProvider),
-        NotesListSortField.updatedAt,
+        NotesListSortField.createdAt,
       );
     });
   });

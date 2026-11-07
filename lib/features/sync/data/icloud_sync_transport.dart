@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
 import '../../../app/diagnostic_log.dart';
 import '../../../app/firebase_observability.dart';
 import 'google_drive_sync_transport.dart';
+import 'remote_attachment_maintenance.dart';
 
 enum ICloudAccountAvailability {
   available,
@@ -90,6 +92,7 @@ abstract class ICloudSyncTransport {
     required int noteCount,
     required int attachmentCount,
     String bundleKind = SyncBundleKind.full,
+    String? replayBaseFileId,
   });
 
   Future<void> uploadAttachmentObject({
@@ -116,10 +119,13 @@ abstract class ICloudSyncTransport {
   Future<ICloudMaintenanceResult> pruneObsoleteData({
     int keepLatest = 1,
     required Set<String> referencedAttachmentHashes,
+    Set<String>? bundleFileIdsToDelete,
+    String? expectedLatestFileId,
   });
 }
 
-class InMemoryICloudSyncTransport implements ICloudSyncTransport {
+class InMemoryICloudSyncTransport
+    implements ICloudSyncTransport, RemoteAttachmentMaintenanceTransport {
   InMemoryICloudSyncTransport({
     this.operationDelay = Duration.zero,
     this.availability = ICloudAccountAvailability.available,
@@ -129,7 +135,102 @@ class InMemoryICloudSyncTransport implements ICloudSyncTransport {
   ICloudAccountAvailability availability;
 
   final Map<String, _InMemoryICloudAttachment> _attachmentObjects = {};
+  final Map<String, _MemoryManagedAttachment> _managedAttachments = {};
   final List<_InMemoryICloudBundle> _bundles = [];
+  int _nextBundleId = 1;
+  int _nextManagedId = 1;
+
+  @override
+  Future<String> pinAttachmentObject({
+    required String contentHash,
+    required String uploadId,
+    String? encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+  }) async {
+    await _delay();
+    _throwIfUnavailable();
+    // Legacy objects are deliberately retained by GC. Reuse them in place;
+    // ordinary synchronization must not download and duplicate their payload.
+    if (_attachmentObjects.containsKey(contentHash)) {
+      return 'attachment-$contentHash';
+    }
+    final token = uploadId.length <= 64 ? uploadId : uploadId.substring(0, 64);
+    final candidates = _managedAttachments.values
+        .where(
+          (item) =>
+              item.contentHash == contentHash &&
+              !item.deleting &&
+              item.holders.length < 3,
+        )
+        .toList();
+    if (candidates.isNotEmpty) {
+      candidates.first.holders.add(token);
+      candidates.first.revision++;
+      return candidates.first.id;
+    }
+    final payload =
+        encodedPayload ?? await downloadAttachmentObject(contentHash);
+    if (payload == null) {
+      throw const ICloudSyncException(
+        'No attachment payload is available for managed upload.',
+      );
+    }
+    final id = 'managed-attachment-${_nextManagedId++}';
+    _managedAttachments[id] = _MemoryManagedAttachment(
+      id,
+      contentHash,
+      payload,
+      sizeBytes,
+      {token},
+    );
+    return id;
+  }
+
+  @override
+  Future<void> releaseAttachmentObject({
+    required String recordId,
+    required String uploadId,
+    required String publishedBundleId,
+  }) async {
+    await _delay();
+    _throwIfUnavailable();
+    final item = _managedAttachments[recordId];
+    if (item == null) return;
+    item.holders.remove(
+      uploadId.length <= 64 ? uploadId : uploadId.substring(0, 64),
+    );
+    item.lastPublishedBundleId = publishedBundleId;
+    item.revision++;
+  }
+
+  @override
+  Future<List<ManagedAttachmentObject>> listManagedAttachmentObjects() async {
+    await _delay();
+    _throwIfUnavailable();
+    return _managedAttachments.values
+        .map((item) => item.snapshot())
+        .toList(growable: false);
+  }
+
+  @override
+  Future<bool> claimAndDeleteAttachmentObject(
+    ManagedAttachmentObject candidate,
+  ) async {
+    await _delay();
+    _throwIfUnavailable();
+    final item = _managedAttachments[candidate.id];
+    if (item == null ||
+        item.revision.toString() != candidate.revision ||
+        item.holders.isNotEmpty) {
+      return false;
+    }
+    item.deleting = true;
+    item.revision++;
+    _managedAttachments.remove(candidate.id);
+    return true;
+  }
 
   @override
   Future<ICloudAccountStatusResult> checkAccountStatus() async {
@@ -169,11 +270,12 @@ class InMemoryICloudSyncTransport implements ICloudSyncTransport {
     required int noteCount,
     required int attachmentCount,
     String bundleKind = SyncBundleKind.full,
+    String? replayBaseFileId,
   }) async {
     await _delay();
     _throwIfUnavailable();
     final now = DateTime.now().toUtc();
-    final uploadNumber = _bundles.length + 1;
+    final uploadNumber = _nextBundleId++;
     final status = RemoteSyncBundleStatus(
       fileId: 'fake-icloud-bundle-$uploadNumber',
       fileName:
@@ -184,6 +286,7 @@ class InMemoryICloudSyncTransport implements ICloudSyncTransport {
       attachmentCount: attachmentCount,
       deviceId: deviceId,
       bundleKind: bundleKind,
+      replayBaseFileId: replayBaseFileId,
     );
     _bundles.add(
       _InMemoryICloudBundle(status: status, encodedPayload: encodedPayload),
@@ -215,14 +318,22 @@ class InMemoryICloudSyncTransport implements ICloudSyncTransport {
   Future<Set<String>> listAttachmentObjectContentHashes() async {
     await _delay();
     _throwIfUnavailable();
-    return _attachmentObjects.keys.toSet();
+    return {
+      ..._attachmentObjects.keys,
+      ..._managedAttachments.values
+          .where((item) => !item.deleting)
+          .map((item) => item.contentHash),
+    };
   }
 
   @override
   Future<String?> downloadAttachmentObject(String contentHash) async {
     await _delay();
     _throwIfUnavailable();
-    return _attachmentObjects[contentHash]?.encodedPayload;
+    final managed = _managedAttachments.values
+        .where((item) => item.contentHash == contentHash && !item.deleting)
+        .firstOrNull;
+    return managed?.payload ?? _attachmentObjects[contentHash]?.encodedPayload;
   }
 
   @override
@@ -265,11 +376,16 @@ class InMemoryICloudSyncTransport implements ICloudSyncTransport {
         0,
         (total, bundle) => total + (bundle.status.sizeBytes ?? 0),
       ),
-      attachmentCount: _attachmentObjects.length,
-      attachmentBytes: _attachmentObjects.values.fold<int>(
-        0,
-        (total, attachment) => total + attachment.sizeBytes,
-      ),
+      attachmentCount: _attachmentObjects.length + _managedAttachments.length,
+      attachmentBytes:
+          _attachmentObjects.values.fold<int>(
+            0,
+            (total, attachment) => total + attachment.sizeBytes,
+          ) +
+          _managedAttachments.values.fold<int>(
+            0,
+            (total, attachment) => total + attachment.sizeBytes,
+          ),
     );
   }
 
@@ -277,40 +393,38 @@ class InMemoryICloudSyncTransport implements ICloudSyncTransport {
   Future<ICloudMaintenanceResult> pruneObsoleteData({
     int keepLatest = 1,
     required Set<String> referencedAttachmentHashes,
+    Set<String>? bundleFileIdsToDelete,
+    String? expectedLatestFileId,
   }) async {
     await _delay();
-    final keepCount = keepLatest < 0 ? 0 : keepLatest;
-    final deleteBundleCount = _bundles.length > keepCount
-        ? _bundles.length - keepCount
-        : 0;
-    var deletedBundleBytes = 0;
-    if (deleteBundleCount > 0) {
-      final removed = _bundles.take(deleteBundleCount).toList(growable: false);
-      deletedBundleBytes = removed.fold<int>(
-        0,
-        (total, bundle) => total + (bundle.status.sizeBytes ?? 0),
+    // Fail closed for legacy callers that request an unbounded sweep.
+    if (bundleFileIdsToDelete == null ||
+        expectedLatestFileId == null ||
+        _bundles.isEmpty ||
+        _bundles.last.status.fileId != expectedLatestFileId) {
+      return const ICloudMaintenanceResult(
+        deletedBundleCount: 0,
+        deletedBundleBytes: 0,
+        deletedAttachmentCount: 0,
+        deletedAttachmentBytes: 0,
       );
-      _bundles.removeRange(0, deleteBundleCount);
     }
-
-    var deletedAttachmentCount = 0;
-    var deletedAttachmentBytes = 0;
-    final obsoleteHashes = _attachmentObjects.keys
-        .where((hash) => !referencedAttachmentHashes.contains(hash))
-        .toList(growable: false);
-    for (final hash in obsoleteHashes) {
-      final removed = _attachmentObjects.remove(hash);
-      if (removed != null) {
-        deletedAttachmentCount += 1;
-        deletedAttachmentBytes += removed.sizeBytes;
-      }
-    }
-
+    final removed = _bundles
+        .where(
+          (bundle) =>
+              bundleFileIdsToDelete.contains(bundle.status.fileId) &&
+              bundle.status.fileId != expectedLatestFileId,
+        )
+        .toList();
+    _bundles.removeWhere((bundle) => removed.contains(bundle));
     return ICloudMaintenanceResult(
-      deletedBundleCount: deleteBundleCount,
-      deletedBundleBytes: deletedBundleBytes,
-      deletedAttachmentCount: deletedAttachmentCount,
-      deletedAttachmentBytes: deletedAttachmentBytes,
+      deletedBundleCount: removed.length,
+      deletedBundleBytes: removed.fold<int>(
+        0,
+        (sum, item) => sum + (item.status.sizeBytes ?? 0),
+      ),
+      deletedAttachmentCount: 0,
+      deletedAttachmentBytes: 0,
     );
   }
 
@@ -330,6 +444,32 @@ class InMemoryICloudSyncTransport implements ICloudSyncTransport {
           availability == ICloudAccountAvailability.temporarilyUnavailable,
     );
   }
+}
+
+class _MemoryManagedAttachment {
+  _MemoryManagedAttachment(
+    this.id,
+    this.contentHash,
+    this.payload,
+    this.sizeBytes,
+    this.holders,
+  );
+  final String id, contentHash, payload;
+  final int sizeBytes;
+  final Set<String> holders;
+  int revision = 1;
+  bool deleting = false;
+  String? lastPublishedBundleId;
+  ManagedAttachmentObject snapshot() => ManagedAttachmentObject(
+    id: id,
+    contentHash: contentHash,
+    revision: '$revision',
+    modifiedAt: DateTime.now().toUtc(),
+    uploadIds: Set.unmodifiable(holders),
+    lastPublishedBundleId: lastPublishedBundleId,
+    deleting: deleting,
+    sizeBytes: sizeBytes,
+  );
 }
 
 class _InMemoryICloudBundle {
@@ -352,7 +492,8 @@ class _InMemoryICloudAttachment {
   final int sizeBytes;
 }
 
-class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
+class MethodChannelICloudSyncTransport
+    implements ICloudSyncTransport, RemoteAttachmentMaintenanceTransport {
   static const MethodChannel _channel = MethodChannel(
     'org.ruhenheim.himemo/cloudkit',
   );
@@ -361,6 +502,73 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
     Duration(seconds: 2),
     Duration(seconds: 4),
   ];
+
+  @override
+  Future<String> pinAttachmentObject({
+    required String contentHash,
+    required String uploadId,
+    String? encodedPayload,
+    required String type,
+    required String label,
+    required int sizeBytes,
+  }) async {
+    final result = await _invokeMap('managedPinAttachment', {
+      'contentHash': contentHash,
+      'uploadId': uploadId,
+      'encodedPayload': encodedPayload,
+      'type': type,
+      'label': label,
+      'sizeBytes': sizeBytes,
+    });
+    final id = result?['recordId'];
+    if (id is! String || id.isEmpty) {
+      throw const FormatException(
+        'CloudKit did not return a managed attachment ID.',
+      );
+    }
+    return id;
+  }
+
+  @override
+  Future<void> releaseAttachmentObject({
+    required String recordId,
+    required String uploadId,
+    required String publishedBundleId,
+  }) async {
+    await _invokeMap('managedReleaseAttachment', {
+      'recordId': recordId,
+      'uploadId': uploadId,
+      'publishedBundleId': publishedBundleId,
+    });
+  }
+
+  @override
+  Future<List<ManagedAttachmentObject>> listManagedAttachmentObjects() async =>
+      (await _invokeList('managedListAttachments'))
+          .map((entry) => _managedAttachmentFromMap(_stringMapFrom(entry)))
+          .toList(growable: false);
+  @override
+  Future<bool> claimAndDeleteAttachmentObject(
+    ManagedAttachmentObject candidate,
+  ) async =>
+      (await _invokeMap('managedClaimDeleteAttachment', {
+        'recordId': candidate.id,
+        'revision': candidate.revision,
+      }))?['deleted'] ==
+      true;
+  ManagedAttachmentObject _managedAttachmentFromMap(Map<String, dynamic> map) =>
+      ManagedAttachmentObject(
+        id: map['recordId'] as String? ?? '',
+        contentHash: map['contentHash'] as String? ?? '',
+        revision: map['revision'] as String? ?? '',
+        modifiedAt: _parseDate(map['modifiedAt'] as String?),
+        uploadIds: ((map['uploadIds'] as List?) ?? const [])
+            .whereType<String>()
+            .toSet(),
+        lastPublishedBundleId: map['lastPublishedBundleId'] as String?,
+        deleting: map['deleting'] == true,
+        sizeBytes: _intFrom(map['sizeBytes']),
+      );
 
   @override
   Future<ICloudAccountStatusResult> checkAccountStatus() async {
@@ -468,13 +676,18 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
     required int noteCount,
     required int attachmentCount,
     String bundleKind = SyncBundleKind.full,
+    String? replayBaseFileId,
   }) async {
     final result = await _invokeMap('cloudKitUploadBundle', {
       'encodedPayload': encodedPayload,
       'deviceId': deviceId,
       'noteCount': noteCount,
       'attachmentCount': attachmentCount,
-      'bundleKind': bundleKind,
+      // Encode the base in the existing String field: no production CloudKit
+      // schema migration is required for this protocol extension.
+      'bundleKind': replayBaseFileId == null
+          ? bundleKind
+          : '$bundleKind:${base64Url.encode(utf8.encode(replayBaseFileId))}',
     });
     if (result == null) {
       throw const FormatException('CloudKit did not return uploaded metadata.');
@@ -558,9 +771,13 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
   Future<ICloudMaintenanceResult> pruneObsoleteData({
     int keepLatest = 1,
     required Set<String> referencedAttachmentHashes,
+    Set<String>? bundleFileIdsToDelete,
+    String? expectedLatestFileId,
   }) async {
     final result = await _invokeMap('cloudKitPruneObsoleteData', {
       'keepLatest': keepLatest,
+      'bundleFileIdsToDelete': bundleFileIdsToDelete?.toList(),
+      'expectedLatestFileId': expectedLatestFileId,
       'referencedAttachmentHashes': referencedAttachmentHashes.toList()..sort(),
     });
     if (result == null) {
@@ -739,6 +956,10 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
   }
 
   RemoteSyncBundleStatus _statusFromMap(Map<String, dynamic> map) {
+    final rawKind = map['bundleKind'] as String?;
+    final parts = rawKind?.split(':');
+    final hasBase = parts != null && parts.length == 2;
+    final base = hasBase ? utf8.decode(base64Url.decode(parts[1])) : null;
     return RemoteSyncBundleStatus(
       fileId: map['recordName'] as String? ?? '',
       fileName: map['fileName'] as String? ?? '',
@@ -747,7 +968,8 @@ class MethodChannelICloudSyncTransport implements ICloudSyncTransport {
       noteCount: map['noteCount'] as int?,
       attachmentCount: map['attachmentCount'] as int?,
       deviceId: map['deviceId'] as String?,
-      bundleKind: map['bundleKind'] as String?,
+      bundleKind: hasBase ? parts[0] : rawKind,
+      replayBaseFileId: base,
     );
   }
 

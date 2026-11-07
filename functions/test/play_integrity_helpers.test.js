@@ -3,6 +3,7 @@ const { test } = require('node:test');
 
 const {
   buildRateLimitKey,
+  areDevelopmentPackagesEnabled,
   createRateLimiter,
   getAllowedPackages,
   isDevelopmentPackage,
@@ -135,11 +136,40 @@ test('allowed packages are trimmed, de-duplicated, and environment-scoped', () =
     'org.example.shared',
   ]);
   assert.deepEqual(
-    getAllowedPackages({ allowDevelopment: true }, environment),
+    getAllowedPackages({ allowDevelopment: true }, {
+      ...environment,
+      HIMEMO_ALLOW_DEVELOPMENT_PACKAGES: 'true',
+    }),
     ['org.example.production', 'org.example.shared', 'org.example.dev'],
   );
   assert.equal(isDevelopmentPackage('org.example.dev'), true);
   assert.equal(isDevelopmentPackage('org.example.production'), false);
+});
+
+test('development packages require an explicit environment opt-in', () => {
+  const environment = {
+    HIMEMO_ALLOWED_ANDROID_PACKAGES: 'org.example.production',
+    HIMEMO_ALLOWED_ANDROID_DEV_PACKAGES: 'org.example.dev',
+  };
+
+  assert.equal(areDevelopmentPackagesEnabled(environment), false);
+  assert.deepEqual(getAllowedPackages({ allowDevelopment: true }, {
+    ...environment,
+    HIMEMO_ALLOWED_ANDROID_PACKAGES: 'org.example.production,org.example.dev',
+  }), ['org.example.production']);
+  assert.deepEqual(getAllowedPackages({ allowDevelopment: false }, environment), [
+    'org.example.production',
+  ]);
+
+  environment.HIMEMO_ALLOW_DEVELOPMENT_PACKAGES = 'true';
+  assert.equal(areDevelopmentPackagesEnabled(environment), true);
+  assert.deepEqual(getAllowedPackages({ allowDevelopment: true }, environment), [
+    'org.example.production',
+    'org.example.dev',
+  ]);
+
+  environment.HIMEMO_ALLOW_DEVELOPMENT_PACKAGES = '1';
+  assert.equal(areDevelopmentPackagesEnabled(environment), false);
 });
 
 test('request timestamp must be numeric, fresh, and inside challenge bounds', () => {

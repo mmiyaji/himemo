@@ -19,6 +19,11 @@ void main() {
 
       await harness.selectGoogleDrive();
 
+      expect(
+        await harness.container.read(syncBundleFingerprintProvider.future),
+        isNull,
+      );
+
       expect(harness.transport.totalReadCalls, 0);
       expect(harness.transport.legacyDeleteCalls, 0);
       expect(harness.keyFactoryCalls, 0);
@@ -29,7 +34,17 @@ void main() {
       final harness = await _SyncKeyHarness.create();
       addTearDown(harness.dispose);
 
+      expect(
+        await harness.container.read(syncBundleFingerprintProvider.future),
+        isNull,
+      );
+
       final auth = await harness.connectGoogleDrive();
+
+      expect(
+        await harness.container.read(syncBundleFingerprintProvider.future),
+        hasLength(12),
+      );
 
       expect(auth.stage, SyncAuthStage.authenticated, reason: auth.message);
       expect(harness.keyFactoryCalls, 1);
@@ -443,6 +458,7 @@ class _TrackingGoogleDriveTransport
     required int noteCount,
     required int attachmentCount,
     String bundleKind = SyncBundleKind.full,
+    String? replayBaseFileId,
   }) {
     throw UnsupportedError('Not used by sync-key preparation tests.');
   }

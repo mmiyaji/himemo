@@ -53,9 +53,8 @@ class _StaticNoteDetailView extends ConsumerWidget {
               const SizedBox(width: 8),
               Text(
                 '${selectedIndex + 1} / ${notes.length}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: _mutedTextColor(context),
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: _mutedTextColor(context)),
               ),
             ],
           ),
@@ -326,9 +325,8 @@ class _NoteDetailPagerState extends ConsumerState<_NoteDetailPager> {
                 ),
                 Text(
                   '${currentIndex + 1} / ${widget.notes.length}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: _mutedTextColor(context),
-                  ),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: _mutedTextColor(context)),
                 ),
               ],
             ),
@@ -1341,9 +1339,8 @@ class _NoteDetailPaneState extends ConsumerState<_NoteDetailPane> {
                       isEdited
                           ? strings.noteEditedAt(updatedLabel)
                           : createdLabel,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: _mutedTextColor(context),
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: _mutedTextColor(context)),
                     ),
                     if (note.syncState == NoteSyncState.conflict) ...[
                       const SizedBox(height: 12),
@@ -1525,9 +1522,8 @@ class _FloatingNoteSearchNavigator extends StatelessWidget {
             ),
             Text(
               positionLabel,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                color: _mutedTextColor(context),
-              ),
+              style: Theme.of(context).textTheme.labelMedium
+                  ?.copyWith(color: _mutedTextColor(context)),
             ),
             IconButton(
               key: const Key('note-detail-search-floating-next-button'),
@@ -1892,9 +1888,8 @@ Future<bool> _confirmExternalLinkOpen(BuildContext context, String url) async {
                 const SizedBox(height: 12),
                 SelectableText(
                   url,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: _mutedTextColor(context),
-                  ),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: _mutedTextColor(context)),
                 ),
               ],
             ),
@@ -2040,9 +2035,8 @@ class _DetailContentItemWidget extends StatelessWidget {
         text: text,
         query: highlightQuery,
         activeMatchStart: activeMatchStart,
-        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-          color: Theme.of(context).colorScheme.onSurface,
-        ),
+        style: Theme.of(context).textTheme.bodyLarge
+            ?.copyWith(color: Theme.of(context).colorScheme.onSurface),
       );
     }
     final attachment = item.attachment;

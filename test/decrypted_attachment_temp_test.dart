@@ -106,12 +106,10 @@ void main() {
           type: AttachmentType.photo,
           preferredFileName: 'fresh.jpg',
         ))!;
-        await File(
-          stalePath,
-        ).setLastModified(now.subtract(const Duration(hours: 2)));
-        await File(
-          freshPath,
-        ).setLastModified(now.subtract(const Duration(minutes: 30)));
+        await File(stalePath)
+            .setLastModified(now.subtract(const Duration(hours: 2)));
+        await File(freshPath)
+            .setLastModified(now.subtract(const Duration(minutes: 30)));
 
         expect(await store.cleanupExpiredMaterializedFiles(now: now), 1);
         expect(await File(stalePath).exists(), isFalse);

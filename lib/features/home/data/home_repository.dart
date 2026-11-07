@@ -1291,9 +1291,8 @@ abstract class HomeRepository {
 class SeededHomeRepository implements HomeRepository {
   SeededHomeRepository({
     DateTime? seedBaseDate,
-    bool useEnglishSeedData = false,
-  }) : _seedBaseDate = seedBaseDate ?? DateTime.now(),
-       _useEnglishSeedData = useEnglishSeedData;
+    this._useEnglishSeedData = false,
+  }) : _seedBaseDate = seedBaseDate ?? DateTime.now();
 
   final DateTime _seedBaseDate;
   final bool _useEnglishSeedData;
