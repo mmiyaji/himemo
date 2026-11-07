@@ -12,7 +12,7 @@
     <link rel="icon" type="image/png" href="/assets/himemo-icon.png">
     <link rel="apple-touch-icon" href="/assets/himemo-icon.png">
     <link rel="stylesheet" href="/assets/vendor/glightbox/glightbox.min.css?v=3.3.1">
-    <link rel="stylesheet" href="/assets/styles.css?v=20260708-2">
+    <link rel="stylesheet" href="/assets/styles.css?v=20261107-1">
     <script src="/assets/vendor/glightbox/glightbox.min.js?v=3.3.1" defer></script>
     <script src="/assets/site.js?v=20260708-2" defer></script>
   </head>
@@ -41,34 +41,26 @@
       </div>
     </header>
 
-    <main class="main">
+    <main>
       <section class="hero">
-        <div>
-          <img class="app-icon" src="/assets/himemo-icon.png" alt="HiMemo app icon">
-          <div class="eyebrow" data-i18n-ja="プライベートメモ" data-i18n-en="Private memo app">プライベートメモ</div>
-          <h1>HiMemo</h1>
-          <p class="lead" data-lang-panel="ja">
-            日々のメモ、写真、音声、ファイル、場所の記録を、あとから探しやすく残すためのメモアプリです。必要なメモは通常領域に、見せたくない内容はプライベートプロファイルに分けて保管できます。
-          </p>
-          <p class="lead" data-lang-panel="en">
-            HiMemo is a memo app for everyday notes, photos, audio, files, and locations.
-            It keeps notes easy to find later, while private profiles let you separate
-            sensitive notes from the regular workspace.
-          </p>
-          <div class="cta-row">
-            <span class="pill">iOS / iPadOS / Android / Web</span>
-            <span class="pill" data-i18n-ja="ストア公開準備中" data-i18n-en="Preparing for stores">ストア公開準備中</span>
-            <a class="button-link" href="/privacy/" data-i18n-ja="プライバシー方針" data-i18n-en="Privacy Policy">プライバシー方針</a>
-            <a class="button-link secondary" href="/terms/" data-i18n-ja="利用規約" data-i18n-en="Terms of Use">利用規約</a>
-          </div>
-        </div>
+        <div class="hero-stage">
+          <i class="hero-petal hero-petal-1" aria-hidden="true"></i>
+          <i class="hero-petal hero-petal-2" aria-hidden="true"></i>
 
-        <div class="hero-media" aria-label="HiMemo screenshots">
-          <div class="device-frame phone-frame">
+          <div class="hero-copy hero-copy-vertical" data-lang-panel="ja">
+            <h1>書きとめて、<br>そっと<em>しまう</em>。</h1>
+            <p>写真も、声も、行った場所も。<br>ふだんのメモと、人に見せないメモを、<br>ひとつのアプリで分けておけます。</p>
+          </div>
+          <div class="hero-copy hero-copy-horizontal" data-lang-panel="en">
+            <h1>Write it down.<br>Tuck it <em>away</em>.</h1>
+            <p>Photos, voice notes, the places you've been. Keep everyday notes and the ones you'd rather not show in one app, kept apart.</p>
+          </div>
+
+          <div class="hero-phone-slot">
             <a
-              class="glightbox"
+              class="hero-phone glightbox"
               href="/assets/screenshot-iphone-notes-ja.png"
-              data-gallery="himemo-screens"
+              data-gallery="himemo-hero"
               data-media-ja="/assets/screenshot-iphone-notes-ja.png"
               data-media-en="/assets/screenshot-iphone-notes-en.png"
               data-lightbox-title-ja="ノート一覧"
@@ -84,28 +76,21 @@
               >
             </a>
           </div>
-          <div class="device-frame phone-frame secondary">
-            <a
-              class="glightbox"
-              href="/assets/screenshot-iphone-private-ja.png"
-              data-gallery="himemo-screens"
-              data-media-ja="/assets/screenshot-iphone-private-ja.png"
-              data-media-en="/assets/screenshot-iphone-private-en.png"
-              data-lightbox-title-ja="プライベート設定"
-              data-lightbox-title-en="Private settings"
-              data-i18n-aria-ja="プライベート設定のスクリーンショットを開く"
-              data-i18n-aria-en="Open the private settings screenshot"
-            >
-              <img
-                src="/assets/screenshot-iphone-private-ja.png"
-                data-media-ja="/assets/screenshot-iphone-private-ja.png"
-                data-media-en="/assets/screenshot-iphone-private-en.png"
-                alt="HiMemo private profile settings screen"
-              >
-            </a>
+        </div>
+
+        <div class="hero-strip">
+          <div class="hero-strip-inner">
+            <p>
+              <strong>HiMemo</strong>
+              <span>iOS・iPadOS・Android・Web</span>
+              <span data-i18n-ja="ストア公開準備中" data-i18n-en="Preparing for store release">ストア公開準備中</span>
+            </p>
+            <a href="#features" data-i18n-ja="機能を見る ↓" data-i18n-en="See features ↓">機能を見る ↓</a>
           </div>
         </div>
       </section>
+
+      <div class="main">
 
       <section id="features" class="section">
         <div class="section-heading">
@@ -364,6 +349,7 @@
           </article>
         </div>
       </section>
+      </div>
     </main>
 
     <footer class="site-footer">

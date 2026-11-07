@@ -142,20 +142,200 @@ img {
 }
 
 .hero {
+  --hero-rule: rgba(204, 111, 129, 0.13);
+  background:
+    repeating-linear-gradient(90deg, transparent 0 63px, var(--hero-rule) 63px 64px),
+    var(--bg);
   border-bottom: 1px solid var(--line);
-  display: grid;
-  gap: 42px;
-  grid-template-columns: minmax(0, 0.98fr) minmax(360px, 1.02fr);
-  padding-bottom: 58px;
 }
 
-.app-icon {
-  border-radius: 20px;
-  box-shadow: var(--shadow);
+.hero-stage {
+  align-items: stretch;
+  display: grid;
+  gap: 40px;
+  grid-template-areas: "phone copy";
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  height: 600px;
+  margin: 0 auto;
+  position: relative;
+  width: min(1120px, calc(100% - 36px));
+}
+
+.hero-copy {
+  grid-area: copy;
+}
+
+.hero-copy-vertical {
+  align-self: center;
+  display: flex;
+  flex-direction: row-reverse;
+  gap: 36px;
+  justify-self: end;
+}
+
+.hero-copy-vertical h1,
+.hero-copy-vertical p {
+  writing-mode: vertical-rl;
+}
+
+.hero-copy h1 {
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "Noto Serif JP",
+    "Noto Serif CJK JP", serif;
+  font-weight: 600;
+  margin: 0;
+}
+
+.hero-copy h1 em {
+  color: var(--blue);
+  font-style: normal;
+}
+
+.hero-copy p {
+  color: var(--muted);
+  margin: 0;
+}
+
+.hero-copy-vertical h1 {
+  font-size: 3.6rem;
+  letter-spacing: 0.14em;
+  line-height: 1.5;
+}
+
+.hero-copy-vertical p {
+  align-self: flex-end;
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  line-height: 2.1;
+}
+
+.hero-copy-horizontal {
+  align-self: center;
+  max-width: 460px;
+}
+
+.hero-copy-horizontal h1 {
+  font-size: 3.4rem;
+  line-height: 1.18;
+  margin-bottom: 22px;
+}
+
+.hero-copy-horizontal p {
+  font-size: 1.08rem;
+}
+
+.hero-phone-slot {
+  display: flex;
+  grid-area: phone;
+  justify-content: center;
+  overflow: hidden;
+  padding-top: 72px;
+}
+
+.hero-phone {
+  align-self: flex-start;
+  background: #1d1a1c;
+  border-radius: 40px;
+  box-shadow: 0 30px 60px rgba(83, 58, 68, 0.2);
+  cursor: zoom-in;
   display: block;
-  height: 88px;
-  margin-bottom: 24px;
-  width: 88px;
+  flex: none;
+  padding: 9px;
+  width: 300px;
+}
+
+.hero-phone:focus-visible {
+  outline: 3px solid rgba(204, 111, 129, 0.45);
+  outline-offset: 4px;
+}
+
+.hero-phone img {
+  border-radius: 31px;
+  display: block;
+}
+
+.hero-petal {
+  background: #e98c8f;
+  border-radius: 0 70% 0 70%;
+  height: 34px;
+  opacity: 0.72;
+  pointer-events: none;
+  position: absolute;
+  width: 34px;
+}
+
+.hero-petal::after {
+  background: var(--bg);
+  content: "";
+  height: 10px;
+  position: absolute;
+  right: 10px;
+  top: -2px;
+  transform: rotate(45deg);
+  width: 8px;
+}
+
+.hero-petal-1 {
+  left: 47%;
+  top: 70px;
+  transform: rotate(30deg);
+}
+
+.hero-petal-2 {
+  left: 42%;
+  opacity: 0.45;
+  top: 470px;
+  transform: rotate(-20deg) scale(0.6);
+}
+
+.hero-strip {
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  position: relative;
+}
+
+.hero-strip-inner {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  justify-content: space-between;
+  margin: 0 auto;
+  min-height: 64px;
+  padding: 12px 0;
+  width: min(1120px, calc(100% - 36px));
+}
+
+.hero-strip p {
+  align-items: baseline;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+  gap: 4px 14px;
+  margin: 0;
+}
+
+.hero-strip strong {
+  color: var(--text);
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "Noto Serif JP",
+    "Noto Serif CJK JP", serif;
+  font-size: 1.2rem;
+}
+
+.hero-strip span + span::before {
+  content: "／";
+  margin-right: 14px;
+  opacity: 0.6;
+}
+
+.hero-strip a {
+  font-size: 0.92rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.hero + .main {
+  padding-top: 0;
 }
 
 .eyebrow {
@@ -199,13 +379,6 @@ li + li {
   margin-top: 8px;
 }
 
-.lead {
-  color: var(--muted);
-  font-size: 1.08rem;
-  max-width: 680px;
-}
-
-.cta-row,
 .legal-actions {
   align-items: center;
   display: flex;
@@ -214,8 +387,7 @@ li + li {
   margin-top: 24px;
 }
 
-.button-link,
-.pill {
+.button-link {
   align-items: center;
   border-radius: 8px;
   display: inline-flex;
@@ -236,19 +408,6 @@ li + li {
   background: transparent;
   border-color: var(--line-strong);
   color: var(--text);
-}
-
-.pill {
-  background: var(--surface-soft);
-  border: 1px solid var(--line);
-  color: var(--muted);
-}
-
-.hero-media {
-  align-items: center;
-  display: grid;
-  grid-template-columns: 0.8fr 1fr;
-  gap: 18px;
 }
 
 .device-frame {
@@ -291,10 +450,6 @@ li + li {
 
 .phone-frame img {
   border-radius: 20px;
-}
-
-.phone-frame.secondary {
-  margin-top: 60px;
 }
 
 .ipad-frame {
@@ -494,14 +649,52 @@ li + li {
     padding: 16px 0;
   }
 
-  .hero,
   .section-heading,
   .wide-shot {
     grid-template-columns: 1fr;
   }
 
-  .hero-media {
-    grid-template-columns: 1fr 1fr;
+  .hero-stage {
+    gap: 0;
+    grid-template-areas: "copy" "phone";
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .hero-copy-vertical,
+  .hero-copy-horizontal {
+    justify-self: center;
+    padding-top: 48px;
+  }
+
+  .hero-copy-vertical h1 {
+    font-size: 2.6rem;
+  }
+
+  .hero-copy-horizontal h1 {
+    font-size: 2.6rem;
+  }
+
+  .hero-phone-slot {
+    height: 340px;
+    padding-top: 44px;
+  }
+
+  .hero-phone {
+    width: 260px;
+  }
+
+  .hero-petal-1 {
+    left: auto;
+    right: 4%;
+    top: 12px;
+    transform: rotate(30deg) scale(0.7);
+  }
+
+  .hero-petal-2 {
+    left: auto;
+    right: 6%;
+    top: 360px;
   }
 
   h1 {
@@ -524,7 +717,9 @@ li + li {
 @media (max-width: 560px) {
   .header-inner,
   .main,
-  .site-footer {
+  .site-footer,
+  .hero-stage,
+  .hero-strip-inner {
     width: min(100% - 24px, 1120px);
   }
 
@@ -532,7 +727,6 @@ li + li {
     padding-top: 38px;
   }
 
-  .hero-media,
   .screen-grid {
     grid-template-columns: 1fr;
   }
@@ -542,8 +736,24 @@ li + li {
     max-width: 300px;
   }
 
-  .phone-frame.secondary {
-    margin-top: 0;
+  .hero-copy-vertical {
+    gap: 24px;
+  }
+
+  .hero-copy-vertical h1 {
+    font-size: 2.2rem;
+  }
+
+  .hero-copy-vertical p {
+    font-size: 0.92rem;
+  }
+
+  .hero-copy-horizontal h1 {
+    font-size: 2.2rem;
+  }
+
+  .hero-strip span + span::before {
+    content: none;
   }
 
   h1 {
