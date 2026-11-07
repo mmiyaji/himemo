@@ -12,7 +12,7 @@
     <link rel="icon" type="image/png" href="/assets/himemo-icon.png">
     <link rel="apple-touch-icon" href="/assets/himemo-icon.png">
     <link rel="stylesheet" href="/assets/vendor/glightbox/glightbox.min.css?v=3.3.1">
-    <link rel="stylesheet" href="/assets/styles.css?v=20260708-2">
+    <link rel="stylesheet" href="/assets/styles.css?v=20261107-3">
     <script src="/assets/vendor/glightbox/glightbox.min.js?v=3.3.1" defer></script>
     <script src="/assets/site.js?v=20260708-2" defer></script>
   </head>
@@ -41,34 +41,27 @@
       </div>
     </header>
 
-    <main class="main">
+    <main>
       <section class="hero">
-        <div>
-          <img class="app-icon" src="/assets/himemo-icon.png" alt="HiMemo app icon">
-          <div class="eyebrow" data-i18n-ja="プライベートメモ" data-i18n-en="Private memo app">プライベートメモ</div>
-          <h1>HiMemo</h1>
-          <p class="lead" data-lang-panel="ja">
-            日々のメモ、写真、音声、ファイル、場所の記録を、あとから探しやすく残すためのメモアプリです。必要なメモは通常領域に、見せたくない内容はプライベートプロファイルに分けて保管できます。
-          </p>
-          <p class="lead" data-lang-panel="en">
-            HiMemo is a memo app for everyday notes, photos, audio, files, and locations.
-            It keeps notes easy to find later, while private profiles let you separate
-            sensitive notes from the regular workspace.
-          </p>
-          <div class="cta-row">
-            <span class="pill">iOS / iPadOS / Android / Web</span>
-            <span class="pill" data-i18n-ja="ストア公開準備中" data-i18n-en="Preparing for stores">ストア公開準備中</span>
-            <a class="button-link" href="/privacy/" data-i18n-ja="プライバシー方針" data-i18n-en="Privacy Policy">プライバシー方針</a>
-            <a class="button-link secondary" href="/terms/" data-i18n-ja="利用規約" data-i18n-en="Terms of Use">利用規約</a>
-          </div>
-        </div>
+        <div class="hero-stage">
+          <i class="hero-petal hero-petal-1" aria-hidden="true"></i>
+          <i class="hero-petal hero-petal-2" aria-hidden="true"></i>
+          <i class="hero-petal hero-petal-3" aria-hidden="true"></i>
 
-        <div class="hero-media" aria-label="HiMemo screenshots">
-          <div class="device-frame phone-frame">
+          <div class="hero-copy hero-copy-vertical" data-lang-panel="ja">
+            <h1>書きとめて、<br>そっと<em>しまう</em>。</h1>
+            <p>写真や音声も残せるメモアプリです。<br>人に見られたくないメモは、<br>パスワード付きのプロファイルに<br>分けて保存できます。</p>
+          </div>
+          <div class="hero-copy hero-copy-horizontal" data-lang-panel="en">
+            <h1>Write it down.<br>Tuck it <em>away</em>.</h1>
+            <p>A note app for text, photos, and audio. Notes you don't want others to see go into a separate profile with its own password.</p>
+          </div>
+
+          <div class="hero-phone-slot">
             <a
-              class="glightbox"
+              class="hero-phone glightbox"
               href="/assets/screenshot-iphone-notes-ja.png"
-              data-gallery="himemo-screens"
+              data-gallery="himemo-hero"
               data-media-ja="/assets/screenshot-iphone-notes-ja.png"
               data-media-en="/assets/screenshot-iphone-notes-en.png"
               data-lightbox-title-ja="ノート一覧"
@@ -84,69 +77,56 @@
               >
             </a>
           </div>
-          <div class="device-frame phone-frame secondary">
-            <a
-              class="glightbox"
-              href="/assets/screenshot-iphone-private-ja.png"
-              data-gallery="himemo-screens"
-              data-media-ja="/assets/screenshot-iphone-private-ja.png"
-              data-media-en="/assets/screenshot-iphone-private-en.png"
-              data-lightbox-title-ja="プライベート設定"
-              data-lightbox-title-en="Private settings"
-              data-i18n-aria-ja="プライベート設定のスクリーンショットを開く"
-              data-i18n-aria-en="Open the private settings screenshot"
-            >
-              <img
-                src="/assets/screenshot-iphone-private-ja.png"
-                data-media-ja="/assets/screenshot-iphone-private-ja.png"
-                data-media-en="/assets/screenshot-iphone-private-en.png"
-                alt="HiMemo private profile settings screen"
-              >
-            </a>
+        </div>
+
+        <div class="hero-strip">
+          <div class="hero-strip-inner">
+            <p>
+              <strong>HiMemo</strong>
+              <span>iOS・iPadOS・Android・Web</span>
+              <span data-i18n-ja="ストア公開準備中" data-i18n-en="Preparing for store release">ストア公開準備中</span>
+            </p>
+            <a href="#features" data-i18n-ja="機能を見る ↓" data-i18n-en="See features ↓">機能を見る ↓</a>
           </div>
         </div>
       </section>
+
+      <div class="main">
 
       <section id="features" class="section">
         <div class="section-heading">
           <div>
             <div class="eyebrow" data-i18n-ja="機能" data-i18n-en="Features">機能</div>
-            <h2 data-i18n-ja="書く、添付する、あとから見つける。" data-i18n-en="Write, attach, and find it later.">書く、添付する、あとから見つける。</h2>
+            <h2 data-i18n-ja="できること" data-i18n-en="What you can do">できること</h2>
           </div>
-          <p data-lang-panel="ja">
-            HiMemo は、短いメモにも、写真や録音を含む記録にも使えるように作っています。タグ、カレンダー、検索、記録ビューを組み合わせて、メモを増やしても見失いにくい構成です。
-          </p>
-          <p data-lang-panel="en">
-            HiMemo is designed for short notes as well as richer records with photos,
-            recordings, files, and locations. Tags, calendar views, search, and record
-            summaries keep a growing memo library manageable.
-          </p>
+          <p data-lang-panel="ja">1行のメモも、写真や録音を付けた記録も同じ画面で書けます。書いたメモはタグ、検索、カレンダーから探せます。</p>
+          <p data-lang-panel="en">Write a one-line note or a record with photos and recordings in the same editor. Find it later by tag, search, or date.</p>
         </div>
 
         <div class="feature-grid">
           <article class="feature-card">
-            <h3 data-i18n-ja="メモと添付" data-i18n-en="Notes and attachments">メモと添付</h3>
-            <p data-i18n-ja="本文、タグ、写真、動画、音声、ファイル、位置情報をひとつのメモにまとめられます。" data-i18n-en="Combine text, tags, photos, videos, audio, files, and locations in one note.">本文、タグ、写真、動画、音声、ファイル、位置情報をひとつのメモにまとめられます。</p>
+            <h3 data-i18n-ja="複数のプライベートプロファイル" data-i18n-en="Multiple private profiles">複数のプライベートプロファイル</h3>
+            <p data-i18n-ja="仕事用、家計用など、プロファイルを複数作ってそれぞれ別のパスワードを設定できます。入力したパスワードに対応するプロファイルだけが開きます。" data-i18n-en="Create several profiles, such as one for work and one for money, each with its own password. Only the profile that matches the password you enter opens.">仕事用、家計用など、プロファイルを複数作ってそれぞれ別のパスワードを設定できます。入力したパスワードに対応するプロファイルだけが開きます。</p>
           </article>
           <article class="feature-card">
-            <h3 data-i18n-ja="クイックメモ" data-i18n-en="Quick capture">クイックメモ</h3>
-            <p data-i18n-ja="思いついたことをすぐ追記できるよう、アプリ外からの入力導線も用意しています。" data-i18n-en="Capture ideas quickly, including entry points from outside the app.">思いついたことをすぐ追記できるよう、アプリ外からの入力導線も用意しています。</p>
+            <h3 data-i18n-ja="写真・音声・ファイルの添付" data-i18n-en="Photos, audio, and files">写真・音声・ファイルの添付</h3>
+            <p data-i18n-ja="写真、動画、音声、ファイル、位置情報をメモに添付できます。" data-i18n-en="Attach photos, videos, audio, files, and locations to a note.">写真、動画、音声、ファイル、位置情報をメモに添付できます。</p>
           </article>
           <article class="feature-card">
-            <h3 data-i18n-ja="検索とタグ" data-i18n-en="Search and tags">検索とタグ</h3>
-            <p data-i18n-ja="タグや本文検索で、過去のメモを目的別に探しやすくできます。" data-i18n-en="Use tags and text search to find older notes by topic or purpose.">タグや本文検索で、過去のメモを目的別に探しやすくできます。</p>
+            <h3 data-i18n-ja="クイックメモ" data-i18n-en="Quick memo">クイックメモ</h3>
+            <p data-i18n-ja="ウィジェットや共有メニューから、アプリを開かずにメモを追加できます。アプリがロック中でもウィジェットから書き込めます。" data-i18n-en="Add a note from a widget or the share menu without opening the app. The widget works even while the app is locked.">ウィジェットや共有メニューから、アプリを開かずにメモを追加できます。アプリがロック中でもウィジェットから書き込めます。</p>
           </article>
           <article class="feature-card">
-            <h3 data-i18n-ja="カレンダー" data-i18n-en="Calendar">カレンダー</h3>
-            <p data-i18n-ja="日付ごとの記録をカレンダーで見返し、日記や買い物、予定のメモをたどれます。" data-i18n-en="Review notes by date to follow journals, shopping notes, plans, and records.">日付ごとの記録をカレンダーで見返し、日記や買い物、予定のメモをたどれます。</p>
+            <h3 data-i18n-ja="タグと検索" data-i18n-en="Tags and search">タグと検索</h3>
+            <p data-i18n-ja="一覧の上のタグを押すと、そのタグのメモだけが表示されます。本文の検索もできます。" data-i18n-en="Tap a tag above the list to show only notes with that tag. You can also search note text.">一覧の上のタグを押すと、そのタグのメモだけが表示されます。本文の検索もできます。</p>
           </article>
           <article class="feature-card">
-            <h3 data-i18n-ja="記録ビュー" data-i18n-en="Record views">記録ビュー</h3>
-            <p data-i18n-ja="日々のメモ数や使い方を、簡単な統計として振り返れます。" data-i18n-en="Look back at memo activity and usage patterns through simple summaries.">日々のメモ数や使い方を、簡単な統計として振り返れます。</p>
+            <h3 data-i18n-ja="カレンダーと記録" data-i18n-en="Calendar and records">カレンダーと記録</h3>
+            <p data-i18n-ja="カレンダーで日付を選ぶと、その日のメモが表示されます。記録タブでは、メモの件数などを確認できます。" data-i18n-en="Pick a date on the calendar to see that day's notes. The Records tab shows note counts and other totals.">カレンダーで日付を選ぶと、その日のメモが表示されます。記録タブでは、メモの件数などを確認できます。</p>
           </article>
           <article class="feature-card">
-            <h3 data-i18n-ja="表示の調整" data-i18n-en="Display settings">表示の調整</h3>
-            <p data-i18n-ja="言語、テーマ、フォント、色を選び、普段使いしやすい見た目にできます。" data-i18n-en="Choose language, theme, font, and color settings for everyday use.">言語、テーマ、フォント、色を選び、普段使いしやすい見た目にできます。</p>
+            <h3 data-i18n-ja="見た目の変更" data-i18n-en="Appearance">見た目の変更</h3>
+            <p data-i18n-ja="ライトとダークのテーマ、フォント、日本の伝統色から選べるアクセントカラーを変更できます。" data-i18n-en="Change the light or dark theme, the font, and the accent color, chosen from traditional Japanese colors.">ライトとダークのテーマ、フォント、日本の伝統色から選べるアクセントカラーを変更できます。</p>
           </article>
         </div>
       </section>
@@ -155,38 +135,32 @@
         <div class="section-heading">
           <div>
             <div class="eyebrow" data-i18n-ja="使い方" data-i18n-en="How to use">使い方</div>
-            <h2 data-i18n-ja="最初は短く書き、あとから整理します。" data-i18n-en="Start with a short note, then organize it later.">最初は短く書き、あとから整理します。</h2>
+            <h2 data-i18n-ja="基本の使い方" data-i18n-en="Getting started">基本の使い方</h2>
           </div>
-          <p data-lang-panel="ja">
-            HiMemo は、思いついた時点で残して、あとからタグ、日付、添付、プライベートプロファイルで整える流れに向いています。毎日使う操作は画面下のナビゲーションと設定画面にまとめています。
-          </p>
-          <p data-lang-panel="en">
-            HiMemo works best when you capture first and organize later with tags,
-            dates, attachments, and private profiles. Everyday actions stay close
-            to the bottom navigation and Settings.
-          </p>
+          <p data-lang-panel="ja">画面下に「ノート」「カレンダー」「記録」「設定」のタブがあり、中央のボタンでメモを書き始めます。</p>
+          <p data-lang-panel="en">The bottom bar has Notes, Calendar, Records, and Settings tabs. Tap the center button to start a note.</p>
         </div>
 
         <div class="usage-steps">
           <article class="usage-card">
             <span class="step-number">1</span>
-            <h3 data-i18n-ja="メモを作成" data-i18n-en="Create a note">メモを作成</h3>
-            <p data-i18n-ja="中央の作成ボタンから、タイトルと本文だけでも保存できます。必要なら写真、音声、ファイル、位置情報を追加します。" data-i18n-en="Use the center compose button to save a title and body first. Add photos, audio, files, or location data when needed.">中央の作成ボタンから、タイトルと本文だけでも保存できます。必要なら写真、音声、ファイル、位置情報を追加します。</p>
+            <h3 data-i18n-ja="メモを書く" data-i18n-en="Write a note">メモを書く</h3>
+            <p data-i18n-ja="中央のボタンを押して書き始めます。タイトルと本文だけで保存でき、写真や音声はあとから追加できます。" data-i18n-en="Tap the center button to start. You can save with just a title and text, and add photos or audio later.">中央のボタンを押して書き始めます。タイトルと本文だけで保存でき、写真や音声はあとから追加できます。</p>
           </article>
           <article class="usage-card">
             <span class="step-number">2</span>
-            <h3 data-i18n-ja="タグと日付で整理" data-i18n-en="Organize by tag and date">タグと日付で整理</h3>
-            <p data-i18n-ja="買い物、日記、予定などのタグを付けると、検索や一覧で見つけやすくなります。カレンダーでは日付ごとに振り返れます。" data-i18n-en="Add tags such as shopping, journal, or plans to make notes easier to find. Calendar view helps you review notes by date.">買い物、日記、予定などのタグを付けると、検索や一覧で見つけやすくなります。カレンダーでは日付ごとに振り返れます。</p>
+            <h3 data-i18n-ja="タグを付ける" data-i18n-en="Add tags">タグを付ける</h3>
+            <p data-i18n-ja="「買い物」「日記」などのタグを付けておくと、一覧の上のタグから絞り込めます。" data-i18n-en="Add tags such as “shopping” or “journal”, then filter the list with the tags above it.">「買い物」「日記」などのタグを付けておくと、一覧の上のタグから絞り込めます。</p>
           </article>
           <article class="usage-card">
             <span class="step-number">3</span>
-            <h3 data-i18n-ja="必要なものを保護" data-i18n-en="Protect sensitive notes">必要なものを保護</h3>
-            <p data-i18n-ja="見せたくない内容はプライベートプロファイルに分けます。アプリ保護を有効にすると、起動時や復帰時の表示も守れます。" data-i18n-en="Move sensitive content into a private profile. App protection can also guard the app when opening or returning to it.">見せたくない内容はプライベートプロファイルに分けます。アプリ保護を有効にすると、起動時や復帰時の表示も守れます。</p>
+            <h3 data-i18n-ja="プロファイルを作る" data-i18n-en="Create a profile">プロファイルを作る</h3>
+            <p data-i18n-ja="設定の「プライベートプロファイル」でプロファイルを追加し、パスワードを決めます。見られたくないメモはそこに保存します。" data-i18n-en="Add a profile under Private profiles in Settings and set its password. Save notes you want to keep private there.">設定の「プライベートプロファイル」でプロファイルを追加し、パスワードを決めます。見られたくないメモはそこに保存します。</p>
           </article>
           <article class="usage-card">
             <span class="step-number">4</span>
-            <h3 data-i18n-ja="同期と復元を確認" data-i18n-en="Check sync and recovery">同期と復元を確認</h3>
-            <p data-i18n-ja="クラウド同期を使う場合は、設定画面で同期先と復元キーの扱いを確認してください。復元に必要な情報は利用者自身で保管します。" data-i18n-en="When using cloud sync, review the sync provider and recovery key handling in Settings. Recovery material is kept by the user.">クラウド同期を使う場合は、設定画面で同期先と復元キーの扱いを確認してください。復元に必要な情報は利用者自身で保管します。</p>
+            <h3 data-i18n-ja="ロックと同期をオンにする" data-i18n-en="Turn on lock and sync">ロックと同期をオンにする</h3>
+            <p data-i18n-ja="設定の「アプリ保護」で起動時のロックを、「バックアップと同期」で iCloud か Google Drive への同期をオンにします。同期を使うときは復元キーを控えておいてください。" data-i18n-en="Turn on the app lock under App protection, and sync to iCloud or Google Drive under Backup and sync. If you use sync, write down your recovery key.">設定の「アプリ保護」で起動時のロックを、「バックアップと同期」で iCloud か Google Drive への同期をオンにします。同期を使うときは復元キーを控えておいてください。</p>
           </article>
         </div>
       </section>
@@ -195,34 +169,28 @@
         <div class="section-heading">
           <div>
             <div class="eyebrow" data-i18n-ja="保護と同期" data-i18n-en="Privacy and sync">保護と同期</div>
-            <h2 data-i18n-ja="見せるメモと、分けて守るメモ。" data-i18n-en="Keep regular notes and private notes separate.">見せるメモと、分けて守るメモ。</h2>
+            <h2 data-i18n-ja="暗号化とロック" data-i18n-en="Encryption and locks">暗号化とロック</h2>
           </div>
-          <p data-lang-panel="ja">
-            HiMemo は端末上の暗号化、アプリロック、プライベートプロファイル、クラウド同期を組み合わせています。同期データも暗号化された状態で扱う設計です。
-          </p>
-          <p data-lang-panel="en">
-            HiMemo combines on-device encryption, app lock, private profiles,
-            and cloud sync. Sync data is designed to remain encrypted while it is
-            stored in the selected cloud service.
-          </p>
+          <p data-lang-panel="ja">メモと添付ファイルは端末内で暗号化して保存されます。クラウドに同期した場合も、暗号化されたまま保存されます。</p>
+          <p data-lang-panel="en">Notes and attachments are encrypted on your device. If you sync them to the cloud, they stay encrypted there too.</p>
         </div>
 
         <div class="security-grid">
           <article class="security-card">
-            <h3 data-i18n-ja="プライベートプロファイル" data-i18n-en="Private profiles">プライベートプロファイル</h3>
-            <p data-i18n-ja="通常メモとは別に、必要なときだけ開くプロファイルを作れます。" data-i18n-en="Create a separate profile that you open only when needed.">通常メモとは別に、必要なときだけ開くプロファイルを作れます。</p>
-          </article>
-          <article class="security-card">
             <h3 data-i18n-ja="アプリ保護" data-i18n-en="App protection">アプリ保護</h3>
-            <p data-i18n-ja="端末認証またはパスコードで、アプリを開く操作を保護できます。" data-i18n-en="Protect app access with device authentication or a passcode.">端末認証またはパスコードで、アプリを開く操作を保護できます。</p>
+            <p data-i18n-ja="アプリを開くときに、端末の生体認証や画面ロックの解除を求めます。" data-i18n-en="HiMemo asks for your device's biometrics or screen lock when it opens.">アプリを開くときに、端末の生体認証や画面ロックの解除を求めます。</p>
           </article>
           <article class="security-card">
-            <h3 data-i18n-ja="バックアップと同期" data-i18n-en="Backup and sync">バックアップと同期</h3>
-            <p data-i18n-ja="iCloud や Google Drive など、選択したクラウドサービスと同期できます。" data-i18n-en="Sync with selected cloud services such as iCloud or Google Drive.">iCloud や Google Drive など、選択したクラウドサービスと同期できます。</p>
+            <h3 data-i18n-ja="プロファイル名を表示しない" data-i18n-en="Profile names stay hidden">プロファイル名を表示しない</h3>
+            <p data-i18n-ja="設定画面にはプロファイル名が一覧表示されません。ほかの人が設定を開いても、どんなプロファイルがあるかはわかりません。" data-i18n-en="Settings does not list profile names, so someone else opening Settings cannot see which profiles you have.">設定画面にはプロファイル名が一覧表示されません。ほかの人が設定を開いても、どんなプロファイルがあるかはわかりません。</p>
           </article>
           <article class="security-card">
-            <h3 data-i18n-ja="復元キー" data-i18n-en="Recovery keys">復元キー</h3>
-            <p data-i18n-ja="復元に必要な情報は利用者自身で保管する設計です。運営者はメモ内容を復旧できません。" data-i18n-en="Recovery material is managed by the user. The operator cannot restore note contents.">復元に必要な情報は利用者自身で保管する設計です。運営者はメモ内容を復旧できません。</p>
+            <h3 data-i18n-ja="iCloud・Google Drive と同期" data-i18n-en="Sync with iCloud or Google Drive">iCloud・Google Drive と同期</h3>
+            <p data-i18n-ja="同期はあなたの端末とあなたのクラウドの間で行われます。運営者のサーバーは経由しません。" data-i18n-en="Sync runs directly between your device and your own cloud account. It does not go through our servers.">同期はあなたの端末とあなたのクラウドの間で行われます。運営者のサーバーは経由しません。</p>
+          </article>
+          <article class="security-card">
+            <h3 data-i18n-ja="復元キー" data-i18n-en="Recovery key">復元キー</h3>
+            <p data-i18n-ja="同期したデータを復元するときに必要です。運営者は復元キーを保管していないため、なくすとメモを復元できません。" data-i18n-en="You need it to restore synced data. We do not keep a copy, so if you lose it, your notes cannot be restored.">同期したデータを復元するときに必要です。運営者は復元キーを保管していないため、なくすとメモを復元できません。</p>
           </article>
         </div>
       </section>
@@ -231,9 +199,9 @@
         <div class="section-heading">
           <div>
             <div class="eyebrow" data-i18n-ja="画面" data-i18n-en="Screens">画面</div>
-            <h2 data-i18n-ja="実際の画面" data-i18n-en="Actual screens">実際の画面</h2>
+            <h2 data-i18n-ja="スクリーンショット" data-i18n-en="Screenshots">スクリーンショット</h2>
           </div>
-          <p data-i18n-ja="主要な画面をスクリーンショットで確認できます。画像を開くと原寸に近い表示で見られます。" data-i18n-en="Review the main screens through screenshots. Open an image to view it larger.">主要な画面をスクリーンショットで確認できます。画像を開くと原寸に近い表示で見られます。</p>
+          <p data-i18n-ja="画像を押すと拡大します。" data-i18n-en="Tap or click an image to enlarge it.">画像を押すと拡大します。</p>
         </div>
 
         <div class="screen-grid">
@@ -273,13 +241,12 @@
 
         <div class="wide-shot">
           <div>
-            <h3 data-i18n-ja="大きな画面でも使いやすく" data-i18n-en="Designed for larger screens too">大きな画面でも使いやすく</h3>
+            <h3 data-i18n-ja="iPad での表示" data-i18n-en="On iPad">iPad での表示</h3>
             <p data-lang-panel="ja">
-              iPad などの広い画面では、一覧と詳細を見比べながらメモを整理できます。画面サイズに合わせて、密度と読みやすさのバランスを取ります。
+              iPad などの広い画面では、画面下のタブの代わりに左側のメニューで画面を切り替えます。
             </p>
             <p data-lang-panel="en">
-              On iPad and other larger screens, HiMemo lets you review lists and
-              details side by side while keeping the interface readable.
+              On iPad and other wide screens, a menu on the left replaces the bottom tabs.
             </p>
           </div>
           <div class="device-frame ipad-frame">
@@ -294,18 +261,19 @@
         <div class="section-heading">
           <div>
             <div class="eyebrow" data-i18n-ja="お問い合わせ" data-i18n-en="Contact">お問い合わせ</div>
-            <h2 data-i18n-ja="不具合や要望を送る" data-i18n-en="Send bugs and requests">不具合や要望を送る</h2>
+            <h2 data-i18n-ja="不具合の報告・ご要望" data-i18n-en="Bug reports and requests">不具合の報告・ご要望</h2>
           </div>
-          <p data-i18n-ja="不具合報告、同期の問題、機能要望、プライバシーに関する質問はフォームから送信できます。パスワード、復元キー、メモ本文などの機密情報は送信しないでください。" data-i18n-en="Use the form for bug reports, sync issues, feature requests, and privacy questions. Do not send passwords, recovery keys, note text, or other sensitive content.">不具合報告、同期の問題、機能要望、プライバシーに関する質問はフォームから送信できます。パスワード、復元キー、メモ本文などの機密情報は送信しないでください。</p>
+          <p data-lang-panel="ja">不具合、同期のトラブル、機能の要望、プライバシーに関する質問はフォームから送ってください。パスワード、復元キー、メモの内容は書かないでください。</p>
+          <p data-lang-panel="en">Use the form for bugs, sync problems, feature requests, and privacy questions. Please do not include passwords, recovery keys, or note contents.</p>
         </div>
         <div class="legal-link-grid">
           <a class="legal-card" href="https://forms.gle/LoqaZrjwMgx2RhbX6" target="_blank" rel="noopener noreferrer">
             <h3 data-i18n-ja="お問い合わせフォーム" data-i18n-en="Contact form">お問い合わせフォーム</h3>
-            <p data-i18n-ja="Google Form を開きます。内容は確認しますが、すべてのお問い合わせへの個別返信を保証するものではありません。" data-i18n-en="Opens a Google Form. We review submissions, but cannot guarantee an individual response to every message.">Google Form を開きます。内容は確認しますが、すべてのお問い合わせへの個別返信を保証するものではありません。</p>
+            <p data-i18n-ja="Google フォームが開きます。いただいた内容はすべて確認しますが、個別にお返事できない場合があります。" data-i18n-en="Opens a Google Form. We read every message, but may not be able to reply to each one.">Google フォームが開きます。いただいた内容はすべて確認しますが、個別にお返事できない場合があります。</p>
           </a>
           <article class="legal-card">
-            <h3 data-i18n-ja="復旧できないもの" data-i18n-en="What cannot be recovered">復旧できないもの</h3>
-            <p data-i18n-ja="プライベートプロファイルのパスワード忘れ、ロック解除、復元キーを失ったデータ復旧には対応できません。" data-i18n-en="Private profile passwords, unlock requests, and data recovery without recovery material cannot be handled by support.">プライベートプロファイルのパスワード忘れ、ロック解除、復元キーを失ったデータ復旧には対応できません。</p>
+            <h3 data-i18n-ja="対応できないこと" data-i18n-en="What we cannot help with">対応できないこと</h3>
+            <p data-i18n-ja="プライベートプロファイルのパスワードを忘れた場合や、復元キーをなくした場合は、ロックの解除やデータの復旧はできません。" data-i18n-en="If you forget a private profile password or lose your recovery key, we cannot unlock the profile or recover the data.">プライベートプロファイルのパスワードを忘れた場合や、復元キーをなくした場合は、ロックの解除やデータの復旧はできません。</p>
           </article>
         </div>
       </section>
@@ -314,18 +282,17 @@
         <div class="section-heading">
           <div>
             <div class="eyebrow" data-i18n-ja="法務文書" data-i18n-en="Legal">法務文書</div>
-            <h2 data-i18n-ja="同じデザインで確認できます" data-i18n-en="Legal pages use the same design">同じデザインで確認できます</h2>
+            <h2 data-i18n-ja="プライバシーポリシーと利用規約" data-i18n-en="Privacy Policy and Terms of Use">プライバシーポリシーと利用規約</h2>
           </div>
-          <p data-i18n-ja="プライバシーポリシーと利用規約は、日英の切り替えに対応しています。広告表示や外部サービスの扱いも記載しています。" data-i18n-en="The Privacy Policy and Terms of Use support Japanese and English. They include advertising and external service disclosures.">プライバシーポリシーと利用規約は、日英の切り替えに対応しています。広告表示や外部サービスの扱いも記載しています。</p>
         </div>
         <div class="legal-link-grid">
           <a class="legal-card" href="/privacy/">
             <h3 data-i18n-ja="プライバシーポリシー" data-i18n-en="Privacy Policy">プライバシーポリシー</h3>
-            <p data-i18n-ja="メモ、同期、広告、診断情報の取り扱い。" data-i18n-en="How notes, sync, ads, and diagnostics are handled.">メモ、同期、広告、診断情報の取り扱い。</p>
+            <p data-i18n-ja="メモ、同期データ、広告、診断情報をどう扱うか。" data-i18n-en="How we handle notes, sync data, ads, and diagnostics.">メモ、同期データ、広告、診断情報をどう扱うか。</p>
           </a>
           <a class="legal-card" href="/terms/">
             <h3 data-i18n-ja="利用規約" data-i18n-en="Terms of Use">利用規約</h3>
-            <p data-i18n-ja="アプリ利用、同期、復元、外部サービスに関する条件。" data-i18n-en="Terms for app use, sync, recovery, and external services.">アプリ利用、同期、復元、外部サービスに関する条件。</p>
+            <p data-i18n-ja="HiMemo を使うときの条件と、同期・復元についての注意。" data-i18n-en="Conditions for using HiMemo, and notes on sync and recovery.">HiMemo を使うときの条件と、同期・復元についての注意。</p>
           </a>
         </div>
       </section>
@@ -339,31 +306,32 @@
         </div>
         <div class="faq-grid">
           <article class="faq-card">
-            <h3 data-i18n-ja="メモは運営者に見えますか？" data-i18n-en="Can the operator read my notes?">メモは運営者に見えますか？</h3>
-            <p data-i18n-ja="運営者は、端末内や利用者のクラウド領域にあるメモ本文、添付ファイル、復元キーへアクセスできません。" data-i18n-en="The operator cannot access note text, attachments, or recovery keys stored on your device or in your selected cloud service.">運営者は、端末内や利用者のクラウド領域にあるメモ本文、添付ファイル、復元キーへアクセスできません。</p>
+            <h3 data-i18n-ja="メモは運営者に見えますか？" data-i18n-en="Can you read my notes?">メモは運営者に見えますか？</h3>
+            <p data-i18n-ja="見えません。メモの本文、添付ファイル、復元キーは、あなたの端末とクラウドにだけ保存され、運営者はアクセスできません。" data-i18n-en="No. Note text, attachments, and recovery keys are stored only on your device and in your cloud account, and we cannot access them.">見えません。メモの本文、添付ファイル、復元キーは、あなたの端末とクラウドにだけ保存され、運営者はアクセスできません。</p>
           </article>
           <article class="faq-card">
             <h3 data-i18n-ja="広告は表示されますか？" data-i18n-en="Does HiMemo show ads?">広告は表示されますか？</h3>
-            <p data-i18n-ja="広告が有効なビルドでは Google AdMob の広告が表示される場合があります。必要な地域では同意フローを表示します。" data-i18n-en="Builds with advertising enabled may show Google AdMob ads. Consent prompts are shown in regions where they are required.">広告が有効なビルドでは Google AdMob の広告が表示される場合があります。必要な地域では同意フローを表示します。</p>
+            <p data-i18n-ja="Google AdMob の広告が表示されることがあります。お住まいの地域によっては、最初に広告についての同意を確認する画面が出ます。" data-i18n-en="Google AdMob ads may appear. Depending on where you live, you will first be asked for consent about ads.">Google AdMob の広告が表示されることがあります。お住まいの地域によっては、最初に広告についての同意を確認する画面が出ます。</p>
           </article>
           <article class="faq-card">
-            <h3 data-i18n-ja="プライベートプロファイルのパスワードを忘れたら？" data-i18n-en="What if I forget a private profile password?">プライベートプロファイルのパスワードを忘れたら？</h3>
-            <p data-i18n-ja="運営者はパスワードの確認、解除、再設定をできません。作成したパスワードと復元に必要な情報は安全な場所に保管してください。" data-i18n-en="The operator cannot view, unlock, or reset private profile passwords. Keep passwords and recovery material in a safe place.">運営者はパスワードの確認、解除、再設定をできません。作成したパスワードと復元に必要な情報は安全な場所に保管してください。</p>
+            <h3 data-i18n-ja="プロファイルのパスワードを忘れたら？" data-i18n-en="What if I forget a profile password?">プロファイルのパスワードを忘れたら？</h3>
+            <p data-i18n-ja="運営者はパスワードの確認、解除、再設定ができません。そのプロファイルのメモは開けなくなるため、パスワードは安全な場所に控えておいてください。" data-i18n-en="We cannot look up, unlock, or reset it, and the notes in that profile can no longer be opened. Keep your passwords somewhere safe.">運営者はパスワードの確認、解除、再設定ができません。そのプロファイルのメモは開けなくなるため、パスワードは安全な場所に控えておいてください。</p>
           </article>
           <article class="faq-card">
-            <h3 data-i18n-ja="同期データは安全ですか？" data-i18n-en="Is synced data protected?">同期データは安全ですか？</h3>
-            <p data-i18n-ja="同期データは暗号化された状態でクラウドに保存される設計です。復元キーやバックアップコードの保管は利用者自身で管理します。" data-i18n-en="Sync data is designed to be stored in encrypted form in the cloud. The user manages recovery keys and backup codes.">同期データは暗号化された状態でクラウドに保存される設計です。復元キーやバックアップコードの保管は利用者自身で管理します。</p>
+            <h3 data-i18n-ja="同期したデータは安全ですか？" data-i18n-en="Is synced data safe?">同期したデータは安全ですか？</h3>
+            <p data-i18n-ja="クラウドには暗号化された状態で保存されます。暗号化を解くのに必要な復元キーは、あなただけが持っています。" data-i18n-en="It is stored encrypted in the cloud. Only you hold the recovery key needed to decrypt it.">クラウドには暗号化された状態で保存されます。暗号化を解くのに必要な復元キーは、あなただけが持っています。</p>
           </article>
           <article class="faq-card">
-            <h3 data-i18n-ja="添付ファイルはどこまで使えますか？" data-i18n-en="What attachments are supported?">添付ファイルはどこまで使えますか？</h3>
-            <p data-i18n-ja="写真、動画、音声、ファイル、位置情報をメモに追加できます。大きすぎるファイルは端末やプラットフォームの制限により追加できない場合があります。" data-i18n-en="Notes can include photos, videos, audio, files, and locations. Very large files may be limited by device or platform constraints.">写真、動画、音声、ファイル、位置情報をメモに追加できます。大きすぎるファイルは端末やプラットフォームの制限により追加できない場合があります。</p>
+            <h3 data-i18n-ja="どんなファイルを添付できますか？" data-i18n-en="What can I attach?">どんなファイルを添付できますか？</h3>
+            <p data-i18n-ja="写真、動画、音声、ファイル、位置情報を添付できます。サイズの大きいファイルは、端末の制限で添付できないことがあります。" data-i18n-en="Photos, videos, audio, files, and locations. Very large files may not attach because of device limits.">写真、動画、音声、ファイル、位置情報を添付できます。サイズの大きいファイルは、端末の制限で添付できないことがあります。</p>
           </article>
           <article class="faq-card">
-            <h3 data-i18n-ja="アプリ外からメモできますか？" data-i18n-en="Can I add notes from outside the app?">アプリ外からメモできますか？</h3>
-            <p data-i18n-ja="共有メニューやクイックメモから、思いついた内容をすばやく残せます。あとから通常の編集画面でタイトル、タグ、添付を整えられます。" data-i18n-en="You can capture quickly from share flows or quick memo entry points, then refine title, tags, and attachments later.">共有メニューやクイックメモから、思いついた内容をすばやく残せます。あとから通常の編集画面でタイトル、タグ、添付を整えられます。</p>
+            <h3 data-i18n-ja="アプリを開かずにメモできますか？" data-i18n-en="Can I add notes without opening the app?">アプリを開かずにメモできますか？</h3>
+            <p data-i18n-ja="できます。ウィジェットや共有メニューから追加でき、タイトルやタグはあとで編集できます。" data-i18n-en="Yes. Use the widget or the share menu, and add a title or tags later.">できます。ウィジェットや共有メニューから追加でき、タイトルやタグはあとで編集できます。</p>
           </article>
         </div>
       </section>
+      </div>
     </main>
 
     <footer class="site-footer">
