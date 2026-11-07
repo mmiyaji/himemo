@@ -8,8 +8,10 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:himemo/app/app.dart';
 import 'package:himemo/app/app_flavor.dart';
+import 'package:himemo/app/app_router.dart';
 import 'package:himemo/features/home/presentation/home_page.dart';
 import 'package:himemo/features/home/presentation/home_providers.dart';
 import 'package:himemo/features/security/data/encrypted_note_database.dart';
@@ -22,7 +24,35 @@ import 'package:himemo/l10n/app_strings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('all app themes keep primary controls at AA contrast', (
+  testWidgets('settings adapts across repeated fold and unfold sizes', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
+    );
+    _configureView(tester, size: const Size(390, 708));
+    await _pumpSettingsScreen(tester, harness.container);
+
+    // Exercise compact, wide and landscape windows without remounting the app.
+    // These are viewport stress cases, not device specification constants.
+    for (final size in const [
+      Size(1024, 768),
+      Size(708, 390),
+      Size(320, 708),
+      Size(900, 1100),
+      Size(390, 708),
+    ]) {
+      tester.view.physicalSize = size;
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(SettingsScreen.overviewKey),
+        size.width >= 840 ? findsOneWidget : findsNothing,
+      );
+      expect(tester.takeException(), isNull, reason: 'resize to $size');
+    }
+  });
+
+  testWidgets('all app themes keep action color pairs at AA contrast', (
     tester,
   ) async {
     final harness = await _pumpHiMemoApp(
@@ -40,14 +70,111 @@ void main() {
       final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
       for (final theme in [app.theme!, app.darkTheme!]) {
         final scheme = theme.colorScheme;
+        for (final pair in [
+          (name: 'primary', background: scheme.primary, text: scheme.onPrimary),
+          (
+            name: 'secondary',
+            background: scheme.secondary,
+            text: scheme.onSecondary,
+          ),
+          (
+            name: 'tertiary',
+            background: scheme.tertiary,
+            text: scheme.onTertiary,
+          ),
+        ]) {
+          expect(
+            _contrastRatio(pair.background, pair.text),
+            greaterThanOrEqualTo(4.5),
+            reason: '${colorTheme.name} ${scheme.brightness.name} ${pair.name}',
+          );
+        }
+
+        final filledStyle = theme.filledButtonTheme.style!;
+        final actionBackground = filledStyle.backgroundColor!.resolve(
+          const <WidgetState>{},
+        )!;
+        final actionForeground = filledStyle.foregroundColor!.resolve(
+          const <WidgetState>{},
+        )!;
         expect(
-          _contrastRatio(scheme.primary, scheme.onPrimary),
+          _contrastRatio(actionBackground, actionForeground),
           greaterThanOrEqualTo(4.5),
+          reason: '${colorTheme.name} ${scheme.brightness.name} filled action',
+        );
+        final usesSoftAction =
+            scheme.brightness == Brightness.light &&
+            const <AppColorTheme>{
+              AppColorTheme.sakura,
+              AppColorTheme.shironeri,
+              AppColorTheme.gofun,
+              AppColorTheme.sora,
+              AppColorTheme.byakuroku,
+              AppColorTheme.nanohana,
+              AppColorTheme.haizakura,
+            }.contains(colorTheme);
+        expect(
+          actionBackground,
+          usesSoftAction ? scheme.secondary : scheme.primary,
           reason:
-              '${colorTheme.name} ${scheme.brightness.name} primary controls',
+              '${colorTheme.name} ${scheme.brightness.name} action emphasis',
+        );
+        expect(
+          actionForeground,
+          usesSoftAction ? scheme.onSecondary : scheme.onPrimary,
+        );
+      }
+      expect(
+        app.theme!.colorScheme.onPrimary,
+        Colors.white,
+        reason:
+            '${colorTheme.name} light primary controls keep white text and icons',
+      );
+      if (colorTheme == AppColorTheme.sakura) {
+        final lightTheme = app.theme!;
+        final filledStyle = lightTheme.filledButtonTheme.style!;
+        expect(
+          filledStyle.backgroundColor!.resolve(const <WidgetState>{}),
+          const Color(0xFFF3B6BB),
+        );
+        expect(
+          filledStyle.foregroundColor!.resolve(const <WidgetState>{}),
+          const Color(0xFF7D3A44),
+        );
+        expect(
+          _contrastRatio(
+            lightTheme.floatingActionButtonTheme.backgroundColor!,
+            lightTheme.floatingActionButtonTheme.foregroundColor!,
+          ),
+          greaterThanOrEqualTo(4.5),
+          reason: 'Sakura light actions stay soft and readable',
         );
       }
     }
+  });
+
+  testWidgets('onboarding can start notes before optional setup', (
+    tester,
+  ) async {
+    final harness = await _pumpHiMemoApp(
+      tester,
+      size: const Size(390, 844),
+      preferences: const {'settings.locale': 'english'},
+    );
+
+    expect(
+      harness.container.read(appLaunchControllerProvider),
+      AppLaunchSurface.onboarding,
+    );
+    final start = find.widgetWithText(TextButton, 'Notes');
+    expect(start, findsOneWidget);
+    await tester.tap(start);
+    await tester.pumpAndSettle();
+
+    expect(
+      harness.container.read(appLaunchControllerProvider),
+      AppLaunchSurface.ready,
+    );
   });
 
   for (final scenario in const [
@@ -66,18 +193,49 @@ void main() {
         preferences: const {'settings.locale': 'english'},
       );
 
-      for (var page = 0; page < 3; page++) {
-        final next = find.byKey(const Key('onboarding-next-button'));
-        await tester.ensureVisible(next);
-        await tester.pump();
-        await tester.tap(next);
+      for (var page = 0; page < 4; page++) {
+        expect(find.text('${page + 1} / 5'), findsOneWidget);
+        final nextFinder = find.byKey(const Key('onboarding-next-button'));
+        await tester.ensureVisible(nextFinder);
         await tester.pumpAndSettle();
+        final next = nextFinder.hitTestable();
+        expect(next, findsOneWidget);
+        await tester.tap(next);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+        expect(find.text('${page + 2} / 5'), findsOneWidget);
+        if (page == 2) {
+          for (final colorName in const [
+            '紺青 (Konjyo)',
+            '萌黄 (Moegi)',
+            '山吹 (Yamabuki)',
+            '紅 (Kurenai)',
+            '桜 (Sakura)',
+          ]) {
+            expect(find.text(colorName), findsOneWidget);
+          }
+        }
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: 'Page ${page + 2} overflowed at ${scenario.label}',
+        );
       }
 
       final tutorial = find.byKey(const Key('onboarding-tutorial-button'));
       final finish = find.byKey(const Key('onboarding-next-button'));
       expect(tutorial, findsOneWidget);
       expect(finish, findsOneWidget);
+      expect(find.text('5 / 5'), findsOneWidget);
+      expect(
+        find.byKey(const Key('onboarding-private-profiles-info-button')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('onboarding-sync-info-button')),
+        findsNothing,
+      );
       await tester.ensureVisible(finish);
       await tester.pumpAndSettle();
 
@@ -89,53 +247,372 @@ void main() {
       expect(screen.contains(finishRect.topLeft), isTrue);
       expect(screen.contains(finishRect.bottomRight), isTrue);
       expect(tutorialRect.bottom, lessThan(finishRect.top));
+      final finishButton = tester.widget<FilledButton>(finish);
+      final finishBackground = finishButton.style!.backgroundColor!.resolve(
+        const <WidgetState>{},
+      )!;
+      final finishForeground = finishButton.style!.foregroundColor!.resolve(
+        const <WidgetState>{},
+      )!;
+      expect(
+        _contrastRatio(finishBackground, finishForeground),
+        greaterThanOrEqualTo(4.5),
+      );
+      if (scenario.textScale == 1) {
+        final pinAction = find.byKey(const Key('onboarding-set-pin-button'));
+        expect(pinAction, findsOneWidget);
+        final pinRect = tester.getRect(pinAction);
+        expect(screen.contains(pinRect.topLeft), isTrue);
+        expect(screen.contains(pinRect.bottomRight), isTrue);
+      }
       expect(tester.takeException(), isNull);
     });
   }
 
-  testWidgets('compact settings overview keeps only full-width priorities', (
+  testWidgets('compact settings hides the duplicate status overview', (
     tester,
   ) async {
     final harness = await _createHarness(
       preferences: const {'settings.locale': 'english'},
     );
-    _configureView(tester, size: const Size(390, 844));
+    _configureView(tester, size: const Size(390, 708));
+    await _pumpSettingsScreen(tester, harness.container);
+
+    expect(find.byKey(SettingsScreen.overviewKey), findsNothing);
+    expect(find.text('Current status'), findsNothing);
+    for (final title in const [
+      'Appearance and language',
+      'Notes and organization',
+      'Private profiles',
+      'App security',
+      'Backup and sync',
+      'Storage',
+      'About',
+    ]) {
+      expect(find.text(title).hitTestable(), findsOneWidget);
+    }
+    expect(tester.getRect(find.text('About')).bottom, lessThanOrEqualTo(708));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('wide settings retains the status overview', (tester) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
+    );
+    _configureView(tester, size: const Size(1024, 900));
     await _pumpSettingsScreen(tester, harness.container);
 
     final overview = find.byKey(SettingsScreen.overviewKey);
-    final overviewButtons = find.descendant(
-      of: overview,
-      matching: find.byType(TextButton),
+    expect(overview, findsOneWidget);
+    expect(
+      find.descendant(of: overview, matching: find.text('Current status')),
+      findsOneWidget,
     );
-    expect(overviewButtons, findsNWidgets(3));
-    for (final element in overviewButtons.evaluate()) {
-      final rect = tester.getRect(find.byElementPredicate((e) => e == element));
-      expect(rect.width, greaterThan(320));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('sync setup shows a clear next step before advanced tools', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
+    );
+    _configureView(tester, size: const Size(800, 900));
+    await _pumpSettingsScreen(tester, harness.container);
+
+    final section = find.text('Backup and sync');
+    await tester.scrollUntilVisible(section, 500);
+    await tester.tap(section);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sync with'), findsOneWidget);
+    expect(find.byKey(SettingsScreen.syncNowKey), findsNothing);
+    await tester.scrollUntilVisible(
+      find.byKey(SettingsScreen.syncGoogleDriveKey),
+      250,
+    );
+    await tester.tap(find.byKey(SettingsScreen.syncGoogleDriveKey));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Connect to Google Drive to start syncing.'),
+      findsOneWidget,
+    );
+    expect(find.byKey(SettingsScreen.syncConnectKey), findsOneWidget);
+    expect(find.byKey(SettingsScreen.syncNowKey), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('bottom-navigation widths keep the compact settings layout', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
+    );
+    _configureView(tester, size: const Size(800, 900));
+    await _pumpSettingsScreen(tester, harness.container);
+
+    expect(find.byKey(SettingsScreen.overviewKey), findsNothing);
+    final organizationTile = tester.widget<ExpansionTile>(
+      find
+          .ancestor(
+            of: find.text('Notes and organization'),
+            matching: find.byType(ExpansionTile),
+          )
+          .first,
+    );
+    final summary = (organizationTile.subtitle! as Padding).child as Text;
+    expect(summary.maxLines, 1);
+    expect(summary.overflow, TextOverflow.ellipsis);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('compact settings exposes tags and trash under organization', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
+    );
+    await harness.container
+        .read(autoTagRulesControllerProvider.notifier)
+        .addRule(tag: 'Finance', keywords: const ['invoice']);
+    _configureView(tester, size: const Size(390, 844));
+    await _pumpSettingsScreen(tester, harness.container);
+
+    final organizationTitle = find.text('Notes and organization');
+    final organizationTile = tester.widget<ExpansionTile>(
+      find
+          .ancestor(of: organizationTitle, matching: find.byType(ExpansionTile))
+          .first,
+    );
+    final summary = (organizationTile.subtitle! as Padding).child as Text;
+    expect(summary.maxLines, 1);
+    expect(summary.overflow, TextOverflow.ellipsis);
+
+    if (!(organizationTile.controller?.isExpanded ?? false)) {
+      await tester.tap(organizationTitle);
+      await tester.pumpAndSettle();
     }
-    expect(
-      find.descendant(of: overview, matching: find.text('Profile')),
-      findsOneWidget,
+    await tester.ensureVisible(
+      find.byKey(SettingsScreen.tagsAndAutoTaggingKey),
     );
-    expect(
-      find.descendant(of: overview, matching: find.text('App lock')),
-      findsOneWidget,
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(SettingsScreen.tagsAndAutoTaggingKey), findsOneWidget);
+    expect(find.byKey(SettingsScreen.trashManagementKey), findsOneWidget);
+    expect(find.text('Active auto-tag rules: 1'), findsOneWidget);
+    organizationTile.controller!.collapse();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('compact settings remains operable at 320px and 200% text', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
     );
-    expect(
-      find.descendant(of: overview, matching: find.text('Sync')),
-      findsOneWidget,
+    _configureView(tester, size: const Size(320, 844), textScale: 2);
+    await _pumpSettingsScreen(
+      tester,
+      harness.container,
+      bottomNavigationBar: const SizedBox(height: 80),
     );
-    expect(
-      find.descendant(of: overview, matching: find.text('Memo')),
-      findsNothing,
+
+    final organizationTitle = find.text('Notes and organization');
+    await tester.ensureVisible(organizationTitle);
+    await tester.pumpAndSettle();
+    expect(organizationTitle.hitTestable(), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('About'), 300);
+    await tester.pumpAndSettle();
+
+    expect(find.text('About').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('settings tag shortcut opens rules and returns to settings', (
+    tester,
+  ) async {
+    final harness = await _pumpHiMemoApp(
+      tester,
+      size: const Size(320, 844),
+      textScale: 2,
+      preferences: const {
+        'app.onboarding_completed': true,
+        'app.onboarding_completed_version': 2,
+        'settings.locale': 'english',
+      },
     );
-    expect(
-      find.descendant(of: overview, matching: find.text('Storage')),
-      findsNothing,
+    final router = harness.container.read(appRouterProvider);
+    router.go('/settings');
+    await tester.pumpAndSettle();
+
+    final organizationTitle = find.text('Notes and organization');
+    await tester.ensureVisible(organizationTitle);
+    await tester.pumpAndSettle();
+    final organizationTile = tester.widget<ExpansionTile>(
+      find
+          .ancestor(of: organizationTitle, matching: find.byType(ExpansionTile))
+          .first,
     );
-    expect(
-      find.descendant(of: overview, matching: find.text('Theme')),
-      findsNothing,
+    if (!(organizationTile.controller?.isExpanded ?? false)) {
+      await tester.tap(organizationTitle.hitTestable());
+      await tester.pumpAndSettle();
+    }
+    final tagsAction = find.byKey(SettingsScreen.tagsAndAutoTaggingKey);
+    await tester.ensureVisible(tagsAction);
+    await tester.pumpAndSettle();
+    expect(tagsAction.hitTestable(), findsOneWidget);
+    await tester.tap(tagsAction.hitTestable());
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TagsScreen), findsOneWidget);
+    expect(router.canPop(), isTrue);
+    final tagsRouteState = GoRouterState.of(
+      tester.element(find.byType(TagsScreen)),
     );
+    expect(tagsRouteState.uri.path, '/tags');
+    expect(tagsRouteState.uri.queryParameters['from'], 'settings');
+    expect(find.byKey(TagsScreen.backToSettingsKey), findsOneWidget);
+
+    router.pop();
+    await tester.pumpAndSettle();
+    expect(router.routeInformationProvider.value.uri.path, '/settings');
+    final returnedOrganizationTile = tester.widget<ExpansionTile>(
+      find
+          .ancestor(
+            of: find.text('Notes and organization'),
+            matching: find.byType(ExpansionTile),
+          )
+          .first,
+    );
+    expect(returnedOrganizationTile.controller?.isExpanded, isTrue);
+
+    final trashAction = find.byKey(SettingsScreen.trashManagementKey);
+    await tester.ensureVisible(trashAction);
+    await tester.pumpAndSettle();
+    expect(trashAction.hitTestable(), findsOneWidget);
+    await tester.tap(trashAction.hitTestable());
+    await tester.pumpAndSettle();
+    expect(find.byType(TrashScreen), findsOneWidget);
+    expect(router.canPop(), isTrue);
+    final trashRouteState = GoRouterState.of(
+      tester.element(find.byType(TrashScreen)),
+    );
+    expect(trashRouteState.uri.path, '/trash');
+    expect(trashRouteState.uri.queryParameters['from'], 'settings');
+    expect(find.byKey(TrashScreen.backToSettingsKey), findsOneWidget);
+
+    await tester.tap(find.byKey(TrashScreen.backToSettingsKey));
+    await tester.pumpAndSettle();
+    expect(router.routeInformationProvider.value.uri.path, '/settings');
+    final finalOrganizationTile = tester.widget<ExpansionTile>(
+      find
+          .ancestor(
+            of: find.text('Notes and organization'),
+            matching: find.byType(ExpansionTile),
+          )
+          .first,
+    );
+    finalOrganizationTile.controller!.collapse();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('opening a settings section collapses the previous section', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
+    );
+    _configureView(tester, size: const Size(800, 900));
+    await _pumpSettingsScreen(tester, harness.container);
+
+    await tester.tap(find.text('Appearance and language'));
+    await tester.pumpAndSettle();
+    var expandedTiles = tester
+        .widgetList<ExpansionTile>(find.byType(ExpansionTile))
+        .where((tile) => tile.controller?.isExpanded ?? false);
+    expect(expandedTiles, hasLength(1));
+
+    final memoSettings = find.text('Notes and organization');
+    await tester.scrollUntilVisible(memoSettings, 500);
+    await tester.tap(memoSettings);
+    await tester.pumpAndSettle();
+    expandedTiles = tester
+        .widgetList<ExpansionTile>(find.byType(ExpansionTile))
+        .where((tile) => tile.controller?.isExpanded ?? false);
+    expect(expandedTiles, hasLength(1));
+    expandedTiles.single.controller!.collapse();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('expanded private profile header remains an actionable control', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
+    );
+    _configureView(tester, size: const Size(800, 900));
+    await _pumpSettingsScreen(tester, harness.container);
+    final semantics = tester.ensureSemantics();
+
+    final header = find.text('Private profiles');
+    await tester.scrollUntilVisible(header, 500);
+    await tester.tap(header);
+    await tester.pumpAndSettle();
+
+    final root = RendererBinding
+        .instance
+        .renderViews
+        .single
+        .owner!
+        .semanticsOwner!
+        .rootSemanticsNode!;
+    final headerNodes = _semanticsNodes(root)
+        .where(
+          (node) =>
+              node.getSemanticsData().label.startsWith('Private profiles'),
+        )
+        .toList();
+    expect(
+      headerNodes.any((node) {
+        final data = node.getSemanticsData();
+        return data.flagsCollection.isButton &&
+            data.hasAction(SemanticsAction.tap);
+      }),
+      isTrue,
+    );
+    final expandedTile = tester
+        .widgetList<ExpansionTile>(find.byType(ExpansionTile))
+        .singleWhere((tile) => tile.controller?.isExpanded ?? false);
+    expandedTile.controller!.collapse();
+    await tester.pumpAndSettle();
+    semantics.dispose();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('production storage settings hide demo-note controls', (
+    tester,
+  ) async {
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
+      flavor: AppFlavor.production,
+    );
+    _configureView(tester, size: const Size(800, 900));
+    await _pumpSettingsScreen(tester, harness.container);
+
+    final storage = find.text('Storage');
+    await tester.scrollUntilVisible(storage, 500);
+    await tester.tap(storage);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(SettingsScreen.createDemoNotesKey), findsNothing);
+    expect(find.byKey(SettingsScreen.deleteDemoNotesKey), findsNothing);
+    expect(find.text('Danger zone'), findsOneWidget);
+    await tester.tap(storage);
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 
@@ -307,9 +784,10 @@ class _PendingAppLockSettingsController extends AppLockSettingsReadyController {
 Future<_TestHarness> _createHarness({
   required Map<String, Object> preferences,
   bool keepAppLockSettingsPending = false,
+  AppFlavor flavor = AppFlavor.development,
 }) async {
   SharedPreferences.setMockInitialValues(preferences);
-  configureFlavor(AppFlavor.development);
+  configureFlavor(flavor);
   final secureStore = MemorySecureKeyValueStore();
   final encryptionService = EncryptionService(random: Random(71));
   final masterKeyService = MasterKeyService(

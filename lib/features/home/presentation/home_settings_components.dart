@@ -1,19 +1,55 @@
 part of 'home_page.dart';
 
+extension _SettingsWidgetExtensions on Widget {
+  Widget visibleWhen(bool visible) => visible ? this : const SizedBox.shrink();
+
+  Widget asSyncMaintenanceSection(
+    BuildContext context,
+    AppStrings strings, {
+    Widget? status,
+  }) {
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        leading: const Icon(Icons.build_outlined),
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: 8),
+        title: Text(
+          strings.localized(
+            en: 'Repair and maintenance',
+            ja: '修復とメンテナンス',
+            zh: '修复与维护',
+            ko: '복구 및 유지 관리',
+            es: 'Reparación y mantenimiento',
+            de: 'Reparatur und Wartung',
+          ),
+        ),
+        subtitle: Text(
+          strings.localized(
+            en: 'Use these tools only when sync is not working as expected.',
+            ja: '同期が正常に動かない場合にだけ使用するツールです。',
+            zh: '仅在同步未按预期工作时使用这些工具。',
+            ko: '동기화가 정상적으로 작동하지 않을 때만 사용하세요.',
+            es: 'Usa estas herramientas solo si la sincronización no funciona correctamente.',
+            de: 'Diese Werkzeuge nur verwenden, wenn die Synchronisierung nicht wie erwartet funktioniert.',
+          ),
+        ),
+        children: [?status, this],
+      ),
+    );
+  }
+}
+
 class _SettingsOverviewItem {
   const _SettingsOverviewItem({
     required this.label,
     required this.value,
     required this.icon,
-    this.onTap,
-    this.showOnCompact = false,
   });
 
   final String label;
   final String value;
   final IconData icon;
-  final VoidCallback? onTap;
-  final bool showOnCompact;
 }
 
 class _ColorThemeScopeOption {
@@ -24,8 +60,13 @@ class _ColorThemeScopeOption {
 }
 
 class _SettingsOverviewCard extends StatelessWidget {
-  const _SettingsOverviewCard({super.key, required this.items});
+  const _SettingsOverviewCard({
+    super.key,
+    required this.title,
+    required this.items,
+  });
 
+  final String title;
   final List<_SettingsOverviewItem> items;
 
   @override
@@ -34,72 +75,62 @@ class _SettingsOverviewCard extends StatelessWidget {
     return Container(
       decoration: _sectionDecoration(context),
       padding: const EdgeInsets.all(16),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          const spacing = 12.0;
-          final width = constraints.maxWidth;
-          final compact = width < 600;
-          final visibleItems = compact
-              ? items.where((item) => item.showOnCompact)
-              : items;
-          final columns = width >= 720 ? 4 : (width >= 600 ? 2 : 1);
-          final itemWidth = (width - spacing * (columns - 1)) / columns;
-          return Wrap(
-            spacing: spacing,
-            runSpacing: spacing,
-            children: [
-              for (final item in visibleItems)
-                SizedBox(
-                  width: itemWidth,
-                  child: TextButton(
-                    onPressed: item.onTap,
-                    style: TextButton.styleFrom(
-                      alignment: Alignment.centerLeft,
-                      foregroundColor: Theme.of(context).colorScheme.onSurface,
-                      padding: const EdgeInsets.all(4),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const spacing = 12.0;
+              final width = constraints.maxWidth;
+              final columns = width >= 720 ? 3 : (width >= 600 ? 2 : 1);
+              final itemWidth = (width - spacing * (columns - 1)) / columns;
+              return Wrap(
+                spacing: spacing,
+                runSpacing: spacing,
+                children: [
+                  for (final item in items)
+                    SizedBox(
+                      width: itemWidth,
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Row(
+                          children: [
+                            _SettingsSectionIcon(icon: item.icon),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    item.label,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelMedium
+                                        ?.copyWith(color: muted),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    item.value,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    child: Row(
-                      children: [
-                        _SettingsSectionIcon(icon: item.icon),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                item.label,
-                                style: Theme.of(
-                                  context,
-                                ).textTheme.labelMedium?.copyWith(color: muted),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                item.value,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.titleSmall,
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (item.onTap != null) ...[
-                          const SizedBox(width: 4),
-                          Icon(
-                            Icons.keyboard_arrow_down_rounded,
-                            size: 18,
-                            color: muted,
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-            ],
-          );
-        },
+                ],
+              );
+            },
+          ),
+        ],
       ),
     );
   }
@@ -145,6 +176,7 @@ class _SettingsGroup extends StatelessWidget {
     this.sectionKey,
     this.controller,
     this.semanticLabel,
+    this.onExpansionChanged,
   });
 
   final String title;
@@ -154,14 +186,17 @@ class _SettingsGroup extends StatelessWidget {
   final Key? sectionKey;
   final ExpansibleController? controller;
   final String? semanticLabel;
+  final ValueChanged<bool>? onExpansionChanged;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final compact = MediaQuery.sizeOf(context).width < 840;
     final borderRadius = BorderRadius.circular(6);
     return Semantics(
       key: sectionKey ?? (semanticLabel == null ? null : Key(semanticLabel!)),
       container: true,
+      explicitChildNodes: true,
       child: ClipRRect(
         borderRadius: borderRadius,
         child: DecoratedBox(
@@ -177,22 +212,31 @@ class _SettingsGroup extends StatelessWidget {
               child: ExpansionTile(
                 controller: controller,
                 maintainState: true,
+                internalAddSemanticForOnTap: true,
                 onExpansionChanged: (expanded) {
+                  onExpansionChanged?.call(expanded);
                   if (expanded) {
                     unawaited(_revealExpandedSettingsGroup(context));
                   }
                 },
-                tilePadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
+                tilePadding: EdgeInsets.symmetric(
+                  horizontal: compact ? 12 : 16,
+                  vertical: compact ? 4 : 10,
                 ),
-                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                childrenPadding: EdgeInsets.fromLTRB(
+                  compact ? 12 : 16,
+                  0,
+                  compact ? 12 : 16,
+                  compact ? 10 : 14,
+                ),
                 leading: _SettingsSectionIcon(icon: icon),
                 title: Text(title, style: theme.textTheme.titleMedium),
                 subtitle: Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
                     summary,
+                    maxLines: compact ? 1 : null,
+                    overflow: compact ? TextOverflow.ellipsis : null,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: _mutedTextColor(context),
                     ),
@@ -263,11 +307,54 @@ class _SettingsWarningBox extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: colorScheme.onErrorContainer,
-              ),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(color: colorScheme.onErrorContainer),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsDangerZone extends StatelessWidget {
+  const _SettingsDangerZone({
+    required this.title,
+    required this.description,
+    required this.action,
+  });
+
+  final String title;
+  final String description;
+  final Widget action;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colorScheme.errorContainer.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: colorScheme.error.withValues(alpha: 0.55)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleSmall
+                ?.copyWith(color: colorScheme.onErrorContainer),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            description,
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: colorScheme.onErrorContainer),
+          ),
+          const SizedBox(height: 12),
+          action,
         ],
       ),
     );
@@ -282,15 +369,17 @@ class _SettingsSectionIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final compact = MediaQuery.sizeOf(context).width < 840;
+    final dimension = compact ? 36.0 : 40.0;
     return Container(
-      width: 40,
-      height: 40,
-      padding: const EdgeInsets.all(8),
+      width: dimension,
+      height: dimension,
+      padding: EdgeInsets.all(compact ? 7 : 8),
       decoration: BoxDecoration(
         color: colorScheme.primary.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Icon(icon, size: 22, color: colorScheme.primary),
+      child: Icon(icon, size: compact ? 20 : 22, color: colorScheme.primary),
     );
   }
 }
@@ -314,14 +403,6 @@ class _AdminModeAuditNotice extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final tooltip = Tooltip(
-      message: text,
-      child: Icon(
-        Icons.info_outline_rounded,
-        size: 18,
-        color: colorScheme.primary,
-      ),
-    );
     return DecoratedBox(
       decoration: BoxDecoration(
         color: colorScheme.primary.withValues(alpha: 0.08),
@@ -333,15 +414,17 @@ class _AdminModeAuditNotice extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            tooltip,
+            Icon(
+              Icons.info_outline_rounded,
+              size: 18,
+              color: colorScheme.primary,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 text,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurface,
-                  height: 1.35,
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: colorScheme.onSurface, height: 1.35),
               ),
             ),
           ],
@@ -359,9 +442,8 @@ class _AuditLogPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final baseStyle = Theme.of(
-      context,
-    ).textTheme.bodySmall?.copyWith(fontFamily: 'monospace', height: 1.35);
+    final baseStyle = Theme.of(context).textTheme.bodySmall
+        ?.copyWith(fontFamily: 'monospace', height: 1.35);
     if (entries.isEmpty) {
       return SelectableText(emptyMessage, style: baseStyle);
     }
@@ -781,9 +863,8 @@ class _ColorThemeCard extends StatelessWidget {
                       subtitle,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: colorScheme.onSurfaceVariant),
                     ),
                   ],
                 ),

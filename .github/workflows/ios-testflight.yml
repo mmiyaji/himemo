@@ -7,6 +7,11 @@ on:
         description: "Optional CFBundleVersion. Defaults to UTC yyMMddHHmm."
         required: false
         type: string
+      finalize_only:
+        description: "Only verify and distribute the existing build_number (no rebuild or upload)."
+        required: false
+        default: false
+        type: boolean
       upload_to_testflight:
         description: "Upload the signed IPA to App Store Connect/TestFlight."
         required: true
@@ -21,7 +26,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  FLUTTER_VERSION: "3.41.6"
+  FLUTTER_VERSION: "3.47.8"
   APPLE_TEAM_ID: "B8LGAS7YHH"
   BUNDLE_ID: "org.ruhenheim.himemo"
   WIDGET_BUNDLE_ID: "org.ruhenheim.himemo.QuickCaptureWidget"
@@ -33,9 +38,10 @@ env:
 
 jobs:
   build-and-upload:
+    if: ${{ !inputs.finalize_only }}
     name: Build iOS IPA and upload to TestFlight
-    runs-on: macos-26
-    timeout-minutes: 60
+    runs-on: xcode-27
+    timeout-minutes: 90
 
     steps:
       - name: Check out repository
@@ -50,15 +56,19 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: functions/package-lock.json
+
+      - name: Select Xcode 27.1 for iPhone Duo
+        run: sudo xcode-select --switch /Applications/Xcode_27.1.app/Contents/Developer
 
       - name: Show toolchain versions
         run: |
           flutter --version
           xcodebuild -version
           pod --version
+          python3 tools/check_ios_toolchain.py
 
       - name: Resolve build number
         env:
@@ -147,30 +157,6 @@ jobs:
       - name: Install Flutter dependencies
         run: flutter pub get
 
-      - name: Check Dart formatting
-        run: >-
-          dart format --output=none --set-exit-if-changed
-          lib test integration_test patrol_test test_driver
-
-      - name: Analyze Flutter sources
-        run: flutter analyze --fatal-infos
-
-      - name: Run Flutter unit and widget tests
-        run: flutter test test
-
-      - name: Build development Web app
-        run: >-
-          flutter build web --no-wasm-dry-run
-          -t lib/main_development.dart
-
-      - name: Validate Functions
-        run: |
-          set -euo pipefail
-          npm --prefix functions ci
-          npm --prefix functions run lint
-          npm --prefix functions test
-          npm --prefix functions audit --omit=dev --audit-level=high
-
       - name: Install CocoaPods dependencies
         run: |
           set -euo pipefail
@@ -212,6 +198,74 @@ jobs:
             /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST"
             /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST"
           done
+
+      - name: Build iOS simulator candidate
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          flutter build ios --simulator --debug --no-codesign --no-pub \
+            --target=test_driver/ios_launch_app.dart \
+            --build-number="$BUILD_NUMBER"
+
+      - name: Verify production startup on iOS simulator
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available -j > "$RUNNER_TEMP/simulators.json"
+          SIMULATOR_ID="$(python3 - "$RUNNER_TEMP/simulators.json" <<'PY'
+          import json, sys
+          devices = json.load(open(sys.argv[1]))["devices"]
+          candidates = [(runtime, device) for runtime, group in devices.items()
+                        if "iOS-27" in runtime for device in group
+                        if device.get("isAvailable") and device["name"].startswith("iPhone")]
+          if not candidates:
+              raise SystemExit("An iOS 27 iPhone simulator is required for the launch gate")
+          print(sorted(candidates, key=lambda item: item[0], reverse=True)[0][1]["udid"])
+          PY
+          )"
+          xcrun simctl boot "$SIMULATOR_ID" || true
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+          flutter drive --verbose --debug --no-pub -d "$SIMULATOR_ID" \
+            --use-application-binary=build/ios/iphonesimulator/Runner.app \
+            --target=test_driver/ios_launch_app.dart \
+            --driver=test_driver/ios_launch_test.dart \
+            --timeout=480
+          xcrun simctl shutdown "$SIMULATOR_ID"
+
+      - name: Upload iOS launch evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ios-launch-smoke-${{ github.run_number }}
+          path: build/ios-launch-smoke/
+          if-no-files-found: ignore
+
+      - name: Check Dart formatting
+        run: >-
+          dart format --output=none --set-exit-if-changed
+          lib test integration_test patrol_test test_driver
+
+      - name: Analyze Flutter sources
+        run: flutter analyze --fatal-infos
+
+      - name: Run Flutter unit and widget tests
+        run: flutter test test --concurrency=2
+
+      - name: Build development Web app
+        run: >-
+          flutter build web --no-wasm-dry-run
+          -t lib/main_development.dart
+
+      - name: Validate TestFlight release automation
+        run: python3 -m unittest discover -s tools -p 'test_finalize_testflight.py'
+
+      - name: Validate Functions
+        run: |
+          set -euo pipefail
+          npm --prefix functions ci
+          npm --prefix functions run lint
+          npm --prefix functions test
+          npm --prefix functions audit --omit=dev --audit-level=high
 
       - name: Create App Store export options
         run: |
@@ -402,9 +456,51 @@ jobs:
             --apiKey "$APP_STORE_CONNECT_API_KEY_ID" \
             --apiIssuer "$APP_STORE_CONNECT_API_ISSUER_ID"
 
+      - name: Finish TestFlight processing and internal distribution
+        if: ${{ inputs.upload_to_testflight }}
+        timeout-minutes: 25
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          python3 tools/finalize_testflight.py \
+            --bundle-id "$BUNDLE_ID" \
+            --build-number "$BUILD_NUMBER" \
+            --group ruhenheim \
+            --notes-file internal-docs/testflight-what-to-test.ja.txt \
+            --timeout-seconds 1200
+
       - name: Clean up signing assets
         if: always()
         run: |
           KEYCHAIN_PATH="$RUNNER_TEMP/$KEYCHAIN_NAME"
           security delete-keychain "$KEYCHAIN_PATH" || true
           rm -rf "$HOME/.appstoreconnect/private_keys" || true
+
+  finalize-existing:
+    if: ${{ inputs.finalize_only }}
+    name: Verify uploaded TestFlight build and internal distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Validate release automation
+        run: python3 -m unittest discover -s tools -p 'test_finalize_testflight.py'
+      - name: Verify and distribute existing build
+        env:
+          EXISTING_BUILD_NUMBER: ${{ inputs.build_number }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          : "${EXISTING_BUILD_NUMBER:?An already uploaded build_number is required}"
+          python3 tools/finalize_testflight.py \
+            --bundle-id "$BUNDLE_ID" \
+            --build-number "$EXISTING_BUILD_NUMBER" \
+            --group ruhenheim \
+            --notes-file internal-docs/testflight-what-to-test.ja.txt \
+            --timeout-seconds 1200

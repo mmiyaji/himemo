@@ -21,6 +21,21 @@ String _homePresentationSource() => [
   'lib/features/home/presentation/home_google_drive_panel.dart',
 ].map((path) => File(path).readAsStringSync()).join('\n');
 
+String _homeProvidersSource() {
+  final main = File('lib/features/home/presentation/home_providers.dart');
+  final source = main.readAsStringSync();
+  final parts = RegExp(r"part '([^']+)';")
+      .allMatches(source)
+      .map((match) => match.group(1)!)
+      .where((path) => !path.endsWith('.g.dart'));
+  return [
+    source,
+    ...parts.map(
+      (path) => File.fromUri(main.uri.resolve(path)).readAsStringSync(),
+    ),
+  ].join('\n');
+}
+
 void main() {
   test('web video playback stays enabled through the native video element', () {
     final webVideoElement = File(
@@ -43,9 +58,8 @@ void main() {
   test(
     'UI behavior guardrails cover repeated mobile and media regressions',
     () {
-      final guardrails = File(
-        'docs/ui-behavior-guardrails.md',
-      ).readAsStringSync();
+      final guardrails = File('docs/ui-behavior-guardrails.md')
+          .readAsStringSync();
 
       expect(
         guardrails,
@@ -149,6 +163,7 @@ void main() {
     expect(homePage, contains('_locationSearchText(item.location)'));
     expect(homePage, contains('String? _locationSearchText'));
     expect(homePage, contains('activeSearchMatchStart'));
+    expect(homePage, contains('activeSearch ? scheme.primary : borderColor'));
     expect(homePage, contains('class _HighlightedInlineText'));
     expect(homePage, contains('List<TextSpan> _highlightTextSpans'));
     expect(homePage, contains("Key('note-detail-delete-button')"));
@@ -267,9 +282,8 @@ void main() {
 
   test('mobile create note action is a centered pen navigation button', () {
     final homePage = _homePresentationSource();
-    final createNoteIcon = File(
-      'assets/actions/create-note.svg',
-    ).readAsStringSync();
+    final createNoteIcon = File('assets/actions/create-note.svg')
+        .readAsStringSync();
 
     expect(homePage, contains('class _CreateNoteNavButton'));
     expect(homePage, contains('class _CreateNoteIcon'));
@@ -277,15 +291,27 @@ void main() {
     expect(homePage, contains('key: AppShell.addNoteKey'));
     expect(homePage, contains('assets/actions/create-note.svg'));
     expect(homePage, contains('colorMapper: _CreateNoteIconColorMapper'));
+    expect(
+      homePage,
+      contains(
+        'if (color == const Color(0xFFFFF7F4)) {\n'
+        '      return background;',
+      ),
+    );
     expect(homePage, contains('static const _verticalOffset = 12.0'));
     expect(homePage, contains('static const _tapSize = 68.0'));
     expect(homePage, contains('static const _buttonSize = 56.0'));
-    expect(homePage, contains('static const _iconSize = 44.0'));
+    expect(homePage, contains('static const _iconSize = 38.0'));
     expect(
       homePage,
       isNot(contains('offset: const Offset(0, _verticalOffset)')),
     );
-    expect(homePage, contains('_CreateNoteIcon(size: _iconSize)'));
+    expect(homePage, contains('_mobileCreateActionColors(theme)'));
+    expect(homePage, contains('const foreground = Colors.white'));
+    expect(homePage, contains('_createActionContrastRatio'));
+    expect(homePage, contains('size: _iconSize'));
+    expect(homePage, contains('background: actionColors.background'));
+    expect(homePage, contains('foreground: actionColors.foreground'));
     expect(homePage, contains('width: _buttonSize'));
     expect(homePage, contains('height: _buttonSize'));
     expect(homePage, contains('height: _tapSize + _verticalOffset'));
@@ -321,6 +347,61 @@ void main() {
     expect(createNoteIcon, contains('#9F5261'));
   });
 
+  test(
+    'sync settings keep recovery and repair tools out of the default flow',
+    () {
+      final homePage = _homePresentationSource();
+      final settings = File(
+        'lib/features/home/presentation/home_settings_screen.dart',
+      ).readAsStringSync();
+      final syncSupport = File(
+        'lib/features/home/presentation/home_sync_support.dart',
+      ).readAsStringSync();
+      final strings = File('lib/l10n/app_strings.dart').readAsStringSync();
+
+      expect(
+        settings,
+        contains(
+          'if (syncProvider != SyncProvider.off &&\n'
+          '                syncAuthState.isAuthenticated)',
+        ),
+      );
+      expect(strings, contains("en: 'Sync details'"));
+      expect(settings, contains("en: 'Sync status'"));
+      expect(settings, contains("en: 'Recovery key'"));
+      expect(settings, contains("en: 'History'"));
+      expect(homePage, contains("en: 'Repair and maintenance'"));
+      expect(settings, isNot(contains("en: 'Show QR'")));
+      expect(settings, isNot(contains("en: 'Scan QR'")));
+      expect(settings, isNot(contains("'home.last.sync.activity'")));
+      expect(syncSupport, contains("en: 'Scan QR'"));
+    },
+  );
+
+  test(
+    'settings keep one section open and separate dangerous storage work',
+    () {
+      final settings = File(
+        'lib/features/home/presentation/home_settings_screen.dart',
+      ).readAsStringSync();
+      final components = File(
+        'lib/features/home/presentation/home_settings_components.dart',
+      ).readAsStringSync();
+
+      expect(settings, contains('_primarySettingsControllers'));
+      expect(settings, contains('_handlePrimarySettingsExpansion'));
+      expect(components, contains('explicitChildNodes: true'));
+      expect(settings, contains("en: 'Lock screen and widgets'"));
+      expect(
+        settings,
+        isNot(contains("title: strings.text('home.external.quick.memo')")),
+      );
+      expect(settings, contains('if (showFlavorInfo)'));
+      expect(settings, contains('_SettingsDangerZone('));
+      expect(components, contains('class _SettingsDangerZone'));
+    },
+  );
+
   test('private profile access action uses Material icons', () {
     final homePage = _homePresentationSource();
 
@@ -351,9 +432,7 @@ void main() {
 
   test('admin mode and note operations are covered by audit logs', () {
     final auditLog = File('lib/app/audit_log.dart').readAsStringSync();
-    final homeProviders = File(
-      'lib/features/home/presentation/home_providers.dart',
-    ).readAsStringSync();
+    final homeProviders = _homeProvidersSource();
     final homePage = _homePresentationSource();
 
     expect(auditLog, contains('class AuditLogService'));
@@ -387,9 +466,7 @@ void main() {
   });
 
   test('storage diagnostics cover iOS container and app group sizes', () {
-    final homeProviders = File(
-      'lib/features/home/presentation/home_providers.dart',
-    ).readAsStringSync();
+    final homeProviders = _homeProvidersSource();
     final homePage = _homePresentationSource();
     final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
 
@@ -432,9 +509,7 @@ void main() {
 
   test('soft-deleted notes stay restorable from the trash screen', () {
     final appRouter = File('lib/app/app_router.dart').readAsStringSync();
-    final homeProviders = File(
-      'lib/features/home/presentation/home_providers.dart',
-    ).readAsStringSync();
+    final homeProviders = _homeProvidersSource();
     final homePage = _homePresentationSource();
 
     expect(appRouter, contains("path: '/trash'"));
@@ -465,9 +540,7 @@ void main() {
   });
 
   test('iOS Spotlight indexing is opt-in and clears when disabled', () {
-    final homeProviders = File(
-      'lib/features/home/presentation/home_providers.dart',
-    ).readAsStringSync();
+    final homeProviders = _homeProvidersSource();
     final homePage = _homePresentationSource();
     final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
     final app = File('lib/app/app.dart').readAsStringSync();
@@ -489,12 +562,19 @@ void main() {
     expect(appDelegate, contains('CSSearchableIndex.isIndexingAvailable()'));
     expect(appDelegate, contains('"indexedCount"'));
     expect(appDelegate, contains('CSSearchableItemActionType'));
-    expect(appDelegate, contains('.userActivityDictionary'));
+    expect(appDelegate, contains('connectionOptions.userActivities'));
     expect(appDelegate, contains('handleSpotlightUserActivity'));
     expect(appDelegate, contains('attributeSet.textContent'));
     expect(appDelegate, contains('attributeSet.displayName'));
     expect(appDelegate, contains('body ?? ""'));
-    expect(appDelegate, contains('attributeSet.alternateNames'));
+    expect(
+      appDelegate,
+      contains('attributeSet.keywords = (["HiMemo"] + tags + searchTerms)'),
+    );
+    expect(
+      appDelegate,
+      isNot(contains('attributeSet.alternateNames = attributeSet.keywords')),
+    );
     expect(appDelegate, contains('searchTerms'));
     expect(homeProviders, contains("logDiagnostic('spotlight'"));
     expect(homeProviders, contains('replace all requested'));
@@ -522,9 +602,7 @@ void main() {
   });
 
   test('AI tag suggestions keep an iOS bridge and local fallback', () {
-    final homeProviders = File(
-      'lib/features/home/presentation/home_providers.dart',
-    ).readAsStringSync();
+    final homeProviders = _homeProvidersSource();
     final homePage = _homePresentationSource();
     final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
 
@@ -577,9 +655,7 @@ void main() {
     final androidMainActivity = File(
       'android/app/src/main/kotlin/org/ruhenheim/himemo/MainActivity.kt',
     ).readAsStringSync();
-    final homeProviders = File(
-      'lib/features/home/presentation/home_providers.dart',
-    ).readAsStringSync();
+    final homeProviders = _homeProvidersSource();
 
     expect(androidMainActivity, contains('EXTRA_QUICK_CAPTURE_NONCE'));
     expect(
@@ -645,9 +721,8 @@ void main() {
     final iCloudTransport = File(
       'lib/features/sync/data/icloud_sync_transport.dart',
     ).readAsStringSync();
-    final networkConnection = File(
-      'lib/app/network_connection.dart',
-    ).readAsStringSync();
+    final networkConnection = File('lib/app/network_connection.dart')
+        .readAsStringSync();
 
     expect(homePage, contains('diagnosticICloudStorageBreakdownKey'));
     expect(homePage, contains('diagnosticICloudPruneBundlesKey'));
@@ -677,9 +752,7 @@ void main() {
 
   test('note editor guards slow attachment saves and video playback', () {
     final homePage = _homePresentationSource();
-    final homeProviders = File(
-      'lib/features/home/presentation/home_providers.dart',
-    ).readAsStringSync();
+    final homeProviders = _homeProvidersSource();
     final videoFactory = File(
       'lib/features/home/presentation/video_player_controller_factory_io.dart',
     ).readAsStringSync();
@@ -726,17 +799,15 @@ void main() {
     expect(attachmentStore, contains('_decryptAttachmentBytesFromStorage'));
     expect(attachmentStore, contains('_decryptAttachmentPayload'));
     expect(attachmentStore, contains('estimateStoredAttachmentPayloadBytes'));
-    expect(homePage, contains('_decodeRemoteAttachmentBytes'));
+    expect(homePage, contains('.downloadAttachment(attachment)'));
+    expect(homePage, contains('RemoteAttachmentDownloadDialog'));
   });
 
   test('attachment diagnostics include image byte signatures', () {
     final homePage = _homePresentationSource();
-    final syncEngine = File(
-      'lib/features/sync/data/sync_engine.dart',
-    ).readAsStringSync();
-    final homeProviders = File(
-      'lib/features/home/presentation/home_providers.dart',
-    ).readAsStringSync();
+    final syncEngine = File('lib/features/sync/data/sync_engine.dart')
+        .readAsStringSync();
+    final homeProviders = _homeProvidersSource();
 
     expect(homePage, contains('_attachmentByteDiagnosticData'));
     expect(homePage, contains('_logVideoPlaybackDiagnostic'));
@@ -773,13 +844,18 @@ void main() {
   });
 
   test('iCloud sync avoids avoidable foreground waits', () {
-    final homeProviders = File(
-      'lib/features/home/presentation/home_providers.dart',
-    ).readAsStringSync();
+    final homeProviders = _homeProvidersSource();
     final appDelegate = File('ios/Runner/AppDelegate.swift').readAsStringSync();
 
     expect(homeProviders, contains('_iCloudRemoteStatusCacheTtl'));
-    expect(homeProviders, contains('unawaited(_pruneICloudStorageAfterUpload'));
+    expect(
+      homeProviders,
+      contains('await _safePruneRemoteHistory(remoteStatus)'),
+    );
+    expect(
+      homeProviders,
+      isNot(contains('unawaited(_pruneICloudStorageAfterUpload')),
+    );
     expect(homeProviders, contains('Still waiting for iCloud metadata'));
     expect(appDelegate, contains('cloudKitAccountStatusCacheDuration'));
     expect(appDelegate, contains('cloudKitAccountAvailableUntil'));
@@ -809,18 +885,21 @@ void main() {
   });
 
   test('cloud sync heavy work does not run on the UI isolate', () {
-    final syncEngine = File(
-      'lib/features/sync/data/sync_engine.dart',
-    ).readAsStringSync();
+    final syncEngine = File('lib/features/sync/data/sync_engine.dart')
+        .readAsStringSync();
     final secureBundleStore = File(
       'lib/features/sync/data/secure_sync_bundle_store.dart',
     ).readAsStringSync();
     final attachmentStore = File(
       'lib/features/security/data/encrypted_attachment_store.dart',
     ).readAsStringSync();
-    final homeProviders = File(
-      'lib/features/home/presentation/home_providers.dart',
+    final syncControllers = File(
+      'lib/features/sync/presentation/sync_controllers.dart',
     ).readAsStringSync();
+    final syncHistoryReader = File(
+      'lib/features/sync/data/sync_history_reader.dart',
+    ).readAsStringSync();
+    final homeProviders = _homeProvidersSource();
     final homePage = _homePresentationSource();
 
     expect(syncEngine, contains('dart:isolate'));
@@ -872,7 +951,15 @@ void main() {
     expect(homeProviders, contains('_decodeSyncAttachmentBytes'));
     expect(homeProviders, contains('Uploading attachment'));
     expect(homeProviders, contains('Applying attachment'));
-    expect(homeProviders, contains('syncAttachmentObjectHashesInNoteJson'));
+    expect(syncControllers, contains('_safePruneRemoteHistory'));
+    expect(syncControllers, contains('_listReplayHistory'));
+    expect(syncControllers, contains('readSyncReplayHistory'));
+    expect(
+      syncHistoryReader,
+      contains('Future<List<RemoteSyncBundleStatus>> readSyncReplayHistory'),
+    );
+    expect(syncControllers, contains('_listExistingRemoteAttachmentHashes'));
+    expect(syncControllers, contains('Isolate.run'));
     final syncAttachmentRefs = File(
       'lib/features/sync/data/sync_attachment_refs.dart',
     ).readAsStringSync();

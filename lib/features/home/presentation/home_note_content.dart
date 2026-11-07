@@ -254,9 +254,8 @@ class _NotesToolbarState extends ConsumerState<_NotesToolbar> {
               strings.text(
                 'home.search.terms.are.cleared.when.private.mode.closes',
               ),
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: _mutedTextColor(context)),
             ),
           ],
           if (tagSummaries.isNotEmpty) ...[
@@ -1134,9 +1133,8 @@ class _AttachmentSearchFilterControls extends StatelessWidget {
                   label: Text(_attachmentSearchFilterLabel(strings, option)),
                   selected: selectedFilters.contains(option),
                   onSelected: (_) => onFilterToggled(option),
-                  labelStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                  labelStyle: Theme.of(context).textTheme.labelMedium
+                      ?.copyWith(fontWeight: FontWeight.w600),
                   visualDensity: VisualDensity.compact,
                 ),
             ],
@@ -1540,9 +1538,8 @@ class _CalendarNoteRow extends StatelessWidget {
                 bodyPreview,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: _strongMutedTextColor(context),
-                ),
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(color: _strongMutedTextColor(context)),
               ),
             ],
             if (note.attachments.isNotEmpty) ...[
@@ -1567,9 +1564,9 @@ class _CalendarNoteRow extends StatelessWidget {
                       width: 56,
                       height: 56,
                       decoration: BoxDecoration(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.surfaceContainerHighest,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                           color: Theme.of(context).dividerColor,
@@ -1578,9 +1575,8 @@ class _CalendarNoteRow extends StatelessWidget {
                       alignment: Alignment.center,
                       child: Text(
                         '+${note.attachments.length - 3}',
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                        style: Theme.of(context).textTheme.labelLarge
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                     ),
                   ],
@@ -1590,9 +1586,8 @@ class _CalendarNoteRow extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               vaultName,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: _mutedTextColor(context)),
             ),
           ],
         ),
@@ -1677,9 +1672,8 @@ class _EmptyNotesState extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             strings.emptyNotesBody,
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(color: _mutedTextColor(context)),
           ),
         ],
       ),
@@ -1706,9 +1700,8 @@ class _EmptyNoteSelectionState extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             strings.text('home.pick.a.note.from.the.list.to.preview.it.here'),
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: _mutedTextColor(context)),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(color: _mutedTextColor(context)),
           ),
         ],
       ),
@@ -2639,9 +2632,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                           color:
                                               _captureLocationEnabled ||
                                                   _location != null
-                                              ? Theme.of(
-                                                  context,
-                                                ).colorScheme.primary
+                                              ? Theme.of(context)
+                                                    .colorScheme
+                                                    .primary
                                               : _mutedTextColor(context),
                                         ),
                                 ),
@@ -2866,9 +2859,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                       avatar: Icon(
                                         Icons.auto_awesome_rounded,
                                         size: 16,
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.primary,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary,
                                       ),
                                       label: Text(() {
                                         final count =
@@ -3051,9 +3044,8 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                               .withValues(alpha: 0.72),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.primary.withValues(alpha: 0.48),
+                            color: Theme.of(context).colorScheme.primary
+                                .withValues(alpha: 0.48),
                           ),
                         ),
                         child: Row(
@@ -3088,9 +3080,9 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
                                 overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.labelMedium
                                     ?.copyWith(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.onPrimaryContainer,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onPrimaryContainer,
                                       fontWeight: FontWeight.w700,
                                     ),
                               ),
@@ -3434,7 +3426,10 @@ class _NoteEditorSheetState extends ConsumerState<_NoteEditorSheet> {
           ];
         });
         _scheduleDraftPersist();
-      } catch (_) {}
+      } catch (_) {
+        // A failed preview should not block note editing or draft persistence.
+        logDiagnostic('attachments', 'deferred attachment preview failed');
+      }
     }
   }
 
@@ -4015,10 +4010,9 @@ Future<String?> _resolveLocationAddress(Position position) async {
     return null;
   }
   try {
-    final placemarks = await placemarkFromCoordinates(
-      position.latitude,
-      position.longitude,
-    ).timeout(const Duration(seconds: 5));
+    final placemarks = await Geocoding()
+        .placemarkFromCoordinates(position.latitude, position.longitude)
+        .timeout(const Duration(seconds: 5));
     if (placemarks.isEmpty) {
       return null;
     }
@@ -4589,9 +4583,8 @@ class _LocationEditDialogState extends State<_LocationEditDialog> {
                   es: 'Mueve el mapa para que el pin señale la ubicación de la nota.',
                   de: 'Verschiebe die Karte, damit die Markierung auf den Notizort zeigt.',
                 ),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: colorScheme.onSurfaceVariant),
               ),
               const SizedBox(height: 12),
               Row(
@@ -4684,8 +4677,7 @@ class _LocationEditDialogState extends State<_LocationEditDialog> {
                         ),
                         children: [
                           TileLayer(
-                            urlTemplate:
-                                'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+                            urlTemplate: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
                             subdomains: const ['a', 'b', 'c', 'd'],
                             userAgentPackageName: 'org.ruhenheim.himemo',
                           ),
@@ -4768,9 +4760,8 @@ class _LocationEditDialogState extends State<_LocationEditDialog> {
               Text(
                 '${strings.latitudeLabel}: ${_selectedPoint.latitude.toStringAsFixed(6)}\n'
                 '${strings.longitudeLabel}: ${_selectedPoint.longitude.toStringAsFixed(6)}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(color: colorScheme.onSurfaceVariant),
               ),
             ],
           ),
@@ -4825,7 +4816,7 @@ class _LocationMemoCard extends StatelessWidget {
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: activeSearch ? scheme.tertiary : borderColor,
+          color: activeSearch ? scheme.primary : borderColor,
           width: activeSearch ? 1.5 : 1,
         ),
       ),
@@ -5271,9 +5262,8 @@ class _RichBlockEditorTile extends StatelessWidget {
                 decoration: InputDecoration(
                   semanticCounterText: '',
                   hintText: showPrompt ? strings.memoFirstLineHint : null,
-                  hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: _mutedTextColor(context),
-                  ),
+                  hintStyle: Theme.of(context).textTheme.bodyMedium
+                      ?.copyWith(color: _mutedTextColor(context)),
                   border: InputBorder.none,
                   isCollapsed: true,
                   contentPadding: EdgeInsets.zero,
@@ -5524,9 +5514,8 @@ class _QuickAttachmentSectionState extends State<_QuickAttachmentSection> {
               es: 'Usa los iconos de cámara o carpeta arriba a la derecha para añadir medios.',
               de: 'Über die Kamera- oder Ordner-Symbole oben rechts kannst du Medien hinzufügen.',
             ),
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: _mutedTextColor(context)),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: _mutedTextColor(context)),
           ),
           if (attachments.isNotEmpty || widget.pendingAttachmentCount > 0) ...[
             const SizedBox(height: 10),
@@ -5798,7 +5787,7 @@ class _AttachmentListTile extends ConsumerWidget {
                             attachment.filePath ?? '',
                           )) ...[
                             const SizedBox(height: 6),
-                            const _RemoteAttachmentNotice(),
+                            RemoteAttachmentNotice(attachment: attachment),
                           ],
                         ],
                       ),
@@ -5823,8 +5812,17 @@ class _AttachmentListTile extends ConsumerWidget {
   }
 }
 
-class _RemoteAttachmentNotice extends ConsumerWidget {
-  const _RemoteAttachmentNotice();
+class RemoteAttachmentNotice extends ConsumerWidget {
+  const RemoteAttachmentNotice({
+    required this.attachment,
+    this.onDownloaded,
+    this.retry = false,
+    super.key,
+  });
+
+  final NoteAttachment attachment;
+  final ValueChanged<NoteAttachment>? onDownloaded;
+  final bool retry;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -5841,10 +5839,15 @@ class _RemoteAttachmentNotice extends ConsumerWidget {
           color: colorScheme.primary,
         ),
         Text(
-          strings.localized(
-            en: 'Cloud only',
-            ja: '\u30af\u30e9\u30a6\u30c9\u306e\u307f',
-          ),
+          retry
+              ? strings.localized(
+                  en: 'This image cannot be displayed. Download it again.',
+                  ja: '画像を表示できません。再ダウンロードしてください。',
+                )
+              : strings.localized(
+                  en: 'This attachment is not saved on this device yet.',
+                  ja: '\u3053\u306e\u6dfb\u4ed8\u306f\u307e\u3060\u3053\u306e\u7aef\u672b\u306b\u4fdd\u5b58\u3055\u308c\u3066\u3044\u307e\u305b\u3093\u3002',
+                ),
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
             color: colorScheme.primary,
             fontWeight: FontWeight.w700,
@@ -5858,37 +5861,14 @@ class _RemoteAttachmentNotice extends ConsumerWidget {
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
           onPressed: () async {
-            final messenger = ScaffoldMessenger.of(context);
-            try {
-              final count = await ref
-                  .read(syncTransferControllerProvider.notifier)
-                  .downloadDeferredAttachments();
-              if (!context.mounted) {
-                return;
-              }
-              messenger.showSnackBar(
-                SnackBar(
-                  showCloseIcon: true,
-                  content: Text(
-                    count == 0
-                        ? strings.localized(
-                            en: 'No cloud-only attachments needed download.',
-                            ja: '\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u304c\u5fc5\u8981\u306a\u6dfb\u4ed8\u306f\u3042\u308a\u307e\u305b\u3093\u3002',
-                          )
-                        : strings.localized(
-                            en: 'Downloaded $count cloud-only attachments.',
-                            ja: '$count \u4ef6\u306e\u6dfb\u4ed8\u3092\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3057\u307e\u3057\u305f\u3002',
-                          ),
-                  ),
-                ),
-              );
-            } catch (error) {
-              if (!context.mounted) {
-                return;
-              }
-              messenger.showSnackBar(
-                SnackBar(showCloseIcon: true, content: Text('$error')),
-              );
+            final downloaded = await _downloadRemoteAttachmentWithPrompt(
+              context,
+              ref,
+              attachment,
+              forceDownload: retry,
+            );
+            if (downloaded != null) {
+              onDownloaded?.call(downloaded);
             }
           },
           child: Text(
@@ -5903,12 +5883,217 @@ class _RemoteAttachmentNotice extends ConsumerWidget {
   }
 }
 
+Future<NoteAttachment?> _downloadRemoteAttachmentWithPrompt(
+  BuildContext context,
+  WidgetRef ref,
+  NoteAttachment attachment, {
+  bool forceDownload = false,
+}) async {
+  final filePath = attachment.filePath;
+  final hasSyncContentHash =
+      attachment.syncAttachmentContentHash?.isNotEmpty == true;
+  final localPayloadMissing =
+      !forceDownload &&
+      hasSyncContentHash &&
+      filePath != null &&
+      filePath.isNotEmpty &&
+      !isSyncAttachmentObjectRef(filePath) &&
+      await ref
+              .read(encryptedAttachmentStoreProvider)
+              .storedPayloadMetadata(filePath) ==
+          null;
+  if (!forceDownload &&
+      !isSyncAttachmentObjectRef(filePath) &&
+      !(hasSyncContentHash && localPayloadMissing)) {
+    return attachment;
+  }
+  if (!context.mounted) {
+    return attachment;
+  }
+  return showDialog<NoteAttachment>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => RemoteAttachmentDownloadDialog(
+      attachment: attachment,
+      retry: forceDownload,
+    ),
+  );
+}
+
+class RemoteAttachmentDownloadDialog extends ConsumerStatefulWidget {
+  const RemoteAttachmentDownloadDialog({
+    required this.attachment,
+    this.retry = false,
+    super.key,
+  });
+
+  final NoteAttachment attachment;
+  final bool retry;
+
+  @override
+  ConsumerState<RemoteAttachmentDownloadDialog> createState() =>
+      _RemoteAttachmentDownloadDialogState();
+}
+
+class _RemoteAttachmentDownloadDialogState
+    extends ConsumerState<RemoteAttachmentDownloadDialog> {
+  bool _downloading = false;
+  String? _errorMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = context.strings;
+    return PopScope(
+      canPop: !_downloading,
+      child: AlertDialog(
+        title: Text(
+          strings.localized(
+            en: 'Download attachment',
+            ja: '\u6dfb\u4ed8\u3092\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9',
+          ),
+        ),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.attachment.label,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                widget.retry
+                    ? strings.localized(
+                        en: 'Download this image again to restore it.',
+                        ja: '画像を復元するため、もう一度ダウンロードします。',
+                      )
+                    : strings.localized(
+                        en: 'This attachment is not saved on this device yet. Download it to open or share it.',
+                        ja: '\u3053\u306e\u6dfb\u4ed8\u306f\u307e\u3060\u3053\u306e\u7aef\u672b\u306b\u4fdd\u5b58\u3055\u308c\u3066\u3044\u307e\u305b\u3093\u3002\u958b\u304f\u306b\u306f\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+                      ),
+              ),
+              if (_downloading) ...[
+                const SizedBox(height: 16),
+                const LinearProgressIndicator(),
+                const SizedBox(height: 8),
+                Text(
+                  strings.localized(
+                    en: 'Downloading…',
+                    ja: '\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u4e2d\u2026',
+                  ),
+                ),
+              ],
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _errorMessage!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: _downloading ? null : () => Navigator.of(context).pop(),
+            child: Text(strings.cancel),
+          ),
+          FilledButton.icon(
+            onPressed: _downloading ? null : _download,
+            icon: _downloading
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.download_outlined),
+            label: Text(
+              _errorMessage == null
+                  ? strings.localized(
+                      en: 'Download',
+                      ja: '\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9',
+                    )
+                  : strings.localized(en: 'Retry', ja: '\u518d\u8a66\u884c'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _download() async {
+    if (_downloading) return;
+    setState(() {
+      _downloading = true;
+      _errorMessage = null;
+    });
+    try {
+      final downloaded = await ref
+          .read(syncTransferControllerProvider.notifier)
+          .downloadAttachment(widget.attachment, force: widget.retry);
+      if (mounted) Navigator.of(context).pop(downloaded);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _downloading = false;
+        _errorMessage = _attachmentDownloadErrorMessage(context, error);
+      });
+    }
+  }
+}
+
+String _attachmentDownloadErrorMessage(BuildContext context, Object error) {
+  final strings = context.strings;
+  if (error is SyncSafetyException) {
+    return switch (error.code) {
+      'sync.error.select_target_for_download' => strings.localized(
+        en: 'Choose a sync destination in Settings before downloading.',
+        ja: '\u8a2d\u5b9a\u3067\u540c\u671f\u5148\u3092\u9078\u629e\u3057\u3066\u304b\u3089\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+      ),
+      'sync.error.remote_attachment_unavailable' => strings.localized(
+        en: 'The cloud copy is unavailable. Try syncing again.',
+        ja: '\u30af\u30e9\u30a6\u30c9\u4e0a\u306e\u6dfb\u4ed8\u3092\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093\u3002\u540c\u671f\u3092\u3084\u308a\u76f4\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+      ),
+      'sync.error.unlock_private_profiles_before_download' => strings.localized(
+        en: 'Unlock private profiles before downloading this attachment.',
+        ja: '\u3053\u306e\u6dfb\u4ed8\u3092\u53d6\u5f97\u3059\u308b\u306b\u306f\u975e\u516c\u958b\u30d7\u30ed\u30d5\u30a1\u30a4\u30eb\u3092\u89e3\u9664\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+      ),
+      'sync.error.attachment_context_changed' => strings.localized(
+        en: 'The note changed while downloading. Please retry.',
+        ja: '\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u4e2d\u306b\u30e1\u30e2\u304c\u5909\u66f4\u3055\u308c\u307e\u3057\u305f\u3002\u518d\u8a66\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+      ),
+      _ => strings.localized(
+        en: 'The attachment could not be downloaded. Try again.',
+        ja: '\u6dfb\u4ed8\u3092\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u518d\u8a66\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+      ),
+    };
+  }
+  if (error is HimemoDecryptionException) {
+    return strings.unableToDecryptAttachment;
+  }
+  return strings.localized(
+    en: 'The attachment could not be downloaded. Try again.',
+    ja: '\u6dfb\u4ed8\u3092\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u518d\u8a66\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002',
+  );
+}
+
 Future<void> _shareAttachment(
   BuildContext context,
   WidgetRef ref,
   NoteAttachment attachment,
 ) async {
   final strings = context.strings;
+  final downloadedAttachment = await _downloadRemoteAttachmentWithPrompt(
+    context,
+    ref,
+    attachment,
+  );
+  if (downloadedAttachment == null || !context.mounted) {
+    return;
+  }
+  attachment = downloadedAttachment;
   final filePath = attachment.filePath;
   if (filePath == null || filePath.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -6004,13 +6189,18 @@ Future<void> _markSharedAttachmentForCleanup(
   try {
     await attachmentStore.deleteMaterializedFile(tempFilePath);
     return;
-  } catch (_) {}
+  } catch (_) {
+    // Fall back to a delayed cleanup marker when immediate deletion fails.
+    logDiagnostic('attachments', 'immediate shared attachment cleanup failed');
+  }
   try {
     await attachmentStore.markMaterializedFileForCleanup(
       tempFilePath,
       deleteAfter: DateTime.now().add(_sharedAttachmentCleanupDelay),
     );
-  } catch (_) {}
+  } catch (_) {
+    logDiagnostic('attachments', 'deferred shared attachment cleanup failed');
+  }
 }
 
 const _sharedAttachmentCleanupDelay = Duration(minutes: 10);
@@ -6139,6 +6329,7 @@ class _EmbeddedPhotoAttachment extends ConsumerStatefulWidget {
 class _EmbeddedPhotoAttachmentState
     extends ConsumerState<_EmbeddedPhotoAttachment> {
   Future<List<int>?>? _imageBytesFuture;
+  NoteAttachment? _downloadedAttachment;
 
   @override
   void didUpdateWidget(covariant _EmbeddedPhotoAttachment oldWidget) {
@@ -6146,21 +6337,47 @@ class _EmbeddedPhotoAttachmentState
     if (_attachmentCacheKey(oldWidget.attachment) !=
         _attachmentCacheKey(widget.attachment)) {
       _imageBytesFuture = null;
+      _downloadedAttachment = null;
     }
   }
 
   Future<List<int>?> _ensureImageBytesFuture() {
     return _imageBytesFuture ??= _readPhotoAttachmentBytesWithPerf(
       ref,
-      widget.attachment,
+      _downloadedAttachment ?? widget.attachment,
       source: 'detail',
+    );
+  }
+
+  Widget _downloadNotice(NoteAttachment attachment, {bool retry = false}) {
+    return SizedBox(
+      height: 180,
+      child: Center(
+        child: RemoteAttachmentNotice(
+          attachment: attachment,
+          retry: retry,
+          onDownloaded: (downloaded) {
+            if (!mounted) return;
+            setState(() {
+              _downloadedAttachment = downloaded;
+              _imageBytesFuture = null;
+            });
+          },
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final attachment = _downloadedAttachment ?? widget.attachment;
+    if (isSyncAttachmentObjectRef(attachment.filePath ?? '') &&
+        (attachment.previewBytesBase64 == null ||
+            attachment.previewBytesBase64!.isEmpty)) {
+      return _downloadNotice(attachment);
+    }
     if (!widget.mediaActive) {
-      return _InactivePhotoAttachmentPreview(label: widget.attachment.label);
+      return _InactivePhotoAttachmentPreview(label: attachment.label);
     }
     return FutureBuilder<List<int>?>(
       future: _ensureImageBytesFuture(),
@@ -6173,6 +6390,10 @@ class _EmbeddedPhotoAttachmentState
           );
         }
         if (bytes == null || bytes.isEmpty) {
+          if (attachment.syncAttachmentContentHash?.isNotEmpty == true ||
+              isSyncAttachmentObjectRef(attachment.filePath)) {
+            return _downloadNotice(attachment, retry: true);
+          }
           return SizedBox(
             height: 180,
             child: Center(child: Text(context.strings.unableToLoadImage)),
@@ -6182,7 +6403,7 @@ class _EmbeddedPhotoAttachmentState
           onTap: () => _openAttachmentViewer(
             context,
             ref,
-            widget.attachment,
+            attachment,
             photoAttachments: widget.photoAttachments,
             initialPhotoIndex: widget.photoIndex,
           ),
@@ -6199,11 +6420,16 @@ class _EmbeddedPhotoAttachmentState
                   gaplessPlayback: true,
                   errorBuilder: (context, error, stackTrace) {
                     _logAttachmentDisplayDiagnostic(
-                      widget.attachment,
+                      attachment,
                       'image decode failed',
                       source: 'detail',
                       data: {'error': error, 'bytes': bytes.length},
                     );
+                    if (attachment.syncAttachmentContentHash?.isNotEmpty ==
+                            true ||
+                        isSyncAttachmentObjectRef(attachment.filePath)) {
+                      return _downloadNotice(attachment, retry: true);
+                    }
                     return const _AttachmentImageErrorPanel(height: 180);
                   },
                 ),
@@ -6297,6 +6523,18 @@ class _AttachmentPreviewState extends ConsumerState<_AttachmentPreview> {
         size: size,
         attachment: attachment,
         diagnosticSource: 'preview',
+      );
+    }
+
+    // A cloud reference is metadata only. Keep list rendering local and let
+    // the explicit open/share action perform the download.
+    if (isSyncAttachmentObjectRef(attachment.filePath ?? '')) {
+      return Tooltip(
+        message: context.strings.localized(
+          en: 'Download to view this attachment',
+          ja: '\u8868\u793a\u3059\u308b\u306b\u306f\u30c0\u30a6\u30f3\u30ed\u30fc\u30c9\u3057\u3066\u304f\u3060\u3055\u3044',
+        ),
+        child: _AttachmentIconBox(type: attachment.type, size: size),
       );
     }
 
@@ -6577,9 +6815,8 @@ class _AttachmentSizeTextState extends ConsumerState<_AttachmentSizeText> {
         }
         return Text(
           context.strings.byteCount(sizeBytes),
-          style: Theme.of(
-            context,
-          ).textTheme.labelSmall?.copyWith(color: _mutedTextColor(context)),
+          style: Theme.of(context).textTheme.labelSmall
+              ?.copyWith(color: _mutedTextColor(context)),
         );
       },
     );

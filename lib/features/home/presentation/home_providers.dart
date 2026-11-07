@@ -45,6 +45,11 @@ import '../../security/data/encrypted_note_database.dart';
 import '../../security/data/encrypted_attachment_store.dart';
 import '../../security/data/encryption_service.dart';
 import '../../security/data/master_key_service.dart';
+import '../../security/data/authentication_throttle.dart';
+import '../../security/data/app_pin_lock_store.dart';
+import '../../security/data/secret_verifier_store.dart';
+export '../../security/data/app_pin_lock_store.dart';
+export '../../security/data/secret_verifier_store.dart';
 import '../../security/data/profile_data_key_service.dart';
 import '../../security/data/private_vault_secret_store.dart';
 import '../../security/data/secure_key_value_store.dart';
@@ -58,9 +63,19 @@ import '../../sync/data/secure_sync_bundle_store.dart';
 import '../../sync/data/sync_bundle_key_service.dart';
 import '../../sync/data/sync_bundle_state_store.dart';
 import '../../sync/data/sync_engine.dart';
+import '../../sync/data/sync_history_reader.dart';
+import '../../sync/data/sync_exclusion_retention.dart';
+import '../../sync/data/sync_bundle_coverage.dart';
+import '../../sync/data/remote_attachment_maintenance.dart';
+import '../../sync/data/sync_upload_reservations.dart';
+import '../../sync/data/sync_upload_receipt_cache.dart';
 import 'media_duration_stub.dart' if (dart.library.io) 'media_duration_io.dart';
 
 part 'home_providers.g.dart';
+part '../../sync/presentation/sync_controllers.dart';
+part '../../sync/presentation/sync_providers.dart';
+part '../../security/presentation/private_profile_store.dart';
+part '../../security/presentation/security_providers.dart';
 
 void _debugHomePerf(String message) {
   if (!kDebugMode) {
@@ -278,6 +293,9 @@ bool remoteBundleNeedsApplyForSync(
   SyncBundleState bundleState,
 ) {
   final remoteFileId = remoteStatus.fileId;
+  if (remoteFileId.isNotEmpty && bundleState.appliedRemoteFileIds != null) {
+    return !bundleState.appliedRemoteFileIds!.contains(remoteFileId);
+  }
   if (remoteFileId.isNotEmpty) {
     return remoteFileId != bundleState.lastAppliedRemoteFileId;
   }
@@ -681,7 +699,9 @@ class WidgetQuickCaptureBridge {
           _requestFromArguments(Map<String, dynamic>.from(pending.cast())),
         );
       }
-    } catch (_) {}
+    } catch (_) {
+      // The native widget channel may be unavailable on unsupported launches.
+    }
   }
 
   Future<void> deleteImportedFiles(List<QuickCaptureFile> files) async {
@@ -698,7 +718,9 @@ class WidgetQuickCaptureBridge {
           'paths': [for (final file in files) file.path],
         },
       );
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('quick_capture', 'imported file cleanup failed');
+    }
   }
 
   QuickCaptureRequest _requestFromArguments(Map<String, dynamic> arguments) {
@@ -1004,136 +1026,6 @@ class AppPinLockState {
       isConfigured: isConfigured ?? this.isConfigured,
       lastError: clearError ? null : (lastError ?? this.lastError),
     );
-  }
-}
-
-class AppPinLockStore {
-  AppPinLockStore({required EncryptionService encryptionService})
-    : _encryptionService = encryptionService;
-
-  static const _storageKey = 'settings.web_app_pin.v1';
-
-  final EncryptionService _encryptionService;
-
-  Future<bool> hasPin() async {
-    final prefs = await SharedPreferences.getInstance();
-    final payload = prefs.getString(_storageKey);
-    return payload != null && payload.isNotEmpty;
-  }
-
-  Future<void> configure(String pin) async {
-    final prefs = await SharedPreferences.getInstance();
-    final salt = _encryptionService.generateSalt();
-    final verifier = await _encryptionService.deriveSecretVerifier(
-      secret: pin,
-      salt: salt,
-    );
-    await prefs.setString(
-      _storageKey,
-      jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
-    );
-  }
-
-  Future<bool> verify(String pin) async {
-    final prefs = await SharedPreferences.getInstance();
-    final payload = prefs.getString(_storageKey);
-    if (payload == null || payload.isEmpty) {
-      return false;
-    }
-    final decoded = Map<String, dynamic>.from(
-      jsonDecode(payload) as Map<String, dynamic>,
-    );
-    final salt = base64Decode(decoded['salt'] as String);
-    final storedVerifier = decoded['verifier'] as String;
-    final incomingVerifier = await _encryptionService.deriveSecretVerifier(
-      secret: pin,
-      salt: salt,
-    );
-    return _constantTimeEquals(storedVerifier, incomingVerifier);
-  }
-
-  Future<void> clear() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_storageKey);
-  }
-
-  bool _constantTimeEquals(String left, String right) {
-    final leftBytes = utf8.encode(left);
-    final rightBytes = utf8.encode(right);
-    var diff = leftBytes.length ^ rightBytes.length;
-    final limit = leftBytes.length > rightBytes.length
-        ? leftBytes.length
-        : rightBytes.length;
-    for (var i = 0; i < limit; i++) {
-      final a = i < leftBytes.length ? leftBytes[i] : 0;
-      final b = i < rightBytes.length ? rightBytes[i] : 0;
-      diff |= a ^ b;
-    }
-    return diff == 0;
-  }
-}
-
-class SecretVerifierStore {
-  SecretVerifierStore({
-    required SecureKeyValueStore secureStore,
-    required EncryptionService encryptionService,
-    required this.storageKey,
-  }) : _secureStore = secureStore,
-       _encryptionService = encryptionService;
-
-  final SecureKeyValueStore _secureStore;
-  final EncryptionService _encryptionService;
-  final String storageKey;
-
-  Future<bool> hasSecret() async {
-    final payload = await _secureStore.read(storageKey);
-    return payload != null && payload.isNotEmpty;
-  }
-
-  Future<void> configure(String secret) async {
-    final salt = _encryptionService.generateSalt();
-    final verifier = await _encryptionService.deriveSecretVerifier(
-      secret: secret,
-      salt: salt,
-    );
-    await _secureStore.write(
-      storageKey,
-      jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
-    );
-  }
-
-  Future<bool> verify(String secret) async {
-    final payload = await _secureStore.read(storageKey);
-    if (payload == null || payload.isEmpty) {
-      return false;
-    }
-    final decoded = Map<String, dynamic>.from(
-      jsonDecode(payload) as Map<String, dynamic>,
-    );
-    final salt = base64Decode(decoded['salt'] as String);
-    final verifier = decoded['verifier'] as String;
-    final incomingVerifier = await _encryptionService.deriveSecretVerifier(
-      secret: secret,
-      salt: salt,
-    );
-    return _constantTimeEquals(verifier, incomingVerifier);
-  }
-
-  Future<void> clear() => _secureStore.delete(storageKey);
-
-  bool _constantTimeEquals(String left, String right) {
-    final leftBytes = utf8.encode(left);
-    final rightBytes = utf8.encode(right);
-    var diff = leftBytes.length ^ rightBytes.length;
-    final limit = leftBytes.length > rightBytes.length
-        ? leftBytes.length
-        : rightBytes.length;
-    for (var i = 0; i < limit; i++) {
-      final a = i < leftBytes.length ? leftBytes[i] : 0;
-      final b = i < rightBytes.length ? rightBytes[i] : 0;
-      diff |= a ^ b;
-    }
-    return diff == 0;
   }
 }
 
@@ -1664,8 +1556,7 @@ const _useFakeGoogleDriveSync = bool.fromEnvironment(
 bool get useFakeGoogleDriveSync => _useFakeGoogleDriveSync;
 
 class FakeGoogleDriveSyncAuthGateway implements SyncAuthGateway {
-  FakeGoogleDriveSyncAuthGateway({required SyncAuthGateway fallback})
-    : _fallback = fallback;
+  FakeGoogleDriveSyncAuthGateway({required this._fallback});
 
   final SyncAuthGateway _fallback;
 
@@ -1722,7 +1613,9 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
         await _ensureGoogleInitialized();
         await GoogleSignIn.instance.disconnect();
       }
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('sync', 'provider disconnect failed');
+    }
   }
 
   Future<void> _ensureGoogleInitialized() async {
@@ -1743,8 +1636,7 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
           return const SyncAuthState(
             provider: SyncProvider.googleDrive,
             stage: SyncAuthStage.unsupported,
-            message:
-                'Google sign-in on this platform needs explicit client ID setup and a user-triggered SDK button.',
+            message: 'Google sign-in on this platform needs explicit client ID setup and a user-triggered SDK button.',
           );
         }
         account = await GoogleSignIn.instance.authenticate(
@@ -1834,12 +1726,10 @@ class DefaultSyncAuthGateway implements SyncAuthGateway {
   String _googleDriveSignInExceptionMessage(GoogleSignInException error) {
     return switch (error.code) {
       GoogleSignInExceptionCode.clientConfigurationError ||
-      GoogleSignInExceptionCode.providerConfigurationError =>
-        'Google Drive sign-in is not configured for this build. Add OAuth clients for this app package/bundle and pass the Google Sign-In client IDs to the build.',
+      GoogleSignInExceptionCode.providerConfigurationError => 'Google Drive sign-in is not configured for this build. Add OAuth clients for this app package/bundle and pass the Google Sign-In client IDs to the build.',
       GoogleSignInExceptionCode.canceled =>
         'Google Drive sign-in was canceled.',
-      GoogleSignInExceptionCode.uiUnavailable =>
-        'Google Drive sign-in UI is unavailable. Start authorization from the Settings screen while the app is in the foreground.',
+      GoogleSignInExceptionCode.uiUnavailable => 'Google Drive sign-in UI is unavailable. Start authorization from the Settings screen while the app is in the foreground.',
       _ =>
         'Google Drive sign-in failed: ${error.description ?? error.toString()}',
     };
@@ -1854,8 +1744,7 @@ abstract class MediaImportService {
 }
 
 class DefaultMediaImportService implements MediaImportService {
-  DefaultMediaImportService({required EncryptedAttachmentStore attachmentStore})
-    : _attachmentStore = attachmentStore;
+  DefaultMediaImportService({required this._attachmentStore});
 
   final EncryptedAttachmentStore _attachmentStore;
 
@@ -2068,13 +1957,9 @@ class DefaultMediaImportService implements MediaImportService {
         onProcessingStarted: onProcessingStarted,
       );
     }
-    FilePickerResult? result;
+    List<PlatformFile> result;
     try {
-      result = await FilePicker.pickFiles(
-        type: pickerType,
-        allowMultiple: true,
-        withData: kIsWeb,
-      );
+      result = await FilePicker.pickFiles(type: pickerType);
     } on MissingPluginException {
       return MediaImportResult.failure(importNotConfiguredMessage);
     } on PlatformException catch (error) {
@@ -2082,19 +1967,16 @@ class DefaultMediaImportService implements MediaImportService {
     } catch (error) {
       return MediaImportResult.failure('$importFailedPrefix ($error)');
     }
-    if (result == null || result.files.isEmpty) {
+    if (result.isEmpty) {
       return const MediaImportResult.cancelled();
     }
 
     onProcessingStarted?.call();
     final attachments = <NoteAttachment>[];
     final deferredPreviews = <String, Future<String?>>{};
-    for (final file in result.files) {
-      final sourceFile = _xFileFromPlatformFile(file);
-      if (sourceFile == null) {
-        return MediaImportResult.failure(openFailureMessage);
-      }
-      final bytes = file.bytes;
+    for (final file in result) {
+      final sourceFile = file.xFile;
+      final bytes = kIsWeb ? await file.readAsBytes() : null;
       if (bytes != null && bytes.length > maxBytes) {
         return MediaImportResult.failure(tooLargeMessage);
       }
@@ -2206,7 +2088,7 @@ class DefaultMediaImportService implements MediaImportService {
   Future<MediaImportResult> _pickAudio({
     VoidCallback? onProcessingStarted,
   }) async {
-    FilePickerResult? result;
+    PlatformFile? file;
     try {
       final audioExtensions = <String>[
         'm4a',
@@ -2219,14 +2101,13 @@ class DefaultMediaImportService implements MediaImportService {
         'flac',
         'ogg',
       ];
-      result = await FilePicker.pickFiles(
+      file = await FilePicker.pickFile(
         type: defaultTargetPlatform == TargetPlatform.iOS
             ? FileType.custom
             : FileType.audio,
         allowedExtensions: defaultTargetPlatform == TargetPlatform.iOS
             ? audioExtensions
             : null,
-        withData: kIsWeb,
       );
     } on MissingPluginException {
       return const MediaImportResult.failure(
@@ -2241,26 +2122,18 @@ class DefaultMediaImportService implements MediaImportService {
         'Audio import failed on this device. ($error)',
       );
     }
-    if (result == null || result.files.isEmpty) {
+    if (file == null) {
       return const MediaImportResult.cancelled();
     }
 
     onProcessingStarted?.call();
-    final file = result.files.single;
-    final bytes = file.bytes;
-    if (file.path == null && bytes == null) {
-      return const MediaImportResult.failure(
-        'The selected audio file could not be opened on this device.',
-      );
-    }
+    final bytes = kIsWeb ? await file.readAsBytes() : null;
     if (bytes != null && bytes.length > 50 * 1024 * 1024) {
       return const MediaImportResult.failure(
         'Audio files over 50 MB are not supported yet.',
       );
     }
-    final sourceFile = file.path == null
-        ? XFile.fromData(file.bytes!, name: file.name)
-        : XFile(file.path!, name: file.name);
+    final sourceFile = file.xFile;
     final tooLarge = await _validateFileSize(
       sourceFile,
       maxBytes: 50 * 1024 * 1024,
@@ -2279,9 +2152,10 @@ class DefaultMediaImportService implements MediaImportService {
   Future<MediaImportResult> _pickFile({
     VoidCallback? onProcessingStarted,
   }) async {
-    FilePickerResult? result;
+    List<PlatformFile> result;
     try {
-      result = await FilePicker.pickFiles(type: FileType.any, withData: kIsWeb);
+      result = await FilePicker.pickFile(type: FileType.any)
+          .then((file) => file == null ? <PlatformFile>[] : [file]);
     } on MissingPluginException {
       return const MediaImportResult.failure(
         'File import is not configured in this runtime.',
@@ -2295,26 +2169,19 @@ class DefaultMediaImportService implements MediaImportService {
         'File import failed on this device. ($error)',
       );
     }
-    if (result == null || result.files.isEmpty) {
+    if (result.isEmpty) {
       return const MediaImportResult.cancelled();
     }
 
     onProcessingStarted?.call();
-    final file = result.files.single;
-    final bytes = file.bytes;
-    if (file.path == null && bytes == null) {
-      return const MediaImportResult.failure(
-        'The selected file could not be opened on this device.',
-      );
-    }
+    final file = result.single;
+    final bytes = kIsWeb ? await file.readAsBytes() : null;
     if (bytes != null && bytes.length > 100 * 1024 * 1024) {
       return const MediaImportResult.failure(
         'Files over 100 MB are not supported yet.',
       );
     }
-    final sourceFile = file.path == null
-        ? XFile.fromData(file.bytes!, name: file.name)
-        : XFile(file.path!, name: file.name);
+    final sourceFile = file.xFile;
     final tooLarge = await _validateFileSize(
       sourceFile,
       maxBytes: 100 * 1024 * 1024,
@@ -2414,18 +2281,6 @@ class DefaultMediaImportService implements MediaImportService {
     );
   }
 
-  XFile? _xFileFromPlatformFile(PlatformFile file) {
-    final bytes = file.bytes;
-    final path = file.path;
-    if (path == null && bytes == null) {
-      return null;
-    }
-    if (path == null) {
-      return XFile.fromData(bytes!, name: file.name);
-    }
-    return XFile(path, name: file.name);
-  }
-
   Future<MediaImportResult?> _validateFileSize(
     XFile file, {
     required int maxBytes,
@@ -2465,89 +2320,6 @@ final mediaImportServiceProvider = Provider<MediaImportService>(
     attachmentStore: ref.watch(encryptedAttachmentStoreProvider),
   ),
 );
-
-final secureKeyValueStoreProvider = Provider<SecureKeyValueStore>((ref) {
-  return FlutterSecureKeyValueStore();
-});
-
-final iCloudSynchronizableKeyValueStoreProvider = Provider<SecureKeyValueStore>(
-  (ref) {
-    return FlutterSecureKeyValueStore(
-      iOptions: const IOSOptions(
-        accountName: 'org.ruhenheim.himemo.cloud_recovery_key',
-        synchronizable: true,
-        accessibility: KeychainAccessibility.first_unlock,
-      ),
-      mOptions: const MacOsOptions(
-        accountName: 'org.ruhenheim.himemo.cloud_recovery_key',
-        synchronizable: true,
-      ),
-    );
-  },
-);
-
-final encryptionServiceProvider = Provider<EncryptionService>((ref) {
-  return EncryptionService();
-});
-
-final appPinLockStoreProvider = Provider<AppPinLockStore>((ref) {
-  return AppPinLockStore(
-    encryptionService: ref.watch(encryptionServiceProvider),
-  );
-});
-
-final coverModeSecretStoreProvider = Provider<SecretVerifierStore>((ref) {
-  return SecretVerifierStore(
-    secureStore: ref.watch(secureKeyValueStoreProvider),
-    encryptionService: ref.watch(encryptionServiceProvider),
-    storageKey: 'security.cover_mode_secret.v1',
-  );
-});
-
-final masterKeyServiceProvider = Provider<MasterKeyService>((ref) {
-  final encryption = ref.watch(encryptionServiceProvider);
-  return MasterKeyService(
-    secureStore: ref.watch(secureKeyValueStoreProvider),
-    keyFactory: encryption.generateKeyBytes,
-  );
-});
-
-final encryptedNoteStoreProvider = Provider<EncryptedNoteStore>((ref) {
-  return EncryptedNoteStore(
-    encryptionService: ref.watch(encryptionServiceProvider),
-    masterKeyService: ref.watch(masterKeyServiceProvider),
-    profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
-    database: ref.watch(encryptedNoteDatabaseProvider),
-  );
-});
-
-final profileDataKeyServiceProvider = Provider<ProfileDataKeyService>((ref) {
-  return ProfileDataKeyService(
-    secureStore: ref.watch(secureKeyValueStoreProvider),
-    encryptionService: ref.watch(encryptionServiceProvider),
-    normalMasterKeyService: ref.watch(masterKeyServiceProvider),
-  );
-});
-
-final encryptedNoteDatabaseProvider = Provider<EncryptedNoteDatabase>((ref) {
-  final database = EncryptedNoteDatabase();
-  ref.onDispose(database.close);
-  return database;
-});
-
-final deviceIdentityStoreProvider = Provider<DeviceIdentityStore>((ref) {
-  return DeviceIdentityStore();
-});
-
-final encryptedAttachmentStoreProvider = Provider<EncryptedAttachmentStore>((
-  ref,
-) {
-  return EncryptedAttachmentStore(
-    encryptionService: ref.watch(encryptionServiceProvider),
-    masterKeyService: ref.watch(masterKeyServiceProvider),
-    profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
-  );
-});
 
 class StorageUsageSummary {
   const StorageUsageSummary({
@@ -3176,14 +2948,6 @@ int _intFromPlatform(Object? value) {
   return int.tryParse('$value') ?? 0;
 }
 
-final syncEngineProvider = Provider<SyncEngine>((ref) {
-  return SyncEngine(
-    database: ref.watch(encryptedNoteDatabaseProvider),
-    attachmentStore: ref.watch(encryptedAttachmentStoreProvider),
-    deviceIdentityStore: ref.watch(deviceIdentityStoreProvider),
-  );
-});
-
 final diagnosticLogServiceProvider = Provider<DiagnosticLogService>((ref) {
   return DiagnosticLogService.instance;
 });
@@ -3260,37 +3024,6 @@ class AuditLogController extends AsyncNotifier<AuditLogSnapshot> {
   }
 }
 
-final secureSyncBundleStoreProvider = Provider<SecureSyncBundleStore>((ref) {
-  return SecureSyncBundleStore(
-    encryptionService: ref.watch(encryptionServiceProvider),
-    syncBundleKeyService: ref.watch(syncBundleKeyServiceProvider),
-    legacyMasterKeyService: ref.watch(masterKeyServiceProvider),
-  );
-});
-
-final syncBundleKeyServiceProvider = Provider<SyncBundleKeyService>((ref) {
-  final encryption = ref.watch(encryptionServiceProvider);
-  final provider = ref.watch(syncProviderControllerProvider);
-  final usesICloudSharedKey =
-      provider == SyncProvider.iCloud &&
-      !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.iOS ||
-          defaultTargetPlatform == TargetPlatform.macOS);
-  return SyncBundleKeyService(
-    secureStore: usesICloudSharedKey
-        ? ref.watch(iCloudSynchronizableKeyValueStoreProvider)
-        : ref.watch(secureKeyValueStoreProvider),
-    fallbackStore: usesICloudSharedKey
-        ? ref.watch(secureKeyValueStoreProvider)
-        : null,
-    keyFactory: encryption.generateKeyBytes,
-  );
-});
-
-final syncBundleFingerprintProvider = FutureProvider<String>((ref) async {
-  return ref.watch(syncBundleKeyServiceProvider).fingerprint();
-});
-
 final packageInfoProvider = FutureProvider<AppPackageDetails>((ref) async {
   try {
     final info = await PackageInfo.fromPlatform();
@@ -3366,59 +3099,6 @@ class ReleaseNotesSeenController {
     _ref.invalidate(unseenReleaseNoteProvider);
   }
 }
-
-final googleDriveSyncTransportProvider = Provider<GoogleDriveSyncTransport>((
-  ref,
-) {
-  if (_useFakeGoogleDriveSync) {
-    return InMemoryGoogleDriveSyncTransport();
-  }
-  return GoogleApisGoogleDriveSyncTransport(
-    authConfig: ref.watch(googleDriveAuthConfigProvider),
-  );
-});
-
-final googleDriveCloudSyncBundleKeyStoreProvider =
-    Provider<GoogleDriveCloudSyncBundleKeyStore>((ref) {
-      return GoogleDriveCloudSyncBundleKeyStore(
-        ref.watch(googleDriveSyncTransportProvider),
-      );
-    });
-
-final iCloudSyncTransportProvider = Provider<ICloudSyncTransport>((ref) {
-  return MethodChannelICloudSyncTransport();
-});
-
-final syncBundleStateStoreProvider = Provider<SyncBundleStateStore>((ref) {
-  return SyncBundleStateStore();
-});
-
-final syncBundleStateProvider = FutureProvider<SyncBundleState>((ref) async {
-  return ref.watch(syncBundleStateStoreProvider).read();
-});
-
-final syncConflictWarningProvider = Provider<String?>((ref) {
-  final provider = ref.watch(syncProviderControllerProvider);
-  final assessment = assessSyncConflict(
-    googleDriveSelected: provider != SyncProvider.off,
-    queue: ref.watch(syncQueueSummaryProvider).asData?.value,
-    remoteStatus: ref.watch(syncTransferControllerProvider).remoteStatus,
-    bundleState: ref.watch(syncBundleStateProvider).asData?.value,
-  );
-  return assessment.message;
-});
-
-final syncQueueSummaryProvider = FutureProvider<SyncQueueSummary>((ref) async {
-  return ref.watch(syncEngineProvider).summarizeQueue();
-});
-
-final syncHistoryStoreProvider = Provider<SyncHistoryStore>((ref) {
-  return SyncHistoryStore();
-});
-
-final syncHistoryProvider = FutureProvider<List<SyncHistoryEntry>>((ref) {
-  return ref.watch(syncHistoryStoreProvider).read();
-});
 
 final playIntegrityServiceProvider = Provider<PlayIntegrityService>(
   (ref) => const PlayIntegrityService(),
@@ -3538,4042 +3218,6 @@ class InAppUpdateController extends Notifier<InAppUpdateState> {
   }
 }
 
-final syncTransferControllerProvider =
-    NotifierProvider<SyncTransferController, SyncTransferState>(
-      SyncTransferController.new,
-    );
-
-class SyncTransferController extends Notifier<SyncTransferState> {
-  static const largeMobileSyncThresholdBytes = 50 * 1024 * 1024;
-  static const _automaticICloudPruneKeepLatest = 5;
-
-  // Upload a full snapshot every N delta uploads so remote history can be
-  // pruned and devices with an unknown apply anchor can always converge from
-  // the newest full bundle.
-  static const _fullSnapshotUploadInterval = 20;
-
-  // How many remote bundles to inspect when walking unapplied history.
-  static const _remoteBundleWalkHistoryLimit = 50;
-  static const _remoteStatusCacheTtl = Duration(seconds: 20);
-  static const _iCloudRemoteStatusCacheTtl = Duration(minutes: 2);
-  static const _syncBundleDecryptionMessage =
-      'sync.error.bundle_decryption_failed';
-  static const _syncBundleKeyMissingMessage = 'sync.error.bundle_key_missing';
-  static const _iCloudSyncBundleKeyWaitingMessage =
-      'sync.error.icloud_keychain_waiting';
-  static const _privateProfileNotesPendingUnlockMessage =
-      'sync.info.private_profile_notes_pending_unlock';
-  static const _downloadedSyncBundleFileName = 'downloaded_sync_bundle.enc';
-  static const _pendingPrivateBundleApplyKey =
-      'sync.pending_private_bundle_apply.v1';
-
-  Timer? _cooldownTimer;
-  Timer? _remoteStatusWaitTimer;
-  RemoteSyncBundleStatus? _cachedRemoteStatus;
-  DateTime? _cachedRemoteStatusFetchedAt;
-  SyncProvider? _cachedRemoteStatusProvider;
-  String? _lastFailureSignature;
-  int _consecutiveFailureCount = 0;
-
-  @override
-  SyncTransferState build() {
-    ref.onDispose(() {
-      _cooldownTimer?.cancel();
-      _remoteStatusWaitTimer?.cancel();
-    });
-    return const SyncTransferState.idle();
-  }
-
-  void _diagnostic(
-    String message, {
-    Map<String, Object?> data = const <String, Object?>{},
-  }) {
-    logDiagnostic('sync', message, data: data);
-  }
-
-  void clearLocalBundleCache() {
-    state = state.copyWith(clearLocalBundle: true);
-  }
-
-  void clearRetryCooldown() {
-    _cooldownTimer?.cancel();
-    state = state.copyWith(clearCooldown: true);
-    _diagnostic('sync retry cooldown cleared');
-  }
-
-  Future<SyncQueueSummary> _readLocalSyncQueueSummary() {
-    return ref.read(syncEngineProvider).summarizeQueue();
-  }
-
-  Future<void> _recordSyncHistory({
-    required DateTime startedAt,
-    required String operation,
-    required bool success,
-    String? message,
-    SyncQueueSummary? queueBefore,
-    SyncQueueSummary? queueAfter,
-    RemoteSyncBundleStatus? remoteStatus,
-    StoredSyncBundle? localBundle,
-  }) async {
-    final provider = ref.read(syncProviderControllerProvider);
-    final noteCount = remoteStatus?.noteCount ?? localBundle?.noteCount;
-    final attachmentCount =
-        remoteStatus?.attachmentCount ?? localBundle?.attachmentCount;
-    await ref
-        .read(syncHistoryStoreProvider)
-        .add(
-          SyncHistoryEntry(
-            startedAt: startedAt,
-            finishedAt: DateTime.now(),
-            provider: provider,
-            operation: operation,
-            success: success,
-            message: message,
-            noteCount: noteCount,
-            attachmentCount: attachmentCount,
-            queueBefore: queueBefore,
-            queueAfter: queueAfter,
-          ),
-        );
-    ref.invalidate(syncHistoryProvider);
-    if (success) {
-      _lastFailureSignature = null;
-      _consecutiveFailureCount = 0;
-      return;
-    }
-    _applyFailureBackoff(operation: operation, message: message);
-  }
-
-  void _applyFailureBackoff({required String operation, String? message}) {
-    final signature = '$operation:${message ?? ''}';
-    if (_lastFailureSignature == signature) {
-      _consecutiveFailureCount += 1;
-    } else {
-      _lastFailureSignature = signature;
-      _consecutiveFailureCount = 1;
-    }
-    final retryAfter = switch (_consecutiveFailureCount) {
-      1 => Duration.zero,
-      2 => const Duration(seconds: 20),
-      3 => const Duration(minutes: 1),
-      _ => const Duration(minutes: 5),
-    };
-    if (retryAfter == Duration.zero) {
-      return;
-    }
-    _scheduleCooldownRefresh(retryAfter);
-    state = state.copyWith(cooldownUntil: DateTime.now().add(retryAfter));
-    _diagnostic(
-      'sync retry cooldown scheduled',
-      data: {
-        'operation': operation,
-        'failures': _consecutiveFailureCount,
-        'retryAfterSeconds': retryAfter.inSeconds,
-      },
-    );
-  }
-
-  Future<LargeSyncTransferWarning?> largeMobileTransferWarning({
-    bool includeUpload = true,
-    bool includeDownload = true,
-    bool estimateAllLocalNotes = false,
-  }) async {
-    final kind = await ref.read(networkConnectionServiceProvider).currentKind();
-    if (kind != NetworkConnectionKind.mobile) {
-      return null;
-    }
-    if (includeDownload) {
-      var remoteStatus = state.remoteStatus;
-      if (remoteStatus == null &&
-          _supportsRemoteTransport(ref.read(syncProviderControllerProvider))) {
-        final bundleState = await ref.read(syncBundleStateProvider.future);
-        if (bundleState.lastRemoteFileId != null &&
-            bundleState.lastRemoteFileId!.isNotEmpty) {
-          remoteStatus = RemoteSyncBundleStatus(
-            fileId: bundleState.lastRemoteFileId!,
-            fileName: '',
-            modifiedAt: bundleState.lastRemoteModifiedAt,
-            deviceId: bundleState.lastRemoteDeviceId,
-          );
-          state = state.copyWith(remoteStatus: remoteStatus);
-        }
-        unawaited(_refreshRemoteStatusInBackground());
-      }
-      final remoteSize = remoteStatus?.sizeBytes;
-      final bundleState = await ref.read(syncBundleStateProvider.future);
-      final needsDownload =
-          remoteStatus != null &&
-          remoteBundleNeedsApplyForSync(remoteStatus, bundleState);
-      if (needsDownload &&
-          remoteSize != null &&
-          remoteSize >= largeMobileSyncThresholdBytes) {
-        return LargeSyncTransferWarning(
-          direction: LargeSyncTransferDirection.download,
-          bytes: remoteSize,
-          thresholdBytes: largeMobileSyncThresholdBytes,
-        );
-      }
-    }
-    if (!includeUpload) {
-      return null;
-    }
-    final uploadBytes = estimateAllLocalNotes
-        ? await estimateCurrentStateUploadBytes()
-        : await estimatePendingUploadBytes();
-    if (uploadBytes >= largeMobileSyncThresholdBytes) {
-      return LargeSyncTransferWarning(
-        direction: LargeSyncTransferDirection.upload,
-        bytes: uploadBytes,
-        thresholdBytes: largeMobileSyncThresholdBytes,
-      );
-    }
-    return null;
-  }
-
-  Future<int> estimatePendingUploadBytes() async {
-    final pendingChanges = await ref
-        .read(syncEngineProvider)
-        .loadPendingChanges();
-    final pendingIds = pendingChanges.map((change) => change.noteId).toSet();
-    final notes = await ref
-        .read(notesControllerProvider.notifier)
-        .notesForSyncSnapshot(pendingNoteIds: pendingIds);
-    return ref.read(syncEngineProvider).estimateNotesPayloadBytes(notes);
-  }
-
-  Future<int> estimateCurrentStateUploadBytes() async {
-    final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
-    final notes = ref
-        .read(notesControllerProvider)
-        .where(
-          (note) =>
-              !isGeneratedSampleNote(note) &&
-              (!isPrivateVaultId(note.vaultId) ||
-                  ref
-                      .read(profileDataKeyServiceProvider)
-                      .isProfileUnlocked(note.vaultId)) &&
-              !noteExcludedFromSync(note, syncExclusionTags),
-        )
-        .map((note) {
-          final syncState = note.deletedAt == null
-              ? NoteSyncState.pendingUpload
-              : NoteSyncState.pendingDelete;
-          return note.copyWith(syncState: syncState);
-        })
-        .toList(growable: false);
-    return ref.read(syncEngineProvider).estimateNotesPayloadBytes(notes);
-  }
-
-  Future<bool> _shouldBlockLargeMobileTransfer({
-    required bool allowLargeMobileTransfer,
-    required bool silentLargeMobileSkip,
-    bool includeUpload = true,
-    bool includeDownload = true,
-    bool estimateAllLocalNotes = false,
-  }) async {
-    if (allowLargeMobileTransfer) {
-      return false;
-    }
-    final warning = await largeMobileTransferWarning(
-      includeUpload: includeUpload,
-      includeDownload: includeDownload,
-      estimateAllLocalNotes: estimateAllLocalNotes,
-    );
-    if (warning == null) {
-      return false;
-    }
-    _diagnostic(
-      'large mobile sync blocked',
-      data: {
-        'direction': warning.direction.name,
-        'bytes': warning.bytes,
-        'thresholdBytes': warning.thresholdBytes,
-        'silent': silentLargeMobileSkip,
-      },
-    );
-    if (!silentLargeMobileSkip) {
-      state = const SyncTransferState(
-        stage: SyncTransferStage.error,
-        message: 'sync.error.large_mobile_transfer_requires_confirmation',
-      );
-    } else if (state.stage == SyncTransferStage.busy) {
-      state = SyncTransferState(
-        stage: SyncTransferStage.idle,
-        remoteStatus: state.remoteStatus,
-        localBundle: state.localBundle,
-      );
-    }
-    return true;
-  }
-
-  void _startBusy(SyncTransferProgress progress) {
-    state = state.copyWith(
-      stage: SyncTransferStage.busy,
-      progress: progress,
-      clearMessage: true,
-      clearDetail: true,
-      clearCooldown: true,
-    );
-  }
-
-  void _setProgress(SyncTransferProgress progress) {
-    state = state.copyWith(
-      stage: SyncTransferStage.busy,
-      progress: progress,
-      clearMessage: true,
-    );
-  }
-
-  void _setProgressDetail({
-    required SyncTransferProgress progress,
-    String? detail,
-    int? completedItems,
-    int? totalItems,
-  }) {
-    state = state.copyWith(
-      stage: SyncTransferStage.busy,
-      progress: progress,
-      detail: detail,
-      completedItems: completedItems,
-      totalItems: totalItems,
-      clearMessage: true,
-      clearDetail:
-          detail == null && completedItems == null && totalItems == null,
-    );
-  }
-
-  DateTime _lastUiYieldAt = DateTime.fromMillisecondsSinceEpoch(0);
-
-  // Yields to the event loop at most every few milliseconds. Sync loops call
-  // this once per note/attachment; an unthrottled timer hop per item adds
-  // seconds of pure scheduling overhead on large libraries.
-  Future<void> _yieldToUi() {
-    final now = DateTime.now();
-    if (now.difference(_lastUiYieldAt) < const Duration(milliseconds: 8)) {
-      return Future<void>.value();
-    }
-    _lastUiYieldAt = now;
-    return Future<void>.delayed(Duration.zero);
-  }
-
-  Future<T> _measureSyncStep<T>(
-    String message,
-    Future<T> Function() operation, {
-    Map<String, Object?> data = const <String, Object?>{},
-  }) async {
-    final stopwatch = Stopwatch()..start();
-    try {
-      return await operation();
-    } finally {
-      stopwatch.stop();
-      _diagnostic(
-        message,
-        data: {...data, 'elapsedMs': stopwatch.elapsedMilliseconds},
-      );
-    }
-  }
-
-  bool _canUseCachedRemoteStatus(SyncProvider provider) {
-    final fetchedAt = _cachedRemoteStatusFetchedAt;
-    final ttl = provider == SyncProvider.iCloud
-        ? _iCloudRemoteStatusCacheTtl
-        : _remoteStatusCacheTtl;
-    return fetchedAt != null &&
-        _cachedRemoteStatusProvider == provider &&
-        DateTime.now().difference(fetchedAt) < ttl;
-  }
-
-  void _cacheRemoteStatus(
-    SyncProvider provider,
-    RemoteSyncBundleStatus? remoteStatus,
-  ) {
-    _cachedRemoteStatusProvider = provider;
-    _cachedRemoteStatusFetchedAt = DateTime.now();
-    _cachedRemoteStatus = remoteStatus;
-  }
-
-  void _startRemoteStatusWaitProgress({
-    required SyncProvider provider,
-    required int totalItems,
-  }) {
-    _remoteStatusWaitTimer?.cancel();
-    final startedAt = DateTime.now();
-
-    void update() {
-      final elapsed = DateTime.now().difference(startedAt).inSeconds;
-      _setProgressDetail(
-        progress: SyncTransferProgress.checkingRemote,
-        detail: _remoteStatusWaitDetail(provider, elapsed),
-        completedItems: 0,
-        totalItems: totalItems,
-      );
-    }
-
-    update();
-    _remoteStatusWaitTimer = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) => update(),
-    );
-  }
-
-  String _remoteStatusWaitDetail(SyncProvider provider, int elapsedSeconds) {
-    final providerName = switch (provider) {
-      SyncProvider.iCloud => 'iCloud',
-      SyncProvider.googleDrive => 'Google Drive',
-      SyncProvider.off => 'cloud',
-    };
-    final elapsedSuffix = elapsedSeconds <= 0 ? '' : ' (${elapsedSeconds}s)';
-    if (provider == SyncProvider.iCloud && elapsedSeconds >= 10) {
-      return 'Still waiting for iCloud metadata$elapsedSuffix';
-    }
-    if (provider == SyncProvider.iCloud && elapsedSeconds >= 5) {
-      return 'iCloud is taking longer than usual$elapsedSuffix';
-    }
-    return 'Requesting latest $providerName metadata$elapsedSuffix';
-  }
-
-  Future<RemoteSyncBundleStatus?> _fetchLatestRemoteStatusWithCache({
-    required String traceName,
-    required bool allowCached,
-    required int totalItems,
-  }) async {
-    final provider = ref.read(syncProviderControllerProvider);
-    if (allowCached && _canUseCachedRemoteStatus(provider)) {
-      _diagnostic(
-        'remote status cache hit',
-        data: {
-          'provider': provider.name,
-          'ageMs': DateTime.now()
-              .difference(_cachedRemoteStatusFetchedAt!)
-              .inMilliseconds,
-          'hasRemote': _cachedRemoteStatus != null,
-          'fileId': _cachedRemoteStatus?.fileId,
-        },
-      );
-      _setProgressDetail(
-        progress: SyncTransferProgress.checkingRemote,
-        detail: 'Using recent cloud status',
-        completedItems: 1,
-        totalItems: totalItems,
-      );
-      await _yieldToUi();
-      return _cachedRemoteStatus;
-    }
-    _startRemoteStatusWaitProgress(provider: provider, totalItems: totalItems);
-    try {
-      final remoteStatus = await runFirebaseTrace(
-        traceName,
-        _fetchLatestRemoteStatus,
-      );
-      _cacheRemoteStatus(provider, remoteStatus);
-      return remoteStatus;
-    } finally {
-      _remoteStatusWaitTimer?.cancel();
-      _remoteStatusWaitTimer = null;
-    }
-  }
-
-  Future<void> refreshRemoteStatus({
-    bool allowCachedRemoteStatus = false,
-  }) async {
-    final provider = ref.read(syncProviderControllerProvider);
-    if (!_supportsRemoteTransport(provider)) {
-      state = const SyncTransferState(
-        stage: SyncTransferStage.idle,
-        message: 'sync.info.select_target_for_remote_status',
-      );
-      return;
-    }
-    _startBusy(SyncTransferProgress.checkingRemote);
-    await _yieldToUi();
-    try {
-      _setProgressDetail(
-        progress: SyncTransferProgress.checkingRemote,
-        detail: 'Checking cloud status',
-        completedItems: 0,
-        totalItems: 1,
-      );
-      await _yieldToUi();
-      final remoteStatus = await _measureSyncStep(
-        'remote status check completed',
-        () => _fetchLatestRemoteStatusWithCache(
-          traceName: 'sync_refresh_remote_status',
-          allowCached: allowCachedRemoteStatus,
-          totalItems: 1,
-        ),
-        data: {'cachedAllowed': allowCachedRemoteStatus},
-      );
-      state = SyncTransferState(
-        stage: SyncTransferStage.success,
-        message: remoteStatus == null
-            ? 'sync.info.no_remote_bundle'
-            : 'sync.info.remote_bundle_refreshed',
-        remoteStatus: remoteStatus,
-        localBundle: state.localBundle,
-      );
-      if (remoteStatus != null) {
-        await ref
-            .read(syncBundleStateStoreProvider)
-            .recordRemoteStatus(remoteStatus);
-      }
-    } catch (error) {
-      state = _failureState(error, remoteStatus: state.remoteStatus);
-    }
-  }
-
-  Future<ICloudStorageBreakdown> fetchICloudStorageBreakdown() async {
-    final provider = ref.read(syncProviderControllerProvider);
-    if (provider != SyncProvider.iCloud) {
-      throw StateError('iCloud sync is not selected.');
-    }
-    _diagnostic('icloud storage breakdown requested');
-    final breakdown = await runFirebaseTrace(
-      'sync_icloud_storage_breakdown',
-      () => ref.read(iCloudSyncTransportProvider).fetchStorageBreakdown(),
-    );
-    _diagnostic(
-      'icloud storage breakdown loaded',
-      data: {
-        'bundleCount': breakdown.bundleCount,
-        'bundleBytes': breakdown.bundleBytes,
-        'attachmentCount': breakdown.attachmentCount,
-        'attachmentBytes': breakdown.attachmentBytes,
-        'totalBytes': breakdown.totalBytes,
-      },
-    );
-    return breakdown;
-  }
-
-  Future<ICloudMaintenanceResult> compactICloudStorage({
-    int keepLatest = 1,
-  }) async {
-    final provider = ref.read(syncProviderControllerProvider);
-    if (provider != SyncProvider.iCloud) {
-      throw StateError('iCloud sync is not selected.');
-    }
-    _diagnostic(
-      'icloud storage compact requested',
-      data: {'keepLatest': keepLatest},
-    );
-    final lockedPrivateUpsertIds = await _lockedPrivateUpsertSnapshotIds();
-    if (lockedPrivateUpsertIds.isNotEmpty) {
-      _diagnostic(
-        'icloud storage compact blocked by locked private profiles',
-        data: {'lockedPrivateUpserts': lockedPrivateUpsertIds.length},
-      );
-      throw StateError('sync.error.unlock_private_profiles_before_compact');
-    }
-    await ref.read(notesControllerProvider.notifier).queueCurrentStateForSync();
-    await uploadCurrentBundle(
-      force: true,
-      fullSnapshot: true,
-      pruneAfterUpload: false,
-    );
-    final localBundle = state.localBundle;
-    if (localBundle == null) {
-      throw StateError('sync.error.local_bundle_prepare_failed');
-    }
-    final referencedHashes = await _referencedAttachmentHashesFromBundle(
-      localBundle.reference,
-    );
-    final result = await runFirebaseTrace(
-      'sync_icloud_prune_obsolete_data',
-      () => ref
-          .read(iCloudSyncTransportProvider)
-          .pruneObsoleteData(
-            keepLatest: keepLatest,
-            referencedAttachmentHashes: referencedHashes,
-          ),
-    );
-    _diagnostic(
-      'icloud storage compact completed',
-      data: {
-        'deletedBundleCount': result.deletedBundleCount,
-        'deletedBundleBytes': result.deletedBundleBytes,
-        'deletedAttachmentCount': result.deletedAttachmentCount,
-        'deletedAttachmentBytes': result.deletedAttachmentBytes,
-        'referencedAttachmentHashes': referencedHashes.length,
-      },
-    );
-    await refreshRemoteStatus();
-    return result;
-  }
-
-  Future<Set<String>> _referencedAttachmentHashesFromBundle(
-    String reference,
-  ) async {
-    final decoded = await ref
-        .read(secureSyncBundleStoreProvider)
-        .readBundleJson(reference);
-    if (decoded == null) {
-      return const <String>{};
-    }
-    final hashes = <String>{};
-    for (final rawAttachment
-        in (decoded['attachments'] as List<dynamic>? ?? const <dynamic>[])) {
-      if (rawAttachment is! Map) {
-        continue;
-      }
-      final contentHash = rawAttachment['contentHash'] as String?;
-      if (contentHash != null && contentHash.isNotEmpty) {
-        hashes.add(contentHash);
-      }
-    }
-    for (final rawEntry
-        in (decoded['notes'] as List<dynamic>? ?? const <dynamic>[])) {
-      if (rawEntry is! Map) {
-        continue;
-      }
-      final rawNote = rawEntry['note'];
-      if (rawNote is! Map) {
-        continue;
-      }
-      hashes.addAll(syncAttachmentObjectHashesInNoteJson(rawNote));
-    }
-    hashes.addAll(await _localSyncAttachmentContentHashes());
-    return hashes;
-  }
-
-  Future<Set<String>> _localSyncAttachmentContentHashes() async {
-    final hashes = <String>{};
-
-    void collectAttachment(NoteAttachment attachment) {
-      final refHash = syncAttachmentObjectContentHash(attachment.filePath);
-      if (refHash != null && refHash.isNotEmpty) {
-        hashes.add(refHash);
-      }
-      final cachedHash = attachment.syncAttachmentContentHash;
-      if (cachedHash != null && cachedHash.isNotEmpty) {
-        hashes.add(cachedHash);
-      }
-    }
-
-    void collectNote(NoteEntry note) {
-      for (final attachment in note.attachments) {
-        collectAttachment(attachment);
-      }
-      for (final block in note.blocks) {
-        final attachment = block.attachment;
-        if (attachment != null) {
-          collectAttachment(attachment);
-        }
-      }
-    }
-
-    for (final note in ref.read(notesControllerProvider)) {
-      collectNote(note);
-    }
-
-    final encryptedDatabase = ref.read(encryptedNoteDatabaseProvider);
-    final profileKeys = ref.read(profileDataKeyServiceProvider);
-    final encryptionService = ref.read(encryptionServiceProvider);
-    for (final snapshot in await encryptedDatabase.loadAll()) {
-      final profileKey = await profileKeys.keyForVault(snapshot.note.vaultId);
-      if (profileKey == null) {
-        continue;
-      }
-      try {
-        final payload = await encryptionService.decryptJson(
-          encodedPayload: snapshot.note.encryptedPayload,
-          secretKey: profileKey,
-        );
-        final decodedAttachments = <NoteAttachment>[];
-        for (final attachmentRecord in snapshot.attachments) {
-          final attachmentPayload = await encryptionService.decryptJson(
-            encodedPayload: attachmentRecord.encryptedPayload,
-            secretKey: profileKey,
-          );
-          decodedAttachments.add(NoteAttachment.fromJson(attachmentPayload));
-        }
-        final legacyAttachments =
-            (payload['attachments'] as List<dynamic>? ?? const <dynamic>[])
-                .map((entry) => Map<String, dynamic>.from(entry as Map))
-                .map(NoteAttachment.fromJson)
-                .toList(growable: false);
-        collectNote(
-          NoteEntry.fromJson({
-            ...payload,
-            'attachments':
-                (decodedAttachments.isNotEmpty
-                        ? decodedAttachments
-                        : legacyAttachments)
-                    .map((attachment) => attachment.toJson())
-                    .toList(),
-          }),
-        );
-      } catch (_) {}
-    }
-
-    return hashes;
-  }
-
-  Future<Set<String>> _lockedPrivateUpsertSnapshotIds() async {
-    final lockedIds = <String>{};
-    final profileKeys = ref.read(profileDataKeyServiceProvider);
-    final snapshots = await ref.read(encryptedNoteDatabaseProvider).loadAll();
-    for (final snapshot in snapshots) {
-      final note = snapshot.note;
-      if (!isPrivateVaultId(note.vaultId) || note.deletedAt != null) {
-        continue;
-      }
-      final key = await profileKeys.keyForVault(note.vaultId);
-      if (key == null) {
-        lockedIds.add(note.id);
-      }
-    }
-    return lockedIds;
-  }
-
-  Future<void> uploadCurrentBundle({
-    bool force = false,
-    bool fullSnapshot = false,
-    bool allowLargeMobileTransfer = false,
-    bool silentLargeMobileSkip = false,
-    bool pruneAfterUpload = true,
-  }) async {
-    final historyStartedAt = DateTime.now();
-    final provider = ref.read(syncProviderControllerProvider);
-    _diagnostic(
-      'upload requested',
-      data: {'provider': provider.name, 'force': force},
-    );
-    if (!_supportsRemoteTransport(provider)) {
-      _diagnostic(
-        'upload skipped unsupported provider',
-        data: {'provider': provider.name},
-      );
-      state = const SyncTransferState(
-        stage: SyncTransferStage.error,
-        message: 'sync.error.select_target_for_upload',
-      );
-      await _recordSyncHistory(
-        startedAt: historyStartedAt,
-        operation: 'upload',
-        success: false,
-        message: state.message,
-      );
-      return;
-    }
-    final queueBeforeUpload = await _readLocalSyncQueueSummary();
-    final assessment = assessSyncConflict(
-      googleDriveSelected: true,
-      queue: queueBeforeUpload,
-      remoteStatus: state.remoteStatus,
-      bundleState: await ref.read(syncBundleStateProvider.future),
-    );
-    if (assessment.hasConflict && !force) {
-      _diagnostic(
-        'upload conflict detected',
-        data: {'message': assessment.message},
-      );
-      state = state.copyWith(
-        stage: SyncTransferStage.error,
-        message: 'sync.error.conflict_download_first_or_force_upload',
-      );
-      await _recordSyncHistory(
-        startedAt: historyStartedAt,
-        operation: 'upload',
-        success: false,
-        message: state.message,
-        queueBefore: queueBeforeUpload,
-      );
-      return;
-    }
-    if (await _shouldBlockLargeMobileTransfer(
-      allowLargeMobileTransfer: allowLargeMobileTransfer,
-      silentLargeMobileSkip: silentLargeMobileSkip,
-      includeDownload: false,
-    )) {
-      return;
-    }
-    _startBusy(SyncTransferProgress.preparingBundle);
-    await _yieldToUi();
-    try {
-      await logFirebaseBreadcrumb('sync upload requested');
-      final bundleStateBeforeUpload = await ref
-          .read(syncBundleStateStoreProvider)
-          .read();
-      // Delta sync: regular uploads carry only the queued changes. A full
-      // snapshot (all syncable notes) is uploaded on the first upload, every
-      // _fullSnapshotUploadInterval delta uploads, or when explicitly
-      // requested (force upload / re-upload / storage compaction).
-      final uploadFullSnapshot =
-          fullSnapshot ||
-          bundleStateBeforeUpload.lastFullUploadedAt == null ||
-          bundleStateBeforeUpload.deltaUploadsSinceFull >=
-              _fullSnapshotUploadInterval;
-      _diagnostic(
-        'upload mode selected',
-        data: {
-          'fullSnapshot': uploadFullSnapshot,
-          'deltaUploadsSinceFull':
-              bundleStateBeforeUpload.deltaUploadsSinceFull,
-        },
-      );
-      if (uploadFullSnapshot) {
-        await ref
-            .read(notesControllerProvider.notifier)
-            .queueCurrentStateForSync();
-      }
-      var pendingChanges = await ref
-          .read(syncEngineProvider)
-          .loadPendingChanges();
-      if (pendingChanges.isEmpty) {
-        final queuedAt = DateTime.now();
-        pendingChanges = [
-          for (final note in ref.read(notesControllerProvider))
-            if (note.syncState == NoteSyncState.pendingUpload ||
-                note.syncState == NoteSyncState.pendingDelete)
-              PendingNoteChangeRecord(
-                noteId: note.id,
-                vaultId: note.vaultId,
-                revision: note.revision,
-                action: note.syncState == NoteSyncState.pendingDelete
-                    ? PendingNoteChangeAction.delete
-                    : PendingNoteChangeAction.upsert,
-                queuedAt: note.updatedAt ?? queuedAt,
-                contentHash: note.contentHash,
-                deletedAt: note.deletedAt,
-              ),
-        ];
-      }
-      final privateSyncPayload = await _preparePrivateSyncNotes(
-        pendingChanges,
-        includeAllPrivateSnapshots: uploadFullSnapshot,
-      );
-      final encryptedPrivateNotes = privateSyncPayload.notes;
-      final encryptedPrivateNoteIds = {
-        for (final entry in encryptedPrivateNotes) entry.note.id,
-      };
-      final skippedLockedPrivateUpsertIds =
-          privateSyncPayload.skippedLockedUpsertIds;
-      if (skippedLockedPrivateUpsertIds.isNotEmpty) {
-        _diagnostic(
-          'locked private profile upserts skipped for upload',
-          data: {'count': skippedLockedPrivateUpsertIds.length},
-        );
-        pendingChanges = pendingChanges
-            .where(
-              (change) =>
-                  !skippedLockedPrivateUpsertIds.contains(change.noteId),
-            )
-            .toList(growable: false);
-      }
-      if (encryptedPrivateNoteIds.isNotEmpty) {
-        _diagnostic(
-          'private profile notes prepared encrypted',
-          data: {'count': encryptedPrivateNoteIds.length},
-        );
-        pendingChanges = pendingChanges
-            .where((change) => !encryptedPrivateNoteIds.contains(change.noteId))
-            .toList(growable: false);
-      }
-      final uploadBundleKind =
-          uploadFullSnapshot && skippedLockedPrivateUpsertIds.isEmpty
-          ? SyncBundleKind.full
-          : SyncBundleKind.delta;
-      final uploadAdvertisesFullSnapshot =
-          uploadBundleKind == SyncBundleKind.full;
-      if (uploadFullSnapshot && !uploadAdvertisesFullSnapshot) {
-        _diagnostic(
-          'full snapshot advertised as delta because locked private upserts were skipped',
-          data: {'lockedPrivateUpserts': skippedLockedPrivateUpsertIds.length},
-        );
-      }
-      final pendingIds = pendingChanges.map((change) => change.noteId).toSet();
-      final notes = await ref
-          .read(notesControllerProvider.notifier)
-          .notesForSyncSnapshot(pendingNoteIds: pendingIds);
-      final uploadableNoteIds = notes.map((note) => note.id).toSet();
-      final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
-      final currentNotesById = {
-        for (final note in ref.read(notesControllerProvider)) note.id: note,
-      };
-      final excludedPendingIds = pendingChanges
-          .where((change) {
-            if (uploadableNoteIds.contains(change.noteId)) {
-              return false;
-            }
-            final note = currentNotesById[change.noteId];
-            return note != null &&
-                noteExcludedFromSync(note, syncExclusionTags);
-          })
-          .map((change) => change.noteId)
-          .toSet();
-      // Pending upserts whose note is not uploadable fall into three buckets:
-      // excluded by sync tags (safe to prune), gone from both memory and the
-      // encrypted database (safe to prune), or present somewhere but not
-      // uploadable right now (must NOT be pruned — pruning would silently
-      // drop a change that was never uploaded).
-      final unresolvedUpsertIds = pendingChanges
-          .where(
-            (change) =>
-                change.action == PendingNoteChangeAction.upsert &&
-                !uploadableNoteIds.contains(change.noteId) &&
-                !excludedPendingIds.contains(change.noteId),
-          )
-          .map((change) => change.noteId)
-          .toSet();
-      final missingEverywhereIds = <String>{};
-      if (unresolvedUpsertIds.isNotEmpty) {
-        final idsInDatabase = await ref
-            .read(encryptedNoteDatabaseProvider)
-            .existingNoteIds(unresolvedUpsertIds);
-        for (final noteId in unresolvedUpsertIds) {
-          if (!currentNotesById.containsKey(noteId) &&
-              !idsInDatabase.contains(noteId)) {
-            missingEverywhereIds.add(noteId);
-          }
-        }
-        final blockedCount =
-            unresolvedUpsertIds.length - missingEverywhereIds.length;
-        if (blockedCount > 0) {
-          _diagnostic(
-            'pending changes kept for notes not currently uploadable',
-            data: {'count': blockedCount},
-          );
-        }
-      }
-      final stalePendingChangeIds = {
-        ...excludedPendingIds,
-        ...missingEverywhereIds,
-      };
-      if (stalePendingChangeIds.isNotEmpty) {
-        _diagnostic(
-          'stale pending changes pruned before upload',
-          data: {
-            'count': stalePendingChangeIds.length,
-            'excluded': excludedPendingIds.length,
-            'missingEverywhere': missingEverywhereIds.length,
-          },
-        );
-        await ref
-            .read(encryptedNoteDatabaseProvider)
-            .deletePendingChangesByIds(stalePendingChangeIds);
-        pendingChanges = pendingChanges
-            .where((change) => !stalePendingChangeIds.contains(change.noteId))
-            .toList(growable: false);
-      }
-      if (pendingChanges.isEmpty && encryptedPrivateNotes.isEmpty) {
-        ref.invalidate(syncQueueSummaryProvider);
-        final queueAfterUpload = await _readLocalSyncQueueSummary();
-        _diagnostic(
-          'upload skipped no uploadable changes',
-          data: {
-            'queueChanges': queueAfterUpload.totalChanges,
-            'queueUpserts': queueAfterUpload.upserts,
-            'queueDeletes': queueAfterUpload.deletes,
-          },
-        );
-        state = SyncTransferState(
-          stage: SyncTransferStage.success,
-          message: 'sync.info.no_changes_to_upload',
-          remoteStatus: state.remoteStatus,
-          localBundle: state.localBundle,
-        );
-        await _recordSyncHistory(
-          startedAt: historyStartedAt,
-          operation: 'upload',
-          success: true,
-          message: state.message,
-          queueBefore: queueBeforeUpload,
-          queueAfter: queueAfterUpload,
-        );
-        return;
-      }
-      final publicPendingHashes = {
-        for (final change in pendingChanges) change.noteId: change.contentHash,
-      };
-      final snapshot = await runFirebaseTrace(
-        'sync_prepare_snapshot',
-        () => ref
-            .read(syncEngineProvider)
-            .prepareSnapshot(
-              notes,
-              pendingChanges: pendingChanges,
-              onProgress: (progress) async {
-                _setProgressDetail(
-                  progress: SyncTransferProgress.preparingBundle,
-                  detail: progress.detail,
-                  completedItems: progress.completedItems,
-                  totalItems: progress.totalItems,
-                );
-                await _yieldToUi();
-              },
-            ),
-      );
-      final preparedUpserts = snapshot.notes
-          .where((change) => change.action == PendingNoteChangeAction.upsert)
-          .length;
-      if (preparedUpserts < snapshot.summary.upserts) {
-        throw StateError('sync.error.local_snapshot_incomplete');
-      }
-      _diagnostic(
-        'snapshot prepared',
-        data: {
-          'changes': snapshot.summary.totalChanges,
-          'upserts': snapshot.summary.upserts,
-          'deletes': snapshot.summary.deletes,
-          'preparedNotes': snapshot.notes.length,
-          'attachments': snapshot.attachments.length,
-        },
-      );
-      final uploadSnapshot = privateSyncPayload.attachments.isEmpty
-          ? snapshot
-          : PreparedSyncSnapshot(
-              deviceId: snapshot.deviceId,
-              exportedAt: snapshot.exportedAt,
-              summary: snapshot.summary,
-              notes: snapshot.notes,
-              attachments: [
-                ...snapshot.attachments,
-                ...privateSyncPayload.attachments,
-              ],
-            );
-      if (privateSyncPayload.attachments.isNotEmpty) {
-        _diagnostic(
-          'private profile attachment objects prepared',
-          data: {'count': privateSyncPayload.attachments.length},
-        );
-      }
-      final privateProfiles = await ref
-          .read(privateMemoProfileStoreProvider)
-          .exportSyncPayload();
-      final provider = ref.read(syncProviderControllerProvider);
-      if (provider != SyncProvider.off) {
-        _setProgress(SyncTransferProgress.uploadingBundle);
-        await _yieldToUi();
-        await runFirebaseTrace(
-          'sync_upload_attachment_objects',
-          () => _uploadRemoteAttachmentObjects(uploadSnapshot.attachments),
-        );
-      }
-      final bundle = await runFirebaseTrace(
-        'sync_write_local_bundle',
-        () => ref
-            .read(secureSyncBundleStoreProvider)
-            .writeBundle(
-              uploadSnapshot,
-              privateProfiles: [privateProfiles],
-              encryptedPrivateNotes: encryptedPrivateNotes,
-              inlineAttachments: provider == SyncProvider.off,
-              bundleKind: uploadBundleKind,
-            ),
-      );
-      final encodedPayload = await runFirebaseTrace(
-        'sync_read_local_bundle_payload',
-        () => ref
-            .read(secureSyncBundleStoreProvider)
-            .readEncryptedBundlePayload(bundle.reference),
-      );
-      if (encodedPayload == null || encodedPayload.isEmpty) {
-        throw StateError('sync.error.local_bundle_prepare_failed');
-      }
-      _diagnostic(
-        'local bundle prepared',
-        data: {
-          'notes': bundle.noteCount,
-          'attachments': bundle.attachmentCount,
-          'payloadLength': encodedPayload.length,
-        },
-      );
-      // Re-check the remote right before publishing the bundle. Preparation
-      // and attachment uploads can take a while; another device may have
-      // uploaded in the meantime, and overwriting the "latest" pointer
-      // without applying it first would hide that device's changes.
-      if (provider != SyncProvider.off && !force) {
-        final freshRemoteStatus = await runFirebaseTrace(
-          'sync_preupload_remote_recheck',
-          _fetchLatestRemoteStatus,
-        );
-        if (freshRemoteStatus != null) {
-          _cacheRemoteStatus(provider, freshRemoteStatus);
-          final latestBundleState = await ref
-              .read(syncBundleStateStoreProvider)
-              .read();
-          if (_remoteBundleNeedsApply(freshRemoteStatus, latestBundleState)) {
-            _diagnostic(
-              'upload aborted remote bundle changed during preparation',
-              data: {
-                'remoteFileId': freshRemoteStatus.fileId,
-                'remoteModifiedAt': freshRemoteStatus.modifiedAt
-                    ?.toUtc()
-                    .toIso8601String(),
-              },
-            );
-            state = state.copyWith(
-              stage: SyncTransferStage.error,
-              message: 'sync.error.conflict_download_first_or_force_upload',
-              remoteStatus: freshRemoteStatus,
-            );
-            await _recordSyncHistory(
-              startedAt: historyStartedAt,
-              operation: 'upload',
-              success: false,
-              message: state.message,
-              queueBefore: queueBeforeUpload,
-              remoteStatus: freshRemoteStatus,
-              localBundle: bundle,
-            );
-            return;
-          }
-        }
-      }
-      final remoteStatus = await runFirebaseTrace(
-        'sync_upload_remote_bundle',
-        () => _uploadRemoteBundle(
-          encodedPayload: encodedPayload,
-          deviceId: snapshot.deviceId,
-          noteCount: bundle.noteCount,
-          attachmentCount: bundle.attachmentCount,
-          bundleKind: uploadBundleKind,
-        ),
-      );
-      _cacheRemoteStatus(provider, remoteStatus);
-      _diagnostic(
-        'remote bundle uploaded',
-        data: {
-          'fileId': remoteStatus.fileId,
-          'modifiedAt': remoteStatus.modifiedAt?.toUtc().toIso8601String(),
-          'deviceId': remoteStatus.deviceId,
-          'notes': remoteStatus.noteCount,
-          'attachments': remoteStatus.attachmentCount,
-          'sizeBytes': remoteStatus.sizeBytes,
-        },
-      );
-      _setProgress(SyncTransferProgress.finalizing);
-      await _yieldToUi();
-      await ref
-          .read(notesControllerProvider.notifier)
-          .markSnapshotChangesSynced(
-            publicPendingHashes,
-            preparedNotes: snapshot.notes,
-          );
-      if (encryptedPrivateNoteIds.isNotEmpty) {
-        final encryptedDatabase = ref.read(encryptedNoteDatabaseProvider);
-        for (final entry in encryptedPrivateNotes) {
-          await encryptedDatabase.upsertOne(
-            note: entry.note.copyWith(syncState: NoteSyncState.synced),
-            attachments: entry.attachments,
-          );
-        }
-      }
-      ref.invalidate(syncQueueSummaryProvider);
-      final queueAfterUpload = await _readLocalSyncQueueSummary();
-      _diagnostic(
-        'local queue after upload marked synced',
-        data: {
-          'changes': queueAfterUpload.totalChanges,
-          'upserts': queueAfterUpload.upserts,
-          'deletes': queueAfterUpload.deletes,
-        },
-      );
-      state = SyncTransferState(
-        stage: SyncTransferStage.success,
-        message: 'sync.info.upload_success',
-        remoteStatus: remoteStatus,
-        localBundle: bundle,
-      );
-      await ref
-          .read(syncBundleStateStoreProvider)
-          .recordUpload(
-            remoteStatus,
-            fullSnapshot: uploadAdvertisesFullSnapshot,
-          );
-      ref.invalidate(syncBundleStateProvider);
-      await _recordSyncHistory(
-        startedAt: historyStartedAt,
-        operation: 'upload',
-        success: true,
-        message: state.message,
-        queueBefore: queueBeforeUpload,
-        queueAfter: queueAfterUpload,
-        remoteStatus: remoteStatus,
-        localBundle: bundle,
-      );
-      // Bundle pruning is only safe after a full snapshot upload: the new
-      // full bundle supersedes the whole history, while pruning after a
-      // delta upload could delete bundles other devices still need to walk.
-      if (provider == SyncProvider.iCloud &&
-          pruneAfterUpload &&
-          uploadFullSnapshot &&
-          skippedLockedPrivateUpsertIds.isEmpty) {
-        unawaited(_pruneICloudStorageAfterUpload(bundle));
-      } else if (provider == SyncProvider.iCloud &&
-          pruneAfterUpload &&
-          uploadFullSnapshot &&
-          skippedLockedPrivateUpsertIds.isNotEmpty) {
-        _diagnostic(
-          'icloud post upload storage prune skipped locked private profiles',
-          data: {'lockedPrivateUpserts': skippedLockedPrivateUpsertIds.length},
-        );
-      }
-    } on SyncAttachmentMissingException catch (error) {
-      _diagnostic(
-        'upload blocked by missing local attachment',
-        data: {
-          'noteId': error.noteId,
-          'attachmentLabel': error.attachmentLabel,
-          'attachmentType': error.attachmentType.name,
-          'fileRef': path.basename(error.filePath),
-          'index': error.index,
-        },
-      );
-      if (await _restoreMissingAttachmentRemoteRefFromLatestBundle(error)) {
-        _diagnostic(
-          'missing local attachment restored from remote reference',
-          data: {
-            'noteId': error.noteId,
-            'attachmentLabel': error.attachmentLabel,
-            'index': error.index,
-          },
-        );
-        await uploadCurrentBundle(
-          force: force,
-          fullSnapshot: fullSnapshot,
-          allowLargeMobileTransfer: allowLargeMobileTransfer,
-          silentLargeMobileSkip: silentLargeMobileSkip,
-          pruneAfterUpload: pruneAfterUpload,
-        );
-        return;
-      }
-      state = _failureState(
-        error,
-        remoteStatus: state.remoteStatus,
-        localBundle: state.localBundle,
-      );
-      await _recordSyncHistory(
-        startedAt: historyStartedAt,
-        operation: 'upload',
-        success: false,
-        message: state.message,
-        queueBefore: queueBeforeUpload,
-        remoteStatus: state.remoteStatus,
-        localBundle: state.localBundle,
-      );
-    } catch (error) {
-      _diagnostic('upload failed', data: {'error': error});
-      state = _failureState(
-        error,
-        remoteStatus: state.remoteStatus,
-        localBundle: state.localBundle,
-      );
-      await _recordSyncHistory(
-        startedAt: historyStartedAt,
-        operation: 'upload',
-        success: false,
-        message: state.message,
-        queueBefore: queueBeforeUpload,
-        remoteStatus: state.remoteStatus,
-        localBundle: state.localBundle,
-      );
-    }
-  }
-
-  Future<_PreparedPrivateSyncPayload> _preparePrivateSyncNotes(
-    List<PendingNoteChangeRecord> pendingChanges, {
-    required bool includeAllPrivateSnapshots,
-  }) async {
-    final privateChanges = pendingChanges
-        .where((change) => isPrivateVaultId(change.vaultId))
-        .toList(growable: false);
-    if (!includeAllPrivateSnapshots && privateChanges.isEmpty) {
-      return const _PreparedPrivateSyncPayload(
-        notes: <PreparedEncryptedPrivateSyncNote>[],
-        attachments: <PreparedSyncAttachment>[],
-        skippedLockedUpsertIds: <String>{},
-      );
-    }
-    final privateChangesById = {
-      for (final change in privateChanges) change.noteId: change,
-    };
-    final snapshots = await ref.read(encryptedNoteDatabaseProvider).loadAll();
-    final encryptedNotes = <PreparedEncryptedPrivateSyncNote>[];
-    final attachmentObjects = <PreparedSyncAttachment>[];
-    final preparedAttachmentHashes = <String>{};
-    final skippedLockedUpsertIds = <String>{};
-    for (final snapshot in snapshots) {
-      if (!isPrivateVaultId(snapshot.note.vaultId)) {
-        continue;
-      }
-      final change = privateChangesById[snapshot.note.id];
-      if (!includeAllPrivateSnapshots && change == null) {
-        continue;
-      }
-      final action =
-          change?.action ??
-          (snapshot.note.deletedAt == null
-              ? PendingNoteChangeAction.upsert
-              : PendingNoteChangeAction.delete);
-      var noteRecord = snapshot.note.copyWith(
-        deletedAt: action == PendingNoteChangeAction.delete
-            ? (change?.deletedAt ?? snapshot.note.deletedAt)
-            : null,
-        clearDeletedAt: action == PendingNoteChangeAction.upsert,
-        revision: change == null
-            ? snapshot.note.revision
-            : math.max(snapshot.note.revision, change.revision),
-        syncState: NoteSyncState.synced,
-        contentHash: change?.contentHash ?? snapshot.note.contentHash,
-      );
-      var attachmentRecords = snapshot.attachments;
-      final profileKey = await ref
-          .read(profileDataKeyServiceProvider)
-          .keyForVault(snapshot.note.vaultId);
-      if (profileKey == null && action == PendingNoteChangeAction.upsert) {
-        skippedLockedUpsertIds.add(snapshot.note.id);
-        continue;
-      }
-      if (profileKey != null && action != PendingNoteChangeAction.delete) {
-        final prepared = await _prepareUnlockedPrivateSyncNote(
-          snapshot: snapshot,
-          noteRecord: noteRecord,
-          secretKey: profileKey,
-          preparedAttachmentHashes: preparedAttachmentHashes,
-          attachmentObjects: attachmentObjects,
-        );
-        noteRecord = prepared.note;
-        attachmentRecords = prepared.attachments;
-      }
-      encryptedNotes.add(
-        PreparedEncryptedPrivateSyncNote(
-          action: action,
-          note: noteRecord,
-          attachments: attachmentRecords,
-        ),
-      );
-    }
-    return _PreparedPrivateSyncPayload(
-      notes: encryptedNotes,
-      attachments: attachmentObjects,
-      skippedLockedUpsertIds: skippedLockedUpsertIds,
-    );
-  }
-
-  Future<PreparedEncryptedPrivateSyncNote> _prepareUnlockedPrivateSyncNote({
-    required EncryptedNoteSnapshot snapshot,
-    required EncryptedNoteRecord noteRecord,
-    required SecretKey secretKey,
-    required Set<String> preparedAttachmentHashes,
-    required List<PreparedSyncAttachment> attachmentObjects,
-  }) async {
-    final encryptionService = ref.read(encryptionServiceProvider);
-    final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
-    final payload = await encryptionService.decryptJson(
-      encodedPayload: snapshot.note.encryptedPayload,
-      secretKey: secretKey,
-    );
-    final decodedAttachments = <NoteAttachment>[];
-    for (final attachmentRecord in snapshot.attachments) {
-      final attachmentPayload = await encryptionService.decryptJson(
-        encodedPayload: attachmentRecord.encryptedPayload,
-        secretKey: secretKey,
-      );
-      decodedAttachments.add(NoteAttachment.fromJson(attachmentPayload));
-    }
-    final legacyAttachments =
-        (payload['attachments'] as List<dynamic>? ?? const <dynamic>[])
-            .map((entry) => Map<String, dynamic>.from(entry as Map))
-            .map(NoteAttachment.fromJson)
-            .toList(growable: false);
-    final note =
-        NoteEntry.fromJson({
-          ...payload,
-          'attachments':
-              (decodedAttachments.isNotEmpty
-                      ? decodedAttachments
-                      : legacyAttachments)
-                  .map((attachment) => attachment.toJson())
-                  .toList(),
-        }).copyWith(
-          createdAt: noteRecord.createdAt,
-          updatedAt: noteRecord.updatedAt,
-          deletedAt: noteRecord.deletedAt,
-          isPinned: noteRecord.isPinned,
-          revision: noteRecord.revision,
-          syncState: noteRecord.syncState,
-          deviceId: noteRecord.deviceId,
-          contentHash: noteRecord.contentHash,
-        );
-    final attachmentIdsByPath = <String, String>{};
-
-    void addPreparedAttachmentObject(PreparedSyncAttachment attachment) {
-      if (preparedAttachmentHashes.add(attachment.contentHash)) {
-        attachmentObjects.add(attachment);
-        return;
-      }
-      final existingIndex = attachmentObjects.indexWhere(
-        (entry) => entry.contentHash == attachment.contentHash,
-      );
-      if (existingIndex == -1) {
-        return;
-      }
-      final existing = attachmentObjects[existingIndex];
-      if (!_preparedSyncAttachmentHasPayload(existing) &&
-          _preparedSyncAttachmentHasPayload(attachment)) {
-        attachmentObjects[existingIndex] = attachment;
-      }
-    }
-
-    void addAttachmentReferenceMetadata(
-      NoteAttachment attachment,
-      String contentHash, {
-      int? sizeBytes,
-    }) {
-      addPreparedAttachmentObject(
-        PreparedSyncAttachment(
-          id: contentHash,
-          type: attachment.type,
-          label: attachment.label,
-          contentHash: contentHash,
-          sizeBytes: sizeBytes ?? attachment.localPayloadSizeBytes ?? 0,
-        ),
-      );
-    }
-
-    Future<NoteAttachment> prepareAttachment(
-      NoteAttachment attachment,
-      int index,
-    ) async {
-      final filePath = attachment.filePath;
-      if (filePath == null || filePath.isEmpty) {
-        return attachment.copyWith(filePath: null, previewBytesBase64: null);
-      }
-      if (isSyncAttachmentObjectRef(filePath)) {
-        final contentHash = syncAttachmentObjectContentHash(filePath);
-        if (contentHash == null) {
-          return attachment;
-        }
-        addAttachmentReferenceMetadata(attachment, contentHash);
-        return attachment.copyWith(syncAttachmentContentHash: contentHash);
-      }
-      final storedMetadata = await attachmentStore.storedPayloadMetadata(
-        filePath,
-      );
-      final cachedContentHash = attachment.syncAttachmentContentHash;
-      if (cachedContentHash != null &&
-          cachedContentHash.isNotEmpty &&
-          storedMetadata != null &&
-          attachment.localPayloadSizeBytes == storedMetadata.sizeBytes &&
-          attachment.localPayloadModifiedAtMillis != null &&
-          attachment.localPayloadModifiedAtMillis ==
-              storedMetadata.modifiedAtMillis) {
-        addAttachmentReferenceMetadata(
-          attachment,
-          cachedContentHash,
-          sizeBytes: storedMetadata.sizeBytes,
-        );
-        return attachment.copyWith(
-          filePath: syncAttachmentObjectRef(cachedContentHash),
-          localPayloadSizeBytes: storedMetadata.sizeBytes,
-          localPayloadModifiedAtMillis: storedMetadata.modifiedAtMillis,
-        );
-      }
-      if (attachmentIdsByPath[filePath] case final existingId?) {
-        return attachment.copyWith(
-          filePath: syncAttachmentObjectRef(existingId),
-          localPayloadSizeBytes: storedMetadata?.sizeBytes,
-          localPayloadModifiedAtMillis: storedMetadata?.modifiedAtMillis,
-          syncAttachmentContentHash: existingId,
-        );
-      }
-      final encryptedPayload = await attachmentStore.readStoredPayload(
-        filePath,
-      );
-      if (encryptedPayload == null || encryptedPayload.isEmpty) {
-        throw SyncAttachmentMissingException(
-          noteId: note.id,
-          attachmentLabel: attachment.label,
-          attachmentType: attachment.type,
-          filePath: filePath,
-          index: index,
-        );
-      }
-      final contentHash = await _encryptedAttachmentPayloadContentHash(
-        encryptedPayload,
-      );
-      attachmentIdsByPath[filePath] = contentHash;
-      addPreparedAttachmentObject(
-        PreparedSyncAttachment(
-          id: contentHash,
-          type: attachment.type,
-          label: attachment.label,
-          encryptedPayload: encryptedPayload,
-          contentHash: contentHash,
-          sizeBytes: utf8.encode(encryptedPayload).length,
-        ),
-      );
-      return attachment.copyWith(
-        filePath: syncAttachmentObjectRef(contentHash),
-        localPayloadSizeBytes: storedMetadata?.sizeBytes,
-        localPayloadModifiedAtMillis: storedMetadata?.modifiedAtMillis,
-        syncAttachmentContentHash: contentHash,
-      );
-    }
-
-    final preparedAttachments = <NoteAttachment>[];
-    for (var i = 0; i < note.attachments.length; i++) {
-      preparedAttachments.add(await prepareAttachment(note.attachments[i], i));
-    }
-    final preparedBlocks = <NoteBlock>[];
-    for (var i = 0; i < note.blocks.length; i++) {
-      final block = note.blocks[i];
-      final attachment = block.attachment;
-      preparedBlocks.add(
-        attachment == null
-            ? block
-            : block.copyWith(
-                attachment: await prepareAttachment(
-                  attachment,
-                  note.attachments.length + i,
-                ),
-              ),
-      );
-    }
-    final preparedNote = note.copyWith(
-      attachments: preparedAttachments,
-      blocks: preparedBlocks,
-    );
-    final notePayload = Map<String, dynamic>.from(preparedNote.toJson());
-    notePayload['attachments'] = const <Map<String, dynamic>>[];
-    final encryptedNotePayload = await encryptionService.encryptJson(
-      payload: notePayload,
-      secretKey: secretKey,
-    );
-    final encryptedAttachmentRecords = <EncryptedAttachmentRecord>[];
-    for (var i = 0; i < preparedNote.attachments.length; i++) {
-      encryptedAttachmentRecords.add(
-        EncryptedAttachmentRecord(
-          noteId: preparedNote.id,
-          position: i,
-          encryptedPayload: await encryptionService.encryptJson(
-            payload: preparedNote.attachments[i].toJson(),
-            secretKey: secretKey,
-          ),
-        ),
-      );
-    }
-    return PreparedEncryptedPrivateSyncNote(
-      action: PendingNoteChangeAction.upsert,
-      note: EncryptedNoteRecord.fromNote(
-        note: preparedNote,
-        encryptedPayload: encryptedNotePayload,
-      ),
-      attachments: encryptedAttachmentRecords,
-    );
-  }
-
-  Future<bool> _restoreMissingAttachmentRemoteRefFromLatestBundle(
-    SyncAttachmentMissingException error,
-  ) async {
-    if (!_supportsRemoteTransport(ref.read(syncProviderControllerProvider))) {
-      return false;
-    }
-    try {
-      final remoteBundle = await _downloadLatestRemoteBundle();
-      if (remoteBundle == null) {
-        return false;
-      }
-      final localBundle = await ref
-          .read(secureSyncBundleStoreProvider)
-          .writeEncryptedBundlePayload(
-            remoteBundle.encodedPayload,
-            noteCount: remoteBundle.status.noteCount ?? 0,
-            attachmentCount: remoteBundle.status.attachmentCount ?? 0,
-            fileNameOverride: 'missing_attachment_repair_bundle.enc',
-          );
-      final decoded = await ref
-          .read(secureSyncBundleStoreProvider)
-          .readBundleJson(localBundle.reference);
-      if (decoded == null) {
-        return false;
-      }
-      final remoteAttachment = _remoteAttachmentForMissingError(
-        decodedBundle: decoded,
-        error: error,
-      );
-      if (remoteAttachment == null ||
-          !isSyncAttachmentObjectRef(remoteAttachment.filePath)) {
-        return false;
-      }
-      return ref
-          .read(notesControllerProvider.notifier)
-          .restoreMissingAttachmentRemoteReference(
-            noteId: error.noteId,
-            index: error.index,
-            remoteAttachment: remoteAttachment,
-          );
-    } catch (repairError) {
-      _diagnostic(
-        'missing local attachment remote repair failed',
-        data: {
-          'noteId': error.noteId,
-          'attachmentLabel': error.attachmentLabel,
-          'error': repairError,
-        },
-      );
-      return false;
-    }
-  }
-
-  NoteAttachment? _remoteAttachmentForMissingError({
-    required Map<String, dynamic> decodedBundle,
-    required SyncAttachmentMissingException error,
-  }) {
-    final rawNoteEntries =
-        decodedBundle['notes'] as List<dynamic>? ?? const <dynamic>[];
-    for (final rawEntry in rawNoteEntries) {
-      if (rawEntry is! Map) {
-        continue;
-      }
-      final rawNote = rawEntry['note'];
-      if (rawNote is! Map) {
-        continue;
-      }
-      final note = NoteEntry.fromJson(Map<String, dynamic>.from(rawNote));
-      if (note.id != error.noteId) {
-        continue;
-      }
-      final remoteAttachment = _attachmentAtSyncIndex(note, error.index);
-      final remotePath = remoteAttachment?.filePath;
-      if (remoteAttachment == null ||
-          remoteAttachment.type != error.attachmentType ||
-          !isSyncAttachmentObjectRef(remotePath)) {
-        return null;
-      }
-      return remoteAttachment;
-    }
-    return null;
-  }
-
-  NoteAttachment? _attachmentAtSyncIndex(NoteEntry note, int index) {
-    if (index < 0) {
-      return null;
-    }
-    if (index < note.attachments.length) {
-      return note.attachments[index];
-    }
-    final blockIndex = index - note.attachments.length;
-    if (blockIndex < 0 || blockIndex >= note.blocks.length) {
-      return null;
-    }
-    return note.blocks[blockIndex].attachment;
-  }
-
-  Future<void> reuploadAllCurrentNotes({
-    bool allowLargeMobileTransfer = false,
-    bool silentLargeMobileSkip = false,
-  }) async {
-    final provider = ref.read(syncProviderControllerProvider);
-    if (!_supportsRemoteTransport(provider)) {
-      state = const SyncTransferState(
-        stage: SyncTransferStage.error,
-        message: 'sync.error.select_target_for_reupload',
-      );
-      return;
-    }
-    if (state.isBusy) {
-      return;
-    }
-    if (await _shouldBlockLargeMobileTransfer(
-      allowLargeMobileTransfer: allowLargeMobileTransfer,
-      silentLargeMobileSkip: silentLargeMobileSkip,
-      includeDownload: false,
-      estimateAllLocalNotes: true,
-    )) {
-      return;
-    }
-    _startBusy(SyncTransferProgress.preparingBundle);
-    await _yieldToUi();
-    await ref.read(notesControllerProvider.notifier).queueCurrentStateForSync();
-    await uploadCurrentBundle(
-      force: true,
-      fullSnapshot: true,
-      allowLargeMobileTransfer: allowLargeMobileTransfer,
-      silentLargeMobileSkip: silentLargeMobileSkip,
-    );
-  }
-
-  Future<void> _pruneICloudStorageAfterUpload(StoredSyncBundle bundle) async {
-    try {
-      final history = await ref
-          .read(iCloudSyncTransportProvider)
-          .listBundleHistory(limit: _automaticICloudPruneKeepLatest + 5);
-      final largerHistoricalNoteCounts = [
-        for (final status in history)
-          if (status.noteCount != null && status.noteCount! > bundle.noteCount)
-            status.noteCount!,
-      ];
-      if (largerHistoricalNoteCounts.isNotEmpty) {
-        _diagnostic(
-          'icloud post upload storage prune skipped note count decreased',
-          data: {
-            'latestNotes': bundle.noteCount,
-            'maxHistoryNotes': largerHistoricalNoteCounts.reduce(
-              (a, b) => a > b ? a : b,
-            ),
-          },
-        );
-        return;
-      }
-      final referencedHashes = await _referencedAttachmentHashesFromBundle(
-        bundle.reference,
-      );
-      final maintenance = await ref
-          .read(iCloudSyncTransportProvider)
-          .pruneObsoleteData(
-            keepLatest: _automaticICloudPruneKeepLatest,
-            referencedAttachmentHashes: referencedHashes,
-          );
-      _diagnostic(
-        'icloud post upload storage prune completed',
-        data: {
-          'deletedBundleCount': maintenance.deletedBundleCount,
-          'deletedBundleBytes': maintenance.deletedBundleBytes,
-          'deletedAttachmentCount': maintenance.deletedAttachmentCount,
-          'deletedAttachmentBytes': maintenance.deletedAttachmentBytes,
-          'referencedAttachmentHashes': referencedHashes.length,
-        },
-      );
-    } catch (error, stackTrace) {
-      _diagnostic(
-        'icloud post upload storage prune failed',
-        data: {'error': error},
-      );
-      await recordNonFatalError(
-        error,
-        stackTrace,
-        reason: 'icloud_post_upload_storage_prune_failed',
-      );
-    }
-  }
-
-  Future<void> syncNow({
-    bool forceUpload = false,
-    bool allowLargeMobileTransfer = false,
-    bool silentLargeMobileSkip = false,
-    bool allowCachedRemoteStatus = true,
-  }) async {
-    final provider = ref.read(syncProviderControllerProvider);
-    _diagnostic(
-      'sync now requested',
-      data: {
-        'provider': provider.name,
-        'forceUpload': forceUpload,
-        'busy': state.isBusy,
-        'allowCachedRemoteStatus': allowCachedRemoteStatus,
-      },
-    );
-    if (!_supportsRemoteTransport(provider)) {
-      _diagnostic(
-        'sync now skipped unsupported provider',
-        data: {'provider': provider.name},
-      );
-      return;
-    }
-    if (state.isBusy) {
-      _diagnostic('sync now skipped busy');
-      return;
-    }
-    _startBusy(SyncTransferProgress.checkingRemote);
-    await _yieldToUi();
-    try {
-      await logFirebaseBreadcrumb('sync now requested');
-      const checkingStepCount = 4;
-      _setProgressDetail(
-        progress: SyncTransferProgress.checkingRemote,
-        detail: 'Checking cloud status',
-        completedItems: 0,
-        totalItems: checkingStepCount,
-      );
-      await _yieldToUi();
-      final remoteStatus = await _measureSyncStep(
-        'remote status check completed',
-        () => _fetchLatestRemoteStatusWithCache(
-          traceName: 'sync_refresh_remote_status',
-          allowCached: allowCachedRemoteStatus,
-          totalItems: checkingStepCount,
-        ),
-        data: {'cachedAllowed': allowCachedRemoteStatus},
-      );
-      _setProgressDetail(
-        progress: SyncTransferProgress.checkingRemote,
-        detail: 'Reading sync history',
-        completedItems: 1,
-        totalItems: checkingStepCount,
-      );
-      await _yieldToUi();
-      final bundleState = await _measureSyncStep(
-        'sync state check completed',
-        () => ref.read(syncBundleStateProvider.future),
-      );
-      _diagnostic(
-        'remote status refreshed',
-        data: {
-          'hasRemote': remoteStatus != null,
-          'fileId': remoteStatus?.fileId,
-          'modifiedAt': remoteStatus?.modifiedAt?.toUtc().toIso8601String(),
-          'deviceId': remoteStatus?.deviceId,
-          'notes': remoteStatus?.noteCount,
-          'attachments': remoteStatus?.attachmentCount,
-          'sizeBytes': remoteStatus?.sizeBytes,
-          'lastRemoteFileId': bundleState.lastRemoteFileId,
-          'lastAppliedAt': bundleState.lastAppliedAt?.toUtc().toIso8601String(),
-          'lastUploadedAt': bundleState.lastUploadedAt
-              ?.toUtc()
-              .toIso8601String(),
-        },
-      );
-      if (remoteStatus != null) {
-        await ref
-            .read(syncBundleStateStoreProvider)
-            .recordRemoteStatus(remoteStatus);
-      }
-      state = state.copyWith(remoteStatus: remoteStatus);
-
-      _setProgressDetail(
-        progress: SyncTransferProgress.checkingRemote,
-        detail: 'Checking transfer size',
-        completedItems: 2,
-        totalItems: checkingStepCount,
-      );
-      await _yieldToUi();
-      if (await _measureSyncStep(
-        'transfer size check completed',
-        () => _shouldBlockLargeMobileTransfer(
-          allowLargeMobileTransfer: allowLargeMobileTransfer,
-          silentLargeMobileSkip: silentLargeMobileSkip,
-          includeUpload: false,
-          includeDownload:
-              remoteStatus != null &&
-              _remoteBundleNeedsApply(remoteStatus, bundleState),
-        ),
-      )) {
-        return;
-      }
-
-      _setProgressDetail(
-        progress: SyncTransferProgress.checkingRemote,
-        detail: 'Checking local changes',
-        completedItems: 3,
-        totalItems: checkingStepCount,
-      );
-      await _yieldToUi();
-      final queue = await _measureSyncStep(
-        'local queue check completed',
-        _readLocalSyncQueueSummary,
-      );
-      final hadPendingChangesBeforeRemoteApply = queue.hasPendingChanges;
-      var appliedRemoteDuringSync = false;
-      _diagnostic(
-        'local queue inspected',
-        data: {
-          'changes': queue.totalChanges,
-          'upserts': queue.upserts,
-          'deletes': queue.deletes,
-          'lastQueuedAt': queue.lastQueuedAt?.toUtc().toIso8601String(),
-        },
-      );
-      if (remoteStatus != null &&
-          _remoteBundleNeedsApply(remoteStatus, bundleState)) {
-        _diagnostic(
-          'remote bundle needs apply',
-          data: {'fileId': remoteStatus.fileId},
-        );
-        final assessment = assessSyncConflict(
-          googleDriveSelected: true,
-          queue: queue,
-          remoteStatus: remoteStatus,
-          bundleState: bundleState,
-        );
-        if (assessment.hasConflict && !forceUpload) {
-          _diagnostic(
-            'sync conflict candidate detected',
-            data: {'message': assessment.message},
-          );
-        }
-        _setProgress(SyncTransferProgress.downloadingBundle);
-        await _yieldToUi();
-        // Delta sync: bundles may carry only a slice of the changes, so every
-        // unapplied bundle since this device's apply anchor has to be walked
-        // in order — applying just the newest one would drop the notes that
-        // only exist in skipped intermediate bundles.
-        List<RemoteSyncBundleStatus> history;
-        try {
-          history = await runFirebaseTrace(
-            'sync_list_remote_bundle_history',
-            () => _listRemoteHistory(limit: _remoteBundleWalkHistoryLimit),
-          );
-        } catch (error) {
-          _diagnostic(
-            'remote bundle history unavailable falling back to latest',
-            data: {'error': error},
-          );
-          if (!remoteStatus.isFullBundle) {
-            throw const SyncSafetyException(
-              'sync.error.remote_history_incomplete',
-            );
-          }
-          history = const <RemoteSyncBundleStatus>[];
-        }
-        if (history.isNotEmpty &&
-            !remoteHistoryHasSafeReplayBase(
-              history: history,
-              bundleState: bundleState,
-            )) {
-          throw const SyncSafetyException(
-            'sync.error.remote_history_incomplete',
-          );
-        }
-        final bundlesToApply = history.isEmpty
-            ? <RemoteSyncBundleStatus>[remoteStatus]
-            : selectRemoteBundlesToApply(
-                history: history,
-                bundleState: bundleState,
-              );
-        _diagnostic(
-          'remote bundles selected for apply',
-          data: {
-            'historyCount': history.length,
-            'applyCount': bundlesToApply.length,
-            'fileIds': [
-              for (final status in bundlesToApply) status.fileId,
-            ].join(','),
-          },
-        );
-        for (final bundleStatus in bundlesToApply) {
-          _setProgress(SyncTransferProgress.downloadingBundle);
-          await _yieldToUi();
-          final remoteBundle = await runFirebaseTrace(
-            'sync_download_remote_bundle_for_apply',
-            () => _downloadRemoteBundleById(bundleStatus.fileId),
-          );
-          if (remoteBundle == null) {
-            _diagnostic(
-              'remote bundle disappeared during walk',
-              data: {'fileId': bundleStatus.fileId},
-            );
-            throw const SyncSafetyException('sync.error.remote_bundle_missing');
-          }
-          _diagnostic(
-            'remote bundle downloaded for apply',
-            data: {
-              'fileId': remoteBundle.status.fileId,
-              'bundleKind': remoteBundle.status.bundleKind,
-              'payloadLength': remoteBundle.encodedPayload.length,
-            },
-          );
-          await _storeDownloadedBundle(
-            remoteBundle,
-            emptyMessage: 'sync.info.no_bundle_to_sync',
-          );
-          _setProgress(SyncTransferProgress.applyingBundle);
-          await _yieldToUi();
-          // applyDownloadedBundle records the apply anchor per bundle, so an
-          // interrupted walk resumes from the first bundle that was not yet
-          // applied instead of starting over or skipping ahead.
-          await applyDownloadedBundle();
-          if (state.stage == SyncTransferStage.error) {
-            return;
-          }
-          if (state.message == _privateProfileNotesPendingUnlockMessage) {
-            return;
-          }
-          appliedRemoteDuringSync = true;
-          final hasNoteConflicts = ref
-              .read(notesControllerProvider)
-              .any((note) => note.syncState == NoteSyncState.conflict);
-          if (hasNoteConflicts && !forceUpload) {
-            _diagnostic('sync note conflict requires review');
-            state = state.copyWith(
-              stage: SyncTransferStage.error,
-              message: 'sync.error.conflict_review_remote',
-            );
-            return;
-          }
-        }
-      }
-
-      ref.invalidate(syncQueueSummaryProvider);
-      final refreshedQueue = await _readLocalSyncQueueSummary();
-      _diagnostic(
-        'local queue refreshed',
-        data: {
-          'changes': refreshedQueue.totalChanges,
-          'upserts': refreshedQueue.upserts,
-          'deletes': refreshedQueue.deletes,
-        },
-      );
-      if (refreshedQueue.hasPendingChanges) {
-        _setProgress(SyncTransferProgress.preparingBundle);
-        await _yieldToUi();
-        final forceConvergenceUpload =
-            appliedRemoteDuringSync && !hadPendingChangesBeforeRemoteApply;
-        await uploadCurrentBundle(
-          force: forceUpload || forceConvergenceUpload,
-          allowLargeMobileTransfer: allowLargeMobileTransfer,
-          silentLargeMobileSkip: silentLargeMobileSkip,
-        );
-        return;
-      }
-      _setProgress(SyncTransferProgress.finalizing);
-      await _yieldToUi();
-      state = SyncTransferState(
-        stage: SyncTransferStage.success,
-        message: 'sync.info.sync_success',
-        remoteStatus: state.remoteStatus,
-        localBundle: state.localBundle,
-      );
-      _diagnostic('sync now completed');
-    } catch (error) {
-      _diagnostic('sync now failed', data: {'error': error});
-      state = _failureState(
-        error,
-        remoteStatus: state.remoteStatus,
-        localBundle: state.localBundle,
-      );
-    }
-  }
-
-  Future<LocalNoteArchive> exportLocalArchive({
-    String? password,
-    Set<String>? vaultIds,
-    bool includeSampleNotes = false,
-  }) async {
-    _startBusy(SyncTransferProgress.preparingBundle);
-    try {
-      await logFirebaseBreadcrumb('local zip archive export requested');
-      final archive = await runFirebaseTrace(
-        'notes_prepare_local_zip_archive',
-        () => _buildLocalZipArchive(
-          password: password,
-          vaultIds: vaultIds,
-          includeSampleNotes: includeSampleNotes,
-        ),
-      );
-      if (archive.bytes.isEmpty) {
-        throw StateError('ローカルアーカイブを準備できませんでした。');
-      }
-      state = SyncTransferState(
-        stage: SyncTransferStage.success,
-        message:
-            'ZIP アーカイブを作成しました（ノート ${archive.noteCount} 件、添付 ${archive.attachmentCount} 件）。',
-        remoteStatus: state.remoteStatus,
-        localBundle: state.localBundle,
-      );
-      return archive;
-    } catch (error) {
-      state = _failureState(
-        error,
-        remoteStatus: state.remoteStatus,
-        localBundle: state.localBundle,
-      );
-      rethrow;
-    }
-  }
-
-  Future<SyncBundlePreview> importLocalArchiveBytes(
-    List<int> bytes, {
-    String? password,
-  }) async {
-    if (bytes.isEmpty) {
-      throw StateError('選択したアーカイブは空です。');
-    }
-    _startBusy(SyncTransferProgress.preparingBundle);
-    try {
-      await logFirebaseBreadcrumb('local zip archive import selected');
-      final decoded = await _decodeLocalZipArchive(bytes, password: password);
-      final preview = buildSyncBundlePreview(
-        decodedBundle: _zipArchiveAsSyncBundle(decoded),
-        currentNotes: ref.read(notesControllerProvider),
-      );
-      state = SyncTransferState(
-        stage: SyncTransferStage.success,
-        message: '確認用の ZIP アーカイブを読み込みました。',
-        remoteStatus: state.remoteStatus,
-        localBundle: state.localBundle,
-      );
-      return preview;
-    } catch (error) {
-      state = _failureState(
-        error,
-        remoteStatus: state.remoteStatus,
-        localBundle: state.localBundle,
-      );
-      rethrow;
-    }
-  }
-
-  Future<void> applyLocalArchiveBytes(
-    List<int> bytes, {
-    String? password,
-  }) async {
-    _startBusy(SyncTransferProgress.applyingBundle);
-    try {
-      await logFirebaseBreadcrumb('local zip archive apply selected');
-      final decoded = await _decodeLocalZipArchive(bytes, password: password);
-      final attachmentFiles = decoded.attachmentFiles;
-      final importedChanges = <PreparedSyncNote>[];
-      for (final rawNote in decoded.notes) {
-        final note = NoteEntry.fromJson(rawNote);
-        final storedByArchivePath = <String, String?>{};
-
-        Future<NoteAttachment> importAttachment(
-          NoteAttachment attachment,
-        ) async {
-          final filePath = attachment.filePath;
-          if (filePath == null || filePath.isEmpty) {
-            return attachment.copyWith(
-              filePath: null,
-              previewBytesBase64: null,
-            );
-          }
-          final bytes = attachmentFiles[filePath];
-          if (bytes == null || bytes.isEmpty) {
-            return attachment.copyWith(
-              filePath: null,
-              previewBytesBase64: null,
-            );
-          }
-          if (!storedByArchivePath.containsKey(filePath)) {
-            final encryptedPayload = await ref
-                .read(encryptedAttachmentStoreProvider)
-                .encryptAttachmentBytes(
-                  bytes: bytes,
-                  type: attachment.type,
-                  vaultId: note.vaultId,
-                );
-            storedByArchivePath[filePath] = await ref
-                .read(encryptedAttachmentStoreProvider)
-                .storeEncryptedPayload(
-                  encodedPayload: encryptedPayload,
-                  type: attachment.type,
-                  fileNameHint: attachment.label,
-                  vaultId: note.vaultId,
-                );
-          }
-          return attachment.copyWith(
-            filePath: storedByArchivePath[filePath],
-            previewBytesBase64: null,
-          );
-        }
-
-        final importedAttachments = <NoteAttachment>[];
-        for (final attachment in note.attachments) {
-          importedAttachments.add(await importAttachment(attachment));
-        }
-        final importedBlocks = <NoteBlock>[];
-        for (final block in note.blocks) {
-          final attachment = block.attachment;
-          importedBlocks.add(
-            attachment == null
-                ? block
-                : block.copyWith(
-                    attachment: await importAttachment(attachment),
-                  ),
-          );
-        }
-
-        importedChanges.add(
-          PreparedSyncNote(
-            action: PendingNoteChangeAction.upsert,
-            note: note.copyWith(
-              attachments: importedAttachments,
-              blocks: importedBlocks,
-              syncState: NoteSyncState.pendingUpload,
-            ),
-          ),
-        );
-      }
-      await ref
-          .read(notesControllerProvider.notifier)
-          .mergeFromSync(importedChanges);
-      state = state.copyWith(
-        stage: SyncTransferStage.success,
-        message: 'ZIP アーカイブをローカルのノートに反映しました。',
-      );
-    } catch (error) {
-      state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
-      rethrow;
-    }
-  }
-
-  Future<void> downloadLatestBundle() async {
-    final historyStartedAt = DateTime.now();
-    final remoteStatus = state.remoteStatus;
-    if (remoteStatus != null && remoteStatus.fileId.isNotEmpty) {
-      await downloadBundle(remoteStatus);
-      return;
-    }
-    final provider = ref.read(syncProviderControllerProvider);
-    if (!_supportsRemoteTransport(provider)) {
-      state = const SyncTransferState(
-        stage: SyncTransferStage.error,
-        message: 'sync.error.select_target_for_download',
-      );
-      await _recordSyncHistory(
-        startedAt: historyStartedAt,
-        operation: 'download',
-        success: false,
-        message: state.message,
-      );
-      return;
-    }
-    _startBusy(SyncTransferProgress.downloadingBundle);
-    try {
-      await logFirebaseBreadcrumb('sync download latest requested');
-      final remoteBundle = await runFirebaseTrace(
-        'sync_download_latest_bundle',
-        _downloadLatestRemoteBundle,
-      );
-      await _storeDownloadedBundle(
-        remoteBundle,
-        emptyMessage: 'sync.info.no_usable_remote_bundle',
-      );
-      await _recordSyncHistory(
-        startedAt: historyStartedAt,
-        operation: 'download',
-        success: state.stage == SyncTransferStage.success,
-        message: state.message,
-        remoteStatus: state.remoteStatus,
-        localBundle: state.localBundle,
-      );
-    } catch (error) {
-      state = _failureState(
-        error,
-        remoteStatus: state.remoteStatus,
-        localBundle: state.localBundle,
-      );
-      await _recordSyncHistory(
-        startedAt: historyStartedAt,
-        operation: 'download',
-        success: false,
-        message: state.message,
-        remoteStatus: state.remoteStatus,
-        localBundle: state.localBundle,
-      );
-    }
-  }
-
-  Future<List<RemoteSyncBundleStatus>> listRemoteBundleHistory() async {
-    return _listRemoteHistory();
-  }
-
-  Future<void> downloadBundle(RemoteSyncBundleStatus remoteStatus) async {
-    final historyStartedAt = DateTime.now();
-    final provider = ref.read(syncProviderControllerProvider);
-    if (!_supportsRemoteTransport(provider)) {
-      state = const SyncTransferState(
-        stage: SyncTransferStage.error,
-        message: 'sync.error.select_target_for_download',
-      );
-      await _recordSyncHistory(
-        startedAt: historyStartedAt,
-        operation: 'download',
-        success: false,
-        message: state.message,
-        remoteStatus: remoteStatus,
-      );
-      return;
-    }
-    _startBusy(SyncTransferProgress.downloadingBundle);
-    try {
-      await logFirebaseBreadcrumb(
-        'sync download bundle ${remoteStatus.fileId}',
-      );
-      final remoteBundle = await runFirebaseTrace(
-        'sync_download_selected_bundle',
-        () => _downloadRemoteBundleById(remoteStatus.fileId),
-      );
-      await _storeDownloadedBundle(
-        remoteBundle,
-        emptyMessage: 'sync.error.selected_bundle_download_failed',
-      );
-      await _recordSyncHistory(
-        startedAt: historyStartedAt,
-        operation: 'download',
-        success: state.stage == SyncTransferStage.success,
-        message: state.message,
-        remoteStatus: state.remoteStatus ?? remoteStatus,
-        localBundle: state.localBundle,
-      );
-    } catch (error) {
-      state = _failureState(
-        error,
-        remoteStatus: state.remoteStatus,
-        localBundle: state.localBundle,
-      );
-      await _recordSyncHistory(
-        startedAt: historyStartedAt,
-        operation: 'download',
-        success: false,
-        message: state.message,
-        remoteStatus: state.remoteStatus ?? remoteStatus,
-        localBundle: state.localBundle,
-      );
-    }
-  }
-
-  Future<SyncBundlePreview> downloadBundlePreview(
-    RemoteSyncBundleStatus remoteStatus,
-  ) async {
-    await downloadBundle(remoteStatus);
-    if (state.stage == SyncTransferStage.error) {
-      throw StateError(
-        state.message ?? 'sync.error.remote_bundle_download_failed',
-      );
-    }
-    return previewDownloadedBundle();
-  }
-
-  Future<void> applyDownloadedBundle() async {
-    final historyStartedAt = DateTime.now();
-    final localBundle = state.localBundle;
-    if (localBundle == null) {
-      state = state.copyWith(
-        stage: SyncTransferStage.error,
-        message: 'sync.error.download_before_apply',
-      );
-      await _recordSyncHistory(
-        startedAt: historyStartedAt,
-        operation: 'apply',
-        success: false,
-        message: state.message,
-      );
-      return;
-    }
-    final queueBeforeApply = await _readLocalSyncQueueSummary();
-    _startBusy(SyncTransferProgress.applyingBundle);
-    try {
-      await logFirebaseBreadcrumb('sync apply downloaded bundle');
-      final decoded = await runFirebaseTrace(
-        'sync_read_downloaded_bundle',
-        () => ref
-            .read(secureSyncBundleStoreProvider)
-            .readBundleJson(localBundle.reference),
-      );
-      if (decoded == null) {
-        throw StateError('sync.error.downloaded_bundle_decryption_failed');
-      }
-      final encryptedDatabase = ref.read(encryptedNoteDatabaseProvider);
-      final localPrivatePendingById = {
-        for (final change in await encryptedDatabase.loadPendingChanges())
-          if (isPrivateVaultId(change.vaultId)) change.noteId: change,
-      };
-      final existingPrivateSnapshotsById = {
-        for (final snapshot in await encryptedDatabase.loadAll())
-          if (isPrivateVaultId(snapshot.note.vaultId))
-            snapshot.note.id: snapshot,
-      };
-      final encryptedPrivateEntries = <PreparedEncryptedPrivateSyncNote>[];
-      for (final rawEntry
-          in (decoded['encryptedPrivateNotes'] as List<dynamic>? ??
-              const <dynamic>[])) {
-        final entry = PreparedEncryptedPrivateSyncNote.fromJson(rawEntry);
-        if (entry == null) {
-          throw const SyncSafetyException('sync.error.malformed_private_note');
-        }
-        final localPending = localPrivatePendingById[entry.note.id];
-        if (localPending != null &&
-            !pendingPrivateChangeMatchesRemote(localPending, entry)) {
-          throw const SyncSafetyException('sync.error.private_note_conflict');
-        }
-        encryptedPrivateEntries.add(entry);
-      }
-      for (final rawProfiles
-          in (decoded['privateProfiles'] as List<dynamic>? ??
-              const <dynamic>[])) {
-        await ref
-            .read(privateMemoProfileStoreProvider)
-            .importSyncPayload(rawProfiles);
-      }
-      final attachmentPayloads = <String, Map<String, dynamic>>{
-        for (final entry
-            in (decoded['attachments'] as List<dynamic>? ?? const <dynamic>[]))
-          (entry as Map)['id'] as String: Map<String, dynamic>.from(entry),
-      };
-      // Shared across notes (per vault) so attachments referenced by several
-      // notes are downloaded and stored once, and objects already present
-      // locally are not downloaded at all.
-      final storedBySyncAttachmentIdByVault = <String, Map<String, String?>>{};
-      final previewBySyncAttachmentIdByVault = <String, Map<String, String?>>{};
-      Future<Map<String, String?>> storedMapForVault(String vaultId) async {
-        final existing = storedBySyncAttachmentIdByVault[vaultId];
-        if (existing != null) {
-          return existing;
-        }
-        final seeded = await _localAttachmentPathsByContentHash(vaultId);
-        storedBySyncAttachmentIdByVault[vaultId] = seeded;
-        return seeded;
-      }
-
-      final lockedPrivateVaultIds = <String>{};
-      var importedEncryptedPrivateCount = 0;
-      if (encryptedPrivateEntries.isNotEmpty) {
-        final profileKeys = ref.read(profileDataKeyServiceProvider);
-        for (final entry in encryptedPrivateEntries) {
-          final remoteNote = entry.note.copyWith(
-            deletedAt: entry.action == PendingNoteChangeAction.delete
-                ? (entry.note.deletedAt ?? DateTime.now())
-                : null,
-            clearDeletedAt: entry.action == PendingNoteChangeAction.upsert,
-            syncState: NoteSyncState.synced,
-          );
-          if (entry.action != PendingNoteChangeAction.delete &&
-              await profileKeys.keyForVault(remoteNote.vaultId) == null) {
-            lockedPrivateVaultIds.add(remoteNote.vaultId);
-          }
-          final storedBySyncAttachmentId = await storedMapForVault(
-            remoteNote.vaultId,
-          );
-          final previewBySyncAttachmentId = previewBySyncAttachmentIdByVault
-              .putIfAbsent(remoteNote.vaultId, () => <String, String?>{});
-          final importedPrivateEntry = await _importEncryptedPrivateSyncNote(
-            entry: PreparedEncryptedPrivateSyncNote(
-              action: entry.action,
-              note: remoteNote,
-              attachments: entry.attachments,
-            ),
-            inlinePayloads: attachmentPayloads,
-            storedBySyncAttachmentId: storedBySyncAttachmentId,
-            previewBySyncAttachmentId: previewBySyncAttachmentId,
-          );
-          final existingPrivateNote =
-              existingPrivateSnapshotsById[importedPrivateEntry.note.id]?.note;
-          if (existingPrivateNote != null &&
-              _incomingEncryptedPrivateIsOlder(
-                existingPrivateNote,
-                importedPrivateEntry.note,
-              )) {
-            _diagnostic(
-              'older encrypted private sync note skipped',
-              data: {
-                'noteId': importedPrivateEntry.note.id,
-                'localRevision': existingPrivateNote.revision,
-                'remoteRevision': importedPrivateEntry.note.revision,
-              },
-            );
-            final existingSnapshot =
-                existingPrivateSnapshotsById[importedPrivateEntry.note.id]!;
-            final pendingAction = existingPrivateNote.deletedAt == null
-                ? PendingNoteChangeAction.upsert
-                : PendingNoteChangeAction.delete;
-            final queuedNote = existingPrivateNote.copyWith(
-              syncState: existingPrivateNote.deletedAt == null
-                  ? NoteSyncState.pendingUpload
-                  : NoteSyncState.pendingDelete,
-            );
-            await encryptedDatabase.upsertOne(
-              note: queuedNote,
-              attachments: existingSnapshot.attachments,
-              pendingChange: PendingNoteChangeRecord(
-                noteId: queuedNote.id,
-                vaultId: queuedNote.vaultId,
-                revision: queuedNote.revision,
-                action: pendingAction,
-                queuedAt: _encryptedSyncMoment(queuedNote),
-                contentHash: queuedNote.contentHash,
-                deletedAt: queuedNote.deletedAt,
-              ),
-            );
-            existingPrivateSnapshotsById[queuedNote.id] = EncryptedNoteSnapshot(
-              note: queuedNote,
-              attachments: existingSnapshot.attachments,
-            );
-            continue;
-          }
-          await encryptedDatabase.upsertOne(
-            note: importedPrivateEntry.note,
-            attachments: importedPrivateEntry.attachments,
-          );
-          existingPrivateSnapshotsById[importedPrivateEntry.note.id] =
-              EncryptedNoteSnapshot(
-                note: importedPrivateEntry.note,
-                attachments: importedPrivateEntry.attachments,
-              );
-          importedEncryptedPrivateCount += 1;
-        }
-      }
-      final rawNoteEntries =
-          decoded['notes'] as List<dynamic>? ?? const <dynamic>[];
-      final importedChanges = <PreparedSyncNote>[];
-      var importedEntryCount = 0;
-      final totalEntries = rawNoteEntries.length;
-
-      for (final rawEntry in rawNoteEntries) {
-        if (importedEntryCount > 0 && importedEntryCount % 25 == 0) {
-          await _yieldToUi();
-        }
-        importedEntryCount++;
-        _setProgressDetail(
-          progress: SyncTransferProgress.applyingBundle,
-          detail: 'Applying note',
-          completedItems: importedEntryCount - 1,
-          totalItems: totalEntries,
-        );
-        final entry = Map<String, dynamic>.from(rawEntry as Map);
-        final note = NoteEntry.fromJson(
-          Map<String, dynamic>.from(entry['note'] as Map),
-        );
-        if (isPrivateVaultId(note.vaultId) &&
-            !ref
-                .read(profileDataKeyServiceProvider)
-                .isProfileUnlocked(note.vaultId)) {
-          lockedPrivateVaultIds.add(note.vaultId);
-          continue;
-        }
-        final action = PendingNoteChangeAction.values.firstWhere(
-          (value) => value.name == entry['action'],
-          orElse: () => note.deletedAt == null
-              ? PendingNoteChangeAction.upsert
-              : PendingNoteChangeAction.delete,
-        );
-        final storedBySyncAttachmentId = await storedMapForVault(note.vaultId);
-        final previewBySyncAttachmentId = previewBySyncAttachmentIdByVault
-            .putIfAbsent(note.vaultId, () => <String, String?>{});
-
-        final importedAttachments = <NoteAttachment>[];
-        for (final attachment in note.attachments) {
-          _setProgressDetail(
-            progress: SyncTransferProgress.applyingBundle,
-            detail: 'Applying attachment for note',
-            completedItems: importedEntryCount - 1,
-            totalItems: totalEntries,
-          );
-          await _yieldToUi();
-          importedAttachments.add(
-            await _importRemoteSyncAttachment(
-              attachment: attachment,
-              note: note,
-              inlinePayloads: attachmentPayloads,
-              storedBySyncAttachmentId: storedBySyncAttachmentId,
-              previewBySyncAttachmentId: previewBySyncAttachmentId,
-            ),
-          );
-        }
-        final importedBlocks = <NoteBlock>[];
-        for (final block in note.blocks) {
-          final attachment = block.attachment;
-          if (attachment != null) {
-            _setProgressDetail(
-              progress: SyncTransferProgress.applyingBundle,
-              detail: 'Applying block attachment for note',
-              completedItems: importedEntryCount - 1,
-              totalItems: totalEntries,
-            );
-            await _yieldToUi();
-          }
-          importedBlocks.add(
-            attachment == null
-                ? block
-                : block.copyWith(
-                    attachment: await _importRemoteSyncAttachment(
-                      attachment: attachment,
-                      note: note,
-                      inlinePayloads: attachmentPayloads,
-                      storedBySyncAttachmentId: storedBySyncAttachmentId,
-                      previewBySyncAttachmentId: previewBySyncAttachmentId,
-                    ),
-                  ),
-          );
-        }
-        importedChanges.add(
-          PreparedSyncNote(
-            action: action,
-            note: note.copyWith(
-              attachments: importedAttachments,
-              blocks: importedBlocks,
-            ),
-          ),
-        );
-      }
-      if (importedChanges.isNotEmpty) {
-        await ref
-            .read(notesControllerProvider.notifier)
-            .mergeFromSync(importedChanges);
-        ref.invalidate(syncQueueSummaryProvider);
-      }
-      if (importedEncryptedPrivateCount > 0) {
-        await ref.read(notesControllerProvider.notifier).reloadFromStorage();
-        ref.invalidate(syncQueueSummaryProvider);
-      }
-      if (lockedPrivateVaultIds.isEmpty) {
-        await ref
-            .read(syncBundleStateStoreProvider)
-            .recordApply(state.remoteStatus);
-        ref.invalidate(syncBundleStateProvider);
-      }
-      await _setPendingPrivateBundleApply(lockedPrivateVaultIds.isNotEmpty);
-      state = state.copyWith(
-        stage: SyncTransferStage.success,
-        message: lockedPrivateVaultIds.isEmpty
-            ? 'sync.info.apply_success'
-            : _privateProfileNotesPendingUnlockMessage,
-      );
-      await _recordSyncHistory(
-        startedAt: historyStartedAt,
-        operation: 'apply',
-        success: true,
-        message: state.message,
-        queueBefore: queueBeforeApply,
-        queueAfter: await _readLocalSyncQueueSummary(),
-        remoteStatus: state.remoteStatus,
-        localBundle: localBundle,
-      );
-    } on HimemoDecryptionException {
-      state = state.copyWith(
-        stage: SyncTransferStage.error,
-        message: _syncBundleDecryptionMessage,
-      );
-      await _recordSyncHistory(
-        startedAt: historyStartedAt,
-        operation: 'apply',
-        success: false,
-        message: state.message,
-        queueBefore: queueBeforeApply,
-        remoteStatus: state.remoteStatus,
-        localBundle: localBundle,
-      );
-    } catch (error) {
-      state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
-      await _recordSyncHistory(
-        startedAt: historyStartedAt,
-        operation: 'apply',
-        success: false,
-        message: state.message,
-        queueBefore: queueBeforeApply,
-        remoteStatus: state.remoteStatus,
-        localBundle: localBundle,
-      );
-    }
-  }
-
-  Future<int> downloadDeferredAttachments() async {
-    if (!_supportsRemoteTransport(ref.read(syncProviderControllerProvider))) {
-      return 0;
-    }
-    _startBusy(SyncTransferProgress.downloadingBundle);
-    try {
-      var count = 0;
-      var scannedNoteCount = 0;
-      final currentNotes = ref.read(notesControllerProvider);
-      final totalNotes = currentNotes.length;
-      final hydratedNotes = <NoteEntry>[];
-      // Shared across notes (per vault) so an object referenced by several
-      // notes is downloaded once and existing local files are reused.
-      final storedBySyncAttachmentIdByVault = <String, Map<String, String?>>{};
-      final previewBySyncAttachmentIdByVault = <String, Map<String, String?>>{};
-      Future<Map<String, String?>> storedMapForVault(String vaultId) async {
-        final existing = storedBySyncAttachmentIdByVault[vaultId];
-        if (existing != null) {
-          return existing;
-        }
-        final seeded = await _localAttachmentPathsByContentHash(vaultId);
-        storedBySyncAttachmentIdByVault[vaultId] = seeded;
-        return seeded;
-      }
-
-      for (final note in currentNotes) {
-        if (scannedNoteCount > 0 && scannedNoteCount % 25 == 0) {
-          await _yieldToUi();
-        }
-        scannedNoteCount++;
-        _setProgressDetail(
-          progress: SyncTransferProgress.downloadingBundle,
-          detail: 'Checking attachments',
-          completedItems: scannedNoteCount - 1,
-          totalItems: totalNotes,
-        );
-        final storedBySyncAttachmentId = await storedMapForVault(note.vaultId);
-        final previewBySyncAttachmentId = previewBySyncAttachmentIdByVault
-            .putIfAbsent(note.vaultId, () => <String, String?>{});
-        Future<NoteAttachment> hydrate(NoteAttachment attachment) async {
-          final remoteRef = attachment.filePath;
-          if (!isSyncAttachmentObjectRef(remoteRef)) {
-            return attachment;
-          }
-          final imported = await _importRemoteSyncAttachment(
-            attachment: attachment,
-            note: note,
-            inlinePayloads: const <String, Map<String, dynamic>>{},
-            storedBySyncAttachmentId: storedBySyncAttachmentId,
-            previewBySyncAttachmentId: previewBySyncAttachmentId,
-            deferOnMobile: false,
-          );
-          final storedPath = imported.filePath;
-          if (storedPath != null && storedPath != remoteRef) {
-            count += 1;
-          }
-          return imported;
-        }
-
-        hydratedNotes.add(
-          note.copyWith(
-            attachments: [
-              for (final attachment in note.attachments)
-                await hydrate(attachment),
-            ],
-            blocks: [
-              for (final block in note.blocks)
-                block.attachment == null
-                    ? block
-                    : block.copyWith(
-                        attachment: await hydrate(block.attachment!),
-                      ),
-            ],
-          ),
-        );
-      }
-      if (count > 0) {
-        await ref
-            .read(notesControllerProvider.notifier)
-            .replaceFromSync(hydratedNotes);
-      }
-      state = state.copyWith(
-        stage: SyncTransferStage.success,
-        message: count == 0
-            ? 'sync.info.no_deferred_attachments'
-            : 'sync.info.deferred_attachments_downloaded',
-      );
-      return count;
-    } on HimemoDecryptionException {
-      state = state.copyWith(
-        stage: SyncTransferStage.error,
-        message: _syncBundleDecryptionMessage,
-      );
-      return 0;
-    } catch (error) {
-      state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
-      return 0;
-    }
-  }
-
-  Future<SyncBundlePreview> previewDownloadedBundle() async {
-    final localBundle = state.localBundle;
-    if (localBundle == null) {
-      throw StateError('sync.error.download_before_review');
-    }
-    try {
-      final decoded = await ref
-          .read(secureSyncBundleStoreProvider)
-          .readBundleJson(localBundle.reference);
-      if (decoded == null) {
-        throw StateError('sync.error.downloaded_bundle_decryption_failed');
-      }
-      return buildSyncBundlePreview(
-        decodedBundle: decoded,
-        currentNotes: ref.read(notesControllerProvider),
-      );
-    } on HimemoDecryptionException {
-      state = state.copyWith(
-        stage: SyncTransferStage.error,
-        message: _syncBundleDecryptionMessage,
-      );
-      rethrow;
-    }
-  }
-
-  Future<NoteEntry?> downloadLatestRemoteNoteForConflict(String noteId) async {
-    final provider = ref.read(syncProviderControllerProvider);
-    if (!_supportsRemoteTransport(provider)) {
-      state = const SyncTransferState(
-        stage: SyncTransferStage.error,
-        message: 'sync.error.select_target_for_download',
-      );
-      return null;
-    }
-    _startBusy(SyncTransferProgress.downloadingBundle);
-    try {
-      final remoteBundle = await runFirebaseTrace(
-        'sync_download_latest_bundle_for_conflict',
-        _downloadLatestRemoteBundle,
-      );
-      await _storeDownloadedBundle(
-        remoteBundle,
-        emptyMessage: 'sync.info.no_usable_remote_bundle',
-      );
-      final localBundle = state.localBundle;
-      if (localBundle == null) {
-        return null;
-      }
-      final changes = await _readPreparedChangesFromBundle(
-        localBundle.reference,
-      );
-      for (final change in changes) {
-        if (change.note.id == noteId &&
-            change.action != PendingNoteChangeAction.delete) {
-          return change.note.copyWith(syncState: NoteSyncState.synced);
-        }
-      }
-      return null;
-    } on HimemoDecryptionException {
-      state = state.copyWith(
-        stage: SyncTransferStage.error,
-        message: _syncBundleDecryptionMessage,
-      );
-      return null;
-    } catch (error) {
-      state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
-      return null;
-    }
-  }
-
-  Future<void> recordDownloadedBundleApplied() async {
-    await ref
-        .read(syncBundleStateStoreProvider)
-        .recordApply(state.remoteStatus);
-    ref.invalidate(syncBundleStateProvider);
-  }
-
-  // Maps contentHash -> existing local attachment path for the given vault,
-  // so applying a bundle reuses files that are already stored locally instead
-  // of re-downloading objects shared across notes. Scoped per vault because
-  // stored attachment payloads are encrypted with the vault key.
-  Future<Map<String, String?>> _localAttachmentPathsByContentHash(
-    String vaultId,
-  ) async {
-    final stored = <String, String?>{};
-    final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
-
-    Future<void> consider(NoteAttachment attachment) async {
-      final hash = attachment.syncAttachmentContentHash;
-      final filePath = attachment.filePath;
-      if (hash == null ||
-          hash.isEmpty ||
-          filePath == null ||
-          filePath.isEmpty ||
-          isSyncAttachmentObjectRef(filePath) ||
-          stored.containsKey(hash)) {
-        return;
-      }
-      if (await attachmentStore.storedPayloadMetadata(filePath) != null) {
-        stored[hash] = filePath;
-      }
-    }
-
-    for (final note in ref.read(notesControllerProvider)) {
-      if (note.vaultId != vaultId) {
-        continue;
-      }
-      for (final attachment in note.attachments) {
-        await consider(attachment);
-      }
-      for (final block in note.blocks) {
-        final attachment = block.attachment;
-        if (attachment != null) {
-          await consider(attachment);
-        }
-      }
-    }
-    return stored;
-  }
-
-  Future<NoteAttachment> _importRemoteSyncAttachment({
-    required NoteAttachment attachment,
-    required NoteEntry note,
-    required Map<String, Map<String, dynamic>> inlinePayloads,
-    required Map<String, String?> storedBySyncAttachmentId,
-    required Map<String, String?> previewBySyncAttachmentId,
-    bool deferOnMobile = true,
-  }) async {
-    final filePath = attachment.filePath;
-    if (filePath == null) {
-      return attachment;
-    }
-    if (isSyncAttachmentObjectRef(filePath)) {
-      final contentHash = syncAttachmentObjectContentHash(filePath);
-      if (contentHash == null) {
-        return attachment.copyWith(filePath: null, previewBytesBase64: null);
-      }
-      final inlinePayload = inlinePayloads[contentHash];
-      final hasInlinePayload =
-          inlinePayload != null &&
-          ((inlinePayload['bytesBase64'] as String?)?.isNotEmpty == true ||
-              (inlinePayload['encryptedPayload'] as String?)?.isNotEmpty ==
-                  true);
-      if (inlinePayload != null && !hasInlinePayload) {
-        _diagnostic(
-          'remote attachment object metadata found',
-          data: {
-            'contentHash': contentHash,
-            'type': inlinePayload['type'],
-            'label': inlinePayload['label'],
-          },
-        );
-      }
-      if (inlinePayload != null && hasInlinePayload) {
-        return _importInlineSyncAttachment(
-          attachment: attachment,
-          note: note,
-          attachmentId: contentHash,
-          payload: inlinePayload,
-          storedBySyncAttachmentId: storedBySyncAttachmentId,
-          previewBySyncAttachmentId: previewBySyncAttachmentId,
-        );
-      }
-      final connectionKind = await ref
-          .read(networkConnectionServiceProvider)
-          .currentKind();
-      if (deferOnMobile && connectionKind == NetworkConnectionKind.mobile) {
-        _diagnostic(
-          'remote attachment object deferred on mobile',
-          data: {
-            'contentHash': contentHash,
-            'type': attachment.type.name,
-            'label': attachment.label,
-          },
-        );
-        return attachment;
-      }
-      if (!storedBySyncAttachmentId.containsKey(contentHash)) {
-        final encodedPayload = await _downloadRemoteAttachmentObject(
-          contentHash,
-        );
-        if (encodedPayload == null || encodedPayload.isEmpty) {
-          throw const SyncSafetyException(
-            'sync.error.remote_attachment_unavailable',
-          );
-        } else {
-          final decoded = await ref
-              .read(secureSyncBundleStoreProvider)
-              .readAttachmentObjectPayload(encodedPayload);
-          final payloadHash = decoded['contentHash'] as String? ?? contentHash;
-          if (payloadHash != contentHash) {
-            throw StateError('sync.error.attachment_object_hash_mismatch');
-          }
-          final payloadType = AttachmentType.values.firstWhere(
-            (value) => value.name == decoded['type'],
-            orElse: () => attachment.type,
-          );
-          final label = decoded['label'] as String? ?? attachment.label;
-          final encryptedPayload = decoded['encryptedPayload'] as String?;
-          final bytesBase64 = decoded['bytesBase64'] as String?;
-          if (encryptedPayload != null && encryptedPayload.isNotEmpty) {
-            if (await _encryptedAttachmentPayloadContentHash(
-                  encryptedPayload,
-                ) !=
-                contentHash) {
-              throw StateError('sync.error.attachment_object_hash_mismatch');
-            }
-            previewBySyncAttachmentId[contentHash] =
-                attachment.previewBytesBase64;
-            storedBySyncAttachmentId[contentHash] = await ref
-                .read(encryptedAttachmentStoreProvider)
-                .storeEncryptedPayload(
-                  encodedPayload: encryptedPayload,
-                  type: payloadType,
-                  fileNameHint: label,
-                  vaultId: note.vaultId,
-                );
-          } else if (bytesBase64 == null || bytesBase64.isEmpty) {
-            storedBySyncAttachmentId[contentHash] = null;
-            previewBySyncAttachmentId[contentHash] =
-                attachment.previewBytesBase64;
-          } else {
-            final decodedBytes = await _decodeSyncAttachmentBytes(bytesBase64);
-            if (decodedBytes.contentHash != contentHash) {
-              throw StateError('sync.error.attachment_object_hash_mismatch');
-            }
-            final clearBytes = decodedBytes.bytes;
-            previewBySyncAttachmentId[contentHash] =
-                payloadType == AttachmentType.video
-                ? await _videoPreviewBytesBase64ForBytes(
-                    clearBytes,
-                    label: label,
-                    mimeType: 'video/mp4',
-                  )
-                : attachment.previewBytesBase64;
-            final encryptedPayload = await ref
-                .read(encryptedAttachmentStoreProvider)
-                .encryptAttachmentBytes(
-                  bytes: clearBytes,
-                  type: payloadType,
-                  vaultId: note.vaultId,
-                );
-            storedBySyncAttachmentId[contentHash] = await ref
-                .read(encryptedAttachmentStoreProvider)
-                .storeEncryptedPayload(
-                  encodedPayload: encryptedPayload,
-                  type: payloadType,
-                  fileNameHint: label,
-                  vaultId: note.vaultId,
-                );
-          }
-        }
-      }
-      final storedPath = storedBySyncAttachmentId[contentHash];
-      return attachment.copyWith(
-        filePath: storedPath ?? attachment.filePath,
-        previewBytesBase64:
-            previewBySyncAttachmentId[contentHash] ??
-            attachment.previewBytesBase64,
-      );
-    }
-    if (!filePath.startsWith('sync-attachment://')) {
-      return attachment;
-    }
-    final attachmentId = filePath.substring('sync-attachment://'.length);
-    final payload = inlinePayloads[attachmentId];
-    if (payload == null) {
-      return attachment.copyWith(filePath: null, previewBytesBase64: null);
-    }
-    return _importInlineSyncAttachment(
-      attachment: attachment,
-      note: note,
-      attachmentId: attachmentId,
-      payload: payload,
-      storedBySyncAttachmentId: storedBySyncAttachmentId,
-      previewBySyncAttachmentId: previewBySyncAttachmentId,
-    );
-  }
-
-  Future<PreparedEncryptedPrivateSyncNote> _importEncryptedPrivateSyncNote({
-    required PreparedEncryptedPrivateSyncNote entry,
-    required Map<String, Map<String, dynamic>> inlinePayloads,
-    required Map<String, String?> storedBySyncAttachmentId,
-    required Map<String, String?> previewBySyncAttachmentId,
-  }) async {
-    if (entry.action == PendingNoteChangeAction.delete) {
-      return entry;
-    }
-    final profileKey = await ref
-        .read(profileDataKeyServiceProvider)
-        .keyForVault(entry.note.vaultId);
-    if (profileKey == null) {
-      return entry;
-    }
-    final encryptionService = ref.read(encryptionServiceProvider);
-    final payload = await encryptionService.decryptJson(
-      encodedPayload: entry.note.encryptedPayload,
-      secretKey: profileKey,
-    );
-    final decodedAttachments = <NoteAttachment>[];
-    for (final attachmentRecord in entry.attachments) {
-      final attachmentPayload = await encryptionService.decryptJson(
-        encodedPayload: attachmentRecord.encryptedPayload,
-        secretKey: profileKey,
-      );
-      decodedAttachments.add(NoteAttachment.fromJson(attachmentPayload));
-    }
-    final legacyAttachments =
-        (payload['attachments'] as List<dynamic>? ?? const <dynamic>[])
-            .map((raw) => Map<String, dynamic>.from(raw as Map))
-            .map(NoteAttachment.fromJson)
-            .toList(growable: false);
-    final note =
-        NoteEntry.fromJson({
-          ...payload,
-          'attachments':
-              (decodedAttachments.isNotEmpty
-                      ? decodedAttachments
-                      : legacyAttachments)
-                  .map((attachment) => attachment.toJson())
-                  .toList(),
-        }).copyWith(
-          createdAt: entry.note.createdAt,
-          updatedAt: entry.note.updatedAt,
-          deletedAt: entry.note.deletedAt,
-          isPinned: entry.note.isPinned,
-          revision: entry.note.revision,
-          syncState: entry.note.syncState,
-          deviceId: entry.note.deviceId,
-          contentHash: entry.note.contentHash,
-        );
-
-    Future<NoteAttachment> importAttachment(NoteAttachment attachment) {
-      return _importRemoteSyncAttachment(
-        attachment: attachment,
-        note: note,
-        inlinePayloads: inlinePayloads,
-        storedBySyncAttachmentId: storedBySyncAttachmentId,
-        previewBySyncAttachmentId: previewBySyncAttachmentId,
-      );
-    }
-
-    final importedAttachments = <NoteAttachment>[];
-    for (final attachment in note.attachments) {
-      importedAttachments.add(await importAttachment(attachment));
-    }
-    final importedBlocks = <NoteBlock>[];
-    for (final block in note.blocks) {
-      final attachment = block.attachment;
-      importedBlocks.add(
-        attachment == null
-            ? block
-            : block.copyWith(attachment: await importAttachment(attachment)),
-      );
-    }
-    final importedNote = note.copyWith(
-      attachments: importedAttachments,
-      blocks: importedBlocks,
-    );
-    final notePayload = Map<String, dynamic>.from(importedNote.toJson());
-    notePayload['attachments'] = const <Map<String, dynamic>>[];
-    final encryptedNotePayload = await encryptionService.encryptJson(
-      payload: notePayload,
-      secretKey: profileKey,
-    );
-    final importedRecords = <EncryptedAttachmentRecord>[];
-    for (var i = 0; i < importedNote.attachments.length; i++) {
-      importedRecords.add(
-        EncryptedAttachmentRecord(
-          noteId: importedNote.id,
-          position: i,
-          encryptedPayload: await encryptionService.encryptJson(
-            payload: importedNote.attachments[i].toJson(),
-            secretKey: profileKey,
-          ),
-        ),
-      );
-    }
-    return PreparedEncryptedPrivateSyncNote(
-      action: entry.action,
-      note: EncryptedNoteRecord.fromNote(
-        note: importedNote,
-        encryptedPayload: encryptedNotePayload,
-      ),
-      attachments: importedRecords,
-    );
-  }
-
-  bool _incomingEncryptedPrivateIsOlder(
-    EncryptedNoteRecord current,
-    EncryptedNoteRecord incoming,
-  ) {
-    if (incoming.revision != current.revision) {
-      return incoming.revision < current.revision;
-    }
-    return _encryptedSyncMoment(
-      incoming,
-    ).isBefore(_encryptedSyncMoment(current));
-  }
-
-  DateTime _encryptedSyncMoment(EncryptedNoteRecord note) {
-    return note.deletedAt ?? note.updatedAt ?? note.createdAt;
-  }
-
-  Future<NoteAttachment> _importInlineSyncAttachment({
-    required NoteAttachment attachment,
-    required NoteEntry note,
-    required String attachmentId,
-    required Map<String, dynamic> payload,
-    required Map<String, String?> storedBySyncAttachmentId,
-    required Map<String, String?> previewBySyncAttachmentId,
-  }) async {
-    if (!storedBySyncAttachmentId.containsKey(attachmentId)) {
-      final payloadType = AttachmentType.values.firstWhere(
-        (value) => value.name == payload['type'],
-        orElse: () => attachment.type,
-      );
-      final label = payload['label'] as String? ?? attachment.label;
-      final bytesBase64 = payload['bytesBase64'] as String?;
-      if (bytesBase64 != null && bytesBase64.isNotEmpty) {
-        final decodedBytes = await _decodeSyncAttachmentBytes(bytesBase64);
-        final clearBytes = decodedBytes.bytes;
-        previewBySyncAttachmentId[attachmentId] =
-            payloadType == AttachmentType.video
-            ? await _videoPreviewBytesBase64ForBytes(
-                clearBytes,
-                label: label,
-                mimeType: 'video/mp4',
-              )
-            : null;
-        final encryptedPayload = await ref
-            .read(encryptedAttachmentStoreProvider)
-            .encryptAttachmentBytes(
-              bytes: clearBytes,
-              type: payloadType,
-              vaultId: note.vaultId,
-            );
-        storedBySyncAttachmentId[attachmentId] = await ref
-            .read(encryptedAttachmentStoreProvider)
-            .storeEncryptedPayload(
-              encodedPayload: encryptedPayload,
-              type: payloadType,
-              fileNameHint: label,
-              vaultId: note.vaultId,
-            );
-      } else {
-        previewBySyncAttachmentId[attachmentId] = null;
-        final legacyPayload = payload['encryptedPayload'] as String?;
-        storedBySyncAttachmentId[attachmentId] =
-            legacyPayload == null || legacyPayload.isEmpty
-            ? null
-            : await ref
-                  .read(encryptedAttachmentStoreProvider)
-                  .storeEncryptedPayload(
-                    encodedPayload: legacyPayload,
-                    type: payloadType,
-                    fileNameHint: label,
-                    vaultId: note.vaultId,
-                  );
-      }
-    }
-    return attachment.copyWith(
-      filePath: storedBySyncAttachmentId[attachmentId],
-      previewBytesBase64: previewBySyncAttachmentId[attachmentId],
-    );
-  }
-
-  Future<List<PreparedSyncNote>> _readPreparedChangesFromBundle(
-    String reference,
-  ) async {
-    final decoded = await ref
-        .read(secureSyncBundleStoreProvider)
-        .readBundleJson(reference);
-    if (decoded == null) {
-      throw StateError('sync.error.downloaded_bundle_decryption_failed');
-    }
-    final rawNoteEntries =
-        decoded['notes'] as List<dynamic>? ?? const <dynamic>[];
-    final lockedPrivateVaultIds = <String>{};
-    for (final rawEntry in rawNoteEntries) {
-      final entry = Map<String, dynamic>.from(rawEntry as Map);
-      final note = NoteEntry.fromJson(
-        Map<String, dynamic>.from(entry['note'] as Map),
-      );
-      if (isPrivateVaultId(note.vaultId) &&
-          !ref
-              .read(profileDataKeyServiceProvider)
-              .isProfileUnlocked(note.vaultId)) {
-        lockedPrivateVaultIds.add(note.vaultId);
-      }
-    }
-    if (lockedPrivateVaultIds.isNotEmpty) {
-      throw StateError('sync.error.private_profile_locked');
-    }
-    final attachmentPayloads = <String, Map<String, dynamic>>{
-      for (final entry
-          in (decoded['attachments'] as List<dynamic>? ?? const <dynamic>[]))
-        (entry as Map)['id'] as String: Map<String, dynamic>.from(entry),
-    };
-    final importedChanges = <PreparedSyncNote>[];
-    for (final rawEntry in rawNoteEntries) {
-      final entry = Map<String, dynamic>.from(rawEntry as Map);
-      final note = NoteEntry.fromJson(
-        Map<String, dynamic>.from(entry['note'] as Map),
-      );
-      final action = PendingNoteChangeAction.values.firstWhere(
-        (value) => value.name == entry['action'],
-        orElse: () => note.deletedAt == null
-            ? PendingNoteChangeAction.upsert
-            : PendingNoteChangeAction.delete,
-      );
-      final storedBySyncAttachmentId = <String, String?>{};
-      final previewBySyncAttachmentId = <String, String?>{};
-
-      final importedAttachments = <NoteAttachment>[];
-      for (final attachment in note.attachments) {
-        importedAttachments.add(
-          await _importRemoteSyncAttachment(
-            attachment: attachment,
-            note: note,
-            inlinePayloads: attachmentPayloads,
-            storedBySyncAttachmentId: storedBySyncAttachmentId,
-            previewBySyncAttachmentId: previewBySyncAttachmentId,
-          ),
-        );
-      }
-      final importedBlocks = <NoteBlock>[];
-      for (final block in note.blocks) {
-        final attachment = block.attachment;
-        importedBlocks.add(
-          attachment == null
-              ? block
-              : block.copyWith(
-                  attachment: await _importRemoteSyncAttachment(
-                    attachment: attachment,
-                    note: note,
-                    inlinePayloads: attachmentPayloads,
-                    storedBySyncAttachmentId: storedBySyncAttachmentId,
-                    previewBySyncAttachmentId: previewBySyncAttachmentId,
-                  ),
-                ),
-        );
-      }
-      importedChanges.add(
-        PreparedSyncNote(
-          action: action,
-          note: note.copyWith(
-            attachments: importedAttachments,
-            blocks: importedBlocks,
-          ),
-        ),
-      );
-    }
-    return importedChanges;
-  }
-
-  Future<void> _storeDownloadedBundle(
-    DownloadedRemoteSyncBundle? remoteBundle, {
-    required String emptyMessage,
-  }) async {
-    if (remoteBundle == null) {
-      state = SyncTransferState(
-        stage: SyncTransferStage.success,
-        message: emptyMessage,
-        remoteStatus: state.remoteStatus,
-        localBundle: state.localBundle,
-      );
-      return;
-    }
-    final localBundle = await ref
-        .read(secureSyncBundleStoreProvider)
-        .writeEncryptedBundlePayload(
-          remoteBundle.encodedPayload,
-          noteCount: remoteBundle.status.noteCount ?? 0,
-          attachmentCount: remoteBundle.status.attachmentCount ?? 0,
-          fileNameOverride: _downloadedSyncBundleFileName,
-        );
-    state = SyncTransferState(
-      stage: SyncTransferStage.success,
-      message: 'sync.info.remote_bundle_saved_locally',
-      remoteStatus: remoteBundle.status,
-      localBundle: localBundle,
-    );
-    await ref
-        .read(syncBundleStateStoreProvider)
-        .recordRemoteStatus(remoteBundle.status);
-  }
-
-  Future<void> applyPendingPrivateDownloadedBundleIfNeeded() async {
-    if (!await _hasPendingPrivateBundleApply()) {
-      return;
-    }
-    try {
-      if (state.localBundle == null) {
-        final restored = await ref
-            .read(secureSyncBundleStoreProvider)
-            .readStoredEncryptedBundle(
-              fileNameOverride: _downloadedSyncBundleFileName,
-            );
-        if (restored == null) {
-          await _setPendingPrivateBundleApply(false);
-          return;
-        }
-        state = state.copyWith(localBundle: restored);
-      }
-      await applyDownloadedBundle();
-    } catch (error) {
-      _diagnostic(
-        'pending private downloaded bundle apply failed',
-        data: {'error': error},
-      );
-    }
-  }
-
-  Future<void> _setPendingPrivateBundleApply(bool pending) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_pendingPrivateBundleApplyKey, pending);
-  }
-
-  Future<bool> _hasPendingPrivateBundleApply() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_pendingPrivateBundleApplyKey) ?? false;
-  }
-
-  bool _supportsRemoteTransport(SyncProvider provider) {
-    return provider == SyncProvider.googleDrive ||
-        provider == SyncProvider.iCloud;
-  }
-
-  bool _remoteBundleNeedsApply(
-    RemoteSyncBundleStatus remoteStatus,
-    SyncBundleState bundleState,
-  ) {
-    return remoteBundleNeedsApplyForSync(remoteStatus, bundleState);
-  }
-
-  Future<LocalNoteArchive> _buildLocalZipArchive({
-    String? password,
-    Set<String>? vaultIds,
-    bool includeSampleNotes = false,
-  }) async {
-    final exportedAt = DateTime.now();
-    final notes = ref
-        .read(notesControllerProvider)
-        .where((entry) => entry.deletedAt == null)
-        .where(
-          (entry) =>
-              vaultIds == null ||
-              vaultIds.isEmpty ||
-              vaultIds.contains(entry.vaultId),
-        )
-        .where((entry) => includeSampleNotes || !isGeneratedSampleNote(entry))
-        .toList(growable: false);
-    final archiveFiles = <_LocalArchiveFilePayload>[];
-    final exportedNotes = <Map<String, dynamic>>[];
-    var attachmentCount = 0;
-
-    for (final note in notes) {
-      final archivePathByAttachmentKey = <String, String>{};
-
-      Future<NoteAttachment> exportAttachment(
-        NoteAttachment attachment,
-        int index,
-      ) async {
-        final filePath = attachment.filePath;
-        if (filePath == null || filePath.isEmpty) {
-          return attachment.copyWith(filePath: null, previewBytesBase64: null);
-        }
-        final key = _attachmentExportKey(attachment);
-        final existingPath = archivePathByAttachmentKey[key];
-        if (existingPath != null) {
-          return attachment.copyWith(
-            filePath: existingPath,
-            previewBytesBase64: null,
-          );
-        }
-        final bytes = await ref
-            .read(encryptedAttachmentStoreProvider)
-            .readAttachment(filePath, type: attachment.type);
-        if (bytes == null || bytes.isEmpty) {
-          return attachment.copyWith(filePath: null, previewBytesBase64: null);
-        }
-        final archivePath = _archiveAttachmentPath(
-          noteId: note.id,
-          index: index,
-          label: attachment.label,
-        );
-        archiveFiles.add(
-          _LocalArchiveFilePayload(
-            name: archivePath,
-            bytes: TransferableTypedData.fromList([
-              bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
-            ]),
-          ),
-        );
-        archivePathByAttachmentKey[key] = archivePath;
-        attachmentCount += 1;
-        return attachment.copyWith(
-          filePath: archivePath,
-          previewBytesBase64: null,
-        );
-      }
-
-      final exportedAttachments = <NoteAttachment>[];
-      for (var i = 0; i < note.attachments.length; i++) {
-        exportedAttachments.add(await exportAttachment(note.attachments[i], i));
-      }
-      final exportedBlocks = <NoteBlock>[];
-      for (var i = 0; i < note.blocks.length; i++) {
-        final block = note.blocks[i];
-        final attachment = block.attachment;
-        exportedBlocks.add(
-          attachment == null
-              ? block
-              : block.copyWith(
-                  attachment: await exportAttachment(
-                    attachment,
-                    note.attachments.length + i,
-                  ),
-                ),
-        );
-      }
-
-      exportedNotes.add(
-        note
-            .copyWith(
-              attachments: exportedAttachments,
-              blocks: exportedBlocks,
-              syncState: NoteSyncState.localOnly,
-            )
-            .toJson(),
-      );
-    }
-
-    final manifest = {
-      'format': 'org.ruhenheim.himemo.notes.zip',
-      'version': 1,
-      'exportedAt': exportedAt.toIso8601String(),
-      'encryption': password == null || password.isEmpty
-          ? 'none'
-          : 'zip-aes-256',
-      'noteCount': exportedNotes.length,
-      'attachmentCount': attachmentCount,
-      'contents': ['notes.json', 'attachments/'],
-    };
-    final encoded = await _encodeLocalZipArchive(
-      manifest: manifest,
-      notes: exportedNotes,
-      files: archiveFiles,
-      password: password,
-    );
-    if (encoded.isEmpty) {
-      throw StateError('ZIP archive could not be encoded.');
-    }
-    return LocalNoteArchive(
-      bytes: Uint8List.fromList(encoded),
-      fileName: _localArchiveFileName(
-        exportedAt,
-        passwordProtected: password != null && password.isNotEmpty,
-      ),
-      noteCount: exportedNotes.length,
-      attachmentCount: attachmentCount,
-      isPasswordProtected: password != null && password.isNotEmpty,
-    );
-  }
-
-  Future<_DecodedLocalZipArchive> _decodeLocalZipArchive(
-    List<int> bytes, {
-    String? password,
-  }) async {
-    final source = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
-    if (kIsWeb || source.lengthInBytes < 512 * 1024) {
-      return _decodeLocalZipArchivePayloadInBackground(
-        _LocalZipDecodeRequest(
-          bytes: TransferableTypedData.fromList([source]),
-          password: password,
-        ),
-      );
-    }
-    return Isolate.run(
-      () => _decodeLocalZipArchivePayloadInBackground(
-        _LocalZipDecodeRequest(
-          bytes: TransferableTypedData.fromList([source]),
-          password: password,
-        ),
-      ),
-    );
-  }
-
-  Future<Uint8List> _encodeLocalZipArchive({
-    required Map<String, dynamic> manifest,
-    required List<Map<String, dynamic>> notes,
-    required List<_LocalArchiveFilePayload> files,
-    String? password,
-  }) async {
-    final request = _LocalZipEncodeRequest(
-      manifest: manifest,
-      notes: notes,
-      files: files,
-      password: password == null || password.isEmpty ? null : password,
-    );
-    if (kIsWeb) {
-      final encoded = _encodeLocalZipArchivePayloadInBackground(request);
-      return encoded.materialize().asUint8List();
-    }
-    final encoded = await Isolate.run(
-      () => _encodeLocalZipArchivePayloadInBackground(request),
-    );
-    return encoded.materialize().asUint8List();
-  }
-
-  Map<String, dynamic> _zipArchiveAsSyncBundle(
-    _DecodedLocalZipArchive archive,
-  ) {
-    return {
-      'deviceId': 'local-zip',
-      'exportedAt': archive.manifest['exportedAt'],
-      'notes': [
-        for (final note in archive.notes)
-          {'action': PendingNoteChangeAction.upsert.name, 'note': note},
-      ],
-      'attachments': [
-        for (final entry in archive.attachmentFiles.entries)
-          {'id': entry.key, 'encryptedPayload': '', 'type': 'file'},
-      ],
-    };
-  }
-
-  String _attachmentExportKey(NoteAttachment attachment) {
-    return [
-      attachment.type.name,
-      attachment.label,
-      attachment.filePath ?? '',
-      attachment.durationMs?.toString() ?? '',
-    ].join('\u0000');
-  }
-
-  String _archiveAttachmentPath({
-    required String noteId,
-    required int index,
-    required String label,
-  }) {
-    final rawName = path.basename(label).trim();
-    final safeName = _safeArchiveSegment(
-      rawName.isEmpty ? 'attachment.bin' : rawName,
-    );
-    return 'attachments/${_safeArchiveSegment(noteId)}_${index}_$safeName';
-  }
-
-  String _safeArchiveSegment(String value) {
-    final safe = value
-        .replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1f]'), '_')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-    return safe.isEmpty ? 'file' : safe;
-  }
-
-  String _localArchiveFileName(
-    DateTime exportedAt, {
-    required bool passwordProtected,
-  }) {
-    String two(int value) => value.toString().padLeft(2, '0');
-    final stamp =
-        '${exportedAt.year}${two(exportedAt.month)}${two(exportedAt.day)}_${two(exportedAt.hour)}${two(exportedAt.minute)}${two(exportedAt.second)}';
-    final suffix = passwordProtected ? 'encrypted' : 'plain';
-    return 'himemo_archive_${suffix}_$stamp.zip';
-  }
-
-  Future<RemoteSyncBundleStatus?> _fetchLatestRemoteStatus() {
-    final provider = ref.read(syncProviderControllerProvider);
-    return switch (provider) {
-      SyncProvider.iCloud =>
-        ref.read(iCloudSyncTransportProvider).fetchLatestBundleStatus(),
-      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
-        () => ref
-            .read(googleDriveSyncTransportProvider)
-            .fetchLatestBundleStatus(),
-      ),
-      SyncProvider.off => Future.value(null),
-    };
-  }
-
-  Future<void> _refreshRemoteStatusInBackground() async {
-    try {
-      final provider = ref.read(syncProviderControllerProvider);
-      final remoteStatus = await _fetchLatestRemoteStatus();
-      _cacheRemoteStatus(provider, remoteStatus);
-      if (remoteStatus != null) {
-        await ref
-            .read(syncBundleStateStoreProvider)
-            .recordRemoteStatus(remoteStatus);
-        state = state.copyWith(remoteStatus: remoteStatus);
-      }
-    } catch (_) {}
-  }
-
-  Future<List<RemoteSyncBundleStatus>> _listRemoteHistory({int limit = 10}) {
-    final provider = ref.read(syncProviderControllerProvider);
-    return switch (provider) {
-      SyncProvider.iCloud =>
-        ref.read(iCloudSyncTransportProvider).listBundleHistory(limit: limit),
-      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
-        () => ref
-            .read(googleDriveSyncTransportProvider)
-            .listBundleHistory(limit: limit),
-      ),
-      SyncProvider.off => Future.value(const <RemoteSyncBundleStatus>[]),
-    };
-  }
-
-  Future<RemoteSyncBundleStatus> _uploadRemoteBundle({
-    required String encodedPayload,
-    required String deviceId,
-    required int noteCount,
-    required int attachmentCount,
-    required String bundleKind,
-  }) {
-    final provider = ref.read(syncProviderControllerProvider);
-    return switch (provider) {
-      SyncProvider.iCloud =>
-        ref
-            .read(iCloudSyncTransportProvider)
-            .uploadBundle(
-              encodedPayload: encodedPayload,
-              deviceId: deviceId,
-              noteCount: noteCount,
-              attachmentCount: attachmentCount,
-              bundleKind: bundleKind,
-            ),
-      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
-        () => ref
-            .read(googleDriveSyncTransportProvider)
-            .uploadBundle(
-              encodedPayload: encodedPayload,
-              deviceId: deviceId,
-              noteCount: noteCount,
-              attachmentCount: attachmentCount,
-              bundleKind: bundleKind,
-            ),
-      ),
-      SyncProvider.off => Future.error(
-        StateError('Remote sync is not enabled.'),
-      ),
-    };
-  }
-
-  Future<void> _uploadRemoteAttachmentObjects(
-    List<PreparedSyncAttachment> attachments,
-  ) async {
-    final uploadableAttachments = attachments
-        .where(_preparedSyncAttachmentHasPayload)
-        .toList(growable: false);
-    if (uploadableAttachments.isEmpty) {
-      return;
-    }
-    final uniqueAttachments = <String, PreparedSyncAttachment>{};
-    for (final attachment in uploadableAttachments) {
-      uniqueAttachments.putIfAbsent(attachment.contentHash, () => attachment);
-    }
-    final unique = uniqueAttachments.values.toList(growable: false);
-    final totalBytes = unique.fold<int>(
-      0,
-      (total, attachment) => total + attachment.sizeBytes,
-    );
-    _diagnostic(
-      'attachment object upload start',
-      data: {
-        'requested': uploadableAttachments.length,
-        'metadataOnly': attachments.length - uploadableAttachments.length,
-        'unique': unique.length,
-        'bytes': totalBytes,
-      },
-    );
-    final existingHashes = await _listExistingRemoteAttachmentHashes();
-    final pendingUploads = existingHashes == null
-        ? unique
-        : unique
-              .where(
-                (attachment) =>
-                    !existingHashes.contains(attachment.contentHash),
-              )
-              .toList(growable: false);
-    final skipped = unique.length - pendingUploads.length;
-    _setProgressDetail(
-      progress: SyncTransferProgress.uploadingBundle,
-      detail: 'Checking attachment objects',
-      completedItems: skipped,
-      totalItems: unique.length,
-    );
-    await _yieldToUi();
-    if (existingHashes != null) {
-      _diagnostic(
-        'attachment object upload existing checked',
-        data: {
-          'remoteKnown': existingHashes.length,
-          'skipped': skipped,
-          'pending': pendingUploads.length,
-        },
-      );
-    }
-    if (pendingUploads.isEmpty) {
-      _setProgressDetail(
-        progress: SyncTransferProgress.uploadingBundle,
-        detail: 'Attachments already uploaded',
-        completedItems: unique.length,
-        totalItems: unique.length,
-      );
-      await _yieldToUi();
-      _diagnostic(
-        'attachment object upload progress',
-        data: {
-          'uploaded': unique.length,
-          'total': unique.length,
-          'skipped': skipped,
-        },
-      );
-      return;
-    }
-    final bundleStore = ref.read(secureSyncBundleStoreProvider);
-    const maxConcurrentAttachmentUploads = 3;
-    var uploaded = 0;
-    var nextUploadIndex = 0;
-    _setProgressDetail(
-      progress: SyncTransferProgress.uploadingBundle,
-      detail: 'Uploading attachment',
-      completedItems: skipped,
-      totalItems: unique.length,
-    );
-    await _yieldToUi();
-
-    Future<void> uploadWorker() async {
-      while (true) {
-        if (nextUploadIndex >= pendingUploads.length) {
-          return;
-        }
-        final attachment = pendingUploads[nextUploadIndex];
-        nextUploadIndex += 1;
-        final encodedPayload = await bundleStore.writeAttachmentObjectPayload(
-          attachment,
-        );
-        await _uploadRemoteAttachmentObject(
-          contentHash: attachment.contentHash,
-          encodedPayload: encodedPayload,
-          type: attachment.type.name,
-          label: attachment.label,
-          sizeBytes: attachment.sizeBytes,
-          skipExistingCheck: existingHashes != null,
-        );
-        uploaded += 1;
-        final completed = skipped + uploaded;
-        _setProgressDetail(
-          progress: SyncTransferProgress.uploadingBundle,
-          detail: 'Uploaded attachment',
-          completedItems: completed,
-          totalItems: unique.length,
-        );
-        await _yieldToUi();
-        if (completed % 5 == 0 || completed == unique.length) {
-          _diagnostic(
-            'attachment object upload progress',
-            data: {
-              'uploaded': completed,
-              'total': unique.length,
-              'skipped': skipped,
-            },
-          );
-        }
-      }
-    }
-
-    final workerCount = math.min(
-      maxConcurrentAttachmentUploads,
-      pendingUploads.length,
-    );
-    await Future.wait([for (var i = 0; i < workerCount; i++) uploadWorker()]);
-  }
-
-  Future<Set<String>?> _listExistingRemoteAttachmentHashes() async {
-    final provider = ref.read(syncProviderControllerProvider);
-    switch (provider) {
-      case SyncProvider.googleDrive:
-        return _withGoogleDriveAuthRecovery(
-          () => ref
-              .read(googleDriveSyncTransportProvider)
-              .listAttachmentObjectContentHashes(),
-        );
-      case SyncProvider.iCloud:
-        try {
-          return await ref
-              .read(iCloudSyncTransportProvider)
-              .listAttachmentObjectContentHashes();
-        } catch (error) {
-          // Fall back to per-object existence checks when the batch listing
-          // is unavailable (e.g. older native binary without the method).
-          _diagnostic(
-            'icloud attachment hash listing failed',
-            data: {'error': error},
-          );
-          return null;
-        }
-      case SyncProvider.off:
-        return null;
-    }
-  }
-
-  Future<void> _uploadRemoteAttachmentObject({
-    required String contentHash,
-    required String encodedPayload,
-    required String type,
-    required String label,
-    required int sizeBytes,
-    bool skipExistingCheck = false,
-  }) {
-    final provider = ref.read(syncProviderControllerProvider);
-    return switch (provider) {
-      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
-        () => ref
-            .read(googleDriveSyncTransportProvider)
-            .uploadAttachmentObject(
-              contentHash: contentHash,
-              encodedPayload: encodedPayload,
-              type: type,
-              label: label,
-              sizeBytes: sizeBytes,
-              skipExistingCheck: skipExistingCheck,
-            ),
-      ),
-      SyncProvider.iCloud =>
-        ref
-            .read(iCloudSyncTransportProvider)
-            .uploadAttachmentObject(
-              contentHash: contentHash,
-              encodedPayload: encodedPayload,
-              type: type,
-              label: label,
-              sizeBytes: sizeBytes,
-              skipExistingCheck: skipExistingCheck,
-            ),
-      SyncProvider.off => Future<void>.value(),
-    };
-  }
-
-  Future<String?> _downloadRemoteAttachmentObject(String contentHash) async {
-    final provider = ref.read(syncProviderControllerProvider);
-    Future<String?> download() => switch (provider) {
-      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
-        () => ref
-            .read(googleDriveSyncTransportProvider)
-            .downloadAttachmentObject(contentHash),
-      ),
-      SyncProvider.iCloud =>
-        ref
-            .read(iCloudSyncTransportProvider)
-            .downloadAttachmentObject(contentHash),
-      SyncProvider.off => Future<String?>.value(),
-    };
-    var encodedPayload = await download();
-    if ((encodedPayload == null || encodedPayload.isEmpty) &&
-        provider == SyncProvider.iCloud) {
-      for (final delay in const [
-        Duration(milliseconds: 700),
-        Duration(seconds: 2),
-        Duration(seconds: 4),
-      ]) {
-        await Future<void>.delayed(delay);
-        encodedPayload = await download();
-        if (encodedPayload != null && encodedPayload.isNotEmpty) {
-          break;
-        }
-      }
-    }
-    if (encodedPayload == null || encodedPayload.isEmpty) {
-      _diagnostic(
-        'remote attachment object unavailable',
-        data: {'provider': provider.name, 'contentHash': contentHash},
-      );
-    }
-    return encodedPayload;
-  }
-
-  Future<DownloadedRemoteSyncBundle?> _downloadLatestRemoteBundle() {
-    final provider = ref.read(syncProviderControllerProvider);
-    return switch (provider) {
-      SyncProvider.iCloud =>
-        ref.read(iCloudSyncTransportProvider).downloadLatestBundle(),
-      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
-        () => ref.read(googleDriveSyncTransportProvider).downloadLatestBundle(),
-      ),
-      SyncProvider.off => Future.value(null),
-    };
-  }
-
-  Future<DownloadedRemoteSyncBundle?> _downloadRemoteBundleById(String id) {
-    final provider = ref.read(syncProviderControllerProvider);
-    return switch (provider) {
-      SyncProvider.iCloud =>
-        ref.read(iCloudSyncTransportProvider).downloadBundleByRecordName(id),
-      SyncProvider.googleDrive => _withGoogleDriveAuthRecovery(
-        () => ref
-            .read(googleDriveSyncTransportProvider)
-            .downloadBundleByFileId(id),
-      ),
-      SyncProvider.off => Future.value(null),
-    };
-  }
-
-  Future<T> _withGoogleDriveAuthRecovery<T>(
-    Future<T> Function() operation,
-  ) async {
-    try {
-      await _ensureGoogleDriveSyncKeyReady();
-      return await operation();
-    } catch (error, stackTrace) {
-      if (!_isRecoverableGoogleDriveAuthorizationError(error)) {
-        rethrow;
-      }
-      final authController = ref.read(syncAuthControllerProvider.notifier);
-      await authController.connect(SyncProvider.googleDrive);
-      if (!authController.stateFor(SyncProvider.googleDrive).isAuthenticated) {
-        Error.throwWithStackTrace(error, stackTrace);
-      }
-      await ref
-          .read(syncProviderControllerProvider.notifier)
-          .prepareGoogleDriveSyncKeyAfterAuthentication(
-            accountId: authController.stateFor(SyncProvider.googleDrive).userId,
-            force: true,
-          );
-      return await operation();
-    }
-  }
-
-  Future<void> _ensureGoogleDriveSyncKeyReady() async {
-    final authController = ref.read(syncAuthControllerProvider.notifier);
-    var authState = authController.stateFor(SyncProvider.googleDrive);
-    if (!authState.isAuthenticated) {
-      await authController.connect(SyncProvider.googleDrive);
-      authState = authController.stateFor(SyncProvider.googleDrive);
-    }
-    if (!authState.isAuthenticated) {
-      throw StateError(
-        authState.message ?? 'Google Drive authentication is required.',
-      );
-    }
-    await ref
-        .read(syncProviderControllerProvider.notifier)
-        .prepareGoogleDriveSyncKeyAfterAuthentication(
-          accountId: authState.userId,
-        );
-  }
-
-  bool _isRecoverableGoogleDriveAuthorizationError(Object error) {
-    return error is GoogleDriveAuthConfigurationException &&
-        error.message.contains('Google Drive authorization is not available');
-  }
-
-  SyncTransferState _failureState(
-    Object error, {
-    RemoteSyncBundleStatus? remoteStatus,
-    StoredSyncBundle? localBundle,
-  }) {
-    if (error is HimemoDecryptionException) {
-      return SyncTransferState(
-        stage: SyncTransferStage.error,
-        message: _syncBundleDecryptionMessage,
-        remoteStatus: remoteStatus,
-        localBundle: localBundle,
-      );
-    }
-    if (error is StateError &&
-        error.message == 'Sync bundle key is not available.') {
-      final provider = ref.read(syncProviderControllerProvider);
-      return SyncTransferState(
-        stage: SyncTransferStage.error,
-        message: provider == SyncProvider.iCloud
-            ? _iCloudSyncBundleKeyWaitingMessage
-            : _syncBundleKeyMissingMessage,
-        remoteStatus: remoteStatus,
-        localBundle: localBundle,
-      );
-    }
-    if (error is GoogleDriveSyncException) {
-      final retryAfter = error.retryAfter;
-      if (retryAfter != null) {
-        _scheduleCooldownRefresh(retryAfter);
-      }
-      return SyncTransferState(
-        stage: SyncTransferStage.error,
-        message: error.message,
-        remoteStatus: remoteStatus,
-        localBundle: localBundle,
-        cooldownUntil: retryAfter == null
-            ? null
-            : DateTime.now().add(retryAfter),
-      );
-    }
-    if (error is ICloudSyncException) {
-      final retryAfter = error.retryAfter;
-      if (retryAfter != null) {
-        _scheduleCooldownRefresh(retryAfter);
-      }
-      return SyncTransferState(
-        stage: SyncTransferStage.error,
-        message: error.message,
-        remoteStatus: remoteStatus,
-        localBundle: localBundle,
-        cooldownUntil: retryAfter == null
-            ? null
-            : DateTime.now().add(retryAfter),
-      );
-    }
-    return SyncTransferState(
-      stage: SyncTransferStage.error,
-      message: '$error',
-      remoteStatus: remoteStatus,
-      localBundle: localBundle,
-    );
-  }
-
-  void _scheduleCooldownRefresh(Duration duration) {
-    _cooldownTimer?.cancel();
-    _cooldownTimer = Timer(duration, () {
-      state = state.copyWith(clearCooldown: true);
-    });
-  }
-}
-
 class _DecodedSyncAttachmentBytes {
   const _DecodedSyncAttachmentBytes({
     required this.bytes,
@@ -7589,15 +3233,19 @@ class _PreparedPrivateSyncPayload {
     required this.notes,
     required this.attachments,
     required this.skippedLockedUpsertIds,
+    this.preparedNotes = const [],
   });
 
   final List<PreparedEncryptedPrivateSyncNote> notes;
   final List<PreparedSyncAttachment> attachments;
   final Set<String> skippedLockedUpsertIds;
+  final List<PreparedSyncNote> preparedNotes;
 }
 
 bool _preparedSyncAttachmentHasPayload(PreparedSyncAttachment attachment) {
   return attachment.bytesBase64.isNotEmpty ||
+      attachment.filePath?.isNotEmpty == true ||
+      attachment.encryptedFilePath?.isNotEmpty == true ||
       attachment.encryptedPayload?.isNotEmpty == true;
 }
 
@@ -7701,316 +3349,6 @@ TransferableTypedData _encodeLocalZipArchivePayloadInBackground(
   ]);
 }
 
-class PrivateMemoProfileStore {
-  PrivateMemoProfileStore({
-    required SecureKeyValueStore secureStore,
-    required EncryptionService encryptionService,
-    required ProfileDataKeyService profileDataKeyService,
-    Future<SharedPreferences> Function()? sharedPreferencesProvider,
-    this.listStorageKey = 'security.private_profiles.list.v1',
-    this.verifierStoragePrefix = 'security.private_profile.verifier.',
-  }) : _secureStore = secureStore,
-       _encryptionService = encryptionService,
-       _profileDataKeyService = profileDataKeyService,
-       _sharedPreferencesProvider =
-           sharedPreferencesProvider ?? SharedPreferences.getInstance;
-
-  final SecureKeyValueStore _secureStore;
-  final EncryptionService _encryptionService;
-  final ProfileDataKeyService _profileDataKeyService;
-  final Future<SharedPreferences> Function() _sharedPreferencesProvider;
-  final String listStorageKey;
-  final String verifierStoragePrefix;
-
-  static const minimumPasswordLength = 10;
-
-  String? _passwordValidationError(String password) {
-    if (password.runes.length < minimumPasswordLength) {
-      return 'Use at least $minimumPasswordLength characters for a private profile password.';
-    }
-    return null;
-  }
-
-  Future<List<PrivateMemoProfile>> listProfiles() async {
-    final prefs = await _sharedPreferencesProvider();
-    final payload = prefs.getString(listStorageKey);
-    if (payload == null || payload.isEmpty) {
-      return const <PrivateMemoProfile>[];
-    }
-    try {
-      final decoded = (jsonDecode(payload) as List)
-          .cast<Map>()
-          .map(
-            (entry) => PrivateMemoProfile.fromJson(
-              Map<String, dynamic>.from(entry.cast<String, dynamic>()),
-            ),
-          )
-          .toList(growable: false);
-      return decoded;
-    } catch (_) {
-      return const <PrivateMemoProfile>[];
-    }
-  }
-
-  Future<bool> hasProfiles() async => (await listProfiles()).isNotEmpty;
-
-  Future<Map<String, dynamic>> exportSyncPayload() async {
-    final profiles = await listProfiles();
-    final verifiers = <Map<String, dynamic>>[];
-    for (final profile in profiles) {
-      final stored = await _secureStore.read(
-        '$verifierStoragePrefix${profile.id}',
-      );
-      if (stored == null || stored.isEmpty) {
-        continue;
-      }
-      try {
-        final decoded = Map<String, dynamic>.from(jsonDecode(stored) as Map);
-        if (decoded['salt'] is String && decoded['verifier'] is String) {
-          verifiers.add(<String, dynamic>{'profileId': profile.id, ...decoded});
-        }
-      } catch (_) {}
-    }
-    final dataKeys = await _profileDataKeyService.exportWrappedProfileKeys(
-      profiles.map((profile) => profile.vaultId),
-    );
-    return <String, dynamic>{
-      'version': 1,
-      'profiles': [for (final profile in profiles) profile.toJson()],
-      'verifiers': verifiers,
-      'dataKeys': dataKeys,
-    };
-  }
-
-  Future<int> importSyncPayload(Object? payload) async {
-    if (payload is! Map) {
-      return 0;
-    }
-    final decoded = Map<String, dynamic>.from(payload);
-    if (decoded['version'] != 1) {
-      return 0;
-    }
-
-    var imported = 0;
-    final existing = await listProfiles();
-    final profilesById = <String, PrivateMemoProfile>{
-      for (final profile in existing) profile.id: profile,
-    };
-    for (final rawProfile
-        in (decoded['profiles'] as List<dynamic>? ?? const <dynamic>[])) {
-      if (rawProfile is! Map) {
-        continue;
-      }
-      try {
-        final profile = PrivateMemoProfile.fromJson(
-          Map<String, dynamic>.from(rawProfile),
-        );
-        profilesById[profile.id] = profile;
-        imported += 1;
-      } catch (_) {}
-    }
-    if (imported > 0) {
-      final profiles = profilesById.values.toList(growable: false)
-        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-      await _saveProfiles(profiles);
-    }
-
-    for (final rawVerifier
-        in (decoded['verifiers'] as List<dynamic>? ?? const <dynamic>[])) {
-      if (rawVerifier is! Map) {
-        continue;
-      }
-      final verifier = Map<String, dynamic>.from(rawVerifier);
-      final profileId = verifier['profileId'] as String?;
-      final salt = verifier['salt'];
-      final secretVerifier = verifier['verifier'];
-      if (profileId == null ||
-          !profilesById.containsKey(profileId) ||
-          salt is! String ||
-          salt.isEmpty ||
-          secretVerifier is! String ||
-          secretVerifier.isEmpty) {
-        continue;
-      }
-      await _secureStore.write(
-        '$verifierStoragePrefix$profileId',
-        jsonEncode({'salt': salt, 'verifier': secretVerifier}),
-      );
-      imported += 1;
-    }
-
-    imported += await _profileDataKeyService.importWrappedProfileKeys(
-      decoded['dataKeys'] as List<dynamic>? ?? const <dynamic>[],
-      overwrite: true,
-    );
-    return imported;
-  }
-
-  Future<String?> addProfile({
-    required String name,
-    required String password,
-  }) async {
-    final validationError = _passwordValidationError(password);
-    if (validationError != null) {
-      return validationError;
-    }
-    final existing = await listProfiles();
-    for (final profile in existing) {
-      final duplicate = await _profileDataKeyService.verifyProfilePassword(
-        vaultId: profile.vaultId,
-        password: password,
-      );
-      if (duplicate) {
-        return 'That password already unlocks another profile.';
-      }
-    }
-    final profile = PrivateMemoProfile(
-      id: _createProfileId(),
-      name: name.trim().isEmpty
-          ? _nextDefaultName(existing.length + 1)
-          : name.trim(),
-      createdAt: DateTime.now(),
-    );
-    final salt = _encryptionService.generateSalt();
-    final verifier = await _encryptionService.deriveSecretVerifier(
-      secret: password,
-      salt: salt,
-    );
-    await _secureStore.write(
-      '$verifierStoragePrefix${profile.id}',
-      jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
-    );
-    await _profileDataKeyService.configureProfile(
-      vaultId: profile.vaultId,
-      password: password,
-    );
-    await _saveProfiles([...existing, profile]);
-    return null;
-  }
-
-  Future<UnlockProfileResult?> verifyAny(String password) async {
-    final profiles = await listProfiles();
-    final matches = <PrivateMemoProfile>[];
-    for (final profile in profiles) {
-      final unlocked = await _profileDataKeyService.unlockProfile(
-        vaultId: profile.vaultId,
-        password: password,
-      );
-      if (unlocked) {
-        matches.add(profile);
-      }
-    }
-    if (matches.isNotEmpty) {
-      matches.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      final profile = matches.first;
-      for (final extraMatch in matches.skip(1)) {
-        _profileDataKeyService.lockProfile(extraMatch.vaultId);
-      }
-      return UnlockProfileResult(
-        vaultId: profile.vaultId,
-        label: profile.name,
-        isLegacy: false,
-      );
-    }
-    return null;
-  }
-
-  Future<void> deleteProfile(String id) async {
-    final existing = await listProfiles();
-    await _saveProfiles(
-      existing.where((profile) => profile.id != id).toList(growable: false),
-    );
-    await _secureStore.delete('$verifierStoragePrefix$id');
-    await _profileDataKeyService.deleteProfileKey(
-      '$customPrivateVaultPrefix$id',
-    );
-  }
-
-  Future<void> renameProfile({required String id, required String name}) async {
-    final nextName = name.trim();
-    if (nextName.isEmpty) {
-      return;
-    }
-    final existing = await listProfiles();
-    final changed = existing.any(
-      (profile) => profile.id == id && profile.name != nextName,
-    );
-    if (!changed) {
-      return;
-    }
-    final renamed = [
-      for (final profile in existing)
-        if (profile.id == id) profile.copyWith(name: nextName) else profile,
-    ];
-    await _saveProfiles(renamed);
-  }
-
-  Future<String?> updateProfilePassword({
-    required String id,
-    required String password,
-  }) async {
-    final validationError = _passwordValidationError(password);
-    if (validationError != null) {
-      return validationError;
-    }
-    final profiles = await listProfiles();
-    if (!profiles.any((profile) => profile.id == id)) {
-      return 'Private profile was not found.';
-    }
-    final vaultId = '$customPrivateVaultPrefix$id';
-    if (!_profileDataKeyService.isProfileUnlocked(vaultId)) {
-      return 'Unlock this private profile before changing its password.';
-    }
-    for (final profile in profiles.where((profile) => profile.id != id)) {
-      final duplicate = await _profileDataKeyService.verifyProfilePassword(
-        vaultId: profile.vaultId,
-        password: password,
-      );
-      if (duplicate) {
-        return 'That password already unlocks another profile.';
-      }
-    }
-    final salt = _encryptionService.generateSalt();
-    final verifier = await _encryptionService.deriveSecretVerifier(
-      secret: password,
-      salt: salt,
-    );
-    final changed = await _profileDataKeyService.changeProfilePassword(
-      vaultId: vaultId,
-      newPassword: password,
-    );
-    if (!changed) {
-      return 'The private profile password could not be changed.';
-    }
-    try {
-      await _secureStore.write(
-        '$verifierStoragePrefix$id',
-        jsonEncode({'salt': base64Encode(salt), 'verifier': verifier}),
-      );
-    } catch (_) {
-      // The wrapped data key is the authentication source of truth. Remove a
-      // stale verifier rather than leaving the two records contradictory.
-      await _secureStore.delete('$verifierStoragePrefix$id');
-    }
-    return null;
-  }
-
-  Future<void> _saveProfiles(List<PrivateMemoProfile> profiles) async {
-    final prefs = await _sharedPreferencesProvider();
-    await prefs.setString(
-      listStorageKey,
-      jsonEncode([for (final profile in profiles) profile.toJson()]),
-    );
-  }
-
-  String _createProfileId() {
-    final random = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
-    return 'profile_$random';
-  }
-
-  String _nextDefaultName(int index) => 'Profile $index';
-}
-
 final privateMemoProfileStoreProvider = Provider<PrivateMemoProfileStore>((
   ref,
 ) {
@@ -8018,15 +3356,6 @@ final privateMemoProfileStoreProvider = Provider<PrivateMemoProfileStore>((
     secureStore: ref.watch(secureKeyValueStoreProvider),
     encryptionService: ref.watch(encryptionServiceProvider),
     profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
-  );
-});
-
-final privateVaultSecretStoreProvider = Provider<PrivateVaultSecretStore>((
-  ref,
-) {
-  return PrivateVaultSecretStore(
-    secureStore: ref.watch(secureKeyValueStoreProvider),
-    encryptionService: ref.watch(encryptionServiceProvider),
   );
 });
 
@@ -8169,7 +3498,9 @@ class CoverModeSecretController extends Notifier<bool> {
   Future<void> _restore() async {
     try {
       state = await ref.read(coverModeSecretStoreProvider).hasSecret();
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('security', 'cover mode secret restore failed');
+    }
   }
 }
 
@@ -8233,261 +3564,6 @@ class DeviceAuthController extends Notifier<DeviceAuthState> {
   }
 }
 
-final syncAuthControllerProvider =
-    NotifierProvider<SyncAuthController, Map<SyncProvider, SyncAuthState>>(
-      SyncAuthController.new,
-    );
-
-class SyncAuthController extends Notifier<Map<SyncProvider, SyncAuthState>> {
-  static const _storageKey = 'sync.auth_accounts.v1';
-  static const _integrityApprovalKey = 'sync.integrity_approved.v1';
-  static const _googleScopes = <String>[
-    'https://www.googleapis.com/auth/drive.appdata',
-  ];
-  bool _restored = false;
-
-  @override
-  Map<SyncProvider, SyncAuthState> build() {
-    if (!_restored) {
-      _restored = true;
-      unawaited(_restore());
-    }
-    return {
-      for (final provider in SyncProvider.values)
-        provider: SyncAuthState.idle(provider),
-    };
-  }
-
-  SyncAuthState stateFor(SyncProvider provider) =>
-      state[provider] ?? SyncAuthState.idle(provider);
-
-  Future<void> connectSelected() async {
-    await connect(ref.read(syncProviderControllerProvider));
-  }
-
-  Future<void> connect(SyncProvider provider) async {
-    if (provider == SyncProvider.off) {
-      _update(provider, SyncAuthState.idle(provider));
-      return;
-    }
-
-    _update(
-      provider,
-      stateFor(
-        provider,
-      ).copyWith(stage: SyncAuthStage.busy, clearMessage: true),
-    );
-
-    final requiresIntegrity = provider == SyncProvider.googleDrive;
-    final alreadyApproved =
-        !requiresIntegrity || await _hasIntegrityApproval(provider);
-    if (!alreadyApproved) {
-      final verification = await ref
-          .read(playIntegrityVerifierProvider)
-          .verifyOperation(
-            flavor: ref.read(currentAppFlavorProvider),
-            operation: 'sync.enable',
-            payload: {'provider': provider.name},
-          );
-      if (!verification.allowed) {
-        _update(
-          provider,
-          stateFor(
-            provider,
-          ).copyWith(stage: SyncAuthStage.error, message: verification.message),
-        );
-        return;
-      }
-      await _markIntegrityApproved(provider);
-    }
-
-    var next = await ref.read(syncAuthGatewayProvider).connect(provider);
-    next = await _prepareGoogleDriveKeyIfAuthenticated(next);
-
-    _update(provider, next);
-    await _persist();
-  }
-
-  Future<void> completeGoogleDriveWebAuthentication(
-    GoogleSignInAccount account,
-  ) async {
-    const provider = SyncProvider.googleDrive;
-    _update(
-      provider,
-      stateFor(provider).copyWith(
-        stage: SyncAuthStage.busy,
-        userId: account.id,
-        displayName: account.displayName,
-        email: account.email,
-        clearMessage: true,
-      ),
-    );
-
-    try {
-      final alreadyApproved = await _hasIntegrityApproval(provider);
-      if (!alreadyApproved) {
-        final verification = await ref
-            .read(playIntegrityVerifierProvider)
-            .verifyOperation(
-              flavor: ref.read(currentAppFlavorProvider),
-              operation: 'sync.enable',
-              payload: {'provider': provider.name},
-            );
-        if (!verification.allowed) {
-          _update(
-            provider,
-            stateFor(provider).copyWith(
-              stage: SyncAuthStage.error,
-              message: verification.message,
-            ),
-          );
-          return;
-        }
-        await _markIntegrityApproved(provider);
-      }
-
-      final authorizationClient = account.authorizationClient;
-      final existingAuthorization = await authorizationClient
-          .authorizationForScopes(_googleScopes);
-      if (existingAuthorization == null) {
-        await authorizationClient.authorizeScopes(_googleScopes);
-      }
-
-      final next = await _prepareGoogleDriveKeyIfAuthenticated(
-        SyncAuthState(
-          provider: provider,
-          stage: SyncAuthStage.authenticated,
-          userId: account.id,
-          displayName: account.displayName,
-          email: account.email,
-          message: 'Google Drive app-data access is authorized.',
-        ),
-      );
-      _update(provider, next);
-      await _persist();
-    } on GoogleSignInException catch (error) {
-      _update(
-        provider,
-        stateFor(provider).copyWith(
-          stage: SyncAuthStage.error,
-          message: DefaultSyncAuthGateway()._googleDriveSignInExceptionMessage(
-            error,
-          ),
-        ),
-      );
-    } catch (error) {
-      _update(
-        provider,
-        stateFor(
-          provider,
-        ).copyWith(stage: SyncAuthStage.error, message: '$error'),
-      );
-    }
-  }
-
-  Future<void> disconnectSelected() async {
-    await disconnect(ref.read(syncProviderControllerProvider));
-  }
-
-  Future<void> disconnect(SyncProvider provider) async {
-    await ref.read(syncAuthGatewayProvider).disconnect(provider);
-    if (provider == SyncProvider.googleDrive) {
-      ref
-          .read(syncProviderControllerProvider.notifier)
-          .markGoogleDriveSyncKeyPending();
-    }
-    _update(provider, SyncAuthState.idle(provider));
-    await _persist();
-  }
-
-  Future<SyncAuthState> _prepareGoogleDriveKeyIfAuthenticated(
-    SyncAuthState next,
-  ) async {
-    if (next.provider != SyncProvider.googleDrive || !next.isAuthenticated) {
-      return next;
-    }
-    try {
-      await ref
-          .read(syncProviderControllerProvider.notifier)
-          .prepareGoogleDriveSyncKeyAfterAuthentication(
-            accountId: next.userId,
-            force: true,
-          );
-      return next;
-    } catch (error) {
-      return next.copyWith(stage: SyncAuthStage.error, message: '$error');
-    }
-  }
-
-  void _update(SyncProvider provider, SyncAuthState next) {
-    state = {...state, provider: next};
-  }
-
-  Future<void> _restore() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final stored = prefs.getString(_storageKey);
-      if (stored == null || stored.isEmpty) {
-        return;
-      }
-      final decoded = Map<String, dynamic>.from(
-        jsonDecode(stored) as Map<String, dynamic>,
-      );
-      state = {
-        for (final provider in SyncProvider.values)
-          provider: _normalizeRestoredState(
-            provider,
-            decoded[provider.name] == null
-                ? SyncAuthState.idle(provider)
-                : SyncAuthState.fromJson(
-                    Map<String, dynamic>.from(decoded[provider.name] as Map),
-                  ),
-          ),
-      };
-    } catch (_) {}
-  }
-
-  SyncAuthState _normalizeRestoredState(
-    SyncProvider provider,
-    SyncAuthState restored,
-  ) {
-    if (provider != SyncProvider.iCloud) {
-      return restored;
-    }
-    final message = restored.message ?? '';
-    final staleAppleSignInError =
-        restored.stage == SyncAuthStage.error &&
-        (message.contains('SignInWithAppleAuthorizationException') ||
-            message.contains(
-              'com.apple.AuthenticationServices.AuthorizationError',
-            ));
-    if (staleAppleSignInError) {
-      return SyncAuthState.idle(provider);
-    }
-    return restored;
-  }
-
-  Future<void> _persist() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final encoded = jsonEncode({
-        for (final entry in state.entries) entry.key.name: entry.value.toJson(),
-      });
-      await prefs.setString(_storageKey, encoded);
-    } catch (_) {}
-  }
-
-  Future<bool> _hasIntegrityApproval(SyncProvider provider) async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool('$_integrityApprovalKey.${provider.name}') ?? false;
-  }
-
-  Future<void> _markIntegrityApproved(SyncProvider provider) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('$_integrityApprovalKey.${provider.name}', true);
-  }
-}
-
 final appLaunchControllerProvider =
     NotifierProvider<AppLaunchController, AppLaunchSurface>(
       AppLaunchController.new,
@@ -8501,10 +3577,9 @@ final appTutorialControllerProvider =
 class AppTutorialController extends Notifier<AppTutorialState?> {
   static const _courseSteps = <AppTutorialCourse, List<AppTutorialStep>>{
     AppTutorialCourse.basics: [
-      AppTutorialStep.privateProfile,
       AppTutorialStep.addNote,
-      AppTutorialStep.syncStatus,
       AppTutorialStep.navigation,
+      AppTutorialStep.privateProfile,
     ],
     AppTutorialCourse.mainScreen: [
       AppTutorialStep.search,
@@ -8545,11 +3620,10 @@ class AppTutorialController extends Notifier<AppTutorialState?> {
     ],
     AppTutorialCourse.sync: [
       AppTutorialStep.syncStatus,
-      AppTutorialStep.settings,
+      AppTutorialStep.syncTroubleshooting,
     ],
     AppTutorialCourse.syncTroubleshooting: [
       AppTutorialStep.syncTroubleshooting,
-      AppTutorialStep.settings,
       AppTutorialStep.syncStatus,
     ],
     AppTutorialCourse.trashRecovery: [
@@ -8573,8 +3647,15 @@ class AppTutorialController extends Notifier<AppTutorialState?> {
   AppTutorialState? build() => null;
 
   void start([AppTutorialCourse course = AppTutorialCourse.basics]) {
-    final steps =
-        _courseSteps[course] ?? _courseSteps[AppTutorialCourse.basics]!;
+    final isSyncCourse =
+        course == AppTutorialCourse.sync ||
+        course == AppTutorialCourse.syncTroubleshooting;
+    final syncIsOff =
+        isSyncCourse &&
+        ref.read(syncProviderControllerProvider) == SyncProvider.off;
+    final steps = syncIsOff
+        ? const [AppTutorialStep.syncTroubleshooting]
+        : _courseSteps[course] ?? _courseSteps[AppTutorialCourse.basics]!;
     state = AppTutorialState(course: course, steps: steps, index: 0);
   }
 
@@ -8677,7 +3758,9 @@ class AppLaunchController extends Notifier<AppLaunchSurface> {
       await prefs.setBool(_storageKey, true);
       await prefs.setInt(_versionStorageKey, _currentOnboardingVersion);
       await prefs.setString('release_notes.last_seen', packageInfo.releaseKey);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('settings', 'onboarding completion persistence failed');
+    }
   }
 
   Future<void> _restore() async {
@@ -8721,7 +3804,9 @@ class ThemeModeController extends _$ThemeModeController {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_storageKey, mode.name);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('settings', 'theme mode persistence failed');
+    }
   }
 
   Future<void> _restore() async {
@@ -8736,7 +3821,9 @@ class ThemeModeController extends _$ThemeModeController {
         (mode) => mode.name == stored,
         orElse: () => ThemeMode.light,
       );
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('settings', 'theme mode restore failed');
+    }
   }
 }
 
@@ -8791,7 +3878,9 @@ class ProfileThemeModeController extends Notifier<Map<String, ThemeMode>> {
           if (_themeModeFromName(entry.value as String?) != null)
             entry.key: _themeModeFromName(entry.value as String?)!,
       };
-    } catch (_) {}
+    } catch (_) {
+      // Invalid persisted theme override data falls back to the default map.
+    }
   }
 
   Future<void> _persist() async {
@@ -8801,7 +3890,9 @@ class ProfileThemeModeController extends Notifier<Map<String, ThemeMode>> {
         for (final entry in state.entries) entry.key: entry.value.name,
       });
       await prefs.setString(_storageKey, encoded);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('settings', 'theme overrides persistence failed');
+    }
   }
 }
 
@@ -8833,7 +3924,9 @@ class AppFontFamilyController extends Notifier<AppFontFamily> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_storageKey, font.name);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('settings', 'font family persistence failed');
+    }
   }
 
   Future<void> _restore() async {
@@ -8851,7 +3944,9 @@ class AppFontFamilyController extends Notifier<AppFontFamily> {
       state = iOSFriendlyAppFontFamilies.contains(restored)
           ? restored
           : AppFontFamily.system;
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('settings', 'font family restore failed');
+    }
   }
 }
 
@@ -8906,7 +4001,9 @@ class ProfileFontFamilyController extends Notifier<Map<String, AppFontFamily>> {
           if (_fontFamilyFromName(entry.value as String?) != null)
             entry.key: _fontFamilyFromName(entry.value as String?)!,
       };
-    } catch (_) {}
+    } catch (_) {
+      // Invalid persisted font override data falls back to the default map.
+    }
   }
 
   Future<void> _persist() async {
@@ -8916,7 +4013,9 @@ class ProfileFontFamilyController extends Notifier<Map<String, AppFontFamily>> {
         for (final entry in state.entries) entry.key: entry.value.name,
       });
       await prefs.setString(_storageKey, encoded);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('settings', 'font overrides persistence failed');
+    }
   }
 }
 
@@ -8969,7 +4068,9 @@ class AppColorThemeController extends Notifier<AppColorTheme> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_storageKey, theme.name);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('settings', 'color theme persistence failed');
+    }
   }
 
   Future<void> _restore() async {
@@ -8981,7 +4082,9 @@ class AppColorThemeController extends Notifier<AppColorTheme> {
       }
 
       state = _appColorThemeFromName(stored) ?? AppColorTheme.sakura;
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('settings', 'color theme restore failed');
+    }
   }
 }
 
@@ -9035,7 +4138,9 @@ class ProfileColorThemeController extends Notifier<Map<String, AppColorTheme>> {
           if (_themeFromName(entry.value as String?) != null)
             entry.key: _themeFromName(entry.value as String?)!,
       };
-    } catch (_) {}
+    } catch (_) {
+      // Invalid persisted color theme override data uses the default map.
+    }
   }
 
   Future<void> _persist() async {
@@ -9045,7 +4150,9 @@ class ProfileColorThemeController extends Notifier<Map<String, AppColorTheme>> {
         for (final entry in state.entries) entry.key: entry.value.name,
       });
       await prefs.setString(_storageKey, encoded);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('settings', 'color theme overrides persistence failed');
+    }
   }
 
   AppColorTheme? _themeFromName(String? value) {
@@ -9076,7 +4183,9 @@ class AppLocaleController extends Notifier<AppLocaleSetting> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_storageKey, locale.name);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('settings', 'locale preference persistence failed');
+    }
   }
 
   Future<void> _restore() async {
@@ -9091,7 +4200,9 @@ class AppLocaleController extends Notifier<AppLocaleSetting> {
         (locale) => locale.name == stored,
         orElse: () => AppLocaleSetting.system,
       );
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('settings', 'locale preference restore failed');
+    }
   }
 
   AppLocaleSetting _defaultLocaleSetting() {
@@ -9153,7 +4264,9 @@ class ProfileLocaleController extends Notifier<Map<String, AppLocaleSetting>> {
           if (_localeSettingFromName(entry.value as String?) != null)
             entry.key: _localeSettingFromName(entry.value as String?)!,
       };
-    } catch (_) {}
+    } catch (_) {
+      // Invalid persisted locale override data falls back to system defaults.
+    }
   }
 
   Future<void> _persist() async {
@@ -9163,7 +4276,9 @@ class ProfileLocaleController extends Notifier<Map<String, AppLocaleSetting>> {
         for (final entry in state.entries) entry.key: entry.value.name,
       });
       await prefs.setString(_storageKey, encoded);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('settings', 'locale overrides persistence failed');
+    }
   }
 }
 
@@ -9238,7 +4353,9 @@ class AppLockSettingsController extends Notifier<bool> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_storageKey, enabled);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('app_lock', 'app lock preference persistence failed');
+    }
     ref.read(appLockSettingsReadyProvider.notifier).markReady();
   }
 
@@ -9344,7 +4461,9 @@ class SpotlightNoteIndexBridge {
       if (pending is String && pending.trim().isNotEmpty) {
         _onOpenRequested(pending.trim());
       }
-    } catch (_) {}
+    } catch (_) {
+      // Spotlight may not expose this optional native channel on every platform.
+    }
   }
 
   Future<void> _invoke(String method, [Object? arguments]) async {
@@ -9427,42 +4546,129 @@ List<String> _spotlightSearchTerms({
   required String body,
   required List<String> tags,
 }) {
+  const maximumTerms = 512;
+  const maximumTermLength = 64;
   final terms = <String>{};
 
   void addTerm(String raw) {
-    final term = raw.trim().toLowerCase();
-    if (term.length < 2) {
+    if (terms.length >= maximumTerms) {
       return;
     }
-    terms.add(term.length > 64 ? term.substring(0, 64) : term);
+    final term = raw.trim().toLowerCase();
+    if (term.length < 2 || term.length > maximumTermLength) {
+      return;
+    }
+    terms.add(term);
   }
 
-  void addText(String text) {
-    final normalized = text.replaceAll(
-      RegExp(r'[\s,.;:!?，。、！？「」『』（）()\[\]［］【】#]+'),
-      ' ',
-    );
-    for (final raw in normalized.split(' ')) {
-      addTerm(raw);
+  List<String> segments(String text) {
+    return text
+        .replaceAll(RegExp(r'[\s,.;:!?，。、・：；！？「」『』（）()\[\]［］【】#]+'), ' ')
+        .split(' ')
+        .map((value) => value.trim().toLowerCase())
+        .where((value) => value.length >= 2)
+        .toList(growable: false);
+  }
+
+  List<String> uniqueCandidates(Iterable<String> values) {
+    return <String>{
+      for (final value in values)
+        if (value.length >= 2 && value.length <= maximumTermLength) value,
+    }.toList(growable: false);
+  }
+
+  void addBalanced(List<String> candidates, int allowance) {
+    if (allowance <= 0 || candidates.isEmpty || terms.length >= maximumTerms) {
+      return;
     }
-    final compact = normalized.replaceAll(' ', '');
-    if (compact.length >= 4) {
-      for (var i = 0; i < compact.length && terms.length < 160; i++) {
-        for (final length in const [2, 3, 4]) {
-          if (i + length <= compact.length) {
-            addTerm(compact.substring(i, i + length));
-          }
-        }
+    final available = math.min(allowance, maximumTerms - terms.length);
+    if (candidates.length <= available) {
+      for (final candidate in candidates) {
+        addTerm(candidate);
       }
+      return;
+    }
+    if (available == 1) {
+      addTerm(candidates.last);
+      return;
+    }
+    for (var i = 0; i < available; i++) {
+      final index = (i * (candidates.length - 1) / (available - 1)).round();
+      addTerm(candidates[index]);
     }
   }
 
-  addText(title);
-  addText(body);
-  for (final tag in tags) {
-    addText(tag);
+  List<String> nGrams(Iterable<String> values, int length) {
+    final codePointSegments = values
+        .map((value) => value.runes.toList(growable: false))
+        .where((value) => value.length >= length)
+        .toList(growable: false);
+    final candidateCounts = codePointSegments
+        .map((value) => value.length - length + 1)
+        .toList(growable: false);
+    final totalCandidates = candidateCounts.fold<int>(0, (a, b) => a + b);
+    if (totalCandidates == 0) {
+      return const <String>[];
+    }
+
+    // Bound temporary allocations for unusually large notes while sampling
+    // evenly across the complete text, including its final characters.
+    final sampleCount = math.min(totalCandidates, maximumTerms * 4);
+    final candidates = <String>[];
+    var segmentIndex = 0;
+    var segmentStart = 0;
+    for (var i = 0; i < sampleCount; i++) {
+      final globalIndex = sampleCount == 1
+          ? totalCandidates - 1
+          : (i * (totalCandidates - 1) / (sampleCount - 1)).round();
+      while (segmentIndex < candidateCounts.length - 1 &&
+          globalIndex >= segmentStart + candidateCounts[segmentIndex]) {
+        segmentStart += candidateCounts[segmentIndex];
+        segmentIndex++;
+      }
+      final localIndex = globalIndex - segmentStart;
+      final codePoints = codePointSegments[segmentIndex];
+      candidates.add(
+        String.fromCharCodes(
+          codePoints.sublist(localIndex, localIndex + length),
+        ),
+      );
+    }
+    return uniqueCandidates(candidates);
   }
-  return terms.take(160).toList(growable: false);
+
+  final titleSegments = segments(title);
+  final tagSegments = tags.expand(segments).toList(growable: false);
+  final bodySegments = segments(body);
+
+  // Titles and tags are concise, high-signal metadata and should never be
+  // displaced by a long body.
+  for (final value in [...titleSegments, ...tagSegments]) {
+    addTerm(value);
+  }
+
+  // Preserve ordinary word search throughout long Latin-script bodies. The
+  // balanced sampler includes the beginning and end instead of only a prefix.
+  addBalanced(uniqueCandidates(bodySegments), 128);
+
+  final allSegments = [...titleSegments, ...tagSegments, ...bodySegments];
+  final nGramCandidates = <int, List<String>>{
+    for (final length in const [2, 3, 4]) length: nGrams(allSegments, length),
+  };
+  final remaining = maximumTerms - terms.length;
+  addBalanced(nGramCandidates[2]!, (remaining * 0.5).round());
+  addBalanced(nGramCandidates[3]!, (remaining * 0.3).round());
+  addBalanced(nGramCandidates[4]!, maximumTerms - terms.length);
+
+  // Reuse capacity left by short or duplicate candidate sets.
+  for (final length in const [2, 3, 4]) {
+    addBalanced(nGramCandidates[length]!, maximumTerms - terms.length);
+  }
+
+  for (final tag in tags) {
+    addTerm(tag);
+  }
+  return terms.take(maximumTerms).toList(growable: false);
 }
 
 class SpotlightNoteOpenRequestController extends Notifier<String?> {
@@ -9514,7 +4720,9 @@ class SpotlightNoteIndexEnabledController extends Notifier<bool> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_storageKey, enabled);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('spotlight', 'index preference persistence failed');
+    }
     await _applyIndexState(enabled);
   }
 
@@ -9524,7 +4732,9 @@ class SpotlightNoteIndexEnabledController extends Notifier<bool> {
       final enabled = prefs.getBool(_storageKey) ?? false;
       state = enabled;
       await _applyIndexState(enabled);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('spotlight', 'index preference restore failed');
+    }
   }
 
   Future<void> _applyIndexState(bool enabled) async {
@@ -9558,14 +4768,18 @@ class WidgetQuickCaptureSettingsController
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_storageKey, enabled);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('privacy', 'privacy screen preference persistence failed');
+    }
   }
 
   Future<void> _restore() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       state = prefs.getBool(_storageKey) ?? true;
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('privacy', 'privacy screen preference restore failed');
+    }
   }
 }
 
@@ -9624,7 +4838,9 @@ class AppLockRelockDelayController extends Notifier<AppLockRelockDelay> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_storageKey, delay.name);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('app_lock', 'relock delay preference persistence failed');
+    }
   }
 
   Future<void> _restore() async {
@@ -9638,7 +4854,9 @@ class AppLockRelockDelayController extends Notifier<AppLockRelockDelay> {
         (delay) => delay.name == stored,
         orElse: () => AppLockRelockDelay.immediate,
       );
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('app_lock', 'relock delay preference restore failed');
+    }
   }
 }
 
@@ -9665,271 +4883,17 @@ class PrivateVaultLockOnAppLockController extends Notifier<bool> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_storageKey, enabled);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('app_lock', 'PIN enabled preference persistence failed');
+    }
   }
 
   Future<void> _restore() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       state = prefs.getBool(_storageKey) ?? true;
-    } catch (_) {}
-  }
-}
-
-final syncProviderControllerProvider =
-    NotifierProvider<SyncProviderController, SyncProvider>(
-      SyncProviderController.new,
-    );
-
-class SyncProviderController extends Notifier<SyncProvider> {
-  static const _storageKey = 'settings.sync_provider';
-  static const _googleDriveAccountBindingPrefix =
-      'security.sync_bundle.google_account.v1.';
-  bool _restored = false;
-  String? _preparedGoogleDriveAccountId;
-  Future<void>? _googleDriveKeyPreparation;
-
-  @override
-  SyncProvider build() {
-    if (!_restored) {
-      _restored = true;
-      unawaited(_restore());
-    }
-    return SyncProvider.off;
-  }
-
-  Future<void> setProvider(SyncProvider provider) async {
-    if (provider == SyncProvider.iCloud && !isICloudSyncSupported) {
-      provider = SyncProvider.off;
-    }
-    final previous = state;
-    String? carriedBackupCode;
-    if (provider == SyncProvider.googleDrive &&
-        previous != SyncProvider.googleDrive) {
-      carriedBackupCode = await _syncBundleKeyServiceFor(
-        previous,
-      ).exportExistingBackupCode();
-    }
-    state = provider;
-    if (provider != previous) {
-      _preparedGoogleDriveAccountId = null;
-    }
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_storageKey, provider.name);
-    } catch (_) {}
-    if (provider == SyncProvider.googleDrive &&
-        carriedBackupCode != null &&
-        carriedBackupCode.isNotEmpty) {
-      try {
-        // Moving from iCloud to Google Drive changes the secure-store source.
-        // Carry the existing key locally now; Drive is contacted only after
-        // Google authentication succeeds.
-        await _syncBundleKeyServiceFor(
-          SyncProvider.googleDrive,
-        ).importBackupCode(carriedBackupCode);
-      } catch (_) {
-        state = previous;
-        try {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString(_storageKey, previous.name);
-        } catch (_) {}
-        rethrow;
-      }
-    }
-    if (provider != SyncProvider.off && provider != previous) {
-      await ref
-          .read(notesControllerProvider.notifier)
-          .queueCurrentStateForSync();
-      ref.invalidate(syncQueueSummaryProvider);
-    }
-  }
-
-  Future<void> prepareGoogleDriveSyncKeyAfterAuthentication({
-    String? accountId,
-    bool force = false,
-  }) async {
-    if (state != SyncProvider.googleDrive) {
-      throw StateError('Select Google Drive before connecting an account.');
-    }
-    final resolvedAccountId =
-        (accountId ??
-                ref
-                    .read(syncAuthControllerProvider.notifier)
-                    .stateFor(SyncProvider.googleDrive)
-                    .userId ??
-                '')
-            .trim();
-    if (resolvedAccountId.isEmpty) {
-      throw StateError('Google Drive authentication is required for sync.');
-    }
-    if (!force && _preparedGoogleDriveAccountId == resolvedAccountId) {
-      return;
-    }
-
-    final pending = _googleDriveKeyPreparation;
-    if (pending != null) {
-      await pending;
-      if (!force && _preparedGoogleDriveAccountId == resolvedAccountId) {
-        return;
-      }
-    }
-
-    final preparation = _prepareGoogleDriveSyncKey(resolvedAccountId);
-    _googleDriveKeyPreparation = preparation;
-    try {
-      await preparation;
-      _preparedGoogleDriveAccountId = resolvedAccountId;
-    } finally {
-      if (identical(_googleDriveKeyPreparation, preparation)) {
-        _googleDriveKeyPreparation = null;
-      }
-    }
-  }
-
-  void markGoogleDriveSyncKeyPending() {
-    _preparedGoogleDriveAccountId = null;
-  }
-
-  Future<void> _prepareGoogleDriveSyncKey(String accountId) async {
-    final cloudStore = ref.read(googleDriveCloudSyncBundleKeyStoreProvider);
-    final keyService = _syncBundleKeyServiceFor(SyncProvider.googleDrive);
-    final legacyBackupCodes = await cloudStore.readBackupCodes();
-    final localBackupCode = await keyService.exportExistingBackupCode();
-
-    if (legacyBackupCodes.isNotEmpty) {
-      final remoteBackupCode = legacyBackupCodes.first;
-      for (final duplicateCode in legacyBackupCodes.skip(1)) {
-        if (!keyService.backupCodesMatch(remoteBackupCode, duplicateCode)) {
-          throw StateError(
-            'Google Drive contains conflicting legacy recovery keys. No key was deleted; resolve the account data before syncing.',
-          );
-        }
-      }
-      if (localBackupCode != null &&
-          !keyService.backupCodesMatch(localBackupCode, remoteBackupCode)) {
-        throw StateError(
-          'Google Drive uses a different sync recovery key. Import the matching recovery key before enabling sync.',
-        );
-      }
-      // One-time compatibility migration: persist the legacy key locally
-      // before removing every raw copy from Drive.
-      await keyService.importBackupCode(remoteBackupCode);
-      await cloudStore.deleteBackupCode();
-      await _bindGoogleDriveAccount(accountId, keyService);
-      return;
-    }
-
-    final localFingerprint = await keyService.existingFullFingerprint();
-    final boundFingerprint = await _readGoogleDriveAccountBinding(accountId);
-    if (localFingerprint != null && boundFingerprint == localFingerprint) {
-      return;
-    }
-
-    final transport = ref.read(googleDriveSyncTransportProvider);
-    final remoteBundleStatus = await transport.fetchLatestBundleStatus();
-    final remoteAttachmentHashes = await transport
-        .listAttachmentObjectContentHashes();
-    final hasRemoteEncryptedData =
-        remoteBundleStatus != null || remoteAttachmentHashes.isNotEmpty;
-
-    if (localFingerprint == null && hasRemoteEncryptedData) {
-      throw StateError(
-        'Google Drive already contains encrypted data. Import its recovery key before enabling sync.',
-      );
-    }
-
-    if (localFingerprint == null) {
-      await keyService.obtainOrCreate();
-      await _bindGoogleDriveAccount(accountId, keyService);
-      return;
-    }
-
-    if (!hasRemoteEncryptedData) {
-      await _bindGoogleDriveAccount(accountId, keyService);
-      return;
-    }
-
-    // A local key imported on a new device is not trusted for this account
-    // until it successfully authenticates an existing remote payload.
-    String? validationPayload;
-    if (remoteBundleStatus != null) {
-      validationPayload =
-          (await transport.downloadLatestBundle())?.encodedPayload;
-    } else if (remoteAttachmentHashes.isNotEmpty) {
-      validationPayload = await transport.downloadAttachmentObject(
-        remoteAttachmentHashes.first,
-      );
-    }
-    if (validationPayload == null || validationPayload.isEmpty) {
-      throw StateError(
-        'Google Drive encrypted data could not be validated with the imported recovery key.',
-      );
-    }
-    await SecureSyncBundleStore(
-      encryptionService: ref.read(encryptionServiceProvider),
-      syncBundleKeyService: keyService,
-    ).validateRemotePayloadWithSyncKey(validationPayload);
-    await _bindGoogleDriveAccount(accountId, keyService);
-  }
-
-  SyncBundleKeyService _syncBundleKeyServiceFor(SyncProvider provider) {
-    final usesICloudSharedKey =
-        provider == SyncProvider.iCloud &&
-        !kIsWeb &&
-        (defaultTargetPlatform == TargetPlatform.iOS ||
-            defaultTargetPlatform == TargetPlatform.macOS);
-    return SyncBundleKeyService(
-      secureStore: usesICloudSharedKey
-          ? ref.read(iCloudSynchronizableKeyValueStoreProvider)
-          : ref.read(secureKeyValueStoreProvider),
-      fallbackStore: usesICloudSharedKey
-          ? ref.read(secureKeyValueStoreProvider)
-          : null,
-      keyFactory: ref.read(encryptionServiceProvider).generateKeyBytes,
-    );
-  }
-
-  String _googleDriveAccountBindingKey(String accountId) {
-    final accountHash = sha256.convert(utf8.encode(accountId)).toString();
-    return '$_googleDriveAccountBindingPrefix$accountHash';
-  }
-
-  Future<String?> _readGoogleDriveAccountBinding(String accountId) {
-    return ref
-        .read(secureKeyValueStoreProvider)
-        .read(_googleDriveAccountBindingKey(accountId));
-  }
-
-  Future<void> _bindGoogleDriveAccount(
-    String accountId,
-    SyncBundleKeyService keyService,
-  ) async {
-    await ref
-        .read(secureKeyValueStoreProvider)
-        .write(
-          _googleDriveAccountBindingKey(accountId),
-          await keyService.fullFingerprint(),
-        );
-  }
-
-  Future<void> _restore() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final stored = prefs.getString(_storageKey);
-      if (stored == null) {
-        return;
-      }
-      final restored = SyncProvider.values.firstWhere(
-        (provider) => provider.name == stored,
-        orElse: () => SyncProvider.off,
-      );
-      state = restored == SyncProvider.iCloud && !isICloudSyncSupported
-          ? SyncProvider.off
-          : restored;
-      _preparedGoogleDriveAccountId = null;
     } catch (_) {
-      state = SyncProvider.off;
+      logDiagnostic('app_lock', 'PIN enabled preference restore failed');
     }
   }
 }
@@ -10000,7 +4964,9 @@ class PrivateVaultSecretController extends Notifier<bool> {
       await ref
           .read(profileDataKeyServiceProvider)
           .deleteProfileKey(legacyPrivateVaultId);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('security', 'private vault secret cleanup failed');
+    }
     state = false;
     ref.read(privateVaultSessionControllerProvider.notifier).lock();
   }
@@ -10008,7 +4974,9 @@ class PrivateVaultSecretController extends Notifier<bool> {
   Future<void> _restore() async {
     try {
       state = await ref.read(privateVaultSecretStoreProvider).hasSecret();
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('security', 'private vault secret restore failed');
+    }
   }
 }
 
@@ -10042,7 +5010,9 @@ class ActiveIdentity extends _$ActiveIdentity {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_storageKey, identityId);
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('profile', 'profile identity persistence failed');
+    }
   }
 
   Future<void> _restore() async {
@@ -10052,7 +5022,9 @@ class ActiveIdentity extends _$ActiveIdentity {
       if (stored != null) {
         state = stored;
       }
-    } catch (_) {}
+    } catch (_) {
+      logDiagnostic('profile', 'profile identity restore failed');
+    }
   }
 }
 
@@ -10259,12 +5231,10 @@ final archivedNoteCountProvider = Provider<int>((ref) {
 
 class NoteEditorDraftStore {
   NoteEditorDraftStore({
-    required EncryptionService encryptionService,
-    required MasterKeyService masterKeyService,
-    required ProfileDataKeyService profileDataKeyService,
-  }) : _encryptionService = encryptionService,
-       _masterKeyService = masterKeyService,
-       _profileDataKeyService = profileDataKeyService;
+    required this._encryptionService,
+    required this._masterKeyService,
+    required this._profileDataKeyService,
+  });
 
   static const _storageKey = 'notes.editor_draft.v1';
   static const _envelopeVersion = 2;
@@ -10548,6 +5518,8 @@ class AutoTagRulesController extends Notifier<List<AutoTagRule>> {
     }
     return const <AutoTagRule>[];
   }
+
+  Future<void> get restoreCompleted => _restoreTask ?? Future<void>.value();
 
   Future<void> addRule({
     required String tag,
@@ -10856,6 +5828,7 @@ class VideoPlaybackMutedByDefaultController extends Notifier<bool> {
 @Riverpod(keepAlive: true)
 class NotesListSortController extends _$NotesListSortController {
   static const _storageKey = 'notes.list_sort_field';
+  static const _defaultSortField = NotesListSortField.createdAt;
   bool _restored = false;
 
   @override
@@ -10864,7 +5837,7 @@ class NotesListSortController extends _$NotesListSortController {
       _restored = true;
       unawaited(_restore());
     }
-    return NotesListSortField.updatedAt;
+    return _defaultSortField;
   }
 
   Future<void> setSortField(NotesListSortField field) async {
@@ -10881,7 +5854,7 @@ class NotesListSortController extends _$NotesListSortController {
     }
     state = NotesListSortField.values.firstWhere(
       (field) => field.name == stored,
-      orElse: () => NotesListSortField.updatedAt,
+      orElse: () => _defaultSortField,
     );
   }
 }
@@ -10971,6 +5944,7 @@ class NotesController extends _$NotesController {
   bool _restoreFailed = false;
   Future<void>? _restoreTask;
   Future<void> _upsertQueue = Future<void>.value();
+  int _privateConcealVersion = 0;
 
   @override
   List<NoteEntry> build() {
@@ -11047,6 +6021,7 @@ class NotesController extends _$NotesController {
   Future<int> applyAutoTagRulesToExisting({Iterable<String>? vaultIds}) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
+    await ref.read(autoTagRulesControllerProvider.notifier).restoreCompleted;
     final rules = ref.read(autoTagRulesControllerProvider);
     if (rules.where((rule) => rule.enabled).isEmpty) {
       return 0;
@@ -11681,9 +6656,38 @@ class NotesController extends _$NotesController {
   Future<void> get restoreCompleted => _waitForInitialRestore();
 
   Future<void> reloadFromStorage() async {
+    await _waitForInitialRestore();
     _restoreFailed = false;
     await _restore();
   }
+
+  /// Drop decrypted content immediately when private access changes. The
+  /// encrypted records remain in storage and are restored on the next unlock.
+  void concealPrivateNotes({String? exceptVaultId}) {
+    _privateConcealVersion++;
+    state = [
+      for (final note in state)
+        if (!isPrivateVaultId(note.vaultId) || note.vaultId == exceptVaultId)
+          note
+        else
+          _concealedPrivateNote(note),
+    ];
+  }
+
+  NoteEntry _concealedPrivateNote(NoteEntry note) => NoteEntry(
+    id: note.id,
+    vaultId: note.vaultId,
+    title: 'Locked private note',
+    body: '',
+    createdAt: note.createdAt,
+    updatedAt: note.updatedAt,
+    deletedAt: note.deletedAt,
+    deviceId: 'locked-private-note',
+    contentHash: note.contentHash,
+    isPinned: note.isPinned,
+    revision: note.revision,
+    syncState: note.syncState,
+  );
 
   Future<int> deleteDemoNotes() async {
     await _waitForInitialRestore();
@@ -11727,9 +6731,15 @@ class NotesController extends _$NotesController {
         .where((note) => note.deletedAt == null)
         .toList(growable: false);
     final removedCount = removedNotes.length;
-    await _deleteAttachments([
+    final attachmentsToDelete = [
       for (final note in state) ..._attachmentsIn(note),
-    ]);
+    ];
+    // resetLocalStorage intentionally removes every local payload, including
+    // paths currently referenced by the in-memory notes.
+    await _deleteAttachments(
+      attachmentsToDelete,
+      ignoreCurrentStateReferences: true,
+    );
     state = const <NoteEntry>[];
     ref.read(selectedNoteIdProvider.notifier).select(null);
     await ref.read(noteEditorDraftStoreProvider).clear();
@@ -11794,7 +6804,6 @@ class NotesController extends _$NotesController {
               !incomingPaths.contains(attachment.filePath))
             attachment,
     ];
-    await _deleteAttachments(removedAttachments);
     final next = [
       ...incomingNotes,
       for (final note in retainedLocalNotes)
@@ -11803,6 +6812,87 @@ class NotesController extends _$NotesController {
     _sort(next);
     state = next;
     await _persist();
+    // Delete replaced files only after the new note set is durable.  The
+    // current-state guard now sees `next`, so attachments shared by an
+    // incoming or retained note are preserved.
+    await _deleteAttachments(removedAttachments);
+  }
+
+  /// Apply downloaded bytes to the latest notes, without replaying the note
+  /// snapshot captured before the network request. Serialize with editor saves
+  /// so an attachment download cannot overwrite a concurrent text edit.
+  Future<void> applyDownloadedAttachment({
+    required String vaultId,
+    required String sourceReference,
+    required NoteAttachment downloaded,
+    bool clearPreview = false,
+  }) {
+    final operation = _upsertQueue.then((_) async {
+      await _waitForInitialRestore();
+      _ensureRestoreSucceeded();
+      NoteAttachment replace(NoteAttachment current) {
+        if (current.filePath != sourceReference ||
+            current.type != downloaded.type) {
+          return current;
+        }
+        return current.copyWith(
+          filePath: downloaded.filePath,
+          previewBytesBase64: clearPreview
+              ? null
+              : current.previewBytesBase64 ?? downloaded.previewBytesBase64,
+          syncAttachmentContentHash: downloaded.syncAttachmentContentHash,
+          localPayloadSizeBytes: downloaded.localPayloadSizeBytes,
+          localPayloadModifiedAtMillis: downloaded.localPayloadModifiedAtMillis,
+        );
+      }
+
+      final changed = <NoteEntry>[];
+      final previous = <String, NoteEntry>{};
+      final next = [
+        for (final note in state)
+          if (note.vaultId != vaultId ||
+              !_attachmentsIn(note).any(
+                (attachment) =>
+                    attachment.filePath == sourceReference &&
+                    attachment.type == downloaded.type,
+              ))
+            note
+          else
+            note.copyWith(
+              attachments: note.attachments.map(replace).toList(),
+              blocks: [
+                for (final block in note.blocks)
+                  block.attachment == null
+                      ? block
+                      : block.copyWith(attachment: replace(block.attachment!)),
+              ],
+            ),
+      ];
+      for (var index = 0; index < next.length; index++) {
+        if (next[index] != state[index]) {
+          changed.add(next[index]);
+          previous[state[index].id] = state[index];
+        }
+      }
+      if (changed.isEmpty) {
+        return;
+      }
+      state = next;
+      try {
+        await _persistChanged(changed);
+      } catch (_) {
+        state = [
+          for (final current in state)
+            if (previous.containsKey(current.id) && changed.contains(current))
+              previous[current.id]!
+            else
+              current,
+        ];
+        rethrow;
+      }
+    });
+    _upsertQueue = operation.catchError((Object _, StackTrace _) {});
+    return operation;
   }
 
   Future<void> mergeFromSync(List<PreparedSyncNote> changes) async {
@@ -11813,6 +6903,7 @@ class NotesController extends _$NotesController {
     }
     final syncExclusionTags = ref.read(syncExclusionTagsControllerProvider);
     final next = [...state];
+    final indexesById = {for (var i = 0; i < next.length; i++) next[i].id: i};
     final removedAttachments = <NoteAttachment>[];
     final changedNotes = <NoteEntry>[];
 
@@ -11823,7 +6914,7 @@ class NotesController extends _$NotesController {
 
     for (final change in changes) {
       final incoming = change.note.copyWith(syncState: NoteSyncState.synced);
-      final index = next.indexWhere((note) => note.id == incoming.id);
+      final index = indexesById[incoming.id] ?? -1;
       final current = index == -1 ? null : next[index];
       if ((current != null &&
               noteExcludedFromSync(current, syncExclusionTags)) ||
@@ -11889,6 +6980,7 @@ class NotesController extends _$NotesController {
           : incoming.copyWith(deletedAt: null, syncState: NoteSyncState.synced);
 
       if (current == null) {
+        indexesById[applied.id] = next.length;
         next.add(applied);
         changedNotes.add(applied);
       } else {
@@ -11932,7 +7024,10 @@ class NotesController extends _$NotesController {
     );
   }
 
-  Future<void> resolveConflictKeepingLocal(String noteId) async {
+  Future<void> resolveConflictKeepingLocal(
+    String noteId, {
+    required int remoteRevision,
+  }) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     final next = [...state];
@@ -11941,7 +7036,15 @@ class NotesController extends _$NotesController {
       return;
     }
     final current = next[index];
-    final queued = current.copyWith(syncState: NoteSyncState.pendingUpload);
+    final now = DateTime.now();
+    final queued = current.copyWith(
+      updatedAt: now,
+      deletedAt: current.deletedAt == null ? null : now,
+      revision: math.max(current.revision, remoteRevision) + 1,
+      syncState: current.deletedAt == null
+          ? NoteSyncState.pendingUpload
+          : NoteSyncState.pendingDelete,
+    );
     final withHash = queued.copyWith(contentHash: _computeContentHash(queued));
     next[index] = withHash;
     _sort(next);
@@ -11974,14 +7077,53 @@ class NotesController extends _$NotesController {
     final retained = <String>{
       for (final note in next) ..._attachmentFilePathsIn(note),
     };
-    await _deleteAttachments(
-      removedAttachments
-          .where((attachment) {
-            final filePath = attachment.filePath;
-            return filePath != null && !retained.contains(filePath);
-          })
-          .toList(growable: false),
+    try {
+      await _deleteAttachments(
+        removedAttachments
+            .where((attachment) {
+              final filePath = attachment.filePath;
+              return filePath != null && !retained.contains(filePath);
+            })
+            .toList(growable: false),
+      );
+    } catch (error, stackTrace) {
+      // The remote choice is already durable. Cleanup failure must not make
+      // the stale comparison dialog retry a decision against changed data.
+      debugPrint(
+        'Remote conflict was resolved but old attachment cleanup failed: '
+        '$error\n$stackTrace',
+      );
+      unawaited(
+        recordNonFatalError(
+          error,
+          stackTrace,
+          reason: 'conflict_remote_attachment_cleanup_failed',
+        ),
+      );
+    }
+  }
+
+  Future<void> resolveConflictUsingRemoteDelete(NoteEntry remoteNote) async {
+    await _waitForInitialRestore();
+    _ensureRestoreSucceeded();
+    final next = [...state];
+    final index = next.indexWhere((note) => note.id == remoteNote.id);
+    final changedAt = remoteNote.deletedAt ?? remoteNote.updatedAt;
+    final deletion = remoteNote.copyWith(
+      deletedAt: changedAt ?? DateTime.now(),
+      syncState: NoteSyncState.synced,
     );
+    final applied = index == -1
+        ? deletion
+        : _mergeRemoteDeleteIntoCurrent(next[index], deletion);
+    if (index == -1) {
+      next.add(applied);
+    } else {
+      next[index] = applied;
+    }
+    _sort(next);
+    state = next;
+    await _persistChanged([applied]);
   }
 
   Future<void> resolveConflictByMerging(NoteEntry remoteNote) async {
@@ -12338,7 +7480,9 @@ class NotesController extends _$NotesController {
         int? sourceBytes;
         try {
           sourceBytes = await sourceFile.length();
-        } catch (_) {}
+        } catch (_) {
+          // File size is optional metadata; preview generation can continue.
+        }
         if (sourceBytes != null &&
             sourceBytes > _deferredVideoPreviewThresholdBytes) {
           deferredPreview = _videoPreviewBytesBase64ForSourceFile(sourceFile);
@@ -12403,7 +7547,9 @@ class NotesController extends _$NotesController {
         if (preview != null) {
           resolved[entry.key] = preview;
         }
-      } catch (_) {}
+      } catch (_) {
+        // A failed optional preview should not prevent note attachment sync.
+      }
     }
     if (resolved.isEmpty) {
       return;
@@ -12436,6 +7582,7 @@ class NotesController extends _$NotesController {
 
   Future<void> _restore() async {
     final stopwatch = kDebugMode ? (Stopwatch()..start()) : null;
+    final concealVersion = _privateConcealVersion;
     try {
       final deletedSeedNoteIds = await _deletedSeedNoteIds();
       final restored = [
@@ -12474,6 +7621,17 @@ class NotesController extends _$NotesController {
             .where((note) => note.vaultId == 'everyday')
             .toList(growable: false);
         changed = true;
+      }
+      if (concealVersion != _privateConcealVersion) {
+        final keys = ref.read(profileDataKeyServiceProvider);
+        next = [
+          for (final note in next)
+            if (isPrivateVaultId(note.vaultId) &&
+                !keys.isProfileUnlocked(note.vaultId))
+              _concealedPrivateNote(note)
+            else
+              note,
+        ];
       }
       _sort(next);
       state = next;
@@ -12708,12 +7866,28 @@ class NotesController extends _$NotesController {
     };
   }
 
-  Future<void> _deleteAttachments(List<NoteAttachment> attachments) async {
+  Future<void> _deleteAttachments(
+    List<NoteAttachment> attachments, {
+    Set<String>? additionalRetainedFilePaths,
+    bool ignoreCurrentStateReferences = false,
+  }) async {
     final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+    // Attachment payloads are shared by imported notes.  A removal callback
+    // often receives the previous note's attachments, so consult the whole
+    // current state before deleting any path.  This also protects callers
+    // that delete several notes in one operation.
+    final retainedFilePaths = <String>{
+      if (!ignoreCurrentStateReferences)
+        for (final note in state) ..._attachmentFilePathsIn(note),
+      ...?additionalRetainedFilePaths,
+    };
     final deleted = <String>{};
     for (final attachment in attachments) {
       final filePath = attachment.filePath;
       if (filePath == null || filePath.isEmpty) {
+        continue;
+      }
+      if (retainedFilePaths.contains(filePath)) {
         continue;
       }
       if (!deleted.add(filePath)) {
@@ -12727,6 +7901,73 @@ class NotesController extends _$NotesController {
     NoteEntry note, {
     NoteEntry? previous,
   }) async {
+    await ref.read(autoTagRulesControllerProvider.notifier).restoreCompleted;
+    // An editor may still hold remote references from before a download.
+    // Retain the newly saved local files when that draft is later committed.
+    if (previous != null && previous.vaultId == note.vaultId) {
+      final localByHash = <String, NoteAttachment>{
+        for (final attachment in _attachmentsIn(previous))
+          if (attachment.syncAttachmentContentHash != null &&
+              attachment.filePath != null &&
+              !isSyncAttachmentObjectRef(attachment.filePath))
+            '${attachment.type.name}:${attachment.syncAttachmentContentHash}':
+                attachment,
+      };
+      Future<NoteAttachment> reuseDownloaded(NoteAttachment attachment) async {
+        final hash =
+            syncAttachmentObjectContentHash(attachment.filePath) ??
+            attachment.syncAttachmentContentHash;
+        final local = localByHash['${attachment.type.name}:$hash'];
+        if (hash == null ||
+            local == null ||
+            attachment.filePath == local.filePath) {
+          return attachment;
+        }
+        // Keep an intentionally replaced local file. An editor's old local
+        // path should only be repaired when its payload has gone missing.
+        if (!isSyncAttachmentObjectRef(attachment.filePath) &&
+            attachment.filePath != null) {
+          try {
+            final draftBytes = await ref
+                .read(encryptedAttachmentStoreProvider)
+                .readAttachment(attachment.filePath!, type: attachment.type);
+            if (draftBytes != null && draftBytes.isNotEmpty) {
+              return attachment;
+            }
+          } catch (_) {
+            // The draft can still point at an unreadable old container.
+          }
+        }
+        final metadata = await ref
+            .read(encryptedAttachmentStoreProvider)
+            .storedPayloadMetadata(local.filePath!);
+        if (metadata == null) {
+          return attachment;
+        }
+        return attachment.copyWith(
+          filePath: local.filePath,
+          syncAttachmentContentHash: hash,
+          localPayloadSizeBytes: metadata.sizeBytes,
+          localPayloadModifiedAtMillis: metadata.modifiedAtMillis,
+          previewBytesBase64: local.previewBytesBase64,
+        );
+      }
+
+      note = note.copyWith(
+        attachments: [
+          for (final attachment in note.attachments)
+            await reuseDownloaded(attachment),
+        ],
+        blocks: [
+          for (final block in note.blocks)
+            block.attachment == null
+                ? block
+                : block.copyWith(
+                    attachment: await reuseDownloaded(block.attachment!),
+                  ),
+        ],
+      );
+    }
     final autoTagged = applyAutoTagRules(
       note,
       ref.read(autoTagRulesControllerProvider),
@@ -12924,6 +8165,9 @@ class UnlockedPrivateProfileVaultIdController extends Notifier<String?> {
 
   void unlock(String vaultId) {
     final previousVaultId = state;
+    if (previousVaultId != null && previousVaultId != vaultId) {
+      ref.read(profileDataKeyServiceProvider).lockProfile(previousVaultId);
+    }
     state = vaultId;
     if (previousVaultId != vaultId) {
       logAudit(
@@ -12937,7 +8181,7 @@ class UnlockedPrivateProfileVaultIdController extends Notifier<String?> {
   void lock() {
     final vaultId = state;
     if (vaultId != null) {
-      ref.read(profileDataKeyServiceProvider).lockProfile(vaultId);
+      ref.read(profileDataKeyServiceProvider).lockAllPrivateProfiles();
       final filters = ref.read(searchFiltersControllerProvider);
       if (filters.vaultId == vaultId) {
         ref.read(searchFiltersControllerProvider.notifier).setVault(null);
@@ -12945,6 +8189,7 @@ class UnlockedPrivateProfileVaultIdController extends Notifier<String?> {
     }
     state = null;
     if (vaultId != null) {
+      ref.read(notesControllerProvider.notifier).concealPrivateNotes();
       logAudit('private_profile_lock', data: {'vaultId': vaultId});
     }
   }
@@ -12956,21 +8201,118 @@ final adminModeSessionControllerProvider =
     );
 
 class AdminModeSessionController extends Notifier<bool> {
+  int _operation = 0;
+
   @override
   bool build() => false;
 
-  void unlock() {
-    final changed = !state;
-    state = true;
-    if (changed) {
-      logAudit('admin_mode_login', data: {'allProfilesReadable': true});
+  /// The caller must complete device authentication before entering admin mode.
+  Future<List<String>> unlock() async {
+    final operation = ++_operation;
+    final profiles = await ref
+        .read(privateMemoProfileStoreProvider)
+        .listProfiles();
+    final hasLegacy = await ref
+        .read(privateVaultSecretStoreProvider)
+        .hasSecret();
+    if (!ref.mounted || operation != _operation) return const [];
+    ref.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+    ref.read(privateVaultSessionControllerProvider.notifier).lock();
+    final keys = ref.read(profileDataKeyServiceProvider);
+    try {
+      await keys.unlockProfilesForAdmin([
+        if (hasLegacy) legacyPrivateVaultId,
+        for (final profile in profiles) profile.vaultId,
+      ]);
+      if (!ref.mounted) {
+        keys.lockAllPrivateProfiles();
+        return const [];
+      }
+      if (operation != _operation) {
+        return const [];
+      }
+      state = true;
+      ref.read(searchFiltersControllerProvider.notifier).setVault(null);
+      await ref.read(privateMemoProfilesControllerProvider.notifier).refresh();
+      await _reloadPrivateNotes();
+      if (!ref.mounted || operation != _operation) return const [];
+      final currentProfiles = await ref
+          .read(privateMemoProfileStoreProvider)
+          .listProfiles();
+      if (!ref.mounted || operation != _operation) return const [];
+      final stillMissing = [
+        if (hasLegacy && !keys.isProfileUnlocked(legacyPrivateVaultId))
+          legacyPrivateVaultId,
+        for (final profile in currentProfiles)
+          if (!keys.isProfileUnlocked(profile.vaultId)) profile.vaultId,
+      ];
+      logAudit(
+        'admin_mode_login',
+        data: {
+          'allProfilesReadable': stillMissing.isEmpty,
+          'profilesNeedingPassword': stillMissing.length,
+        },
+      );
+      return stillMissing;
+    } catch (_) {
+      if (ref.mounted && operation == _operation) lock();
+      rethrow;
     }
   }
 
-  void lock() {
+  /// Migrate a profile created before local admin keys existed, or imported
+  /// from another device, without leaving the authenticated admin session.
+  Future<bool> unlockProfile(String vaultId, String password) async {
+    if (!state) return false;
+    final operation = _operation;
+    final keys = ref.read(profileDataKeyServiceProvider);
+    final unlocked = await AuthenticationThrottle(
+      store: ref.read(secureKeyValueStoreProvider),
+      storageKey: 'security.private_profiles.attempts.v1',
+    ).verify(() => keys.unlockProfile(vaultId: vaultId, password: password));
+    if (!ref.mounted || operation != _operation || !state) {
+      return false;
+    }
+    if (unlocked) await _reloadPrivateNotes(vaultId);
+    return unlocked &&
+        ref.mounted &&
+        state &&
+        operation == _operation &&
+        keys.isProfileUnlocked(vaultId);
+  }
+
+  Future<void> _reloadPrivateNotes([String? vaultId]) async {
+    await ref
+        .read(syncTransferControllerProvider.notifier)
+        .applyPendingPrivateDownloadedBundleIfNeeded();
+    await ref.read(notesControllerProvider.notifier).reloadFromStorage();
+    if (vaultId != null) {
+      await ref
+          .read(syncTransferControllerProvider.notifier)
+          .restoreUnlockedPrivateAttachments(vaultId);
+    }
+    if (!state) {
+      ref
+          .read(notesControllerProvider.notifier)
+          .concealPrivateNotes(
+            exceptVaultId: ref.read(unlockedPrivateProfileVaultIdProvider),
+          );
+    }
+  }
+
+  void lock({String? exceptVaultId}) {
+    _operation++;
     final changed = state;
     state = false;
+    ref
+        .read(profileDataKeyServiceProvider)
+        .lockAllPrivateProfiles(exceptVaultId: exceptVaultId);
+    ref
+        .read(notesControllerProvider.notifier)
+        .concealPrivateNotes(exceptVaultId: exceptVaultId);
     if (changed) {
+      ref.read(searchFiltersControllerProvider.notifier).setVault(null);
+      ref.read(selectedNoteIdProvider.notifier).select(null);
       logAudit('admin_mode_logout');
     }
   }
@@ -12988,40 +8330,72 @@ class PrivateProfileUnlockController extends Notifier<AsyncValue<void>> {
   Future<UnlockProfileResult?> unlockWithPassword(String password) async {
     state = const AsyncLoading();
     try {
-      final custom = await ref
-          .read(privateMemoProfileStoreProvider)
-          .verifyAny(password);
+      UnlockProfileResult? candidate;
+      var legacyMatched = false;
+      // Count one supplied password, not every profile it is tested against.
+      await AuthenticationThrottle(
+        store: ref.read(secureKeyValueStoreProvider),
+        storageKey: 'security.private_profiles.attempts.v1',
+      ).verify(() async {
+        candidate = await ref
+            .read(privateMemoProfileStoreProvider)
+            .verifyAny(password);
+        if (candidate != null) return true;
+        legacyMatched = await ref
+            .read(privateVaultSecretStoreProvider)
+            .verifyWithoutThrottle(password);
+        return legacyMatched;
+      });
+      final custom = candidate;
       if (custom != null) {
+        ref.read(privateVaultSessionControllerProvider.notifier).lock();
+        ref
+            .read(adminModeSessionControllerProvider.notifier)
+            .lock(exceptVaultId: custom.vaultId);
         ref
             .read(unlockedPrivateProfileVaultIdProvider.notifier)
             .unlock(custom.vaultId);
-        ref.read(adminModeSessionControllerProvider.notifier).lock();
         await _applyPendingDownloadedBundle();
         await ref.read(notesControllerProvider.notifier).reloadFromStorage();
+        await ref
+            .read(syncTransferControllerProvider.notifier)
+            .restoreUnlockedPrivateAttachments(custom.vaultId);
         state = const AsyncData(null);
         return custom;
       }
-      final legacyMatched = await ref
-          .read(privateVaultSecretControllerProvider.notifier)
-          .verify(password);
+      var legacyUnlocked = false;
       if (legacyMatched) {
+        legacyUnlocked = await ref
+            .read(profileDataKeyServiceProvider)
+            .unlockProfile(vaultId: legacyPrivateVaultId, password: password);
+        if (legacyUnlocked) {
+          ref.read(privateVaultSessionControllerProvider.notifier).unlock();
+        }
+      }
+      if (legacyUnlocked) {
         const result = UnlockProfileResult(
           vaultId: legacyPrivateVaultId,
           label: 'Private profile',
           isLegacy: true,
         );
         ref
+            .read(adminModeSessionControllerProvider.notifier)
+            .lock(exceptVaultId: result.vaultId);
+        ref
             .read(unlockedPrivateProfileVaultIdProvider.notifier)
             .unlock(result.vaultId);
-        ref.read(adminModeSessionControllerProvider.notifier).lock();
         await _applyPendingDownloadedBundle();
         await ref.read(notesControllerProvider.notifier).reloadFromStorage();
+        await ref
+            .read(syncTransferControllerProvider.notifier)
+            .restoreUnlockedPrivateAttachments(result.vaultId);
         state = const AsyncData(null);
         return result;
       }
       state = const AsyncData(null);
       return null;
     } catch (error, stackTrace) {
+      ref.read(profileDataKeyServiceProvider).lockAllPrivateProfiles();
       state = AsyncError(error, stackTrace);
       return null;
     }
@@ -13559,10 +8933,8 @@ final tagSuggestionGatewayProvider = Provider<TagSuggestionGateway>((ref) {
 
 class MethodChannelTagSuggestionGateway implements TagSuggestionGateway {
   MethodChannelTagSuggestionGateway({
-    MethodChannel channel = const MethodChannel(
-      'org.ruhenheim.himemo/intelligence',
-    ),
-  }) : _channel = channel;
+    this._channel = const MethodChannel('org.ruhenheim.himemo/intelligence'),
+  });
 
   final MethodChannel _channel;
 
@@ -13577,16 +8949,18 @@ class MethodChannelTagSuggestionGateway implements TagSuggestionGateway {
       );
     }
     try {
-      final response = await _channel
-          .invokeMapMethod<String, Object?>('suggestTags', {
-            'title': request.title,
-            'body': request.body,
-            'existingTags': request.existingTags,
-            'knownTags': request.knownTags,
-            'knownTagCounts': request.knownTagCounts,
-            'attachmentLabels': request.attachmentLabels,
-            'preferredLanguageCode': request.preferredLanguageCode,
-          });
+      final response = await _channel.invokeMapMethod<String, Object?>(
+        'suggestTags',
+        {
+          'title': request.title,
+          'body': request.body,
+          'existingTags': request.existingTags,
+          'knownTags': request.knownTags,
+          'knownTagCounts': request.knownTagCounts,
+          'attachmentLabels': request.attachmentLabels,
+          'preferredLanguageCode': request.preferredLanguageCode,
+        },
+      );
       final nativeTags = sanitizeSuggestedTags([
         for (final tag in response?['tags'] as List? ?? const []) '$tag',
       ], existingTags: request.existingTags);

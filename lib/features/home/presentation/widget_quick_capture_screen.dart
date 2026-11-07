@@ -102,9 +102,9 @@ class _WidgetQuickCaptureScreenState
                                 onboardingReady
                                     ? context.strings.quickWidgetCaptureOff
                                     : context.strings.finishSetupFirst,
-                                style: Theme.of(
-                                  context,
-                                ).textTheme.headlineSmall,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineSmall,
                               ),
                               const SizedBox(height: 12),
                               Text(
@@ -257,9 +257,8 @@ class _CapturePanel extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             context.strings.quickCaptureDescription(isShare: isShare),
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-            ),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(color: colorScheme.onSurfaceVariant),
           ),
           const SizedBox(height: 16),
           if (files.isNotEmpty) ...[

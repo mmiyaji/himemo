@@ -429,7 +429,7 @@ async function completeOnboarding(page) {
     return;
   }
 
-  for (let i = 0; i < 3; i += 1) {
+  for (let i = 0; i < 4; i += 1) {
     const nextButton =
       (await page.getByRole('button', { name: 'Next' }).count())
         ? page.getByRole('button', { name: 'Next' })
@@ -439,7 +439,7 @@ async function completeOnboarding(page) {
   }
 
   await expect(page.locator('flutter-view')).toContainText(
-    /Finish the basics|最初に基本だけ設定/,
+    /App lock is optional|起動ロックは必要に応じて/,
   );
   const setPinButton =
     (await page.getByRole('button', { name: 'Set PIN' }).count())
@@ -456,9 +456,9 @@ async function completeOnboarding(page) {
   await saveButton.click();
   await expect(page.locator('flutter-view')).toContainText(/App unlock PIN saved\.|アプリ解除 PIN を保存しました。/);
   const finishButton =
-    (await page.getByRole('button', { name: 'Finish setup' }).count())
-      ? page.getByRole('button', { name: 'Finish setup' })
-      : page.getByRole('button', { name: 'セットアップ完了' });
+    (await page.getByRole('button', { name: 'Start taking notes' }).count())
+      ? page.getByRole('button', { name: 'Start taking notes' })
+      : page.getByRole('button', { name: 'メモを始める' });
   await finishButton.click();
 }
 

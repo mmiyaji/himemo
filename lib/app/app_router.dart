@@ -14,46 +14,60 @@ GoRouter appRouter(Ref ref) {
       GoRoute(path: '/', redirect: (_, _) => '/notes'),
       GoRoute(
         path: '/widget-capture',
-        pageBuilder: (context, state) =>
-            const NoTransitionPage(child: WidgetQuickCaptureScreen()),
+        pageBuilder: (context, state) => NoTransitionPage(
+          key: state.pageKey,
+          child: const WidgetQuickCaptureScreen(),
+        ),
       ),
       ShellRoute(
         builder: (context, state, child) => AppShell(child: child),
         routes: [
           GoRoute(
             path: '/notes',
-            pageBuilder: (context, state) =>
-                const NoTransitionPage(child: NotesScreen()),
+            pageBuilder: (context, state) => NoTransitionPage(
+              key: state.pageKey,
+              child: const NotesScreen(),
+            ),
           ),
           GoRoute(
             path: '/calendar',
-            pageBuilder: (context, state) =>
-                const NoTransitionPage(child: CalendarScreen()),
+            pageBuilder: (context, state) => NoTransitionPage(
+              key: state.pageKey,
+              child: const CalendarScreen(),
+            ),
           ),
           GoRoute(
             path: '/insights',
-            pageBuilder: (context, state) =>
-                const NoTransitionPage(child: InsightsScreen()),
+            pageBuilder: (context, state) => NoTransitionPage(
+              key: state.pageKey,
+              child: const InsightsScreen(),
+            ),
           ),
           GoRoute(
             path: '/trash',
-            pageBuilder: (context, state) =>
-                const NoTransitionPage(child: TrashScreen()),
+            pageBuilder: (context, state) => NoTransitionPage(
+              key: state.pageKey,
+              child: const TrashScreen(),
+            ),
           ),
           GoRoute(
             path: '/tags',
             pageBuilder: (context, state) =>
-                const NoTransitionPage(child: TagsScreen()),
+                NoTransitionPage(key: state.pageKey, child: const TagsScreen()),
           ),
           GoRoute(
             path: '/settings',
-            pageBuilder: (context, state) =>
-                const NoTransitionPage(child: SettingsScreen()),
+            pageBuilder: (context, state) => NoTransitionPage(
+              key: state.pageKey,
+              child: const SettingsScreen(),
+            ),
           ),
           GoRoute(
             path: '/tutorials',
-            pageBuilder: (context, state) =>
-                const NoTransitionPage(child: TutorialsScreen()),
+            pageBuilder: (context, state) => NoTransitionPage(
+              key: state.pageKey,
+              child: const TutorialsScreen(),
+            ),
           ),
         ],
       ),

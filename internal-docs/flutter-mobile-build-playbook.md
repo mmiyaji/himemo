@@ -9,6 +9,8 @@
 
 ## 方針
 
+2026-10-28: Flutter は 3.47.8 に固定。Windows では `D:\Flutter\versions\3.47.8` を使用し、IDE と `tools/flutter_with_env.ps1`、GitHub Actions、Codemagic を同じ版に揃える。通常のコマンドは `powershell -File tools/flutter_with_env.ps1 <command>` を使う。ユーザー PATH の反映にはターミナルの再起動が必要。ローカルの `.fvm/flutter_sdk` も同じDドライブのSDKを指すjunctionに変更済み。旧リンクは `.fvm/flutter_sdk.previous` に退避している。
+
 - Android はローカル Windows 環境と CI の両方で検証する
 - iOS は Windows 主体でも回せるように Codemagic を前提にする
 - build / signing / publishing の設定はできるだけ repo 側に残す
@@ -27,7 +29,7 @@
 基本コマンド:
 
 ```powershell
-.\.fvm\flutter_sdk\bin\flutter.bat test
+powershell -File tools/flutter_with_env.ps1 test
 ```
 
 ### 2. `integration_test`
@@ -45,8 +47,8 @@ HiMemo で通しているもの:
 例:
 
 ```powershell
-.\.fvm\flutter_sdk\bin\flutter.bat test integration_test\app_flow_test.dart -d windows
-.\.fvm\flutter_sdk\bin\flutter.bat test integration_test\mobile_native_flows_test.dart -d emulator-5554 --flavor development
+powershell -File tools/flutter_with_env.ps1 test integration_test\app_flow_test.dart -d windows
+powershell -File tools/flutter_with_env.ps1 test integration_test\mobile_native_flows_test.dart -d emulator-5554 --flavor development
 ```
 
 ### 3. Playwright

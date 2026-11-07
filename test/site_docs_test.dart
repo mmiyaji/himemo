@@ -101,9 +101,8 @@ void main() {
 
   test('app links use the Cloudflare Pages domain', () {
     final app = File('lib/app/app.dart').readAsStringSync();
-    final homePage = File(
-      'lib/features/home/presentation/home_page.dart',
-    ).readAsStringSync();
+    final homePage = File('lib/features/home/presentation/home_page.dart')
+        .readAsStringSync();
     final appLinks = '$app\n$homePage';
 
     expect(appLinks, isNot(contains('mmiyaji.github.io/himemo')));

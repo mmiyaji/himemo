@@ -1,6 +1,6 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 // coverage:ignore-file
-// ignore_for_file: type=lint
+// ignore_for_file: type=lint, type=warning, deprecated_member_use, deprecated_member_use_from_same_package
 // ignore_for_file: unused_element, deprecated_member_use, deprecated_member_use_from_same_package, use_function_type_syntax_for_parameters, unnecessary_const, avoid_init_to_null, invalid_override_different_default_values_named, prefer_expression_function_bodies, annotate_overrides, invalid_annotation_target, unnecessary_question_mark
 
 part of 'vault_models.dart';
@@ -9,6 +9,7 @@ part of 'vault_models.dart';
 // FreezedGenerator
 // **************************************************************************
 
+// GENERATED CODE - DO NOT MODIFY BY HAND
 // dart format off
 T _$identity<T>(T value) => value;
 
@@ -28,16 +29,21 @@ $VaultBucketCopyWith<VaultBucket> get copyWith => _$VaultBucketCopyWithImpl<Vaul
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is VaultBucket&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description));
+  final _this = this as VaultBucket;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is VaultBucket&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.description, _this.description) || other.description == _this.description));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,name,description);
+int get hashCode {
+  final _this = this as VaultBucket;
+  return Object.hash(runtimeType,_this.id,_this.name,_this.description);
+}
 
 @override
 String toString() {
-  return 'VaultBucket(id: $id, name: $name, description: $description)';
+  final _this = this as VaultBucket;
+  return 'VaultBucket(id: ${_this.id}, name: ${_this.name}, description: ${_this.description})';
 }
 
 
@@ -66,7 +72,7 @@ class _$VaultBucketCopyWithImpl<$Res>
 /// Create a copy of VaultBucket
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = null,Object? description = null,}) {
-  return _then(_self.copyWith(
+  return _then(VaultBucket(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,description: null == description ? _self.description : description // ignore: cast_nullable_to_non_nullable
@@ -231,16 +237,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _VaultBucket&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _VaultBucket&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.description, description) || other.description == description));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,name,description);
+int get hashCode {
+    return Object.hash(runtimeType,id,name,description);
+}
 
 @override
 String toString() {
-  return 'VaultBucket(id: $id, name: $name, description: $description)';
+    return 'VaultBucket(id: $id, name: $name, description: $description)';
 }
 
 
@@ -297,16 +305,21 @@ $UnlockIdentityCopyWith<UnlockIdentity> get copyWith => _$UnlockIdentityCopyWith
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is UnlockIdentity&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.tagline, tagline) || other.tagline == tagline)&&(identical(other.lockLabel, lockLabel) || other.lockLabel == lockLabel)&&const DeepCollectionEquality().equals(other.visibleVaultIds, visibleVaultIds)&&(identical(other.accentHex, accentHex) || other.accentHex == accentHex)&&(identical(other.warning, warning) || other.warning == warning));
+  final _this = this as UnlockIdentity;
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is UnlockIdentity&&(identical(other.id, _this.id) || other.id == _this.id)&&(identical(other.name, _this.name) || other.name == _this.name)&&(identical(other.tagline, _this.tagline) || other.tagline == _this.tagline)&&(identical(other.lockLabel, _this.lockLabel) || other.lockLabel == _this.lockLabel)&&const DeepCollectionEquality().equals(other.visibleVaultIds, _this.visibleVaultIds)&&(identical(other.accentHex, _this.accentHex) || other.accentHex == _this.accentHex)&&(identical(other.warning, _this.warning) || other.warning == _this.warning));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,name,tagline,lockLabel,const DeepCollectionEquality().hash(visibleVaultIds),accentHex,warning);
+int get hashCode {
+  final _this = this as UnlockIdentity;
+  return Object.hash(runtimeType,_this.id,_this.name,_this.tagline,_this.lockLabel,const DeepCollectionEquality().hash(_this.visibleVaultIds),_this.accentHex,_this.warning);
+}
 
 @override
 String toString() {
-  return 'UnlockIdentity(id: $id, name: $name, tagline: $tagline, lockLabel: $lockLabel, visibleVaultIds: $visibleVaultIds, accentHex: $accentHex, warning: $warning)';
+  final _this = this as UnlockIdentity;
+  return 'UnlockIdentity(id: ${_this.id}, name: ${_this.name}, tagline: ${_this.tagline}, lockLabel: ${_this.lockLabel}, visibleVaultIds: ${_this.visibleVaultIds}, accentHex: ${_this.accentHex}, warning: ${_this.warning})';
 }
 
 
@@ -335,7 +348,7 @@ class _$UnlockIdentityCopyWithImpl<$Res>
 /// Create a copy of UnlockIdentity
 /// with the given fields replaced by the non-null parameter values.
 @pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = null,Object? tagline = null,Object? lockLabel = null,Object? visibleVaultIds = null,Object? accentHex = null,Object? warning = null,}) {
-  return _then(_self.copyWith(
+  return _then(UnlockIdentity(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,name: null == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
 as String,tagline: null == tagline ? _self.tagline : tagline // ignore: cast_nullable_to_non_nullable
@@ -484,7 +497,7 @@ return $default(_that.id,_that.name,_that.tagline,_that.lockLabel,_that.visibleV
 @JsonSerializable()
 
 class _UnlockIdentity implements UnlockIdentity {
-  const _UnlockIdentity({required this.id, required this.name, required this.tagline, required this.lockLabel, required final  List<String> visibleVaultIds, required this.accentHex, required this.warning}): _visibleVaultIds = visibleVaultIds;
+  const _UnlockIdentity({required this.id, required this.name, required this.tagline, required this.lockLabel, required  List<String> visibleVaultIds, required this.accentHex, required this.warning}): _visibleVaultIds = visibleVaultIds;
   factory _UnlockIdentity.fromJson(Map<String, dynamic> json) => _$UnlockIdentityFromJson(json);
 
 @override final  String id;
@@ -514,16 +527,18 @@ Map<String, dynamic> toJson() {
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _UnlockIdentity&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.tagline, tagline) || other.tagline == tagline)&&(identical(other.lockLabel, lockLabel) || other.lockLabel == lockLabel)&&const DeepCollectionEquality().equals(other._visibleVaultIds, _visibleVaultIds)&&(identical(other.accentHex, accentHex) || other.accentHex == accentHex)&&(identical(other.warning, warning) || other.warning == warning));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _UnlockIdentity&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.tagline, tagline) || other.tagline == tagline)&&(identical(other.lockLabel, lockLabel) || other.lockLabel == lockLabel)&&const DeepCollectionEquality().equals(other.visibleVaultIds, _visibleVaultIds)&&(identical(other.accentHex, accentHex) || other.accentHex == accentHex)&&(identical(other.warning, warning) || other.warning == warning));
 }
 
 @JsonKey(includeFromJson: false, includeToJson: false)
 @override
-int get hashCode => Object.hash(runtimeType,id,name,tagline,lockLabel,const DeepCollectionEquality().hash(_visibleVaultIds),accentHex,warning);
+int get hashCode {
+    return Object.hash(runtimeType,id,name,tagline,lockLabel,const DeepCollectionEquality().hash(_visibleVaultIds),accentHex,warning);
+}
 
 @override
 String toString() {
-  return 'UnlockIdentity(id: $id, name: $name, tagline: $tagline, lockLabel: $lockLabel, visibleVaultIds: $visibleVaultIds, accentHex: $accentHex, warning: $warning)';
+    return 'UnlockIdentity(id: $id, name: $name, tagline: $tagline, lockLabel: $lockLabel, visibleVaultIds: $visibleVaultIds, accentHex: $accentHex, warning: $warning)';
 }
 
 
