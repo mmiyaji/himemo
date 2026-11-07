@@ -459,10 +459,13 @@ class SettingsScreen extends ConsumerWidget {
       context: context,
       builder: (_) => _RenamePrivateProfileDialog(initialName: profile.name),
     );
-    if (nextName == null || nextName == profile.name) {
+    if (nextName == null ||
+        nextName == profile.name ||
+        !context.mounted ||
+        !ref.read(adminModeSessionControllerProvider)) {
       return;
     }
-    await ref
+    final changed = await ref
         .read(privateMemoProfilesControllerProvider.notifier)
         .renameProfile(id: profile.id, name: nextName);
     if (!context.mounted) {
@@ -472,7 +475,121 @@ class SettingsScreen extends ConsumerWidget {
       SnackBar(
         showCloseIcon: true,
         content: Text(
-          strings.localized(en: 'Profile renamed.', ja: 'プロファイル名を変更しました。'),
+          changed
+              ? strings.localized(en: 'Profile renamed.', ja: 'プロファイル名を変更しました。')
+              : strings.localized(
+                  en: 'The profile changed. Check the current name in Settings.',
+                  ja: 'プロファイルの状態が変わりました。設定で現在の名前を確認してください。',
+                ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showPrivateProfileNameConflictDialog(
+    BuildContext context,
+    WidgetRef ref,
+    PrivateMemoProfile profile,
+  ) async {
+    final strings = context.strings;
+    final heads = profile.nameSync.heads;
+    final names = heads.map((head) => head.name).toSet().toList()..sort();
+    final expectedChangeIds = heads.map((head) => head.id).toSet();
+    String? selectedName;
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => Consumer(
+        builder: (context, ref, _) {
+          if (!ref.watch(adminModeSessionControllerProvider)) {
+            return AlertDialog(
+              content: Text(strings.enterAdminModeLabel),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: Text(strings.close),
+                ),
+              ],
+            );
+          }
+          return StatefulBuilder(
+            builder: (context, setState) => AlertDialog(
+              scrollable: true,
+              title: Text(
+                strings.localized(
+                  en: 'Choose a profile name',
+                  ja: '残すプロファイル名を選択',
+                  zh: '选择要保留的档案名称',
+                  ko: '유지할 프로필 이름 선택',
+                  es: 'Elige el nombre del perfil',
+                  de: 'Profilnamen auswählen',
+                ),
+              ),
+              content: RadioGroup<String>(
+                groupValue: selectedName,
+                onChanged: (value) => setState(() => selectedName = value),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final option in names)
+                      RadioListTile<String>(
+                        contentPadding: EdgeInsets.zero,
+                        value: option,
+                        title: Text(option),
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: Text(strings.cancel),
+                ),
+                FilledButton(
+                  onPressed: selectedName == null
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(selectedName),
+                  child: Text(strings.save),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+    if (name == null ||
+        !context.mounted ||
+        !ref.read(adminModeSessionControllerProvider)) {
+      return;
+    }
+    final saved = await ref
+        .read(privateMemoProfilesControllerProvider.notifier)
+        .resolveNameConflict(
+          id: profile.id,
+          name: name,
+          expectedChangeIds: expectedChangeIds,
+        );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        showCloseIcon: true,
+        content: Text(
+          saved
+              ? strings.localized(
+                  en: 'Profile name saved for sync.',
+                  ja: 'プロファイル名を保存し、同期キューに追加しました。',
+                  zh: '档案名称已保存并加入同步队列。',
+                  ko: '프로필 이름을 저장하고 동기화 대기열에 추가했습니다.',
+                  es: 'Nombre del perfil guardado para sincronizar.',
+                  de: 'Profilname zur Synchronisierung gespeichert.',
+                )
+              : strings.localized(
+                  en: 'The name choices changed. Open the conflict again.',
+                  ja: '候補が変わりました。もう一度、名称の競合を開いてください。',
+                  zh: '名称选项已变化，请重新打开冲突。',
+                  ko: '이름 후보가 바뀌었습니다. 충돌을 다시 열어 주세요.',
+                  es: 'Las opciones cambiaron. Abre el conflicto de nuevo.',
+                  de: 'Die Auswahl hat sich geändert. Öffne den Konflikt erneut.',
+                ),
         ),
       ),
     );
@@ -1629,6 +1746,17 @@ class SettingsScreen extends ConsumerWidget {
                                       ja: 'タップして、このプロファイルを初回解除',
                                     ),
                             ),
+                            if (profile.nameSync.hasConflict)
+                              Text(
+                                strings.localized(
+                                  en: 'Profile name conflict',
+                                  ja: 'プロファイル名の競合',
+                                  zh: '档案名称冲突',
+                                  ko: '프로필 이름 충돌',
+                                  es: 'Conflicto en el nombre del perfil',
+                                  de: 'Konflikt beim Profilnamen',
+                                ),
+                              ),
                           ],
                         ),
                         trailing: Wrap(
@@ -1647,18 +1775,38 @@ class SettingsScreen extends ConsumerWidget {
                               ),
                               icon: const Icon(Icons.login_outlined),
                             ),
-                            IconButton(
-                              tooltip: strings.localized(
-                                en: 'Rename profile',
-                                ja: 'プロファイル名を変更',
+                            if (profile.nameSync.hasConflict)
+                              IconButton(
+                                tooltip: strings.localized(
+                                  en: 'Choose a profile name',
+                                  ja: '残すプロファイル名を選択',
+                                  zh: '选择要保留的档案名称',
+                                  ko: '유지할 프로필 이름 선택',
+                                  es: 'Elige el nombre del perfil',
+                                  de: 'Profilnamen auswählen',
+                                ),
+                                onPressed: () =>
+                                    _showPrivateProfileNameConflictDialog(
+                                      context,
+                                      ref,
+                                      profile,
+                                    ),
+                                icon: const Icon(Icons.sync_problem_outlined),
+                              )
+                            else
+                              IconButton(
+                                tooltip: strings.localized(
+                                  en: 'Rename profile',
+                                  ja: 'プロファイル名を変更',
+                                ),
+                                onPressed: () =>
+                                    _showRenamePrivateProfileDialog(
+                                      context,
+                                      ref,
+                                      profile,
+                                    ),
+                                icon: const Icon(Icons.edit_outlined),
                               ),
-                              onPressed: () => _showRenamePrivateProfileDialog(
-                                context,
-                                ref,
-                                profile,
-                              ),
-                              icon: const Icon(Icons.edit_outlined),
-                            ),
                             IconButton(
                               key: privateProfileDeleteKey(profile.id),
                               tooltip: strings.localized(

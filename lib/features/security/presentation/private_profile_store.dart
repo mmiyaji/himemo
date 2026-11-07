@@ -6,15 +6,22 @@ class PrivateMemoProfileStore {
     required this._encryptionService,
     required this._profileDataKeyService,
     Future<SharedPreferences> Function()? sharedPreferencesProvider,
+    DeviceIdentityStore? deviceIdentityStore,
     this.listStorageKey = 'security.private_profiles.list.v1',
     this.verifierStoragePrefix = 'security.private_profile.verifier.',
   }) : _sharedPreferencesProvider =
-           sharedPreferencesProvider ?? SharedPreferences.getInstance;
+           sharedPreferencesProvider ?? SharedPreferences.getInstance,
+       _deviceIdentityStore =
+           deviceIdentityStore ??
+           DeviceIdentityStore(
+             sharedPreferencesProvider: sharedPreferencesProvider,
+           );
 
   final SecureKeyValueStore _secureStore;
   final EncryptionService _encryptionService;
   final ProfileDataKeyService _profileDataKeyService;
   final Future<SharedPreferences> Function() _sharedPreferencesProvider;
+  final DeviceIdentityStore _deviceIdentityStore;
   final String listStorageKey;
   final String verifierStoragePrefix;
 
@@ -50,8 +57,22 @@ class PrivateMemoProfileStore {
 
   Future<bool> hasProfiles() async => (await listProfiles()).isNotEmpty;
 
-  Future<Map<String, dynamic>> exportSyncPayload() async {
-    final profiles = await listProfiles();
+  Future<Map<String, dynamic>> exportSyncPayload({
+    List<PrivateMemoProfile>? snapshot,
+    bool namesOnly = false,
+  }) async {
+    final profiles = snapshot ?? await listProfiles();
+    if (namesOnly) {
+      return {
+        'version': 1,
+        'namesOnly': true,
+        'profiles': [
+          for (final profile in profiles)
+            if (profile.nameSync.sendableId != null)
+              profile.toJson(includePending: false),
+        ],
+      };
+    }
     final verifiers = <Map<String, dynamic>>[];
     for (final profile in profiles) {
       final stored = await _secureStore.read(
@@ -74,13 +95,18 @@ class PrivateMemoProfileStore {
     );
     return <String, dynamic>{
       'version': 1,
-      'profiles': [for (final profile in profiles) profile.toJson()],
+      'profiles': [
+        for (final profile in profiles) profile.toJson(includePending: false),
+      ],
       'verifiers': verifiers,
       'dataKeys': dataKeys,
     };
   }
 
-  Future<int> importSyncPayload(Object? payload) async {
+  Future<int> importSyncPayload(Object? payload) =>
+      _serializeProfiles(() => _importSyncPayload(payload));
+
+  Future<int> _importSyncPayload(Object? payload) async {
     if (payload is! Map) {
       return 0;
     }
@@ -103,7 +129,23 @@ class PrivateMemoProfileStore {
         final profile = PrivateMemoProfile.fromJson(
           Map<String, dynamic>.from(rawProfile),
         );
-        profilesById[profile.id] = profile;
+        final local = profilesById[profile.id];
+        final merged = (local?.nameSync ?? const ProfileNameSync()).merge(
+          profile.nameSync,
+        );
+        if (decoded['namesOnly'] == true && profile.nameSync.heads.isEmpty) {
+          continue;
+        }
+        final keepLocalName =
+            local != null &&
+            merged.hasConflict &&
+            merged.heads.any((head) => head.name == local.name);
+        profilesById[profile.id] = (local ?? profile).copyWith(
+          name: keepLocalName
+              ? local.name
+              : merged.preferredName ?? profile.name,
+          nameSync: merged,
+        );
         imported += 1;
       } catch (_) {
         // Invalid imported profile entries are skipped; valid entries continue.
@@ -114,6 +156,8 @@ class PrivateMemoProfileStore {
         ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
       await _saveProfiles(profiles);
     }
+
+    if (decoded['namesOnly'] == true) return imported;
 
     for (final rawVerifier
         in (decoded['verifiers'] as List<dynamic>? ?? const <dynamic>[])) {
@@ -184,7 +228,9 @@ class PrivateMemoProfileStore {
       vaultId: profile.vaultId,
       password: password,
     );
-    await _saveProfiles([...existing, profile]);
+    await _serializeProfiles(() async {
+      await _saveProfiles([...await listProfiles(), profile]);
+    });
     return null;
   }
 
@@ -215,35 +261,85 @@ class PrivateMemoProfileStore {
     return null;
   }
 
-  Future<void> deleteProfile(String id) async {
+  Future<void> deleteProfile(String id) => _serializeProfiles(() async {
     final existing = await listProfiles();
-    await _saveProfiles(
-      existing.where((profile) => profile.id != id).toList(growable: false),
-    );
+    await _saveProfiles(existing.where((profile) => profile.id != id).toList());
     await _secureStore.delete('$verifierStoragePrefix$id');
     await _profileDataKeyService.deleteProfileKey(
       '$customPrivateVaultPrefix$id',
     );
-  }
+  });
 
-  Future<void> renameProfile({required String id, required String name}) async {
+  Future<bool> renameProfile({required String id, required String name}) =>
+      _renameProfile(id: id, name: name);
+
+  Future<bool> resolveNameConflict({
+    required String id,
+    required String name,
+    required Set<String> expectedChangeIds,
+  }) =>
+      _renameProfile(id: id, name: name, expectedChangeIds: expectedChangeIds);
+
+  Future<bool> _renameProfile({
+    required String id,
+    required String name,
+    Set<String>? expectedChangeIds,
+  }) => _serializeProfiles(() async {
     final nextName = name.trim();
-    if (nextName.isEmpty) {
-      return;
+    if (nextName.isEmpty) return false;
+    final profiles = (await listProfiles()).toList();
+    final index = profiles.indexWhere((profile) => profile.id == id);
+    if (index == -1) return false;
+    final profile = profiles[index];
+    if (expectedChangeIds == null) {
+      if (profile.name == nextName || profile.nameSync.hasConflict)
+        return false;
+    } else if (!profile.nameSync.hasConflict ||
+        !setEquals(
+          expectedChangeIds,
+          profile.nameSync.heads.map((head) => head.id).toSet(),
+        ) ||
+        !profile.nameSync.heads.any((head) => head.name == nextName)) {
+      return false;
     }
-    final existing = await listProfiles();
-    final changed = existing.any(
-      (profile) => profile.id == id && profile.name != nextName,
+    final random = math.Random.secure();
+    final changeId = base64UrlEncode(
+      List<int>.generate(16, (_) => random.nextInt(256)),
     );
-    if (!changed) {
-      return;
-    }
-    final renamed = [
-      for (final profile in existing)
-        if (profile.id == id) profile.copyWith(name: nextName) else profile,
-    ];
-    await _saveProfiles(renamed);
-  }
+    profiles[index] = profile.copyWith(
+      name: nextName,
+      nameSync: profile.nameSync.rename(
+        name: nextName,
+        deviceId: await _deviceIdentityStore.obtain(),
+        changeId: changeId,
+      ),
+    );
+    await _saveProfiles(profiles);
+    return true;
+  });
+
+  Future<void> acknowledgeNameChanges(Map<String, String> sentIds) =>
+      _serializeProfiles(() async {
+        final profiles = (await listProfiles()).toList();
+        var changed = false;
+        for (var i = 0; i < profiles.length; i++) {
+          final profile = profiles[i];
+          final id = sentIds[profile.id];
+          if (id == null || id != profile.nameSync.pendingId) continue;
+          profiles[i] = profile.copyWith(
+            nameSync: profile.nameSync.acknowledge(id),
+          );
+          changed = true;
+        }
+        if (changed) await _saveProfiles(profiles);
+      });
+
+  Future<T> _serializeProfiles<T>(Future<T> Function() operation) =>
+      StorageSerialExecutor.run(
+        PreferencesKeyValueStore(),
+        listStorageKey,
+        operation,
+      );
 
   Future<String?> updateProfilePassword({
     required String id,
@@ -297,10 +393,12 @@ class PrivateMemoProfileStore {
 
   Future<void> _saveProfiles(List<PrivateMemoProfile> profiles) async {
     final prefs = await _sharedPreferencesProvider();
-    await prefs.setString(
+    if (!await prefs.setString(
       listStorageKey,
       jsonEncode([for (final profile in profiles) profile.toJson()]),
-    );
+    )) {
+      throw StateError('Could not save private profiles.');
+    }
   }
 
   String _createProfileId() {

@@ -30,6 +30,7 @@ import 'package:himemo/features/security/data/encrypted_note_store.dart';
 import 'package:himemo/features/security/data/encryption_service.dart';
 import 'package:himemo/features/security/data/master_key_service.dart';
 import 'package:himemo/features/security/data/profile_data_key_service.dart';
+import 'package:himemo/features/security/data/profile_name_sync.dart';
 import 'package:himemo/features/security/data/secure_key_value_store.dart';
 import 'package:himemo/features/sync/data/secure_sync_bundle_store.dart';
 import 'package:himemo/features/sync/data/google_drive_sync_transport.dart';
@@ -1883,6 +1884,279 @@ void main() {
             .appliedRemoteFileIds,
         contains(late.fileId),
       );
+    },
+  );
+
+  test(
+    'locked legacy notes do not block sync or lose their cloud bundle',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-ignored-legacy-vault-',
+        randomSeed: 243,
+      );
+      final container = harness.container;
+      final bundleStore = container.read(secureSyncBundleStoreProvider);
+      final sync = container.read(syncTransferControllerProvider.notifier);
+      final notes = container.read(notesControllerProvider.notifier);
+      final createdAt = DateTime.utc(2026, 6, 2);
+      final stored = await bundleStore.writeBundle(
+        PreparedSyncSnapshot(
+          deviceId: 'older-device',
+          exportedAt: createdAt,
+          summary: const SyncQueueSummary(
+            totalChanges: 2,
+            upserts: 2,
+            deletes: 0,
+          ),
+          notes: [
+            for (final (id, vault) in [
+              ('forgotten-private-note', legacyPrivateVaultId),
+              ('ordinary-remote-note', 'everyday'),
+            ])
+              PreparedSyncNote(
+                action: PendingNoteChangeAction.upsert,
+                note: NoteEntry(
+                  id: id,
+                  vaultId: vault,
+                  title: id,
+                  body: '',
+                  createdAt: createdAt,
+                  contentHash: '$id-hash',
+                ),
+              ),
+          ],
+          attachments: const [],
+        ),
+        bundleKind: SyncBundleKind.full,
+      );
+      final legacy = await transport.uploadBundle(
+        encodedPayload: (await bundleStore.readEncryptedBundlePayload(
+          stored.reference,
+        ))!,
+        deviceId: 'older-device',
+        noteCount: 2,
+        attachmentCount: 0,
+        bundleKind: SyncBundleKind.full,
+      );
+      await notes.upsert(
+        NoteEntry(
+          id: 'ordinary-local-note',
+          vaultId: 'everyday',
+          title: 'Pending local edit',
+          body: '',
+          createdAt: createdAt,
+        ),
+      );
+
+      await sync.syncNow(allowCachedRemoteStatus: false);
+      final state = container.read(syncTransferControllerProvider);
+      expect(state.stage, SyncTransferStage.success, reason: state.message);
+      expect(
+        (await container.read(syncQueueSummaryProvider.future)).totalChanges,
+        0,
+      );
+      expect(
+        container.read(notesControllerProvider).map((note) => note.id),
+        unorderedEquals(['ordinary-remote-note', 'ordinary-local-note']),
+      );
+      expect(
+        (await transport.fetchLatestBundleStatus())?.fileId,
+        isNot(legacy.fileId),
+      );
+
+      // Push the legacy source outside the newest-three retention window.
+      for (var index = 0; index < 4; index++) {
+        await sync.reuploadAllCurrentNotes();
+        final state = container.read(syncTransferControllerProvider);
+        expect(state.stage, SyncTransferStage.success, reason: state.message);
+      }
+      final history = await transport.listBundleHistory(limit: 100);
+      expect(
+        history.take(3).map((item) => item.fileId),
+        isNot(contains(legacy.fileId)),
+      );
+      expect(history.map((item) => item.fileId), contains(legacy.fileId));
+    },
+  );
+
+  test(
+    'profile rename alone uploads and preserves a newer queued rename',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = _BeforeUploadGoogleDriveTransport();
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-profile-name-delta-',
+        randomSeed: 244,
+      );
+      final container = harness.container;
+      final store = container.read(privateMemoProfileStoreProvider);
+      final profiles = container.read(
+        privateMemoProfilesControllerProvider.notifier,
+      );
+      final bundleStore = container.read(secureSyncBundleStoreProvider);
+      final sync = container.read(syncTransferControllerProvider.notifier);
+      const profileId = 'rename-only-profile';
+      final now = DateTime.utc(2026, 6, 2);
+      final oldProfiles = <String, dynamic>{
+        'version': 1,
+        'profiles': [
+          {
+            'id': profileId,
+            'name': 'Old name',
+            'createdAt': now.toIso8601String(),
+          },
+        ],
+      };
+      await store.importSyncPayload(oldProfiles);
+      final oldBundle = await bundleStore.writeBundle(
+        PreparedSyncSnapshot(
+          deviceId: 'older-device',
+          exportedAt: now,
+          summary: const SyncQueueSummary(
+            totalChanges: 0,
+            upserts: 0,
+            deletes: 0,
+          ),
+          notes: const [],
+          attachments: const [],
+        ),
+        privateProfiles: [oldProfiles],
+      );
+      await transport.uploadBundle(
+        encodedPayload: (await bundleStore.readEncryptedBundlePayload(
+          oldBundle.reference,
+        ))!,
+        deviceId: 'older-device',
+        noteCount: 0,
+        attachmentCount: 0,
+      );
+
+      await profiles.renameProfile(id: profileId, name: 'First rename');
+      final firstChangeId =
+          (await store.listProfiles()).single.nameSync.pendingId;
+      expect(firstChangeId, isNotNull);
+      expect(
+        await container.read(syncEngineProvider).loadPendingChanges(),
+        isEmpty,
+      );
+      transport.beforeNextUpload = () async {
+        expect((await store.listProfiles()).single.name, 'First rename');
+        await profiles.renameProfile(id: profileId, name: 'Second rename');
+      };
+
+      Future<void> expectLatestRename(String name) async {
+        final latest = (await transport.downloadLatestBundle())!;
+        expect(latest.status.bundleKind, SyncBundleKind.delta);
+        expect(latest.status.noteCount, 0);
+        final decoded = await bundleStore.readRemoteBundlePayloadJson(
+          latest.encodedPayload,
+        );
+        final metadata = (decoded['privateProfiles'] as List).single as Map;
+        expect(metadata['namesOnly'], isTrue);
+        expect(metadata.containsKey('verifiers'), isFalse);
+        expect(metadata.containsKey('dataKeys'), isFalse);
+        final profile = (metadata['profiles'] as List).single as Map;
+        expect(profile['name'], name);
+        expect((profile['nameSync'] as Map).containsKey('pendingId'), isFalse);
+      }
+
+      await sync.syncNow(allowCachedRemoteStatus: false);
+      final firstResult = container.read(syncTransferControllerProvider);
+      expect(
+        firstResult.stage,
+        SyncTransferStage.success,
+        reason: firstResult.message,
+      );
+      await expectLatestRename('First rename');
+      final pending = (await store.listProfiles()).single;
+      expect(pending.name, 'Second rename');
+      expect(
+        pending.nameSync.pendingId,
+        allOf(isNotNull, isNot(firstChangeId)),
+      );
+
+      await sync.syncNow(allowCachedRemoteStatus: false);
+      final secondResult = container.read(syncTransferControllerProvider);
+      expect(
+        secondResult.stage,
+        SyncTransferStage.success,
+        reason: secondResult.message,
+      );
+      await expectLatestRename('Second rename');
+      expect((await store.listProfiles()).single.nameSync.pendingId, isNull);
+
+      final otherDevice = const ProfileNameSync().rename(
+        name: 'Name on iPad',
+        deviceId: 'ipad',
+        changeId: 'ipad-rename',
+      );
+      final concurrent = await bundleStore.writeBundle(
+        PreparedSyncSnapshot(
+          deviceId: 'ipad',
+          exportedAt: now,
+          summary: const SyncQueueSummary(
+            totalChanges: 0,
+            upserts: 0,
+            deletes: 0,
+          ),
+          notes: const [],
+          attachments: const [],
+        ),
+        privateProfiles: [
+          {
+            'version': 1,
+            'namesOnly': true,
+            'profiles': [
+              pending
+                  .copyWith(name: 'Name on iPad', nameSync: otherDevice)
+                  .toJson(includePending: false),
+            ],
+          },
+        ],
+        bundleKind: SyncBundleKind.delta,
+      );
+      final remote = await transport.uploadBundle(
+        encodedPayload: (await bundleStore.readEncryptedBundlePayload(
+          concurrent.reference,
+        ))!,
+        deviceId: 'ipad',
+        noteCount: 0,
+        attachmentCount: 0,
+        bundleKind: SyncBundleKind.delta,
+      );
+      await sync.syncNow(allowCachedRemoteStatus: false);
+      final conflicted = container.read(privateMemoProfilesProvider).single;
+      expect(conflicted.nameSync.hasConflict, isTrue);
+      expect(
+        conflicted.nameSync.heads.map((head) => head.name),
+        unorderedEquals(['Second rename', 'Name on iPad']),
+      );
+      expect(
+        (await transport.fetchLatestBundleStatus())?.fileId,
+        remote.fileId,
+      );
+      await container
+          .read(adminModeSessionControllerProvider.notifier)
+          .unlock();
+      expect(
+        await profiles.resolveNameConflict(
+          id: profileId,
+          name: 'Name on iPad',
+          expectedChangeIds: conflicted.nameSync.heads
+              .map((head) => head.id)
+              .toSet(),
+        ),
+        isTrue,
+      );
+      await sync.syncNow(allowCachedRemoteStatus: false);
+      await expectLatestRename('Name on iPad');
+      expect((await store.listProfiles()).single.nameSync.hasConflict, isFalse);
     },
   );
 
@@ -6442,6 +6716,35 @@ class _FakeNetworkConnectionService extends NetworkConnectionService {
 
   @override
   Future<NetworkConnectionKind> currentKind() async => kind;
+}
+
+class _BeforeUploadGoogleDriveTransport
+    extends InMemoryGoogleDriveSyncTransport {
+  _BeforeUploadGoogleDriveTransport() : super(uploadDelay: Duration.zero);
+
+  Future<void> Function()? beforeNextUpload;
+
+  @override
+  Future<RemoteSyncBundleStatus> uploadBundle({
+    required String encodedPayload,
+    required String deviceId,
+    required int noteCount,
+    required int attachmentCount,
+    String bundleKind = SyncBundleKind.full,
+    String? replayBaseFileId,
+  }) async {
+    final beforeUpload = beforeNextUpload;
+    beforeNextUpload = null;
+    await beforeUpload?.call();
+    return super.uploadBundle(
+      encodedPayload: encodedPayload,
+      deviceId: deviceId,
+      noteCount: noteCount,
+      attachmentCount: attachmentCount,
+      bundleKind: bundleKind,
+      replayBaseFileId: replayBaseFileId,
+    );
+  }
 }
 
 class _ReorderedHistoryGoogleDriveTransport

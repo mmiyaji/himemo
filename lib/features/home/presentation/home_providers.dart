@@ -51,6 +51,8 @@ import '../../security/data/secret_verifier_store.dart';
 export '../../security/data/app_pin_lock_store.dart';
 export '../../security/data/secret_verifier_store.dart';
 import '../../security/data/profile_data_key_service.dart';
+import '../../security/data/profile_name_sync.dart';
+import '../../security/data/storage_serial_executor.dart';
 import '../../security/data/private_vault_secret_store.dart';
 import '../../security/data/secure_key_value_store.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
@@ -338,26 +340,31 @@ class PrivateMemoProfile {
     required this.id,
     required this.name,
     required this.createdAt,
+    this.nameSync = const ProfileNameSync(),
   });
 
   final String id;
   final String name;
   final DateTime createdAt;
+  final ProfileNameSync nameSync;
 
   String get vaultId => '$customPrivateVaultPrefix$id';
 
-  PrivateMemoProfile copyWith({String? name}) {
+  PrivateMemoProfile copyWith({String? name, ProfileNameSync? nameSync}) {
     return PrivateMemoProfile(
       id: id,
       name: name ?? this.name,
       createdAt: createdAt,
+      nameSync: nameSync ?? this.nameSync,
     );
   }
 
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toJson({bool includePending = true}) => {
     'id': id,
     'name': name,
     'createdAt': createdAt.toIso8601String(),
+    if (nameSync.heads.isNotEmpty)
+      'nameSync': nameSync.toJson(includePending: includePending),
   };
 
   factory PrivateMemoProfile.fromJson(Map<String, dynamic> json) {
@@ -365,6 +372,8 @@ class PrivateMemoProfile {
       id: json['id'] as String,
       name: json['name'] as String,
       createdAt: DateTime.parse(json['createdAt'] as String),
+      nameSync:
+          ProfileNameSync.fromJson(json['nameSync']) ?? const ProfileNameSync(),
     );
   }
 }
@@ -3356,6 +3365,7 @@ final privateMemoProfileStoreProvider = Provider<PrivateMemoProfileStore>((
     secureStore: ref.watch(secureKeyValueStoreProvider),
     encryptionService: ref.watch(encryptionServiceProvider),
     profileDataKeyService: ref.watch(profileDataKeyServiceProvider),
+    deviceIdentityStore: ref.watch(deviceIdentityStoreProvider),
   );
 });
 
@@ -8453,6 +8463,7 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
         .read(notesControllerProvider.notifier)
         .deleteVaultLocally(vaultId);
     await ref.read(privateMemoProfileStoreProvider).deleteProfile(id);
+    ref.invalidate(syncQueueSummaryProvider);
     final unlockedVaultId = ref.read(unlockedPrivateProfileVaultIdProvider);
     await ref
         .read(profileColorThemeControllerProvider.notifier)
@@ -8472,11 +8483,31 @@ class PrivateMemoProfilesController extends Notifier<List<PrivateMemoProfile>> {
     return true;
   }
 
-  Future<void> renameProfile({required String id, required String name}) async {
-    await ref
+  Future<bool> renameProfile({required String id, required String name}) async {
+    final changed = await ref
         .read(privateMemoProfileStoreProvider)
         .renameProfile(id: id, name: name);
+    ref.invalidate(syncQueueSummaryProvider);
     await refresh();
+    return changed;
+  }
+
+  Future<bool> resolveNameConflict({
+    required String id,
+    required String name,
+    required Set<String> expectedChangeIds,
+  }) async {
+    if (!ref.read(adminModeSessionControllerProvider)) return false;
+    final changed = await ref
+        .read(privateMemoProfileStoreProvider)
+        .resolveNameConflict(
+          id: id,
+          name: name,
+          expectedChangeIds: expectedChangeIds,
+        );
+    ref.invalidate(syncQueueSummaryProvider);
+    await refresh();
+    return changed;
   }
 
   Future<String?> updateProfilePassword({

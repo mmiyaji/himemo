@@ -86,8 +86,29 @@ final syncConflictWarningProvider = Provider<String?>((ref) {
 });
 
 final syncQueueSummaryProvider = FutureProvider<SyncQueueSummary>((ref) async {
-  return ref.watch(syncEngineProvider).summarizeQueue();
+  return _summarizeSyncQueue(
+    ref.watch(syncEngineProvider),
+    ref.watch(privateMemoProfileStoreProvider),
+  );
 });
+
+Future<SyncQueueSummary> _summarizeSyncQueue(
+  SyncEngine engine,
+  PrivateMemoProfileStore profiles,
+) async {
+  final queue = await engine.summarizeQueue();
+  final pendingNames = (await profiles.listProfiles())
+      .where((profile) => profile.nameSync.sendableId != null)
+      .length;
+  if (pendingNames == 0) return queue;
+  return SyncQueueSummary(
+    totalChanges: queue.totalChanges + pendingNames,
+    upserts: queue.upserts + pendingNames,
+    deletes: queue.deletes,
+    lastQueuedAt: queue.lastQueuedAt,
+    profileNameChanges: pendingNames,
+  );
+}
 
 final syncHistoryStoreProvider = Provider<SyncHistoryStore>((ref) {
   return SyncHistoryStore();

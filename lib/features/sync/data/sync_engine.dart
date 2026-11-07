@@ -16,12 +16,14 @@ class SyncQueueSummary {
     required this.upserts,
     required this.deletes,
     this.lastQueuedAt,
+    this.profileNameChanges = 0,
   });
 
   final int totalChanges;
   final int upserts;
   final int deletes;
   final DateTime? lastQueuedAt;
+  final int profileNameChanges;
 
   bool get hasPendingChanges => totalChanges > 0;
 }
