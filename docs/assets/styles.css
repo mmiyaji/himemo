@@ -254,37 +254,33 @@ img {
 }
 
 .hero-petal {
-  background: #e98c8f;
-  border-radius: 0 70% 0 70%;
-  height: 34px;
-  opacity: 0.72;
+  background: url("/assets/sakura-petal.svg") center / contain no-repeat;
+  filter: drop-shadow(0 4px 6px rgba(204, 111, 129, 0.18));
+  height: 40px;
+  opacity: 0.85;
   pointer-events: none;
   position: absolute;
-  width: 34px;
-}
-
-.hero-petal::after {
-  background: var(--bg);
-  content: "";
-  height: 10px;
-  position: absolute;
-  right: 10px;
-  top: -2px;
-  transform: rotate(45deg);
-  width: 8px;
+  width: 32px;
 }
 
 .hero-petal-1 {
   left: 47%;
-  top: 70px;
-  transform: rotate(30deg);
+  top: 72px;
+  transform: rotate(28deg);
 }
 
 .hero-petal-2 {
   left: 42%;
-  opacity: 0.45;
-  top: 470px;
-  transform: rotate(-20deg) scale(0.6);
+  opacity: 0.55;
+  top: 468px;
+  transform: rotate(-124deg) scale(0.62);
+}
+
+.hero-petal-3 {
+  left: 4%;
+  opacity: 0.4;
+  top: 190px;
+  transform: rotate(152deg) scale(0.45);
 }
 
 .hero-strip {
@@ -695,6 +691,10 @@ li + li {
     left: auto;
     right: 6%;
     top: 360px;
+  }
+
+  .hero-petal-3 {
+    display: none;
   }
 
   h1 {
