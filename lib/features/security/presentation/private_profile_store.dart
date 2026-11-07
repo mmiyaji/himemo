@@ -292,8 +292,9 @@ class PrivateMemoProfileStore {
     if (index == -1) return false;
     final profile = profiles[index];
     if (expectedChangeIds == null) {
-      if (profile.name == nextName || profile.nameSync.hasConflict)
+      if (profile.name == nextName || profile.nameSync.hasConflict) {
         return false;
+      }
     } else if (!profile.nameSync.hasConflict ||
         !setEquals(
           expectedChangeIds,

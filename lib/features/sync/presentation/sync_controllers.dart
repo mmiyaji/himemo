@@ -939,10 +939,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             .toList(growable: false);
       }
       final profileSnapshot = await profileStore.listProfiles();
-      final sentNameIds = <String, String>{
-        for (final profile in profileSnapshot)
-          if (profile.nameSync.sendableId case final id?) profile.id: id,
-      };
+      final sentNameIds = <String, String>{};
+      for (final profile in profileSnapshot) {
+        final sendableId = profile.nameSync.sendableId;
+        if (sendableId != null) sentNameIds[profile.id] = sendableId;
+      }
       final noNoteChanges =
           pendingChanges.isEmpty && encryptedPrivateNotes.isEmpty;
       if (noNoteChanges && sentNameIds.isEmpty) {
