@@ -2373,7 +2373,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remote,
         emptyMessage: 'sync.info.no_bundle_to_sync',
       );
-      await applyDownloadedBundle(historyValidated: true);
+      await applyDownloadedBundle(
+        historyValidated: true,
+        sourceRemoteFileId: item.fileId,
+      );
       if (state.stage == SyncTransferStage.error) {
         return (
           ready: false,
@@ -2633,7 +2636,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           // applyDownloadedBundle records the apply anchor per bundle, so an
           // interrupted walk resumes from the first bundle that was not yet
           // applied instead of starting over or skipping ahead.
-          await applyDownloadedBundle(historyValidated: true);
+          await applyDownloadedBundle(
+            historyValidated: true,
+            sourceRemoteFileId: bundleStatus.fileId,
+          );
           if (state.stage == SyncTransferStage.error) {
             return;
           }
@@ -3093,7 +3099,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  Future<void> applyDownloadedBundle({bool historyValidated = false}) async {
+  Object? _syncDiagnosticErrorCode(Object error) {
+    final code = switch (error) {
+      SyncSafetyException(:final code) => code,
+      StateError(:final message) => message,
+      _ => null,
+    };
+    if (code != null &&
+        RegExp(r'^sync\.[a-zA-Z0-9_.-]{1,100}$').hasMatch(code)) {
+      return code;
+    }
+    return null;
+  }
+
+  Future<void> applyDownloadedBundle({
+    bool historyValidated = false,
+    String? sourceRemoteFileId,
+  }) async {
     final historyStartedAt = DateTime.now();
     final localBundle = state.localBundle;
     if (localBundle == null) {
@@ -3430,6 +3452,17 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         localBundle: localBundle,
       );
     } on HimemoDecryptionException {
+      _diagnostic(
+        'bundle apply failed',
+        data: {
+          'fileId': sourceRemoteFileId ?? state.remoteStatus?.fileId,
+          'noteCount': localBundle.noteCount,
+          'attachmentCount': localBundle.attachmentCount,
+          'historyValidated': historyValidated,
+          'errorType': 'HimemoDecryptionException',
+          'errorCode': _syncDiagnosticErrorCode(_syncBundleDecryptionMessage),
+        },
+      );
       state = state.copyWith(
         stage: SyncTransferStage.error,
         message: _syncBundleDecryptionMessage,
@@ -3444,6 +3477,17 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         localBundle: localBundle,
       );
     } catch (error) {
+      _diagnostic(
+        'bundle apply failed',
+        data: {
+          'fileId': sourceRemoteFileId ?? state.remoteStatus?.fileId,
+          'noteCount': localBundle.noteCount,
+          'attachmentCount': localBundle.attachmentCount,
+          'historyValidated': historyValidated,
+          'errorType': error.runtimeType.toString(),
+          'errorCode': _syncDiagnosticErrorCode(error),
+        },
+      );
       state = state.copyWith(stage: SyncTransferStage.error, message: '$error');
       await _recordSyncHistory(
         startedAt: historyStartedAt,
