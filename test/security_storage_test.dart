@@ -4366,6 +4366,46 @@ void main() {
       await controller.mergeFromSync([remoteVersion('other-v2-concurrent')]);
       expect(current().title, 'Local edit');
       expect(current().syncState, NoteSyncState.conflict);
+
+      PreparedSyncNote version(String id, int revision, String hash) =>
+          PreparedSyncNote(
+            action: PendingNoteChangeAction.upsert,
+            note: NoteEntry(
+              id: id,
+              vaultId: 'everyday',
+              title: 'Remote $hash',
+              body: 'From another device',
+              createdAt: DateTime(2026, 4, 13, 9, 0),
+              updatedAt: DateTime(2026, 4, 13, 9, revision),
+              revision: revision,
+              contentHash: hash,
+            ),
+          );
+      NoteEntry byId(String id) => container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == id);
+
+      // A pending version that already exists in the cloud history outranks
+      // an older remote version instead of raising a conflict.
+      await controller.mergeFromSync([version('published', 2, 'p2')]);
+      await controller.upsert(byId('published').copyWith(title: 'Published'));
+      final publishedHash = byId('published').contentHash;
+      await controller.mergeFromSync(
+        [version('published', 2, 'p2-other')],
+        isPublishedLocalVersion: (noteId, hash) =>
+            noteId == 'published' && hash == publishedHash,
+      );
+      expect(byId('published').title, 'Published');
+      expect(byId('published').syncState, NoteSyncState.pendingUpload);
+
+      // Older records seen while replaying history must not re-queue a newer
+      // synced note for upload.
+      await controller.mergeFromSync([version('synced', 3, 's3')]);
+      await controller.mergeFromSync([
+        version('synced', 1, 's1'),
+      ], replayingOlderRecord: true);
+      expect(byId('synced').contentHash, 's3');
+      expect(byId('synced').syncState, NoteSyncState.synced);
     },
   );
 

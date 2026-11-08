@@ -3907,6 +3907,102 @@ void main() {
       await expectLocalPendingKept(setup.database);
     });
 
+    test(
+      'replay skips an older remote version when the pending one is published',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final transport = InMemoryGoogleDriveSyncTransport(
+          uploadDelay: Duration.zero,
+        );
+        final harness = await _createGoogleDriveSyncHarness(
+          transport,
+          tempPrefix: 'himemo-private-published-replay-',
+        );
+        final container = harness.container;
+        final database = container.read(encryptedNoteDatabaseProvider);
+        final local = privateRecord(
+          'pending-note',
+          revision: 4,
+          contentHash: 'local-hash',
+        );
+        // A newer local version re-queued earlier, already in the cloud.
+        await database.upsertOne(
+          note: local,
+          attachments: const [],
+          pendingChange: PendingNoteChangeRecord(
+            noteId: local.id,
+            vaultId: vaultId,
+            revision: local.revision,
+            action: PendingNoteChangeAction.upsert,
+            queuedAt: queuedAt,
+            contentHash: local.contentHash,
+          ),
+        );
+        final bundles = container.read(secureSyncBundleStoreProvider);
+        Future<void> publish(
+          EncryptedNoteRecord note, {
+          required String kind,
+        }) async {
+          final stored = await bundles.writeBundle(
+            PreparedSyncSnapshot(
+              deviceId: 'remote-device',
+              exportedAt: DateTime.utc(2026, 11, 8),
+              summary: const SyncQueueSummary(
+                totalChanges: 1,
+                upserts: 1,
+                deletes: 0,
+              ),
+              notes: const [],
+              attachments: const [],
+            ),
+            encryptedPrivateNotes: [
+              PreparedEncryptedPrivateSyncNote(
+                action: PendingNoteChangeAction.upsert,
+                note: note.copyWith(syncState: NoteSyncState.synced),
+                attachments: const [],
+              ),
+            ],
+            bundleKind: kind,
+          );
+          await transport.uploadBundle(
+            encodedPayload: (await bundles.readEncryptedBundlePayload(
+              stored.reference,
+            ))!,
+            deviceId: 'remote-device',
+            noteCount: 1,
+            attachmentCount: 0,
+            bundleKind: kind,
+          );
+        }
+
+        await publish(
+          privateRecord(
+            'pending-note',
+            revision: 2,
+            contentHash: 'older-hash',
+            payload: 'older-payload',
+          ),
+          kind: SyncBundleKind.full,
+        );
+        await publish(local, kind: SyncBundleKind.delta);
+
+        await container
+            .read(syncTransferControllerProvider.notifier)
+            .syncNow(allowCachedRemoteStatus: false);
+
+        final result = container.read(syncTransferControllerProvider);
+        expect(result.message, isNot('sync.error.private_note_conflict'));
+        expect(
+          result.message,
+          isNot('sync.error.private_profile_unlock_required'),
+        );
+        expect(
+          (await database.loadAll()).single.note.encryptedPayload,
+          'local-encrypted-note',
+        );
+      },
+    );
+
     test('an older version from another device still needs review', () async {
       final setup = await setUpLocalPending('himemo-private-other-older-');
 

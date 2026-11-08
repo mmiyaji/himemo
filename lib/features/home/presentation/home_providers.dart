@@ -6908,9 +6908,14 @@ class NotesController extends _$NotesController {
 
   /// [publishedByThisDevice] marks a bundle this device uploaded itself; its
   /// older note versions are ancestors of local pending edits, not conflicts.
+  /// [replayingOlderRecord] marks an older record of a history walk, which
+  /// must not re-queue newer local notes. [isPublishedLocalVersion] reports
+  /// whether a pending local version already exists in the cloud history.
   Future<void> mergeFromSync(
     List<PreparedSyncNote> changes, {
     bool publishedByThisDevice = false,
+    bool replayingOlderRecord = false,
+    bool Function(String noteId, String? contentHash)? isPublishedLocalVersion,
   }) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
@@ -6978,6 +6983,17 @@ class NotesController extends _$NotesController {
             );
             continue;
           }
+          if (revisionOrder == 'remote_older' &&
+              (isPublishedLocalVersion?.call(current.id, current.contentHash) ??
+                  false)) {
+            // The pending local version is already in the cloud history, so
+            // this older remote version is history, not a concurrent edit.
+            logDiagnostic(
+              'sync',
+              'pending note already published; older remote skipped',
+            );
+            continue;
+          }
           logDiagnostic(
             'sync',
             'pending note conflict candidate',
@@ -6992,7 +7008,10 @@ class NotesController extends _$NotesController {
       }
 
       if (current != null && !_incomingWins(current, incoming)) {
-        if (!_sameSyncedContent(current, incoming) &&
+        // Older records are expected while replaying history; only the newest
+        // remote state proves the cloud is behind this device.
+        if (!replayingOlderRecord &&
+            !_sameSyncedContent(current, incoming) &&
             !_hasUnuploadedLocalChange(current)) {
           final queued = current.copyWith(
             syncState: current.deletedAt == null

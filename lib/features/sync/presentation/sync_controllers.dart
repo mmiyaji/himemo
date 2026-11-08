@@ -35,6 +35,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   // Reloaded at each sync entry point; see [_ignoreLockedUnsyncedVault].
   Set<String> _excludedPrivateVaultIds = const <String>{};
 
+  // Set only while a history walk replays bundles; see [_beginReplay].
+  _ReplayContext? _replayContext;
+
   Timer? _cooldownTimer;
   Timer? _remoteStatusWaitTimer;
   RemoteSyncBundleStatus? _cachedRemoteStatus;
@@ -2428,59 +2431,65 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       }
       recoveringFullHistory = true;
     }
-    for (final item in await _selectReplayBundles(history, applied)) {
-      if (item.fileId == applied.lastUploadedRemoteFileId) {
-        final decoded = await _readRemoteBundleJsonById(item.fileId);
-        await ref
-            .read(syncBundleStateStoreProvider)
-            .recordApply(
-              item,
-              coveredRemoteFileIds:
-                  _coverageFromBundle(decoded)?.coveredBundleIds ?? const {},
-            );
-        continue;
-      }
-      final remote = await _downloadRemoteBundleById(item.fileId);
-      if (remote == null) {
-        throw const SyncSafetyException('sync.error.remote_bundle_missing');
-      }
-      await _storeDownloadedBundle(
-        remote,
-        emptyMessage: 'sync.info.no_bundle_to_sync',
-      );
-      await applyDownloadedBundle(
-        historyValidated: true,
-        sourceRemoteFileId: item.fileId,
-      );
-      if (state.stage == SyncTransferStage.error) {
-        return (
-          ready: false,
-          recoveringFullHistory: recoveringFullHistory,
-          hasRemoteHistory: history.isNotEmpty,
+    final replayItems = await _selectReplayBundles(history, applied);
+    _beginReplay(history);
+    try {
+      for (final item in replayItems) {
+        if (item.fileId == applied.lastUploadedRemoteFileId) {
+          final decoded = await _readRemoteBundleJsonById(item.fileId);
+          await ref
+              .read(syncBundleStateStoreProvider)
+              .recordApply(
+                item,
+                coveredRemoteFileIds:
+                    _coverageFromBundle(decoded)?.coveredBundleIds ?? const {},
+              );
+          continue;
+        }
+        final remote = await _downloadRemoteBundleById(item.fileId);
+        if (remote == null) {
+          throw const SyncSafetyException('sync.error.remote_bundle_missing');
+        }
+        await _storeDownloadedBundle(
+          remote,
+          emptyMessage: 'sync.info.no_bundle_to_sync',
         );
-      }
-      final after = await ref.read(syncBundleStateStoreProvider).read();
-      if (after.lastAppliedRemoteFileId != item.fileId &&
-          !await _bundleDeferredForLockedProfile(item.fileId)) {
-        return (
-          ready: false,
-          recoveringFullHistory: recoveringFullHistory,
-          hasRemoteHistory: history.isNotEmpty,
+        await applyDownloadedBundle(
+          historyValidated: true,
+          sourceRemoteFileId: item.fileId,
         );
+        if (state.stage == SyncTransferStage.error) {
+          return (
+            ready: false,
+            recoveringFullHistory: recoveringFullHistory,
+            hasRemoteHistory: history.isNotEmpty,
+          );
+        }
+        final after = await ref.read(syncBundleStateStoreProvider).read();
+        if (after.lastAppliedRemoteFileId != item.fileId &&
+            !await _bundleDeferredForLockedProfile(item.fileId)) {
+          return (
+            ready: false,
+            recoveringFullHistory: recoveringFullHistory,
+            hasRemoteHistory: history.isNotEmpty,
+          );
+        }
+        if (ref
+            .read(notesControllerProvider)
+            .any((note) => note.syncState == NoteSyncState.conflict)) {
+          state = state.copyWith(
+            stage: SyncTransferStage.error,
+            message: 'sync.error.conflict_review_remote',
+          );
+          return (
+            ready: false,
+            recoveringFullHistory: recoveringFullHistory,
+            hasRemoteHistory: history.isNotEmpty,
+          );
+        }
       }
-      if (ref
-          .read(notesControllerProvider)
-          .any((note) => note.syncState == NoteSyncState.conflict)) {
-        state = state.copyWith(
-          stage: SyncTransferStage.error,
-          message: 'sync.error.conflict_review_remote',
-        );
-        return (
-          ready: false,
-          recoveringFullHistory: recoveringFullHistory,
-          hasRemoteHistory: history.isNotEmpty,
-        );
-      }
+    } finally {
+      _endReplay();
     }
     return (
       ready: true,
@@ -2667,77 +2676,84 @@ class SyncTransferController extends Notifier<SyncTransferState> {
                 .join(','),
           },
         );
-        for (final bundleStatus in bundlesToApply) {
-          if (bundleStatus.fileId == bundleState.lastUploadedRemoteFileId) {
-            final decoded = await _readRemoteBundleJsonById(
-              bundleStatus.fileId,
+        _beginReplay(history);
+        try {
+          for (final bundleStatus in bundlesToApply) {
+            if (bundleStatus.fileId == bundleState.lastUploadedRemoteFileId) {
+              final decoded = await _readRemoteBundleJsonById(
+                bundleStatus.fileId,
+              );
+              await ref
+                  .read(syncBundleStateStoreProvider)
+                  .recordApply(
+                    bundleStatus,
+                    coveredRemoteFileIds:
+                        _coverageFromBundle(decoded)?.coveredBundleIds ??
+                        const {},
+                  );
+              continue;
+            }
+            _setProgress(SyncTransferProgress.downloadingBundle);
+            await _yieldToUi();
+            final remoteBundle = await runFirebaseTrace(
+              'sync_download_remote_bundle_for_apply',
+              () => _downloadRemoteBundleById(bundleStatus.fileId),
             );
-            await ref
-                .read(syncBundleStateStoreProvider)
-                .recordApply(
-                  bundleStatus,
-                  coveredRemoteFileIds:
-                      _coverageFromBundle(decoded)?.coveredBundleIds ??
-                      const {},
-                );
-            continue;
-          }
-          _setProgress(SyncTransferProgress.downloadingBundle);
-          await _yieldToUi();
-          final remoteBundle = await runFirebaseTrace(
-            'sync_download_remote_bundle_for_apply',
-            () => _downloadRemoteBundleById(bundleStatus.fileId),
-          );
-          if (remoteBundle == null) {
+            if (remoteBundle == null) {
+              _diagnostic(
+                'remote bundle disappeared during walk',
+                data: {'fileId': bundleStatus.fileId},
+              );
+              throw const SyncSafetyException(
+                'sync.error.remote_bundle_missing',
+              );
+            }
             _diagnostic(
-              'remote bundle disappeared during walk',
-              data: {'fileId': bundleStatus.fileId},
+              'remote bundle downloaded for apply',
+              data: {
+                'fileId': remoteBundle.status.fileId,
+                'bundleKind': remoteBundle.status.bundleKind,
+                'payloadLength': remoteBundle.encodedPayload.length,
+              },
             );
-            throw const SyncSafetyException('sync.error.remote_bundle_missing');
-          }
-          _diagnostic(
-            'remote bundle downloaded for apply',
-            data: {
-              'fileId': remoteBundle.status.fileId,
-              'bundleKind': remoteBundle.status.bundleKind,
-              'payloadLength': remoteBundle.encodedPayload.length,
-            },
-          );
-          await _storeDownloadedBundle(
-            remoteBundle,
-            emptyMessage: 'sync.info.no_bundle_to_sync',
-          );
-          _setProgress(SyncTransferProgress.applyingBundle);
-          await _yieldToUi();
-          // applyDownloadedBundle records the apply anchor per bundle, so an
-          // interrupted walk resumes from the first bundle that was not yet
-          // applied instead of starting over or skipping ahead.
-          await applyDownloadedBundle(
-            historyValidated: true,
-            sourceRemoteFileId: bundleStatus.fileId,
-          );
-          if (state.stage == SyncTransferStage.error) {
-            return;
-          }
-          if (state.message == _privateProfileNotesPendingUnlockMessage) {
-            // A bundle holding a locked profile's legacy notes stays
-            // unapplied and is retried on later syncs, but it must not hold
-            // back every other note in the bundles that follow it.
-            await _bundleDeferredForLockedProfile(bundleStatus.fileId);
-            privateProfilesPendingUnlock = true;
-          }
-          appliedRemoteDuringSync = true;
-          final hasNoteConflicts = ref
-              .read(notesControllerProvider)
-              .any((note) => note.syncState == NoteSyncState.conflict);
-          if (hasNoteConflicts && !forceUpload) {
-            _diagnostic('sync note conflict requires review');
-            state = state.copyWith(
-              stage: SyncTransferStage.error,
-              message: 'sync.error.conflict_review_remote',
+            await _storeDownloadedBundle(
+              remoteBundle,
+              emptyMessage: 'sync.info.no_bundle_to_sync',
             );
-            return;
+            _setProgress(SyncTransferProgress.applyingBundle);
+            await _yieldToUi();
+            // applyDownloadedBundle records the apply anchor per bundle, so an
+            // interrupted walk resumes from the first bundle that was not yet
+            // applied instead of starting over or skipping ahead.
+            await applyDownloadedBundle(
+              historyValidated: true,
+              sourceRemoteFileId: bundleStatus.fileId,
+            );
+            if (state.stage == SyncTransferStage.error) {
+              return;
+            }
+            if (state.message == _privateProfileNotesPendingUnlockMessage) {
+              // A bundle holding a locked profile's legacy notes stays
+              // unapplied and is retried on later syncs, but it must not hold
+              // back every other note in the bundles that follow it.
+              await _bundleDeferredForLockedProfile(bundleStatus.fileId);
+              privateProfilesPendingUnlock = true;
+            }
+            appliedRemoteDuringSync = true;
+            final hasNoteConflicts = ref
+                .read(notesControllerProvider)
+                .any((note) => note.syncState == NoteSyncState.conflict);
+            if (hasNoteConflicts && !forceUpload) {
+              _diagnostic('sync note conflict requires review');
+              state = state.copyWith(
+                stage: SyncTransferStage.error,
+                message: 'sync.error.conflict_review_remote',
+              );
+              return;
+            }
           }
+        } finally {
+          _endReplay();
         }
       }
 
@@ -3423,6 +3439,19 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             );
             continue;
           }
+          if (revisionOrder == 'remote_older' &&
+              await _localVersionPublished(
+                entry.note.id,
+                localPending.contentHash,
+              )) {
+            // The pending local version is already in the cloud history, so
+            // this older remote version is part of that history rather than
+            // a concurrent edit.
+            _diagnostic(
+              'private pending note already published; older remote skipped',
+            );
+            continue;
+          }
           final remoteContentHash = entry.note.contentHash;
           if (remoteContentHash != null &&
               bundleStateStore.hasLocalPrivateConflictChoice(
@@ -3542,6 +3571,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
                 'remoteRevision': importedPrivateEntry.note.revision,
               },
             );
+            // Older records are expected while replaying history; only the
+            // newest remote state proves the cloud is behind this device.
+            if (_replayingOlderRecord(sourceRemoteFileId)) continue;
             final existingSnapshot =
                 existingPrivateSnapshotsById[importedPrivateEntry.note.id]!;
             final pendingAction = existingPrivateNote.deletedAt == null
@@ -3677,12 +3709,35 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           ),
         );
       }
+      // Resolve, before the synchronous merge, which pending local versions
+      // already exist in the cloud history when an older version arrives.
+      final publishedPendingNoteIds = <String>{};
+      if (_replayContext != null) {
+        final localById = {
+          for (final note in ref.read(notesControllerProvider)) note.id: note,
+        };
+        for (final change in importedChanges) {
+          final local = localById[change.note.id];
+          if (local != null &&
+              (local.syncState == NoteSyncState.pendingUpload ||
+                  local.syncState == NoteSyncState.pendingDelete ||
+                  local.syncState == NoteSyncState.conflict) &&
+              local.contentHash != change.note.contentHash &&
+              change.note.revision < local.revision &&
+              await _localVersionPublished(local.id, local.contentHash)) {
+            publishedPendingNoteIds.add(local.id);
+          }
+        }
+      }
       if (importedChanges.isNotEmpty) {
         await ref
             .read(notesControllerProvider.notifier)
             .mergeFromSync(
               importedChanges,
               publishedByThisDevice: publishedByThisDevice,
+              replayingOlderRecord: _replayingOlderRecord(sourceRemoteFileId),
+              isPublishedLocalVersion: (noteId, contentHash) =>
+                  publishedPendingNoteIds.contains(noteId),
             );
         ref.invalidate(syncQueueSummaryProvider);
       }
@@ -5655,7 +5710,70 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     };
   }
 
+  /// Starts a history walk; [history] lists the retained records, newest
+  /// first.
+  void _beginReplay(List<RemoteSyncBundleStatus> history) {
+    _replayContext = _ReplayContext(history: history);
+  }
+
+  /// Whether this pending local version already exists in the cloud history.
+  /// If so, an older remote version of the note is history rather than a
+  /// concurrent edit. The history is scanned once per walk and only when such
+  /// a case comes up; records downloaded for the walk are reused.
+  Future<bool> _localVersionPublished(
+    String noteId,
+    String? contentHash,
+  ) async {
+    final context = _replayContext;
+    if (context == null || contentHash == null) return false;
+    if (!context.scanned) {
+      context.scanned = true;
+      for (final status in context.history) {
+        final decoded = await _readRemoteBundleJsonById(status.fileId);
+        for (final raw in decoded['notes'] as List<dynamic>? ?? const []) {
+          final note = raw is Map ? raw['note'] : null;
+          if (note is Map) {
+            context.addPublished(note['id'], note['contentHash']);
+          }
+        }
+        for (final raw
+            in decoded['encryptedPrivateNotes'] as List<dynamic>? ?? const []) {
+          final entry = PreparedEncryptedPrivateSyncNote.fromJson(raw);
+          if (entry != null) {
+            context.addPublished(entry.note.id, entry.note.contentHash);
+          }
+        }
+      }
+      _diagnostic(
+        'replay published versions collected',
+        data: {'historyCount': context.history.length},
+      );
+    }
+    return context.isPublished(noteId, contentHash);
+  }
+
+  void _endReplay() => _replayContext = null;
+
+  /// Whether the bundle being applied is an older record of a history walk,
+  /// as opposed to the newest remote state.
+  bool _replayingOlderRecord(String? sourceRemoteFileId) {
+    final context = _replayContext;
+    return context != null &&
+        sourceRemoteFileId != null &&
+        context.history.isNotEmpty &&
+        sourceRemoteFileId != context.history.first.fileId;
+  }
+
   Future<DownloadedRemoteSyncBundle?> _downloadRemoteBundleById(String id) {
+    final cached = _replayContext?.downloads[id];
+    if (cached != null) return Future.value(cached);
+    return _fetchRemoteBundleById(id).then((downloaded) {
+      if (downloaded != null) _replayContext?.downloads[id] = downloaded;
+      return downloaded;
+    });
+  }
+
+  Future<DownloadedRemoteSyncBundle?> _fetchRemoteBundleById(String id) {
     final provider = ref.read(syncProviderControllerProvider);
     return switch (provider) {
       SyncProvider.iCloud =>
@@ -6295,4 +6413,31 @@ class SyncProviderController extends Notifier<SyncProvider> {
       }
     }
   }
+}
+
+class _ReplayContext {
+  _ReplayContext({required this.history});
+
+  /// Retained remote records, newest first.
+  final List<RemoteSyncBundleStatus> history;
+
+  bool scanned = false;
+
+  /// Downloads reused within one walk, which reads each record twice.
+  final downloads = <String, DownloadedRemoteSyncBundle>{};
+
+  final _publishedHashesByNote = <String, Set<String>>{};
+
+  void addPublished(Object? noteId, Object? contentHash) {
+    if (noteId is! String || contentHash is! String || contentHash.isEmpty) {
+      return;
+    }
+    _publishedHashesByNote
+        .putIfAbsent(noteId, () => <String>{})
+        .add(contentHash);
+  }
+
+  bool isPublished(String noteId, String? contentHash) =>
+      contentHash != null &&
+      (_publishedHashesByNote[noteId]?.contains(contentHash) ?? false);
 }
