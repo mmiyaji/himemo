@@ -3283,6 +3283,111 @@ void main() {
   );
 
   test(
+    'a note conflict is held while the rest of the history applies',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-conflict-held-replay-',
+      );
+      final container = harness.container;
+      final notes = container.read(notesControllerProvider.notifier);
+      final bundles = container.read(secureSyncBundleStoreProvider);
+      NoteEntry note(String id, String hash, {int revision = 1}) => NoteEntry(
+        id: id,
+        vaultId: 'everyday',
+        title: id,
+        body: 'Remote $hash',
+        createdAt: DateTime.utc(2026, 11, 1),
+        revision: revision,
+        contentHash: hash,
+      );
+      Future<void> publish(
+        List<NoteEntry> entries, {
+        required String kind,
+      }) async {
+        final stored = await bundles.writeBundle(
+          PreparedSyncSnapshot(
+            deviceId: 'remote-device',
+            exportedAt: DateTime.utc(2026, 11, 8),
+            summary: SyncQueueSummary(
+              totalChanges: entries.length,
+              upserts: entries.length,
+              deletes: 0,
+            ),
+            notes: [
+              for (final entry in entries)
+                PreparedSyncNote(
+                  action: PendingNoteChangeAction.upsert,
+                  note: entry,
+                ),
+            ],
+            attachments: const [],
+          ),
+          encryptedPrivateNotes: const [],
+          bundleKind: kind,
+        );
+        await transport.uploadBundle(
+          encodedPayload: (await bundles.readEncryptedBundlePayload(
+            stored.reference,
+          ))!,
+          deviceId: 'remote-device',
+          noteCount: entries.length,
+          attachmentCount: 0,
+          bundleKind: kind,
+        );
+      }
+
+      // This device edited the shared note; another device edited it too.
+      await notes.mergeFromSync([
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.upsert,
+          note: note('shared', 'shared-v1'),
+        ),
+      ]);
+      final shared = container
+          .read(notesControllerProvider)
+          .singleWhere((entry) => entry.id == 'shared');
+      await notes.upsert(shared.copyWith(title: 'Local edit'));
+      await publish([
+        note('shared', 'shared-other-v2', revision: 2),
+        note('first-new', 'first-new-v1'),
+      ], kind: SyncBundleKind.full);
+      await publish([
+        note('later-new', 'later-new-v1'),
+      ], kind: SyncBundleKind.delta);
+
+      await container
+          .read(syncTransferControllerProvider.notifier)
+          .syncNow(allowCachedRemoteStatus: false);
+
+      final byId = {
+        for (final entry in container.read(notesControllerProvider))
+          entry.id: entry,
+      };
+      expect(byId.keys, containsAll(['first-new', 'later-new']));
+      expect(byId['shared']?.title, 'Local edit');
+      expect(byId['shared']?.syncState, NoteSyncState.conflict);
+      expect(
+        container.read(syncTransferControllerProvider).message,
+        'sync.error.conflict_review_remote',
+      );
+      // The held note's local version is not published until it is reviewed.
+      final latest = await transport.downloadLatestBundle();
+      final latestJson = await bundles.readRemoteBundlePayloadJson(
+        latest!.encodedPayload,
+      );
+      expect([
+        for (final raw in latestJson['notes'] as List<dynamic>? ?? const [])
+          ((raw as Map)['note'] as Map)['title'],
+      ], isNot(contains('Local edit')));
+    },
+  );
+
+  test(
     'locked legacy private notes defer only their bundle during replay',
     () async {
       SharedPreferences.setMockInitialValues({});
@@ -3606,7 +3711,7 @@ void main() {
               ],
             ),
           );
-      final missingFileEquivalent = await applyRemote(hash);
+      await applyRemote(hash);
       expect(
         container.read(syncTransferControllerProvider).stage,
         SyncTransferStage.success,
@@ -3623,19 +3728,23 @@ void main() {
       expect(await database.loadPendingChanges(), hasLength(1));
       final beforeConflict = (await database.loadAll()).single.note;
 
-      await applyRemote('different-attachment-content-hash');
+      // A real difference holds only this note for review; the record
+      // still applies instead of stopping sync.
+      final conflicting = await applyRemote(
+        'different-attachment-content-hash',
+      );
       expect(
-        container.read(syncTransferControllerProvider).message,
-        'sync.error.private_note_conflict',
+        container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
       );
       expect(
         (await syncState.read()).lastAppliedRemoteFileId,
-        missingFileEquivalent.fileId,
+        conflicting.fileId,
       );
-      expect(
-        (await database.loadAll()).single.note.encryptedPayload,
-        beforeConflict.encryptedPayload,
-      );
+      final held = (await database.loadAll()).single.note;
+      expect(held.encryptedPayload, beforeConflict.encryptedPayload);
+      expect(held.syncState, NoteSyncState.conflict);
+      expect(await database.loadPendingChanges(), hasLength(1));
     },
   );
 
@@ -3715,21 +3824,16 @@ void main() {
     await controller.downloadBundle(remote);
     await controller.applyDownloadedBundle();
 
+    // The locked profile cannot be compared now, so only this note is held
+    // for review; the record itself applies.
     final transfer = harness.container.read(syncTransferControllerProvider);
-    expect(transfer.stage, SyncTransferStage.error);
-    expect(transfer.message, 'sync.error.private_profile_unlock_required');
+    expect(transfer.stage, isNot(SyncTransferStage.error));
     final pending = await database.loadPendingChanges();
     expect(pending, hasLength(1));
     expect(pending.single.contentHash, 'local-hash');
-    expect(
-      (await database.loadAll()).single.note.encryptedPayload,
-      'local-encrypted-note',
-    );
-    expect(
-      (await harness.container.read(syncBundleStateStoreProvider).read())
-          .lastAppliedRemoteFileId,
-      isNull,
-    );
+    final held = (await database.loadAll()).single.note;
+    expect(held.encryptedPayload, 'local-encrypted-note');
+    expect(held.syncState, NoteSyncState.conflict);
   });
 
   group('private pending conflicts during replay', () {
@@ -3847,6 +3951,19 @@ void main() {
       expect(local.note.encryptedPayload, 'local-encrypted-note');
     }
 
+    // A conflict holds only this note for review; the apply itself completes.
+    Future<void> expectHeldForReview(
+      SyncTransferState result,
+      EncryptedNoteDatabase database,
+    ) async {
+      expect(result.stage, isNot(SyncTransferStage.error));
+      await expectLocalPendingKept(database);
+      final local = (await database.loadAll()).firstWhere(
+        (snapshot) => snapshot.note.id == 'pending-note',
+      );
+      expect(local.note.syncState, NoteSyncState.conflict);
+    }
+
     test('an older version published by this device is skipped', () async {
       final setup = await setUpLocalPending('himemo-private-own-older-');
       final ownDeviceId = await setup.harness.container
@@ -3903,7 +4020,7 @@ void main() {
         ),
       ]);
 
-      expect(result.stage, SyncTransferStage.error);
+      await expectHeldForReview(result, setup.database);
       await expectLocalPendingKept(setup.database);
     });
 
@@ -4015,7 +4132,7 @@ void main() {
         ),
       ]);
 
-      expect(result.stage, SyncTransferStage.error);
+      await expectHeldForReview(result, setup.database);
       await expectLocalPendingKept(setup.database);
     });
 
@@ -4067,7 +4184,7 @@ void main() {
             payload: 'different-remote-payload',
           ),
         ]);
-        expect(different.stage, SyncTransferStage.error);
+        await expectHeldForReview(different, setup.database);
         await expectLocalPendingKept(setup.database);
 
         await setup.database.deletePendingChangesByIds({'pending-note'});
@@ -4121,7 +4238,7 @@ void main() {
           payload: 'unreadable-remote-payload',
         ),
       ]);
-      expect(included.stage, SyncTransferStage.error);
+      await expectHeldForReview(included, setup.database);
     });
 
     test('malformed local conflict choices do not break sync state', () async {

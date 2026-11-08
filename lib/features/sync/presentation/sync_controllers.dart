@@ -668,10 +668,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         return;
       }
     }
-    if (expectedRemoteFileId == null &&
-        ref
-            .read(notesControllerProvider)
-            .any((note) => note.syncState == NoteSyncState.conflict)) {
+    // Notes waiting for conflict review stay out of the upload; everything
+    // else still syncs. Only an explicit full re-upload, which would have to
+    // publish every note, waits for the review.
+    final heldConflictIds = expectedRemoteFileId == null
+        ? await _heldConflictNoteIds()
+        : const <String>{};
+    if (heldConflictIds.isNotEmpty && fullSnapshot) {
       state = state.copyWith(
         stage: SyncTransferStage.error,
         message: 'sync.error.conflict_review_remote',
@@ -758,6 +761,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           expectedRemoteFileId == null &&
           onlyPendingNoteIds == null &&
           !deltaOnly &&
+          heldConflictIds.isEmpty &&
           (!renameOnlyRequested || !hasRemoteHistory) &&
           (fullSnapshot ||
               (renameOnlyRequested && !hasRemoteHistory) ||
@@ -783,6 +787,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       if (onlyPendingNoteIds != null) {
         pendingChanges = pendingChanges
             .where((change) => onlyPendingNoteIds.contains(change.noteId))
+            .toList(growable: false);
+      }
+      if (heldConflictIds.isNotEmpty) {
+        pendingChanges = pendingChanges
+            .where((change) => !heldConflictIds.contains(change.noteId))
             .toList(growable: false);
       }
       if (pendingChanges.isEmpty) {
@@ -2474,19 +2483,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             hasRemoteHistory: history.isNotEmpty,
           );
         }
-        if (ref
-            .read(notesControllerProvider)
-            .any((note) => note.syncState == NoteSyncState.conflict)) {
-          state = state.copyWith(
-            stage: SyncTransferStage.error,
-            message: 'sync.error.conflict_review_remote',
-          );
-          return (
-            ready: false,
-            recoveringFullHistory: recoveringFullHistory,
-            hasRemoteHistory: history.isNotEmpty,
-          );
-        }
+        // Conflicted notes are held for review and left out of the upload;
+        // they do not stop the remaining records from applying.
       }
     } finally {
       _endReplay();
@@ -2739,22 +2737,20 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               await _bundleDeferredForLockedProfile(bundleStatus.fileId);
               privateProfilesPendingUnlock = true;
             }
+            // A conflicted note is held for review on its own; the rest of
+            // this record and the records after it keep applying.
             appliedRemoteDuringSync = true;
-            final hasNoteConflicts = ref
-                .read(notesControllerProvider)
-                .any((note) => note.syncState == NoteSyncState.conflict);
-            if (hasNoteConflicts && !forceUpload) {
-              _diagnostic('sync note conflict requires review');
-              state = state.copyWith(
-                stage: SyncTransferStage.error,
-                message: 'sync.error.conflict_review_remote',
-              );
-              return;
-            }
           }
         } finally {
           _endReplay();
         }
+      }
+      final heldConflicts = (await _heldConflictNoteIds()).length;
+      if (heldConflicts > 0) {
+        _diagnostic(
+          'sync note conflict requires review',
+          data: {'notes': heldConflicts},
+        );
       }
 
       ref.invalidate(syncQueueSummaryProvider);
@@ -2777,13 +2773,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           allowLargeMobileTransfer: allowLargeMobileTransfer,
           silentLargeMobileSkip: silentLargeMobileSkip,
         );
+        if (heldConflicts > 0 && state.stage != SyncTransferStage.error) {
+          state = state.copyWith(
+            stage: SyncTransferStage.error,
+            message: 'sync.error.conflict_review_remote',
+          );
+        }
         return;
       }
       _setProgress(SyncTransferProgress.finalizing);
       await _yieldToUi();
       state = SyncTransferState(
-        stage: SyncTransferStage.success,
-        message: privateProfilesPendingUnlock
+        stage: heldConflicts > 0
+            ? SyncTransferStage.error
+            : SyncTransferStage.success,
+        message: heldConflicts > 0
+            ? 'sync.error.conflict_review_remote'
+            : privateProfilesPendingUnlock
             ? _privateProfileNotesPendingUnlockMessage
             : 'sync.info.sync_success',
         remoteStatus: state.remoteStatus,
@@ -3390,6 +3396,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               snapshot.note.id: snapshot,
       };
       final encryptedPrivateEntries = <PreparedEncryptedPrivateSyncNote>[];
+      var heldPrivateConflicts = 0;
       final bundleStateStore = ref.read(syncBundleStateStoreProvider);
       var privateConflictChoiceState = await bundleStateStore.read();
       if (privateConflictChoiceState.localPrivateConflictChoices.isNotEmpty) {
@@ -3476,14 +3483,47 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             },
           );
           final local = existingPrivateSnapshotsById[entry.note.id];
+          var equivalent = false;
           if (localPending.action == PendingNoteChangeAction.upsert &&
-              local != null &&
-              await _matchesPendingPrivateNoteContent(local, entry)) {
+              local != null) {
+            try {
+              equivalent = await _matchesPendingPrivateNoteContent(
+                local,
+                entry,
+              );
+            } on SyncSafetyException catch (error) {
+              // A locked profile or a missing attachment prevents comparing
+              // now; the note is held for review like any other conflict.
+              if (error.code != 'sync.error.private_profile_unlock_required' &&
+                  error.code != 'sync.error.remote_attachment_unavailable') {
+                rethrow;
+              }
+            }
+          }
+          if (equivalent) {
             // Keep the local file paths and pending change intact. The normal
             // upload can acknowledge it without replacing the local snapshot.
             continue;
           }
-          throw const SyncSafetyException('sync.error.private_note_conflict');
+          if (local == null) {
+            throw const SyncSafetyException('sync.error.private_note_conflict');
+          }
+          // Hold only this note for review. Its pending local version stays
+          // queued but is left out of uploads until the user resolves it,
+          // while the rest of the record keeps applying.
+          final held = local.note.copyWith(syncState: NoteSyncState.conflict);
+          await encryptedDatabase.upsertOne(
+            note: held,
+            attachments: local.attachments,
+            pendingChange: localPending,
+          );
+          existingPrivateSnapshotsById[held.id] = EncryptedNoteSnapshot(
+            note: held,
+            attachments: local.attachments,
+          );
+          heldPrivateConflicts += 1;
+          _diagnostic('private note held for conflict review');
+          continue;
         }
         encryptedPrivateEntries.add(entry);
       }
@@ -3741,7 +3781,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             );
         ref.invalidate(syncQueueSummaryProvider);
       }
-      if (importedEncryptedPrivateCount > 0) {
+      if (importedEncryptedPrivateCount > 0 || heldPrivateConflicts > 0) {
         await ref.read(notesControllerProvider.notifier).reloadFromStorage();
         ref.invalidate(syncQueueSummaryProvider);
       }
@@ -5707,6 +5747,18 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         () => ref.read(googleDriveSyncTransportProvider).downloadLatestBundle(),
       ),
       SyncProvider.off => Future.value(null),
+    };
+  }
+
+  /// IDs of notes waiting for conflict review, including private notes whose
+  /// profile is locked and therefore absent from the visible note list.
+  Future<Set<String>> _heldConflictNoteIds() async {
+    return {
+      for (final note in ref.read(notesControllerProvider))
+        if (note.syncState == NoteSyncState.conflict) note.id,
+      for (final snapshot
+          in await ref.read(encryptedNoteDatabaseProvider).loadAll())
+        if (snapshot.note.syncState == NoteSyncState.conflict) snapshot.note.id,
     };
   }
 
