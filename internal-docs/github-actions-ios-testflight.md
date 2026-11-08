@@ -148,3 +148,5 @@ Version **1.0.0 (2610291035)** is available to the existing internal **ruhenheim
 - Stop old-version sync and cleanup on every participating device; update all clients to a compatible version before resuming. Devices without a compatible release must keep sync/cleanup disabled. This requirement is included in the saved Japanese What to Test notes.
 
 Native startup was verified in a debug simulator app using the production entrypoint. The distributed IPA is release-signed; physical-device sync, authentication, data migration and folding behavior remain the internal testers' verification scope.
+
+2026-11-08 simulator launch timeout: run 42458095162 (commit 60eef99) timed out twice in the 10-minute simulator launch step. Attempt 1 passed the launch test but finished about 20 seconds over the limit (`flutter drive` alone took 368 seconds). Attempt 2 stalled while waiting for the VM Service, after repeated `devicectl` 5-second command timeouts. Two earlier runs that day passed the same step. The launch step limit is now 20 minutes; the startup assertions are unchanged.
