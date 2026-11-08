@@ -4956,6 +4956,45 @@ void main() {
     expect(assessment.message, 'sync.error.conflict_pending_remote_newer');
   });
 
+  test('assessSyncConflict ignores this device upload and applied bundles', () {
+    final remote = RemoteSyncBundleStatus(
+      fileId: 'own-upload',
+      fileName: 'himemo_sync_bundle.enc',
+      modifiedAt: DateTime(2026, 11, 8, 11, 37),
+      deviceId: 'this-device',
+    );
+    const queue = SyncQueueSummary(totalChanges: 2, upserts: 2, deletes: 0);
+    // Older pending changes that the upload skipped (e.g. a locked profile)
+    // must not turn this device's own newer upload into a conflict.
+    final ownUpload = assessSyncConflict(
+      cloudSyncSelected: true,
+      queue: SyncQueueSummary(
+        totalChanges: queue.totalChanges,
+        upserts: queue.upserts,
+        deletes: queue.deletes,
+        lastQueuedAt: DateTime(2026, 11, 7, 17, 7),
+      ),
+      remoteStatus: remote,
+      bundleState: SyncBundleState(
+        lastAppliedAt: DateTime(2026, 11, 8, 6, 52),
+        lastUploadedAt: DateTime(2026, 11, 8, 11, 37, 40),
+        lastUploadedRemoteFileId: 'own-upload',
+      ),
+    );
+    expect(ownUpload.hasConflict, isFalse);
+
+    final applied = assessSyncConflict(
+      cloudSyncSelected: true,
+      queue: queue,
+      remoteStatus: remote,
+      bundleState: SyncBundleState(
+        lastAppliedAt: DateTime(2026, 11, 8, 6, 52),
+        appliedRemoteFileIds: const {'own-upload'},
+      ),
+    );
+    expect(applied.hasConflict, isFalse);
+  });
+
   test('assessSyncConflict allows local queue newer than remote bundle', () {
     final assessment = assessSyncConflict(
       cloudSyncSelected: true,
