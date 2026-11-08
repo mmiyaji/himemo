@@ -334,6 +334,37 @@ void main() {
       },
     );
 
+    test('accepts the native acknowledgement for attachment release', () async {
+      final transport = MethodChannelICloudSyncTransport();
+      Object? response = true;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            expect(call.method, 'managedReleaseAttachment');
+            expect(call.arguments, {
+              'recordId': 'record-1',
+              'uploadId': 'upload-1',
+              'publishedBundleId': 'bundle-1',
+            });
+            return response;
+          });
+
+      await transport.releaseAttachmentObject(
+        recordId: 'record-1',
+        uploadId: 'upload-1',
+        publishedBundleId: 'bundle-1',
+      );
+
+      response = null;
+      await expectLater(
+        transport.releaseAttachmentObject(
+          recordId: 'record-1',
+          uploadId: 'upload-1',
+          publishedBundleId: 'bundle-1',
+        ),
+        throwsFormatException,
+      );
+    });
+
     test('maps null responses and non-temporary platform errors', () async {
       final transport = MethodChannelICloudSyncTransport();
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
