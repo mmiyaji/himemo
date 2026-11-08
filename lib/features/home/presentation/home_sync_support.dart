@@ -295,6 +295,18 @@ String _localizedSyncTransferMessage(
   SyncProvider provider,
 ) {
   final providerName = _syncProviderName(provider);
+  if (message.startsWith('$localAttachmentMissingMessageCode\n')) {
+    final parts = message.split('\n');
+    final label = parts.length > 1 ? parts[1] : '';
+    final title = parts.length > 2 ? parts.sublist(2).join(' ').trim() : '';
+    final noteName = title.isEmpty
+        ? strings.localized(en: 'a note', ja: '無題のメモ')
+        : strings.localized(en: '"$title"', ja: '「$title」');
+    return strings.localized(
+      en: 'The attachment "$label" in $noteName is missing on this device and could not be restored from the cloud. Open the note, remove or replace that attachment, then sync again.',
+      ja: '$noteNameの添付「$label」がこの端末になく、クラウドからも復元できませんでした。メモを開いてこの添付を削除するか差し替えてから、もう一度同期してください。',
+    );
+  }
   switch (message) {
     case 'sync.error.local_snapshot_incomplete':
       return strings.localized(

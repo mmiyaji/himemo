@@ -32,6 +32,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   // Server metadata remains authoritative if the process stops before release.
   final _pinnedAttachmentIds = <String, Set<String>>{};
 
+  // Reloaded at each sync entry point; see [_ignoreLockedUnsyncedVault].
+  Set<String> _excludedPrivateVaultIds = const <String>{};
+
   Timer? _cooldownTimer;
   Timer? _remoteStatusWaitTimer;
   RemoteSyncBundleStatus? _cachedRemoteStatus;
@@ -66,10 +69,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     _diagnostic('sync retry cooldown cleared');
   }
 
-  Future<SyncQueueSummary> _readLocalSyncQueueSummary() {
+  Future<SyncQueueSummary> _readLocalSyncQueueSummary() async {
+    await _loadExcludedPrivateVaults();
+    final profileKeys = ref.read(profileDataKeyServiceProvider);
     return _summarizeSyncQueue(
       ref.read(syncEngineProvider),
       ref.read(privateMemoProfileStoreProvider),
+      include: (change) =>
+          !_excludedPrivateVaultIds.contains(change.vaultId) ||
+          profileKeys.isProfileUnlocked(change.vaultId),
     );
   }
 
@@ -576,12 +584,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   Future<Set<String>> _lockedPrivateUpsertSnapshotIds() async {
+    await _loadExcludedPrivateVaults();
     final lockedIds = <String>{};
     final profileKeys = ref.read(profileDataKeyServiceProvider);
     final snapshots = await ref.read(encryptedNoteDatabaseProvider).loadAll();
     for (final snapshot in snapshots) {
       final note = snapshot.note;
-      if (!isPrivateVaultId(note.vaultId) || note.deletedAt != null) {
+      if (!isPrivateVaultId(note.vaultId) ||
+          note.deletedAt != null ||
+          _ignoreLockedUnsyncedVault(note.vaultId)) {
         continue;
       }
       final key = await profileKeys.keyForVault(note.vaultId);
@@ -603,6 +614,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     bool pruneAfterUpload = true,
   }) async {
     final historyStartedAt = DateTime.now();
+    await _loadExcludedPrivateVaults();
     var recoveringFullHistory = false;
     var hasRemoteHistory = false;
     final uploadId = base64Url
@@ -792,7 +804,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         ];
       }
       pendingChanges = pendingChanges
-          .where((change) => !_ignoreLockedLegacyVault(change.vaultId))
+          .where((change) => !_ignoreLockedUnsyncedVault(change.vaultId))
           .toList(growable: false);
       // Resolve the target's attachment objects before preparing either public
       // or private snapshots.  Cached hashes can only be reused when the
@@ -1350,8 +1362,18 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         );
         return;
       }
-      state = _failureState(
-        error,
+      final noteTitle = ref
+          .read(notesControllerProvider)
+          .where((note) => note.id == error.noteId)
+          .map((note) => note.title.trim())
+          .firstOrNull;
+      state = SyncTransferState(
+        stage: SyncTransferStage.error,
+        message: [
+          localAttachmentMissingMessageCode,
+          error.attachmentLabel,
+          noteTitle ?? '',
+        ].join('\n'),
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
       );
@@ -1383,9 +1405,18 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  bool _ignoreLockedLegacyVault(String vaultId) =>
-      vaultId == legacyPrivateVaultId &&
+  /// The original private vault and profiles the user excluded from sync are
+  /// skipped entirely while locked, so a lost key never blocks other notes.
+  bool _ignoreLockedUnsyncedVault(String vaultId) =>
+      (vaultId == legacyPrivateVaultId ||
+          _excludedPrivateVaultIds.contains(vaultId)) &&
       !ref.read(profileDataKeyServiceProvider).isProfileUnlocked(vaultId);
+
+  Future<void> _loadExcludedPrivateVaults() async {
+    _excludedPrivateVaultIds = await ref
+        .read(privateProfileSyncExclusionsProvider.notifier)
+        .load();
+  }
 
   Future<_PreparedPrivateSyncPayload> _preparePrivateSyncNotes(
     List<PendingNoteChangeRecord> pendingChanges, {
@@ -1428,7 +1459,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
     for (final snapshot in snapshots) {
       if (!isPrivateVaultId(snapshot.note.vaultId) ||
-          _ignoreLockedLegacyVault(snapshot.note.vaultId)) {
+          _ignoreLockedUnsyncedVault(snapshot.note.vaultId)) {
         continue;
       }
       final change = privateChangesById[snapshot.note.id];
@@ -1760,7 +1791,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     try {
       final remoteBundle = await _downloadLatestRemoteBundle();
       if (remoteBundle == null) {
-        return false;
+        return await _restoreMissingAttachmentFromCachedHash(error);
       }
       final localBundle = await ref
           .read(secureSyncBundleStoreProvider)
@@ -1782,7 +1813,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       if (remoteAttachment == null ||
           !isSyncAttachmentObjectRef(remoteAttachment.filePath)) {
-        return false;
+        // The latest bundle only carries recent changes, so the note may
+        // simply not be in it. Fall back to the attachment's own identity.
+        return await _restoreMissingAttachmentFromCachedHash(error);
       }
       return await ref
           .read(notesControllerProvider.notifier)
@@ -1802,6 +1835,48 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       return false;
     }
+  }
+
+  /// Points a missing local attachment at the cloud object that its cached
+  /// content hash identifies, but only when the cloud is known to hold it.
+  Future<bool> _restoreMissingAttachmentFromCachedHash(
+    SyncAttachmentMissingException error,
+  ) async {
+    final note = ref
+        .read(notesControllerProvider)
+        .where((note) => note.id == error.noteId)
+        .firstOrNull;
+    final local = note == null
+        ? null
+        : _attachmentAtSyncIndex(note, error.index);
+    final cachedHash = local?.syncAttachmentContentHash;
+    if (local == null ||
+        local.type != error.attachmentType ||
+        cachedHash == null ||
+        cachedHash.isEmpty) {
+      return false;
+    }
+    final remoteHashes = await _listExistingRemoteAttachmentHashes();
+    if (remoteHashes == null || !remoteHashes.contains(cachedHash)) {
+      return false;
+    }
+    _diagnostic(
+      'missing local attachment matched cloud object by content hash',
+      data: {'index': error.index},
+    );
+    return ref
+        .read(notesControllerProvider.notifier)
+        .restoreMissingAttachmentRemoteReference(
+          noteId: error.noteId,
+          index: error.index,
+          remoteAttachment: local.copyWith(
+            filePath: syncAttachmentObjectRef(
+              cachedHash,
+              managed: _managedAttachmentTransport() != null,
+            ),
+            syncAttachmentContentHash: cachedHash,
+          ),
+        );
   }
 
   Future<NoteAttachment?> _remoteAttachmentForMissingError({
@@ -3258,6 +3333,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     String? sourceRemoteFileId,
   }) async {
     final historyStartedAt = DateTime.now();
+    await _loadExcludedPrivateVaults();
     final localBundle = state.localBundle;
     if (localBundle == null) {
       state = state.copyWith(
@@ -3329,7 +3405,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         if (entry == null) {
           throw const SyncSafetyException('sync.error.malformed_private_note');
         }
-        if (_ignoreLockedLegacyVault(entry.note.vaultId)) continue;
+        if (_ignoreLockedUnsyncedVault(entry.note.vaultId)) continue;
         final localPending = localPrivatePendingById[entry.note.id];
         if (localPending != null &&
             !pendingPrivateChangeMatchesRemote(localPending, entry)) {
@@ -3339,10 +3415,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               : remoteRevision == localPending.revision
               ? 'same'
               : 'remote_newer';
-          if (publishedByThisDevice && revisionOrder == 'remote_older') {
-            // This device published that version before making the pending
-            // edit, so it is an ancestor of the local note rather than a
-            // concurrent change. Replaying it must not stop sync.
+          if (publishedByThisDevice && revisionOrder != 'remote_newer') {
+            // This device published that version at or before the pending
+            // revision (every local edit bumps the revision), so it is the
+            // local note's own history rather than a concurrent change.
+            // Replaying it must not stop sync or require a profile unlock.
             _diagnostic(
               'private pending note superseded own remote version',
               data: {'revisionOrder': revisionOrder},
@@ -3530,7 +3607,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         final note = NoteEntry.fromJson(
           Map<String, dynamic>.from(entry['note'] as Map),
         );
-        if (_ignoreLockedLegacyVault(note.vaultId)) continue;
+        if (_ignoreLockedUnsyncedVault(note.vaultId)) continue;
         if (isPrivateVaultId(note.vaultId) &&
             !ref
                 .read(profileDataKeyServiceProvider)
@@ -4613,6 +4690,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     Map<String, dynamic> decoded, {
     String? noteId,
   }) async {
+    await _loadExcludedPrivateVaults();
     await _expandExcludedRemoteNotes(decoded);
     final allRawNoteEntries =
         decoded['notes'] as List<dynamic>? ?? const <dynamic>[];
@@ -4710,7 +4788,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       for (final rawEntry in rawEncryptedEntries) {
         final encrypted = PreparedEncryptedPrivateSyncNote.fromJson(rawEntry);
         if (encrypted == null || encrypted.note.id != noteId) continue;
-        if (_ignoreLockedLegacyVault(encrypted.note.vaultId)) continue;
+        if (_ignoreLockedUnsyncedVault(encrypted.note.vaultId)) continue;
         final key = await ref
             .read(profileDataKeyServiceProvider)
             .keyForVault(encrypted.note.vaultId);

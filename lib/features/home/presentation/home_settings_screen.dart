@@ -865,6 +865,9 @@ class SettingsScreen extends ConsumerWidget {
     );
     final adminMode = ref.watch(adminModeSessionControllerProvider);
     final privateProfiles = ref.watch(privateMemoProfilesProvider);
+    final syncExcludedProfileVaultIds = ref.watch(
+      privateProfileSyncExclusionsProvider,
+    );
     final unlockedPrivateProfileVaultId = ref.watch(
       unlockedPrivateProfileVaultIdProvider,
     );
@@ -1746,6 +1749,15 @@ class SettingsScreen extends ConsumerWidget {
                                       ja: 'タップして、このプロファイルを初回解除',
                                     ),
                             ),
+                            if (syncExcludedProfileVaultIds.contains(
+                              profile.vaultId,
+                            ))
+                              Text(
+                                strings.localized(
+                                  en: 'Not synced while locked',
+                                  ja: 'ロック中は同期の対象外',
+                                ),
+                              ),
                             if (profile.nameSync.hasConflict)
                               Text(
                                 strings.localized(
@@ -1775,6 +1787,18 @@ class SettingsScreen extends ConsumerWidget {
                               ),
                               icon: const Icon(Icons.login_outlined),
                             ),
+                            if (syncExcludedProfileVaultIds.contains(
+                                  profile.vaultId,
+                                ) ||
+                                !ref
+                                    .read(profileDataKeyServiceProvider)
+                                    .isProfileUnlocked(profile.vaultId))
+                              _PrivateProfileSyncExclusionButton(
+                                profile: profile,
+                                excluded: syncExcludedProfileVaultIds.contains(
+                                  profile.vaultId,
+                                ),
+                              ),
                             if (profile.nameSync.hasConflict)
                               IconButton(
                                 tooltip: strings.localized(
@@ -6131,5 +6155,69 @@ class _SyncExclusionTagDialogState extends State<_SyncExclusionTagDialog> {
       return;
     }
     Navigator.of(context).pop(normalized);
+  }
+}
+
+/// Lets a locked private profile, typically one whose key is lost, be left
+/// out of sync so it no longer blocks other notes.
+class _PrivateProfileSyncExclusionButton extends ConsumerWidget {
+  const _PrivateProfileSyncExclusionButton({
+    required this.profile,
+    required this.excluded,
+  });
+
+  final PrivateMemoProfile profile;
+  final bool excluded;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final strings = context.strings;
+    return IconButton(
+      tooltip: excluded
+          ? strings.localized(
+              en: 'Include ${profile.name} in sync',
+              ja: '「${profile.name}」を同期の対象に戻す',
+            )
+          : strings.localized(
+              en: 'Exclude ${profile.name} from sync',
+              ja: '「${profile.name}」を同期の対象外にする',
+            ),
+      icon: Icon(excluded ? Icons.sync_outlined : Icons.sync_disabled_outlined),
+      onPressed: () async {
+        if (!excluded) {
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: Text(
+                strings.localized(
+                  en: 'Exclude this profile from sync?',
+                  ja: 'このプロファイルを同期の対象外にしますか？',
+                ),
+              ),
+              content: Text(
+                strings.localized(
+                  en: 'While this profile stays locked, its notes are neither uploaded nor updated from the cloud, and its sync conflicts are ignored. Local notes stay on this device. Older cloud copies of this profile may be removed when the cloud history is cleaned up. Unlocking the profile syncs it again.',
+                  ja: 'ロック中は、このプロファイルのメモをアップロードせず、クラウドからの更新や競合の確認も行いません。端末内のメモは残ります。クラウド履歴の整理で、このプロファイルの古いクラウド上のデータが削除されることがあります。ロックを解除すると再び同期されます。',
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: Text(strings.cancel),
+                ),
+                FilledButton.tonal(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: Text(strings.localized(en: 'Exclude', ja: '対象外にする')),
+                ),
+              ],
+            ),
+          );
+          if (confirmed != true) return;
+        }
+        await ref
+            .read(privateProfileSyncExclusionsProvider.notifier)
+            .setExcluded(profile.vaultId, !excluded);
+      },
+    );
   }
 }

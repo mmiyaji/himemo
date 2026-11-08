@@ -2633,6 +2633,96 @@ void main() {
   });
 
   test(
+    'missing local attachments reuse the cloud object or name the note',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-missing-local-attachment-',
+      );
+      final notes = harness.container.read(notesControllerProvider.notifier);
+      final sync = harness.container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      Future<String> storePhoto(String name, int byte) async {
+        final source = await _writePayloadFile(
+          harness.tempDirectory,
+          name,
+          sizeBytes: 1024,
+          byte: byte,
+        );
+        return (await harness.attachmentStore.storeAttachment(
+          XFile(source.path, name: name),
+          type: AttachmentType.photo,
+        ))!;
+      }
+
+      NoteEntry photoNote(String id, String title, String path) => NoteEntry(
+        id: id,
+        vaultId: 'everyday',
+        title: title,
+        body: 'Has a photo',
+        createdAt: DateTime.utc(2026, 11, 8, 1),
+        updatedAt: DateTime.utc(2026, 11, 8, 1, 1),
+        attachments: [
+          NoteAttachment(
+            type: AttachmentType.photo,
+            label: '$id.png',
+            filePath: path,
+          ),
+        ],
+      );
+
+      final uploadedPath = await storePhoto('uploaded.png', 0x41);
+      await notes.upsert(photoNote('uploaded-note', 'Uploaded', uploadedPath));
+      await sync.uploadCurrentBundle(force: true);
+      expect(
+        harness.container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+      // The latest bundle no longer contains the photo note.
+      await notes.upsert(
+        NoteEntry(
+          id: 'later-note',
+          vaultId: 'everyday',
+          title: 'Later',
+          body: 'No attachment',
+          createdAt: DateTime.utc(2026, 11, 8, 2),
+        ),
+      );
+      await sync.uploadCurrentBundle(force: true);
+
+      await harness.attachmentStore.deleteAttachment(uploadedPath);
+      await sync.uploadCurrentBundle(force: true, fullSnapshot: true);
+      expect(
+        harness.container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+      final repaired = harness.container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'uploaded-note');
+      expect(
+        isSyncAttachmentObjectRef(repaired.attachments.single.filePath),
+        isTrue,
+      );
+
+      final lostPath = await storePhoto('lost.png', 0x42);
+      await notes.upsert(photoNote('lost-note', 'Lost photo', lostPath));
+      await harness.attachmentStore.deleteAttachment(lostPath);
+      await sync.uploadCurrentBundle(force: true);
+      final failed = harness.container.read(syncTransferControllerProvider);
+      expect(failed.stage, SyncTransferStage.error);
+      expect(
+        failed.message,
+        '$localAttachmentMissingMessageCode\nlost-note.png\nLost photo',
+      );
+    },
+  );
+
+  test(
     'Google Drive attachment upload failure keeps local attachment pending',
     () async {
       SharedPreferences.setMockInitialValues({});
@@ -3680,6 +3770,28 @@ void main() {
       await expectLocalPendingKept(setup.database);
     });
 
+    test(
+      'a same-revision version from this device skips the locked comparison',
+      () async {
+        final setup = await setUpLocalPending('himemo-private-own-same-');
+        final ownDeviceId = await setup.harness.container
+            .read(deviceIdentityStoreProvider)
+            .obtain();
+
+        final result = await setup.apply(ownDeviceId, [
+          privateRecord(
+            'pending-note',
+            revision: 4,
+            contentHash: 'own-same-revision-hash',
+            payload: 'own-same-revision-payload',
+          ),
+        ]);
+
+        expect(result.stage, SyncTransferStage.success);
+        await expectLocalPendingKept(setup.database);
+      },
+    );
+
     test('a newer version from this device still needs review', () async {
       final setup = await setUpLocalPending('himemo-private-own-newer-');
       final ownDeviceId = await setup.harness.container
@@ -3778,6 +3890,47 @@ void main() {
         expect((await stateStore.read()).localPrivateConflictChoices, isEmpty);
       },
     );
+
+    test('a locked profile excluded from sync neither blocks apply nor counts as pending', () async {
+      final setup = await setUpLocalPending('himemo-private-excluded-');
+      final container = setup.harness.container;
+      expect(
+        (await container.read(syncQueueSummaryProvider.future)).totalChanges,
+        1,
+      );
+      await container
+          .read(privateProfileSyncExclusionsProvider.notifier)
+          .setExcluded(vaultId, true);
+
+      final result = await setup.apply('remote-device', [
+        privateRecord(
+          'pending-note',
+          revision: 9,
+          contentHash: 'unreadable-remote-hash',
+          payload: 'unreadable-remote-payload',
+        ),
+      ]);
+
+      expect(result.stage, SyncTransferStage.success);
+      await expectLocalPendingKept(setup.database);
+      expect(
+        (await container.read(syncQueueSummaryProvider.future)).totalChanges,
+        0,
+      );
+
+      await container
+          .read(privateProfileSyncExclusionsProvider.notifier)
+          .setExcluded(vaultId, false);
+      final included = await setup.apply('remote-device', [
+        privateRecord(
+          'pending-note',
+          revision: 9,
+          contentHash: 'unreadable-remote-hash',
+          payload: 'unreadable-remote-payload',
+        ),
+      ]);
+      expect(included.stage, SyncTransferStage.error);
+    });
 
     test('malformed local conflict choices do not break sync state', () async {
       SharedPreferences.setMockInitialValues({

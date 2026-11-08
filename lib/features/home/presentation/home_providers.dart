@@ -58,6 +58,7 @@ import '../../security/data/secure_key_value_store.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
 import '../../sync/data/google_sign_in_initializer.dart';
 import '../../sync/data/icloud_sync_transport.dart';
+import '../../sync/data/private_profile_sync_exclusion_store.dart';
 import '../../sync/data/sync_attachment_refs.dart';
 import '../../sync/data/sync_conflict_policy.dart';
 import '../../sync/data/sync_bundle_preview.dart';
@@ -6967,9 +6968,9 @@ class NotesController extends _$NotesController {
               : incoming.revision == current.revision
               ? 'same'
               : 'remote_newer';
-          if (publishedByThisDevice && revisionOrder == 'remote_older') {
-            // Replaying this device's own earlier upload: the local pending
-            // edit was made on top of it, so keep the local version queued.
+          if (publishedByThisDevice && revisionOrder != 'remote_newer') {
+            // Replaying this device's own upload at or before the pending
+            // revision: the local version descends from it, so keep it queued.
             logDiagnostic(
               'sync',
               'pending note superseded own remote version',

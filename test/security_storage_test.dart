@@ -4287,6 +4287,12 @@ void main() {
       expect(current().syncState, NoteSyncState.pendingUpload);
 
       await controller.mergeFromSync([
+        remoteVersion(current().revision, 'own-same-revision'),
+      ], publishedByThisDevice: true);
+      expect(current().title, 'Local edit');
+      expect(current().syncState, NoteSyncState.pendingUpload);
+
+      await controller.mergeFromSync([
         remoteVersion(current().revision + 1, 'own-newer'),
       ], publishedByThisDevice: true);
       expect(current().title, 'Local edit');
