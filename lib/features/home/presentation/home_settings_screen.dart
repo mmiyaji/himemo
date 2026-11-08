@@ -87,6 +87,8 @@ class SettingsScreen extends ConsumerWidget {
       Key('private-profile-delete-$id');
   static Key privateProfileOpenKey(String id) =>
       Key('private-profile-open-$id');
+  static Key privateProfileMenuKey(String id) =>
+      Key('private-profile-menu-$id');
   static const startTutorialKey = Key('start-highlight-tutorial');
   static final aboutSectionKey = GlobalKey();
   static final _appearanceSectionKey = GlobalKey();
@@ -593,6 +595,50 @@ class SettingsScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  /// Any profile can opt out, but the setting only takes effect while it is
+  /// locked — typically for a profile whose unlock key has been lost.
+  Future<void> _setPrivateProfileSyncWhileLocked(
+    BuildContext context,
+    WidgetRef ref,
+    PrivateMemoProfile profile, {
+    required bool excluded,
+  }) async {
+    final strings = context.strings;
+    if (excluded) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(
+            strings.localized(
+              en: 'Stop syncing this profile while it is locked?',
+              ja: 'ロック中はこのプロファイルを同期しないようにしますか？',
+            ),
+          ),
+          content: Text(
+            strings.localized(
+              en: 'Use this for a profile you can no longer unlock. While it stays locked, its notes are neither uploaded nor updated from the cloud, and its sync conflicts are skipped, so it no longer stops other notes from syncing. Notes on this device are kept. Older cloud copies of this profile may be removed when the cloud history is cleaned up. Once unlocked, it syncs normally again.',
+              ja: '解除できなくなったプロファイル向けの設定です。ロック中は、このプロファイルのメモのアップロード、クラウドからの更新、競合の確認を行わないため、ほかのメモの同期が止まらなくなります。端末内のメモは残ります。クラウド履歴の整理で、このプロファイルの古いクラウド上のデータが削除されることがあります。解除すると通常どおり同期されます。',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(strings.cancel),
+            ),
+            FilledButton.tonal(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(strings.localized(en: 'Do not sync', ja: '同期しない')),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+    await ref
+        .read(privateProfileSyncExclusionsProvider.notifier)
+        .setExcluded(profile.vaultId, excluded);
   }
 
   Future<void> _confirmDeletePrivateProfile(
@@ -1755,7 +1801,7 @@ class SettingsScreen extends ConsumerWidget {
                               Text(
                                 strings.localized(
                                   en: 'Not synced while locked',
-                                  ja: 'ロック中は同期の対象外',
+                                  ja: 'ロック中は同期しない',
                                 ),
                               ),
                             if (profile.nameSync.hasConflict)
@@ -1771,78 +1817,99 @@ class SettingsScreen extends ConsumerWidget {
                               ),
                           ],
                         ),
-                        trailing: Wrap(
-                          spacing: 4,
-                          children: [
-                            IconButton(
-                              tooltip: strings.localized(
-                                en: 'Open ${profile.name}',
-                                ja: '「${profile.name}」を開く',
-                              ),
-                              onPressed: () => _enterPrivateProfileFromAdmin(
-                                context,
-                                ref,
-                                profile.vaultId,
-                                profile.name,
-                              ),
-                              icon: const Icon(Icons.login_outlined),
-                            ),
-                            if (syncExcludedProfileVaultIds.contains(
-                                  profile.vaultId,
-                                ) ||
-                                !ref
-                                    .read(profileDataKeyServiceProvider)
-                                    .isProfileUnlocked(profile.vaultId))
-                              _PrivateProfileSyncExclusionButton(
-                                profile: profile,
-                                excluded: syncExcludedProfileVaultIds.contains(
-                                  profile.vaultId,
-                                ),
-                              ),
-                            if (profile.nameSync.hasConflict)
-                              IconButton(
-                                tooltip: strings.localized(
-                                  en: 'Choose a profile name',
-                                  ja: '残すプロファイル名を選択',
-                                  zh: '选择要保留的档案名称',
-                                  ko: '유지할 프로필 이름 선택',
-                                  es: 'Elige el nombre del perfil',
-                                  de: 'Profilnamen auswählen',
-                                ),
-                                onPressed: () =>
-                                    _showPrivateProfileNameConflictDialog(
-                                      context,
-                                      ref,
-                                      profile,
-                                    ),
-                                icon: const Icon(Icons.sync_problem_outlined),
-                              )
-                            else
-                              IconButton(
-                                tooltip: strings.localized(
-                                  en: 'Rename profile',
-                                  ja: 'プロファイル名を変更',
-                                ),
-                                onPressed: () =>
-                                    _showRenamePrivateProfileDialog(
-                                      context,
-                                      ref,
-                                      profile,
-                                    ),
-                                icon: const Icon(Icons.edit_outlined),
-                              ),
-                            IconButton(
-                              key: privateProfileDeleteKey(profile.id),
-                              tooltip: strings.localized(
-                                en: 'Delete profile',
-                                ja: 'プロファイルを削除',
-                              ),
-                              onPressed: () => _confirmDeletePrivateProfile(
+                        // Opening is the row tap; secondary actions share one
+                        // menu so the row stays readable on narrow phones.
+                        trailing: PopupMenuButton<_PrivateProfileAction>(
+                          key: privateProfileMenuKey(profile.id),
+                          tooltip: strings.localized(
+                            en: 'Profile actions',
+                            ja: 'プロファイルの操作',
+                          ),
+                          icon: profile.nameSync.hasConflict
+                              ? Icon(
+                                  Icons.sync_problem_outlined,
+                                  color: Theme.of(context).colorScheme.error,
+                                )
+                              : const Icon(Icons.more_horiz),
+                          onSelected: (action) => switch (action) {
+                            _PrivateProfileAction.rename =>
+                              _showRenamePrivateProfileDialog(
                                 context,
                                 ref,
                                 profile,
                               ),
-                              icon: const Icon(Icons.delete_forever_outlined),
+                            _PrivateProfileAction.resolveName =>
+                              _showPrivateProfileNameConflictDialog(
+                                context,
+                                ref,
+                                profile,
+                              ),
+                            _PrivateProfileAction.toggleSyncWhileLocked =>
+                              _setPrivateProfileSyncWhileLocked(
+                                context,
+                                ref,
+                                profile,
+                                excluded: !syncExcludedProfileVaultIds.contains(
+                                  profile.vaultId,
+                                ),
+                              ),
+                            _PrivateProfileAction.delete =>
+                              _confirmDeletePrivateProfile(
+                                context,
+                                ref,
+                                profile,
+                              ),
+                          },
+                          itemBuilder: (_) => [
+                            if (profile.nameSync.hasConflict)
+                              PopupMenuItem(
+                                value: _PrivateProfileAction.resolveName,
+                                child: Text(
+                                  strings.localized(
+                                    en: 'Choose a profile name',
+                                    ja: '残すプロファイル名を選択',
+                                    zh: '选择要保留的档案名称',
+                                    ko: '유지할 프로필 이름 선택',
+                                    es: 'Elige el nombre del perfil',
+                                    de: 'Profilnamen auswählen',
+                                  ),
+                                ),
+                              )
+                            else
+                              PopupMenuItem(
+                                value: _PrivateProfileAction.rename,
+                                child: Text(
+                                  strings.localized(
+                                    en: 'Rename profile',
+                                    ja: 'プロファイル名を変更',
+                                  ),
+                                ),
+                              ),
+                            CheckedPopupMenuItem(
+                              value:
+                                  _PrivateProfileAction.toggleSyncWhileLocked,
+                              checked: syncExcludedProfileVaultIds.contains(
+                                profile.vaultId,
+                              ),
+                              child: Text(
+                                strings.localized(
+                                  en: 'Do not sync while locked',
+                                  ja: 'ロック中は同期しない',
+                                ),
+                              ),
+                            ),
+                            PopupMenuItem(
+                              key: privateProfileDeleteKey(profile.id),
+                              value: _PrivateProfileAction.delete,
+                              child: Text(
+                                strings.localized(
+                                  en: 'Delete profile',
+                                  ja: 'プロファイルを削除',
+                                ),
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -6158,66 +6225,9 @@ class _SyncExclusionTagDialogState extends State<_SyncExclusionTagDialog> {
   }
 }
 
-/// Lets a locked private profile, typically one whose key is lost, be left
-/// out of sync so it no longer blocks other notes.
-class _PrivateProfileSyncExclusionButton extends ConsumerWidget {
-  const _PrivateProfileSyncExclusionButton({
-    required this.profile,
-    required this.excluded,
-  });
-
-  final PrivateMemoProfile profile;
-  final bool excluded;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final strings = context.strings;
-    return IconButton(
-      tooltip: excluded
-          ? strings.localized(
-              en: 'Include ${profile.name} in sync',
-              ja: '「${profile.name}」を同期の対象に戻す',
-            )
-          : strings.localized(
-              en: 'Exclude ${profile.name} from sync',
-              ja: '「${profile.name}」を同期の対象外にする',
-            ),
-      icon: Icon(excluded ? Icons.sync_outlined : Icons.sync_disabled_outlined),
-      onPressed: () async {
-        if (!excluded) {
-          final confirmed = await showDialog<bool>(
-            context: context,
-            builder: (dialogContext) => AlertDialog(
-              title: Text(
-                strings.localized(
-                  en: 'Exclude this profile from sync?',
-                  ja: 'このプロファイルを同期の対象外にしますか？',
-                ),
-              ),
-              content: Text(
-                strings.localized(
-                  en: 'While this profile stays locked, its notes are neither uploaded nor updated from the cloud, and its sync conflicts are ignored. Local notes stay on this device. Older cloud copies of this profile may be removed when the cloud history is cleaned up. Unlocking the profile syncs it again.',
-                  ja: 'ロック中は、このプロファイルのメモをアップロードせず、クラウドからの更新や競合の確認も行いません。端末内のメモは残ります。クラウド履歴の整理で、このプロファイルの古いクラウド上のデータが削除されることがあります。ロックを解除すると再び同期されます。',
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(false),
-                  child: Text(strings.cancel),
-                ),
-                FilledButton.tonal(
-                  onPressed: () => Navigator.of(dialogContext).pop(true),
-                  child: Text(strings.localized(en: 'Exclude', ja: '対象外にする')),
-                ),
-              ],
-            ),
-          );
-          if (confirmed != true) return;
-        }
-        await ref
-            .read(privateProfileSyncExclusionsProvider.notifier)
-            .setExcluded(profile.vaultId, !excluded);
-      },
-    );
-  }
+enum _PrivateProfileAction {
+  rename,
+  resolveName,
+  toggleSyncWhileLocked,
+  delete,
 }

@@ -21,88 +21,10 @@ void main() {
   testWidgets('admin entry lets the user choose which profile to unlock', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(1100, 1400);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    SharedPreferences.setMockInitialValues({
-      'settings.locale': 'japanese',
-      'security.private_profiles.list.v1': jsonEncode([
-        PrivateMemoProfile(
-          id: 'family',
-          name: '家族',
-          createdAt: DateTime.utc(2026, 1, 1),
-        ).toJson(),
-        PrivateMemoProfile(
-          id: 'work',
-          name: '仕事',
-          createdAt: DateTime.utc(2026, 2, 2),
-        ).toJson(),
-      ]),
-    });
-    final secureStore = MemorySecureKeyValueStore();
-    final encryption = EncryptionService();
-    final master = MasterKeyService(
-      secureStore: secureStore,
-      keyFactory: encryption.generateKeyBytes,
+    final (:container, :admin) = await _pumpAdminProfileList(
+      tester,
+      const Size(1100, 1400),
     );
-    final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
-    final admin = _AdminWithMissingProfiles();
-    final container = ProviderContainer(
-      overrides: [
-        secureKeyValueStoreProvider.overrideWithValue(secureStore),
-        encryptionServiceProvider.overrideWithValue(encryption),
-        masterKeyServiceProvider.overrideWithValue(master),
-        encryptedNoteDatabaseProvider.overrideWithValue(database),
-        encryptedNoteStoreProvider.overrideWithValue(
-          EncryptedNoteStore(
-            encryptionService: encryption,
-            masterKeyService: master,
-            database: database,
-            directoryProvider: () async => Directory.systemTemp,
-          ),
-        ),
-        deviceAuthGatewayProvider.overrideWithValue(_DeviceAuth()),
-        adminModeSessionControllerProvider.overrideWith(() => admin),
-      ],
-    );
-    addTearDown(container.dispose);
-    addTearDown(database.close);
-    await tester.runAsync(() async {
-      await container.read(notesControllerProvider.notifier).restoreCompleted;
-      await container
-          .read(privateMemoProfilesControllerProvider.notifier)
-          .refresh();
-    });
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: const MaterialApp(
-          locale: Locale('ja'),
-          localizationsDelegates: [
-            AppLocalizations.delegate,
-            AppStrings.delegate,
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(body: SettingsScreen()),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('家族'), findsNothing);
-    expect(find.text('仕事'), findsNothing);
-    await tester.ensureVisible(find.text('プライベートプロファイル'));
-    await tester.tap(find.text('プライベートプロファイル'));
-    await tester.pumpAndSettle();
-    await tester.ensureVisible(
-      find.byKey(SettingsScreen.privateProfileAdminModeKey),
-    );
-    await tester.tap(find.byKey(SettingsScreen.privateProfileAdminModeKey));
-    await tester.pumpAndSettle();
-    expect(container.read(adminModeSessionControllerProvider), isTrue);
-    expect(find.byType(AdminProfileUnlockDialog), findsNothing);
     expect(admin.requestedVault, isNull);
     final workRow = find.byKey(SettingsScreen.privateProfileOpenKey('work'));
     await tester.ensureVisible(workRow);
@@ -130,6 +52,148 @@ void main() {
     expect(admin.requestedVault, 'private_profile:work');
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'profile actions share one menu and can stop syncing a locked profile',
+    (tester) async {
+      final (:container, :admin) = await _pumpAdminProfileList(
+        tester,
+        const Size(390, 844),
+      );
+      final familyRow = find.byKey(
+        SettingsScreen.privateProfileOpenKey('family'),
+      );
+      await tester.ensureVisible(familyRow);
+      // Only the overflow menu remains beside the row on a phone.
+      expect(
+        find.descendant(of: familyRow, matching: find.byType(IconButton)),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(SettingsScreen.privateProfileMenuKey('family')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('プロファイル名を変更'), findsOneWidget);
+      expect(find.text('プロファイルを削除'), findsOneWidget);
+      await tester.tap(
+        find.ancestor(
+          of: find.text('ロック中は同期しない'),
+          matching: find.byWidgetPredicate(
+            (widget) => widget is CheckedPopupMenuItem,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '同期しない'));
+      await tester.pumpAndSettle();
+
+      expect(
+        container.read(privateProfileSyncExclusionsProvider),
+        contains('private_profile:family'),
+      );
+      expect(
+        find.descendant(of: familyRow, matching: find.text('ロック中は同期しない')),
+        findsOneWidget,
+      );
+      expect(admin.requestedVault, isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+}
+
+Future<({ProviderContainer container, _AdminWithMissingProfiles admin})>
+_pumpAdminProfileList(WidgetTester tester, Size size) async {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  SharedPreferences.setMockInitialValues({
+    'settings.locale': 'japanese',
+    'security.private_profiles.list.v1': jsonEncode([
+      PrivateMemoProfile(
+        id: 'family',
+        name: '家族',
+        createdAt: DateTime.utc(2026, 1, 1),
+      ).toJson(),
+      PrivateMemoProfile(
+        id: 'work',
+        name: '仕事',
+        createdAt: DateTime.utc(2026, 2, 2),
+      ).toJson(),
+    ]),
+  });
+  final secureStore = MemorySecureKeyValueStore();
+  final encryption = EncryptionService();
+  final master = MasterKeyService(
+    secureStore: secureStore,
+    keyFactory: encryption.generateKeyBytes,
+  );
+  final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
+  final admin = _AdminWithMissingProfiles();
+  final container = ProviderContainer(
+    overrides: [
+      secureKeyValueStoreProvider.overrideWithValue(secureStore),
+      encryptionServiceProvider.overrideWithValue(encryption),
+      masterKeyServiceProvider.overrideWithValue(master),
+      encryptedNoteDatabaseProvider.overrideWithValue(database),
+      encryptedNoteStoreProvider.overrideWithValue(
+        EncryptedNoteStore(
+          encryptionService: encryption,
+          masterKeyService: master,
+          database: database,
+          directoryProvider: () async => Directory.systemTemp,
+        ),
+      ),
+      deviceAuthGatewayProvider.overrideWithValue(_DeviceAuth()),
+      adminModeSessionControllerProvider.overrideWith(() => admin),
+    ],
+  );
+  addTearDown(container.dispose);
+  addTearDown(database.close);
+  await tester.runAsync(() async {
+    await container.read(notesControllerProvider.notifier).restoreCompleted;
+    await container
+        .read(privateMemoProfilesControllerProvider.notifier)
+        .refresh();
+  });
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: const MaterialApp(
+        locale: Locale('ja'),
+        localizationsDelegates: [
+          AppLocalizations.delegate,
+          AppStrings.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(body: SettingsScreen()),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  expect(find.text('家族'), findsNothing);
+  expect(find.text('仕事'), findsNothing);
+  // Section expansion controllers are static, so an earlier test may have
+  // left this section open already.
+  if (find
+      .byKey(SettingsScreen.privateProfileAdminModeKey)
+      .evaluate()
+      .isEmpty) {
+    await tester.ensureVisible(find.text('プライベートプロファイル'));
+    await tester.tap(find.text('プライベートプロファイル'));
+    await tester.pumpAndSettle();
+  }
+  await tester.ensureVisible(
+    find.byKey(SettingsScreen.privateProfileAdminModeKey),
+  );
+  await tester.tap(find.byKey(SettingsScreen.privateProfileAdminModeKey));
+  await tester.pumpAndSettle();
+  expect(container.read(adminModeSessionControllerProvider), isTrue);
+  expect(find.byType(AdminProfileUnlockDialog), findsNothing);
+  return (container: container, admin: admin);
 }
 
 class _AdminWithMissingProfiles extends AdminModeSessionController {
