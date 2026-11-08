@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../app/diagnostic_log.dart';
 import '../../security/data/secure_key_value_store.dart';
 import '../../security/data/storage_serial_executor.dart';
 
@@ -154,7 +155,10 @@ class SyncBundleState {
               entry.value is! String ||
               entry.value == '',
         )) {
-      throw const FormatException('Invalid local private conflict choices.');
+      // Dropping a damaged choice only makes the conflict reviewable again;
+      // failing here would make the whole sync state unreadable.
+      logDiagnostic('sync', 'invalid local private conflict choices ignored');
+      return const <String, String>{};
     }
     return Map.unmodifiable(Map<String, String>.from(raw));
   }
@@ -210,18 +214,20 @@ class SyncBundleStateStore {
     String remoteContentHash,
   ) => state.localPrivateConflictChoices[noteId] == remoteContentHash;
 
-  Future<void> clearLocalPrivateConflictChoice(
-    String noteId,
-    String remoteContentHash,
-  ) async {
+  /// Drops choices whose local version is no longer waiting for upload.
+  Future<void> retainLocalPrivateConflictChoices(Set<String> noteIds) async {
     await _serialized(() async {
       final current = await read();
-      if (!hasLocalPrivateConflictChoice(current, noteId, remoteContentHash)) {
-        return;
-      }
-      final next = Map<String, String>.from(current.localPrivateConflictChoices)
-        ..remove(noteId);
-      await write(current.copyWith(localPrivateConflictChoices: next));
+      final choices = current.localPrivateConflictChoices;
+      if (choices.keys.every(noteIds.contains)) return;
+      await write(
+        current.copyWith(
+          localPrivateConflictChoices: Map.unmodifiable({
+            for (final entry in choices.entries)
+              if (noteIds.contains(entry.key)) entry.key: entry.value,
+          }),
+        ),
+      );
     });
   }
 

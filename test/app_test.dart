@@ -3546,6 +3546,250 @@ void main() {
     );
   });
 
+  group('private pending conflicts during replay', () {
+    const vaultId = 'private_profile:replay';
+    final queuedAt = DateTime.utc(2026, 7, 11, 1);
+
+    EncryptedNoteRecord privateRecord(
+      String id, {
+      required int revision,
+      required String contentHash,
+      String payload = 'local-encrypted-note',
+    }) => EncryptedNoteRecord(
+      id: id,
+      vaultId: vaultId,
+      encryptedPayload: payload,
+      createdAt: DateTime.utc(2026, 7, 10),
+      updatedAt: queuedAt,
+      revision: revision,
+      syncState: NoteSyncState.pendingUpload,
+      contentHash: contentHash,
+      isPinned: false,
+    );
+
+    Future<
+      ({
+        _GoogleDriveSyncHarness harness,
+        EncryptedNoteDatabase database,
+        Future<SyncTransferState> Function(
+          String deviceId,
+          List<EncryptedNoteRecord> remoteNotes,
+        )
+        apply,
+      })
+    >
+    setUpLocalPending(String prefix) async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: prefix,
+      );
+      final database = harness.container.read(encryptedNoteDatabaseProvider);
+      final local = privateRecord(
+        'pending-note',
+        revision: 4,
+        contentHash: 'local-hash',
+      );
+      await database.upsertOne(
+        note: local,
+        attachments: const [],
+        pendingChange: PendingNoteChangeRecord(
+          noteId: local.id,
+          vaultId: vaultId,
+          revision: local.revision,
+          action: PendingNoteChangeAction.upsert,
+          queuedAt: queuedAt,
+          contentHash: local.contentHash,
+        ),
+      );
+      Future<SyncTransferState> apply(
+        String deviceId,
+        List<EncryptedNoteRecord> remoteNotes,
+      ) async {
+        final bundles = harness.container.read(secureSyncBundleStoreProvider);
+        final stored = await bundles.writeBundle(
+          PreparedSyncSnapshot(
+            deviceId: deviceId,
+            exportedAt: DateTime.utc(2026, 7, 11, 2),
+            summary: SyncQueueSummary(
+              totalChanges: remoteNotes.length,
+              upserts: remoteNotes.length,
+              deletes: 0,
+            ),
+            notes: const [],
+            attachments: const [],
+          ),
+          encryptedPrivateNotes: [
+            for (final note in remoteNotes)
+              PreparedEncryptedPrivateSyncNote(
+                action: PendingNoteChangeAction.upsert,
+                note: note.copyWith(syncState: NoteSyncState.synced),
+                attachments: const [],
+              ),
+          ],
+          bundleKind: SyncBundleKind.delta,
+        );
+        final remote = await transport.uploadBundle(
+          encodedPayload: (await bundles.readEncryptedBundlePayload(
+            stored.reference,
+          ))!,
+          deviceId: deviceId,
+          noteCount: remoteNotes.length,
+          attachmentCount: 0,
+          bundleKind: SyncBundleKind.delta,
+        );
+        final controller = harness.container.read(
+          syncTransferControllerProvider.notifier,
+        );
+        await controller.downloadBundle(remote);
+        await controller.applyDownloadedBundle();
+        return harness.container.read(syncTransferControllerProvider);
+      }
+
+      return (harness: harness, database: database, apply: apply);
+    }
+
+    Future<void> expectLocalPendingKept(EncryptedNoteDatabase database) async {
+      final pending = await database.loadPendingChanges();
+      expect(pending.map((change) => change.contentHash), ['local-hash']);
+      final local = (await database.loadAll()).firstWhere(
+        (snapshot) => snapshot.note.id == 'pending-note',
+      );
+      expect(local.note.encryptedPayload, 'local-encrypted-note');
+    }
+
+    test('an older version published by this device is skipped', () async {
+      final setup = await setUpLocalPending('himemo-private-own-older-');
+      final ownDeviceId = await setup.harness.container
+          .read(deviceIdentityStoreProvider)
+          .obtain();
+
+      final result = await setup.apply(ownDeviceId, [
+        privateRecord(
+          'pending-note',
+          revision: 2,
+          contentHash: 'own-older-hash',
+          payload: 'own-older-payload',
+        ),
+      ]);
+
+      expect(result.stage, SyncTransferStage.success);
+      await expectLocalPendingKept(setup.database);
+    });
+
+    test('a newer version from this device still needs review', () async {
+      final setup = await setUpLocalPending('himemo-private-own-newer-');
+      final ownDeviceId = await setup.harness.container
+          .read(deviceIdentityStoreProvider)
+          .obtain();
+
+      final result = await setup.apply(ownDeviceId, [
+        privateRecord(
+          'pending-note',
+          revision: 5,
+          contentHash: 'own-newer-hash',
+          payload: 'own-newer-payload',
+        ),
+      ]);
+
+      expect(result.stage, SyncTransferStage.error);
+      await expectLocalPendingKept(setup.database);
+    });
+
+    test('an older version from another device still needs review', () async {
+      final setup = await setUpLocalPending('himemo-private-other-older-');
+
+      final result = await setup.apply('remote-device', [
+        privateRecord(
+          'pending-note',
+          revision: 2,
+          contentHash: 'other-older-hash',
+          payload: 'other-older-payload',
+        ),
+      ]);
+
+      expect(result.stage, SyncTransferStage.error);
+      await expectLocalPendingKept(setup.database);
+    });
+
+    test(
+      'a local choice skips only the chosen remote version until upload',
+      () async {
+        final setup = await setUpLocalPending('himemo-private-local-choice-');
+        final stateStore = setup.harness.container.read(
+          syncBundleStateStoreProvider,
+        );
+        await stateStore.rememberLocalPrivateConflictChoice(
+          'pending-note',
+          'chosen-remote-hash',
+        );
+        final chosen = privateRecord(
+          'pending-note',
+          revision: 5,
+          contentHash: 'chosen-remote-hash',
+          payload: 'chosen-remote-payload',
+        );
+
+        final first = await setup.apply('remote-device', [
+          chosen,
+          privateRecord(
+            'other-note',
+            revision: 1,
+            contentHash: 'other-note-hash',
+            payload: 'other-note-payload',
+          ),
+        ]);
+        expect(first.stage, SyncTransferStage.success);
+        await expectLocalPendingKept(setup.database);
+        expect(
+          (await setup.database.loadAll()).map((item) => item.note.id),
+          containsAll(['pending-note', 'other-note']),
+        );
+
+        // The same version replayed from a later bundle stays skipped while
+        // the local choice is still waiting for upload.
+        final replay = await setup.apply('remote-device', [chosen]);
+        expect(replay.stage, SyncTransferStage.success);
+        await expectLocalPendingKept(setup.database);
+
+        final different = await setup.apply('remote-device', [
+          privateRecord(
+            'pending-note',
+            revision: 6,
+            contentHash: 'different-remote-hash',
+            payload: 'different-remote-payload',
+          ),
+        ]);
+        expect(different.stage, SyncTransferStage.error);
+        await expectLocalPendingKept(setup.database);
+
+        await setup.database.deletePendingChangesByIds({'pending-note'});
+        await setup.apply('remote-device', [
+          privateRecord(
+            'other-note',
+            revision: 2,
+            contentHash: 'other-note-hash-2',
+            payload: 'other-note-payload-2',
+          ),
+        ]);
+        expect((await stateStore.read()).localPrivateConflictChoices, isEmpty);
+      },
+    );
+
+    test('malformed local conflict choices do not break sync state', () async {
+      SharedPreferences.setMockInitialValues({
+        'sync.bundle_state.v1': jsonEncode({
+          'localPrivateConflictChoices': {'note': 3},
+        }),
+      });
+      final state = await SyncBundleStateStore().read();
+      expect(state.localPrivateConflictChoices, isEmpty);
+    });
+  });
+
   test('large Google Drive downloads warn on mobile data', () async {
     SharedPreferences.setMockInitialValues({});
     final tempDirectory = await Directory.systemTemp.createTemp(

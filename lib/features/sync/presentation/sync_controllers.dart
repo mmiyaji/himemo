@@ -3301,10 +3301,30 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               snapshot.note.id: snapshot,
       };
       final encryptedPrivateEntries = <PreparedEncryptedPrivateSyncNote>[];
-      final locallyResolvedPrivateConflicts = <(String, String)>[];
-      final privateConflictChoiceState = await ref
-          .read(syncBundleStateStoreProvider)
-          .read();
+      final bundleStateStore = ref.read(syncBundleStateStoreProvider);
+      var privateConflictChoiceState = await bundleStateStore.read();
+      if (privateConflictChoiceState.localPrivateConflictChoices.isNotEmpty) {
+        // A choice only protects a local version that is still waiting for
+        // upload. Once acknowledged, revision checks reject older replays.
+        final pendingPrivateIds = rawEncryptedPrivateEntries.isNotEmpty
+            ? localPrivatePendingById.keys.toSet()
+            : {
+                for (final change
+                    in await encryptedDatabase.loadPendingChanges())
+                  if (isPrivateVaultId(change.vaultId)) change.noteId,
+              };
+        await bundleStateStore.retainLocalPrivateConflictChoices(
+          pendingPrivateIds,
+        );
+        privateConflictChoiceState = await bundleStateStore.read();
+      }
+      final bundleDeviceId = decoded['deviceId'];
+      final publishedByThisDevice =
+          rawEncryptedPrivateEntries.isNotEmpty &&
+          bundleDeviceId is String &&
+          bundleDeviceId.isNotEmpty &&
+          bundleDeviceId ==
+              await ref.read(deviceIdentityStoreProvider).obtain();
       for (final rawEntry in rawEncryptedPrivateEntries) {
         final entry = PreparedEncryptedPrivateSyncNote.fromJson(rawEntry);
         if (entry == null) {
@@ -3314,28 +3334,45 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         final localPending = localPrivatePendingById[entry.note.id];
         if (localPending != null &&
             !pendingPrivateChangeMatchesRemote(localPending, entry)) {
+          final remoteRevision = entry.note.revision;
+          final revisionOrder = remoteRevision < localPending.revision
+              ? 'remote_older'
+              : remoteRevision == localPending.revision
+              ? 'same'
+              : 'remote_newer';
+          if (publishedByThisDevice && revisionOrder == 'remote_older') {
+            // This device published that version before making the pending
+            // edit, so it is an ancestor of the local note rather than a
+            // concurrent change. Replaying it must not stop sync.
+            _diagnostic(
+              'private pending note superseded own remote version',
+              data: {'revisionOrder': revisionOrder},
+            );
+            continue;
+          }
           final remoteContentHash = entry.note.contentHash;
           if (remoteContentHash != null &&
-              ref
-                  .read(syncBundleStateStoreProvider)
-                  .hasLocalPrivateConflictChoice(
-                    privateConflictChoiceState,
-                    entry.note.id,
-                    remoteContentHash,
-                  )) {
+              bundleStateStore.hasLocalPrivateConflictChoice(
+                privateConflictChoiceState,
+                entry.note.id,
+                remoteContentHash,
+              )) {
             // The user explicitly selected this local private-note version.
             // Keep its pending row while applying the rest of this bundle so
             // the replay anchor can move beyond the reviewed conflict.
-            locallyResolvedPrivateConflicts.add((
-              entry.note.id,
-              remoteContentHash,
-            ));
             _diagnostic(
               'private pending note local choice honored',
               data: {'noteId': entry.note.id},
             );
             continue;
           }
+          _diagnostic(
+            'private pending note conflict candidate',
+            data: {
+              'publishedByThisDevice': publishedByThisDevice,
+              'revisionOrder': revisionOrder,
+            },
+          );
           final local = existingPrivateSnapshotsById[entry.note.id];
           if (localPending.action == PendingNoteChangeAction.upsert &&
               local != null &&
@@ -3594,15 +3631,6 @@ class SyncTransferController extends Notifier<SyncTransferState> {
                   _coverageFromBundle(decoded)?.coveredBundleIds ?? const {},
               advanceAnchor: canAdvanceAnchor,
             );
-        if (canAdvanceAnchor) {
-          final bundleStateStore = ref.read(syncBundleStateStoreProvider);
-          for (final (noteId, contentHash) in locallyResolvedPrivateConflicts) {
-            await bundleStateStore.clearLocalPrivateConflictChoice(
-              noteId,
-              contentHash,
-            );
-          }
-        }
         ref.invalidate(syncBundleStateProvider);
       }
       await _setPendingPrivateBundleApply(
