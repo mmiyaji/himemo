@@ -6,6 +6,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:drift/native.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter/foundation.dart';
@@ -3267,6 +3268,156 @@ void main() {
       isNull,
     );
   });
+
+  test(
+    'private sync continues when only attachment storage and revision differ',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-equivalent-private-sync-',
+      );
+      final container = harness.container;
+      const password = 'equivalent-note-pass-123';
+      expect(
+        await container
+            .read(privateMemoProfilesControllerProvider.notifier)
+            .addProfile(name: 'Equivalent note profile', password: password),
+        isNull,
+      );
+      final profile = (await container
+          .read(privateProfileUnlockControllerProvider.notifier)
+          .unlockWithPassword(password))!;
+      final key = (await container
+          .read(profileDataKeyServiceProvider)
+          .keyForVault(profile.vaultId))!;
+      final attachments = container.read(encryptedAttachmentStoreProvider);
+      final attachmentPayload = await attachments.encryptAttachmentBytes(
+        bytes: Uint8List.fromList([1, 2, 3]),
+        type: AttachmentType.photo,
+        vaultId: profile.vaultId,
+      );
+      final path = (await attachments.storeEncryptedPayload(
+        encodedPayload: attachmentPayload,
+        type: AttachmentType.photo,
+        fileNameHint: 'photo.jpg',
+        vaultId: profile.vaultId,
+      ))!;
+      final attachment = NoteAttachment(
+        type: AttachmentType.photo,
+        label: 'photo.jpg',
+        filePath: path,
+      );
+      final note = NoteEntry(
+        id: 'equivalent-private-note',
+        vaultId: profile.vaultId,
+        title: 'Same title',
+        body: 'Same body',
+        createdAt: DateTime.utc(2026, 7, 10),
+        attachments: [attachment],
+        blocks: [NoteBlock(type: NoteBlockType.photo, attachment: attachment)],
+      );
+      await container.read(notesControllerProvider.notifier).upsert(note);
+      final database = container.read(encryptedNoteDatabaseProvider);
+      final before = (await database.loadAll()).single;
+      final pending = (await database.loadPendingChanges()).single;
+      final controller = container.read(
+        syncTransferControllerProvider.notifier,
+      );
+      final bundles = container.read(secureSyncBundleStoreProvider);
+
+      Future<RemoteSyncBundleStatus> applyRemote(String attachmentHash) async {
+        final reference = attachment.copyWith(
+          filePath: syncAttachmentObjectRef(attachmentHash, managed: true),
+          syncAttachmentContentHash: attachmentHash,
+        );
+        final remoteNote = note.copyWith(
+          attachments: [reference],
+          blocks: [NoteBlock(type: NoteBlockType.photo, attachment: reference)],
+        );
+        final encrypted = await container
+            .read(encryptionServiceProvider)
+            .encryptJson(payload: remoteNote.toJson(), secretKey: key);
+        final exportedAt = DateTime.utc(2026, 7, 11);
+        final stored = await bundles.writeBundle(
+          PreparedSyncSnapshot(
+            deviceId: 'remote-device',
+            exportedAt: exportedAt,
+            summary: const SyncQueueSummary(
+              totalChanges: 1,
+              upserts: 1,
+              deletes: 0,
+            ),
+            notes: const [],
+            attachments: const [],
+          ),
+          encryptedPrivateNotes: [
+            PreparedEncryptedPrivateSyncNote(
+              action: PendingNoteChangeAction.upsert,
+              note: before.note.copyWith(
+                encryptedPayload: encrypted,
+                updatedAt: exportedAt,
+                revision: before.note.revision + 1,
+                syncState: NoteSyncState.synced,
+                contentHash: 'different-remote-note-hash',
+              ),
+              attachments: const [],
+            ),
+          ],
+          bundleKind: SyncBundleKind.full,
+        );
+        final remote = await transport.uploadBundle(
+          encodedPayload: (await bundles.readEncryptedBundlePayload(
+            stored.reference,
+          ))!,
+          deviceId: 'remote-device',
+          noteCount: 1,
+          attachmentCount: 1,
+          bundleKind: SyncBundleKind.full,
+        );
+        await controller.downloadBundle(remote);
+        await controller.applyDownloadedBundle();
+        return remote;
+      }
+
+      final hash = sha256.convert(utf8.encode(attachmentPayload)).toString();
+      final equivalent = await applyRemote(hash);
+      expect(
+        container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+      expect(
+        (await database.loadAll()).single.note.encryptedPayload,
+        before.note.encryptedPayload,
+      );
+      expect(
+        (await database.loadPendingChanges()).single.contentHash,
+        pending.contentHash,
+      );
+      final syncState = container.read(syncBundleStateStoreProvider);
+      expect(
+        (await syncState.read()).lastAppliedRemoteFileId,
+        equivalent.fileId,
+      );
+
+      await applyRemote('different-attachment-content-hash');
+      expect(
+        container.read(syncTransferControllerProvider).message,
+        'sync.error.private_note_conflict',
+      );
+      expect(
+        (await syncState.read()).lastAppliedRemoteFileId,
+        equivalent.fileId,
+      );
+      expect(
+        (await database.loadAll()).single.note.encryptedPayload,
+        before.note.encryptedPayload,
+      );
+    },
+  );
 
   test('private sync conflict preserves the local pending change', () async {
     SharedPreferences.setMockInitialValues({});

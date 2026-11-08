@@ -2997,6 +2997,102 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     return previewDownloadedBundle();
   }
 
+  Future<bool> _matchesPendingPrivateNoteContent(
+    EncryptedNoteSnapshot local,
+    PreparedEncryptedPrivateSyncNote remote,
+  ) async {
+    if (remote.action != PendingNoteChangeAction.upsert ||
+        local.note.deletedAt != null ||
+        remote.note.deletedAt != null ||
+        local.note.vaultId != remote.note.vaultId) {
+      return false;
+    }
+    final key = await ref
+        .read(profileDataKeyServiceProvider)
+        .keyForVault(local.note.vaultId);
+    if (key == null) return false;
+
+    final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+    final localHashes = <String, String?>{};
+    Future<NoteAttachment> comparableAttachment(
+      NoteAttachment attachment, {
+      required bool isLocal,
+    }) async {
+      final path = attachment.filePath;
+      var hash = syncAttachmentObjectContentHash(path);
+      if (hash == null && isLocal && path != null && path.isNotEmpty) {
+        if (!localHashes.containsKey(path)) {
+          final payload = await attachmentStore.readStoredPayload(path);
+          localHashes[path] = payload == null || payload.isEmpty
+              ? null
+              : await _encryptedAttachmentPayloadContentHash(payload);
+        }
+        hash = localHashes[path];
+      }
+      if (hash == null) {
+        throw const SyncSafetyException(
+          'sync.error.remote_attachment_unavailable',
+        );
+      }
+      return attachment.copyWith(
+        filePath: null,
+        previewBytesBase64: null,
+        localPayloadSizeBytes: null,
+        localPayloadModifiedAtMillis: null,
+        syncAttachmentContentHash: hash,
+      );
+    }
+
+    Future<NoteEntry> comparableNote(
+      EncryptedNoteRecord record,
+      List<EncryptedAttachmentRecord> attachments, {
+      required bool isLocal,
+    }) async {
+      final note = await _decryptPrivateSyncNote(record, attachments, key);
+      return note.copyWith(
+        createdAt: note.createdAt.toUtc(),
+        updatedAt: null,
+        revision: 0,
+        deviceId: null,
+        contentHash: null,
+        syncState: NoteSyncState.synced,
+        attachments: [
+          for (final attachment in note.attachments)
+            await comparableAttachment(attachment, isLocal: isLocal),
+        ],
+        blocks: [
+          for (final block in note.blocks)
+            if (block.attachment case final attachment?)
+              block.copyWith(
+                attachment: await comparableAttachment(
+                  attachment,
+                  isLocal: isLocal,
+                ),
+              )
+            else
+              block,
+        ],
+      );
+    }
+
+    try {
+      final localContent = await comparableNote(
+        local.note,
+        local.attachments,
+        isLocal: true,
+      );
+      final remoteContent = await comparableNote(
+        remote.note,
+        remote.attachments,
+        isLocal: false,
+      );
+      return localContent == remoteContent;
+    } catch (_) {
+      // If either version cannot be verified, keep the conflict protection.
+      return false;
+    }
+  }
+
   Future<void> applyDownloadedBundle({bool historyValidated = false}) async {
     final historyStartedAt = DateTime.now();
     final localBundle = state.localBundle;
@@ -3051,6 +3147,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         final localPending = localPrivatePendingById[entry.note.id];
         if (localPending != null &&
             !pendingPrivateChangeMatchesRemote(localPending, entry)) {
+          final local = existingPrivateSnapshotsById[entry.note.id];
+          if (localPending.action == PendingNoteChangeAction.upsert &&
+              local != null &&
+              await _matchesPendingPrivateNoteContent(local, entry)) {
+            // Keep the local file paths and pending change intact. The normal
+            // upload can acknowledge it without replacing the local snapshot.
+            continue;
+          }
           throw const SyncSafetyException('sync.error.private_note_conflict');
         }
         encryptedPrivateEntries.add(entry);
@@ -4033,6 +4137,49 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     );
   }
 
+  Future<NoteEntry> _decryptPrivateSyncNote(
+    EncryptedNoteRecord record,
+    List<EncryptedAttachmentRecord> attachments,
+    SecretKey profileKey,
+  ) async {
+    final encryptionService = ref.read(encryptionServiceProvider);
+    final payload = await encryptionService.decryptJson(
+      encodedPayload: record.encryptedPayload,
+      secretKey: profileKey,
+    );
+    final decodedAttachments = <NoteAttachment>[];
+    for (final attachmentRecord in attachments) {
+      final attachmentPayload = await encryptionService.decryptJson(
+        encodedPayload: attachmentRecord.encryptedPayload,
+        secretKey: profileKey,
+      );
+      decodedAttachments.add(NoteAttachment.fromJson(attachmentPayload));
+    }
+    final legacyAttachments =
+        (payload['attachments'] as List<dynamic>? ?? const <dynamic>[])
+            .map((raw) => Map<String, dynamic>.from(raw as Map))
+            .map(NoteAttachment.fromJson)
+            .toList(growable: false);
+    return NoteEntry.fromJson({
+      ...payload,
+      'attachments':
+          (decodedAttachments.isNotEmpty
+                  ? decodedAttachments
+                  : legacyAttachments)
+              .map((attachment) => attachment.toJson())
+              .toList(),
+    }).copyWith(
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      deletedAt: record.deletedAt,
+      isPinned: record.isPinned,
+      revision: record.revision,
+      syncState: record.syncState,
+      deviceId: record.deviceId,
+      contentHash: record.contentHash,
+    );
+  }
+
   Future<PreparedEncryptedPrivateSyncNote> _importEncryptedPrivateSyncNote({
     required PreparedEncryptedPrivateSyncNote entry,
     required Map<String, Map<String, dynamic>> inlinePayloads,
@@ -4048,43 +4195,12 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     if (profileKey == null) {
       return entry;
     }
-    final encryptionService = ref.read(encryptionServiceProvider);
-    final payload = await encryptionService.decryptJson(
-      encodedPayload: entry.note.encryptedPayload,
-      secretKey: profileKey,
+    final note = await _decryptPrivateSyncNote(
+      entry.note,
+      entry.attachments,
+      profileKey,
     );
-    final decodedAttachments = <NoteAttachment>[];
-    for (final attachmentRecord in entry.attachments) {
-      final attachmentPayload = await encryptionService.decryptJson(
-        encodedPayload: attachmentRecord.encryptedPayload,
-        secretKey: profileKey,
-      );
-      decodedAttachments.add(NoteAttachment.fromJson(attachmentPayload));
-    }
-    final legacyAttachments =
-        (payload['attachments'] as List<dynamic>? ?? const <dynamic>[])
-            .map((raw) => Map<String, dynamic>.from(raw as Map))
-            .map(NoteAttachment.fromJson)
-            .toList(growable: false);
-    final note =
-        NoteEntry.fromJson({
-          ...payload,
-          'attachments':
-              (decodedAttachments.isNotEmpty
-                      ? decodedAttachments
-                      : legacyAttachments)
-                  .map((attachment) => attachment.toJson())
-                  .toList(),
-        }).copyWith(
-          createdAt: entry.note.createdAt,
-          updatedAt: entry.note.updatedAt,
-          deletedAt: entry.note.deletedAt,
-          isPinned: entry.note.isPinned,
-          revision: entry.note.revision,
-          syncState: entry.note.syncState,
-          deviceId: entry.note.deviceId,
-          contentHash: entry.note.contentHash,
-        );
+    final encryptionService = ref.read(encryptionServiceProvider);
 
     Future<NoteAttachment> importAttachment(NoteAttachment attachment) {
       return _importRemoteSyncAttachment(
