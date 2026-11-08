@@ -2460,7 +2460,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         );
       }
       final after = await ref.read(syncBundleStateStoreProvider).read();
-      if (after.lastAppliedRemoteFileId != item.fileId) {
+      if (after.lastAppliedRemoteFileId != item.fileId &&
+          !await _bundleDeferredForLockedProfile(item.fileId)) {
         return (
           ready: false,
           recoveringFullHistory: recoveringFullHistory,
@@ -2719,14 +2720,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             return;
           }
           if (state.message == _privateProfileNotesPendingUnlockMessage) {
-            final appliedState = await ref
-                .read(syncBundleStateStoreProvider)
-                .read();
-            if (appliedState.lastAppliedRemoteFileId != bundleStatus.fileId) {
-              // A legacy private entry was skipped, so replaying subsequent
-              // deltas would move past data that has not been stored locally.
-              return;
-            }
+            // A bundle holding a locked profile's legacy notes stays
+            // unapplied and is retried on later syncs, but it must not hold
+            // back every other note in the bundles that follow it.
+            await _bundleDeferredForLockedProfile(bundleStatus.fileId);
             privateProfilesPendingUnlock = true;
           }
           appliedRemoteDuringSync = true;
@@ -4869,6 +4866,23 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         data: {'error': error},
       );
     }
+  }
+
+  /// Whether [fileId] was just left unapplied because it carries legacy
+  /// private notes of a locked profile. Applied records are tracked by ID, so
+  /// such a bundle is selected again on every sync and applied once the
+  /// profile is unlocked, while later bundles can still be applied now.
+  Future<bool> _bundleDeferredForLockedProfile(String fileId) async {
+    if (state.stage == SyncTransferStage.error ||
+        state.message != _privateProfileNotesPendingUnlockMessage) {
+      return false;
+    }
+    final applied = await ref.read(syncBundleStateStoreProvider).read();
+    final deferred = !(applied.appliedRemoteFileIds?.contains(fileId) ?? false);
+    if (deferred) {
+      _diagnostic('remote bundle deferred until private profile unlock');
+    }
+    return deferred;
   }
 
   Future<void> _setPendingPrivateBundleApply(bool pending) async {

@@ -3282,6 +3282,102 @@ void main() {
     },
   );
 
+  test(
+    'locked legacy private notes defer only their bundle during replay',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final transport = InMemoryGoogleDriveSyncTransport(
+        uploadDelay: Duration.zero,
+      );
+      final harness = await _createGoogleDriveSyncHarness(
+        transport,
+        tempPrefix: 'himemo-locked-legacy-replay-',
+      );
+      final container = harness.container;
+      final bundles = container.read(secureSyncBundleStoreProvider);
+      NoteEntry note(String id, String vaultId, DateTime createdAt) =>
+          NoteEntry(
+            id: id,
+            vaultId: vaultId,
+            title: id,
+            body: 'Replay body',
+            createdAt: createdAt,
+            revision: 1,
+            contentHash: '$id-hash',
+          );
+      Future<RemoteSyncBundleStatus> publish(
+        List<NoteEntry> notes, {
+        String kind = SyncBundleKind.delta,
+      }) async {
+        final stored = await bundles.writeBundle(
+          PreparedSyncSnapshot(
+            deviceId: 'remote-device',
+            exportedAt: DateTime.utc(2026, 11, 8),
+            summary: SyncQueueSummary(
+              totalChanges: notes.length,
+              upserts: notes.length,
+              deletes: 0,
+            ),
+            notes: [
+              for (final entry in notes)
+                PreparedSyncNote(
+                  action: PendingNoteChangeAction.upsert,
+                  note: entry,
+                ),
+            ],
+            attachments: const [],
+          ),
+          encryptedPrivateNotes: const [],
+          bundleKind: kind,
+        );
+        return transport.uploadBundle(
+          encodedPayload: (await bundles.readEncryptedBundlePayload(
+            stored.reference,
+          ))!,
+          deviceId: 'remote-device',
+          noteCount: notes.length,
+          attachmentCount: 0,
+          bundleKind: kind,
+        );
+      }
+
+      // The oldest record still carries a plain legacy entry for a profile
+      // that is locked on this device.
+      final blocked = await publish([
+        note('legacy-private', 'private_profile:locked', DateTime.utc(2026, 7)),
+        note('same-bundle-public', 'everyday', DateTime.utc(2026, 7)),
+      ], kind: SyncBundleKind.full);
+      final later = await publish([
+        note('later-public', 'everyday', DateTime.utc(2026, 11)),
+      ]);
+
+      final sync = container.read(syncTransferControllerProvider.notifier);
+      await sync.syncNow(allowCachedRemoteStatus: false);
+
+      final ids = container.read(notesControllerProvider).map((n) => n.id);
+      final syncState = container.read(syncTransferControllerProvider);
+      expect(
+        ids,
+        containsAll(['same-bundle-public', 'later-public']),
+        reason: '${syncState.stage} ${syncState.message}',
+      );
+      expect(ids, isNot(contains('legacy-private')));
+      final applied =
+          (await container.read(syncBundleStateStoreProvider).read())
+              .appliedRemoteFileIds;
+      expect(applied, contains(later.fileId));
+      expect(applied, isNot(contains(blocked.fileId)));
+
+      // The deferred record is retried, and stays deferred, on the next sync.
+      await sync.syncNow(allowCachedRemoteStatus: false);
+      expect(
+        (await container.read(syncBundleStateStoreProvider).read())
+            .appliedRemoteFileIds,
+        isNot(contains(blocked.fileId)),
+      );
+    },
+  );
+
   test('sync does not apply a bundle with an unavailable attachment', () async {
     SharedPreferences.setMockInitialValues({});
     final transport = InMemoryGoogleDriveSyncTransport(
