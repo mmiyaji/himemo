@@ -4212,6 +4212,157 @@ void main() {
     },
   );
 
+  test(
+    'NotesController keeps pending edits over its own older replayed upload',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-own-replay-',
+      );
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(63));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: noteDatabase,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+
+      final controller = container.read(notesControllerProvider.notifier);
+      PreparedSyncNote remoteVersion(int revision, String hash) =>
+          PreparedSyncNote(
+            action: PendingNoteChangeAction.upsert,
+            note: NoteEntry(
+              id: 'own-note',
+              vaultId: 'everyday',
+              title: 'Remote revision $revision',
+              body: 'Uploaded earlier',
+              createdAt: DateTime(2026, 4, 13, 9, 0),
+              updatedAt: DateTime(2026, 4, 13, 9, revision),
+              revision: revision,
+              contentHash: hash,
+            ),
+          );
+      NoteEntry current() => container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'own-note');
+
+      await controller.mergeFromSync([remoteVersion(2, 'own-v2')]);
+      await controller.upsert(
+        current().copyWith(title: 'Local edit', body: 'Pending local change'),
+      );
+      expect(current().revision, greaterThan(2));
+      expect(current().syncState, NoteSyncState.pendingUpload);
+
+      await controller.mergeFromSync([
+        remoteVersion(2, 'own-v2-replayed'),
+      ], publishedByThisDevice: true);
+      expect(current().title, 'Local edit');
+      expect(current().syncState, NoteSyncState.pendingUpload);
+
+      await controller.mergeFromSync([
+        remoteVersion(current().revision + 1, 'own-newer'),
+      ], publishedByThisDevice: true);
+      expect(current().title, 'Local edit');
+      expect(current().syncState, NoteSyncState.conflict);
+    },
+  );
+
+  test(
+    'NotesController still flags older edits from other devices as conflicts',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDirectory = await Directory.systemTemp.createTemp(
+        'himemo-sync-other-older-',
+      );
+      addTearDown(() async {
+        if (await tempDirectory.exists()) {
+          await tempDirectory.delete(recursive: true);
+        }
+      });
+      final secureStore = MemorySecureKeyValueStore();
+      final encryptionService = EncryptionService(random: Random(64));
+      final masterKeyService = MasterKeyService(
+        secureStore: secureStore,
+        keyFactory: encryptionService.generateKeyBytes,
+      );
+      final noteDatabase = EncryptedNoteDatabase(
+        executor: NativeDatabase.memory(),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureKeyValueStoreProvider.overrideWithValue(secureStore),
+          encryptionServiceProvider.overrideWithValue(encryptionService),
+          masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          encryptedNoteDatabaseProvider.overrideWithValue(noteDatabase),
+          encryptedNoteStoreProvider.overrideWithValue(
+            EncryptedNoteStore(
+              encryptionService: encryptionService,
+              masterKeyService: masterKeyService,
+              database: noteDatabase,
+              directoryProvider: () async => tempDirectory,
+              sharedPreferencesProvider: SharedPreferences.getInstance,
+            ),
+          ),
+          homeRepositoryProvider.overrideWithValue(_MinimalHomeRepository()),
+        ],
+      );
+      addTearDown(container.dispose);
+      addTearDown(noteDatabase.close);
+
+      final controller = container.read(notesControllerProvider.notifier);
+      PreparedSyncNote remoteVersion(String hash) => PreparedSyncNote(
+        action: PendingNoteChangeAction.upsert,
+        note: NoteEntry(
+          id: 'shared-note',
+          vaultId: 'everyday',
+          title: 'Remote $hash',
+          body: 'From another device',
+          createdAt: DateTime(2026, 4, 13, 9, 0),
+          updatedAt: DateTime(2026, 4, 13, 9, 2),
+          revision: 2,
+          contentHash: hash,
+        ),
+      );
+      NoteEntry current() => container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'shared-note');
+
+      await controller.mergeFromSync([remoteVersion('other-v2')]);
+      await controller.upsert(current().copyWith(title: 'Local edit'));
+
+      await controller.mergeFromSync([remoteVersion('other-v2-concurrent')]);
+      expect(current().title, 'Local edit');
+      expect(current().syncState, NoteSyncState.conflict);
+    },
+  );
+
   test('NotesController applies remote deletes as trash without losing local content', () async {
     SharedPreferences.setMockInitialValues({});
     final tempDirectory = await Directory.systemTemp.createTemp(

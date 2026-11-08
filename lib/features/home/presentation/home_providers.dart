@@ -6905,7 +6905,12 @@ class NotesController extends _$NotesController {
     return operation;
   }
 
-  Future<void> mergeFromSync(List<PreparedSyncNote> changes) async {
+  /// [publishedByThisDevice] marks a bundle this device uploaded itself; its
+  /// older note versions are ancestors of local pending edits, not conflicts.
+  Future<void> mergeFromSync(
+    List<PreparedSyncNote> changes, {
+    bool publishedByThisDevice = false,
+  }) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
     if (changes.isEmpty) {
@@ -6957,6 +6962,29 @@ class NotesController extends _$NotesController {
 
       if (current != null && _hasUnuploadedLocalChange(current)) {
         if (!_sameSyncedContent(current, incoming)) {
+          final revisionOrder = incoming.revision < current.revision
+              ? 'remote_older'
+              : incoming.revision == current.revision
+              ? 'same'
+              : 'remote_newer';
+          if (publishedByThisDevice && revisionOrder == 'remote_older') {
+            // Replaying this device's own earlier upload: the local pending
+            // edit was made on top of it, so keep the local version queued.
+            logDiagnostic(
+              'sync',
+              'pending note superseded own remote version',
+              data: {'revisionOrder': revisionOrder},
+            );
+            continue;
+          }
+          logDiagnostic(
+            'sync',
+            'pending note conflict candidate',
+            data: {
+              'publishedByThisDevice': publishedByThisDevice,
+              'revisionOrder': revisionOrder,
+            },
+          );
           replaceAt(index, current.copyWith(syncState: NoteSyncState.conflict));
         }
         continue;

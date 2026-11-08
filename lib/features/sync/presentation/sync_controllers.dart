@@ -3320,7 +3320,6 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       }
       final bundleDeviceId = decoded['deviceId'];
       final publishedByThisDevice =
-          rawEncryptedPrivateEntries.isNotEmpty &&
           bundleDeviceId is String &&
           bundleDeviceId.isNotEmpty &&
           bundleDeviceId ==
@@ -3607,7 +3606,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       if (importedChanges.isNotEmpty) {
         await ref
             .read(notesControllerProvider.notifier)
-            .mergeFromSync(importedChanges);
+            .mergeFromSync(
+              importedChanges,
+              publishedByThisDevice: publishedByThisDevice,
+            );
         ref.invalidate(syncQueueSummaryProvider);
       }
       if (importedEncryptedPrivateCount > 0) {
