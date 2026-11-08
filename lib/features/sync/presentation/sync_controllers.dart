@@ -3301,6 +3301,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
               snapshot.note.id: snapshot,
       };
       final encryptedPrivateEntries = <PreparedEncryptedPrivateSyncNote>[];
+      final locallyResolvedPrivateConflicts = <(String, String)>[];
+      final privateConflictChoiceState = await ref
+          .read(syncBundleStateStoreProvider)
+          .read();
       for (final rawEntry in rawEncryptedPrivateEntries) {
         final entry = PreparedEncryptedPrivateSyncNote.fromJson(rawEntry);
         if (entry == null) {
@@ -3310,6 +3314,28 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         final localPending = localPrivatePendingById[entry.note.id];
         if (localPending != null &&
             !pendingPrivateChangeMatchesRemote(localPending, entry)) {
+          final remoteContentHash = entry.note.contentHash;
+          if (remoteContentHash != null &&
+              ref
+                  .read(syncBundleStateStoreProvider)
+                  .hasLocalPrivateConflictChoice(
+                    privateConflictChoiceState,
+                    entry.note.id,
+                    remoteContentHash,
+                  )) {
+            // The user explicitly selected this local private-note version.
+            // Keep its pending row while applying the rest of this bundle so
+            // the replay anchor can move beyond the reviewed conflict.
+            locallyResolvedPrivateConflicts.add((
+              entry.note.id,
+              remoteContentHash,
+            ));
+            _diagnostic(
+              'private pending note local choice honored',
+              data: {'noteId': entry.note.id},
+            );
+            continue;
+          }
           final local = existingPrivateSnapshotsById[entry.note.id];
           if (localPending.action == PendingNoteChangeAction.upsert &&
               local != null &&
@@ -3568,6 +3594,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
                   _coverageFromBundle(decoded)?.coveredBundleIds ?? const {},
               advanceAnchor: canAdvanceAnchor,
             );
+        if (canAdvanceAnchor) {
+          final bundleStateStore = ref.read(syncBundleStateStoreProvider);
+          for (final (noteId, contentHash) in locallyResolvedPrivateConflicts) {
+            await bundleStateStore.clearLocalPrivateConflictChoice(
+              noteId,
+              contentHash,
+            );
+          }
+        }
         ref.invalidate(syncBundleStateProvider);
       }
       await _setPendingPrivateBundleApply(
@@ -4634,6 +4669,38 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           ),
         ),
       );
+    }
+    // New private-profile sync entries stay encrypted on the wire and are
+    // intentionally absent from `notes`. Conflict review still needs the
+    // selected note's remote version so an explicit local/remote choice can
+    // be persisted and replayed safely.
+    if (noteId != null) {
+      final rawEncryptedEntries =
+          decoded['encryptedPrivateNotes'] as List<dynamic>? ?? const [];
+      for (final rawEntry in rawEncryptedEntries) {
+        final encrypted = PreparedEncryptedPrivateSyncNote.fromJson(rawEntry);
+        if (encrypted == null || encrypted.note.id != noteId) continue;
+        if (_ignoreLockedLegacyVault(encrypted.note.vaultId)) continue;
+        final key = await ref
+            .read(profileDataKeyServiceProvider)
+            .keyForVault(encrypted.note.vaultId);
+        if (key == null) {
+          throw const SyncSafetyException(
+            'sync.error.private_profile_unlock_required',
+          );
+        }
+        final note = await _decryptPrivateSyncNote(
+          encrypted.note,
+          encrypted.attachments,
+          key,
+        );
+        importedChanges.add(
+          PreparedSyncNote(
+            action: encrypted.action,
+            note: note.copyWith(syncState: NoteSyncState.synced),
+          ),
+        );
+      }
     }
     return importedChanges;
   }

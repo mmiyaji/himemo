@@ -1789,6 +1789,18 @@ class _NoteConflictResolverDialogState
         if (!confirmed) {
           return const NoteConflictResolutionOutcome.cancelled();
         }
+        if (isPrivateVaultId(widget.localNote.vaultId)) {
+          final remoteContentHash = remoteChange.note.contentHash;
+          if (remoteContentHash == null || remoteContentHash.isEmpty) {
+            throw StateError('sync.error.private_conflict_review_expired');
+          }
+          await ref
+              .read(syncBundleStateStoreProvider)
+              .rememberLocalPrivateConflictChoice(
+                widget.localNote.id,
+                remoteContentHash,
+              );
+        }
         await notes.resolveConflictKeepingLocal(
           widget.localNote.id,
           remoteRevision: remoteChange.note.revision,
