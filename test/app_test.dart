@@ -3531,7 +3531,7 @@ void main() {
 
     final transfer = harness.container.read(syncTransferControllerProvider);
     expect(transfer.stage, SyncTransferStage.error);
-    expect(transfer.message, 'sync.error.private_note_conflict');
+    expect(transfer.message, 'sync.error.private_profile_unlock_required');
     final pending = await database.loadPendingChanges();
     expect(pending, hasLength(1));
     expect(pending.single.contentHash, 'local-hash');
