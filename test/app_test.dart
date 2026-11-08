@@ -3403,6 +3403,40 @@ void main() {
         equivalent.fileId,
       );
 
+      final unavailableAttachment = attachment.copyWith(
+        filePath: 'unavailable-private-attachment.enc',
+        syncAttachmentContentHash: hash,
+      );
+      await container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            note.copyWith(
+              attachments: [unavailableAttachment],
+              blocks: [
+                NoteBlock(
+                  type: NoteBlockType.photo,
+                  attachment: unavailableAttachment,
+                ),
+              ],
+            ),
+          );
+      final missingFileEquivalent = await applyRemote(hash);
+      expect(
+        container.read(syncTransferControllerProvider).stage,
+        SyncTransferStage.success,
+      );
+      final repairedAttachment = container
+          .read(notesControllerProvider)
+          .single
+          .attachments
+          .single;
+      expect(
+        syncAttachmentObjectContentHash(repairedAttachment.filePath),
+        hash,
+      );
+      expect(await database.loadPendingChanges(), hasLength(1));
+      final beforeConflict = (await database.loadAll()).single.note;
+
       await applyRemote('different-attachment-content-hash');
       expect(
         container.read(syncTransferControllerProvider).message,
@@ -3410,11 +3444,11 @@ void main() {
       );
       expect(
         (await syncState.read()).lastAppliedRemoteFileId,
-        equivalent.fileId,
+        missingFileEquivalent.fileId,
       );
       expect(
         (await database.loadAll()).single.note.encryptedPayload,
-        before.note.encryptedPayload,
+        beforeConflict.encryptedPayload,
       );
     },
   );

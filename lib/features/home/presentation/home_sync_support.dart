@@ -467,6 +467,15 @@ String _localizedSyncTransferMessage(
         es: 'La misma nota privada se modifico en ambos dispositivos. No se sobrescribio ninguna version. Revisa ambos dispositivos antes de elegir que version subir.',
         de: 'Dieselbe private Notiz wurde auf beiden Geraten geandert. Keine Version wurde uberschrieben. Prufe beide Gerate, bevor du eine Version hochladst.',
       );
+    case 'sync.error.private_profile_unlock_required':
+      return strings.localized(
+        en: 'Unlock the affected private profile to compare its pending note before syncing.',
+        ja: '保留中のメモを安全に比較するため、該当するプライベートプロファイルを解除してから同期してください。',
+        zh: '请先解锁相应的私密档案，再同步待处理的笔记。',
+        ko: '보류 중인 메모를 비교할 수 있도록 해당 비공개 프로필을 먼저 잠금 해제하세요.',
+        es: 'Desbloquea el perfil privado correspondiente para comparar la nota pendiente antes de sincronizar.',
+        de: 'Entsperre das betroffene private Profil, um die ausstehende Notiz vor der Synchronisierung zu vergleichen.',
+      );
     case 'sync.error.malformed_private_note':
       return strings.localized(
         en: 'The cloud backup contains invalid private-note data. Nothing changed. Try syncing again.',

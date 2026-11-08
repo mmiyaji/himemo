@@ -3016,7 +3016,15 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     final key = await ref
         .read(profileDataKeyServiceProvider)
         .keyForVault(local.note.vaultId);
-    if (key == null) return false;
+    if (key == null) {
+      _diagnostic(
+        'private pending note comparison unavailable',
+        data: {'reason': 'profile_key_unavailable'},
+      );
+      throw const SyncSafetyException(
+        'sync.error.private_profile_unlock_required',
+      );
+    }
 
     final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
     final localHashes = <String, String?>{};
@@ -3026,16 +3034,42 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }) async {
       final path = attachment.filePath;
       var hash = syncAttachmentObjectContentHash(path);
-      if (hash == null && isLocal && path != null && path.isNotEmpty) {
-        if (!localHashes.containsKey(path)) {
-          final payload = await attachmentStore.readStoredPayload(path);
-          localHashes[path] = payload == null || payload.isEmpty
-              ? null
-              : await _encryptedAttachmentPayloadContentHash(payload);
+      final cachedHash = attachment.syncAttachmentContentHash;
+      if (hash == null && isLocal) {
+        if (path != null && path.isNotEmpty) {
+          if (!localHashes.containsKey(path)) {
+            final metadata = await attachmentStore.storedPayloadMetadata(path);
+            final metadataStillMatches =
+                metadata != null &&
+                attachment.localPayloadSizeBytes == metadata.sizeBytes &&
+                attachment.localPayloadModifiedAtMillis ==
+                    metadata.modifiedAtMillis;
+            if (metadataStillMatches && cachedHash != null) {
+              localHashes[path] = cachedHash;
+            } else {
+              final payload = await attachmentStore.readStoredPayload(path);
+              localHashes[path] = payload == null || payload.isEmpty
+                  ? null
+                  : await _encryptedAttachmentPayloadContentHash(payload);
+            }
+          }
+          hash = localHashes[path];
         }
-        hash = localHashes[path];
+        // The cached identity remains useful when the local file is absent;
+        // a matching remote object reference can repair that path below.
+        hash ??= cachedHash;
+      } else {
+        hash ??= cachedHash;
       }
       if (hash == null) {
+        _diagnostic(
+          'private pending note comparison unavailable',
+          data: {
+            'reason': isLocal
+                ? 'local_attachment_identity_missing'
+                : 'remote_attachment_identity_missing',
+          },
+        );
         throw const SyncSafetyException(
           'sync.error.remote_attachment_unavailable',
         );
@@ -3082,6 +3116,16 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
 
     try {
+      final localNote = await _decryptPrivateSyncNote(
+        local.note,
+        local.attachments,
+        key,
+      );
+      final remoteNote = await _decryptPrivateSyncNote(
+        remote.note,
+        remote.attachments,
+        key,
+      );
       final localContent = await comparableNote(
         local.note,
         local.attachments,
@@ -3092,10 +3136,107 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remote.attachments,
         isLocal: false,
       );
-      return localContent == remoteContent;
-    } catch (_) {
-      // If either version cannot be verified, keep the conflict protection.
+      if (localContent != remoteContent) {
+        final differences = <String>[
+          if (localContent.title != remoteContent.title) 'title',
+          if (localContent.body != remoteContent.body) 'body',
+          if (localContent.createdAt != remoteContent.createdAt) 'createdAt',
+          if (localContent.archivedAt != remoteContent.archivedAt) 'archivedAt',
+          if (localContent.attachments != remoteContent.attachments)
+            'attachments',
+          if (localContent.blocks != remoteContent.blocks) 'blocks',
+          if (localContent.tags != remoteContent.tags) 'tags',
+          if (localContent.isPinned != remoteContent.isPinned) 'isPinned',
+          if (localContent.editorMode != remoteContent.editorMode) 'editorMode',
+          if (localContent.location != remoteContent.location) 'location',
+        ];
+        _diagnostic(
+          'private pending note content differs',
+          data: {'fields': differences.join(',')},
+        );
+        return false;
+      }
+      await _restoreMissingPrivateAttachmentReferences(
+        local: localNote,
+        remote: remoteNote,
+      );
+      _diagnostic('private pending note content matches remote');
+      return true;
+    } catch (error) {
+      final code = _syncDiagnosticErrorCode(error);
+      _diagnostic(
+        'private pending note comparison unavailable',
+        data: {'reason': code ?? error.runtimeType.toString()},
+      );
+      if (error is SyncSafetyException &&
+          error.code == 'sync.error.remote_attachment_unavailable') {
+        rethrow;
+      }
       return false;
+    }
+  }
+
+  Future<void> _restoreMissingPrivateAttachmentReferences({
+    required NoteEntry local,
+    required NoteEntry remote,
+  }) async {
+    final attachmentStore = ref.read(encryptedAttachmentStoreProvider);
+    final notesController = ref.read(notesControllerProvider.notifier);
+
+    NoteAttachment? attachmentAt(NoteEntry note, int index) {
+      if (index < 0) return null;
+      if (index < note.attachments.length) return note.attachments[index];
+      final blockIndex = index - note.attachments.length;
+      if (blockIndex < 0 || blockIndex >= note.blocks.length) return null;
+      return note.blocks[blockIndex].attachment;
+    }
+
+    final attachmentCount = math.max(
+      local.attachments.length,
+      remote.attachments.length,
+    );
+    final blockCount = math.max(local.blocks.length, remote.blocks.length);
+    for (var index = 0; index < attachmentCount + blockCount; index++) {
+      final localAttachment = attachmentAt(local, index);
+      final remoteAttachment = attachmentAt(remote, index);
+      if (localAttachment == null || remoteAttachment == null) continue;
+      final remotePath = remoteAttachment.filePath;
+      final remoteHash =
+          syncAttachmentObjectContentHash(remotePath) ??
+          remoteAttachment.syncAttachmentContentHash;
+      final localHash =
+          syncAttachmentObjectContentHash(localAttachment.filePath) ??
+          localAttachment.syncAttachmentContentHash;
+      if (remoteHash == null ||
+          remoteHash != localHash ||
+          !isSyncAttachmentObjectRef(remotePath)) {
+        continue;
+      }
+      final localPath = localAttachment.filePath;
+      if (isSyncAttachmentObjectRef(localPath)) continue;
+      if (localPath != null && localPath.isNotEmpty) {
+        final metadata = await attachmentStore.storedPayloadMetadata(localPath);
+        if (metadata != null) continue;
+      }
+      final restored = await notesController
+          .restoreMissingAttachmentRemoteReference(
+            noteId: local.id,
+            index: index,
+            remoteAttachment: remoteAttachment,
+          );
+      if (!restored) {
+        _diagnostic(
+          'missing private attachment reference restore skipped',
+          data: {'reason': 'local_note_unavailable', 'attachmentIndex': index},
+        );
+        throw const SyncSafetyException(
+          'sync.error.remote_attachment_unavailable',
+        );
+      }
+      _diagnostic(
+        'missing private attachment reference restored',
+        data: {'attachmentIndex': index},
+      );
     }
   }
 
