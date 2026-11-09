@@ -25,6 +25,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   static const _privateProfileNotesPendingUnlockMessage =
       'sync.info.private_profile_notes_pending_unlock';
   static const _downloadedSyncBundleFileName = 'downloaded_sync_bundle.enc';
+  static const _pendingPrivateBundleFileName =
+      'pending_private_sync_bundle.enc';
   static const _pendingPrivateBundleApplyKey =
       'sync.pending_private_bundle_apply.v1';
 
@@ -538,6 +540,17 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   Future<ICloudMaintenanceResult> compactICloudStorage({
     int keepLatest = 1,
   }) async {
+    ICloudMaintenanceResult? result;
+    await _runSyncOperation(() async {
+      result = await _compactICloudStorage(keepLatest: keepLatest);
+    }, waitForActive: true);
+    return result ??
+        (throw StateError('sync.error.local_bundle_prepare_failed'));
+  }
+
+  Future<ICloudMaintenanceResult> _compactICloudStorage({
+    required int keepLatest,
+  }) async {
     final provider = ref.read(syncProviderControllerProvider);
     if (provider != SyncProvider.iCloud) {
       throw StateError('iCloud sync is not selected.');
@@ -554,7 +567,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       throw StateError('sync.error.unlock_private_profiles_before_compact');
     }
-    await uploadCurrentBundle(
+    await _uploadCurrentBundle(
       force: true,
       fullSnapshot: true,
       pruneAfterUpload: false,
@@ -606,7 +619,53 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     return lockedIds;
   }
 
+  Completer<void>? _syncOperation;
+  bool _unlockReplay = false;
+  ({StoredSyncBundle bundle, RemoteSyncBundleStatus status})? _stagedDownload;
+
+  Future<void> _runSyncOperation(
+    Future<void> Function() run, {
+    bool waitForActive = false,
+  }) async {
+    while (_syncOperation != null) {
+      if (!waitForActive) return;
+      await _syncOperation!.future;
+      if (!ref.mounted) return;
+    }
+    final operation = Completer<void>();
+    _syncOperation = operation;
+    try {
+      await run();
+    } finally {
+      _syncOperation = null;
+      operation.complete();
+    }
+  }
+
   Future<void> uploadCurrentBundle({
+    bool force = false,
+    bool fullSnapshot = false,
+    bool deltaOnly = false,
+    String? expectedRemoteFileId,
+    Set<String>? onlyPendingNoteIds,
+    bool allowLargeMobileTransfer = false,
+    bool silentLargeMobileSkip = false,
+    bool pruneAfterUpload = true,
+  }) => _runSyncOperation(
+    () => _uploadCurrentBundle(
+      force: force,
+      fullSnapshot: fullSnapshot,
+      deltaOnly: deltaOnly,
+      expectedRemoteFileId: expectedRemoteFileId,
+      onlyPendingNoteIds: onlyPendingNoteIds,
+      allowLargeMobileTransfer: allowLargeMobileTransfer,
+      silentLargeMobileSkip: silentLargeMobileSkip,
+      pruneAfterUpload: pruneAfterUpload,
+    ),
+    waitForActive: true,
+  );
+
+  Future<void> _uploadCurrentBundle({
     bool force = false,
     bool fullSnapshot = false,
     bool deltaOnly = false,
@@ -1375,7 +1434,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             'index': error.index,
           },
         );
-        await uploadCurrentBundle(
+        await _uploadCurrentBundle(
           force: force,
           fullSnapshot: fullSnapshot,
           deltaOnly: deltaOnly,
@@ -2006,6 +2065,17 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   Future<void> reuploadAllCurrentNotes({
     bool allowLargeMobileTransfer = false,
     bool silentLargeMobileSkip = false,
+  }) => _runSyncOperation(
+    () => _reuploadAllCurrentNotes(
+      allowLargeMobileTransfer: allowLargeMobileTransfer,
+      silentLargeMobileSkip: silentLargeMobileSkip,
+    ),
+    waitForActive: true,
+  );
+
+  Future<void> _reuploadAllCurrentNotes({
+    bool allowLargeMobileTransfer = false,
+    bool silentLargeMobileSkip = false,
   }) async {
     final provider = ref.read(syncProviderControllerProvider);
     if (!_supportsRemoteTransport(provider)) {
@@ -2029,7 +2099,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     _startBusy(SyncTransferProgress.preparingBundle);
     await _yieldToUi();
     await ref.read(notesControllerProvider.notifier).queueCurrentStateForSync();
-    await uploadCurrentBundle(
+    await _uploadCurrentBundle(
       force: true,
       fullSnapshot: true,
       allowLargeMobileTransfer: allowLargeMobileTransfer,
@@ -2149,7 +2219,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   /// Resolve only the declared note versions. Importing an entire dependency
   /// could resurrect unrelated notes removed in the newer full snapshot.
-  Future<void> _expandExcludedRemoteNotes(Map<String, dynamic> decoded) async {
+  Future<void> _expandExcludedRemoteNotes(
+    Map<String, dynamic> decoded, {
+    bool allowRemote = true,
+  }) async {
     final retention = _exclusionRetentionFromBundle(decoded);
     if (retention == null || retention.noteBundleIds.isEmpty) return;
     final notes = <dynamic>[...?decoded['notes'] as List<dynamic>?];
@@ -2167,6 +2240,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       if (!presentIds.contains(entry.key)) {
         grouped.putIfAbsent(entry.value, () => {}).add(entry.key);
       }
+    }
+    if (!allowRemote && grouped.isNotEmpty) {
+      throw const SyncSafetyException('sync.error.remote_history_incomplete');
     }
     for (final entry in grouped.entries) {
       final source = await _readRemoteBundleJsonById(entry.key);
@@ -2455,64 +2531,119 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       recoveringFullHistory = true;
     }
     final replayItems = await _selectReplayBundles(history, applied);
-    _beginReplay(history);
-    try {
-      for (final item in replayItems) {
-        if (item.fileId == applied.lastUploadedRemoteFileId) {
-          final decoded = await _readRemoteBundleJsonById(item.fileId);
-          await ref
-              .read(syncBundleStateStoreProvider)
-              .recordApply(
-                item,
-                coveredRemoteFileIds:
-                    _coverageFromBundle(decoded)?.coveredBundleIds ?? const {},
-              );
-          continue;
-        }
-        final remote = await _downloadRemoteBundleById(item.fileId);
-        if (remote == null) {
-          throw const SyncSafetyException('sync.error.remote_bundle_missing');
-        }
-        await _storeDownloadedBundle(
-          remote,
-          emptyMessage: 'sync.info.no_bundle_to_sync',
-        );
-        await applyDownloadedBundle(
-          historyValidated: true,
-          sourceRemoteFileId: item.fileId,
-        );
-        if (state.stage == SyncTransferStage.error) {
-          return (
-            ready: false,
-            recoveringFullHistory: recoveringFullHistory,
-            hasRemoteHistory: history.isNotEmpty,
-          );
-        }
-        final after = await ref.read(syncBundleStateStoreProvider).read();
-        if (after.lastAppliedRemoteFileId != item.fileId) {
-          if (!await _bundleDeferredForLockedProfile(item.fileId)) {
-            return (
-              ready: false,
-              recoveringFullHistory: recoveringFullHistory,
-              hasRemoteHistory: history.isNotEmpty,
-            );
-          }
-          deferredLockedBundleIds.add(item.fileId);
-        }
-        // Conflicted notes are held for review and left out of the upload;
-        // they do not stop the remaining records from applying.
-      }
-    } finally {
-      _endReplay();
-    }
+    final replay = await _replayBundles(
+      history: history,
+      bundles: replayItems,
+      lastUploadedFileId: applied.lastUploadedRemoteFileId,
+      deferredLockedBundleIds: deferredLockedBundleIds,
+    );
     return (
-      ready: true,
+      ready: replay.completed,
       recoveringFullHistory: recoveringFullHistory,
       hasRemoteHistory: history.isNotEmpty,
     );
   }
 
+  Future<({bool completed, bool appliedRemote, bool pendingUnlock})>
+  _replayBundles({
+    required List<RemoteSyncBundleStatus> history,
+    required List<RemoteSyncBundleStatus> bundles,
+    required String? lastUploadedFileId,
+    Set<String>? deferredLockedBundleIds,
+  }) async {
+    var appliedRemote = false;
+    var pendingUnlock = false;
+    _beginReplay(history);
+    try {
+      for (final bundle in bundles) {
+        if (bundle.fileId == lastUploadedFileId) {
+          final decoded = await _readRemoteBundleJsonById(bundle.fileId);
+          await ref
+              .read(syncBundleStateStoreProvider)
+              .recordApply(
+                bundle,
+                coveredRemoteFileIds:
+                    _coverageFromBundle(decoded)?.coveredBundleIds ?? const {},
+              );
+          continue;
+        }
+        _setProgress(SyncTransferProgress.downloadingBundle);
+        await _yieldToUi();
+        final remote = await runFirebaseTrace(
+          'sync_download_remote_bundle_for_apply',
+          () => _downloadRemoteBundleById(bundle.fileId),
+        );
+        if (remote == null) {
+          _diagnostic(
+            'remote bundle disappeared during walk',
+            data: {'fileId': bundle.fileId},
+          );
+          throw const SyncSafetyException('sync.error.remote_bundle_missing');
+        }
+        _diagnostic(
+          'remote bundle downloaded for apply',
+          data: {
+            'fileId': remote.status.fileId,
+            'bundleKind': remote.status.bundleKind,
+            'payloadLength': remote.encodedPayload.length,
+          },
+        );
+        final localBundle = await _storeDownloadedBundle(
+          remote,
+          emptyMessage: 'sync.info.no_bundle_to_sync',
+          forReplay: true,
+        );
+        _setProgress(SyncTransferProgress.applyingBundle);
+        await _yieldToUi();
+        final result = await _applyDownloadedBundle(
+          historyValidated: true,
+          localBundle: localBundle,
+          sourceStatus: remote.status,
+        );
+        switch (result) {
+          case _BundleApplyResult.failed:
+            return (
+              completed: false,
+              appliedRemote: appliedRemote,
+              pendingUnlock: pendingUnlock,
+            );
+          case _BundleApplyResult.deferredLegacy:
+            deferredLockedBundleIds?.add(bundle.fileId);
+            _diagnostic('remote bundle deferred until private profile unlock');
+            pendingUnlock = true;
+          case _BundleApplyResult.appliedPendingUnlock:
+            pendingUnlock = true;
+          case _BundleApplyResult.applied:
+            break;
+        }
+        appliedRemote = true;
+      }
+    } finally {
+      _endReplay();
+    }
+    return (
+      completed: true,
+      appliedRemote: appliedRemote,
+      pendingUnlock: pendingUnlock,
+    );
+  }
+
   Future<void> syncNow({
+    bool forceUpload = false,
+    bool allowLargeMobileTransfer = false,
+    bool silentLargeMobileSkip = false,
+    bool allowCachedRemoteStatus = true,
+  }) => _runSyncOperation(() async {
+    await _syncNow(
+      forceUpload: forceUpload,
+      allowLargeMobileTransfer: allowLargeMobileTransfer,
+      silentLargeMobileSkip: silentLargeMobileSkip,
+      allowCachedRemoteStatus: allowCachedRemoteStatus,
+    );
+  });
+
+  Future<void> _syncNow({
+    bool downloadOnly = false,
     bool forceUpload = false,
     bool allowLargeMobileTransfer = false,
     bool silentLargeMobileSkip = false,
@@ -2690,76 +2821,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
                 .join(','),
           },
         );
-        _beginReplay(history);
-        try {
-          for (final bundleStatus in bundlesToApply) {
-            if (bundleStatus.fileId == bundleState.lastUploadedRemoteFileId) {
-              final decoded = await _readRemoteBundleJsonById(
-                bundleStatus.fileId,
-              );
-              await ref
-                  .read(syncBundleStateStoreProvider)
-                  .recordApply(
-                    bundleStatus,
-                    coveredRemoteFileIds:
-                        _coverageFromBundle(decoded)?.coveredBundleIds ??
-                        const {},
-                  );
-              continue;
-            }
-            _setProgress(SyncTransferProgress.downloadingBundle);
-            await _yieldToUi();
-            final remoteBundle = await runFirebaseTrace(
-              'sync_download_remote_bundle_for_apply',
-              () => _downloadRemoteBundleById(bundleStatus.fileId),
-            );
-            if (remoteBundle == null) {
-              _diagnostic(
-                'remote bundle disappeared during walk',
-                data: {'fileId': bundleStatus.fileId},
-              );
-              throw const SyncSafetyException(
-                'sync.error.remote_bundle_missing',
-              );
-            }
-            _diagnostic(
-              'remote bundle downloaded for apply',
-              data: {
-                'fileId': remoteBundle.status.fileId,
-                'bundleKind': remoteBundle.status.bundleKind,
-                'payloadLength': remoteBundle.encodedPayload.length,
-              },
-            );
-            await _storeDownloadedBundle(
-              remoteBundle,
-              emptyMessage: 'sync.info.no_bundle_to_sync',
-            );
-            _setProgress(SyncTransferProgress.applyingBundle);
-            await _yieldToUi();
-            // applyDownloadedBundle records the apply anchor per bundle, so an
-            // interrupted walk resumes from the first bundle that was not yet
-            // applied instead of starting over or skipping ahead.
-            await applyDownloadedBundle(
-              historyValidated: true,
-              sourceRemoteFileId: bundleStatus.fileId,
-            );
-            if (state.stage == SyncTransferStage.error) {
-              return;
-            }
-            if (state.message == _privateProfileNotesPendingUnlockMessage) {
-              // A bundle holding a locked profile's legacy notes stays
-              // unapplied and is retried on later syncs, but it must not hold
-              // back every other note in the bundles that follow it.
-              await _bundleDeferredForLockedProfile(bundleStatus.fileId);
-              privateProfilesPendingUnlock = true;
-            }
-            // A conflicted note is held for review on its own; the rest of
-            // this record and the records after it keep applying.
-            appliedRemoteDuringSync = true;
-          }
-        } finally {
-          _endReplay();
-        }
+        final replay = await _replayBundles(
+          history: history,
+          bundles: bundlesToApply,
+          lastUploadedFileId: bundleState.lastUploadedRemoteFileId,
+        );
+        if (!replay.completed) return;
+        appliedRemoteDuringSync = replay.appliedRemote;
+        privateProfilesPendingUnlock = replay.pendingUnlock;
       }
       final heldConflicts = (await _heldConflictNoteIds()).length;
       if (heldConflicts > 0) {
@@ -2779,12 +2848,12 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           'deletes': refreshedQueue.deletes,
         },
       );
-      if (refreshedQueue.hasPendingChanges) {
+      if (!downloadOnly && refreshedQueue.hasPendingChanges) {
         _setProgress(SyncTransferProgress.preparingBundle);
         await _yieldToUi();
         final forceConvergenceUpload =
             appliedRemoteDuringSync && !hadPendingChangesBeforeRemoteApply;
-        await uploadCurrentBundle(
+        await _uploadCurrentBundle(
           force: forceUpload || forceConvergenceUpload,
           allowLargeMobileTransfer: allowLargeMobileTransfer,
           silentLargeMobileSkip: silentLargeMobileSkip,
@@ -2819,6 +2888,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
       );
+      return;
     }
   }
 
@@ -2985,11 +3055,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  Future<void> downloadLatestBundle() async {
+  Future<void> downloadLatestBundle() =>
+      _runSyncOperation(_downloadLatestBundle);
+
+  Future<void> _downloadLatestBundle() async {
     final historyStartedAt = DateTime.now();
     final remoteStatus = state.remoteStatus;
     if (remoteStatus != null && remoteStatus.fileId.isNotEmpty) {
-      await downloadBundle(remoteStatus);
+      await _downloadBundle(remoteStatus);
       return;
     }
     final provider = ref.read(syncProviderControllerProvider);
@@ -3046,7 +3119,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     return _listRemoteHistory();
   }
 
-  Future<void> downloadBundle(RemoteSyncBundleStatus remoteStatus) async {
+  Future<void> downloadBundle(RemoteSyncBundleStatus remoteStatus) =>
+      _runSyncOperation(() => _downloadBundle(remoteStatus));
+
+  Future<void> _downloadBundle(RemoteSyncBundleStatus remoteStatus) async {
     final historyStartedAt = DateTime.now();
     final provider = ref.read(syncProviderControllerProvider);
     if (!_supportsRemoteTransport(provider)) {
@@ -3363,13 +3439,26 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     return null;
   }
 
-  Future<void> applyDownloadedBundle({
+  Future<void> applyDownloadedBundle() => _runSyncOperation(() async {
+    final localBundle = state.localBundle;
+    final staged = _stagedDownload;
+    await _applyDownloadedBundle(
+      localBundle: localBundle,
+      sourceStatus: identical(localBundle, staged?.bundle)
+          ? staged?.status
+          : null,
+    );
+  });
+
+  Future<_BundleApplyResult> _applyDownloadedBundle({
+    required StoredSyncBundle? localBundle,
+    RemoteSyncBundleStatus? sourceStatus,
     bool historyValidated = false,
-    String? sourceRemoteFileId,
+    bool retryingCachedBundle = false,
   }) async {
     final historyStartedAt = DateTime.now();
     await _loadExcludedPrivateVaults();
-    final localBundle = state.localBundle;
+    final sourceRemoteFileId = sourceStatus?.fileId;
     if (localBundle == null) {
       state = state.copyWith(
         stage: SyncTransferStage.error,
@@ -3381,7 +3470,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         success: false,
         message: state.message,
       );
-      return;
+      return _BundleApplyResult.failed;
     }
     final queueBeforeApply = await _readLocalSyncQueueSummary();
     _startBusy(SyncTransferProgress.applyingBundle);
@@ -3396,7 +3485,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       if (decoded == null) {
         throw StateError('sync.error.downloaded_bundle_decryption_failed');
       }
-      await _expandExcludedRemoteNotes(decoded);
+      await _expandExcludedRemoteNotes(
+        decoded,
+        allowRemote: !retryingCachedBundle,
+      );
       final encryptedDatabase = ref.read(encryptedNoteDatabaseProvider);
       final rawEncryptedPrivateEntries =
           decoded['encryptedPrivateNotes'] as List<dynamic>? ?? const [];
@@ -3603,6 +3695,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           final previewBySyncAttachmentId = previewBySyncAttachmentIdByVault
               .putIfAbsent(remoteNote.vaultId, () => <String, String?>{});
           final importedPrivateEntry = await _importEncryptedPrivateSyncNote(
+            allowRemoteAttachments: !retryingCachedBundle,
             entry: PreparedEncryptedPrivateSyncNote(
               action: entry.action,
               note: remoteNote,
@@ -3721,6 +3814,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           await _yieldToUi();
           importedAttachments.add(
             await _importRemoteSyncAttachment(
+              allowRemoteAttachments: !retryingCachedBundle,
               attachment: attachment,
               note: note,
               inlinePayloads: attachmentPayloads,
@@ -3746,6 +3840,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
                 ? block
                 : block.copyWith(
                     attachment: await _importRemoteSyncAttachment(
+                      allowRemoteAttachments: !retryingCachedBundle,
                       attachment: attachment,
                       note: note,
                       inlinePayloads: attachmentPayloads,
@@ -3803,27 +3898,43 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       }
       // A manually selected delta/new checkpoint does not prove that every
       // preceding record was applied. Only a validated walk may move past it.
-      final remote = state.remoteStatus;
+      final remote = sourceStatus;
       final canAdvanceAnchor =
           historyValidated ||
           (remote != null &&
               remote.isFullBundle &&
               remote.replayBaseFileId == null);
-      if (lockedPrivateVaultIds.isEmpty) {
+      if (lockedPrivateVaultIds.isEmpty && sourceStatus != null) {
         await ref
             .read(syncBundleStateStoreProvider)
             .recordApply(
-              state.remoteStatus,
+              sourceStatus,
               coveredRemoteFileIds:
                   _coverageFromBundle(decoded)?.coveredBundleIds ?? const {},
               advanceAnchor: canAdvanceAnchor,
             );
         ref.invalidate(syncBundleStateProvider);
       }
-      await _setPendingPrivateBundleApply(
-        lockedPrivateVaultIds.isNotEmpty ||
-            lockedEncryptedPrivateVaultIds.isNotEmpty,
-      );
+      if (!historyValidated) {
+        if (!retryingCachedBundle && lockedPrivateVaultIds.isNotEmpty) {
+          final store = ref.read(secureSyncBundleStoreProvider);
+          final payload = await store.readEncryptedBundlePayload(
+            localBundle.reference,
+          );
+          if (payload == null) {
+            throw const SyncSafetyException('sync.error.remote_bundle_missing');
+          }
+          await store.writeEncryptedBundlePayload(
+            payload,
+            noteCount: localBundle.noteCount,
+            attachmentCount: localBundle.attachmentCount,
+            fileNameOverride: _pendingPrivateBundleFileName,
+          );
+        }
+        if (retryingCachedBundle || lockedPrivateVaultIds.isNotEmpty) {
+          await _setPendingPrivateBundleApply(lockedPrivateVaultIds.isNotEmpty);
+        }
+      }
       state = state.copyWith(
         stage: SyncTransferStage.success,
         message:
@@ -3842,6 +3953,12 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remoteStatus: state.remoteStatus,
         localBundle: localBundle,
       );
+      if (lockedPrivateVaultIds.isNotEmpty) {
+        return _BundleApplyResult.deferredLegacy;
+      }
+      return lockedEncryptedPrivateVaultIds.isNotEmpty
+          ? _BundleApplyResult.appliedPendingUnlock
+          : _BundleApplyResult.applied;
     } on HimemoDecryptionException {
       _diagnostic(
         'bundle apply failed',
@@ -3867,6 +3984,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remoteStatus: state.remoteStatus,
         localBundle: localBundle,
       );
+      return _BundleApplyResult.failed;
     } catch (error) {
       _diagnostic(
         'bundle apply failed',
@@ -3889,6 +4007,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remoteStatus: state.remoteStatus,
         localBundle: localBundle,
       );
+      return _BundleApplyResult.failed;
     }
   }
 
@@ -4184,7 +4303,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  Future<void> restoreUnlockedPrivateAttachments(String vaultId) async {
+  Future<void> restoreUnlockedPrivateAttachments(String vaultId) =>
+      _runUnlockOperation(() => _restoreUnlockedPrivateAttachments(vaultId));
+
+  Future<void> _restoreUnlockedPrivateAttachments(String vaultId) async {
     final hasRemoteAttachment = ref
         .read(notesControllerProvider)
         .any(
@@ -4199,7 +4321,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
                         isSyncAttachmentObjectRef(block.attachment?.filePath),
                   )),
         );
-    if (!hasRemoteAttachment) {
+    if (!hasRemoteAttachment ||
+        await ref.read(networkConnectionServiceProvider).currentKind() ==
+            NetworkConnectionKind.none) {
       return;
     }
     try {
@@ -4241,6 +4365,16 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   Future<PreparedSyncNote?> downloadLatestRemoteNoteForConflict(
+    String noteId,
+  ) async {
+    PreparedSyncNote? note;
+    await _runSyncOperation(() async {
+      note = await _downloadLatestRemoteNoteForConflict(noteId);
+    });
+    return note;
+  }
+
+  Future<PreparedSyncNote?> _downloadLatestRemoteNoteForConflict(
     String noteId,
   ) async {
     final provider = ref.read(syncProviderControllerProvider);
@@ -4412,6 +4546,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     required Map<String, String?> storedBySyncAttachmentId,
     required Map<String, String?> previewBySyncAttachmentId,
     bool deferOnMobile = true,
+    bool allowRemoteAttachments = true,
   }) async {
     final filePath = attachment.filePath;
     if (filePath == null) {
@@ -4448,6 +4583,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           previewBySyncAttachmentId: previewBySyncAttachmentId,
         );
       }
+      if (!allowRemoteAttachments) return attachment;
       final connectionKind = await ref
           .read(networkConnectionServiceProvider)
           .currentKind();
@@ -4617,6 +4753,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
   Future<PreparedEncryptedPrivateSyncNote> _importEncryptedPrivateSyncNote({
     required PreparedEncryptedPrivateSyncNote entry,
+    required bool allowRemoteAttachments,
     required Map<String, Map<String, dynamic>> inlinePayloads,
     required Map<String, String?> storedBySyncAttachmentId,
     required Map<String, String?> previewBySyncAttachmentId,
@@ -4639,6 +4776,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
 
     Future<NoteAttachment> importAttachment(NoteAttachment attachment) {
       return _importRemoteSyncAttachment(
+        allowRemoteAttachments: allowRemoteAttachments,
         attachment: attachment,
         note: note,
         inlinePayloads: inlinePayloads,
@@ -4921,9 +5059,10 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     return importedChanges;
   }
 
-  Future<void> _storeDownloadedBundle(
+  Future<StoredSyncBundle?> _storeDownloadedBundle(
     DownloadedRemoteSyncBundle? remoteBundle, {
     required String emptyMessage,
+    bool forReplay = false,
   }) async {
     if (remoteBundle == null) {
       state = SyncTransferState(
@@ -4932,45 +5071,78 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         remoteStatus: state.remoteStatus,
         localBundle: state.localBundle,
       );
-      return;
+      return null;
     }
-    final localBundle = await ref
-        .read(secureSyncBundleStoreProvider)
-        .writeEncryptedBundlePayload(
-          remoteBundle.encodedPayload,
-          noteCount: remoteBundle.status.noteCount ?? 0,
-          attachmentCount: remoteBundle.status.attachmentCount ?? 0,
-          fileNameOverride: _downloadedSyncBundleFileName,
-        );
+    final store = ref.read(secureSyncBundleStoreProvider);
+    if (!forReplay) await _preserveLegacyPendingBundle(store);
+    final localBundle = await store.writeEncryptedBundlePayload(
+      remoteBundle.encodedPayload,
+      noteCount: remoteBundle.status.noteCount ?? 0,
+      attachmentCount: remoteBundle.status.attachmentCount ?? 0,
+      fileNameOverride: forReplay
+          ? 'replayed_sync_bundle.enc'
+          : _downloadedSyncBundleFileName,
+    );
+    if (!forReplay) {
+      _stagedDownload = (bundle: localBundle, status: remoteBundle.status);
+    }
     state = SyncTransferState(
       stage: SyncTransferStage.success,
       message: 'sync.info.remote_bundle_saved_locally',
       remoteStatus: remoteBundle.status,
-      localBundle: localBundle,
+      localBundle: forReplay && _stagedDownload != null
+          ? _stagedDownload!.bundle
+          : localBundle,
     );
     await ref
         .read(syncBundleStateStoreProvider)
         .recordRemoteStatus(remoteBundle.status);
+    return localBundle;
   }
 
-  Future<void> applyPendingPrivateDownloadedBundleIfNeeded() async {
-    if (!await _hasPendingPrivateBundleApply()) {
-      return;
-    }
-    try {
-      if (state.localBundle == null) {
-        final restored = await ref
-            .read(secureSyncBundleStoreProvider)
-            .readStoredEncryptedBundle(
-              fileNameOverride: _downloadedSyncBundleFileName,
-            );
-        if (restored == null) {
-          await _setPendingPrivateBundleApply(false);
-          return;
+  Future<void> applyPendingPrivateDownloadedBundleIfNeeded() =>
+      _runUnlockOperation(() async {
+        await _applyPendingCachedBundle();
+        if (_supportsRemoteTransport(
+              ref.read(syncProviderControllerProvider),
+            ) &&
+            await ref.read(networkConnectionServiceProvider).currentKind() !=
+                NetworkConnectionKind.none) {
+          await _syncNow(downloadOnly: true, silentLargeMobileSkip: true);
         }
-        state = state.copyWith(localBundle: restored);
+      });
+
+  Future<void> _runUnlockOperation(Future<void> Function() run) =>
+      _runSyncOperation(() async {
+        _unlockReplay = true;
+        try {
+          await run();
+        } finally {
+          _unlockReplay = false;
+        }
+      }, waitForActive: true);
+
+  Future<void> _applyPendingCachedBundle() async {
+    if (!await _hasPendingPrivateBundleApply()) return;
+    try {
+      final store = ref.read(secureSyncBundleStoreProvider);
+      final restored =
+          await store.readStoredEncryptedBundle(
+            fileNameOverride: _pendingPrivateBundleFileName,
+          ) ??
+          await store.readStoredEncryptedBundle(
+            fileNameOverride: _downloadedSyncBundleFileName,
+            allowLegacyWebKey: true,
+          );
+      if (restored == null) {
+        await _setPendingPrivateBundleApply(false);
+        return;
       }
-      await applyDownloadedBundle();
+      // Only verified cloud replay can acknowledge this payload's remote ID.
+      await _applyDownloadedBundle(
+        localBundle: restored,
+        retryingCachedBundle: true,
+      );
     } catch (error) {
       _diagnostic(
         'pending private downloaded bundle apply failed',
@@ -4979,21 +5151,34 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
   }
 
-  /// Whether [fileId] was just left unapplied because it carries legacy
-  /// private notes of a locked profile. Applied records are tracked by ID, so
-  /// such a bundle is selected again on every sync and applied once the
-  /// profile is unlocked, while later bundles can still be applied now.
-  Future<bool> _bundleDeferredForLockedProfile(String fileId) async {
-    if (state.stage == SyncTransferStage.error ||
-        state.message != _privateProfileNotesPendingUnlockMessage) {
-      return false;
+  Future<void> _preserveLegacyPendingBundle(SecureSyncBundleStore store) async {
+    if (!await _hasPendingPrivateBundleApply()) return;
+    try {
+      if (await store.readStoredEncryptedBundle(
+            fileNameOverride: _pendingPrivateBundleFileName,
+          ) !=
+          null) {
+        return;
+      }
+      final legacy = await store.readStoredEncryptedBundle(
+        fileNameOverride: _downloadedSyncBundleFileName,
+        allowLegacyWebKey: true,
+      );
+      if (legacy == null) return;
+      final payload = await store.readEncryptedBundlePayload(legacy.reference);
+      if (payload == null) return;
+      await store.writeEncryptedBundlePayload(
+        payload,
+        noteCount: legacy.noteCount,
+        attachmentCount: legacy.attachmentCount,
+        fileNameOverride: _pendingPrivateBundleFileName,
+      );
+    } catch (error) {
+      _diagnostic(
+        'legacy pending bundle migration failed',
+        data: {'error': error},
+      );
     }
-    final applied = await ref.read(syncBundleStateStoreProvider).read();
-    final deferred = !(applied.appliedRemoteFileIds?.contains(fileId) ?? false);
-    if (deferred) {
-      _diagnostic('remote bundle deferred until private profile unlock');
-    }
-    return deferred;
   }
 
   Future<void> _setPendingPrivateBundleApply(bool pending) async {
@@ -5862,7 +6047,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       await _ensureGoogleDriveSyncKeyReady();
       return await operation();
     } catch (error, stackTrace) {
-      if (!_isRecoverableGoogleDriveAuthorizationError(error)) {
+      if (_unlockReplay ||
+          !_isRecoverableGoogleDriveAuthorizationError(error)) {
         rethrow;
       }
       final authController = ref.read(syncAuthControllerProvider.notifier);
@@ -5883,7 +6069,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   Future<void> _ensureGoogleDriveSyncKeyReady() async {
     final authController = ref.read(syncAuthControllerProvider.notifier);
     var authState = authController.stateFor(SyncProvider.googleDrive);
-    if (!authState.isAuthenticated) {
+    if (!authState.isAuthenticated && !_unlockReplay) {
       await authController.connect(SyncProvider.googleDrive);
       authState = authController.stateFor(SyncProvider.googleDrive);
     }
@@ -5891,6 +6077,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       throw StateError(
         authState.message ?? 'Google Drive authentication is required.',
       );
+    }
+    if (_unlockReplay) {
+      final provider = ref.read(syncProviderControllerProvider.notifier);
+      if (provider._preparedGoogleDriveAccountId != authState.userId) {
+        throw StateError('Google Drive sync key preparation is required.');
+      }
+      return;
     }
     await ref
         .read(syncProviderControllerProvider.notifier)
@@ -6481,6 +6674,13 @@ class SyncProviderController extends Notifier<SyncProvider> {
       }
     }
   }
+}
+
+enum _BundleApplyResult {
+  applied,
+  appliedPendingUnlock,
+  deferredLegacy,
+  failed,
 }
 
 class _ReplayContext {

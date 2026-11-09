@@ -3359,6 +3359,7 @@ void main() {
       await publish([
         note('later-new', 'later-new-v1'),
       ], kind: SyncBundleKind.delta);
+      await notes.upsert(note('unrelated-local', 'unrelated-local-v1'));
 
       await container
           .read(syncTransferControllerProvider.notifier)
@@ -3380,10 +3381,18 @@ void main() {
       final latestJson = await bundles.readRemoteBundlePayloadJson(
         latest!.encodedPayload,
       );
-      expect([
+      final uploadedNotes = [
         for (final raw in latestJson['notes'] as List<dynamic>? ?? const [])
-          ((raw as Map)['note'] as Map)['title'],
-      ], isNot(contains('Local edit')));
+          (raw as Map)['note'] as Map,
+      ];
+      expect(
+        uploadedNotes.map((note) => note['title']),
+        isNot(contains('Local edit')),
+      );
+      expect(
+        uploadedNotes.map((note) => note['id']),
+        contains('unrelated-local'),
+      );
     },
   );
 
@@ -3391,14 +3400,25 @@ void main() {
     'locked legacy private notes defer only their bundle during replay',
     () async {
       SharedPreferences.setMockInitialValues({});
-      final transport = InMemoryGoogleDriveSyncTransport(
-        uploadDelay: Duration.zero,
-      );
+      final transport = _UnlockReplayTestTransport();
       final harness = await _createGoogleDriveSyncHarness(
         transport,
         tempPrefix: 'himemo-locked-legacy-replay-',
       );
       final container = harness.container;
+      const password = 'locked-legacy-replay-pass';
+      expect(
+        await container
+            .read(privateMemoProfilesControllerProvider.notifier)
+            .addProfile(name: 'Locked profile', password: password),
+        isNull,
+      );
+      final unlock = container.read(
+        privateProfileUnlockControllerProvider.notifier,
+      );
+      final profile = (await unlock.unlockWithPassword(password))!;
+      container.read(profileDataKeyServiceProvider).lockAllPrivateProfiles();
+      container.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
       final bundles = container.read(secureSyncBundleStoreProvider);
       NoteEntry note(String id, String vaultId, DateTime createdAt) =>
           NoteEntry(
@@ -3449,7 +3469,7 @@ void main() {
       // The oldest record still carries a plain legacy entry for a profile
       // that is locked on this device.
       final blocked = await publish([
-        note('legacy-private', 'private_profile:locked', DateTime.utc(2026, 7)),
+        note('legacy-private', profile.vaultId, DateTime.utc(2026, 7)),
         note('same-bundle-public', 'everyday', DateTime.utc(2026, 7)),
       ], kind: SyncBundleKind.full);
       final later = await publish([
@@ -3474,11 +3494,7 @@ void main() {
       expect(applied, isNot(contains(blocked.fileId)));
 
       final latestBlocked = await publish([
-        note(
-          'latest-legacy-private',
-          'private_profile:locked',
-          DateTime.utc(2026, 11),
-        ),
+        note('latest-legacy-private', profile.vaultId, DateTime.utc(2026, 11)),
       ]);
 
       // The deferred record is retried, and stays deferred, on the next sync,
@@ -3514,6 +3530,84 @@ void main() {
         for (final raw in latestJson['notes'] as List<dynamic>? ?? const [])
           ((raw as Map)['note'] as Map)['id'],
       ], contains('local-new'));
+      await container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            note(
+              'local-pending-on-unlock',
+              'everyday',
+              DateTime.utc(2026, 11, 9),
+            ),
+          );
+      expect(await unlock.unlockWithPassword(password), isNotNull);
+      expect(
+        container.read(notesControllerProvider).map((note) => note.id),
+        containsAll(['legacy-private', 'latest-legacy-private']),
+      );
+      expect(
+        (await container.read(syncBundleStateStoreProvider).read())
+            .appliedRemoteFileIds,
+        containsAll([blocked.fileId, latestBlocked.fileId]),
+      );
+      expect(
+        (await transport.downloadLatestBundle())?.status.fileId,
+        latest.status.fileId,
+      );
+      expect(
+        container
+            .read(notesControllerProvider)
+            .singleWhere((note) => note.id == 'local-pending-on-unlock')
+            .syncState,
+        NoteSyncState.pendingUpload,
+      );
+
+      container.read(profileDataKeyServiceProvider).lockAllPrivateProfiles();
+      container.read(unlockedPrivateProfileVaultIdProvider.notifier).lock();
+      final cached = await publish([
+        note('cached-private', profile.vaultId, DateTime.utc(2026, 11)),
+      ]);
+      await sync.downloadBundle(cached);
+      await sync.applyDownloadedBundle();
+      await sync.downloadBundle(later);
+      await sync.applyDownloadedBundle();
+      transport.failHistory = true;
+
+      expect(await unlock.unlockWithPassword(password), isNotNull);
+      expect(
+        container.read(notesControllerProvider).map((note) => note.id),
+        contains('cached-private'),
+      );
+      expect(
+        (await container.read(syncBundleStateStoreProvider).read())
+            .appliedRemoteFileIds,
+        isNot(contains(cached.fileId)),
+      );
+      transport.failHistory = false;
+
+      await sync.refreshRemoteStatus();
+      await sync.applyDownloadedBundle();
+      expect(
+        (await container.read(syncBundleStateStoreProvider).read())
+            .appliedRemoteFileIds,
+        isNot(contains(cached.fileId)),
+      );
+
+      transport.pauseDownload = Completer<void>();
+      final download = sync.downloadBundle(later);
+      await transport.downloadStarted.future;
+      final historyReads = transport.historyReads;
+      final unlockReplay = sync.applyPendingPrivateDownloadedBundleIfNeeded();
+      await Future<void>.delayed(Duration.zero);
+      expect(transport.historyReads, historyReads);
+      transport.pauseDownload!.complete();
+      await download;
+      await unlockReplay;
+      expect(transport.historyReads, greaterThan(historyReads));
+      expect(
+        (await container.read(syncBundleStateStoreProvider).read())
+            .appliedRemoteFileIds,
+        contains(cached.fileId),
+      );
     },
   );
 
@@ -7860,6 +7954,34 @@ class _FailingHistoryTransport extends InMemoryGoogleDriveSyncTransport {
   @override
   Future<List<RemoteSyncBundleStatus>> listBundleHistory({int limit = 10}) {
     throw StateError('simulated history failure');
+  }
+}
+
+class _UnlockReplayTestTransport extends InMemoryGoogleDriveSyncTransport {
+  _UnlockReplayTestTransport() : super(uploadDelay: Duration.zero);
+
+  bool failHistory = false;
+  int historyReads = 0;
+  Completer<void>? pauseDownload;
+  final downloadStarted = Completer<void>();
+
+  @override
+  Future<List<RemoteSyncBundleStatus>> listBundleHistory({int limit = 10}) {
+    historyReads++;
+    if (failHistory) throw StateError('simulated history failure');
+    return super.listBundleHistory(limit: limit);
+  }
+
+  @override
+  Future<DownloadedRemoteSyncBundle?> downloadBundleByFileId(
+    String fileId,
+  ) async {
+    final pause = pauseDownload;
+    if (pause != null && !pause.isCompleted) {
+      downloadStarted.complete();
+      await pause.future;
+    }
+    return super.downloadBundleByFileId(fileId);
   }
 }
 
