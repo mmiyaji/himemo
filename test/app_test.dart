@@ -3473,6 +3473,14 @@ void main() {
       expect(applied, contains(later.fileId));
       expect(applied, isNot(contains(blocked.fileId)));
 
+      final latestBlocked = await publish([
+        note(
+          'latest-legacy-private',
+          'private_profile:locked',
+          DateTime.utc(2026, 11),
+        ),
+      ]);
+
       // The deferred record is retried, and stays deferred, on the next sync,
       // while this device's own edits still upload.
       await container
@@ -3493,11 +3501,11 @@ void main() {
         isNot(SyncTransferStage.error),
         reason: afterUpload.message,
       );
-      expect(
-        (await container.read(syncBundleStateStoreProvider).read())
-            .appliedRemoteFileIds,
-        isNot(contains(blocked.fileId)),
-      );
+      final appliedAfterUpload =
+          (await container.read(syncBundleStateStoreProvider).read())
+              .appliedRemoteFileIds;
+      expect(appliedAfterUpload, isNot(contains(blocked.fileId)));
+      expect(appliedAfterUpload, isNot(contains(latestBlocked.fileId)));
       final latest = await transport.downloadLatestBundle();
       final latestJson = await bundles.readRemoteBundlePayloadJson(
         latest!.encodedPayload,
