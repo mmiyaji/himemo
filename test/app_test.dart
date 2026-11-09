@@ -3473,13 +3473,39 @@ void main() {
       expect(applied, contains(later.fileId));
       expect(applied, isNot(contains(blocked.fileId)));
 
-      // The deferred record is retried, and stays deferred, on the next sync.
+      // The deferred record is retried, and stays deferred, on the next sync,
+      // while this device's own edits still upload.
+      await container
+          .read(notesControllerProvider.notifier)
+          .upsert(
+            NoteEntry(
+              id: 'local-new',
+              vaultId: 'everyday',
+              title: 'Local new note',
+              body: 'Written while a locked profile record is deferred',
+              createdAt: DateTime.utc(2026, 11, 9),
+            ),
+          );
       await sync.syncNow(allowCachedRemoteStatus: false);
+      final afterUpload = container.read(syncTransferControllerProvider);
+      expect(
+        afterUpload.stage,
+        isNot(SyncTransferStage.error),
+        reason: afterUpload.message,
+      );
       expect(
         (await container.read(syncBundleStateStoreProvider).read())
             .appliedRemoteFileIds,
         isNot(contains(blocked.fileId)),
       );
+      final latest = await transport.downloadLatestBundle();
+      final latestJson = await bundles.readRemoteBundlePayloadJson(
+        latest!.encodedPayload,
+      );
+      expect([
+        for (final raw in latestJson['notes'] as List<dynamic>? ?? const [])
+          ((raw as Map)['note'] as Map)['id'],
+      ], contains('local-new'));
     },
   );
 

@@ -38,6 +38,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   // Set only while a history walk replays bundles; see [_beginReplay].
   _ReplayContext? _replayContext;
 
+  // Records the latest walk left unapplied for a locked private profile.
+  final _deferredLockedBundleIds = <String>{};
+
   Timer? _cooldownTimer;
   Timer? _remoteStatusWaitTimer;
   RemoteSyncBundleStatus? _cachedRemoteStatus;
@@ -1209,7 +1212,13 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             (await ref.read(syncBundleStateStoreProvider).read())
                 .appliedRemoteFileIds ??
             const <String>{};
-        if (finalHistory.any((item) => !finalKnown.contains(item.fileId))) {
+        // Records deferred for a locked profile stay unapplied on purpose;
+        // they hold only that profile's notes, which this upload skips too.
+        if (finalHistory.any(
+          (item) =>
+              !finalKnown.contains(item.fileId) &&
+              !_deferredLockedBundleIds.contains(item.fileId),
+        )) {
           throw const SyncSafetyException(
             'sync.error.conflict_download_first_or_force_upload',
           );
@@ -4975,6 +4984,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     final applied = await ref.read(syncBundleStateStoreProvider).read();
     final deferred = !(applied.appliedRemoteFileIds?.contains(fileId) ?? false);
     if (deferred) {
+      _deferredLockedBundleIds.add(fileId);
       _diagnostic('remote bundle deferred until private profile unlock');
     }
     return deferred;
@@ -5766,6 +5776,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   /// first.
   void _beginReplay(List<RemoteSyncBundleStatus> history) {
     _replayContext = _ReplayContext(history: history);
+    _deferredLockedBundleIds.clear();
   }
 
   /// Whether this pending local version already exists in the cloud history.
