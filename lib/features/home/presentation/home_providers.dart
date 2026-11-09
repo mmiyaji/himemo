@@ -7386,6 +7386,7 @@ class NotesController extends _$NotesController {
     required String noteId,
     required int index,
     required NoteAttachment remoteAttachment,
+    String? expectedLocalPath,
   }) async {
     await _waitForInitialRestore();
     _ensureRestoreSucceeded();
@@ -7416,6 +7417,10 @@ class NotesController extends _$NotesController {
     NoteEntry? repaired;
     if (index >= 0 && index < note.attachments.length) {
       final attachments = [...note.attachments];
+      if (expectedLocalPath != null &&
+          attachments[index].filePath != expectedLocalPath) {
+        return false;
+      }
       attachments[index] = restore(attachments[index]);
       repaired = note.copyWith(attachments: attachments);
     } else {
@@ -7425,7 +7430,9 @@ class NotesController extends _$NotesController {
       }
       final block = note.blocks[blockIndex];
       final attachment = block.attachment;
-      if (attachment == null) {
+      if (attachment == null ||
+          (expectedLocalPath != null &&
+              attachment.filePath != expectedLocalPath)) {
         return false;
       }
       final blocks = [...note.blocks];

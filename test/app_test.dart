@@ -2636,9 +2636,7 @@ void main() {
     'missing local attachments reuse the cloud object or name the note',
     () async {
       SharedPreferences.setMockInitialValues({});
-      final transport = InMemoryGoogleDriveSyncTransport(
-        uploadDelay: Duration.zero,
-      );
+      final transport = _AttachmentRepairTestTransport();
       final harness = await _createGoogleDriveSyncHarness(
         transport,
         tempPrefix: 'himemo-missing-local-attachment-',
@@ -2677,7 +2675,9 @@ void main() {
       );
 
       final uploadedPath = await storePhoto('uploaded.png', 0x41);
+      final secondPath = await storePhoto('uploaded-second.png', 0x43);
       await notes.upsert(photoNote('uploaded-note', 'Uploaded', uploadedPath));
+      await notes.upsert(photoNote('second-photo-note', 'Second', secondPath));
       await sync.uploadCurrentBundle(force: true);
       expect(
         harness.container.read(syncTransferControllerProvider).stage,
@@ -2696,16 +2696,26 @@ void main() {
       await sync.uploadCurrentBundle(force: true);
 
       await harness.attachmentStore.deleteAttachment(uploadedPath);
+      await harness.attachmentStore.deleteAttachment(secondPath);
+      final latestDownloadsBeforeRepair = transport.latestDownloads;
       await sync.uploadCurrentBundle(force: true, fullSnapshot: true);
       expect(
         harness.container.read(syncTransferControllerProvider).stage,
         SyncTransferStage.success,
       );
+      expect(transport.latestDownloads, latestDownloadsBeforeRepair);
       final repaired = harness.container
           .read(notesControllerProvider)
           .singleWhere((note) => note.id == 'uploaded-note');
       expect(
         isSyncAttachmentObjectRef(repaired.attachments.single.filePath),
+        isTrue,
+      );
+      final repairedSecond = harness.container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == 'second-photo-note');
+      expect(
+        isSyncAttachmentObjectRef(repairedSecond.attachments.single.filePath),
         isTrue,
       );
 
@@ -7905,6 +7915,18 @@ class _CountingGoogleDriveSyncTransport
   Future<DownloadedRemoteSyncBundle?> downloadBundleByFileId(String fileId) {
     downloadedBundleIds.add(fileId);
     return super.downloadBundleByFileId(fileId);
+  }
+}
+
+class _AttachmentRepairTestTransport extends InMemoryGoogleDriveSyncTransport {
+  _AttachmentRepairTestTransport() : super(uploadDelay: Duration.zero);
+
+  int latestDownloads = 0;
+
+  @override
+  Future<DownloadedRemoteSyncBundle?> downloadLatestBundle() {
+    latestDownloads++;
+    return super.downloadLatestBundle();
   }
 }
 

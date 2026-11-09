@@ -804,6 +804,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
     }
     _startBusy(SyncTransferProgress.preparingBundle);
     await _yieldToUi();
+    Set<String>? remoteAttachmentContentHashes;
+    var repairFullSnapshot = false;
     try {
       await logFirebaseBreadcrumb('sync upload requested');
       final bundleStateBeforeUpload = await ref
@@ -897,7 +899,8 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         _pinnedAttachmentIds.clear();
         await _uploadReservations().start(uploadId);
       }
-      final remoteAttachmentContentHashes =
+      repairFullSnapshot = uploadFullSnapshot;
+      remoteAttachmentContentHashes =
           !preparesNotes || provider == SyncProvider.off
           ? null
           : await _listExistingRemoteAttachmentHashes();
@@ -1425,7 +1428,11 @@ class SyncTransferController extends Notifier<SyncTransferState> {
           'index': error.index,
         },
       );
-      if (await _restoreMissingAttachmentRemoteRefFromLatestBundle(error)) {
+      if (await _restoreMissingAttachmentRemoteRefFromLatestBundle(
+        error,
+        knownRemoteHashes: remoteAttachmentContentHashes,
+        repairFullSnapshot: repairFullSnapshot,
+      )) {
         _diagnostic(
           'missing local attachment restored from remote reference',
           data: {
@@ -1867,15 +1874,30 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   }
 
   Future<bool> _restoreMissingAttachmentRemoteRefFromLatestBundle(
-    SyncAttachmentMissingException error,
-  ) async {
+    SyncAttachmentMissingException error, {
+    required Set<String>? knownRemoteHashes,
+    required bool repairFullSnapshot,
+  }) async {
     if (!_supportsRemoteTransport(ref.read(syncProviderControllerProvider))) {
       return false;
     }
     try {
+      if (await _restoreMissingAttachmentFromCachedHash(
+        error,
+        knownRemoteHashes: knownRemoteHashes,
+      )) {
+        if (knownRemoteHashes != null) {
+          await _restoreOtherMissingAttachmentReferences(
+            error,
+            knownRemoteHashes,
+            repairFullSnapshot: repairFullSnapshot,
+          );
+        }
+        return true;
+      }
       final remoteBundle = await _downloadLatestRemoteBundle();
       if (remoteBundle == null) {
-        return await _restoreMissingAttachmentFromCachedHash(error);
+        return false;
       }
       final localBundle = await ref
           .read(secureSyncBundleStoreProvider)
@@ -1897,9 +1919,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
       );
       if (remoteAttachment == null ||
           !isSyncAttachmentObjectRef(remoteAttachment.filePath)) {
-        // The latest bundle only carries recent changes, so the note may
-        // simply not be in it. Fall back to the attachment's own identity.
-        return await _restoreMissingAttachmentFromCachedHash(error);
+        return false;
       }
       return await ref
           .read(notesControllerProvider.notifier)
@@ -1907,6 +1927,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             noteId: error.noteId,
             index: error.index,
             remoteAttachment: remoteAttachment,
+            expectedLocalPath: error.filePath,
           );
     } catch (repairError) {
       _diagnostic(
@@ -1924,8 +1945,9 @@ class SyncTransferController extends Notifier<SyncTransferState> {
   /// Points a missing local attachment at the cloud object that its cached
   /// content hash identifies, but only when the cloud is known to hold it.
   Future<bool> _restoreMissingAttachmentFromCachedHash(
-    SyncAttachmentMissingException error,
-  ) async {
+    SyncAttachmentMissingException error, {
+    required Set<String>? knownRemoteHashes,
+  }) async {
     final note = ref
         .read(notesControllerProvider)
         .where((note) => note.id == error.noteId)
@@ -1935,12 +1957,14 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         : _attachmentAtSyncIndex(note, error.index);
     final cachedHash = local?.syncAttachmentContentHash;
     if (local == null ||
+        local.filePath != error.filePath ||
         local.type != error.attachmentType ||
         cachedHash == null ||
         cachedHash.isEmpty) {
       return false;
     }
-    final remoteHashes = await _listExistingRemoteAttachmentHashes();
+    final remoteHashes =
+        knownRemoteHashes ?? await _listExistingRemoteAttachmentHashes();
     if (remoteHashes == null || !remoteHashes.contains(cachedHash)) {
       return false;
     }
@@ -1953,6 +1977,7 @@ class SyncTransferController extends Notifier<SyncTransferState> {
         .restoreMissingAttachmentRemoteReference(
           noteId: error.noteId,
           index: error.index,
+          expectedLocalPath: error.filePath,
           remoteAttachment: local.copyWith(
             filePath: syncAttachmentObjectRef(
               cachedHash,
@@ -1961,6 +1986,56 @@ class SyncTransferController extends Notifier<SyncTransferState> {
             syncAttachmentContentHash: cachedHash,
           ),
         );
+  }
+
+  Future<void> _restoreOtherMissingAttachmentReferences(
+    SyncAttachmentMissingException error,
+    Set<String> remoteHashes, {
+    required bool repairFullSnapshot,
+  }) async {
+    final notes = ref.read(notesControllerProvider);
+    final controller = ref.read(notesControllerProvider.notifier);
+    final store = ref.read(encryptedAttachmentStoreProvider);
+    final excludedTags = ref.read(syncExclusionTagsControllerProvider);
+    final profileKeys = ref.read(profileDataKeyServiceProvider);
+    final managed = _managedAttachmentTransport() != null;
+    for (final note in notes) {
+      if ((!repairFullSnapshot && note.id != error.noteId) ||
+          note.deletedAt != null ||
+          note.syncState == NoteSyncState.conflict ||
+          isGeneratedSampleNote(note) ||
+          (isPrivateVaultId(note.vaultId) &&
+              !profileKeys.isProfileUnlocked(note.vaultId)) ||
+          noteExcludedFromSync(note, excludedTags)) {
+        continue;
+      }
+      for (
+        var index = 0;
+        index < note.attachments.length + note.blocks.length;
+        index++
+      ) {
+        final attachment = _attachmentAtSyncIndex(note, index);
+        final localPath = attachment?.filePath;
+        final hash = attachment?.syncAttachmentContentHash;
+        if (attachment == null ||
+            localPath == null ||
+            localPath.isEmpty ||
+            isSyncAttachmentObjectRef(localPath) ||
+            hash == null ||
+            !remoteHashes.contains(hash) ||
+            await store.storedPayloadMetadata(localPath) != null) {
+          continue;
+        }
+        await controller.restoreMissingAttachmentRemoteReference(
+          noteId: note.id,
+          index: index,
+          expectedLocalPath: localPath,
+          remoteAttachment: attachment.copyWith(
+            filePath: syncAttachmentObjectRef(hash, managed: managed),
+          ),
+        );
+      }
+    }
   }
 
   Future<NoteAttachment?> _remoteAttachmentForMissingError({
