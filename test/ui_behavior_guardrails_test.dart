@@ -362,8 +362,10 @@ void main() {
       expect(
         settings,
         contains(
-          'if (syncProvider != SyncProvider.off &&\n'
-          '                syncAuthState.isAuthenticated)',
+          RegExp(
+            r'if \(syncProvider != SyncProvider\.off &&\s+'
+            r'syncAuthState\.isAuthenticated\)',
+          ),
         ),
       );
       expect(strings, contains("en: 'Sync details'"));

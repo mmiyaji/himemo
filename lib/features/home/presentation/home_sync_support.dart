@@ -943,13 +943,7 @@ String _remoteBundleSummary(
   );
 }
 
-enum _CloudSyncSnackBarAction {
-  syncNow,
-  refreshRemote,
-  upload,
-  download,
-  apply,
-}
+enum _CloudSyncSnackBarAction { syncNow, upload, download, apply }
 
 String _cloudSyncSnackBarMessage(
   AppStrings strings,
@@ -969,14 +963,6 @@ String _cloudSyncSnackBarMessage(
       if (explanation != detail) return explanation;
     }
     return switch (action) {
-      _CloudSyncSnackBarAction.refreshRemote => strings.localized(
-        en: 'Could not check the cloud backup. Check your connection and try again.',
-        ja: 'クラウドのバックアップを確認できませんでした。通信状態を確認して再試行してください。',
-        zh: '无法刷新远程同步状态。',
-        ko: '원격 동기화 상태를 새로 고칠 수 없습니다.',
-        es: 'No se pudo actualizar el estado de sincronizacion remota.',
-        de: 'Der Remote-Synchronisierungsstatus konnte nicht aktualisiert werden.',
-      ),
       _CloudSyncSnackBarAction.upload => strings.localized(
         en: 'Could not send the backup. Check your connection and try again.',
         ja: 'バックアップを送信できませんでした。通信状態を確認して再試行してください。',
@@ -1012,24 +998,6 @@ String _cloudSyncSnackBarMessage(
     };
   }
   return switch (action) {
-    _CloudSyncSnackBarAction.refreshRemote =>
-      state.remoteStatus == null
-          ? strings.localized(
-              en: 'No cloud backup has been saved yet.',
-              ja: 'クラウドにバックアップがまだありません。',
-              zh: '远程还没有保存同步包。',
-              ko: '원격에 저장된 동기화 번들이 아직 없습니다.',
-              es: 'Todavia no se ha guardado ningun paquete de sincronizacion remoto.',
-              de: 'Es wurde noch kein Remote-Synchronisierungspaket gespeichert.',
-            )
-          : strings.localized(
-              en: '$providerName backup status was refreshed.',
-              ja: '$providerName のバックアップ状態を更新しました。',
-              zh: '$providerName 的同步包信息已更新。',
-              ko: '$providerName 번들 정보를 새로 고쳤습니다.',
-              es: 'Se actualizo la informacion del paquete de $providerName.',
-              de: 'Die Paketinformationen von $providerName wurden aktualisiert.',
-            ),
     _CloudSyncSnackBarAction.upload => strings.localized(
       en: 'Your encrypted backup was sent to $providerName.',
       ja: '暗号化したバックアップを $providerName に保存しました。',
@@ -4664,12 +4632,12 @@ class _PreviewTitlesSection extends StatelessWidget {
   }
 }
 
-Future<RemoteSyncBundleStatus?> _showBundleHistoryDialog(
+Future<void> _showBundleHistoryDialog(
   BuildContext context,
   List<RemoteSyncBundleStatus> history,
 ) {
   final strings = context.strings;
-  return showDialog<RemoteSyncBundleStatus>(
+  return showDialog<void>(
     context: context,
     builder: (context) {
       return AlertDialog(
@@ -4700,32 +4668,11 @@ Future<RemoteSyncBundleStatus?> _showBundleHistoryDialog(
                 trailing: index == 0
                     ? const Icon(Icons.history_toggle_off_rounded)
                     : null,
-                onTap: () => Navigator.of(context).pop(entry),
               );
             },
           ),
         ),
         actions: [
-          if (_syncKeyQrScannerSupported)
-            TextButton.icon(
-              onPressed: () async {
-                final scanned = await _showSyncKeyQrScannerDialog(context);
-                if (scanned != null && context.mounted) {
-                  Navigator.of(context).pop(scanned);
-                }
-              },
-              icon: const Icon(Icons.qr_code_scanner_rounded),
-              label: Text(
-                strings.localized(
-                  en: 'Scan QR',
-                  ja: 'QRを読み取り',
-                  zh: '扫描 QR',
-                  ko: 'QR 스캔',
-                  es: 'Escanear QR',
-                  de: 'QR scannen',
-                ),
-              ),
-            ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: Text(strings.close),
@@ -4754,6 +4701,26 @@ Future<String?> _showSyncKeyImportDialog(BuildContext context) {
           ),
         ),
         actions: [
+          if (_syncKeyQrScannerSupported)
+            TextButton.icon(
+              onPressed: () async {
+                final scanned = await _showSyncKeyQrScannerDialog(context);
+                if (scanned != null && context.mounted) {
+                  controller.text = scanned;
+                }
+              },
+              icon: const Icon(Icons.qr_code_scanner_rounded),
+              label: Text(
+                strings.localized(
+                  en: 'Scan QR',
+                  ja: 'QRを読み取り',
+                  zh: '扫描 QR',
+                  ko: 'QR 스캔',
+                  es: 'Escanear QR',
+                  de: 'QR scannen',
+                ),
+              ),
+            ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: Text(strings.cancel),

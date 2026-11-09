@@ -249,7 +249,8 @@ void main() {
     });
     final fakeSyncAuthGateway = FakeSyncAuthGateway();
     final fakePlayIntegrityVerifier = FakePlayIntegrityVerifier();
-    final fakeGoogleDriveTransport = FakeGoogleDriveSyncTransport();
+    final fakeGoogleDriveTransport = FakeGoogleDriveSyncTransport()
+      ..latestStatus = null;
     final noteDatabase = EncryptedNoteDatabase(
       executor: NativeDatabase.memory(),
     );
@@ -317,43 +318,41 @@ void main() {
     expect(fakePlayIntegrityVerifier.operations, ['sync.enable']);
     expect(find.textContaining('simulator@example.com'), findsWidgets);
 
-    await _scrollIntoViewIfNeeded(tester, find.text('Details'));
-    await tester.tap(find.text('Details').last);
+    final syncNow = find.byKey(SettingsScreen.syncNowKey);
+    await _scrollIntoViewIfNeeded(tester, syncNow);
+    await tester.tap(syncNow);
+    await tester.pumpAndSettle();
+    expect(fakeGoogleDriveTransport.uploadCalls, greaterThanOrEqualTo(1));
+
+    final details = find.text('Sync details');
+    await _scrollIntoViewIfNeeded(tester, details);
+    await tester.tap(details);
     await tester.pumpAndSettle();
     expect(find.text('Sync progress'), findsOneWidget);
     expect(find.text('Pending sync queue'), findsOneWidget);
 
-    await _scrollIntoViewIfNeeded(
-      tester,
-      find.byKey(SettingsScreen.syncRefreshRemoteKey),
-    );
-    await tester.tap(find.byKey(SettingsScreen.syncRefreshRemoteKey));
+    final repair = find.text('Repair and maintenance');
+    expect(find.text('Show cloud history'), findsNothing);
+    await _scrollIntoViewIfNeeded(tester, repair);
+    await tester.tap(repair);
     await tester.pumpAndSettle();
-    expect(fakeGoogleDriveTransport.fetchLatestCalls, greaterThanOrEqualTo(1));
-    expect(find.textContaining('backup status was refreshed'), findsWidgets);
+    expect(find.text('Re-upload all notes'), findsNothing);
 
-    await _scrollIntoViewIfNeeded(
-      tester,
-      find.byKey(SettingsScreen.syncUploadBundleKey),
-    );
-    await tester.tap(find.byKey(SettingsScreen.syncUploadBundleKey));
+    final replaceBackup = find.text('Replace cloud backup');
+    await _scrollIntoViewIfNeeded(tester, replaceBackup);
+    await tester.tap(replaceBackup);
     await tester.pumpAndSettle();
-    expect(fakeGoogleDriveTransport.uploadCalls, greaterThanOrEqualTo(1));
-    expect(find.textContaining('encrypted backup was sent'), findsWidgets);
-    expect(find.textContaining('2026/05/10 00:30 UTC'), findsWidgets);
-
     final uploadsBeforeReupload = fakeGoogleDriveTransport.uploadCalls;
     await _scrollIntoViewIfNeeded(tester, find.text('Re-upload all notes'));
-    await tester.tap(find.text('Re-upload all notes').last);
+    await tester.tap(find.text('Re-upload all notes'));
     await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsOneWidget);
-    expect(find.text('Re-upload all notes'), findsWidgets);
-    await tester.tap(find.text('Re-upload').last);
-    await tester.pumpAndSettle();
-    expect(
-      fakeGoogleDriveTransport.uploadCalls,
-      greaterThan(uploadsBeforeReupload),
+    final confirmation = find.byType(AlertDialog);
+    expect(confirmation, findsOneWidget);
+    await tester.tap(
+      find.descendant(of: confirmation, matching: find.text('Cancel')),
     );
+    await tester.pumpAndSettle();
+    expect(fakeGoogleDriveTransport.uploadCalls, uploadsBeforeReupload);
 
     await _scrollIntoViewIfNeeded(tester, find.text('Show cloud history'));
     await tester.tap(find.text('Show cloud history').last);
@@ -901,16 +900,17 @@ class FakeGoogleDriveSyncTransport implements GoogleDriveSyncTransport {
     int limit = 10,
   }) async {
     return [
-      latestStatus!,
-      RemoteSyncBundleStatus(
-        fileId: 'remote-previous',
-        fileName: 'himemo_sync_20260509.enc',
-        modifiedAt: DateTime.utc(2026, 5, 9, 14, 45),
-        sizeBytes: 2048,
-        noteCount: 1,
-        attachmentCount: 0,
-        deviceId: 'fake-device-b',
-      ),
+      ?latestStatus,
+      if (latestStatus != null)
+        RemoteSyncBundleStatus(
+          fileId: 'remote-previous',
+          fileName: 'himemo_sync_20260509.enc',
+          modifiedAt: DateTime.utc(2026, 5, 9, 14, 45),
+          sizeBytes: 2048,
+          noteCount: 1,
+          attachmentCount: 0,
+          deviceId: 'fake-device-b',
+        ),
     ].take(limit).toList(growable: false);
   }
 
