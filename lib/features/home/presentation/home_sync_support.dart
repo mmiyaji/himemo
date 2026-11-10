@@ -849,38 +849,6 @@ String _localizedSyncTransferMessage(
   return message;
 }
 
-double? _syncProgressValueForState(SyncTransferState state) {
-  final completed = state.completedItems;
-  final total = state.totalItems;
-  if (completed != null && total != null && total > 0) {
-    final base = _syncProgressBaseValue(state.progress) ?? 0;
-    final next = switch (state.progress) {
-      SyncTransferProgress.checkingRemote => 0.30,
-      SyncTransferProgress.preparingBundle => 0.55,
-      SyncTransferProgress.uploadingBundle => 0.76,
-      SyncTransferProgress.downloadingBundle => 0.64,
-      SyncTransferProgress.applyingBundle => 0.88,
-      SyncTransferProgress.finalizing => 0.98,
-      SyncTransferProgress.none => 1.0,
-    };
-    final ratio = (completed / total).clamp(0.0, 1.0);
-    return base + (next - base) * ratio;
-  }
-  return _syncProgressBaseValue(state.progress);
-}
-
-double? _syncProgressBaseValue(SyncTransferProgress progress) {
-  return switch (progress) {
-    SyncTransferProgress.checkingRemote => 0.18,
-    SyncTransferProgress.preparingBundle => 0.38,
-    SyncTransferProgress.uploadingBundle => 0.64,
-    SyncTransferProgress.downloadingBundle => 0.48,
-    SyncTransferProgress.applyingBundle => 0.78,
-    SyncTransferProgress.finalizing => 0.92,
-    SyncTransferProgress.none => null,
-  };
-}
-
 String _remoteBundleSummary(
   AppStrings strings,
   SyncProvider provider,
