@@ -126,9 +126,22 @@ final syncQueueSummaryProvider = FutureProvider<SyncQueueSummary>((ref) async {
       .read(privateProfileSyncExclusionStoreProvider)
       .read();
   final profileKeys = ref.read(profileDataKeyServiceProvider);
+  final webPendingDeletions = kIsWeb
+      ? ref
+            .read(notesControllerProvider)
+            .where(
+              (note) =>
+                  note.isPermanentlyDeleted &&
+                  note.syncState == NoteSyncState.pendingDelete &&
+                  (!excludedVaultIds.contains(note.vaultId) ||
+                      profileKeys.isProfileUnlocked(note.vaultId)),
+            )
+            .length
+      : 0;
   return _summarizeSyncQueue(
     ref.watch(syncEngineProvider),
     ref.watch(privateMemoProfileStoreProvider),
+    webPendingDeletions: webPendingDeletions,
     // Excluded locked profiles never upload, so they must not keep automatic
     // sync retrying as if work were pending.
     include: (change) =>
@@ -141,18 +154,25 @@ Future<SyncQueueSummary> _summarizeSyncQueue(
   SyncEngine engine,
   PrivateMemoProfileStore profiles, {
   bool Function(PendingNoteChangeRecord change)? include,
+  int webPendingDeletions = 0,
 }) async {
   final queue = await engine.summarizeQueue(include: include);
-  final pendingNames = (await profiles.listProfiles())
+  final profileList = await profiles.listProfiles();
+  final pendingNames = profileList
       .where((profile) => profile.nameSync.sendableId != null)
       .length;
-  if (pendingNames == 0) return queue;
+  final pendingCredentials = (await profiles.pendingCredentialRevisions(
+    profileList,
+  )).length;
+  final profileChanges = pendingNames + pendingCredentials;
+  if (profileChanges == 0 && webPendingDeletions == 0) return queue;
   return SyncQueueSummary(
-    totalChanges: queue.totalChanges + pendingNames,
-    upserts: queue.upserts + pendingNames,
-    deletes: queue.deletes,
+    totalChanges: queue.totalChanges + profileChanges + webPendingDeletions,
+    upserts: queue.upserts + profileChanges,
+    deletes: queue.deletes + webPendingDeletions,
     lastQueuedAt: queue.lastQueuedAt,
     profileNameChanges: pendingNames,
+    profileCredentialChanges: pendingCredentials,
   );
 }
 

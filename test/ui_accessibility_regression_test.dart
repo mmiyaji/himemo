@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:himemo/app/app.dart';
@@ -285,7 +286,8 @@ void main() {
       'Notes and organization',
       'Private profiles',
       'App security',
-      'Backup and sync',
+      'Device sync',
+      'File backup',
       'Storage',
       'About',
     ]) {
@@ -320,7 +322,7 @@ void main() {
     _configureView(tester, size: const Size(800, 900));
     await _pumpSettingsScreen(tester, harness.container);
 
-    final section = find.text('Backup and sync');
+    final section = find.text('Device sync');
     await tester.scrollUntilVisible(section, 500);
     await tester.tap(section);
     await tester.pumpAndSettle();
@@ -341,6 +343,73 @@ void main() {
     expect(find.byKey(SettingsScreen.syncConnectKey), findsOneWidget);
     expect(find.byKey(SettingsScreen.syncNowKey), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('sync button stays in place through a transfer', (tester) async {
+    final transfer = _TestSyncTransferController();
+    final harness = await _createHarness(
+      preferences: const {'settings.locale': 'english'},
+      overrides: [
+        syncProviderControllerProvider.overrideWith(
+          _GoogleDriveSyncProviderController.new,
+        ),
+        syncAuthControllerProvider.overrideWith(
+          _ConnectedSyncAuthController.new,
+        ),
+        syncTransferControllerProvider.overrideWith(() => transfer),
+      ],
+    );
+    _configureView(tester, size: const Size(1024, 900));
+    await _pumpSettingsScreen(tester, harness.container);
+    final section = find.text('Device sync');
+    await tester.scrollUntilVisible(section, 500);
+    final tile = tester.widget<ExpansionTile>(
+      find.ancestor(of: section, matching: find.byType(ExpansionTile)).first,
+    );
+    if (!tile.controller!.isExpanded) {
+      await tester.tap(section);
+      await tester.pumpAndSettle();
+    }
+
+    final button = find.byKey(SettingsScreen.syncNowKey);
+    await tester.scrollUntilVisible(button, 250);
+    final start = tester.getTopLeft(button);
+    transfer.show(SyncTransferStage.busy, SyncTransferProgress.applyingBundle);
+    await tester.pump();
+    expect(tester.getTopLeft(button).dx, start.dx);
+    expect(
+      tester
+          .widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator))
+          .value,
+      0.78,
+    );
+
+    transfer.show(
+      SyncTransferStage.busy,
+      SyncTransferProgress.downloadingBundle,
+    );
+    await tester.pump();
+    expect(tester.getTopLeft(button).dx, start.dx);
+    expect(
+      tester
+          .widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator))
+          .value,
+      0.78,
+    );
+
+    transfer.show(SyncTransferStage.success, SyncTransferProgress.none);
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(button).dx, start.dx);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+
+    transfer.show(SyncTransferStage.busy, SyncTransferProgress.checkingRemote);
+    await tester.pump();
+    expect(
+      tester
+          .widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator))
+          .value,
+      0.18,
+    );
   });
 
   testWidgets('bottom-navigation widths keep the compact settings layout', (
@@ -781,10 +850,35 @@ class _PendingAppLockSettingsController extends AppLockSettingsReadyController {
   void markReady() {}
 }
 
+class _GoogleDriveSyncProviderController extends SyncProviderController {
+  @override
+  SyncProvider build() => SyncProvider.googleDrive;
+}
+
+class _ConnectedSyncAuthController extends SyncAuthController {
+  @override
+  Map<SyncProvider, SyncAuthState> build() => const {
+    SyncProvider.googleDrive: SyncAuthState(
+      provider: SyncProvider.googleDrive,
+      stage: SyncAuthStage.authenticated,
+    ),
+  };
+}
+
+class _TestSyncTransferController extends SyncTransferController {
+  @override
+  SyncTransferState build() => const SyncTransferState.idle();
+
+  void show(SyncTransferStage stage, SyncTransferProgress progress) {
+    state = state.copyWith(stage: stage, progress: progress);
+  }
+}
+
 Future<_TestHarness> _createHarness({
   required Map<String, Object> preferences,
   bool keepAppLockSettingsPending = false,
   AppFlavor flavor = AppFlavor.development,
+  List<Override> overrides = const [],
 }) async {
   SharedPreferences.setMockInitialValues(preferences);
   configureFlavor(flavor);
@@ -797,6 +891,7 @@ Future<_TestHarness> _createHarness({
   final database = EncryptedNoteDatabase(executor: NativeDatabase.memory());
   final container = ProviderContainer(
     overrides: [
+      ...overrides,
       packageInfoProvider.overrideWith(
         (ref) async => const AppPackageDetails(
           appName: 'HiMemo',

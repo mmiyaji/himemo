@@ -100,6 +100,7 @@ class SettingsScreen extends ConsumerWidget {
   static final _privateProfilesController = ExpansibleController();
   static final _appSecurityController = ExpansibleController();
   static final _syncController = ExpansibleController();
+  static final _fileBackupController = ExpansibleController();
   static final _storageController = ExpansibleController();
   static final _aboutController = ExpansibleController();
   static final List<DateTime> _diagnosticModeTapTimes = <DateTime>[];
@@ -110,6 +111,7 @@ class SettingsScreen extends ConsumerWidget {
     _privateProfilesController,
     _appSecurityController,
     _syncController,
+    _fileBackupController,
     _storageController,
     _aboutController,
   ];
@@ -294,7 +296,12 @@ class SettingsScreen extends ConsumerWidget {
     }
     final error = await ref
         .read(privateMemoProfilesControllerProvider.notifier)
-        .addProfile(name: draft.name, password: draft.password);
+        .addProfile(
+          name: draft.name,
+          password: draft.password,
+          usePin: draft.usePin,
+          recoveryPassword: draft.recoveryPassword,
+        );
     if (error == null) {
       await ref
           .read(privateProfileUnlockControllerProvider.notifier)
@@ -480,6 +487,51 @@ class SettingsScreen extends ConsumerWidget {
               : strings.localized(
                   en: 'The profile changed. Check the current name in Settings.',
                   ja: 'プロファイルの状態が変わりました。設定で現在の名前を確認してください。',
+                ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showSetDeviceProfilePinDialog(
+    BuildContext context,
+    WidgetRef ref,
+    String vaultId,
+  ) async {
+    final draft = await showDialog<_PrivateProfileDraft>(
+      context: context,
+      builder: (_) => const _AddPrivateProfileDialog(enrollDevicePin: true),
+    );
+    if (draft == null ||
+        !context.mounted ||
+        ref.read(unlockedPrivateProfileVaultIdProvider) != vaultId) {
+      return;
+    }
+    var saved = false;
+    try {
+      saved = await ref
+          .read(profileDataKeyServiceProvider)
+          .setDevicePin(
+            vaultId: vaultId,
+            recoveryPassword: draft.recoveryPassword!,
+            pin: draft.password,
+          );
+    } catch (_) {
+      logDiagnostic('security', 'device profile PIN persistence failed');
+    }
+    if (!context.mounted) return;
+    final strings = context.strings;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          saved
+              ? strings.localized(
+                  en: 'Device PIN saved.',
+                  ja: 'この端末のPINを保存しました。',
+                )
+              : strings.localized(
+                  en: 'Check your recovery password and try again. If you still use a legacy PIN, change the profile password first.',
+                  ja: '復旧パスワードを確認してください。旧方式のPINをお使いの場合は、先にプロファイルのパスワードを変更してください。',
                 ),
         ),
       ),
@@ -994,7 +1046,13 @@ class SettingsScreen extends ConsumerWidget {
         : (activePrivateProfileLabel != null
               ? Icons.lock_open_outlined
               : Icons.lock_outline);
-    final lockSummary = !appLockEnabled
+    final needsWebPinSetup = kIsWeb && !pinLockState.isConfigured;
+    final lockSummary = needsWebPinSetup
+        ? strings.localized(
+            en: 'Set a PIN to lock HiMemo in this browser.',
+            ja: 'このブラウザで HiMemo をロックする PIN を設定します。',
+          )
+        : !appLockEnabled
         ? (strings.text(
             'home.off.turning.this.on.asks.for.a.password.or.device.authen',
           ))
@@ -1162,6 +1220,75 @@ class SettingsScreen extends ConsumerWidget {
       );
     }
 
+    final syncProviderChoices = <Widget>[
+      _SettingsSectionLabel(
+        label: strings.localized(
+          en: 'Sync with',
+          ja: '同期先',
+          zh: '同步到',
+          ko: '동기화 대상',
+          es: 'Sincronizar con',
+          de: 'Synchronisieren mit',
+        ),
+      ),
+      _ThemeOptionTile(
+        tileKey: syncOffKey,
+        title: strings.localized(
+          en: 'This device only',
+          ja: 'この端末のみ',
+          zh: '仅此设备',
+          ko: '이 기기만',
+          es: 'Solo este dispositivo',
+          de: 'Nur dieses Gerät',
+        ),
+        subtitle: strings.localized(
+          en: 'Do not sync with another device.',
+          ja: 'ほかの端末とは同期しません。',
+          zh: '不与其他设备同步。',
+          ko: '다른 기기와 동기화하지 않습니다.',
+          es: 'No se sincroniza con otros dispositivos.',
+          de: 'Keine Synchronisierung mit anderen Geräten.',
+        ),
+        selected: syncProvider == SyncProvider.off,
+        onTap: () => ref
+            .read(syncProviderControllerProvider.notifier)
+            .setProvider(SyncProvider.off),
+      ),
+      if (isICloudSyncSupported)
+        _ThemeOptionTile(
+          tileKey: syncICloudKey,
+          title: 'iCloud',
+          subtitle: strings.localized(
+            en: 'Use iCloud on this iPhone or iPad.',
+            ja: 'この iPhone・iPad の iCloud を使います。',
+            zh: '使用此 iPhone 或 iPad 上的 iCloud。',
+            ko: '이 iPhone 또는 iPad의 iCloud를 사용합니다.',
+            es: 'Usa iCloud en este iPhone o iPad.',
+            de: 'iCloud auf diesem iPhone oder iPad verwenden.',
+          ),
+          selected: syncProvider == SyncProvider.iCloud,
+          onTap: () => ref
+              .read(syncProviderControllerProvider.notifier)
+              .setProvider(SyncProvider.iCloud),
+        ),
+      _ThemeOptionTile(
+        tileKey: syncGoogleDriveKey,
+        title: 'Google Drive',
+        subtitle: strings.localized(
+          en: 'Use your Google account.',
+          ja: 'Google アカウントを使います。',
+          zh: '使用您的 Google 帐号。',
+          ko: 'Google 계정을 사용합니다.',
+          es: 'Usa tu cuenta de Google.',
+          de: 'Ihr Google-Konto verwenden.',
+        ),
+        selected: syncProvider == SyncProvider.googleDrive,
+        onTap: () => ref
+            .read(syncProviderControllerProvider.notifier)
+            .setProvider(SyncProvider.googleDrive),
+      ),
+    ];
+
     return ListView(
       padding: EdgeInsets.symmetric(
         horizontal: compactSettingsLayout ? 12 : 16,
@@ -1190,6 +1317,7 @@ class SettingsScreen extends ConsumerWidget {
               ),
               value: currentProfileLabel,
               icon: currentProfileIcon,
+              onTap: _privateProfilesController.expand,
             ),
             _SettingsOverviewItem(
               label: strings.localized(
@@ -1204,11 +1332,13 @@ class SettingsScreen extends ConsumerWidget {
                   ? (strings.text('home.enabled'))
                   : (strings.text('home.disabled')),
               icon: Icons.enhanced_encryption_outlined,
+              onTap: _appSecurityController.expand,
             ),
             _SettingsOverviewItem(
               label: strings.syncLabel,
               value: syncSummary,
               icon: Icons.sync_outlined,
+              onTap: _syncController.expand,
             ),
           ],
         ).visibleWhen(!compactSettingsLayout),
@@ -1620,27 +1750,22 @@ class SettingsScreen extends ConsumerWidget {
             _privateProfilesController,
           ),
           children: [
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: FilledButton(
+                key: privateProfileAddKey,
+                onPressed: () => _showAddPrivateProfileDialog(context, ref),
+                child: Text(strings.addPrivateProfile),
+              ),
+            ),
+            const SizedBox(height: 8),
             Text(
               strings.privateProfilesSettingsBody,
               style: Theme.of(context).textTheme.bodySmall
                   ?.copyWith(color: _mutedTextColor(context)),
             ),
-            const SizedBox(height: 8),
-            Text(
-              strings.localized(
-                en: 'Private profile passwords cannot be reset, unlocked, or recovered by support. Keep the password in a safe place.',
-                ja: 'プライベートプロファイルのパスワード忘れ、ロック解除、データ復旧には対応できません。パスワードはご自身で安全に保管してください。',
-                zh: '私密配置文件的密码无法由支持人员重置、解锁或恢复。请妥善保管密码。',
-                ko: '개인 프로필 비밀번호는 지원을 통해 재설정, 잠금 해제 또는 복구할 수 없습니다. 비밀번호를 안전하게 보관하세요.',
-                es: 'Soporte no puede restablecer, desbloquear ni recuperar contrasenas de perfiles privados. Guarda la contrasena en un lugar seguro.',
-                de: 'Private-Profile-Passworter konnen vom Support nicht zuruckgesetzt, entsperrt oder wiederhergestellt werden. Bewahre das Passwort sicher auf.',
-              ),
-              style: Theme.of(context).textTheme.bodySmall
-                  ?.copyWith(color: Theme.of(context).colorScheme.error),
-            ),
-            const SizedBox(height: 10),
             Align(
-              alignment: Alignment.centerLeft,
+              alignment: AlignmentDirectional.centerStart,
               child: TextButton.icon(
                 onPressed: () =>
                     _openExternalLink(context, Uri.parse(_helpUrl), strings),
@@ -1648,48 +1773,64 @@ class SettingsScreen extends ConsumerWidget {
                 label: Text(strings.privateProfileHelp),
               ),
             ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton(
-                  key: privateProfileAddKey,
-                  onPressed: () => _showAddPrivateProfileDialog(context, ref),
-                  child: Text(strings.addPrivateProfile),
-                ),
-                OutlinedButton.icon(
-                  key: privateProfileAdminModeKey,
-                  onPressed: adminMode
-                      ? null
-                      : () => _enterAdminMode(context, ref),
-                  icon: const Icon(Icons.admin_panel_settings_outlined),
-                  label: Text(
-                    adminMode
-                        ? strings.adminModeActiveLabel
-                        : strings.enterAdminModeLabel,
-                  ),
-                ),
-                if (adminMode)
-                  OutlinedButton(
-                    key: privateProfileExitAdminModeKey,
-                    onPressed: () => ref
-                        .read(adminModeSessionControllerProvider.notifier)
-                        .lock(),
-                    child: Text(strings.exitAdminModeLabel),
-                  ),
-                if (unlockedPrivateProfileVaultId != null &&
-                    unlockedPrivateProfileVaultId.startsWith(
-                      customPrivateVaultPrefix,
-                    ))
-                  OutlinedButton(
-                    onPressed: () =>
-                        _showChangeCurrentProfilePasswordDialog(context, ref),
-                    child: Text(
-                      strings.text('home.change.current.profile.password.2'),
+            const Divider(),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    key: privateProfileAdminModeKey,
+                    onPressed: adminMode
+                        ? null
+                        : () => _enterAdminMode(context, ref),
+                    icon: const Icon(Icons.admin_panel_settings_outlined),
+                    label: Text(
+                      adminMode
+                          ? strings.adminModeActiveLabel
+                          : strings.enterAdminModeLabel,
                     ),
                   ),
-              ],
+                  if (adminMode)
+                    OutlinedButton(
+                      key: privateProfileExitAdminModeKey,
+                      onPressed: () => ref
+                          .read(adminModeSessionControllerProvider.notifier)
+                          .lock(),
+                      child: Text(strings.exitAdminModeLabel),
+                    ),
+                  if (unlockedPrivateProfileVaultId != null &&
+                      unlockedPrivateProfileVaultId.startsWith(
+                        customPrivateVaultPrefix,
+                      ))
+                    OutlinedButton(
+                      onPressed: () =>
+                          _showChangeCurrentProfilePasswordDialog(context, ref),
+                      child: Text(
+                        strings.text('home.change.current.profile.password.2'),
+                      ),
+                    ),
+                  if (supportsDeviceProfilePin &&
+                      unlockedPrivateProfileVaultId != null &&
+                      unlockedPrivateProfileVaultId.startsWith(
+                        customPrivateVaultPrefix,
+                      ))
+                    OutlinedButton(
+                      onPressed: () => _showSetDeviceProfilePinDialog(
+                        context,
+                        ref,
+                        unlockedPrivateProfileVaultId,
+                      ),
+                      child: Text(
+                        strings.localized(
+                          en: 'Set device PIN',
+                          ja: 'この端末のPINを設定',
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
             const SizedBox(height: 12),
             _AdminModeAuditNotice(
@@ -1995,81 +2136,82 @@ class SettingsScreen extends ConsumerWidget {
           onExpansionChanged: (expanded) =>
               _handlePrimarySettingsExpansion(expanded, _appSecurityController),
           children: [
-            SwitchListTile.adaptive(
-              key: appLockToggleKey,
-              value: appLockEnabled,
-              contentPadding: EdgeInsets.zero,
-              title: usePinAppLock
-                  ? Text(strings.text('home.require.pin.on.launch'))
-                  : Text(strings.text('home.require.device.auth.on.launch')),
-              subtitle: Text(
-                usePinAppLock
-                    ? strings.localized(
-                        en: 'Protect the app with a 4 digit PIN. ${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
-                        ja: '4 桁の PIN でアプリを保護します。${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
-                        zh: '使用 4 位數 PIN 保護應用程式。${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
-                        ko: '4자리 PIN으로 앱을 보호합니다. ${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
-                        es: 'Protege la app con un PIN de 4 dígitos. ${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
-                        de: 'Schütze die App mit einer 4-stelligen PIN. ${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
-                      )
-                    : strings.deviceAuthProtectionSummary(
-                        deviceAuthState.summary,
-                      ),
-              ),
-              onChanged: (value) async {
-                if (!value) {
-                  await ref
-                      .read(appLockSettingsControllerProvider.notifier)
-                      .setEnabled(false);
-                  ref
-                      .read(appSessionUnlockControllerProvider.notifier)
-                      .unlock();
-                  return;
-                }
-
-                if (usePinAppLock) {
-                  if (!pinLockState.isConfigured) {
-                    final configured = await _showPinSetupDialog(
-                      context,
-                      title: strings.text('home.set.unlock.pin'),
-                      confirmLabel: strings.text('home.save.pin'),
-                    );
-                    if (configured == null) {
-                      return;
-                    }
-                    await ref
-                        .read(appPinLockControllerProvider.notifier)
-                        .configure(configured);
-                  }
-                } else {
-                  final authenticated = await ref
-                      .read(deviceAuthControllerProvider.notifier)
-                      .authenticate(reason: strings.enableDeviceAuthReason);
-                  if (!authenticated) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          showCloseIcon: true,
-                          content: Text(
-                            strings.text(
-                              'home.device.authentication.was.not.completed.so.launch.protec',
-                            ),
-                          ),
+            if (!needsWebPinSetup)
+              SwitchListTile.adaptive(
+                key: appLockToggleKey,
+                value: appLockEnabled,
+                contentPadding: EdgeInsets.zero,
+                title: usePinAppLock
+                    ? Text(strings.text('home.require.pin.on.launch'))
+                    : Text(strings.text('home.require.device.auth.on.launch')),
+                subtitle: Text(
+                  usePinAppLock
+                      ? strings.localized(
+                          en: 'Protect the app with a 4 digit PIN. ${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
+                          ja: '4 桁の PIN でアプリを保護します。${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
+                          zh: '使用 4 位數 PIN 保護應用程式。${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
+                          ko: '4자리 PIN으로 앱을 보호합니다. ${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
+                          es: 'Protege la app con un PIN de 4 dígitos. ${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
+                          de: 'Schütze die App mit einer 4-stelligen PIN. ${strings.pinLockSummary(isConfigured: pinLockState.isConfigured, lastError: pinLockState.lastError)}',
+                        )
+                      : strings.deviceAuthProtectionSummary(
+                          deviceAuthState.summary,
                         ),
-                      );
-                    }
+                ),
+                onChanged: (value) async {
+                  if (!value) {
+                    await ref
+                        .read(appLockSettingsControllerProvider.notifier)
+                        .setEnabled(false);
+                    ref
+                        .read(appSessionUnlockControllerProvider.notifier)
+                        .unlock();
                     return;
                   }
-                }
 
-                await ref
-                    .read(appLockSettingsControllerProvider.notifier)
-                    .setEnabled(true);
-                if (spotlightNoteIndexEnabled && context.mounted) {
-                  await _showSpotlightAppLockWarningDialog(context, strings);
-                }
-              },
-            ),
+                  if (usePinAppLock) {
+                    if (!pinLockState.isConfigured) {
+                      final configured = await _showPinSetupDialog(
+                        context,
+                        title: strings.text('home.set.unlock.pin'),
+                        confirmLabel: strings.text('home.save.pin'),
+                      );
+                      if (configured == null) {
+                        return;
+                      }
+                      await ref
+                          .read(appPinLockControllerProvider.notifier)
+                          .configure(configured);
+                    }
+                  } else {
+                    final authenticated = await ref
+                        .read(deviceAuthControllerProvider.notifier)
+                        .authenticate(reason: strings.enableDeviceAuthReason);
+                    if (!authenticated) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            showCloseIcon: true,
+                            content: Text(
+                              strings.text(
+                                'home.device.authentication.was.not.completed.so.launch.protec',
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                      return;
+                    }
+                  }
+
+                  await ref
+                      .read(appLockSettingsControllerProvider.notifier)
+                      .setEnabled(true);
+                  if (spotlightNoteIndexEnabled && context.mounted) {
+                    await _showSpotlightAppLockWarningDialog(context, strings);
+                  }
+                },
+              ),
             if (showSpotlightAppLockWarning) ...[
               _SettingsWarningBox(text: _spotlightAppLockWarningText(strings)),
               const SizedBox(height: 8),
@@ -2084,26 +2226,29 @@ class SettingsScreen extends ConsumerWidget {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(strings.text('home.session.status')),
-              subtitle: Text(
-                appSessionUnlocked
-                    ? (strings.text('home.this.session.is.currently.unlocked'))
-                    : (usePinAppLock
-                          ? strings.localized(
-                              en: 'This session stays locked until the correct PIN is entered.',
-                              ja: '正しい PIN を入力するまで、このセッションはロックされます。',
-                              zh: '輸入正確的 PIN 前，此工作階段會保持鎖定。',
-                              ko: '올바른 PIN을 입력할 때까지 이 세션은 잠긴 상태로 유지됩니다.',
-                              es: 'Esta sesión permanece bloqueada hasta introducir el PIN correcto.',
-                              de: 'Diese Sitzung bleibt gesperrt, bis die richtige PIN eingegeben wurde.',
-                            )
-                          : (strings.text(
-                              'home.this.session.stays.locked.until.device.authentication.su',
-                            ))),
+            if (!needsWebPinSetup)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(strings.text('home.session.status')),
+                subtitle: Text(
+                  appSessionUnlocked
+                      ? (strings.text(
+                          'home.this.session.is.currently.unlocked',
+                        ))
+                      : (usePinAppLock
+                            ? strings.localized(
+                                en: 'This session stays locked until the correct PIN is entered.',
+                                ja: '正しい PIN を入力するまで、このセッションはロックされます。',
+                                zh: '輸入正確的 PIN 前，此工作階段會保持鎖定。',
+                                ko: '올바른 PIN을 입력할 때까지 이 세션은 잠긴 상태로 유지됩니다.',
+                                es: 'Esta sesión permanece bloqueada hasta introducir el PIN correcto.',
+                                de: 'Diese Sitzung bleibt gesperrt, bis die richtige PIN eingegeben wurde.',
+                              )
+                            : (strings.text(
+                                'home.this.session.stays.locked.until.device.authentication.su',
+                              ))),
+                ),
               ),
-            ),
             if (usePinAppLock) ...[
               Align(
                 alignment: Alignment.centerLeft,
@@ -2111,7 +2256,7 @@ class SettingsScreen extends ConsumerWidget {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    FilledButton.tonal(
+                    FilledButton(
                       onPressed: () async {
                         final hadPinConfigured = pinLockState.isConfigured;
                         final pin = await _showPinSetupDialog(
@@ -2155,58 +2300,62 @@ class SettingsScreen extends ConsumerWidget {
                             : (strings.text('home.set.pin')),
                       ),
                     ),
-                    OutlinedButton(
-                      onPressed: pinLockState.isConfigured
-                          ? () async {
-                              final shouldRemove = await showDialog<bool>(
-                                context: context,
-                                builder: (context) => AlertDialog(
-                                  title: Text(
-                                    strings.text('home.remove.unlock.pin'),
-                                  ),
-                                  content: Text(
-                                    kIsWeb
-                                        ? strings.text(
-                                            'home.remove.the.web.unlock.pin.for.this.browser.and.turn.off',
-                                          )
-                                        : strings.localized(
-                                            en: 'Remove the unlock PIN from this device and turn off launch PIN protection?',
-                                            ja: 'この端末の解除用 PIN を削除し、起動時の PIN 保護をオフにしますか？',
-                                            zh: '要从此装置移除解锁 PIN，并关闭启动 PIN 保护吗？',
-                                            ko: '이 기기의 잠금 해제 PIN을 제거하고 실행 시 PIN 보호를 끄시겠습니까?',
-                                            es: '¿Eliminar el PIN de desbloqueo de este dispositivo y desactivar la protección al iniciar?',
-                                            de: 'Entsperr-PIN von diesem Gerät entfernen und PIN-Schutz beim Start deaktivieren?',
-                                          ),
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.of(context).pop(false),
-                                      child: Text(strings.cancel),
+                    if (pinLockState.isConfigured)
+                      OutlinedButton(
+                        onPressed: pinLockState.isConfigured
+                            ? () async {
+                                final shouldRemove = await showDialog<bool>(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: Text(
+                                      strings.text('home.remove.unlock.pin'),
                                     ),
-                                    FilledButton(
-                                      onPressed: () =>
-                                          Navigator.of(context).pop(true),
-                                      child: Text(strings.text('home.remove')),
+                                    content: Text(
+                                      kIsWeb
+                                          ? strings.text(
+                                              'home.remove.the.web.unlock.pin.for.this.browser.and.turn.off',
+                                            )
+                                          : strings.localized(
+                                              en: 'Remove the unlock PIN from this device and turn off launch PIN protection?',
+                                              ja: 'この端末の解除用 PIN を削除し、起動時の PIN 保護をオフにしますか？',
+                                              zh: '要从此装置移除解锁 PIN，并关闭启动 PIN 保护吗？',
+                                              ko: '이 기기의 잠금 해제 PIN을 제거하고 실행 시 PIN 보호를 끄시겠습니까?',
+                                              es: '¿Eliminar el PIN de desbloqueo de este dispositivo y desactivar la protección al iniciar?',
+                                              de: 'Entsperr-PIN von diesem Gerät entfernen und PIN-Schutz beim Start deaktivieren?',
+                                            ),
                                     ),
-                                  ],
-                                ),
-                              );
-                              if (shouldRemove != true) {
-                                return;
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.of(context).pop(false),
+                                        child: Text(strings.cancel),
+                                      ),
+                                      FilledButton(
+                                        onPressed: () =>
+                                            Navigator.of(context).pop(true),
+                                        child: Text(
+                                          strings.text('home.remove'),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (shouldRemove != true) {
+                                  return;
+                                }
+                                await ref
+                                    .read(appPinLockControllerProvider.notifier)
+                                    .clear();
+                                await ref
+                                    .read(
+                                      appLockSettingsControllerProvider
+                                          .notifier,
+                                    )
+                                    .setEnabled(false);
                               }
-                              await ref
-                                  .read(appPinLockControllerProvider.notifier)
-                                  .clear();
-                              await ref
-                                  .read(
-                                    appLockSettingsControllerProvider.notifier,
-                                  )
-                                  .setEnabled(false);
-                            }
-                          : null,
-                      child: Text(strings.text('home.remove.pin')),
-                    ),
+                            : null,
+                        child: Text(strings.text('home.remove.pin')),
+                      ),
                   ],
                 ),
               ),
@@ -2262,126 +2411,134 @@ class SettingsScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 8),
             ],
-            const SizedBox(height: 4),
-            Text(strings.text('home.re.lock.after.app.leaves.the.foreground')),
-            const SizedBox(height: 8),
-            _ThemeOptionTile(
-              tileKey: appLockRelockImmediateKey,
-              title: strings.text('home.immediately'),
-              subtitle: strings.text(
-                'home.lock.the.app.as.soon.as.it.moves.to.the.background',
+            if (!needsWebPinSetup) ...[
+              const SizedBox(height: 4),
+              Text(
+                strings.text('home.re.lock.after.app.leaves.the.foreground'),
               ),
-              selected: appLockRelockDelay == AppLockRelockDelay.immediate,
-              onTap: () => ref
-                  .read(appLockRelockDelayControllerProvider.notifier)
-                  .setDelay(AppLockRelockDelay.immediate),
-            ),
-            _ThemeOptionTile(
-              tileKey: appLockRelock30SecondsKey,
-              title: strings.text('home.after.30.seconds'),
-              subtitle: strings.text(
-                'home.allow.quick.app.switching.without.immediate.re.auth',
-              ),
-              selected: appLockRelockDelay == AppLockRelockDelay.seconds30,
-              onTap: () => ref
-                  .read(appLockRelockDelayControllerProvider.notifier)
-                  .setDelay(AppLockRelockDelay.seconds30),
-            ),
-            _ThemeOptionTile(
-              tileKey: appLockRelock2MinutesKey,
-              title: strings.text('home.after.2.minutes'),
-              subtitle: strings.text(
-                'home.useful.when.capturing.photos.or.audio.between.notes',
-              ),
-              selected: appLockRelockDelay == AppLockRelockDelay.minutes2,
-              onTap: () => ref
-                  .read(appLockRelockDelayControllerProvider.notifier)
-                  .setDelay(AppLockRelockDelay.minutes2),
-            ),
-            _ThemeOptionTile(
-              tileKey: appLockRelock10MinutesKey,
-              title: strings.text('home.after.10.minutes'),
-              subtitle: strings.text(
-                'home.keep.the.app.open.during.longer.editing.sessions',
-              ),
-              selected: appLockRelockDelay == AppLockRelockDelay.minutes10,
-              onTap: () => ref
-                  .read(appLockRelockDelayControllerProvider.notifier)
-                  .setDelay(AppLockRelockDelay.minutes10),
-            ),
-            if (showLegacyPrivateVaultSettings)
-              SwitchListTile.adaptive(
-                key: privateVaultLockOnAppLockKey,
-                value: privateVaultLockOnAppLock,
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  strings.text('home.lock.legacy.private.area.when.app.locks'),
+              const SizedBox(height: 8),
+              _ThemeOptionTile(
+                tileKey: appLockRelockImmediateKey,
+                title: strings.text('home.immediately'),
+                subtitle: strings.text(
+                  'home.lock.the.app.as.soon.as.it.moves.to.the.background',
                 ),
-                subtitle: Text(
-                  strings.text(
-                    'home.normally.this.locks.whenever.the.app.locks',
-                  ),
-                ),
-                onChanged: (value) => ref
-                    .read(privateVaultLockOnAppLockControllerProvider.notifier)
-                    .setEnabled(value),
+                selected: appLockRelockDelay == AppLockRelockDelay.immediate,
+                onTap: () => ref
+                    .read(appLockRelockDelayControllerProvider.notifier)
+                    .setDelay(AppLockRelockDelay.immediate),
               ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  if (!usePinAppLock)
-                    FilledButton.tonal(
-                      key: appLockAuthenticateKey,
-                      onPressed: () => ref
-                          .read(deviceAuthControllerProvider.notifier)
-                          .authenticate(
-                            reason: strings.unlockWithDeviceAuthReason,
-                          ),
-                      child: Text(strings.text('home.authenticate.now')),
+              _ThemeOptionTile(
+                tileKey: appLockRelock30SecondsKey,
+                title: strings.text('home.after.30.seconds'),
+                subtitle: strings.text(
+                  'home.allow.quick.app.switching.without.immediate.re.auth',
+                ),
+                selected: appLockRelockDelay == AppLockRelockDelay.seconds30,
+                onTap: () => ref
+                    .read(appLockRelockDelayControllerProvider.notifier)
+                    .setDelay(AppLockRelockDelay.seconds30),
+              ),
+              _ThemeOptionTile(
+                tileKey: appLockRelock2MinutesKey,
+                title: strings.text('home.after.2.minutes'),
+                subtitle: strings.text(
+                  'home.useful.when.capturing.photos.or.audio.between.notes',
+                ),
+                selected: appLockRelockDelay == AppLockRelockDelay.minutes2,
+                onTap: () => ref
+                    .read(appLockRelockDelayControllerProvider.notifier)
+                    .setDelay(AppLockRelockDelay.minutes2),
+              ),
+              _ThemeOptionTile(
+                tileKey: appLockRelock10MinutesKey,
+                title: strings.text('home.after.10.minutes'),
+                subtitle: strings.text(
+                  'home.keep.the.app.open.during.longer.editing.sessions',
+                ),
+                selected: appLockRelockDelay == AppLockRelockDelay.minutes10,
+                onTap: () => ref
+                    .read(appLockRelockDelayControllerProvider.notifier)
+                    .setDelay(AppLockRelockDelay.minutes10),
+              ),
+              if (showLegacyPrivateVaultSettings)
+                SwitchListTile.adaptive(
+                  key: privateVaultLockOnAppLockKey,
+                  value: privateVaultLockOnAppLock,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    strings.text(
+                      'home.lock.legacy.private.area.when.app.locks',
                     ),
-                  OutlinedButton(
-                    key: appLockLockNowKey,
-                    onPressed: appLockEnabled
-                        ? () {
-                            ref
-                                .read(
-                                  appSessionUnlockControllerProvider.notifier,
-                                )
-                                .lock();
-                            ref
-                                .read(
-                                  privateVaultSessionControllerProvider
-                                      .notifier,
-                                )
-                                .lock();
-                            ref
-                                .read(
-                                  unlockedPrivateProfileVaultIdProvider
-                                      .notifier,
-                                )
-                                .lock();
-                            ref
-                                .read(
-                                  adminModeSessionControllerProvider.notifier,
-                                )
-                                .lock();
-                          }
-                        : null,
-                    child: Text(strings.text('home.lock.session.now')),
                   ),
-                  if (!kIsWeb)
+                  subtitle: Text(
+                    strings.text(
+                      'home.normally.this.locks.whenever.the.app.locks',
+                    ),
+                  ),
+                  onChanged: (value) => ref
+                      .read(
+                        privateVaultLockOnAppLockControllerProvider.notifier,
+                      )
+                      .setEnabled(value),
+                ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (!usePinAppLock)
+                      FilledButton.tonal(
+                        key: appLockAuthenticateKey,
+                        onPressed: () => ref
+                            .read(deviceAuthControllerProvider.notifier)
+                            .authenticate(
+                              reason: strings.unlockWithDeviceAuthReason,
+                            ),
+                        child: Text(strings.text('home.authenticate.now')),
+                      ),
                     OutlinedButton(
-                      onPressed: () => ref
-                          .read(deviceAuthControllerProvider.notifier)
-                          .refresh(),
-                      child: Text(strings.text('home.refresh.availability')),
+                      key: appLockLockNowKey,
+                      onPressed: appLockEnabled
+                          ? () {
+                              ref
+                                  .read(
+                                    appSessionUnlockControllerProvider.notifier,
+                                  )
+                                  .lock();
+                              ref
+                                  .read(
+                                    privateVaultSessionControllerProvider
+                                        .notifier,
+                                  )
+                                  .lock();
+                              ref
+                                  .read(
+                                    unlockedPrivateProfileVaultIdProvider
+                                        .notifier,
+                                  )
+                                  .lock();
+                              ref
+                                  .read(
+                                    adminModeSessionControllerProvider.notifier,
+                                  )
+                                  .lock();
+                            }
+                          : null,
+                      child: Text(strings.text('home.lock.session.now')),
                     ),
-                ],
+                    if (!kIsWeb)
+                      OutlinedButton(
+                        onPressed: () => ref
+                            .read(deviceAuthControllerProvider.notifier)
+                            .refresh(),
+                        child: Text(strings.text('home.refresh.availability')),
+                      ),
+                  ],
+                ),
               ),
-            ),
+            ],
             _SettingsSectionLabel(
               label: strings.localized(
                 en: 'Lock screen and widgets',
@@ -2480,7 +2637,14 @@ class SettingsScreen extends ConsumerWidget {
         if (kDebugMode && showLegacyPrivateVaultSettings)
           SizedBox(height: settingsGroupSpacing),
         _SettingsGroup(
-          title: strings.text('home.backup.and.sync'),
+          title: strings.localized(
+            en: 'Device sync',
+            ja: '端末間の同期',
+            zh: '设备间同步',
+            ko: '기기 간 동기화',
+            es: 'Sincronización entre dispositivos',
+            de: 'Geräte synchronisieren',
+          ),
           summary: syncSummary,
           icon: Icons.sync_outlined,
           sectionKey: _syncSectionKey,
@@ -2488,6 +2652,10 @@ class SettingsScreen extends ConsumerWidget {
           onExpansionChanged: (expanded) =>
               _handlePrimarySettingsExpansion(expanded, _syncController),
           children: [
+            if (!syncAuthState.isAuthenticated ||
+                syncProvider == SyncProvider.off) ...[
+              ...syncProviderChoices,
+            ],
             if (syncConflictWarning != null)
               Container(
                 width: double.infinity,
@@ -2528,72 +2696,6 @@ class SettingsScreen extends ConsumerWidget {
                   ],
                 ),
               ),
-            _SettingsSectionLabel(
-              label: strings.localized(
-                en: 'Sync with',
-                ja: '同期先',
-                zh: '同步到',
-                ko: '동기화 대상',
-                es: 'Sincronizar con',
-                de: 'Synchronisieren mit',
-              ),
-            ),
-            _ThemeOptionTile(
-              tileKey: syncOffKey,
-              title: strings.localized(
-                en: 'This device only',
-                ja: 'この端末のみ',
-                zh: '仅此设备',
-                ko: '이 기기만',
-                es: 'Solo este dispositivo',
-                de: 'Nur dieses Gerät',
-              ),
-              subtitle: strings.localized(
-                en: 'Do not sync with another device.',
-                ja: 'ほかの端末とは同期しません。',
-                zh: '不与其他设备同步。',
-                ko: '다른 기기와 동기화하지 않습니다.',
-                es: 'No se sincroniza con otros dispositivos.',
-                de: 'Keine Synchronisierung mit anderen Geräten.',
-              ),
-              selected: syncProvider == SyncProvider.off,
-              onTap: () => ref
-                  .read(syncProviderControllerProvider.notifier)
-                  .setProvider(SyncProvider.off),
-            ),
-            if (isICloudSyncSupported)
-              _ThemeOptionTile(
-                tileKey: syncICloudKey,
-                title: 'iCloud',
-                subtitle: strings.localized(
-                  en: 'Use iCloud on this iPhone or iPad.',
-                  ja: 'この iPhone・iPad の iCloud を使います。',
-                  zh: '使用此 iPhone 或 iPad 上的 iCloud。',
-                  ko: '이 iPhone 또는 iPad의 iCloud를 사용합니다.',
-                  es: 'Usa iCloud en este iPhone o iPad.',
-                  de: 'iCloud auf diesem iPhone oder iPad verwenden.',
-                ),
-                selected: syncProvider == SyncProvider.iCloud,
-                onTap: () => ref
-                    .read(syncProviderControllerProvider.notifier)
-                    .setProvider(SyncProvider.iCloud),
-              ),
-            _ThemeOptionTile(
-              tileKey: syncGoogleDriveKey,
-              title: 'Google Drive',
-              subtitle: strings.localized(
-                en: 'Use your Google account.',
-                ja: 'Google アカウントを使います。',
-                zh: '使用您的 Google 帐号。',
-                ko: 'Google 계정을 사용합니다.',
-                es: 'Usa tu cuenta de Google.',
-                de: 'Ihr Google-Konto verwenden.',
-              ),
-              selected: syncProvider == SyncProvider.googleDrive,
-              onTap: () => ref
-                  .read(syncProviderControllerProvider.notifier)
-                  .setProvider(SyncProvider.googleDrive),
-            ),
             if (kIsWeb &&
                 syncProvider == SyncProvider.googleDrive &&
                 !syncAuthState.isAuthenticated)
@@ -2601,83 +2703,74 @@ class SettingsScreen extends ConsumerWidget {
             if (syncProvider != SyncProvider.off &&
                 !syncAuthState.isAuthenticated &&
                 !(kIsWeb && syncProvider == SyncProvider.googleDrive))
-              FilledButton(
-                key: syncConnectKey,
-                onPressed: syncAuthState.stage == SyncAuthStage.busy
-                    ? null
-                    : () => _connectSelectedSync(context, ref, syncProvider),
-                child: Text(_syncConnectLabel(context, syncProvider)),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: FilledButton(
+                  key: syncConnectKey,
+                  onPressed: syncAuthState.stage == SyncAuthStage.busy
+                      ? null
+                      : () => _connectSelectedSync(context, ref, syncProvider),
+                  child: Text(_syncConnectLabel(context, syncProvider)),
+                ),
               ),
             if (syncProvider != SyncProvider.off &&
                 syncAuthState.isAuthenticated)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  FilledButton.icon(
-                    key: syncNowKey,
-                    onPressed:
-                        syncTransferState.isBusy ||
-                            !syncAuthState.isAuthenticated
-                        ? null
-                        : () => _syncNow(context, ref),
-                    icon: syncTransferState.stage == SyncTransferStage.busy
-                        ? SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Theme.of(context).colorScheme.onPrimary,
-                            ),
-                          )
-                        : const Icon(Icons.sync_rounded),
-                    label: Text(
-                      syncTransferState.stage == SyncTransferStage.busy
-                          ? _syncProgressLabel(strings, syncTransferState)
-                          : strings.localized(
-                              en: 'Sync now',
-                              ja: '今すぐ同期',
-                              zh: '立即同步',
-                              ko: '지금 동기화',
-                              es: 'Sincronizar ahora',
-                              de: 'Jetzt synchronisieren',
-                            ),
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: FilledButton.icon(
+                      key: syncNowKey,
+                      onPressed:
+                          syncTransferState.stage == SyncTransferStage.busy
+                          ? null
+                          : () async {
+                              if (syncTransferState.isCoolingDown) {
+                                ref
+                                    .read(
+                                      syncTransferControllerProvider.notifier,
+                                    )
+                                    .clearRetryCooldown();
+                              }
+                              await _syncNow(context, ref);
+                            },
+                      icon: syncTransferState.stage == SyncTransferStage.busy
+                          ? SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Theme.of(context).colorScheme.onPrimary,
+                              ),
+                            )
+                          : const Icon(Icons.sync_rounded),
+                      label: Text(
+                        syncTransferState.stage == SyncTransferStage.busy
+                            ? _syncProgressLabel(strings, syncTransferState)
+                            : (syncTransferState.isCoolingDown ||
+                                  syncTransferState.stage ==
+                                      SyncTransferStage.error)
+                            ? strings.localized(en: 'Retry sync', ja: '同期を再試行')
+                            : strings.localized(
+                                en: 'Sync now',
+                                ja: '今すぐ同期',
+                                zh: '立即同步',
+                                ko: '지금 동기화',
+                                es: 'Sincronizar ahora',
+                                de: 'Jetzt synchronisieren',
+                              ),
+                      ),
                     ),
                   ),
                   if (syncTransferState.isCoolingDown)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            strings.localized(
-                              en: 'Retry is paused after repeated failures.',
-                              ja: '\u5931\u6557\u304c\u7d9a\u3044\u305f\u305f\u3081\u518d\u8a66\u884c\u3092\u4e00\u6642\u505c\u6b62\u3057\u3066\u3044\u307e\u3059\u3002',
-                            ),
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: !syncAuthState.isAuthenticated
-                                ? null
-                                : () async {
-                                    ref
-                                        .read(
-                                          syncTransferControllerProvider
-                                              .notifier,
-                                        )
-                                        .clearRetryCooldown();
-                                    await _syncNow(context, ref);
-                                  },
-                            icon: const Icon(Icons.refresh_rounded),
-                            label: Text(
-                              strings.localized(
-                                en: 'Retry now',
-                                ja: '\u4eca\u3059\u3050\u518d\u8a66\u884c',
-                              ),
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        strings.localized(
+                          en: 'Automatic retry is paused after repeated failures.',
+                          ja: '失敗が続いたため、自動再試行を一時停止しています。',
+                        ),
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
                   if (syncTransferState.stage == SyncTransferStage.busy)
@@ -2689,9 +2782,7 @@ class SettingsScreen extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             LinearProgressIndicator(
-                              value: _syncProgressValueForState(
-                                syncTransferState,
-                              ),
+                              value: syncTransferState.progressValue,
                             ),
                             const SizedBox(height: 6),
                             Text(
@@ -2749,21 +2840,21 @@ class SettingsScreen extends ConsumerWidget {
                   ],
                 ),
               ),
-            Container(
-              margin: const EdgeInsets.symmetric(vertical: 8),
-              decoration: BoxDecoration(
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Material(
                 color: Theme.of(context).colorScheme.surfaceContainerHighest
                     .withValues(alpha: 0.36),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.outlineVariant,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
                 ),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Theme(
-                data: Theme.of(context)
-                    .copyWith(dividerColor: Colors.transparent),
+                clipBehavior: Clip.antiAlias,
                 child: ExpansionTile(
+                  shape: const Border(),
+                  collapsedShape: const Border(),
                   leading: const Icon(Icons.info_outline_rounded),
                   tilePadding: const EdgeInsets.symmetric(
                     horizontal: 12,
@@ -2773,12 +2864,12 @@ class SettingsScreen extends ConsumerWidget {
                   title: Text(strings.syncDetailsTitle),
                   subtitle: Text(strings.syncDetailsSummary),
                   children: [
+                    ...syncProviderChoices,
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: [
                         OutlinedButton(
-                          key: syncConnectKey,
                           onPressed: syncAuthState.stage == SyncAuthStage.busy
                               ? null
                               : () => _connectSelectedSync(
@@ -3709,16 +3800,31 @@ class SettingsScreen extends ConsumerWidget {
             ).visibleWhen(
               syncProvider != SyncProvider.off && syncAuthState.isAuthenticated,
             ),
-            _SettingsSectionLabel(
-              label: strings.localized(
-                en: 'File backup',
-                ja: 'ファイルバックアップ',
-                zh: '文件备份',
-                ko: '파일 백업',
-                es: 'Copia en archivo',
-                de: 'Datei-Backup',
-              ),
-            ),
+          ],
+        ),
+        SizedBox(height: settingsGroupSpacing),
+        _SettingsGroup(
+          title: strings.localized(
+            en: 'File backup',
+            ja: 'ファイルバックアップ',
+            zh: '文件备份',
+            ko: '파일 백업',
+            es: 'Copia en archivo',
+            de: 'Datei-Backup',
+          ),
+          summary: strings.localized(
+            en: 'Save or restore notes using a backup file.',
+            ja: 'バックアップファイルでメモを保存・復元します。',
+            zh: '使用备份文件保存或恢复笔记。',
+            ko: '백업 파일로 메모를 저장하거나 복원합니다.',
+            es: 'Guarda o restaura notas con un archivo de copia.',
+            de: 'Notizen per Sicherungsdatei speichern oder wiederherstellen.',
+          ),
+          icon: Icons.folder_copy_outlined,
+          controller: _fileBackupController,
+          onExpansionChanged: (expanded) =>
+              _handlePrimarySettingsExpansion(expanded, _fileBackupController),
+          children: [
             Align(
               alignment: Alignment.centerLeft,
               child: Wrap(

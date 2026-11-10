@@ -26,6 +26,11 @@ class PrivateMemoProfileStore {
   final String verifierStoragePrefix;
 
   static const minimumPasswordLength = 10;
+  static const minimumPinLength = 4;
+  static final _pinDigits = RegExp(r'^[0-9]+$');
+
+  static bool isValidPin(String value) =>
+      value.length >= minimumPinLength && _pinDigits.hasMatch(value);
 
   String? _passwordValidationError(String password) {
     if (password.runes.length < minimumPasswordLength) {
@@ -106,6 +111,17 @@ class PrivateMemoProfileStore {
   Future<int> importSyncPayload(Object? payload) =>
       _serializeProfiles(() => _importSyncPayload(payload));
 
+  Future<Map<String, int>> pendingCredentialRevisions(
+    List<PrivateMemoProfile> profiles,
+  ) => _profileDataKeyService.pendingCredentialRevisions(
+    profiles.map((profile) => profile.vaultId),
+  );
+
+  Future<void> acknowledgeCredentialRevisions(Map<String, int> revisions) =>
+      _serializeProfiles(
+        () => _profileDataKeyService.acknowledgeCredentialRevisions(revisions),
+      );
+
   Future<int> _importSyncPayload(Object? payload) async {
     if (payload is! Map) {
       return 0;
@@ -117,6 +133,7 @@ class PrivateMemoProfileStore {
 
     var imported = 0;
     final existing = await listProfiles();
+    final existingIds = existing.map((profile) => profile.id).toSet();
     final profilesById = <String, PrivateMemoProfile>{
       for (final profile in existing) profile.id: profile,
     };
@@ -169,6 +186,7 @@ class PrivateMemoProfileStore {
       final salt = verifier['salt'];
       final secretVerifier = verifier['verifier'];
       if (profileId == null ||
+          existingIds.contains(profileId) ||
           !profilesById.containsKey(profileId) ||
           salt is! String ||
           salt.isEmpty ||
@@ -186,6 +204,7 @@ class PrivateMemoProfileStore {
     imported += await _profileDataKeyService.importWrappedProfileKeys(
       decoded['dataKeys'] as List<dynamic>? ?? const <dynamic>[],
       overwrite: true,
+      requireNewerCredential: true,
     );
     return imported;
   }
@@ -193,16 +212,29 @@ class PrivateMemoProfileStore {
   Future<String?> addProfile({
     required String name,
     required String password,
+    bool usePin = false,
+    String? recoveryPassword,
   }) async {
-    final validationError = _passwordValidationError(password);
+    final validationError = usePin
+        ? (isValidPin(password)
+              ? null
+              : 'Use at least $minimumPinLength digits for a private profile PIN.')
+        : _passwordValidationError(password);
     if (validationError != null) {
       return validationError;
+    }
+    final portablePassword = usePin ? recoveryPassword ?? '' : password;
+    if (usePin &&
+        (_profileDataKeyService.devicePinStore == null ||
+            _passwordValidationError(portablePassword) != null ||
+            RegExp(r'^\d+$').hasMatch(portablePassword.trim()))) {
+      return 'A device PIN requires a recovery password of at least 10 characters that is not all digits.';
     }
     final existing = await listProfiles();
     for (final profile in existing) {
       final duplicate = await _profileDataKeyService.verifyProfilePassword(
         vaultId: profile.vaultId,
-        password: password,
+        password: portablePassword,
       );
       if (duplicate) {
         return 'That password already unlocks another profile.';
@@ -217,7 +249,7 @@ class PrivateMemoProfileStore {
     );
     final salt = _encryptionService.generateSalt();
     final verifier = await _encryptionService.deriveSecretVerifier(
-      secret: password,
+      secret: portablePassword,
       salt: salt,
     );
     await _secureStore.write(
@@ -226,8 +258,19 @@ class PrivateMemoProfileStore {
     );
     await _profileDataKeyService.configureProfile(
       vaultId: profile.vaultId,
-      password: password,
+      password: portablePassword,
+      queueCredentialSync: usePin,
     );
+    if (usePin &&
+        !await _profileDataKeyService.setDevicePin(
+          vaultId: profile.vaultId,
+          recoveryPassword: portablePassword,
+          pin: password,
+        )) {
+      await _profileDataKeyService.deleteProfileKey(profile.vaultId);
+      await _secureStore.delete('$verifierStoragePrefix${profile.id}');
+      return 'The device PIN could not be saved.';
+    }
     await _serializeProfiles(() async {
       await _saveProfiles([...await listProfiles(), profile]);
     });
@@ -249,13 +292,13 @@ class PrivateMemoProfileStore {
     if (matches.isNotEmpty) {
       matches.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       final profile = matches.first;
-      for (final extraMatch in matches.skip(1)) {
-        _profileDataKeyService.lockProfile(extraMatch.vaultId);
-      }
       return UnlockProfileResult(
         vaultId: profile.vaultId,
         label: profile.name,
         isLegacy: false,
+        additionalVaultIds: [
+          for (final match in matches.skip(1)) match.vaultId,
+        ],
       );
     }
     return null;
@@ -345,7 +388,7 @@ class PrivateMemoProfileStore {
   Future<String?> updateProfilePassword({
     required String id,
     required String password,
-  }) async {
+  }) => _serializeProfiles(() async {
     final validationError = _passwordValidationError(password);
     if (validationError != null) {
       return validationError;
@@ -390,7 +433,7 @@ class PrivateMemoProfileStore {
       await _secureStore.delete('$verifierStoragePrefix$id');
     }
     return null;
-  }
+  });
 
   Future<void> _saveProfiles(List<PrivateMemoProfile> profiles) async {
     final prefs = await _sharedPreferencesProvider();

@@ -105,6 +105,17 @@ import FoundationModels
         let pending = self.pendingQuickCapturePayload ?? self.readPendingQuickCapturePayload()
         self.pendingQuickCapturePayload = nil
         result(pending ?? false)
+      case "acknowledgeSharedCapture":
+        guard let id = call.arguments as? String, UUID(uuidString: id) != nil else {
+          result(FlutterError(code: "invalid_share_id", message: nil, details: nil))
+          return
+        }
+        do {
+          try self.acknowledgeSharedCapture(id)
+          result(nil)
+        } catch {
+          result(FlutterError(code: "share_ack_failed", message: nil, details: nil))
+        }
       case "deleteSharedImportFiles":
         let args = call.arguments as? [String: Any]
         let paths = args?["paths"] as? [String] ?? []
@@ -736,14 +747,25 @@ import FoundationModels
 
   private func handleQuickCaptureURL(_ url: URL) -> Bool {
     if url.isFileURL {
-      guard let file = copySharedFile(url) else {
+      guard let container = FileManager.default.containerURL(
+        forSecurityApplicationGroupIdentifier: appGroupIdentifier
+      ) else {
         return false
       }
-      openQuickCapture(payload: [
-        "source": "share",
-        "text": "",
-        "files": [file]
-      ])
+      let entry = container.appendingPathComponent("pending_shares", isDirectory: true)
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+      guard let file = copySharedFile(url, into: entry) else { return false }
+      do {
+        let data = try JSONSerialization.data(withJSONObject: ["text": "", "files": [file]])
+        try data.write(
+          to: entry.appendingPathComponent("manifest.json"),
+          options: [.atomic, .completeFileProtection]
+        )
+      } catch {
+        try? FileManager.default.removeItem(at: entry)
+        return false
+      }
+      if let payload = readPendingQuickCapturePayload() { openQuickCapture(payload: payload) }
       return true
     }
 
@@ -808,7 +830,7 @@ import FoundationModels
     }
   }
 
-  private func copySharedFile(_ sourceURL: URL) -> [String: String]? {
+  private func copySharedFile(_ sourceURL: URL, into directory: URL) -> [String: String]? {
     let startedAccess = sourceURL.startAccessingSecurityScopedResource()
     defer {
       if startedAccess {
@@ -821,8 +843,6 @@ import FoundationModels
       return nil
     }
 
-    let directory = FileManager.default.temporaryDirectory
-      .appendingPathComponent("shared_imports", isDirectory: true)
     do {
       try FileManager.default.createDirectory(
         at: directory,
@@ -835,12 +855,16 @@ import FoundationModels
         try FileManager.default.removeItem(at: destination)
       }
       try FileManager.default.copyItem(at: sourceURL, to: destination)
+      try FileManager.default.setAttributes(
+        [.protectionKey: FileProtectionType.complete], ofItemAtPath: destination.path
+      )
       return [
-        "path": destination.path,
+        "relativePath": destination.lastPathComponent,
         "name": sourceURL.lastPathComponent,
         "mimeType": mimeType
       ]
     } catch {
+      try? FileManager.default.removeItem(at: directory)
       return nil
     }
   }
@@ -902,7 +926,8 @@ import FoundationModels
     )?.appendingPathComponent("shared_imports", isDirectory: true) else {
       return false
     }
-    return url.standardizedFileURL.path.hasPrefix(appGroupDirectory.standardizedFileURL.path)
+    return url.resolvingSymlinksInPath().standardizedFileURL.path
+      .hasPrefix(appGroupDirectory.resolvingSymlinksInPath().standardizedFileURL.path + "/")
   }
 
   private func readPendingQuickCapturePayload() -> [String: Any]? {
@@ -911,20 +936,86 @@ import FoundationModels
     ) else {
       return nil
     }
-    let url = container.appendingPathComponent(pendingQuickCaptureFileName)
-    guard FileManager.default.fileExists(atPath: url.path) else {
-      return nil
+    let manager = FileManager.default
+    let queue = container.appendingPathComponent("pending_shares", isDirectory: true)
+    let legacy = container.appendingPathComponent(pendingQuickCaptureFileName)
+    if manager.fileExists(atPath: legacy.path) {
+      let entry = queue.appendingPathComponent(UUID().uuidString, isDirectory: true)
+      do {
+        try manager.createDirectory(at: entry, withIntermediateDirectories: true)
+        try manager.moveItem(at: legacy, to: entry.appendingPathComponent("manifest.json"))
+      } catch {
+        // Leave the legacy manifest in place if migration could not finish.
+      }
     }
-    defer {
-      try? FileManager.default.removeItem(at: url)
+    let entries = (try? manager.contentsOfDirectory(
+      at: queue, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+    )) ?? []
+    let manifests = entries.compactMap { entry -> (String, URL, Date)? in
+      let id = entry.lastPathComponent
+      guard UUID(uuidString: id) != nil else { return nil }
+      let url = entry.appendingPathComponent("manifest.json")
+      guard let date = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+        .contentModificationDate else { return nil }
+      return (id, url, date)
+    }.sorted { left, right in
+      left.2 == right.2 ? left.0 < right.0 : left.2 < right.2
     }
-    guard
-      let data = try? Data(contentsOf: url),
-      let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    else {
-      return nil
+    for (id, url, _) in manifests {
+      guard let data = try? Data(contentsOf: url),
+            var payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+      else { continue }
+      payload["source"] = "share"
+      payload["nonce"] = id
+      payload["shareId"] = id
+      if let files = payload["files"] as? [[String: Any]] {
+        payload["files"] = files.map { file in
+          var resolved = file
+          if let path = file["path"] as? String {
+            resolved["path"] = legacySharedImportURL(path, in: container).path
+          }
+          guard let name = file["relativePath"] as? String,
+                !name.isEmpty, name != ".", name != "..", !name.contains("/")
+          else { return resolved }
+          resolved["path"] = url.deletingLastPathComponent().appendingPathComponent(name).path
+          return resolved
+        }
+      }
+      return payload
     }
-    return payload
+    return nil
+  }
+
+  private func acknowledgeSharedCapture(_ id: String) throws {
+    guard let container = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: appGroupIdentifier
+    ) else { throw CocoaError(.fileNoSuchFile) }
+    let entry = container.appendingPathComponent("pending_shares", isDirectory: true)
+      .appendingPathComponent(id, isDirectory: true)
+    let manifest = entry.appendingPathComponent("manifest.json")
+    let manager = FileManager.default
+    guard manager.fileExists(atPath: manifest.path) else { return }
+    // Migrated manifests can still reference the old shared_imports directory.
+    if let data = try? Data(contentsOf: manifest),
+       let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+       let files = payload["files"] as? [[String: Any]] {
+      for file in files {
+        guard let path = file["path"] as? String else { continue }
+        let url = legacySharedImportURL(path, in: container)
+        if isSharedImportFile(url) { try? manager.removeItem(at: url) }
+      }
+    }
+    try manager.removeItem(at: entry)
+  }
+
+  private func legacySharedImportURL(_ path: String, in container: URL) -> URL {
+    let url = URL(fileURLWithPath: path)
+    if FileManager.default.fileExists(atPath: path) ||
+       url.deletingLastPathComponent().lastPathComponent != "shared_imports" {
+      return url
+    }
+    return container.appendingPathComponent("shared_imports", isDirectory: true)
+      .appendingPathComponent(url.lastPathComponent)
   }
 
   private func appGroupStorageDiagnostics() -> [String: Any] {
@@ -948,7 +1039,8 @@ import FoundationModels
     return [
       "appGroupBytes": Int(directorySizeBytes(container)),
       "appGroupSharedImportsBytes": Int(directorySizeBytes(sharedImports)),
-      "appGroupPendingQuickCaptureBytes": Int(fileSizeBytes(pendingQuickCapture)),
+      "appGroupPendingQuickCaptureBytes": Int(fileSizeBytes(pendingQuickCapture)
+        + directorySizeBytes(container.appendingPathComponent("pending_shares", isDirectory: true))),
     ]
   }
 

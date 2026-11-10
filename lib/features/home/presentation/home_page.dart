@@ -27,7 +27,6 @@ import 'package:latlong2/latlong.dart' show LatLng;
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
-import 'package:pinput/pinput.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:record/record.dart';
 import 'package:share_plus/share_plus.dart';
@@ -38,6 +37,7 @@ import '../../../app/diagnostic_log.dart';
 import '../../../app/audit_log.dart';
 import '../../../l10n/app_strings.dart';
 import '../../security/data/encrypted_attachment_store.dart';
+import '../../security/presentation/app_pin_input.dart';
 import '../../security/data/encrypted_note_database.dart';
 import '../../security/data/encryption_service.dart';
 import '../../sync/data/google_drive_sync_transport.dart';
@@ -1467,7 +1467,7 @@ class _HeaderSyncIndicatorState extends State<_HeaderSyncIndicator>
                     dimension: 24,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.2,
-                      value: _syncProgressValueForState(widget.state),
+                      value: widget.state.progressValue,
                       color: colorScheme.primary,
                       backgroundColor: colorScheme.primary.withValues(
                         alpha: 0.12,
@@ -1515,7 +1515,7 @@ class _HeaderSyncIndicatorState extends State<_HeaderSyncIndicator>
                 strings,
                 state,
               );
-              final progressValue = _syncProgressValueForState(state);
+              final progressValue = state.progressValue;
               return AlertDialog(
                 title: Text(
                   strings.localized(
@@ -2137,7 +2137,12 @@ Future<void> _showAddPrivateProfileDialogFromHeader(
   }
   final error = await ref
       .read(privateMemoProfilesControllerProvider.notifier)
-      .addProfile(name: draft.name, password: draft.password);
+      .addProfile(
+        name: draft.name,
+        password: draft.password,
+        usePin: draft.usePin,
+        recoveryPassword: draft.recoveryPassword,
+      );
   if (error == null) {
     await ref
         .read(privateProfileUnlockControllerProvider.notifier)
@@ -2189,6 +2194,8 @@ class _ProfileAccessDialog extends ConsumerStatefulWidget {
 class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
   final _controller = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  bool _usePin = false;
+  bool _showPassword = false;
 
   @override
   void dispose() {
@@ -2228,20 +2235,57 @@ class _ProfileAccessDialogState extends ConsumerState<_ProfileAccessDialog> {
                 ),
                 const SizedBox(height: 12),
               ],
-              TextFormField(
-                key: const Key('private-profile-unlock-password-input'),
-                controller: _controller,
-                obscureText: true,
-                autofocus: true,
-                decoration: InputDecoration(
-                  labelText: strings.text('home.profile.password'),
-                  border: const OutlineInputBorder(),
-                ),
-                validator: (value) => (value == null || value.isEmpty)
-                    ? (strings.text('home.enter.a.password'))
-                    : null,
-                onFieldSubmitted: (_) => _submit(),
+              SegmentedButton<bool>(
+                segments: [
+                  ButtonSegment(
+                    value: false,
+                    label: Text(_profilePasswordLabel(strings)),
+                  ),
+                  ButtonSegment(value: true, label: Text(strings.pin)),
+                ],
+                selected: {_usePin},
+                onSelectionChanged: (selection) {
+                  _controller.clear();
+                  setState(() {
+                    _usePin = selection.single;
+                    _showPassword = false;
+                  });
+                },
               ),
+              const SizedBox(height: 16),
+              if (_usePin)
+                AppPinInput(
+                  key: const Key('private-profile-unlock-pin-input'),
+                  controller: _controller,
+                  autofocus: true,
+                  variableLength: true,
+                  validator: (value) =>
+                      (value ?? '').isEmpty ? strings.pin : null,
+                  onSubmit: _submit,
+                )
+              else
+                TextFormField(
+                  key: const Key('private-profile-unlock-password-input'),
+                  controller: _controller,
+                  obscureText: !_showPassword,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: _profilePasswordLabel(strings),
+                    border: const OutlineInputBorder(),
+                    suffixIcon: _profilePasswordVisibility(
+                      strings,
+                      visible: _showPassword,
+                      onPressed: () =>
+                          setState(() => _showPassword = !_showPassword),
+                    ),
+                  ),
+                  validator: (value) => (value ?? '').isEmpty
+                      ? strings.text('home.enter.a.password')
+                      : null,
+                  onFieldSubmitted: (_) => _submit(),
+                ),
             ],
           ),
         ),

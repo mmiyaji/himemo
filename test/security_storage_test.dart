@@ -2041,7 +2041,7 @@ void main() {
   );
 
   test(
-    'NotesController cleanup removes orphaned attachment payloads',
+    'storage summary is read-only and cleanup protects hidden attachments',
     () async {
       SharedPreferences.setMockInitialValues({});
       final tempDirectory = await Directory.systemTemp.createTemp(
@@ -2053,10 +2053,17 @@ void main() {
         secureStore: secureStore,
         keyFactory: encryptionService.generateKeyBytes,
       );
+      final profileKeys = ProfileDataKeyService(
+        secureStore: secureStore,
+        encryptionService: encryptionService,
+        normalMasterKeyService: masterKeyService,
+      );
       final attachmentStore = EncryptedAttachmentStore(
         encryptionService: encryptionService,
         masterKeyService: masterKeyService,
+        profileDataKeyService: profileKeys,
         directoryProvider: () async => tempDirectory,
+        temporaryDirectoryProvider: () async => tempDirectory,
         sharedPreferencesProvider: SharedPreferences.getInstance,
       );
       final noteDatabase = EncryptedNoteDatabase(
@@ -2075,10 +2082,12 @@ void main() {
           secureKeyValueStoreProvider.overrideWithValue(secureStore),
           encryptionServiceProvider.overrideWithValue(encryptionService),
           masterKeyServiceProvider.overrideWithValue(masterKeyService),
+          profileDataKeyServiceProvider.overrideWithValue(profileKeys),
           encryptedNoteStoreProvider.overrideWithValue(
             EncryptedNoteStore(
               encryptionService: encryptionService,
               masterKeyService: masterKeyService,
+              profileDataKeyService: profileKeys,
               database: noteDatabase,
               directoryProvider: () async => tempDirectory,
               sharedPreferencesProvider: SharedPreferences.getInstance,
@@ -2098,12 +2107,82 @@ void main() {
       });
 
       final controller = container.read(notesControllerProvider.notifier);
+      final orphanFile = File(orphanReference!);
+      await controller.reloadFromStorage();
+      final storageSubscription = container.listen(
+        storageUsageSummaryProvider,
+        (_, _) {},
+      );
+      addTearDown(storageSubscription.close);
+      final initialUsage = await container.read(
+        storageUsageSummaryProvider.future,
+      );
+      expect(await orphanFile.exists(), isTrue);
+
+      const vaultId = 'private_profile:cleanup';
+      const password = 'cleanup profile password';
+      final attachment = NoteAttachment(
+        type: AttachmentType.photo,
+        label: 'orphan.jpg',
+        filePath: orphanReference,
+      );
+      final drafts = container.read(noteEditorDraftStoreProvider);
+      await profileKeys.configureProfile(vaultId: vaultId, password: password);
+      await drafts.save(
+        NoteEditorDraftSnapshot(
+          createdAt: DateTime(2026, 5, 15),
+          isPinned: false,
+          editorMode: NoteEditorMode.quick,
+          vaultId: vaultId,
+          tags: const [],
+          quickContent: 'unsaved note',
+          quickAttachments: [attachment],
+          richBlocks: const [],
+        ),
+      );
+      profileKeys.lockProfile(vaultId);
+      expect(await drafts.load(), isNull);
+      expect(await controller.cleanupUnreferencedAttachments(), 0);
+      expect(await orphanFile.exists(), isTrue);
+      await drafts.clear();
+
+      expect(
+        await profileKeys.unlockProfile(vaultId: vaultId, password: password),
+        isTrue,
+      );
+      await controller.upsert(
+        NoteEntry(
+          id: 'private-cleanup',
+          vaultId: vaultId,
+          title: 'Private attachment',
+          body: '',
+          createdAt: DateTime(2026, 5, 15),
+          attachments: [attachment],
+        ),
+      );
+      final savedUsage = await container.read(
+        storageUsageSummaryProvider.future,
+      );
+      expect(
+        savedUsage.notePayloadBytes,
+        greaterThan(initialUsage.notePayloadBytes),
+      );
+      profileKeys.lockProfile(vaultId);
+      await controller.reloadFromStorage();
+      expect(
+        container.read(notesControllerProvider).single.attachments,
+        isEmpty,
+      );
+      expect(await controller.cleanupUnreferencedAttachments(), 0);
+      expect(await orphanFile.exists(), isTrue);
+
+      await controller.deleteVaultLocally(vaultId);
       final deletedCount = await controller.cleanupUnreferencedAttachments();
       final attachmentBytes = await attachmentStore.storagePayloadSizeBytes();
 
       expect(deletedCount, 1);
       expect(attachmentBytes, 0);
-      expect(await File(orphanReference!).exists(), isFalse);
+      expect(await orphanFile.exists(), isFalse);
     },
   );
 
@@ -2370,20 +2449,48 @@ void main() {
 
       await controller.delete('trash-1');
       await controller.deletePermanently('trash-1');
+      await controller.reloadFromStorage();
+      await controller.mergeFromSync([
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.upsert,
+          note: restored.copyWith(revision: 100),
+        ),
+      ]);
+      await controller.restoreFromTrash('trash-1');
+      expect(container.read(trashedNotesProvider), isEmpty);
+      final tombstone = (await noteStore.load(
+        fallbackNotes: const <NoteEntry>[],
+      )).singleWhere((note) => note.id == 'trash-1');
+      expect(tombstone.isPermanentlyDeleted, isTrue);
+      expect(tombstone.syncState, NoteSyncState.pendingDelete);
+      expect(tombstone.body, isEmpty);
+      expect(tombstone.attachments, isEmpty);
       expect(
-        container
-            .read(notesControllerProvider)
-            .any((note) => note.id == 'trash-1'),
-        isFalse,
-      );
-      expect(
-        (await noteStore.load(fallbackNotes: const <NoteEntry>[]))
-            .any((note) => note.id == 'trash-1'),
-        isFalse,
+        (await noteDatabase.loadPendingChanges()).single.action,
+        PendingNoteChangeAction.delete,
       );
       expect(attachmentStore.deletedReferences, [
         'secure-attachment://trash-proof',
       ]);
+      const replicaId = 'trash-replica';
+      await controller.upsert(
+        restored.copyWith(id: replicaId, attachments: [], blocks: []),
+      );
+      await controller.mergeFromSync([
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.delete,
+          note: tombstone.copyWith(id: replicaId),
+        ),
+        PreparedSyncNote(
+          action: PendingNoteChangeAction.upsert,
+          note: restored.copyWith(id: replicaId, revision: 101),
+        ),
+      ]);
+      final replica = container
+          .read(notesControllerProvider)
+          .singleWhere((note) => note.id == replicaId);
+      expect(replica.isPermanentlyDeleted, isTrue);
+      expect(replica.body, isEmpty);
     },
   );
 

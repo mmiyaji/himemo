@@ -45,11 +45,13 @@ class _SettingsOverviewItem {
     required this.label,
     required this.value,
     required this.icon,
+    required this.onTap,
   });
 
   final String label;
   final String value;
   final IconData icon;
+  final VoidCallback onTap;
 }
 
 class _ColorThemeScopeOption {
@@ -93,36 +95,41 @@ class _SettingsOverviewCard extends StatelessWidget {
                   for (final item in items)
                     SizedBox(
                       width: itemWidth,
-                      child: Padding(
-                        padding: const EdgeInsets.all(4),
-                        child: Row(
-                          children: [
-                            _SettingsSectionIcon(icon: item.icon),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    item.label,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelMedium
-                                        ?.copyWith(color: muted),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    item.value,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleSmall,
-                                  ),
-                                ],
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(6),
+                        onTap: item.onTap,
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Row(
+                            children: [
+                              _SettingsSectionIcon(icon: item.icon),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.label,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelMedium
+                                          ?.copyWith(color: muted),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      item.value,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall,
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
+                              const Icon(Icons.chevron_right_rounded, size: 18),
+                            ],
+                          ),
                         ),
                       ),
                     ),

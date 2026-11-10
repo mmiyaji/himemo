@@ -108,6 +108,126 @@ void main() {
   });
 
   group('private profile password updates', () {
+    test('legacy PIN migrates without replacing the profile data key', () async {
+      final fixture = _ProfileStoreFixture();
+      expect(
+        await fixture.store.addProfile(
+          name: 'Existing profile',
+          password: 'original-passphrase',
+        ),
+        isNull,
+      );
+      final profile = (await fixture.store.listProfiles()).single;
+      final vaultId = profile.vaultId;
+      // Recreate the former portable PIN wrapping around the existing data key.
+      expect(
+        await fixture.profileKeys.changeProfilePassword(
+          vaultId: vaultId,
+          newPassword: '4321',
+        ),
+        isTrue,
+      );
+      final originalKey = await (await fixture.profileKeys.keyForVault(
+        vaultId,
+      ))!.extractBytes();
+      fixture.profileKeys.lockProfile(vaultId);
+      expect(await fixture.store.verifyAny('4321'), isNotNull);
+      expect(
+        await fixture.store.updateProfilePassword(
+          id: profile.id,
+          password: 'replacement-passphrase',
+        ),
+        isNull,
+      );
+      expect(
+        await fixture.profileKeys.setDevicePin(
+          vaultId: vaultId,
+          recoveryPassword: 'replacement-passphrase',
+          pin: '4321',
+        ),
+        isTrue,
+      );
+      fixture.profileKeys.lockProfile(vaultId);
+      expect(await fixture.store.verifyAny('4321'), isNotNull);
+      expect(
+        await (await fixture.profileKeys.keyForVault(vaultId))!.extractBytes(),
+        originalKey,
+      );
+      expect(
+        await fixture.profileKeys.verifyProfilePassword(
+          vaultId: vaultId,
+          password: '4321',
+        ),
+        isFalse,
+      );
+      expect(
+        await fixture.store.updateProfilePassword(
+          id: profile.id,
+          password: 'rotated-recovery-passphrase',
+        ),
+        isNull,
+      );
+      fixture.profileKeys.lockProfile(vaultId);
+      expect(await fixture.store.verifyAny('4321'), isNull);
+      expect(
+        await fixture.store.verifyAny('rotated-recovery-passphrase'),
+        isNotNull,
+      );
+    });
+
+    test(
+      'PIN profiles require four digits and unlock with the saved PIN',
+      () async {
+        final fixture = _ProfileStoreFixture();
+        expect(
+          await fixture.store.addProfile(
+            name: 'Short PIN',
+            password: '123',
+            usePin: true,
+          ),
+          contains('4 digits'),
+        );
+        expect(
+          await fixture.store.addProfile(
+            name: 'Four digit PIN',
+            password: '1234',
+            usePin: true,
+            recoveryPassword: 'recovery-passphrase',
+          ),
+          isNull,
+        );
+
+        final profile = (await fixture.store.listProfiles()).single;
+        fixture.profileKeys.lockProfile(profile.vaultId);
+        final unlocked = await fixture.store.verifyAny('1234');
+        expect(unlocked?.vaultId, profile.vaultId);
+        expect(
+          await fixture.profileKeys.verifyProfilePassword(
+            vaultId: profile.vaultId,
+            password: '1234',
+          ),
+          isFalse,
+        );
+        expect(
+          await fixture.store.addProfile(
+            name: 'Second PIN',
+            password: '1234',
+            usePin: true,
+            recoveryPassword: 'second-passphrase',
+          ),
+          isNull,
+        );
+        fixture.profileKeys.lockAllPrivateProfiles();
+        final matches = await fixture.store.verifyAny('1234');
+        expect(
+          [matches!.vaultId, ...matches.additionalVaultIds],
+          unorderedEquals(
+            (await fixture.store.listProfiles()).map((item) => item.vaultId),
+          ),
+        );
+      },
+    );
+
     test('rejects weak and duplicate passwords', () async {
       final fixture = _ProfileStoreFixture();
       expect(
@@ -240,6 +360,7 @@ class _ProfileStoreFixture {
       secureStore: this.secureStore,
       encryptionService: encryption,
       normalMasterKeyService: masterKey,
+      devicePinStore: MemorySecureKeyValueStore(),
     );
     store = PrivateMemoProfileStore(
       secureStore: this.secureStore,

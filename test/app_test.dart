@@ -230,6 +230,44 @@ void main() {
     expect(note.title, 'Title line');
     expect(note.body, 'Body line');
     expect(note.blocks.single.text, 'Body line');
+    final notes = container.read(notesControllerProvider.notifier);
+    await Future.wait([
+      for (var index = 0; index < 2; index++)
+        notes.createSharedFileCapture(
+          rawText: 'Shared text',
+          files: const [],
+          shareId: 'same-queue-entry',
+        ),
+    ]);
+    expect(
+      container
+          .read(notesControllerProvider)
+          .where((note) => note.id == 'ios-share-same-queue-entry'),
+      hasLength(1),
+    );
+  });
+
+  test('iOS share bridge acknowledges only the supplied queue ID', () async {
+    const channel = MethodChannel('org.ruhenheim.himemo/widget');
+    const shareId = '78F45394-C682-45A0-B539-90EBA2988D1F';
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final calls = <MethodCall>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      return call.method == 'consumePendingQuickCapture'
+          ? {'source': 'share', 'shareId': shareId, 'nonce': shareId}
+          : null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final opened = <QuickCaptureRequest>[];
+    final bridge = WidgetQuickCaptureBridge(opened.add);
+    await bridge.openNextPending();
+    expect(opened.single.shareId, shareId);
+    expect(calls.single.method, 'consumePendingQuickCapture');
+    await bridge.acknowledgeSharedCapture(shareId);
+    expect(calls.last.method, 'acknowledgeSharedCapture');
+    expect(calls.last.arguments, shareId);
   });
 
   test(
@@ -1985,6 +2023,79 @@ void main() {
     },
   );
 
+  test('credential rotation uploads even without a note change', () async {
+    SharedPreferences.setMockInitialValues({});
+    final transport = _BeforeUploadGoogleDriveTransport();
+    final harness = await _createGoogleDriveSyncHarness(
+      transport,
+      tempPrefix: 'himemo-profile-credential-delta-',
+      randomSeed: 245,
+      devicePinStore: MemorySecureKeyValueStore(),
+    );
+    final container = harness.container;
+    final profiles = container.read(privateMemoProfileStoreProvider);
+    expect(
+      await profiles.addProfile(name: 'Private', password: 'old-passphrase'),
+      isNull,
+    );
+    final profile = (await profiles.listProfiles()).single;
+    expect(
+      await profiles.updateProfilePassword(
+        id: profile.id,
+        password: 'new-passphrase',
+      ),
+      isNull,
+    );
+    final keys = container.read(profileDataKeyServiceProvider);
+    expect(
+      await keys.setDevicePin(
+        vaultId: profile.vaultId,
+        recoveryPassword: 'new-passphrase',
+        pin: '1234',
+      ),
+      isTrue,
+    );
+    expect(
+      await container.read(syncEngineProvider).loadPendingChanges(),
+      isEmpty,
+    );
+    final sync = container.read(syncTransferControllerProvider.notifier);
+    await sync.syncNow(allowCachedRemoteStatus: false);
+    final result = container.read(syncTransferControllerProvider);
+    expect(result.stage, SyncTransferStage.success, reason: result.message);
+    final remote = (await transport.downloadLatestBundle())!;
+    final decoded = await container
+        .read(secureSyncBundleStoreProvider)
+        .readRemoteBundlePayloadJson(remote.encodedPayload);
+    final metadata = (decoded['privateProfiles'] as List).single as Map;
+    final credential = (metadata['dataKeys'] as List).single as Map;
+    expect(credential['credentialRevision'], 1);
+    expect(credential.containsKey('credentialPending'), isFalse);
+    final receiverStore = MemorySecureKeyValueStore();
+    final receiverEncryption = EncryptionService();
+    final receiver = ProfileDataKeyService(
+      secureStore: receiverStore,
+      encryptionService: receiverEncryption,
+      normalMasterKeyService: MasterKeyService(
+        secureStore: receiverStore,
+        keyFactory: receiverEncryption.generateKeyBytes,
+      ),
+    );
+    expect(await receiver.importWrappedProfileKeys([credential]), 1);
+    expect(
+      await receiver.unlockProfile(vaultId: profile.vaultId, password: '1234'),
+      isFalse,
+    );
+    expect(
+      await receiver.unlockProfile(
+        vaultId: profile.vaultId,
+        password: 'new-passphrase',
+      ),
+      isTrue,
+    );
+    expect(await profiles.pendingCredentialRevisions([profile]), isEmpty);
+  });
+
   test(
     'profile rename alone uploads and preserves a newer queued rename',
     () async {
@@ -3520,7 +3631,18 @@ void main() {
               createdAt: DateTime.utc(2026, 11, 9),
             ),
           );
+      final progressValues = <double>[];
+      final progressSubscription = container.listen(
+        syncTransferControllerProvider,
+        (_, next) {
+          if (next.progressValue case final value?) progressValues.add(value);
+        },
+      );
+      addTearDown(progressSubscription.close);
       await sync.syncNow(allowCachedRemoteStatus: false);
+      progressSubscription.close();
+      expect(progressValues, isNotEmpty);
+      expect(progressValues, orderedEquals([...progressValues]..sort()));
       final afterUpload = container.read(syncTransferControllerProvider);
       expect(
         afterUpload.stage,
@@ -6226,6 +6348,37 @@ void main() {
       findsOneWidget,
     );
 
+    await tester.tap(find.text('PIN').first);
+    await tester.pumpAndSettle();
+    final secretInput = find.byKey(
+      SettingsScreen.privateProfilePasswordInputKey,
+    );
+    final pinField = find.descendant(
+      of: secretInput,
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(pinField, '1a2');
+    expect(tester.widget<TextField>(pinField).controller!.text, '12');
+    await tester.tap(find.byKey(SettingsScreen.privateProfileSubmitKey));
+    await tester.pumpAndSettle();
+    expect(find.text('Use at least 4 digits (0–9).'), findsNWidgets(2));
+    await tester.enterText(pinField, '1234');
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Low strength:'), findsOneWidget);
+
+    await tester.tap(find.text('Password').first);
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextFormField>(secretInput).controller!.text, isEmpty);
+    await tester.enterText(secretInput, 'letters123');
+    expect(
+      tester.widget<TextFormField>(secretInput).controller!.text,
+      'letters123',
+    );
+    expect(
+      tester.widget<TextFormField>(secretInput).validator!('letters123'),
+      isNull,
+    );
+
     await tester.tap(find.text('Cancel').last);
     await tester.pumpAndSettle();
 
@@ -7600,6 +7753,7 @@ Future<_GoogleDriveSyncHarness> _createGoogleDriveSyncHarness(
   GoogleDriveSyncTransport transport, {
   required String tempPrefix,
   int randomSeed = 66,
+  SecureKeyValueStore? devicePinStore,
 }) async {
   final tempDirectory = await Directory.systemTemp.createTemp(tempPrefix);
   final secureStore = MemorySecureKeyValueStore();
@@ -7620,6 +7774,15 @@ Future<_GoogleDriveSyncHarness> _createGoogleDriveSyncHarness(
       secureKeyValueStoreProvider.overrideWithValue(secureStore),
       encryptionServiceProvider.overrideWithValue(encryptionService),
       masterKeyServiceProvider.overrideWithValue(masterKeyService),
+      if (devicePinStore != null)
+        profileDataKeyServiceProvider.overrideWithValue(
+          ProfileDataKeyService(
+            secureStore: secureStore,
+            encryptionService: encryptionService,
+            normalMasterKeyService: masterKeyService,
+            devicePinStore: devicePinStore,
+          ),
+        ),
       encryptedNoteStoreProvider.overrideWith(
         (ref) => EncryptedNoteStore(
           encryptionService: encryptionService,

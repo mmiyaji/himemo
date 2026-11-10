@@ -9,6 +9,9 @@ enum AttachmentType { photo, video, audio, file }
 
 enum NoteSyncState { localOnly, pendingUpload, synced, pendingDelete, conflict }
 
+// Reserved wire value. Ordinary content hashes are hexadecimal SHA-256.
+const permanentNoteDeletionHash = 'permanent-note-deletion-v1';
+
 enum NoteEditorMode { quick, rich }
 
 enum NoteBlockType { paragraph, photo, video, audio, file }
@@ -87,4 +90,7 @@ abstract class NoteEntry with _$NoteEntry {
 
 extension NoteEntryTagAccess on NoteEntry {
   List<String> get normalizedTags => dedupeNoteTags(tags);
+
+  bool get isPermanentlyDeleted =>
+      deletedAt != null && contentHash == permanentNoteDeletionHash;
 }

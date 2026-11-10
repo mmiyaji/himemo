@@ -17,6 +17,7 @@ class SyncQueueSummary {
     required this.deletes,
     this.lastQueuedAt,
     this.profileNameChanges = 0,
+    this.profileCredentialChanges = 0,
   });
 
   final int totalChanges;
@@ -24,6 +25,7 @@ class SyncQueueSummary {
   final int deletes;
   final DateTime? lastQueuedAt;
   final int profileNameChanges;
+  final int profileCredentialChanges;
 
   bool get hasPendingChanges => totalChanges > 0;
 }

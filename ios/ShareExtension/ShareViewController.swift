@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 final class ShareViewController: UIViewController {
   private let appGroupIdentifier = "group.org.ruhenheim.himemo"
-  private let pendingFileName = "pending_quick_capture.json"
+  private let shareId = UUID().uuidString
   private let appURL = URL(string: "himemo://widget-capture")!
   private let maxImageBytes = 25 * 1024 * 1024
   private let maxAudioBytes = 50 * 1024 * 1024
@@ -35,6 +35,12 @@ final class ShareViewController: UIViewController {
     let inputItems = extensionContext?.inputItems as? [NSExtensionItem] ?? []
     for item in inputItems {
       for provider in item.attachments ?? [] {
+        if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier),
+           let url = await loadSharedURL(from: provider),
+           !url.isFileURL {
+          textItems.append(url.absoluteString)
+          continue
+        }
         if provider.hasItemConformingToTypeIdentifier(UTType.text.identifier),
            let text = await loadText(from: provider),
            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -71,6 +77,14 @@ final class ShareViewController: UIViewController {
       "files": files,
       "rejectedFiles": rejectedFiles
     ]
+  }
+
+  private func loadSharedURL(from provider: NSItemProvider) async -> URL? {
+    await withCheckedContinuation { continuation in
+      provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
+        continuation.resume(returning: item as? URL)
+      }
+    }
   }
 
   private func loadText(from provider: NSItemProvider) async -> String? {
@@ -113,9 +127,12 @@ final class ShareViewController: UIViewController {
             try FileManager.default.removeItem(at: destination)
           }
           try FileManager.default.copyItem(at: url, to: destination)
+          try FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.complete], ofItemAtPath: destination.path
+          )
           let mimeType = self.mimeTypeForSharedURL(url, fallback: type.mimeType)
           continuation.resume(returning: ([
-            "path": destination.path,
+            "relativePath": destination.lastPathComponent,
             "name": name,
             "mimeType": mimeType,
           ], nil))
@@ -132,7 +149,7 @@ final class ShareViewController: UIViewController {
     ) else {
       throw ShareExtensionError.missingAppGroup
     }
-    let directory = container.appendingPathComponent("shared_imports", isDirectory: true)
+    let directory = shareDirectory(in: container)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let safeName = fileName
       .replacingOccurrences(of: "/", with: "_")
@@ -147,7 +164,17 @@ final class ShareViewController: UIViewController {
       throw ShareExtensionError.missingAppGroup
     }
     let data = try JSONSerialization.data(withJSONObject: payload)
-    try data.write(to: container.appendingPathComponent(pendingFileName), options: .atomic)
+    let directory = shareDirectory(in: container)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try data.write(
+      to: directory.appendingPathComponent("manifest.json"),
+      options: [.atomic, .completeFileProtection]
+    )
+  }
+
+  private func shareDirectory(in container: URL) -> URL {
+    container.appendingPathComponent("pending_shares", isDirectory: true)
+      .appendingPathComponent(shareId, isDirectory: true)
   }
 
   private func supportedType(for provider: NSItemProvider) -> SharedType? {

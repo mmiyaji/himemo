@@ -115,8 +115,8 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    await _scrollIntoViewIfNeeded(tester, find.text('Backup and sync'));
-    await tester.tap(find.text('Backup and sync'));
+    await _scrollIntoViewIfNeeded(tester, find.text('Device sync'));
+    await tester.tap(find.text('Device sync'));
     await tester.pumpAndSettle();
 
     try {
@@ -297,8 +297,8 @@ void main() {
     container.read(appRouterProvider).go('/settings');
     await tester.pumpAndSettle();
 
-    await _scrollIntoViewIfNeeded(tester, find.text('Backup and sync'));
-    await tester.tap(find.text('Backup and sync'));
+    await _scrollIntoViewIfNeeded(tester, find.text('Device sync'));
+    await tester.tap(find.text('Device sync'));
     await tester.pumpAndSettle();
 
     await _scrollIntoViewIfNeeded(

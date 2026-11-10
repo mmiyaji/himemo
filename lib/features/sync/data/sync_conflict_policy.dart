@@ -22,7 +22,8 @@ SyncConflictAssessment assessSyncConflict({
       queue == null ||
       remoteStatus == null ||
       bundleState == null ||
-      queue.totalChanges <= queue.profileNameChanges ||
+      queue.totalChanges <=
+          queue.profileNameChanges + queue.profileCredentialChanges ||
       remoteStatus.modifiedAt == null) {
     return const SyncConflictAssessment.clear();
   }
