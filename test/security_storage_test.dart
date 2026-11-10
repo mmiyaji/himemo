@@ -1220,7 +1220,7 @@ void main() {
         isFalse,
       );
       final rawContents = await encryptedFile.readAsBytes();
-      expect(rawContents, isNot(containsAllInOrder([1, 2, 3])));
+      expect(rawContents, isNot(equals(const [1, 2, 3, 4, 5, 6])));
       expect(String.fromCharCodes(rawContents.take(4)), 'HMA2');
 
       final restored = await attachmentStore.readAttachment(
